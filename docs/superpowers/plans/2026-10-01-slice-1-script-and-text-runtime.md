@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node 22, pnpm 9 workspaces, TypeScript 5 (strict, ESM), Zod 3 (schemas) with `zod-to-json-schema`, `yaml` 2, Vitest 2, `ws` 8, `@anthropic-ai/sdk`, `tsx` for running TypeScript directly, Docker Compose for the one-command start.
 
-**Spec:** `docs/ARCHITECTURE.md` (sections 2, 3, 4, 7, 13) and the product specification (*AI Coaching RPG — Product Specification*, sections 3, 5.3, 5.4, 6). The plan argues from those; executors read both. PlanVisualizer tracking for this slice is `docs/RELEASE_PLAN.md` EPIC-0001 (US-0001 to US-0011); each task below names its story.
+**Spec:** `docs/ARCHITECTURE.md` (sections 2, 3, 4, 7, 13) and the product specification (*AI Coaching RPG — Product Specification*, sections 3, 5.3, 5.4, 6). The plan argues from those; executors read both. PlanVisualizer tracking for this slice is `docs/RELEASE_PLAN.md` EPIC-0001 (US-0001 to US-0012); each task below names its story.
 
 ## Global Constraints
 

@@ -26,34 +26,6 @@ const { renderChrome, SHELL_CHROME_CSS } = require('./lib/render-shell');
 const { renderAboutModal } = require('./lib/render-html');
 const { HANDLERS: sdlcHandlers } = require('./update-sdlc-status');
 const { atomicReadModifyWriteJson: atomicRMW } = require('../orchestrator/atomic-write');
-const TaskReview = require('./lib/dashboard-task-review');
-const reader = require('./lib/repository/sdlc-status-reader');
-
-// US-0186: Helpers embedded into the generated dashboard so the same review-gate
-// rendering code runs in the browser. fn.toString() emits the source verbatim;
-// the inline <script> block evaluates these as ordinary function declarations.
-const REVIEW_HELPERS_SOURCE = [
-  TaskReview._chip.toString(),
-  TaskReview._iconCls.toString(),
-  TaskReview.deriveDisplayState.toString(),
-  TaskReview.renderReviewIconS.toString(),
-  TaskReview.renderReviewChipsM.toString(),
-  TaskReview.renderReviewLineL.toString(),
-].join('\n\n');
-
-// US-0259 (EPIC-0045 Phase E): same dual-read accessor injected as a browser
-// global so inline dashboard JS reads `pvReader.X(status)` instead of
-// `status.X` / `status.X || {}` etc. Single source of truth for both the
-// Node-side render path and the browser-side ticker/snapshot rebuilds.
-// Built from fn.toString() so the source stays byte-identical to the module.
-// See docs/superpowers/specs/2026-05-22-us-0259-accessor-api-design.md §4.
-const READER_SOURCE =
-  Object.keys(reader)
-    .map((name) => reader[name].toString())
-    .join('\n\n') +
-  '\n\nwindow.pvReader = { ' +
-  Object.keys(reader).join(', ') +
-  ' };\n';
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -70,7 +42,6 @@ function findGitRoot(start) {
 }
 const GIT_ROOT = findGitRoot(ROOT);
 const STATUS_PATH = path.join(GIT_ROOT, 'docs', 'sdlc-status.json');
-const DEPLOY_STATUS_PATH = path.join(GIT_ROOT, 'docs', 'deploy-status.json');
 const PLAN_STATUS_PATH = path.join(ROOT, 'docs', 'plan-status.json');
 const OUTPUT_PATH = path.join(ROOT, 'docs', 'dashboard.html');
 
@@ -314,66 +285,7 @@ function renderAgentWorkload(agents, stories) {
   return `<div class="pv-workload-section">${rows}</div>`;
 }
 
-function renderDeployPanel(deploy) {
-  const allIdle =
-    deploy && Object.values(deploy.environments || {}).every((e) => e.status === 'idle') && !deploy.activeDeployment;
-
-  if (!deploy || allIdle) {
-    return `<div class="deploy-panel" id="deploy-panel">
-      <div class="section-header">DEPLOY</div>
-      <p style="color:var(--mc-dim);font-size:12px;margin-top:8px;font-style:italic;">No deployments yet</p>
-    </div>`;
-  }
-
-  function dotFor(status) {
-    const pulse = status === 'deploying' ? 'style="animation:live-dot-pulse 2.4s ease-in-out infinite"' : '';
-    const cls = { healthy: 'ok', deploying: 'ok', degraded: 'warn', down: 'err', 'rolled-back': 'err' }[status] || '';
-    return `<span class="live-dot ${cls}" ${pulse}></span>`;
-  }
-
-  const envRows = ['dev', 'staging', 'production']
-    .map((name) => {
-      const e = (deploy.environments || {})[name] || { status: 'idle', sha: null, lastDeployStory: null };
-      const sha = e.sha
-        ? `<code style="font-size:10px;opacity:.8">${esc(e.sha.slice(0, 7))}</code>`
-        : '<span style="opacity:.4">—</span>';
-      const story = e.lastDeployStory
-        ? `<span style="color:var(--mc-dim);font-size:10px;margin-left:4px">${esc(e.lastDeployStory)}</span>`
-        : '';
-      return `<div class="deploy-env-row">${dotFor(e.status)}<span class="deploy-env-name">${esc(name)}</span>${sha}${story}</div>`;
-    })
-    .join('');
-
-  let activeRow = '';
-  if (deploy.activeDeployment) {
-    const ad = deploy.activeDeployment;
-    const from = ad.from ? `${esc(ad.from)} → ` : '';
-    const elapsed = ad.startedAt ? formatElapsed(new Date(ad.startedAt)) : '';
-    activeRow = `<div class="deploy-section-label" style="margin-top:8px">ACTIVE DEPLOYMENT</div>
-      <div class="deploy-active-row" style="font-size:11px;font-family:var(--font-mono)">${from}${esc(ad.to)} · ${esc(ad.story || '—')} · ${esc(elapsed)}</div>`;
-  }
-
-  const lastCi = deploy.ciRuns && deploy.ciRuns.length ? deploy.ciRuns[deploy.ciRuns.length - 1] : null;
-  const ciText = lastCi ? `<span style="font-size:11px">${esc(lastCi.workflow)} · ${esc(lastCi.status)}</span>` : '';
-
-  const openCount = (deploy.incidents || []).filter((i) => !i.resolvedAt).length;
-  const incBadge =
-    openCount > 0
-      ? `<span style="color:var(--risk);font-weight:600" class="deploy-incident-count">${openCount} open</span>`
-      : `<span style="color:var(--mc-ok)" class="deploy-incident-count">0 open</span>`;
-
-  return `<div class="deploy-panel" id="deploy-panel">
-    <div class="section-header">DEPLOY</div>
-    <div class="deploy-envs" style="margin-top:6px">${envRows}</div>
-    ${activeRow}
-    <div class="deploy-footer" style="margin-top:8px;font-size:11px;display:flex;gap:12px;flex-wrap:wrap">
-      <span class="deploy-section-label">LAST CI</span>${ciText}
-      <span class="deploy-section-label">INCIDENTS</span>${incBadge}
-    </div>
-  </div>`;
-}
-
-function generateHTML(status, deployStatus) {
+function generateHTML(status) {
   const now = new Date().toLocaleString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -388,10 +300,10 @@ function generateHTML(status, deployStatus) {
   const COMMIT_SHA = getCommitSha();
   const BUILD_NUMBER = getBuildNumber();
   const GIT_BRANCH = getCurrentBranch();
-  const agents = reader.agents(status);
-  const phases = reader.phases(status);
-  const metrics = { ...reader.metrics(status) };
-  const stories = reader.stories(status);
+  const agents = status.agents;
+  const phases = status.phases;
+  const metrics = { ...status.metrics };
+  const stories = status.stories;
   const log = status.log || [];
 
   // BUG-0164 / BUG-0166 — enrich with authoritative project data from plan-status.json.
@@ -485,7 +397,7 @@ function generateHTML(status, deployStatus) {
   // empty. The cycle "elapsed HH:MM:SS" timer is kicked off client-side
   // (see updateCycleElapsed() below) from a data-started-at attribute on
   // #cycle-elapsed; the server renders 00:00:00 as a placeholder.
-  const cycleStories = reader.stories(status);
+  const cycleStories = (status && status.stories) || {};
   const cycleStoryEntries = Object.entries(cycleStories).map(([id, s]) => ({ id, ...s }));
   const cycleCompletedCount = cycleStoryEntries.filter((s) => /^(Complete|Done)$/i.test(s.status)).length;
   const cycleNumber = cycleCompletedCount + 1;
@@ -559,7 +471,7 @@ function generateHTML(status, deployStatus) {
 
   // Pre-computed to avoid nested template literal inside the main HTML string
   const lbCiChip = (() => {
-    const gs = reader.githubStatus(status);
+    const gs = status.githubStatus;
     if (!gs || gs.ciSummary.total === 0) return '';
     const { failing, pending } = gs.ciSummary;
     const color = failing > 0 ? 'var(--risk)' : pending > 0 ? 'var(--warn)' : 'var(--ok)';
@@ -1970,16 +1882,6 @@ function generateHTML(status, deployStatus) {
     box-shadow: 0 0 28px oklch(72% 0.19 38 / 10%);
     margin-bottom: 10px;
   }
-  /* BUG-0266: the active hero card's text palette (light-orange name, orange
-     role/task, translucent-black story overlay) is designed for a DARK surface.
-     In light theme, .agent-card.is-active (specificity 0,2,0) outranks
-     .mc-active-card (0,1,0) and leaks var(--surface) as the background, turning
-     the story box light-grey and dropping the task text to ~1.1:1 contrast
-     (unreadable). Pin the hero card dark in light theme too — scoped to light so
-     dark theme is untouched. */
-  [data-theme='light'] .mc-active-card.agent-card.is-active {
-    background: oklch(10% 0.03 38);
-  }
   .mc-active-portrait-banner {
     width: 100%;
     height: 200px;
@@ -2247,103 +2149,10 @@ function generateHTML(status, deployStatus) {
   /* Collapsed sections inside existing HTML we keep inline */
   .mc-legacy-section { margin-bottom: 14px; }
   /* ===== END MISSION CONTROL REDESIGN ===== */
-
-  /* US-0186: Review-gate visualization */
-  .pv-rev-chip {
-    padding: 1px 5px;
-    border-radius: 3px;
-    font-size: 9px;
-    font-weight: 700;
-    white-space: nowrap;
-  }
-  .pv-rev-chip.ok     { background: color-mix(in oklab, var(--ok)          18%, transparent); color: var(--ok); }
-  .pv-rev-chip.warn   { background: color-mix(in oklab, var(--warn)        18%, transparent); color: var(--warn); }
-  .pv-rev-chip.risk   { background: color-mix(in oklab, var(--risk)        18%, transparent); color: var(--risk); }
-  .pv-rev-chip.review { background: color-mix(in oklab, var(--live-accent) 18%, transparent); color: var(--live-accent); }
-
-  .pv-rev-line {
-    padding-left: 80px;
-    font-size: 9.5px;
-    margin-top: 1px;
-  }
-  .pv-rev-line .ok     { color: var(--ok); }
-  .pv-rev-line .warn   { color: var(--warn); }
-  .pv-rev-line .risk   { color: var(--risk); }
-  .pv-rev-line .review { color: var(--live-accent); }
-  .pv-rev-line span + span::before { content: ' · '; color: var(--text-mute); }
-
-  .pv-rev-icon {
-    font-weight: 700;
-    margin-left: auto;
-  }
-  .pv-rev-icon.ok     { color: var(--ok); }
-  .pv-rev-icon.warn   { color: var(--warn); }
-  .pv-rev-icon.risk   { color: var(--risk); }
-  .pv-rev-icon.review { color: var(--live-accent); }
-
-  .pv-density-toggle {
-    display: flex;
-    gap: 2px;
-    background: var(--bg-card-inner);
-    border-radius: 4px;
-    padding: 2px;
-  }
-  .pv-density-toggle button {
-    padding: 2px 8px;
-    border: 0;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 10px;
-    font-weight: 700;
-    cursor: pointer;
-    border-radius: 3px;
-  }
-  .pv-density-toggle button.active {
-    background: var(--live-accent);
-    color: var(--text);
-  }
-
-  /* US-0186: Animations */
-  @keyframes pv-rev-spin {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-  }
-  @keyframes pv-rev-appear {
-    from { opacity: 0; transform: translateY(-1px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .pv-rev-icon.review {
-    display: inline-block;
-    animation: pv-rev-spin 1.4s linear infinite, pv-rev-appear 200ms ease-out;
-  }
-  .pv-rev-chip.review {
-    animation: pv-rev-appear 200ms ease-out;
-  }
-  .pv-rev-chip,
-  .pv-rev-line,
-  .pv-rev-icon {
-    animation: pv-rev-appear 200ms ease-out;
-  }
-  .pv-density-toggle button {
-    transition: background-color 150ms ease, color 150ms ease;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .pv-rev-icon.review,
-    .pv-rev-chip.review,
-    .pv-rev-chip,
-    .pv-rev-line,
-    .pv-rev-icon {
-      animation: none;
-    }
-    .pv-density-toggle button {
-      transition: none;
-    }
-  }
 </style>
 </head>
 <body>
-${renderChrome({ projectName: (planData && planData.projectName) || reader.project(status).name || 'PlanVisualizer', generatedAt: new Date().toISOString() }, 'live')}
+${renderChrome({ projectName: (planData && planData.projectName) || (status && status.project && status.project.name) || 'PlanVisualizer', generatedAt: new Date().toISOString() }, 'live')}
 
 <!-- US-0122 AC-0417: incident ticker (hidden by default, .active shown beneath header when any agent/phase is blocked). -->
 <div id="incident-ticker" class="incident-ticker" aria-live="polite" aria-atomic="true"></div>
@@ -2373,11 +2182,6 @@ ${(() => {
     <span class="mc-topbar-clock" id="mc-topbar-clock">00:00:00</span>
   </div>
   <div class="mc-topbar-right">
-    <div class="pv-density-toggle" role="radiogroup" aria-label="Task review density">
-      <button data-density="S" onclick="setTaskDensity('S')" title="Compact — single outcome icon per task">S</button>
-      <button data-density="M" onclick="setTaskDensity('M')" title="Medium — phase chips per task">M</button>
-      <button data-density="L" onclick="setTaskDensity('L')" title="Large — phase status on a second line">L</button>
-    </div>
     <span class="mc-live-badge" title="Live — refreshing every 5s"><span class="mc-live-dot" aria-hidden="true"></span>LIVE</span>
   </div>
 </div>`;
@@ -2525,10 +2329,12 @@ ${(() => {
   const agentList = Object.entries(agents);
   const imgBase = 'agents/images';
 
-  const lastDispatch = [...log].reverse().find((e) =>
-    String(e.message || '')
-      .toLowerCase()
-      .startsWith('started '),
+  const lastDispatch = [...log].reverse().find(
+    (e) =>
+      e.tag === 'dispatch' ||
+      String(e.message || '')
+        .toLowerCase()
+        .startsWith('dispatch'),
   );
 
   // Split: active non-Conductor agents | idle/other non-Conductor agents
@@ -2694,7 +2500,7 @@ ${phases.map((p, i) => `    <div class="spark-bar ${p.status}" data-phase-id="${
 <div class="mc-legacy-section" style="display:none;">
   <div class="story-list">
 ${(() => {
-  const epics = reader.epics(status);
+  const epics = status.epics || {};
   const groups = {};
   Object.entries(stories).forEach(([id, story]) => {
     const epicId = story.epic || 'OTHER';
@@ -2759,7 +2565,7 @@ ${storyRows}
 <!-- US-0147: Agent Workload -->
 <div class="mc-legacy-section" style="display:none;" id="mc-workload-section">
   <div class="card-head"><h3>Agent Workload</h3></div>
-  ${renderAgentWorkload(reader.agents(status), reader.stories(status))}
+  ${renderAgentWorkload(status.agents, status.stories)}
 </div>
 
 <!-- US-0145: Event Log — primary column widget -->
@@ -2828,7 +2634,7 @@ ${
       const blockedCount = blockedAgents.length;
       const reviewCount = reviewAgents.length;
       const bugsCount = metrics.bugsOpen || 0;
-      const gs = reader.githubStatus(status);
+      const gs = status && status.githubStatus;
       const prsNeedingReview = gs ? (gs.prs || []).filter((p) => p.reviewCount === 0).length : 0;
       return (
         `<div class="mc-attn-chips">
@@ -2864,7 +2670,7 @@ ${
   <div class="mc-sidebar-panel">
     <div class="mc-sidebar-title">GITHUB</div>
     ${(() => {
-      const gs = reader.githubStatus(status);
+      const gs = status && status.githubStatus;
       if (!gs)
         return `<div style="font-size:11px;color:var(--mc-muted);font-style:italic;">Starting up — no data yet</div>`;
       const prRows = (gs.prs || [])
@@ -3023,11 +2829,6 @@ ${phases.map((p, i) => `        <div class="spark-bar ${p.status}" style="height
     <span id="card-reviews" hidden></span>
   </div>
 
-  <!-- Deploy panel (US-0267) -->
-  <div class="mc-sidebar-panel">
-    ${renderDeployPanel(deployStatus || null)}
-  </div>
-
 </div><!-- /mc-sidebar -->
 </div><!-- /mc-layout -->
 
@@ -3059,24 +2860,6 @@ ${renderAboutModal({
 </div>
 
 <script>
-// US-0186: Review-gate cap literal and helper sources, injected from server-side config
-// so the same render code path runs both in tests (Node) and in the live dashboard.
-window.pvTaskReviewCap = ${
-    AGENT_CONFIG &&
-    AGENT_CONFIG.orchestration &&
-    AGENT_CONFIG.orchestration.iterationCap &&
-    typeof AGENT_CONFIG.orchestration.iterationCap.taskReview === 'number'
-      ? AGENT_CONFIG.orchestration.iterationCap.taskReview
-      : 2
-  };
-
-${REVIEW_HELPERS_SOURCE}
-
-// US-0259: sdlc-status dual-read accessor injected as window.pvReader.
-// Same module that tools/generate-dashboard.js (Node side) uses, so the inline
-// browser ticker/refresh handlers below read through one canonical API.
-${READER_SOURCE}
-
 // pvSetTheme / openAbout — aliases expected by renderChrome() (shared chrome from render-shell.js)
 // BUG-0250: write to canonical 'pv-theme' key (shared with plan-status dashboard) so
 // theme preference syncs across both dashboards. Mirror to legacy 'dashboard-theme'
@@ -3286,7 +3069,7 @@ function _applyLogFilter(filter) {
 // Detects state changes across page refreshes using localStorage, then plays
 // a Web Audio tone and fires a browser Notification when attention is needed.
 var DASH_SNAPSHOT = ${JSON.stringify({
-    currentPhase: reader.currentPhase(status),
+    currentPhase: status.currentPhase,
     bugsOpen: metrics.bugsOpen,
     agentStatuses: Object.fromEntries(Object.entries(agents).map(([k, v]) => [k, v.status])),
     phaseStatuses: phases.map((p) => ({ id: p.id, status: p.status })),
@@ -3407,14 +3190,14 @@ function requestAlerts() {
 // We derive it here from the raw sdlc-status.json on each tick so the function
 // is self-contained and callers can pass the untransformed fetch result.
 function buildSnapshotFromStatus(status) {
-  var phases = pvReader.phases(status);
-  var agents = pvReader.agents(status);
-  var metrics = pvReader.metrics(status);
+  var phases = (status && status.phases) || [];
+  var agents = (status && status.agents) || {};
+  var metrics = (status && status.metrics) || {};
   var complete = phases.filter(function(p) { return p.status === 'complete'; }).length;
   var agentStatuses = {};
   Object.keys(agents).forEach(function(k) { agentStatuses[k] = (agents[k] || {}).status; });
   return {
-    currentPhase: pvReader.currentPhase(status),
+    currentPhase: status && status.currentPhase,
     bugsOpen: typeof metrics.bugsOpen === 'number' ? metrics.bugsOpen : null,
     agentStatuses: agentStatuses,
     phaseStatuses: phases.map(function(p) { return { id: p.id, status: p.status }; }),
@@ -3433,16 +3216,13 @@ function buildSnapshotFromStatus(status) {
 // currentStory → currentTask → 'unknown' per AC-0417.
 function _findFirstBlocked(status) {
   if (!status) return { blocked: false, agent: null, story: null };
-  // US-0259: accessor returns {}/[] defaults, so we look up the populated state
-  // explicitly. The agentStatuses / phaseStatuses fallbacks aren't part of the
-  // 9 legacy keys (no accessor); they stay as direct reads.
-  var agents = pvReader.agents(status);
+  var agents = status.agents || null;
   var agentStatuses = status.agentStatuses || null;
-  var phases = pvReader.phases(status);
+  var phases = status.phases || null;
   var phaseStatuses = status.phaseStatuses || null;
 
-  var names = Object.keys(agents);
-  if (names.length > 0) {
+  if (agents && typeof agents === 'object') {
+    var names = Object.keys(agents);
     for (var i = 0; i < names.length; i++) {
       var a = agents[names[i]] || {};
       if (a.status === 'blocked') {
@@ -3576,61 +3356,6 @@ function runAlertCheck(status) {
   alerts.forEach(function(a) { sendNotification(a.title, a.body); });
 }
 
-function runDeployAlertCheck(deployStatus) {
-  if (!deployStatus || !deployStatus.environments) return;
-  var criticals = [];
-  var warnings = [];
-  Object.keys(deployStatus.environments).forEach(function (envName) {
-    var state = deployStatus.environments[envName];
-    if (state.status === 'down') {
-      _applyBlockedUI({ agent: 'Deploy', task: envName + ' is DOWN — check deploy-status.json' });
-      criticals.push({
-        title: 'CRITICAL: ' + envName + ' environment is down',
-        body: 'Deploy reports ' + envName + ' is unreachable. Check deploy-status.json for incident details.',
-      });
-    } else if (state.status === 'degraded') {
-      warnings.push({
-        title: 'WARNING: ' + envName + ' environment degraded',
-        body: envName + ' is responding but degraded. Monitor deploy-status.json.',
-      });
-    }
-  });
-  if (criticals.length > 0) {
-    playBeep(440, 0.25, 'square');
-    setTimeout(function () {
-      playBeep(880, 0.25, 'square');
-    }, 280);
-    setTimeout(function () {
-      playBeep(440, 0.25, 'square');
-    }, 560);
-    criticals.forEach(function (a) {
-      sendNotification(a.title, a.body);
-    });
-  } else if (warnings.length > 0) {
-    playBeep(880, 0.3);
-    setTimeout(function () {
-      playBeep(1046, 0.4);
-    }, 350);
-    warnings.forEach(function (a) {
-      sendNotification(a.title, a.body);
-    });
-  }
-}
-
-function patchDeployPanel(deployStatus) {
-  var panel = document.getElementById('deploy-panel');
-  if (!panel || !deployStatus) return;
-  // Update open incident count without a full re-render
-  var badge = panel.querySelector('.deploy-incident-count');
-  if (badge) {
-    var openCount = (deployStatus.incidents || []).filter(function (i) {
-      return !i.resolvedAt;
-    }).length;
-    badge.textContent = openCount + ' open';
-    badge.style.color = openCount > 0 ? 'var(--mc-risk)' : 'var(--mc-ok)';
-  }
-}
-
 // Page-load initialization: restore button state and fire initial delta check
 // against DASH_SNAPSHOT so behavior matches the previous IIFE exactly.
 (function() {
@@ -3713,7 +3438,7 @@ function patchDOM(status) {
   }
 
   // --- Project identity (US-0128) ------------------------------------------
-  var proj = pvReader.project(status);
+  var proj = status.project;
   if (proj) {
     var titleEl = document.querySelector('.header-title');
     if (titleEl && proj.name) titleEl.textContent = proj.name;
@@ -3735,7 +3460,7 @@ function patchDOM(status) {
   }
 
   // --- Epic progress strip (US-0130) ----------------------------------------
-  var epics = pvReader.epics(status);
+  var epics = status.epics || {};
   var epicKeys = Object.keys(epics);
   var epicStripEl = document.getElementById('epic-strip');
   var epicRowsEl = document.getElementById('epic-strip-rows');
@@ -3762,7 +3487,7 @@ function patchDOM(status) {
   }
 
   // --- Cycle history (US-0133) -----------------------------------------------
-  var cycles = pvReader.cycles(status);
+  var cycles = Array.isArray(status.cycles) ? status.cycles : [];
   var cycleSection = document.getElementById('cycle-history-section');
   var lapStrip = document.getElementById('cycle-lap-strip');
   var telemetryRow = document.getElementById('cycle-telemetry');
@@ -3851,10 +3576,9 @@ function patchDOM(status) {
   // Toggle status class, swap status icon, flip blocked beacon, reveal
   // completed-phase checkmark + elapsed footer, and resize the active
   // phase's partial-progress fill — all without remounting the block.
-  var phases = pvReader.phases(status);
-  var _metricsLocal = pvReader.metrics(status);
-  var _storiesTotal = _metricsLocal.storiesTotal || 0;
-  var _storiesDone = _metricsLocal.storiesCompleted || 0;
+  var phases = Array.isArray(status.phases) ? status.phases : [];
+  var _storiesTotal = (status.metrics && status.metrics.storiesTotal) || 0;
+  var _storiesDone = (status.metrics && status.metrics.storiesCompleted) || 0;
   var _fillRatio = _storiesTotal > 0 ? Math.max(0.04, Math.min(1, _storiesDone / _storiesTotal)) : 0.5;
   var _fillPct = Math.round(_fillRatio * 100);
   phases.forEach(function(p) {
@@ -3909,7 +3633,7 @@ function patchDOM(status) {
   });
 
   // --- Agents ----------------------------------------------------------------
-  var agents = pvReader.agents(status);
+  var agents = status.agents || {};
   Object.keys(agents).forEach(function(name) {
     var a = agents[name] || {};
     var card = document.getElementById('agent-' + name);
@@ -3970,7 +3694,7 @@ function patchDOM(status) {
   }
 
   // --- Metrics ---------------------------------------------------------------
-  var m = pvReader.metrics(status);
+  var m = status.metrics || {};
   function setText(id, value) {
     var el = document.getElementById(id);
     if (el && el.textContent !== String(value)) el.textContent = String(value);
@@ -4132,7 +3856,7 @@ function patchTaskList(status) {
   });
 
   // For each active agent card, find their current story and render tasks
-  var agents = pvReader.agents(status);
+  var agents = (status && status.agents) || {};
   Object.keys(agents).forEach(function (name) {
     var agent = agents[name];
     if (!agent || agent.status !== 'active' || !agent.currentStory) return;
@@ -4153,83 +3877,43 @@ function patchTaskList(status) {
       card.appendChild(container);
     }
 
-    var html = tasks
-      .slice(-5)
-      .map(function (t) {
-        var color =
-          t.state === 'done'
-            ? 'var(--ok)'
-            : t.state === 'blocked' || t.state === 'escalated'
-              ? 'var(--risk)'
-              : t.state === 'done_with_concerns'
-                ? 'var(--warn)'
-                : 'var(--text-mute)';
-        var label = t.state.replace(/_/g, ' ').toUpperCase();
-        var desc = t.description
-          ? t.description.slice(0, 55) + (t.description.length > 55 ? '…' : '')
-          : '';
-
-        // US-0186: derive review-gate display and pick renderer based on density.
-        var density = window.pvTaskDensity || 'L';
-        var ds = deriveDisplayState(t.taskReview);
-        var reviewHtml = '';
-        if (ds && !ds.skipped) {
-          if (density === 'S') reviewHtml = renderReviewIconS(ds);
-          else if (density === 'M') reviewHtml = renderReviewChipsM(ds);
-          else reviewHtml = renderReviewLineL(ds);
-        }
-
-        var rowHead =
-          '<div style="display:flex;gap:6px;align-items:baseline;margin-bottom:2px">' +
-          '<span style="color:' + color + ';font-weight:700;min-width:80px">' + label + '</span>' +
-          '<span style="color:var(--text-dim);flex:1">' + desc + '</span>' +
-          (density === 'S' || density === 'M' ? reviewHtml : '') +
-          '</div>';
-
-        var rowTail = density === 'L' ? reviewHtml : '';
-        return rowHead + rowTail;
-      })
-      .join('');
+    var html = tasks.slice(-5).map(function (t) {
+      var color =
+        t.state === 'done'
+          ? 'var(--ok)'
+          : t.state === 'blocked' || t.state === 'escalated'
+            ? 'var(--risk)'
+            : t.state === 'done_with_concerns'
+              ? 'var(--warn)'
+              : 'var(--text-mute)';
+      var label = t.state.replace(/_/g, ' ').toUpperCase();
+      var desc = t.description
+        ? t.description.slice(0, 55) + (t.description.length > 55 ? '…' : '')
+        : '';
+      return (
+        '<div style="display:flex;gap:6px;align-items:baseline;margin-bottom:2px">' +
+        '<span style="color:' +
+        color +
+        ';font-weight:700;min-width:80px">' +
+        label +
+        '</span>' +
+        '<span style="color:var(--text-dim)">' +
+        desc +
+        '</span>' +
+        '</div>'
+      );
+    }).join('');
 
     container.innerHTML = html;
   });
 }
 
-// US-0186: Task review density toggle. Persists choice in localStorage so the
-// dashboard remembers user preference across reloads. setTaskDensity also
-// re-renders the task list using the cached _pvLastStatus so the change is
-// immediate without waiting for the next 5s refresh tick.
-function setTaskDensity(d) {
-  if (d !== 'S' && d !== 'M' && d !== 'L') return;
-  window.pvTaskDensity = d;
-  try {
-    localStorage.setItem('pv-task-density', d);
-  } catch (e) {
-    /* private mode — ignore */
-  }
-  document.querySelectorAll('.pv-density-toggle button').forEach(function (b) {
-    b.classList.toggle('active', b.dataset.density === d);
-  });
-  if (window._pvLastStatus) patchTaskList(window._pvLastStatus);
-}
-
-function initTaskDensity() {
-  var saved;
-  try {
-    saved = localStorage.getItem('pv-task-density');
-  } catch (e) {}
-  var d = saved === 'S' || saved === 'M' || saved === 'L' ? saved : 'L';
-  setTaskDensity(d);
-}
-
-document.addEventListener('DOMContentLoaded', initTaskDensity);
-
-// Rebuild the Pending Approvals panel content from the latest pvReader.stories(status).
+// Rebuild the Pending Approvals panel content from the latest sdlc-status.stories.
 // Called inside patchDOM() on every 5s refreshState() tick — no page reload.
 function patchPendingApprovals(status) {
   var body = document.getElementById('mc-pending-approvals-body');
   if (!body) return;
-  var stories = pvReader.stories(status);
+  var stories = (status && status.stories) || {};
   var pending = [];
   Object.keys(stories).forEach(function(id) {
     var st = stories[id];
@@ -4289,22 +3973,9 @@ async function refreshState() {
     var res = await fetch('./sdlc-status.json', { cache: 'no-store' });
     if (!res || !res.ok) throw new Error('HTTP ' + (res ? res.status : 'no response'));
     var newStatus = await res.json();
-    // US-0186: cache last status so setTaskDensity() can re-render without refetch.
-    window._pvLastStatus = newStatus;
     patchDOM(newStatus);
     patchCycleCounter(newStatus);
     runAlertCheck(newStatus);
-    // Fetch deploy-status.json for live Deploy panel updates and alerts
-    try {
-      var dRes = await fetch('./deploy-status.json', { cache: 'no-store' });
-      if (dRes && dRes.ok) {
-        var deployStatus = await dRes.json();
-        patchDeployPanel(deployStatus);
-        runDeployAlertCheck(deployStatus);
-      }
-    } catch (_e) {
-      // deploy-status.json may not exist — silent skip, static panel remains
-    }
     _lastFetchedAt = Date.now();
     _lastFetchOk = true;
     updateLastUpdatedTicker(false);
@@ -4380,7 +4051,7 @@ function updateCycleElapsed() {
 }
 function patchCycleCounter(status) {
   if (!status || typeof status !== 'object') return;
-  var storiesMap = pvReader.stories(status);
+  var storiesMap = status.stories || {};
   var entries = Object.keys(storiesMap).map(function(id) { return Object.assign({ id: id }, storiesMap[id] || {}); });
   var completedCount = entries.filter(function(s) { return /^(Complete|Done)$/i.test(s.status); }).length;
   var active = null;
@@ -4396,7 +4067,7 @@ function patchCycleCounter(status) {
     // Prefer active story startedAt, fall back to the in-progress phase's startedAt.
     var started = (active && active.startedAt) || '';
     if (!started) {
-      var phases = pvReader.phases(status);
+      var phases = Array.isArray(status.phases) ? status.phases : [];
       for (var j = 0; j < phases.length; j++) {
         if (phases[j].status === 'in-progress' && phases[j].startedAt) { started = phases[j].startedAt; break; }
       }
@@ -4464,16 +4135,7 @@ function generate() {
     console.error('Could not read', STATUS_PATH);
     process.exit(1);
   }
-  // Read deploy-status.json (optional — may not exist for new projects)
-  let deployStatus = null;
-  try {
-    if (fs.existsSync(DEPLOY_STATUS_PATH)) {
-      deployStatus = JSON.parse(fs.readFileSync(DEPLOY_STATUS_PATH, 'utf8'));
-    }
-  } catch (e) {
-    console.warn('[generate-dashboard] could not read deploy-status.json:', e.message);
-  }
-  const html = generateHTML(status, deployStatus);
+  const html = generateHTML(status);
   fs.writeFileSync(OUTPUT_PATH, html, 'utf8');
   console.log(`[${new Date().toLocaleTimeString()}] Dashboard generated: ${OUTPUT_PATH}`);
 }
