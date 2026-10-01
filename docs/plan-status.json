@@ -573,86 +573,86 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0.448869,
+      "costUsd": 0.474392,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 5.8353,
-      "inputTokens": 519419,
-      "outputTokens": 64947
+      "costUsd": 6.1671,
+      "inputTokens": 522440,
+      "outputTokens": 69480
     },
     "_bugs": {
       "_totals": {
@@ -775,11 +775,20 @@
       "summary": ""
     }
   ],
-  "lessons": [],
-  "generatedAt": "2026-10-01T21:28:42.694Z",
-  "commitSha": "410c535",
-  "buildNumber": "2",
-  "branch": "main",
+  "lessons": [
+    {
+      "id": "L-0001",
+      "title": "PlanVisualizer installs are additive; install only from the released main",
+      "rule": "Install PlanVisualizer only from a fresh clone of the released `main` branch, never from a local `develop` checkout. `install.sh` copies files but never deletes them, so installing over a different-version install leaves orphaned tools and tests that fail against the new version. When reinstalling, restore your own `AGENTS.md`, `plan-visualizer.config.json` and docs afterwards; the installer replaces a missing `AGENTS.md` with a 7-line stub and resets the config project name.\n_Learned when a develop-era install (repository layer needing `proper-lockfile` and `better-sqlite3`) was overwritten by `main` v2.4.0 and 47 test suites failed on 189 leftover files._",
+      "context": "",
+      "date": "2026-10-01",
+      "bugIds": []
+    }
+  ],
+  "generatedAt": "2026-10-01T21:38:39.454Z",
+  "commitSha": "9dff652",
+  "buildNumber": "3",
+  "branch": "feature/ci-pipeline",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -787,7 +796,7 @@
     },
     {
       "date": "2026-10-01",
-      "cumCost": 5.8353
+      "cumCost": 6.1671
     }
   ],
   "costHistory": {
@@ -797,14 +806,14 @@
         "costUsd": 1.5549
       }
     ],
-    "main": [
+    "feature/reinstall-plan-visualizer": [
       {
         "date": "2026-10-01",
-        "costUsd": 4.2804
+        "costUsd": 4.6122
       }
     ]
   },
-  "deltaSpend": 4.28,
+  "deltaSpend": 4.61,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
@@ -877,13 +886,13 @@
     }
   },
   "budget": {
-    "totalBudget": 11205.8353,
-    "totalSpent": 5.8353,
+    "totalBudget": 11206.1671,
+    "totalSpent": 6.1671,
     "totalProjected": 11200,
     "percentUsed": 0,
-    "burnRate": 0,
-    "daysRemaining": null,
-    "projectedExhaustion": null,
+    "burnRate": 0.33179999999999943,
+    "daysRemaining": 33755,
+    "projectedExhaustion": 33755,
     "thresholds": [
       50,
       75,
@@ -895,16 +904,16 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10405.386428,
-        "spent": 5.386428000000001,
+        "budget": 10405.692704,
+        "spent": 5.692704,
         "remaining": 10400,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.448869,
-        "spent": 0.448869,
+        "budget": 800.474392,
+        "spent": 0.474392,
         "remaining": 800,
         "percentUsed": 0
       },
