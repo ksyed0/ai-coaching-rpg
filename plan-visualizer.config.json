@@ -1,0 +1,57 @@
+{
+  "project": {
+    "name": "AI Coaching RPG",
+    "tagline": "Script-driven multiplayer role-play training with AI counterparts."
+  },
+  "docs": {
+    "releasePlan": "docs/RELEASE_PLAN.md",
+    "testCases": "docs/TEST_CASES.md",
+    "bugs": "docs/BUGS.md",
+    "costLog": "docs/AI_COST_LOG.md",
+    "lessons": "docs/LESSONS.md",
+    "outputDir": "docs"
+  },
+  "coverage": {
+    "summaryPath": "docs/coverage/coverage-summary.json"
+  },
+  "progress": {
+    "path": "progress.md"
+  },
+  "costs": {
+    "hourlyRate": 100,
+    "tshirtHours": {
+      "XS": 2,
+      "S": 4,
+      "M": 8,
+      "L": 16,
+      "XL": 32
+    }
+  },
+  "github": {
+    "enabled": false,
+    "repo": "ksyed0/ai-coaching-rpg",
+    "syncBugs": true,
+    "syncStories": false,
+    "labelMap": {
+      "Critical": "critical",
+      "High": "high",
+      "Medium": "medium",
+      "Low": "low"
+    },
+    "defaultLabels": [
+      "planvisualizer"
+    ]
+  },
+  "memory": {
+    "staleDays": 90,
+    "autoArchive": false
+  },
+  "orchestration": {
+    "iterationCap": {
+      "spec": 3,
+      "plan": 3,
+      "taskReview": 2
+    },
+    "pendingApprovalsDir": "docs/pending-approvals"
+  }
+}

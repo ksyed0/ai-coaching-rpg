@@ -1,0 +1,3507 @@
+'use strict';
+
+const {
+  esc,
+  jsEsc,
+  usd,
+  sparkline,
+  deltaArrow,
+  fmtNum,
+  normalizeStoryRef,
+  EPIC_ACCENT_COLORS,
+  badge,
+  BADGE_TONE,
+  timeAgo,
+} = require('./render-utils');
+const { LEVEL_COLORS: RISK_LEVEL_COLORS } = require('./compute-risk');
+
+function renderGhBadge(id, githubStatus) {
+  if (!githubStatus || !githubStatus.prs) return '';
+  const pr = githubStatus.prs.find((p) => p.storyId === id || p.bugId === id);
+  if (!pr) return '';
+  const ciClass = pr.ciStatus === 'success' ? 'ok' : pr.ciStatus === 'failure' ? 'risk' : 'warn';
+  const ciLabel = pr.ciStatus === 'success' ? '✓' : pr.ciStatus === 'failure' ? '✗' : '⟳';
+  return (
+    `<span class="chip ${ciClass}" style="font-size:9px;padding:1px 5px">${ciLabel}</span>` +
+    `<a href="${esc(pr.url)}" target="_blank" rel="noopener" style="font-size:10px;color:var(--plan-accent)">#${pr.number}&thinsp;→</a>`
+  );
+}
+
+function renderHierarchyTab(data) {
+  const sortedEpics =
+    data.risk && data.risk.byEpic
+      ? [...data.epics].sort((a, b) => {
+          if (a.id === '_ungrouped') return 1;
+          if (b.id === '_ungrouped') return -1;
+          const sa = data.risk.byEpic.has(a.id) ? data.risk.byEpic.get(a.id).avgScore : -1;
+          const sb = data.risk.byEpic.has(b.id) ? data.risk.byEpic.get(b.id).avgScore : -1;
+          return sb - sa;
+        })
+      : data.epics;
+  const epicBlocks = sortedEpics.map((epic, epicIdx) => {
+    const accent = EPIC_ACCENT_COLORS[epicIdx % EPIC_ACCENT_COLORS.length];
+    const stories = data.stories.filter((s) => s.epicId === epic.id);
+    const epicProjected = stories.reduce(
+      (s, st) => s + ((data.costs[st.id] && data.costs[st.id].projectedUsd) || 0),
+      0,
+    );
+    const totalCnt = stories.length;
+    const doneCnt = stories.filter((s) => /^done$/i.test(s.status)).length;
+    const epicRisk = data.risk && data.risk.byEpic ? data.risk.byEpic.get(epic.id) : null;
+    const epicRiskBadge =
+      epicRisk && epic.status !== 'Done' && epic.status !== 'Retired'
+        ? `<span class="risk-score-badge text-xs font-semibold" style="color:${RISK_LEVEL_COLORS[epicRisk.level]}">${esc(epicRisk.level)} ${epicRisk.avgScore.toFixed(1)}</span>`
+        : '';
+
+    // ── column view: expandable story rows ──────────────────────────────────
+    const storyRows = stories
+      .map((story) => {
+        const risk = data.atRisk[story.id] || {};
+        const riskBadge = risk.isAtRisk
+          ? `<span class="at-risk text-orange-500 text-xs ml-1" title="${[
+              risk.missingTCs && 'Missing TCs',
+              risk.noBranch && 'No branch',
+              risk.failedTCNoBug && 'Failed TC without bug',
+            ]
+              .filter(Boolean)
+              .join('; ')}">⚠ At Risk</span>`
+          : '';
+        const storyRisk = data.risk && data.risk.byStory ? data.risk.byStory.get(story.id) : null;
+        const riskScoreBadge =
+          storyRisk && story.status !== 'Done' && story.status !== 'Retired' && story.status !== 'Cancelled'
+            ? `<span class="risk-score-badge text-xs font-semibold ml-1" style="color:${RISK_LEVEL_COLORS[storyRisk.level]}">${storyRisk.level} ${storyRisk.score}</span>`
+            : '';
+        const tcs = data.testCases.filter((tc) => tc.relatedStory === story.id);
+        const acItems = story.acs
+          .map((ac) => {
+            const linkedTC = tcs.find((tc) => tc.relatedAC === ac.id);
+            return `<li class="flex items-start gap-2 py-0.5">
+          <span class="${ac.done ? 'text-green-500' : 'text-slate-500'}">${ac.done ? '✓' : '○'}</span>
+          <span class="text-xs text-slate-500">${esc(ac.id)}</span>
+          <span class="text-xs">${esc(ac.text)}</span>
+          ${linkedTC ? `<span class="ml-2 text-xs text-slate-500">→ ${linkedTC.id} ${badge(linkedTC.status)}</span>` : ''}
+        </li>`;
+          })
+          .join('');
+        return `
+      <div id="story-${esc(story.id)}" class="story-row border-t border-slate-100 dark:border-slate-700 px-3 py-2"
+           data-id="${esc(story.id)}" data-epic="${esc(story.epicId)}" data-status="${esc(story.status)}" data-priority="${esc(story.priority)}"
+           data-estimate="${esc(story.estimate || '')}" data-cost="${(data.costs[story.id] && data.costs[story.id].projectedUsd) || 0}"
+           data-risk-score="${storyRisk ? String(storyRisk.score) : '0'}" data-risk-level="${storyRisk ? esc(storyRisk.level) : 'Low'}">
+        <div class="flex flex-wrap items-center gap-2 cursor-pointer" onclick="toggleACs('${jsEsc(story.id)}')">
+          <span class="font-mono text-xs text-slate-500 whitespace-nowrap">${story.id}</span>
+          ${badge(story.status)} ${badge(story.priority)}
+          <span class="text-sm font-medium">${esc(story.title)}</span>
+          ${riskBadge}
+          ${riskScoreBadge}
+          ${renderGhBadge(story.id, data.githubStatus)}
+          <span class="ml-auto text-xs text-slate-500">${esc(story.estimate || '?')} · ${usd((data.costs[story.id] && data.costs[story.id].projectedUsd) || 0)}</span>
+        </div>
+        <ul id="acs-${story.id}" class="ac-guide mt-2 hidden">${acItems || '<li class="text-xs text-slate-500 pl-4">No ACs yet</li>'}</ul>
+      </div>`;
+      })
+      .join('');
+
+    // ── card view: story cards in a grid ────────────────────────────────────
+    const storyCards = stories
+      .map((story) => {
+        const risk = data.atRisk[story.id] || {};
+        const riskBadge = risk.isAtRisk ? `<span class="text-orange-500 text-xs">⚠ At Risk</span>` : '';
+        const storyRisk = data.risk && data.risk.byStory ? data.risk.byStory.get(story.id) : null;
+        const riskScoreBadge =
+          storyRisk && story.status !== 'Done' && story.status !== 'Retired' && story.status !== 'Cancelled'
+            ? `<span class="risk-score-badge text-xs font-semibold" style="color:${RISK_LEVEL_COLORS[storyRisk.level]}">${storyRisk.level} ${storyRisk.score}</span>`
+            : '';
+        const tcs = data.testCases.filter((tc) => tc.relatedStory === story.id);
+        const acDone = story.acs.filter((a) => a.done).length;
+        const acTotal = story.acs.length;
+        const cost = usd((data.costs[story.id] && data.costs[story.id].projectedUsd) || 0);
+        const acItems = story.acs
+          .map((ac) => {
+            const linkedTC = tcs.find((tc) => tc.relatedAC === ac.id);
+            return `<li class="flex items-start gap-2 py-0.5">
+          <span class="${ac.done ? 'text-green-500' : 'text-slate-400'}">${ac.done ? '✓' : '○'}</span>
+          <span class="text-xs text-slate-400">${esc(ac.id)}</span>
+          <span class="text-xs dark:text-slate-300">${esc(ac.text)}</span>
+          ${linkedTC ? `<span class="ml-auto shrink-0 text-xs text-slate-400">→ ${linkedTC.id} ${badge(linkedTC.status)}</span>` : ''}
+        </li>`;
+          })
+          .join('');
+        return `
+      <div class="story-row story-card-hover card-elev rounded-lg p-3 flex flex-col gap-1"
+           data-id="${esc(story.id)}" data-epic="${esc(story.epicId)}" data-status="${esc(story.status)}" data-priority="${esc(story.priority)}"
+           data-estimate="${esc(story.estimate || '')}" data-cost="${(data.costs[story.id] && data.costs[story.id].projectedUsd) || 0}"
+           data-risk-score="${storyRisk ? String(storyRisk.score) : '0'}" data-risk-level="${storyRisk ? esc(storyRisk.level) : 'Low'}">
+        <div class="flex flex-wrap items-center gap-1 cursor-pointer" onclick="toggleCardACs('${jsEsc(story.id)}')">
+          ${badge(story.status)} ${badge(story.priority)}
+          <span class="font-mono text-xs text-slate-500 ml-1">${story.id}</span>
+        </div>
+        <p class="flex items-center gap-1 text-sm font-medium dark:text-slate-100 leading-snug cursor-pointer" onclick="toggleCardACs('${jsEsc(story.id)}')"><span class="epic-accent-dot" style="background:${accent.border}"></span>${esc(story.title)}</p>
+        <div class="flex items-center gap-2 mt-auto pt-1 text-xs text-slate-500 border-t border-slate-100 dark:border-slate-600">
+          <span>${esc(story.estimate || '?')}</span>
+          <span>${cost}</span>
+          ${acTotal ? `<span class="cursor-pointer" onclick="toggleCardACs('${jsEsc(story.id)}')">${acDone}/${acTotal} ACs ▾</span>` : ''}
+          ${riskScoreBadge}
+          ${renderGhBadge(story.id, data.githubStatus)}
+          <span class="ml-auto">${riskBadge}</span>
+        </div>
+        ${acTotal ? `<ul id="card-acs-${story.id}" class="ac-guide hidden mt-1 pt-1 border-t border-slate-100 dark:border-slate-600 space-y-0.5">${acItems || '<li class="text-xs text-slate-500 pl-4">No ACs yet</li>'}</ul>` : ''}
+      </div>`;
+      })
+      .join('');
+
+    const epicHeader = `
+      <div class="flex flex-wrap items-center gap-3 mb-3">
+        <span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:${accent.border}">${epic.id}</span>
+        ${badge(epic.status)}
+        <span class="font-semibold dark:text-slate-100">${esc(epic.title)}</span>
+        ${epicRiskBadge}
+        <span class="text-xs text-slate-500">${esc(epic.releaseTarget)}</span>
+        <span class="ml-auto text-sm text-slate-500">${usd(epicProjected)} projected</span>
+      </div>`;
+
+    return {
+      epic,
+      accent,
+      epicProjected,
+      storyRows,
+      storyCards,
+      epicHeader,
+      doneCnt,
+      totalCnt,
+      epicRisk,
+      epicRiskBadge,
+    };
+  });
+
+  const columnView = epicBlocks
+    .map(
+      ({ epic, accent, epicProjected, storyRows, doneCnt, totalCnt, epicRisk: er, epicRiskBadge: erb }, epicIdx) => `
+    <div class="epic-block mb-2 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden anim-stagger"
+         data-epic-status="${esc(epic.status)}"
+         data-epic-risk-level="${er ? esc(er.level) : 'Low'}"
+         data-epic-avg-score="${er ? String(er.avgScore.toFixed(2)) : '0'}"
+         style="--i:${Math.min(epicIdx, 19)};border-left:4px solid ${accent.border}">
+      <div class="px-3 py-2 cursor-pointer select-none" style="background:${accent.bg}" onclick="toggleSection('epic-stories-${jsEsc(epic.id)}','epic-arrow-${jsEsc(epic.id)}')">
+        <div class="flex flex-wrap items-center gap-3">
+          <span id="epic-arrow-${esc(epic.id)}" class="text-slate-400 text-xs w-3 flex-shrink-0">▼</span>
+          <span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:${accent.border}">${esc(epic.id)}</span>
+          ${badge(epic.status)}
+          <span class="font-semibold dark:text-slate-100">${esc(epic.title)}</span>
+          ${erb}
+          <span class="text-xs text-slate-500">${esc(epic.releaseTarget)}</span>
+          <span class="ml-auto text-sm text-slate-500">${usd(epicProjected)} projected</span>
+        </div>
+        <div class="epic-progress-track"><div class="epic-progress-fill" style="width:${Math.round((doneCnt / (totalCnt || 1)) * 100)}%;background:${accent.border}"></div></div>
+      </div>
+      <div id="epic-stories-${epic.id}">${storyRows || '<p class="text-slate-500 dark:text-slate-400 text-sm px-4 py-2">No stories yet.</p>'}</div>
+    </div>`,
+    )
+    .join('');
+
+  const cardView = epicBlocks
+    .map(
+      ({ epic, accent, epicProjected, storyCards, doneCnt, totalCnt, epicRisk: er, epicRiskBadge: erb }, epicIdx) => `
+    <div class="mb-2 anim-stagger" data-epic-risk-level="${er ? esc(er.level) : 'Low'}" data-epic-avg-score="${er ? String(er.avgScore.toFixed(2)) : '0'}" style="--i:${Math.min(epicIdx, 19)}">
+      <div class="epic-block border border-slate-200 dark:border-slate-700 rounded-t-lg px-3 py-2 mb-0 cursor-pointer select-none" style="border-left:4px solid ${accent.border};background:${accent.bg}" onclick="toggleSection('epic-cards-${jsEsc(epic.id)}','epic-card-arrow-${jsEsc(epic.id)}')">
+        <div class="flex flex-wrap items-center gap-3">
+          <span id="epic-card-arrow-${esc(epic.id)}" class="text-slate-400 text-xs w-3 flex-shrink-0">▶</span>
+          <span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:${accent.border}">${esc(epic.id)}</span>
+          ${badge(epic.status)}
+          <span class="font-semibold dark:text-slate-100">${esc(epic.title)}</span>
+          ${erb}
+          <span class="text-xs text-slate-500">${esc(epic.releaseTarget)}</span>
+          <span class="ml-auto text-sm text-slate-500">${usd(epicProjected)} projected</span>
+        </div>
+        <div class="epic-progress-track"><div class="epic-progress-fill" style="width:${Math.round((doneCnt / (totalCnt || 1)) * 100)}%;background:${accent.border}"></div></div>
+      </div>
+      <div id="epic-cards-${epic.id}" class="border border-t-0 border-slate-200 dark:border-slate-700 rounded-b-lg p-3 hidden">
+        ${
+          storyCards
+            ? `<div class="story-card-grid">${storyCards}</div>`
+            : '<p class="text-slate-500 dark:text-slate-400 text-sm">No stories yet.</p>'
+        }
+      </div>
+    </div>`,
+    )
+    .join('');
+
+  return `
+  <div id="tab-hierarchy" class="p-6 hidden" role="tabpanel" aria-labelledby="tab-btn-hierarchy">
+    <div class="flex items-center justify-end mb-4 flex-shrink-0 flex-wrap gap-2">
+      <div class="flex gap-1">
+        <button id="hier-col-btn" onclick="setHierarchyView('column')" class="view-toggle-btn">≡ Column</button>
+        <button id="hier-card-btn" onclick="setHierarchyView('card')" class="view-toggle-btn">⊞ Card</button>
+      </div>
+    </div>
+    <div id="hier-column-view">${columnView}</div>
+    <div id="hier-card-view" class="hidden">${cardView}</div>
+    <script>
+    (function(){
+      var _storyOriginalOrder = new Map(); // epic-block id → original story row array
+
+      var STATUS_RANK = { 'Done': 0, 'In Progress': 1, 'Planned': 2, 'To Do': 3, 'Blocked': 4 };
+      var PRIO_RANK = { 'P0': 0, 'P1': 1, 'P2': 2, 'P3': 3 };
+      var ESTIMATE_RANK = { 'XS': 0, 'S': 1, 'M': 2, 'L': 3, 'XL': 4 };
+
+      function sortHierarchyBy(key) {
+        document.querySelectorAll('#hier-column-view .epic-block').forEach(function(block) {
+          var container = block.querySelector('[id^="epic-stories-"]');
+          if (!container) return;
+          var rows = Array.from(container.querySelectorAll('.story-row'));
+          if (rows.length < 2) return;
+
+          // Cache original order on first sort
+          if (!_storyOriginalOrder.has(container.id)) {
+            _storyOriginalOrder.set(container.id, rows.slice());
+          }
+
+          if (key === 'default') {
+            var orig = _storyOriginalOrder.get(container.id);
+            if (orig) orig.forEach(function(r) { container.appendChild(r); });
+            return;
+          }
+
+          rows.sort(function(a, b) {
+            switch (key) {
+              case 'id':
+                return (a.getAttribute('data-id') || '').localeCompare(b.getAttribute('data-id') || '');
+              case 'status':
+                return (STATUS_RANK[a.getAttribute('data-status')] || 99)
+                     - (STATUS_RANK[b.getAttribute('data-status')] || 99);
+              case 'priority':
+                return (PRIO_RANK[a.getAttribute('data-priority')] || 99)
+                     - (PRIO_RANK[b.getAttribute('data-priority')] || 99);
+              case 'estimate':
+                return (ESTIMATE_RANK[a.getAttribute('data-estimate')] || 99)
+                     - (ESTIMATE_RANK[b.getAttribute('data-estimate')] || 99);
+              case 'risk':
+                return parseFloat(b.getAttribute('data-risk-score') || '0')
+                     - parseFloat(a.getAttribute('data-risk-score') || '0');
+              case 'cost':
+                return parseFloat(b.getAttribute('data-cost') || '0')
+                     - parseFloat(a.getAttribute('data-cost') || '0');
+              default: return 0;
+            }
+          });
+          rows.forEach(function(r) { container.appendChild(r); });
+        });
+      }
+      function applyHierRiskFilter(value) {
+        document.querySelectorAll('#hier-column-view .epic-block, #hier-card-view > div').forEach(function(block) {
+          var level = block.getAttribute('data-epic-risk-level') || 'Low';
+          var show = value === 'all'
+            || (value === 'high' && (level === 'High' || level === 'Critical'))
+            || (value === 'critical' && level === 'Critical');
+          block.style.display = show ? '' : 'none';
+        });
+      }
+      window.sortHierarchyBy = sortHierarchyBy;
+      window.applyHierRiskFilter = applyHierRiskFilter;
+    })();
+    </script>
+  </div>`;
+}
+
+function renderKanbanTab(data) {
+  const cols = ['To Do', 'Planned', 'In Progress', 'Blocked', 'Done'];
+  const epicOrder = [...new Set(data.stories.map((s) => s.epicId).filter(Boolean))];
+  const hasUngrouped = data.stories.some((s) => !s.epicId);
+  const renderCard = (s, cardIdx) => {
+    const tcs = data.testCases.filter((tc) => tc.relatedStory === s.id);
+    const acDone = s.acs.filter((a) => a.done).length;
+    const acTotal = s.acs.length;
+    const acItems = s.acs
+      .map((ac) => {
+        const linkedTC = tcs.find((tc) => tc.relatedAC === ac.id);
+        return `<li class="flex items-start gap-2 py-0.5">
+          <span class="${ac.done ? 'text-green-500' : 'text-slate-400'}">${ac.done ? '✓' : '○'}</span>
+          <span class="text-xs text-slate-400">${esc(ac.id)}</span>
+          <span class="text-xs dark:text-slate-300">${esc(ac.text)}</span>
+          ${linkedTC ? `<span class="ml-auto shrink-0 text-xs text-slate-400">→ ${linkedTC.id} ${badge(linkedTC.status)}</span>` : ''}
+        </li>`;
+      })
+      .join('');
+    // AC-0330: left border stripe by priority (P0=danger, P1=warn, else transparent)
+    const priorityStripe =
+      s.priority === 'P0' ? 'var(--badge-danger-text)' : s.priority === 'P1' ? 'var(--badge-warn-text)' : 'transparent';
+    return `
+    <div class="story-row story-card-hover card-elev border border-slate-200 dark:border-slate-600 rounded p-3 mb-2 cursor-pointer anim-stagger"
+         style="--i:${Math.min(cardIdx || 0, 19)};border-left:3px solid ${priorityStripe}"
+         data-epic="${esc(s.epicId)}" data-status="${esc(s.status)}" data-priority="${esc(s.priority)}"
+         onclick="toggleKanbanACs('${jsEsc(s.id)}')">
+      <div class="flex gap-1 mb-1">${badge(s.priority)} <span class="text-xs text-slate-500 font-mono">${esc(s.id)}</span></div>
+      <p class="text-sm dark:text-slate-100">${esc(s.title)}</p>
+      <div class="flex items-center gap-2 mt-1 text-xs text-slate-500">
+        <span class="font-mono">${esc(s.estimate || '?')}</span>
+        ${acTotal ? `<span>${acDone}/${acTotal} ACs ▾</span>` : ''}
+      </div>
+      ${acTotal ? `<ul id="kanban-acs-${esc(s.id)}" class="hidden mt-2 pt-2 border-t border-slate-100 dark:border-slate-600 space-y-0.5">${acItems}</ul>` : ''}
+    </div>`;
+  };
+
+  // Column header row
+  const headerRow = `<div class="ksw-header-row">
+    <div class="ksw-label-cell"></div>
+    ${cols
+      .map((col) => {
+        const count = data.stories.filter((s) => s.status === col).length;
+        return `<div class="ksw-status-cell">
+        <span class="text-xs font-semibold uppercase tracking-widest">${col}</span>
+        <span class="wip-pill${count > 3 ? ' wip-over' : ''} ml-1">${count}</span>
+      </div>`;
+      })
+      .join('')}
+  </div>`;
+
+  // Epic swimlane rows
+  const swimlaneRows = epicOrder
+    .map((epicId, i) => {
+      const epicObj = (data.epics || []).find((e) => e.id === epicId);
+      const epicObjIdx = (data.epics || []).indexOf(epicObj);
+      const accent = EPIC_ACCENT_COLORS[(epicObjIdx >= 0 ? epicObjIdx : i) % EPIC_ACCENT_COLORS.length];
+      const epicCount = data.stories.filter((s) => s.epicId === epicId).length;
+      const sid = `ksw-${epicId.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      return `
+    <div class="ksw-swimlane" style="border-left:4px solid ${accent.border}">
+      <div class="ksw-swim-hdr" onclick="toggleKsw('${sid}')" style="background:${accent.bg};border-left-color:${accent.border}">
+        <span id="${sid}-arrow" class="ksw-arrow">▶</span>
+        <span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:${accent.border}">${esc(epicId)}</span>
+        ${epicObj ? badge(epicObj.status) : ''}
+        <span class="font-semibold text-sm dark:text-slate-100">${epicObj ? esc(epicObj.title) : ''}</span>
+        <span class="ksw-epic-count">${epicCount}</span>
+      </div>
+      <div id="${sid}-body" class="ksw-swim-body hidden">
+        <div class="ksw-label-cell"></div>
+        ${cols
+          .map((col) => {
+            const items = data.stories.filter((s) => s.epicId === epicId && s.status === col);
+            const inProgressClass = col === 'In Progress' ? ' ksw-inprogress' : '';
+            return `<div class="ksw-cards-cell${inProgressClass}">${items.map((s, idx) => renderCard(s, idx)).join('')}</div>`;
+          })
+          .join('')}
+      </div>
+    </div>`;
+    })
+    .join('');
+
+  // Ungrouped row
+  const ungroupedRow = hasUngrouped
+    ? (() => {
+        const sid = 'ksw-ungrouped';
+        const items = data.stories.filter((s) => !s.epicId);
+        return `
+    <div class="ksw-swimlane" style="border-left:4px solid var(--text-muted,var(--text-dim))">
+      <div class="ksw-swim-hdr" onclick="toggleKsw('${sid}')" style="border-left-color:var(--text-muted,var(--text-dim))">
+        <span id="${sid}-arrow" class="ksw-arrow">▶</span>
+        <span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:var(--text-muted)">No Epic</span>
+        <span class="ksw-epic-count">${items.length}</span>
+      </div>
+      <div id="${sid}-body" class="ksw-swim-body hidden">
+        <div class="ksw-label-cell"></div>
+        ${cols
+          .map((col) => {
+            const ci = items.filter((s) => s.status === col);
+            const inProgressClass = col === 'In Progress' ? ' ksw-inprogress' : '';
+            return `<div class="ksw-cards-cell${inProgressClass}">${ci.map((s, idx) => renderCard(s, idx)).join('')}</div>`;
+          })
+          .join('')}
+      </div>
+    </div>`;
+      })()
+    : '';
+
+  return `<div id="tab-kanban" class="hidden tab-fill" role="tabpanel" aria-labelledby="tab-btn-kanban">
+    <div class="ksw-outer">
+      <div class="ksw-board">${headerRow}${swimlaneRows}${ungroupedRow}</div>
+    </div>
+  </div>`;
+}
+
+function renderTraceabilityTab(data) {
+  if (!data.testCases.length) {
+    return `<div id="tab-traceability" class="p-6 hidden" role="tabpanel" aria-labelledby="tab-btn-traceability"><p class="text-slate-500">No test cases yet.</p></div>`;
+  }
+  const tcTone = { Pass: 'success', Fail: 'danger', 'Not Run': 'warn' };
+  const passed = data.testCases.filter((tc) => tc.status === 'Pass').length;
+  const failed = data.testCases.filter((tc) => tc.status === 'Fail').length;
+  const notRun = data.testCases.filter((tc) => tc.status === 'Not Run').length;
+  const headers = data.testCases
+    .map(
+      (tc) =>
+        `<th class="text-xs font-mono p-2 border border-slate-200 dark:border-slate-600" data-col="${tc.id}">${tc.id}</th>`,
+    )
+    .join('');
+  const rows = data.epics
+    .map((epic) => {
+      const epicStories = data.stories.filter((s) => s.epicId === epic.id);
+      if (!epicStories.length) return '';
+      const epicRowId = `trace-epic-${epic.id}`;
+      const accent = EPIC_ACCENT_COLORS[data.epics.indexOf(epic) % EPIC_ACCENT_COLORS.length];
+      const epicTCs = epicStories.flatMap((s) => data.testCases.filter((tc) => tc.relatedStory === s.id));
+      const hasFail = epicTCs.some((tc) => tc.status === 'Fail');
+      const hasNotRun = !hasFail && epicTCs.some((tc) => tc.status === 'Not Run');
+      const epicStatusBadge = hasFail
+        ? '<span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">Fail</span>'
+        : hasNotRun
+          ? '<span class="inline-block px-1.5 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Not Run</span>'
+          : '';
+      const epicHeader = `<tr class="cursor-pointer select-none" style="background:${accent.bg}"
+      onclick="toggleTraceEpic('${jsEsc(epic.id)}')" >
+      <td colspan="${data.testCases.length + 1}" class="px-3 py-2" style="border-left:4px solid ${accent.border}">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span id="${epicRowId}-arrow" class="text-slate-400 text-xs w-3 flex-shrink-0">▶</span>
+          <span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:${accent.border}">${epic.id}</span>
+          ${badge(epic.status)}
+          <span class="font-semibold text-sm dark:text-slate-100">${esc(epic.title)}</span>
+          ${epicStatusBadge}
+        </div>
+      </td>
+    </tr>`;
+      const storyRows = epicStories
+        .map((story, storyIdx) => {
+          const cells = data.testCases
+            .map((tc) => {
+              const linked = tc.relatedStory === story.id;
+              const tone = linked ? tcTone[tc.status] || 'warn' : null;
+              return linked
+                ? `<td class="tc-dot tc-dot-${tone}" data-col="${tc.id}"></td>`
+                : `<td class="p-2 border border-slate-200 dark:border-slate-600" data-col="${tc.id}"></td>`;
+            })
+            .join('');
+          return `<tr class="hidden anim-stagger" style="--i:${Math.min(storyIdx, 19)}" data-trace-epic="${esc(epic.id)}">
+        <td class="trace-sticky-col text-xs font-mono px-2 py-1 border border-slate-200 dark:border-slate-600 whitespace-nowrap pl-6 dark:text-slate-200">${story.id}</td>
+        ${cells}
+      </tr>`;
+        })
+        .join('');
+      return epicHeader + storyRows;
+    })
+    .join('');
+  const caption = `<caption class="trace-caption">
+    <span class="tc-dot tc-dot-success"></span> Pass: ${passed}
+    &middot; <span class="tc-dot tc-dot-danger"></span> Fail: ${failed}
+    &middot; <span class="tc-dot tc-dot-warn"></span> Not Run: ${notRun}
+    &middot; Total: ${data.testCases.length}
+  </caption>`;
+  return `
+  <div id="tab-traceability" class="p-6 hidden tab-fill" role="tabpanel" aria-labelledby="tab-btn-traceability">
+    <div class="scroll-table">
+      <table class="border-collapse text-sm">
+        ${caption}
+        <thead><tr><th class="trace-sticky-col p-2 border border-slate-200 dark:border-slate-600 text-xs">Story</th>${headers}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function renderTrendsTab(data, options = {}) {
+  const trends = options.trends || data.trends || null;
+  const hasData = trends && trends.dates && trends.dates.length >= 2;
+
+  const datesJson =
+    trends && trends.dates ? JSON.stringify(trends.dates.map((d) => d.replace('T', ' ').slice(0, 16))) : '[]';
+  const doneJson = trends && trends.doneCounts ? JSON.stringify(trends.doneCounts) : '[]';
+  const totalJson = trends && trends.totalStories ? JSON.stringify(trends.totalStories) : '[]';
+  const costJson = trends && trends.aiCosts ? JSON.stringify(trends.aiCosts.map((c) => c.toFixed(2))) : '[]';
+  const coverageJson =
+    trends && trends.coverage ? JSON.stringify(trends.coverage.map((c) => (c !== null ? c.toFixed(1) : null))) : '[]';
+  const velocityJson = trends && trends.velocity ? JSON.stringify(trends.velocity.map((v) => v.toFixed(1))) : '[]';
+  const bugsJson = trends && trends.openBugs ? JSON.stringify(trends.openBugs) : '[]';
+  const riskJson = trends && trends.atRisk ? JSON.stringify(trends.atRisk) : '[]';
+  const inputTokensJson = trends && trends.inputTokens ? JSON.stringify(trends.inputTokens) : '[]';
+  const outputTokensJson = trends && trends.outputTokens ? JSON.stringify(trends.outputTokens) : '[]';
+  const avgRiskJson = trends ? JSON.stringify((trends.avgRisk || []).map((v) => v.toFixed(2))) : '[]';
+  const vbw = (data.trends && data.trends.velocityByWeek) || null;
+  const hasVbw = vbw && Array.isArray(vbw.labels) && vbw.labels.length >= 2;
+  const velWeeklyLabels = hasVbw ? JSON.stringify(vbw.labels) : '[]';
+  const velWeeklyPoints = hasVbw ? JSON.stringify(vbw.points) : '[]';
+  const velWeeklyAvg = hasVbw ? JSON.stringify(vbw.rollingAvg) : '[]';
+
+  const placeholder = `
+    <div class="col-span-full flex flex-col items-center justify-center py-16 text-center">
+      <svg class="w-16 h-16 text-slate-300 dark:text-slate-600 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+      </svg>
+      <p class="text-slate-500 dark:text-slate-400 text-lg font-medium">Generate the dashboard at least twice to see trends</p>
+      <p class="text-slate-400 dark:text-slate-500 text-sm mt-1">Each generation creates a snapshot in .history/</p>
+    </div>`;
+
+  return `
+<div id="tab-trends" class="p-6 hidden" role="tabpanel" aria-labelledby="tab-btn-trends">
+  <div class="charts-grid">
+    ${
+      !hasData
+        ? placeholder
+        : `
+    <div class="col-span-full trends-filter-bar mb-2">
+      <button class="trends-range-btn active" data-range="all" onclick="setTrendsRange(this,'all')">All</button>
+      <button class="trends-range-btn" data-range="90" onclick="setTrendsRange(this,90)">90d</button>
+      <button class="trends-range-btn" data-range="30" onclick="setTrendsRange(this,30)">30d</button>
+      <button class="trends-range-btn" data-range="7" onclick="setTrendsRange(this,7)">7d</button>
+      <span class="trends-date-sep" style="color:var(--clr-text-muted);font-size:11px;margin:0 4px">|</span>
+      <label for="trends-date-from" style="font-size:11px;color:var(--clr-text-muted)">From</label>
+      <input type="date" id="trends-date-from" style="font-size:11px;padding:2px 4px;border:1px solid var(--clr-border);border-radius:4px;background:var(--clr-input-bg);color:var(--clr-input-text)" oninput="applyTrendsFilter({mode:'date',from:this.value,to:document.getElementById('trends-date-to').value})">
+      <label for="trends-date-to" style="font-size:11px;color:var(--clr-text-muted)">To</label>
+      <input type="date" id="trends-date-to" style="font-size:11px;padding:2px 4px;border:1px solid var(--clr-border);border-radius:4px;background:var(--clr-input-bg);color:var(--clr-input-text)" oninput="applyTrendsFilter({mode:'date',from:document.getElementById('trends-date-from').value,to:this.value})">
+    </div>
+
+    <div class="chart-supertitle">Progress</div>
+
+    <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:0">
+      <div class="chart-header-rule"><span class="display-title">Done Stories</span><span class="chart-subtitle">over time</span></div>
+      <div style="height:250px;position:relative"><canvas id="chart-trends-progress"></canvas></div>
+    </div>
+    <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:1">
+      <div class="chart-header-rule"><span class="display-title">Burn Up</span><span class="chart-subtitle">stories completed vs total scope</span></div>
+      <div style="height:250px;position:relative"><canvas id="chart-trends-velocity"></canvas></div>
+      ${(() => {
+        if (!trends || !trends.velocity || trends.velocity.length < 2) return '';
+        const rows = trends.dates
+          .map((d, i) => {
+            const prev = i === 0 ? 0 : trends.velocity[i - 1];
+            const delta = Number((trends.velocity[i] - prev).toFixed(1));
+            return { date: d, cumul: trends.velocity[i], delta };
+          })
+          .filter((r) => r.delta !== 0);
+        const tableRows = rows
+          .map(
+            (r) => `<tr>
+          <td style="font-family:var(--font-mono);font-size:11px;white-space:nowrap">${esc(r.date.replace('T', ' ').slice(0, 16))}</td>
+          <td style="text-align:right;font-weight:600">${r.cumul}</td>
+          <td style="text-align:right;color:${r.delta > 0 ? 'var(--ok)' : 'var(--risk)'}">${r.delta > 0 ? '+' : ''}${r.delta}</td>
+        </tr>`,
+          )
+          .join('');
+        return `<details style="margin-top:12px">
+          <summary style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;opacity:.6;cursor:pointer;user-select:none">Show data (${rows.length} sessions with progress)</summary>
+          <div style="overflow-x:auto;margin-top:8px">
+            <table style="width:100%;border-collapse:collapse;font-size:12px">
+              <thead><tr style="border-bottom:1px solid var(--clr-border)">
+                <th style="text-align:left;padding:4px 8px;opacity:.6">Snapshot</th>
+                <th style="text-align:right;padding:4px 8px;opacity:.6">Cumul. Pts</th>
+                <th style="text-align:right;padding:4px 8px;opacity:.6">Delta</th>
+              </tr></thead>
+              <tbody>${tableRows}</tbody>
+            </table>
+          </div>
+        </details>`;
+      })()}
+    </div>
+    <div class="card-elev rounded-lg p-4 col-span-full anim-stagger" style="--i:5">
+      <div class="chart-header-rule"><span class="display-title">Weekly Velocity</span><span class="chart-subtitle">t-shirt points completed per week</span></div>
+      ${
+        hasVbw
+          ? `<div style="height:250px;position:relative"><canvas id="chart-velocity-weekly"></canvas></div>`
+          : `<p style="color:var(--text-mute);font-size:13px;padding:16px 0;">Not enough snapshot data yet — run generate at least twice in different weeks.</p>`
+      }
+    </div>
+
+    <div class="chart-supertitle">Cost &amp; Spend</div>
+
+    <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:2">
+      <div class="chart-header-rule"><span class="display-title">AI Cost</span><span class="chart-subtitle">cumulative USD over time</span></div>
+      <div style="height:250px;position:relative"><canvas id="chart-trends-cost"></canvas></div>
+    </div>
+    <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:3">
+      <div class="chart-header-rule"><span class="display-title">Token Usage</span><span class="chart-subtitle">input &amp; output tokens</span></div>
+      <div style="height:250px;position:relative"><canvas id="chart-trends-tokens"></canvas></div>
+    </div>
+
+    <div class="chart-supertitle">Quality</div>
+
+    <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:4">
+      <div class="chart-header-rule"><span class="display-title">Coverage</span><span class="chart-subtitle">statement % over time</span></div>
+      <div style="height:250px;position:relative"><canvas id="chart-trends-coverage"></canvas></div>
+    </div>
+    <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:5">
+      <div class="chart-header-rule"><span class="display-title">Open Bugs</span><span class="chart-subtitle">over time</span></div>
+      <div style="height:250px;position:relative"><canvas id="chart-trends-bugs"></canvas></div>
+    </div>
+    <div class="card-elev rounded-lg p-4 col-span-full anim-stagger" style="--i:6">
+      <div class="chart-header-rule"><span class="display-title">At-Risk Stories</span><span class="chart-subtitle">over time</span></div>
+      <div style="height:250px;position:relative"><canvas id="chart-trends-risk"></canvas></div>
+    </div>
+    <div class="card-elev rounded-lg p-4 col-span-full anim-stagger" style="--i:7">
+      <div class="chart-header-rule"><span class="display-title">Avg Risk Score</span><span class="chart-subtitle">project-wide, over time</span></div>
+      <div style="height:250px;position:relative"><canvas id="chart-trends-avg-risk"></canvas></div>
+    </div>
+    `
+    }
+  </div>
+</div>
+<script>
+var pvChartColors = (function() {
+  var cs = getComputedStyle(document.documentElement);
+  function tok(v, fb) { var r = cs.getPropertyValue(v).trim(); return r || fb; }
+  return {
+    ok:     tok('--ok',          'oklch(68% 0.15 150)'),
+    warn:   tok('--warn',        'oklch(74% 0.16 78)'),
+    risk:   tok('--risk',        'oklch(64% 0.20 25)'),
+    info:   tok('--info',        'oklch(66% 0.14 240)'),
+    accent: tok('--plan-accent', 'oklch(62% 0.19 268)'),
+    mute:   tok('--text-mute',   'oklch(78% 0.012 95)'), // BUG-0249: light theme value
+  };
+})();
+var _trendsAllLabels = ${datesJson};
+var _trendsAllData = {
+  done: ${doneJson}, total: ${totalJson}, cost: ${costJson},
+  coverage: ${coverageJson}, velocity: ${velocityJson},
+  bugs: ${bugsJson}, risk: ${riskJson},
+  inputTokens: ${inputTokensJson}, outputTokens: ${outputTokensJson},
+  avgRisk: ${avgRiskJson}
+};
+var velWeeklyLabels = ${velWeeklyLabels};
+var velWeeklyPoints = ${velWeeklyPoints};
+var velWeeklyAvg = ${velWeeklyAvg};
+var _trendsChartRefs = {};
+function _cssToRgb(color) {
+  var c = document.createElement('canvas'); c.width = c.height = 1;
+  var x = c.getContext('2d'); x.fillStyle = color; x.fillRect(0,0,1,1);
+  var d = x.getImageData(0,0,1,1).data;
+  return { r: d[0], g: d[1], b: d[2] };
+}
+function _trendGrad(ctx, color) {
+  var rgb = _cssToRgb(color);
+  var r = rgb.r, g = rgb.g, b = rgb.b;
+  var grad = ctx.createLinearGradient(0,0,0,200);
+  // AC-0592: use rgba() comma syntax — canvas does not support CSS level-4 space-separated rgb()
+  grad.addColorStop(0, 'rgba('+r+','+g+','+b+',0.35)');
+  grad.addColorStop(1, 'rgba('+r+','+g+','+b+',0)');
+  return grad;
+}
+function _mkTrend(id, cfg) {
+  var el = document.getElementById(id); if (!el) return;
+  _trendsChartRefs[id] = new Chart(el, cfg);
+  _trendsChartRefs[id]._allData = cfg.data.datasets.map(function(ds){ return ds.data.slice(); });
+  cfg.data.datasets.forEach(function(ds, i) {
+    if (ds._gc) _trendsChartRefs[id].data.datasets[i].backgroundColor = _trendGrad(el.getContext('2d'), ds._gc);
+  });
+  _trendsChartRefs[id].update('none');
+}
+function initTrendsCharts() {
+  var tc = chartTextColor();
+  var gc = document.documentElement.getAttribute('data-theme') === 'dark' ? 'oklch(100% 0 0 / 0.07)' : 'oklch(88% 0.010 95)';
+  var labels = _trendsAllLabels; if (labels.length < 2) return;
+  var xA = { ticks:{ color:tc, maxTicksLimit:8, callback:function(v){ var d=new Date(this.getLabelForValue(v)); return isNaN(d)?v:(d.getMonth()+1)+'/'+d.getDate(); }}, grid:{color:gc} };
+  var yA = function(o){ return Object.assign({ticks:{color:tc},grid:{color:gc},beginAtZero:true},o||{}); };
+  var fontSans = getComputedStyle(document.documentElement).getPropertyValue('--font-sans').trim() || "'Inter Tight',sans-serif";
+  var leg = { labels:{color:tc, font:{family:fontSans,size:12}, pointStyle:'circle', usePointStyle:true }};
+  _mkTrend('chart-trends-progress', {type:'line', data:{labels:labels, datasets:[
+    {label:'Done', data:_trendsAllData.done, borderColor:pvChartColors.ok, _gc:pvChartColors.ok, fill:true, tension:0.3},
+    {label:'Total', data:_trendsAllData.total, borderColor:pvChartColors.mute, backgroundColor:'transparent', borderDash:[5,5], tension:0.3}
+  ]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:leg}, scales:{x:xA,y:yA()}}});
+  _mkTrend('chart-trends-velocity', {type:'line', data:{labels:labels, datasets:[
+    {label:'Completed', data:_trendsAllData.done, borderColor:pvChartColors.ok, _gc:pvChartColors.ok, fill:true, tension:0.3},
+    {label:'Total Scope', data:_trendsAllData.total, borderColor:pvChartColors.mute, backgroundColor:'transparent', borderDash:[5,5], tension:0.3}
+  ]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:leg}, scales:{x:xA,y:yA()}}});
+  _mkTrend('chart-trends-cost', {type:'line', data:{labels:labels, datasets:[
+    {label:'Total Cost ($)', data:_trendsAllData.cost, borderColor:pvChartColors.warn, _gc:pvChartColors.warn, fill:true, tension:0.3}
+  ]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:leg}, scales:{x:xA,y:yA()}}});
+  _mkTrend('chart-trends-tokens', {type:'line', data:{labels:labels, datasets:[
+    {label:'Input', data:_trendsAllData.inputTokens, borderColor:pvChartColors.info, _gc:pvChartColors.info, fill:true},
+    {label:'Output', data:_trendsAllData.outputTokens, borderColor:pvChartColors.accent, _gc:pvChartColors.accent, fill:true}
+  ]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:leg}, scales:{x:xA,y:yA({ticks:{color:tc,callback:function(v){return v>=1e6?(v/1e6).toFixed(0)+'M':v>=1e3?(v/1e3).toFixed(0)+'K':v;}}})}}});
+  _mkTrend('chart-trends-coverage', {type:'line', data:{labels:labels, datasets:[
+    {label:'Coverage %', data:_trendsAllData.coverage, borderColor:pvChartColors.accent, _gc:pvChartColors.accent, fill:true, tension:0.3}
+  ]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:leg}, scales:{x:xA,y:yA({min:0,max:100})}}});
+  _mkTrend('chart-trends-bugs', {type:'line', data:{labels:labels, datasets:[
+    {label:'Open Bugs', data:_trendsAllData.bugs, borderColor:pvChartColors.risk, _gc:pvChartColors.risk, fill:true, tension:0.3}
+  ]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:leg}, scales:{x:xA,y:yA()}}});
+  _mkTrend('chart-trends-risk', {type:'line', data:{labels:labels, datasets:[
+    {label:'At-Risk', data:_trendsAllData.risk, borderColor:pvChartColors.warn, _gc:pvChartColors.warn, fill:true, tension:0.3}
+  ]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:leg}, scales:{x:xA,y:yA({suggestedMax:5})}}});
+  _mkTrend('chart-trends-avg-risk', {type:'line', data:{labels:labels, datasets:[
+    {label:'Avg Risk Score', data:_trendsAllData.avgRisk, borderColor:pvChartColors.warn, _gc:pvChartColors.warn, fill:true, tension:0.3},
+    {label:'High threshold', data:_trendsAllData.avgRisk.map(function(){ return 2.0; }),
+     _isRefLine:true, // Chart.js 4.x preserves custom dataset properties — applyTrendsFilter uses this flag to regenerate the flat array after slicing
+     borderColor:pvChartColors.risk, borderDash:[6,3], borderWidth:1,
+     backgroundColor:'transparent', pointRadius:0, fill:false}
+  ]}, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:leg}, scales:{x:xA,y:yA({min:0,suggestedMax:4})}}});
+  ${
+    hasVbw
+      ? `if (velWeeklyLabels && velWeeklyLabels.length >= 2) {
+    _mkTrend('chart-velocity-weekly', {
+      type: 'bar',
+      data: {
+        labels: velWeeklyLabels,
+        datasets: [
+          {
+            type: 'bar',
+            label: 'Points completed',
+            data: velWeeklyPoints,
+            backgroundColor: pvChartColors.info,
+          },
+          {
+            type: 'line',
+            label: '4-wk rolling avg',
+            data: velWeeklyAvg,
+            borderColor: pvChartColors.warn,
+            borderWidth: 2,
+            pointRadius: 3,
+            tension: 0.3,
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: leg },
+        scales: {
+          x: xA,
+          y: yA({ min: 0, title: { display: true, text: 't-shirt points', color: tc } }),
+        },
+      },
+    });
+  }`
+      : ''
+  }
+  // Restore last-used filter: date range takes priority over count range
+  var savedFrom = localStorage.getItem('pv-trends-date-from');
+  var savedTo   = localStorage.getItem('pv-trends-date-to');
+  var savedRange = localStorage.getItem('pv-trends-range');
+  if (savedFrom || savedTo) {
+    var fi = document.getElementById('trends-date-from');
+    var ti = document.getElementById('trends-date-to');
+    if (fi) fi.value = savedFrom || '';
+    if (ti) ti.value = savedTo || '';
+    applyTrendsFilter({mode:'date', from:savedFrom || '', to:savedTo || ''});
+  } else if (savedRange && savedRange !== 'all') {
+    var btn = document.querySelector('.trends-range-btn[data-range="'+savedRange+'"]');
+    if (btn) setTrendsRange(btn, Number(savedRange));
+  }
+}
+function applyTrendsFilter(opts) {
+  var start = 0, end = _trendsAllLabels.length;
+  if (opts.mode === 'count') {
+    var n = opts.n === 'all' ? _trendsAllLabels.length : Math.min(Number(opts.n), _trendsAllLabels.length);
+    start = _trendsAllLabels.length - n;
+  } else if (opts.mode === 'date') {
+    var from = opts.from ? opts.from + 'T00:00:00Z' : null;
+    var to   = opts.to   ? opts.to   + 'T23:59:59Z' : null;
+    if (from) {
+      while (start < _trendsAllLabels.length && _trendsAllLabels[start] < from) start++;
+    }
+    if (to) {
+      end = _trendsAllLabels.length;
+      while (end > start && _trendsAllLabels[end - 1] > to) end--;
+    }
+    localStorage.setItem('pv-trends-date-from', opts.from || '');
+    localStorage.setItem('pv-trends-date-to',   opts.to   || '');
+    localStorage.removeItem('pv-trends-range');
+    document.querySelectorAll('.trends-range-btn').forEach(function(b){ b.classList.remove('active'); });
+    if (start >= end) return;
+  }
+  Object.keys(_trendsChartRefs).forEach(function(id) {
+    ${hasVbw ? "if (id === 'chart-velocity-weekly') return;" : ''}
+    var ch = _trendsChartRefs[id]; if (!ch._allData) return;
+    ch.data.labels = _trendsAllLabels.slice(start, end);
+    ch.data.datasets.forEach(function(ds, i){
+      if (ds._isRefLine) { ds.data = new Array(end - start).fill(2.0); return; }
+      ds.data = ch._allData[i].slice(start, end);
+    });
+    ch.update('none');
+  });
+}
+function setTrendsRange(btn, range) {
+  document.querySelectorAll('.trends-range-btn').forEach(function(b){ b.classList.remove('active'); });
+  btn.classList.add('active');
+  localStorage.setItem('pv-trends-range', range === 'all' ? 'all' : String(range));
+  localStorage.removeItem('pv-trends-date-from');
+  localStorage.removeItem('pv-trends-date-to');
+  var fi = document.getElementById('trends-date-from');
+  var ti = document.getElementById('trends-date-to');
+  if (fi) fi.value = '';
+  if (ti) ti.value = '';
+  applyTrendsFilter({mode:'count', n:range});
+}
+// AC-0594: update trend chart axis colours on theme switch
+// BUG-0249: tc/gc fallbacks match light theme's --text-mute / --border, since
+// light is the default theme. Self-corrects on next theme toggle either way.
+function updateTrendsChartTheme() {
+  var tc = getComputedStyle(document.documentElement).getPropertyValue('--text-mute').trim() || 'oklch(78% 0.012 95)';
+  var gc = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || 'oklch(88% 0.010 95)';
+  Object.values(_trendsChartRefs).forEach(function(chart) {
+    if (!chart) return;
+    if (chart.options && chart.options.scales) {
+      if (chart.options.scales.x) {
+        if (chart.options.scales.x.ticks) chart.options.scales.x.ticks.color = tc;
+        if (chart.options.scales.x.grid) chart.options.scales.x.grid.color = gc;
+      }
+      if (chart.options.scales.y) {
+        if (chart.options.scales.y.ticks) chart.options.scales.y.ticks.color = tc;
+        if (chart.options.scales.y.grid) chart.options.scales.y.grid.color = gc;
+      }
+    }
+    chart.update('none');
+  });
+}
+</script>`;
+}
+
+// US-0135: Status hero card — answers "is the release on track?" in one glance.
+// Read-only dependency on data.completion (EPIC-0010 artifact) — not modified.
+function _renderStatusHero(data) {
+  const activeStories = data.stories.filter((s) => s.status !== 'Retired');
+  const done = activeStories.filter((s) => s.status === 'Done').length;
+  const total = activeStories.length;
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  const openBugs = (data.bugs || []).filter((b) => !/^(Fixed|Retired|Cancelled|Rejected)/i.test(b.status));
+  const criticalBugs = openBugs.filter((b) => ['Critical', 'High'].includes(b.severity)).length;
+  const blockedStories = activeStories.filter((s) => s.status === 'Blocked').length;
+
+  let verdict, verdictTone, narrative;
+  if (criticalBugs > 0 || blockedStories > 1) {
+    verdict = 'Off track';
+    verdictTone = 'risk';
+    narrative = `${criticalBugs} critical/high ${criticalBugs === 1 ? 'bug' : 'bugs'} and ${blockedStories} blocked ${blockedStories === 1 ? 'story' : 'stories'} require immediate attention.`;
+  } else if (criticalBugs > 0 || blockedStories > 0 || pct < 50) {
+    verdict = 'At risk';
+    verdictTone = 'warn';
+    narrative = `Release is progressing at ${pct}% with minor blockers to resolve.`;
+  } else {
+    verdict = 'On track';
+    verdictTone = 'ok';
+    narrative = `Release is ${pct}% complete with no critical blockers.`;
+  }
+
+  // Forecast — from EPIC-0010 data.completion (read-only)
+  const comp = data.completion;
+  const forecastHtml =
+    comp && comp.likelyDate
+      ? `<span class="pv-stat-val tnum">${esc(comp.likelyDate)}</span>`
+      : '<span class="pv-stat-val">—</span>';
+
+  // Velocity
+  const velocityArr = (data.trends && data.trends.velocity) || [];
+  const lastVel = velocityArr.length > 0 ? velocityArr[velocityArr.length - 1] : null;
+  const prevVel = velocityArr.length > 1 ? velocityArr[velocityArr.length - 2] : null;
+  const velDelta = lastVel !== null && prevVel !== null ? lastVel - prevVel : null;
+  const velHtml =
+    lastVel !== null
+      ? `<span class="pv-stat-val tnum">${lastVel.toFixed(1)} <span class="pv-delta ${velDelta !== null && velDelta >= 0 ? 'up' : 'dn'}">${velDelta !== null && velDelta >= 0 ? '▲' : '▼'} ${Math.abs(velDelta || 0).toFixed(1)}</span></span>`
+      : '<span class="pv-stat-val">—</span>';
+
+  // Budget
+  const budget = data.budget || {};
+  const budgetHtml =
+    budget.hasBudget && budget.percentUsed !== null
+      ? `<span class="pv-stat-val tnum">${budget.percentUsed}%</span>`
+      : '<span class="pv-stat-val">—</span>';
+
+  // 30-day coverage heat strip
+  const covHistory = (data.trends && data.trends.coverage) || [];
+  const cells30 = Array.from({ length: 30 }, (_, i) => {
+    const val = covHistory[covHistory.length - 30 + i];
+    if (val === null || val === undefined) return '<span class="pv-heat-cell" style="opacity:0.15"></span>';
+    const tone = val >= 80 ? 'var(--ok)' : val >= 60 ? 'var(--warn)' : 'var(--risk)';
+    return `<span class="pv-heat-cell" style="background:${tone};opacity:${(0.3 + (val / 100) * 0.7).toFixed(2)}" title="${val.toFixed(1)}%"></span>`;
+  }).join('');
+
+  return `
+  <div class="pv-hero card" style="margin-bottom:16px">
+    <div class="pv-hero-head">
+      <div class="pv-hero-verdict" style="position:relative">
+        <span class="chip ${verdictTone}"><span class="d"></span>${esc(verdict)}</span>
+        <p class="pv-hero-narrative">${esc(narrative)}</p>
+      </div>
+      <div class="pv-hero-stats">
+        <div class="pv-stat">
+          <span class="pv-stat-lbl">Forecast</span>
+          ${forecastHtml}
+        </div>
+        <div class="pv-stat">
+          <span class="pv-stat-lbl">Velocity</span>
+          ${velHtml}
+        </div>
+        <div class="pv-stat">
+          <span class="pv-stat-lbl">Budget</span>
+          ${budgetHtml}
+        </div>
+      </div>
+    </div>
+    <div class="pv-hero-vizrow pv-hero-viz">
+      <div class="pv-heat" aria-label="30-day coverage heat strip">${cells30}</div>
+    </div>
+  </div>`;
+}
+
+function _renderFullStatusHero(data) {
+  const activeStories = data.stories.filter((s) => s.status !== 'Retired');
+  const doneStories = activeStories.filter((s) => s.status === 'Done');
+  const openBugs = (data.bugs || []).filter((b) => !/^(Fixed|Retired|Cancelled|Rejected)/i.test(b.status));
+  const criticalBugs = openBugs.filter((b) => b.severity === 'Critical');
+  const highBugs = openBugs.filter((b) => b.severity === 'High');
+  const blockedStories = activeStories.filter((s) => s.status === 'Blocked');
+  const cov = data.coverage;
+  const covPct = cov && cov.available !== false ? cov.overall : null;
+  const totalAI = (data.costs && data.costs._totals && data.costs._totals.costUsd) || 0;
+  const totalProjected = activeStories.reduce(
+    (s, st) => s + ((data.costs && data.costs[st.id] && data.costs[st.id].projectedUsd) || 0),
+    0,
+  );
+  const budgetPct = totalProjected > 0 ? Math.round((totalAI / totalProjected) * 100) : 0;
+  const donePct = activeStories.length > 0 ? Math.round((doneStories.length / activeStories.length) * 100) : 0;
+
+  const hasBlocker = blockedStories.length > 0 || criticalBugs.length > 0;
+  const hasRisk = highBugs.length > 0 || openBugs.length > 3 || budgetPct > 80;
+  const verdict = hasBlocker ? 'Off track' : hasRisk ? 'At risk' : 'On track';
+  const verdictColor = hasBlocker ? 'var(--risk)' : hasRisk ? 'var(--warn)' : 'var(--ok)';
+  const chipCls = hasBlocker ? 'risk' : hasRisk ? 'warn' : 'ok';
+  const narrative = hasBlocker
+    ? `${criticalBugs.length} critical bug${criticalBugs.length !== 1 ? 's' : ''} or blocked stories need immediate attention.`
+    : hasRisk
+      ? `${openBugs.length} open bug${openBugs.length !== 1 ? 's' : ''} and ${100 - donePct}% of stories remaining — watch velocity closely.`
+      : `${doneStories.length} of ${activeStories.length} stories done at ${covPct !== null ? covPct.toFixed(1) + '% coverage' : 'unknown coverage'}. Release is on track.`;
+
+  const comp = data.completion;
+  const forecastLabel = comp ? `${comp.likelyDate}` : '—';
+  const rangeLabel = comp ? `${comp.rangeStart} – ${comp.rangeEnd}` : '—';
+  const velocityLabel = comp && comp.storiesPerWeek !== undefined ? `${comp.storiesPerWeek.toFixed(1)} st/wk` : '—';
+  const velocitySublabel = comp ? `based on ${comp.velocityWeeks}-week lookback` : 'rolling avg';
+
+  const trends = data.trends;
+
+  const progressBars = (() => {
+    if (!trends || !trends.dates || trends.dates.length < 2)
+      return Array(14)
+        .fill(null)
+        .map(
+          () =>
+            `<div style="width:8px;background:var(--border);border-radius:2px;height:4px;align-self:flex-end;flex-shrink:0"></div>`,
+        )
+        .join('');
+    const recent = trends.dates.slice(-14);
+    const doneCounts = (trends.doneCounts || []).slice(-14);
+    const totalCounts = (trends.totalStories || []).slice(-14);
+    const maxDone = Math.max(...doneCounts, 1);
+    return recent
+      .map((d, i) => {
+        const pct = Math.round((doneCounts[i] / maxDone) * 100);
+        return `<div title="${d}: ${doneCounts[i]}/${totalCounts[i]} done"
+        style="width:8px;background:color-mix(in oklab,oklch(66% 0.17 145) ${Math.max(pct, 8)}%,var(--border));border-radius:2px;height:${Math.max(Math.round((doneCounts[i] / maxDone) * 48), 4)}px;align-self:flex-end;flex-shrink:0"></div>`;
+      })
+      .join('');
+  })();
+
+  const coverageDots = (() => {
+    if (!trends || !trends.dates || trends.dates.length < 2)
+      return Array(20)
+        .fill(null)
+        .map(
+          () =>
+            `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--border);margin:1px;opacity:0.3"></span>`,
+        )
+        .join('');
+    const recent30 = trends.dates.slice(-30);
+    const covVals = (trends.coverage || []).slice(-30);
+    return recent30
+      .map((d, i) => {
+        const v = covVals[i] || 0;
+        const good = v >= 80;
+        const warn = v >= 60 && v < 80;
+        const color = good ? 'var(--ok)' : warn ? 'var(--warn)' : 'var(--risk)';
+        return `<span title="${d}: ${v.toFixed(1)}%" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${color};margin:1px;opacity:${v > 0 ? 0.85 : 0.2}"></span>`;
+      })
+      .join('');
+  })();
+
+  const burnUpSvg = (() => {
+    if (!trends || !trends.velocity || trends.velocity.length < 2)
+      return `<svg viewBox="0 0 200 56" style="width:100%;height:56px" aria-hidden="true">
+    <line x1="0" y1="52" x2="200" y2="52" stroke="var(--border)" stroke-width="1"/>
+  </svg>`;
+    const vals = trends.velocity.slice(-60);
+    const W = 200,
+      H = 56;
+    const maxV = Math.max(...vals, 1);
+    const pts = vals
+      .map((v, i) => {
+        const x = +((i / (vals.length - 1)) * W).toFixed(1);
+        const y = +(H - (v / maxV) * (H - 2) - 1).toFixed(1);
+        return `${x},${y}`;
+      })
+      .join(' ');
+    const areaPts = `${pts} ${W},${H} 0,${H}`;
+    return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:${H}px" preserveAspectRatio="none" aria-hidden="true">
+      <defs><linearGradient id="bu-grad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="oklch(66% 0.17 145)" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="oklch(66% 0.17 145)" stop-opacity="0.03"/>
+      </linearGradient></defs>
+      <polygon points="${areaPts}" fill="url(#bu-grad)"/>
+      <polyline points="${pts}" fill="none" stroke="oklch(66% 0.17 145)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+  })();
+
+  const kpiTiles = (() => {
+    if (!trends || !trends.dates || trends.dates.length < 2) {
+      // No trend data — still render CI tile if githubStatus present
+      if (!data.githubStatus) return '';
+      const prs = data.githubStatus.prs || [];
+      const total = prs.length;
+      const passing = prs.filter((p) => p.ciStatus === 'success').length;
+      const failing = prs.filter((p) => p.ciStatus === 'failure').length;
+      const ciClass = failing > 0 ? 'var(--risk)' : passing > 0 ? 'var(--ok)' : 'var(--text-mute)';
+      return `<div style="display:grid;grid-template-columns:repeat(1,1fr);gap:12px;margin-bottom:16px">
+        <div class="card" style="padding:14px 16px;position:relative;overflow:hidden">
+          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mute);margin-bottom:4px">CI Status</div>
+          <div style="font-family:var(--font-display);font-size:clamp(22px,2.5vw,30px);font-weight:700;line-height:1;margin-bottom:5px;color:${ciClass}">${failing > 0 ? '✗' : passing > 0 ? '✓' : '—'}</div>
+          <div style="font-size:12px;color:var(--text-mute)">${passing}/${total} passing</div>
+        </div>
+      </div>`;
+    }
+    const n = trends.dates.length;
+    const donePctSeries = (trends.doneCounts || []).map((c, i) => {
+      const tot = (trends.totalStories || [])[i] || 1;
+      return +((c / tot) * 100).toFixed(1);
+    });
+    const covSeries = (trends.coverage || []).map((v) => v || 0);
+    const bugSeries = trends.openBugs || [];
+    const costSeries = trends.aiCosts || [];
+    function lastDelta(series) {
+      for (let i = series.length - 1; i > 0; i--) {
+        const d = +(series[i] - series[i - 1]).toFixed(1);
+        if (d !== 0) return d;
+      }
+      return 0;
+    }
+    function kpiTile(label, val, unit, delta, deltaUnit, series, upGood) {
+      const isUp = delta > 0;
+      const good = upGood ? isUp : !isUp;
+      const dColor = delta === 0 ? 'var(--text-mute)' : good ? 'var(--ok)' : 'var(--risk)';
+      const arrow = delta > 0 ? '▲' : delta < 0 ? '▼' : '—';
+      const spark = sparkline(series.slice(-16), 56, 20);
+      return `<div class="card" style="padding:14px 16px;position:relative;overflow:hidden">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mute);margin-bottom:4px">${label}</div>
+        <div style="position:absolute;top:10px;right:10px;color:var(--text-mute);opacity:.45">${spark}</div>
+        <div style="font-family:var(--font-display);font-size:clamp(22px,2.5vw,30px);font-weight:700;line-height:1;margin-bottom:5px">${val}<span style="font-size:13px;font-weight:400;color:var(--text-mute)">${unit}</span></div>
+        <div style="font-size:12px;color:${dColor};font-weight:600">${arrow} ${delta > 0 ? '+' : ''}${delta}${deltaUnit}<span style="font-weight:400;color:var(--text-mute)"> / wk</span></div>
+      </div>`;
+    }
+    const ciTile = (() => {
+      if (!data.githubStatus) return '';
+      const prs = data.githubStatus.prs || [];
+      const total = prs.length;
+      const passing = prs.filter((p) => p.ciStatus === 'success').length;
+      const failing = prs.filter((p) => p.ciStatus === 'failure').length;
+      const ciClass = failing > 0 ? 'var(--risk)' : passing > 0 ? 'var(--ok)' : 'var(--text-mute)';
+      return `<div class="card" style="padding:14px 16px;position:relative;overflow:hidden">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mute);margin-bottom:4px">CI Status</div>
+        <div style="font-family:var(--font-display);font-size:clamp(22px,2.5vw,30px);font-weight:700;line-height:1;margin-bottom:5px;color:${ciClass}">${failing > 0 ? '✗' : passing > 0 ? '✓' : '—'}</div>
+        <div style="font-size:12px;color:var(--text-mute)">${passing}/${total} passing</div>
+      </div>`;
+    })();
+    const cols = data.githubStatus ? 'repeat(5,1fr)' : 'repeat(4,1fr)';
+    return `<div style="display:grid;grid-template-columns:${cols};gap:12px;margin-bottom:16px">
+      ${kpiTile('Overall Progress', donePctSeries[n - 1] || donePct, '%', lastDelta(donePctSeries), '%', donePctSeries, true)}
+      ${kpiTile('Test Coverage', covSeries[n - 1] !== undefined ? covSeries[n - 1].toFixed(1) : covPct !== null ? covPct.toFixed(1) : '—', '%', lastDelta(covSeries), '%', covSeries, true)}
+      ${kpiTile('Open Bugs', bugSeries[n - 1] !== undefined ? bugSeries[n - 1] : openBugs.length, '', lastDelta(bugSeries), '', bugSeries, false)}
+      ${kpiTile('AI Spend', usd(costSeries[n - 1] || totalAI), '', +((costSeries[n - 1] || 0) - (costSeries[n - 2] || 0)).toFixed(2), '', costSeries, null)}
+      ${ciTile}
+    </div>`;
+  })();
+
+  const forecastBanner = comp
+    ? `<div style="display:flex;gap:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:14px">
+        <div style="flex:1;padding:8px 12px;border-right:1px solid var(--border)">
+          <div style="font-size:8px;color:var(--text-mute);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">Forecast</div>
+          <div style="font-size:14px;font-weight:700">${forecastLabel}</div>
+          <div style="font-size:9px;color:var(--text-mute);margin-top:1px">likely date</div>
+        </div>
+        <div style="flex:1;padding:8px 12px;border-right:1px solid var(--border)">
+          <div style="font-size:8px;color:var(--text-mute);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">Range</div>
+          <div style="font-size:12px;font-weight:700">${rangeLabel}</div>
+          <div style="font-size:9px;color:var(--text-mute);margin-top:1px">80% confidence</div>
+        </div>
+        <div style="flex:1;padding:8px 12px">
+          <div style="font-size:8px;color:var(--text-mute);text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px">Velocity</div>
+          <div style="font-size:14px;font-weight:700">${velocityLabel}</div>
+          <div style="font-size:9px;color:var(--text-mute);margin-top:1px">${velocitySublabel}</div>
+        </div>
+      </div>`
+    : `<div style="font-size:11px;color:var(--text-mute);font-style:italic;margin-bottom:14px;padding:8px 12px;background:var(--surface);border:1px solid var(--border);border-radius:8px">Forecast unavailable — insufficient velocity data</div>`;
+
+  return `
+  <!-- Release Health Hero -->
+  <div class="pv-hero card mb-4 p-0 overflow-hidden">
+    <div class="pv-hero-head">
+      <div class="pv-hero-verdict" style="position:relative">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--text-mute);margin-bottom:6px">Release Health</div>
+        <h2 style="margin:0 0 8px;font-family:var(--font-display,system-ui);font-size:28px;font-weight:800;line-height:1;color:${verdictColor}">${verdict}</h2>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px">${narrative}</p>
+        ${forecastBanner}
+      </div>
+      <div class="pv-hero-stats">
+        <div class="pv-stat">
+          <span class="pv-stat-lbl">Budget</span>
+          <span class="pv-stat-val" style="color:${budgetPct > 90 ? 'var(--risk)' : budgetPct > 75 ? 'var(--warn)' : 'inherit'}">${budgetPct}%</span>
+          <span class="pv-delta" style="color:var(--text-mute);font-size:11px">${usd(totalAI)} / ${usd(totalProjected)}</span>
+        </div>
+        <div class="pv-stat">
+          <span class="pv-stat-lbl">Progress</span>
+          <span class="pv-stat-val">${donePct}%</span>
+          <span class="pv-delta" style="color:var(--text-mute);font-size:11px">${doneStories.length} / ${activeStories.length} stories</span>
+        </div>
+      </div>
+    </div>
+    <!-- Mini-viz row: progress bars | coverage dots | burn-up -->
+    <div class="pv-hero-vizrow pv-hero-viz" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+      <div>
+        <p class="pv-eyebrow" style="margin-bottom:6px">Progress · Past 14 snapshots</p>
+        <div style="display:flex;align-items:flex-end;gap:3px;height:52px">${progressBars}</div>
+      </div>
+      <div>
+        <p class="pv-eyebrow" style="margin-bottom:6px">Coverage · Last 30 snapshots</p>
+        <div style="line-height:1;display:flex;flex-wrap:wrap;align-items:center">${coverageDots}</div>
+      </div>
+      <div>
+        <p class="pv-eyebrow" style="margin-bottom:6px">Burn · Cumulative</p>
+        ${burnUpSvg}
+      </div>
+    </div>
+  </div>
+  <!-- KPI sparkline tiles -->
+  ${kpiTiles}`;
+}
+
+function _renderDecisionWidgets(data) {
+  const openBugs = (data.bugs || []).filter((b) => !/^(Fixed|Retired|Cancelled)/i.test(b.status));
+  const critHighBugs = openBugs.filter((b) => ['Critical', 'High'].includes(b.severity));
+  const activeStories = data.stories.filter((s) => s.status !== 'Retired');
+  const blockedStories = activeStories.filter((s) => s.status === 'Blocked');
+  const now = Date.now();
+  const overdueEpics = (data.epics || []).filter((e) => {
+    if (e.status === 'Done') return false;
+    if (!e.releaseTarget) return false;
+    const d = new Date(e.releaseTarget);
+    return !isNaN(d) && d < now;
+  });
+
+  const riskItems = [
+    ...critHighBugs
+      .slice(0, 3)
+      .map(
+        (b) =>
+          `<div class="pv-risk-item"><span class="chip risk">${esc(b.severity)}</span><span class="pv-risk-label">${esc(b.id)}: ${esc(b.title)}</span></div>`,
+      ),
+    ...blockedStories
+      .slice(0, 2)
+      .map(
+        (s) =>
+          `<div class="pv-risk-item"><span class="chip warn">Blocked</span><span class="pv-risk-label">${esc(s.id)}: ${esc(s.title)}</span></div>`,
+      ),
+    ...overdueEpics
+      .slice(0, 2)
+      .map(
+        (e) =>
+          `<div class="pv-risk-item"><span class="chip warn">Overdue</span><span class="pv-risk-label">${esc(e.id)}: ${esc(e.title)}</span></div>`,
+      ),
+  ];
+  if (riskItems.length === 0 && openBugs.length > 3) {
+    const medBugs = openBugs.filter((b) => b.severity === 'Medium').slice(0, 3);
+    if (medBugs.length > 0) {
+      medBugs.forEach((b) =>
+        riskItems.push(
+          `<div class="pv-risk-item"><span class="chip warn">Med</span><span class="pv-risk-label">${esc(b.id)}: ${esc(b.title)}</span></div>`,
+        ),
+      );
+    } else {
+      riskItems.push(
+        `<div class="pv-risk-item"><span class="chip warn">Bugs</span><span class="pv-risk-label">${openBugs.length} open bugs require attention</span></div>`,
+      );
+    }
+  }
+  const riskContent =
+    riskItems.length > 0 ? riskItems.join('') : '<p class="pv-widget-empty">No active risks — looking good 🎉</p>';
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const recentDone = (data.recentActivity || []).filter((a) => a.date && new Date(a.date) >= sevenDaysAgo);
+  const totalAI = (data.costs && data.costs._totals && data.costs._totals.costUsd) || 0;
+  const weekContent = `
+    <div class="pv-kv"><span class="pv-kv-k">Stories shipped</span><span class="pv-kv-v tnum">${recentDone.length}</span></div>
+    <div class="pv-kv"><span class="pv-kv-k">Open bugs</span><span class="pv-kv-v tnum">${openBugs.length}</span></div>
+    <div class="pv-kv"><span class="pv-kv-k">AI spend (total)</span><span class="pv-kv-v tnum">$${totalAI.toFixed(2)}</span></div>`;
+
+  const agentMap = {};
+  activeStories.forEach((s) => {
+    const agent = s.assignedAgent || s.agent || 'Unassigned';
+    agentMap[agent] = (agentMap[agent] || 0) + (s.status !== 'Done' ? 1 : 0);
+  });
+  const agentEntries = Object.entries(agentMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+  const maxCount = agentEntries.length > 0 ? agentEntries[0][1] : 1;
+  const workloadContent =
+    agentEntries.length > 0
+      ? agentEntries
+          .map(
+            ([name, count]) =>
+              `<div class="pv-wl-row">
+          <span class="pv-wl-name">${esc(name)}</span>
+          <div class="pv-wl-bar-bg"><div class="pv-wl-bar" style="width:${Math.round(((count || 0) / (maxCount || 1)) * 100)}%"></div></div>
+          <span class="pv-wl-count tnum">${count}</span>
+        </div>`,
+          )
+          .join('')
+      : '<p class="pv-widget-empty">No active assignments.</p>';
+
+  return `
+  <style>@media(max-width:1100px){.pv-widgets{grid-template-columns:minmax(0,1fr)}}</style>
+  <div class="pv-widgets" style="margin-bottom:16px">
+    <div class="card pv-widget-top-risks">
+      <div class="card-head"><h3>Top Risks</h3></div>
+      <div class="card-body pv-risk-list">${riskContent}</div>
+    </div>
+    <div class="card pv-widget-this-week">
+      <div class="card-head"><h3>This Week</h3></div>
+      <div class="card-body">${weekContent}</div>
+    </div>
+    <div class="card pv-widget-agent-workload">
+      <div class="card-head"><h3>Agent Workload</h3></div>
+      <div class="card-body">${workloadContent}</div>
+    </div>
+  </div>`;
+}
+
+function renderChartsTab(data) {
+  const epicLabels = JSON.stringify(data.epics.map((e) => e.id));
+  const epicDone = JSON.stringify(
+    data.epics.map((e) => data.stories.filter((s) => s.epicId === e.id && s.status === 'Done').length),
+  );
+  const epicInProgress = JSON.stringify(
+    data.epics.map((e) => data.stories.filter((s) => s.epicId === e.id && s.status === 'In Progress').length),
+  );
+  const epicPlanned = JSON.stringify(
+    data.epics.map(
+      (e) => data.stories.filter((s) => s.epicId === e.id && ['Planned', 'To Do'].includes(s.status)).length,
+    ),
+  );
+  const epicProjected = JSON.stringify(
+    data.epics.map((e) =>
+      data.stories
+        .filter((s) => s.epicId === e.id)
+        .reduce((sum, s) => sum + ((data.costs[s.id] && data.costs[s.id].projectedUsd) || 0), 0),
+    ),
+  );
+  const epicAI = JSON.stringify(
+    data.epics.map((e) => {
+      const branchStories = data.stories.filter((s) => s.epicId === e.id);
+      return branchStories.reduce((sum, s) => sum + (data.costs[s.id] ? data.costs[s.id].costUsd || 0 : 0), 0);
+    }),
+  );
+  const coveragePct = data.coverage.available !== false ? data.coverage.overall.toFixed(1) : null;
+  const coveragePctNum = coveragePct !== null ? parseFloat(coveragePct) : 0;
+  const coverageGap = coveragePct !== null ? (100 - coveragePctNum).toFixed(1) : '100';
+  const timeline = data.sessionTimeline || [];
+  const sessionDates = JSON.stringify(timeline.map((s) => s.date));
+  const sessionCosts = JSON.stringify(timeline.map((s) => s.cumCost.toFixed(2)));
+  const sessionPerCosts = JSON.stringify(
+    timeline.map((s, i) => (i === 0 ? s.cumCost : s.cumCost - timeline[i - 1].cumCost).toFixed(2)),
+  );
+  const statusCounts = JSON.stringify(
+    ['Done', 'In Progress', 'Planned', 'To Do', 'Blocked'].map(
+      (st) => data.stories.filter((s) => s.status === st).length,
+    ),
+  );
+  const totalStories = data.stories.filter((s) => s.status !== 'Retired').length;
+
+  // Risk chart data — BUG-0219: suppress Done epics
+  const epicStatusMap = Object.fromEntries((data.epics || []).map((e) => [e.id, e.status]));
+  const riskEpics =
+    data.risk && data.risk.byEpic
+      ? [...data.risk.byEpic.entries()]
+          .filter(([id]) => !/^done$/i.test(epicStatusMap[id] || ''))
+          .sort((a, b) => b[1].avgScore - a[1].avgScore)
+      : [];
+  const riskCounts = { Low: 0, Medium: 0, High: 0, Critical: 0 };
+  let totalRiskScore = 0,
+    activeStoryCount = 0;
+  if (data.risk && data.risk.byStory) {
+    for (const story of data.stories || []) {
+      if (story.status === 'Done' || story.status === 'Retired' || story.status === 'Cancelled') continue;
+      const sr = data.risk.byStory.get(story.id);
+      if (sr) {
+        if (sr.level in riskCounts) riskCounts[sr.level]++;
+        totalRiskScore += sr.score;
+        activeStoryCount++;
+      }
+    }
+  }
+  const avgRiskScore = activeStoryCount > 0 ? (totalRiskScore / activeStoryCount).toFixed(1) : '—';
+  const highCritCount = riskCounts.High + riskCounts.Critical;
+  const riskDistCounts = JSON.stringify([riskCounts.Low, riskCounts.Medium, riskCounts.High, riskCounts.Critical]);
+
+  const atRiskEpics = riskEpics.filter(([, r]) => r.avgScore >= 2.0);
+
+  // Test Results by Epic
+  const epicStoryIdSets = new Map(
+    data.epics.map((e) => [e.id, new Set(data.stories.filter((s) => s.epicId === e.id).map((s) => s.id))]),
+  );
+  const epicTCPass = JSON.stringify(
+    data.epics.map(
+      (e) =>
+        data.testCases.filter((tc) => epicStoryIdSets.get(e.id).has(tc.relatedStory) && tc.status === 'Pass').length,
+    ),
+  );
+  const epicTCFail = JSON.stringify(
+    data.epics.map(
+      (e) =>
+        data.testCases.filter((tc) => epicStoryIdSets.get(e.id).has(tc.relatedStory) && tc.status === 'Fail').length,
+    ),
+  );
+  const epicTCNotRun = JSON.stringify(
+    data.epics.map(
+      (e) =>
+        data.testCases.filter(
+          (tc) => epicStoryIdSets.get(e.id).has(tc.relatedStory) && !['Pass', 'Fail'].includes(tc.status),
+        ).length,
+    ),
+  );
+
+  return `
+  <div id="tab-charts" class="p-6 hidden" role="tabpanel" aria-labelledby="tab-btn-charts">
+    ${_renderStatusHero(data)}
+    ${_renderDecisionWidgets(data)}
+    <div class="charts-grid">
+
+      <div class="chart-supertitle">Delivery</div>
+
+      <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:0">
+        <div class="chart-header-rule">
+          <span class="display-title">Epic Progress</span>
+          <span class="chart-subtitle">by epic</span>
+        </div>
+        <div style="height:${Math.max(300, data.epics.length * 36)}px;position:relative"><canvas id="chart-epic-progress"></canvas></div>
+      </div>
+
+      <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:1">
+        <div class="chart-header-rule">
+          <span class="display-title">Test Results by Epic</span>
+          <span class="chart-subtitle">pass / fail / not run</span>
+        </div>
+        <div style="height:${Math.max(300, data.epics.length * 36)}px;position:relative"><canvas id="chart-tc-results"></canvas></div>
+      </div>
+
+      <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:1">
+        <div class="chart-header-rule">
+          <span class="display-title">Story Status Distribution</span>
+          <span class="chart-subtitle">distribution</span>
+        </div>
+        <div style="height:300px;position:relative">
+          <canvas id="chart-burndown"></canvas>
+          <div class="chart-center-overlay">
+            <span class="hero-num">${totalStories}</span>
+            <span style="font-size:10px;opacity:0.6">stories</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:2">
+        <div class="chart-header-rule">
+          <span class="display-title">Test Coverage</span>
+          <span class="chart-subtitle">overall %</span>
+        </div>
+        <div style="height:300px;position:relative">
+          <canvas id="chart-coverage"></canvas>
+          <div class="absolute inset-0 flex items-center justify-center pointer-events-none" style="padding-bottom:3rem">
+            <div class="text-center">
+              <div class="hero-num text-slate-700 dark:text-slate-200">${coveragePct !== null ? coveragePct + '%' : 'N/A'}</div>
+              <div class="text-xs text-slate-500 dark:text-slate-400">overall</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:3">
+        <div class="chart-header-rule">
+          <span class="display-title">AI Cost Timeline</span>
+          <span class="chart-subtitle">trend</span>
+        </div>
+        <div style="height:300px;position:relative"><canvas id="chart-ai-timeline"></canvas></div>
+      </div>
+
+      <div class="chart-supertitle">Financial</div>
+
+      <div class="card-elev rounded-lg p-4 flex flex-col anim-stagger" style="--i:4">
+        <div class="chart-header-rule">
+          <span class="display-title">Cost Breakdown</span>
+          <span class="chart-subtitle">projected vs AI</span>
+        </div>
+        <!-- BUG-0169 — flex-centered wrapper lets the fixed-height chart sit vertically centered when the grid row is forced taller by a sibling card (e.g. Epic Progress dynamic height). -->
+        <div class="flex-1 flex items-center justify-center">
+          <div class="w-full" style="height:300px;position:relative"><canvas id="chart-cost-breakdown"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:5">
+        <div class="chart-header-rule">
+          <span class="display-title">Budget Burn Rate</span>
+          <span class="chart-subtitle">by session</span>
+        </div>
+        <div style="height:300px;position:relative"><canvas id="chart-burn-rate"></canvas></div>
+      </div>
+
+      <div class="chart-supertitle">Risk</div>
+
+      <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:6">
+        <div class="chart-header-rule">
+          <span class="display-title">Risk Score by Epic</span>
+          <span class="chart-subtitle">incomplete epics only · avg score</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px;margin-top:4px">
+          ${
+            riskEpics.length === 0
+              ? '<p style="color:var(--text-muted,var(--text-dim));font-size:12px">No risk data</p>'
+              : riskEpics
+                  .map(([id, r]) => {
+                    const pct = Math.min(100, Math.round((r.avgScore / 4) * 100));
+                    const col = RISK_LEVEL_COLORS[r.level];
+                    return `<div style="display:flex;align-items:center;gap:6px">
+              <span style="color:var(--text);width:72px;font-size:11px;font-family:var(--font-mono);flex-shrink:0">${esc(id)}</span>
+              <div style="flex:1;background:var(--surface-alt,oklch(25% 0.015 220));border-radius:3px;height:14px;overflow:hidden">
+                <div style="width:${pct}%;height:100%;background:${col};border-radius:3px"></div>
+              </div>
+              <span style="color:${col};font-size:11px;font-weight:600;width:28px;text-align:right">${r.avgScore}</span>
+              <span style="background:${col};color:oklch(100% 0 0);font-size:9px;padding:1px 5px;border-radius:3px;white-space:nowrap">${r.level}</span>
+            </div>`;
+                  })
+                  .join('')
+          }
+        </div>
+      </div>
+
+      <div class="card-elev rounded-lg p-4 anim-stagger" style="--i:7">
+        <div class="chart-header-rule">
+          <span class="display-title">Story Risk Distribution</span>
+          <span class="chart-subtitle">stories by risk level</span>
+        </div>
+        <div style="height:200px;position:relative"><canvas id="chart-risk-distribution"></canvas></div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <div style="flex:1;background:var(--clr-card,var(--surface-alt,oklch(25% 0.015 220)));border-radius:6px;padding:8px 10px;border-left:3px solid var(--warn)">
+            <div style="font-size:10px;color:var(--text-muted,var(--text-dim))">Avg score</div>
+            <div style="font-size:18px;font-weight:700;color:var(--warn)">${avgRiskScore}</div>
+          </div>
+          <div style="flex:1;background:var(--clr-card,var(--surface-alt,oklch(25% 0.015 220)));border-radius:6px;padding:8px 10px;border-left:3px solid var(--risk)">
+            <div style="font-size:10px;color:var(--text-muted,var(--text-dim))">High + Critical</div>
+            <div style="font-size:18px;font-weight:700;color:var(--risk)">${highCritCount} stories</div>
+          </div>
+        </div>
+      </div>
+
+      ${
+        atRiskEpics.length > 0
+          ? `
+      <div class="col-span-full card-elev rounded-lg p-4 anim-stagger" style="--i:8">
+        <div class="chart-header-rule">
+          <span class="display-title">At-Risk Epics</span>
+          <span class="chart-subtitle">avg score \u2265 2.0</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">
+          ${atRiskEpics
+            .map(([id, r]) => {
+              const col = RISK_LEVEL_COLORS[r.level];
+              return `<div style="display:flex;align-items:center;gap:10px;padding:6px 10px;background:var(--clr-card,var(--surface-alt,oklch(25% 0.015 220)));border-radius:6px;border-left:3px solid ${col}">
+              <span style="font-family:var(--font-mono);font-size:12px;font-weight:700;color:var(--text)">${esc(id)}</span>
+              <span style="font-size:13px;font-weight:700;color:${col}">${r.avgScore}</span>
+              <span style="background:${col};color:oklch(100% 0 0);font-size:10px;padding:1px 6px;border-radius:3px">${r.level}</span>
+              <span style="font-size:11px;color:var(--text-muted,var(--text-dim));margin-left:auto">${(r.counts?.High ?? 0) + (r.counts?.Critical ?? 0)} High+Critical stories</span>
+            </div>`;
+            })
+            .join('')}
+        </div>
+      </div>`
+          : ''
+      }
+
+    </div>
+  </div>
+  <script>
+  // AC-0593: use window singleton guard to prevent double-declaration overwrite when both Trends and Charts tabs are rendered on the same page
+  window.pvChartColors = window.pvChartColors || (function() {
+    var cs = getComputedStyle(document.documentElement);
+    function tok(v, fb) { var r = cs.getPropertyValue(v).trim(); return r || fb; }
+    return {
+      ok:     tok('--ok',          'oklch(68% 0.15 150)'),
+      warn:   tok('--warn',        'oklch(74% 0.16 78)'),
+      risk:   tok('--risk',        'oklch(64% 0.20 25)'),
+      info:   tok('--info',        'oklch(66% 0.14 240)'),
+      accent: tok('--plan-accent', 'oklch(62% 0.19 268)'),
+      mute:   tok('--text-mute',   'oklch(78% 0.012 95)'),
+    };
+  })();
+  var pvChartColors = window.pvChartColors;
+  var _charts = {};
+  function chartTextColor() {
+    // BUG-0249: fallback matches light theme's --text-mute (light is the default).
+    return getComputedStyle(document.documentElement).getPropertyValue('--clr-chart-text').trim() || getComputedStyle(document.documentElement).getPropertyValue('--text-dim').trim() || 'oklch(78% 0.012 95)';
+  }
+  function initCharts() {
+    var tc = chartTextColor();
+    var fontSans = getComputedStyle(document.documentElement).getPropertyValue('--font-sans').trim() || "'Inter Tight',sans-serif";
+    _charts.epicProgress = new Chart(document.getElementById('chart-epic-progress'), {
+      type: 'bar',
+      data: { labels: ${epicLabels}, datasets: [
+        { label: 'Done', data: ${epicDone}, backgroundColor: pvChartColors.ok },
+        { label: 'In Progress', data: ${epicInProgress}, backgroundColor: pvChartColors.info },
+        { label: 'Planned/To Do', data: ${epicPlanned}, backgroundColor: pvChartColors.mute },
+      ]},
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: tc, font: { family: fontSans, size: 12 }, pointStyle: 'circle', usePointStyle: true } } },
+        scales: { x: { stacked: true, ticks: { color: tc } }, y: { stacked: true, ticks: { color: tc, autoSkip: false } } } }
+    });
+    _charts.tcResults = new Chart(document.getElementById('chart-tc-results'), {
+      type: 'bar',
+      data: { labels: ${epicLabels}, datasets: [
+        { label: 'Pass', data: ${epicTCPass}, backgroundColor: pvChartColors.info },
+        { label: 'Fail', data: ${epicTCFail}, backgroundColor: pvChartColors.risk },
+        { label: 'Not Run', data: ${epicTCNotRun}, backgroundColor: pvChartColors.mute },
+      ]},
+      options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: tc, font: { family: fontSans, size: 12 }, pointStyle: 'circle', usePointStyle: true } } },
+        scales: { x: { stacked: true, ticks: { color: tc } }, y: { stacked: true, ticks: { color: tc, autoSkip: false } } } }
+    });
+    _charts.costBreakdown = new Chart(document.getElementById('chart-cost-breakdown'), {
+      type: 'bar',
+      data: { labels: ${epicLabels}, datasets: [
+        { label: 'Projected ($)', data: ${epicProjected}, backgroundColor: pvChartColors.warn, yAxisID: 'yProjected' },
+        { label: 'AI Cost ($)', data: ${epicAI}, backgroundColor: pvChartColors.info, yAxisID: 'yAI' },
+      ]},
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: tc, font: { family: fontSans, size: 12 }, pointStyle: 'circle', usePointStyle: true } } },
+        scales: {
+          x: { ticks: { color: tc, autoSkip: false, maxRotation: 60, minRotation: 45 } },
+          yProjected: { type: 'linear', position: 'left', ticks: { color: tc }, title: { display: true, text: 'Projected ($)', color: tc } },
+          yAI: { type: 'linear', position: 'right', ticks: { color: tc }, title: { display: true, text: 'AI Cost ($)', color: tc }, grid: { drawOnChartArea: false } }
+        }
+      }
+    });
+    _charts.coverage = new Chart(document.getElementById('chart-coverage'), {
+      type: 'doughnut',
+      data: { labels: ['Covered', 'Gap'], datasets: [{ data: [${coveragePctNum}, ${coverageGap}], backgroundColor: [${coveragePct !== null ? 'pvChartColors.ok' : 'pvChartColors.mute'},pvChartColors.mute], borderWidth: 0 }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: true, position: 'bottom', labels: { color: tc, font: { family: fontSans, size: 12 }, pointStyle: 'circle', usePointStyle: true } } } }
+    });
+    _charts.aiTimeline = new Chart(document.getElementById('chart-ai-timeline'), {
+      type: 'line',
+      data: { labels: ${sessionDates}, datasets: [{ label: 'Cumulative AI Cost ($)', data: ${sessionCosts}, borderColor: pvChartColors.info, tension: 0.3, fill: true, backgroundColor: pvChartColors.mute }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: tc, font: { family: fontSans, size: 12 }, pointStyle: 'circle', usePointStyle: true } } }, scales: { x: { ticks: { color: tc } }, y: { ticks: { color: tc } } } }
+    });
+    _charts.burndown = new Chart(document.getElementById('chart-burndown'), {
+      type: 'doughnut',
+      data: { labels: ['Done','In Progress','Planned','To Do','Blocked'], datasets: [{ data: ${statusCounts}, backgroundColor: [pvChartColors.ok,pvChartColors.info,pvChartColors.mute,pvChartColors.warn,pvChartColors.risk], borderWidth: 1 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'bottom', labels: { color: tc, font: { family: fontSans, size: 12 }, pointStyle: 'circle', usePointStyle: true } } } }
+    });
+    _charts.burnRate = new Chart(document.getElementById('chart-burn-rate'), {
+      type: 'bar',
+      data: { labels: ${sessionDates}, datasets: [{ label: 'Session AI Spend ($)', data: ${sessionPerCosts}, backgroundColor: pvChartColors.accent }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: tc, font: { family: fontSans, size: 12 }, pointStyle: 'circle', usePointStyle: true } } }, scales: { x: { ticks: { color: tc } }, y: { ticks: { color: tc } } } }
+    });
+    if (document.getElementById('chart-risk-distribution')) {
+      _charts.riskDist = new Chart(document.getElementById('chart-risk-distribution'), {
+        type: 'bar',
+        data: { labels: ['Low','Medium','High','Critical'], datasets: [{ data: ${riskDistCounts}, backgroundColor: [pvChartColors.ok, pvChartColors.info, pvChartColors.warn, pvChartColors.risk] }] },
+        options: { responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { x: { ticks: { color: tc } }, y: { ticks: { color: tc }, beginAtZero: true } } }
+      });
+    }
+  }
+  function updateChartTheme() {
+    var tc = chartTextColor();
+    Object.values(_charts).forEach(function(c) {
+      if (!c) return;
+      if (c.options.plugins && c.options.plugins.legend && c.options.plugins.legend.labels) {
+        c.options.plugins.legend.labels.color = tc;
+      }
+      if (c.options.scales) {
+        Object.values(c.options.scales).forEach(function(s) {
+          if (s.ticks) s.ticks.color = tc;
+          if (s.title) s.title.color = tc;
+        });
+      }
+      c.update();
+    });
+  }
+  </script>`;
+}
+
+function renderCostsTab(data, options = {}) {
+  const t = data.costs._totals;
+  const totalProjected = data.stories.reduce(
+    (s, st) => s + ((data.costs[st.id] && data.costs[st.id].projectedUsd) || 0),
+    0,
+  );
+
+  const budget = data.budget || {};
+  const hasBudget = budget.hasBudget;
+
+  // ENH-0005: Cache Hit % tile — rolling-window average + sparkline trend.
+  const cacheHit = data.cacheHit || { rollingAvg: null, latest: null, series: [], windowSize: 14 };
+  let cacheHitValue = '–';
+  let cacheHitColor = 'var(--text-mute)';
+  if (cacheHit.rollingAvg !== null && cacheHit.rollingAvg !== undefined) {
+    const pct = cacheHit.rollingAvg * 100;
+    cacheHitValue = `${pct.toFixed(1)}%`;
+    if (pct < 50) cacheHitColor = 'var(--risk)';
+    else if (pct < 70) cacheHitColor = 'var(--warn)';
+    else cacheHitColor = 'var(--ok)';
+  }
+  const cacheHitSparkline = sparkline(cacheHit.series.map((s) => s.ratio));
+  const cacheHitLatestPct =
+    cacheHit.latest !== null && cacheHit.latest !== undefined ? `${(cacheHit.latest * 100).toFixed(1)}%` : '–';
+  const cacheHitTile = `
+    <div class="card-elev rounded-lg p-4 mb-4 flex items-center gap-4 flex-wrap">
+      <div>
+        <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Cache Hit % (${cacheHit.windowSize}-session avg)</div>
+        <div class="hero-num" style="color:${cacheHitColor}" title="Latest session: ${esc(cacheHitLatestPct)}">${esc(cacheHitValue)}</div>
+      </div>
+      ${cacheHitSparkline ? `<div style="color:${cacheHitColor}" title="Cache hit % trend over recorded sessions">${cacheHitSparkline}</div>` : ''}
+    </div>`;
+
+  let budgetSection = '';
+  if (hasBudget) {
+    const br = budget.burnRate;
+    const days = budget.daysRemaining;
+    const brDisplay = br > 0 ? `Burn Rate: $${br.toFixed(2)}/day` : 'No recent spend data';
+    const exDisplay = days !== null ? `Exhaustion: ${days} days remaining` : br > 0 ? 'Budget unlimited' : '';
+
+    const epicRows = budget.epicBudgets
+      .map((eb, i) => {
+        const accent = EPIC_ACCENT_COLORS[i % EPIC_ACCENT_COLORS.length];
+        const barPct = eb.percentUsed !== null ? Math.min(100, eb.percentUsed) : 0;
+        let barColor = 'var(--ok)';
+        if (eb.percentUsed !== null) {
+          if (eb.percentUsed >= 90) barColor = 'var(--risk)';
+          else if (eb.percentUsed >= 75) barColor = 'var(--warn)';
+          else if (eb.percentUsed >= 50) barColor = 'var(--warn)';
+        }
+        const pbClass =
+          eb.percentUsed !== null && eb.percentUsed >= 90
+            ? 'pb-danger'
+            : eb.percentUsed !== null && eb.percentUsed >= 75
+              ? 'pb-warn'
+              : 'pb-ok';
+        return `<tr class="border-t border-slate-100 dark:border-slate-700 anim-stagger" style="--i:${Math.min(i, 19)};background:${accent.bg}">
+        <td class="px-3 py-2" style="border-left:4px solid ${accent.border}"><span class="font-mono text-xs font-bold" style="color:${accent.border}">${eb.id}</span></td>
+        <td class="px-3 py-2 text-sm dark:text-slate-200">${eb.budget !== null ? usd(eb.budget) : '—'}</td>
+        <td class="px-3 py-2 text-sm dark:text-slate-200">${usd(eb.spent)}</td>
+        <td class="px-3 py-2 text-sm dark:text-slate-200">${eb.remaining !== null ? usd(eb.remaining) : '—'}</td>
+        <td class="px-3 py-2">
+          ${eb.percentUsed !== null ? `<div class="flex items-center gap-2"><div class="progress-bar"><div class="pb-fill ${pbClass}" style="width:${barPct}%"></div></div><span class="text-xs" style="color:${barColor}">${eb.percentUsed}%</span></div>` : '—'}
+        </td>
+      </tr>`;
+      })
+      .join('');
+
+    const csvDownload = options.budgetCSV ? `onclick="downloadBudgetCSV()"` : '';
+    const remaining =
+      budget.totalBudget !== null && budget.totalBudget !== undefined ? budget.totalBudget - budget.totalSpent : null;
+    budgetSection = `
+    <div class="card-elev rounded-lg p-4 mb-4">
+      <div class="flex flex-wrap items-center gap-6 mb-4">
+        <div>
+          <span class="text-xs text-slate-500 uppercase">${brDisplay}</span>
+        </div>
+        <div>
+          <span class="text-xs text-slate-500 uppercase">${exDisplay}</span>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-end gap-8 mb-4">
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Total Budget</div>
+          <div class="hero-num text-slate-800 dark:text-slate-100">${usd(budget.totalBudget)}</div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Spent</div>
+          <div class="hero-num text-slate-800 dark:text-slate-100">${usd(budget.totalSpent)}${deltaArrow(data.deltaSpend)}</div>
+        </div>
+        <div>
+          <div class="text-xs text-slate-500 uppercase tracking-wide mb-1">Remaining</div>
+          <div class="hero-num text-slate-800 dark:text-slate-100">${remaining !== null ? usd(remaining) : '—'}</div>
+        </div>
+      </div>
+      <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Per-Epic Budget</h3>
+      <table class="w-full text-left text-sm">
+        <thead class="text-xs uppercase bg-slate-50 dark:bg-slate-700">
+          <tr>
+            <th class="px-3 py-2">Epic</th>
+            <th class="px-3 py-2">Budget</th>
+            <th class="px-3 py-2">Spent</th>
+            <th class="px-3 py-2">Remaining</th>
+            <th class="px-3 py-2">% Used</th>
+          </tr>
+        </thead>
+        <tbody>${epicRows}</tbody>
+      </table>
+      <div class="mt-4">
+        <button ${csvDownload} class="chip info" style="cursor:pointer;font-size:12px;padding:6px 14px">Export Budget CSV</button>
+      </div>
+    </div>`;
+  }
+
+  // ── Pre-compute bugs per epic (needed inside epicBlocks) ───────────────
+  const _storyEpicMap = {};
+  data.stories.forEach((s) => {
+    _storyEpicMap[s.id] = s.epicId;
+  });
+  const _bugsByEpic = {};
+  data.bugs.forEach((b) => {
+    const ep = _storyEpicMap[normalizeStoryRef(b.relatedStory)] || '_ungrouped';
+    if (!_bugsByEpic[ep]) _bugsByEpic[ep] = [];
+    _bugsByEpic[ep].push(b);
+  });
+
+  // ── Column view: stories + bugs per epic ────────────────────────────────
+  const epicBlocks = data.epics
+    .map((epic, epicIdx) => {
+      const accent = EPIC_ACCENT_COLORS[epicIdx % EPIC_ACCENT_COLORS.length];
+      const epicStories = data.stories.filter((s) => s.epicId === epic.id);
+      const epicBugs = _bugsByEpic[epic.id] || [];
+      const epicProjected =
+        epicStories.reduce((s, st) => s + ((data.costs[st.id] && data.costs[st.id].projectedUsd) || 0), 0) +
+        epicBugs.reduce(
+          (s, b) => s + ((data.costs._bugs && data.costs._bugs[b.id] && data.costs._bugs[b.id].projectedUsd) || 0),
+          0,
+        );
+      const epicAI =
+        epicStories.reduce((s, st) => s + ((data.costs[st.id] || {}).costUsd || 0), 0) +
+        epicBugs.reduce(
+          (s, b) => s + ((data.costs._bugs && data.costs._bugs[b.id] && data.costs._bugs[b.id].costUsd) || 0),
+          0,
+        );
+      const epicIn =
+        epicStories.reduce((s, st) => s + ((data.costs[st.id] || {}).inputTokens || 0), 0) +
+        epicBugs.reduce(
+          (s, b) =>
+            s +
+            (data.costs._bugs && data.costs._bugs[b.id] && !data.costs._bugs[b.id].isEstimated
+              ? data.costs._bugs[b.id].inputTokens || 0
+              : 0),
+          0,
+        );
+      const epicOut =
+        epicStories.reduce((s, st) => s + ((data.costs[st.id] || {}).outputTokens || 0), 0) +
+        epicBugs.reduce(
+          (s, b) =>
+            s +
+            (data.costs._bugs && data.costs._bugs[b.id] && !data.costs._bugs[b.id].isEstimated
+              ? data.costs._bugs[b.id].outputTokens || 0
+              : 0),
+          0,
+        );
+      const ceid = `costs-ep-${jsEsc(epic.id)}`;
+      const storyCount = epicStories.length;
+      const bugCount = epicBugs.length;
+      const countLabel = [
+        storyCount ? `${storyCount} stor${storyCount !== 1 ? 'ies' : 'y'}` : '',
+        bugCount ? `${bugCount} bug${bugCount !== 1 ? 's' : ''}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      const storyRows = epicStories
+        .map((story) => {
+          const projected = (data.costs[story.id] && data.costs[story.id].projectedUsd) || 0;
+          const ai = data.costs[story.id] || {};
+          const storyHistory = (data.costHistory || {})[story.branch] || [];
+          const sparkSvg = sparkline(storyHistory.map((h) => h.costUsd));
+          return `<tr class="border-t border-slate-100 dark:border-slate-700">
+        <td class="px-3 py-2 pl-8 font-mono text-xs text-slate-500 whitespace-nowrap">${story.id}</td>
+        <td class="px-3 py-2 text-sm dark:text-slate-200">${esc(story.title)}</td>
+        <td class="px-3 py-2 text-center">${badge(story.status)}</td>
+        <td class="px-3 py-2 text-center text-sm dark:text-slate-200">${esc(story.estimate || '?')}</td>
+        <td class="px-3 py-2 text-right text-sm dark:text-slate-200">${usd(projected)}</td>
+        <td class="px-3 py-2 text-right text-sm text-teal-700 dark:text-teal-400">${usd(ai.costUsd || 0)}${sparkSvg}</td>
+        <td class="px-3 py-2 text-right text-xs text-slate-500 tokens-col">${fmtNum(ai.inputTokens || 0)} / ${fmtNum(ai.outputTokens || 0)}</td>
+      </tr>`;
+        })
+        .join('');
+      const bugRows = epicBugs.length
+        ? `<tr><td colspan="7" class="px-3 py-1" style="background:var(--clr-surface);font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-mute)">Bug Fixes</td></tr>` +
+          epicBugs
+            .map((bug) => {
+              const bc = (data.costs._bugs && data.costs._bugs[bug.id]) || {
+                costUsd: 0,
+                inputTokens: 0,
+                outputTokens: 0,
+              };
+              return `<tr class="border-t border-slate-100 dark:border-slate-700" style="opacity:.85">
+        <td class="px-3 py-2 pl-8 font-mono text-xs text-slate-500 whitespace-nowrap">${esc(bug.id)}</td>
+        <td class="px-3 py-2 text-sm dark:text-slate-200">${esc(bug.title)}</td>
+        <td class="px-3 py-2 text-center">${badge(bug.severity)}</td>
+        <td class="px-3 py-2 text-center">${badge(bug.status)}</td>
+        <td class="px-3 py-2 text-right text-sm dark:text-slate-200">${bc.projectedUsd > 0 ? usd(bc.projectedUsd) : '—'}</td>
+        <td class="px-3 py-2 text-right text-sm text-teal-700 dark:text-teal-400">${usd(bc.costUsd || 0)}</td>
+        <td class="px-3 py-2 text-right text-xs text-slate-500 tokens-col">${bc.isEstimated ? '—' : `${fmtNum(bc.inputTokens || 0)} / ${fmtNum(bc.outputTokens || 0)}`}</td>
+      </tr>`;
+            })
+            .join('')
+        : '';
+      // Per-section totals for breakdown display
+      const _storiesProj = epicStories.reduce(
+        (s, st) => s + ((data.costs[st.id] && data.costs[st.id].projectedUsd) || 0),
+        0,
+      );
+      const _bugsProj = epicBugs.reduce(
+        (s, b) => s + ((data.costs._bugs && data.costs._bugs[b.id] && data.costs._bugs[b.id].projectedUsd) || 0),
+        0,
+      );
+      const _storiesAI = epicStories.reduce((s, st) => s + ((data.costs[st.id] || {}).costUsd || 0), 0);
+      const _bugsAI = epicBugs.reduce(
+        (s, b) => s + ((data.costs._bugs && data.costs._bugs[b.id] && data.costs._bugs[b.id].costUsd) || 0),
+        0,
+      );
+      const breakdownNote = epicBugs.length
+        ? `<span style="font-size:10px;color:var(--text-mute);margin-left:6px">stories ${usd(_storiesProj)} · bugs ${usd(_bugsProj)}</span>`
+        : '';
+      return `<tbody>
+    <tr class="border-t-2 border-slate-300 dark:border-slate-600 cursor-pointer select-none anim-stagger" style="--i:${Math.min(epicIdx, 19)};background:${accent.bg}" onclick="toggleSection('${ceid}','${ceid}-arrow')">
+      <td colspan="4" class="px-3 py-2" style="border-left:4px solid ${accent.border}">
+        <span id="${ceid}-arrow" class="text-slate-400 text-xs mr-2">▶</span>
+        <span class="font-mono text-xs font-bold" style="color:${accent.border}">${epic.id}</span>
+        <span class="text-sm font-semibold ml-2 text-slate-700 dark:text-slate-200">${esc(epic.title)}</span>
+        <span class="ml-2">${badge(epic.status)}</span>
+        <span style="font-size:10px;color:var(--text-mute);margin-left:8px">${countLabel} · click to expand</span>
+      </td>
+      <td class="px-3 py-2 text-right text-sm font-medium dark:text-slate-200">${usd(epicProjected)}${breakdownNote}</td>
+      <td class="px-3 py-2 text-right text-sm font-medium text-teal-700 dark:text-teal-400">${usd(epicAI)}</td>
+      <td class="px-3 py-2 text-right text-xs text-slate-500 tokens-col">${fmtNum(epicIn)} / ${fmtNum(epicOut)}</td>
+    </tr>
+    </tbody><tbody id="${ceid}" class="hidden">${storyRows}${bugRows}</tbody>`;
+    })
+    .join('');
+
+  // ── Bug cost helpers (shared by column + card) ──────────────────────────
+  const allBugCosts = data.bugs.map(
+    (b) => (data.costs._bugs && data.costs._bugs[b.id]) || { costUsd: 0, inputTokens: 0, outputTokens: 0 },
+  );
+  const bugTotalAI = allBugCosts.reduce((s, bc) => s + (bc.costUsd || 0), 0);
+  const bugTotalProjected = allBugCosts.reduce((s, bc) => s + (bc.projectedUsd || 0), 0);
+  const bugTotalIn = allBugCosts.reduce((s, bc) => s + (bc.isEstimated ? 0 : bc.inputTokens || 0), 0);
+  const bugTotalOut = allBugCosts.reduce((s, bc) => s + (bc.isEstimated ? 0 : bc.outputTokens || 0), 0);
+
+  // ── Bug cost epic grouping ───────────────────────────────────────────────
+  const bugCostStoryEpicMap = {};
+  data.stories.forEach((s) => {
+    bugCostStoryEpicMap[s.id] = s.epicId;
+  });
+  const bugCostEpicGroupIds = [];
+  const bugsByCostEpic = {};
+  data.bugs.forEach((bug) => {
+    const epicId = bugCostStoryEpicMap[normalizeStoryRef(bug.relatedStory)] || '_ungrouped';
+    if (!bugsByCostEpic[epicId]) {
+      bugsByCostEpic[epicId] = [];
+      bugCostEpicGroupIds.push(epicId);
+    }
+    bugsByCostEpic[epicId].push(bug);
+  });
+  const bugCostEpicOrder = [...new Set(bugCostEpicGroupIds)].sort((a, b) => {
+    if (a === '_ungrouped') return 1;
+    if (b === '_ungrouped') return -1;
+    return a.localeCompare(b);
+  });
+
+  // ── Column view: bug rows grouped by epic ────────────────────────────────
+  const bugColGroups = bugCostEpicOrder
+    .map((epicId, i) => {
+      const bugs = bugsByCostEpic[epicId];
+      const epic = data.epics.find((e) => e.id === epicId);
+      const accent = EPIC_ACCENT_COLORS[i % EPIC_ACCENT_COLORS.length];
+      const label = epic ? `${epicId}: ${esc(epic.title)}` : epicId === '_ungrouped' ? 'No Epic' : epicId;
+      const bceid = `bug-costs-ep-${epicId.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      const epicProjected = bugs.reduce(
+        (s, b) => s + ((data.costs._bugs && data.costs._bugs[b.id] && data.costs._bugs[b.id].projectedUsd) || 0),
+        0,
+      );
+      const epicAI = bugs.reduce(
+        (s, b) => s + ((data.costs._bugs && data.costs._bugs[b.id] && data.costs._bugs[b.id].costUsd) || 0),
+        0,
+      );
+      const epicIn = bugs.reduce(
+        (s, b) =>
+          s +
+          (data.costs._bugs && data.costs._bugs[b.id] && !data.costs._bugs[b.id].isEstimated
+            ? data.costs._bugs[b.id].inputTokens || 0
+            : 0),
+        0,
+      );
+      const epicOut = bugs.reduce(
+        (s, b) =>
+          s +
+          (data.costs._bugs && data.costs._bugs[b.id] && !data.costs._bugs[b.id].isEstimated
+            ? data.costs._bugs[b.id].outputTokens || 0
+            : 0),
+        0,
+      );
+      const bugRows = bugs
+        .map((bug) => {
+          const bc = (data.costs._bugs && data.costs._bugs[bug.id]) || { costUsd: 0, inputTokens: 0, outputTokens: 0 };
+          return `<tr class="border-t border-slate-100 dark:border-slate-700">
+        <td class="px-3 py-2 pl-8 font-mono text-xs text-slate-500 whitespace-nowrap">${esc(bug.id)}</td>
+        <td class="px-3 py-2 text-sm dark:text-slate-200">${esc(bug.title)}</td>
+        <td class="px-3 py-2 text-center">${badge(bug.severity)}</td>
+        <td class="px-3 py-2 text-center">${badge(bug.status)}</td>
+        <td class="px-3 py-2 text-xs text-slate-500">${esc(bug.relatedStory || '—')}</td>
+        <td class="px-3 py-2 text-xs text-slate-500">${esc(bug.fixBranch || '—')}</td>
+        <td class="px-3 py-2 text-right text-sm dark:text-slate-200">${bc.projectedUsd > 0 ? usd(bc.projectedUsd) : '—'}</td>
+        <td class="px-3 py-2 text-right text-sm text-teal-700 dark:text-teal-400">${bc.costUsd > 0 ? (bc.isEstimated ? `<span title="Estimated cost">≈${usd(bc.costUsd)}</span>` : usd(bc.costUsd)) : '—'}</td>
+        <td class="px-3 py-2 text-right text-xs text-slate-500 tokens-col">${bc.isEstimated ? '—' : `${fmtNum(bc.inputTokens)} / ${fmtNum(bc.outputTokens)}`}</td>
+      </tr>`;
+        })
+        .join('');
+      return `<tbody>
+    <tr class="border-t-2 border-slate-300 dark:border-slate-600 cursor-pointer select-none bug-epic-header" data-epic="${esc(epicId)}" style="background:${accent.bg}" onclick="toggleSection('${jsEsc(bceid)}','${jsEsc(bceid)}-arrow')">
+      <td colspan="6" class="px-3 py-2" style="border-left:4px solid ${accent.border}">
+        <span id="${bceid}-arrow" class="text-slate-400 text-xs mr-2">&#9654;</span>
+        ${epicId !== '_ungrouped' ? `<span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:${accent.border}">${epicId}</span>` : ''}
+        ${epic ? badge(epic.status) : ''}
+        <span class="font-semibold dark:text-slate-100">${epicId === '_ungrouped' ? 'No Epic' : esc(epic ? epic.title : epicId)}</span>
+        <span class="ml-2 text-xs text-slate-500 bug-count">(${bugs.length})</span>
+      </td>
+      <td class="px-3 py-2 text-right text-sm font-medium dark:text-slate-200">${epicProjected > 0 ? usd(epicProjected) : '—'}</td>
+      <td class="px-3 py-2 text-right text-sm font-medium text-teal-700 dark:text-teal-400">${usd(epicAI)}</td>
+      <td class="px-3 py-2 text-right text-xs text-slate-500 tokens-col">${fmtNum(epicIn)} / ${fmtNum(epicOut)}</td>
+    </tr>
+    </tbody><tbody id="${bceid}" class="hidden">${bugRows}</tbody>`;
+    })
+    .join('');
+
+  // ── Card view: story cards grouped by epic ──────────────────────────────
+  const epicCardBlocks = data.epics
+    .map((epic) => {
+      const epicStories = data.stories.filter((s) => s.epicId === epic.id);
+      const epicBugs = _bugsByEpic[epic.id] || [];
+      if (!epicStories.length && !epicBugs.length) return '';
+      const storyCards = epicStories
+        .map((story) => {
+          const ai = data.costs[story.id] || {};
+          const projected = ai.projectedUsd || 0;
+          return `<div class="card-elev rounded-lg p-4 flex flex-col gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="font-mono text-xs text-slate-500 whitespace-nowrap">${story.id}</span>
+          ${badge(story.status)}
+          <span class="ml-auto text-xs text-slate-400">${esc(story.estimate || '?')}</span>
+        </div>
+        <p class="text-sm font-medium dark:text-slate-200">${esc(story.title)}</p>
+        <div class="cost-detail-grid text-xs mt-1">
+          <div><span class="text-slate-500 block">Projected</span><span class="font-mono dark:text-slate-200">${usd(projected)}</span></div>
+          <div><span class="text-slate-500 block">AI Actual</span><span class="font-mono text-teal-700 dark:text-teal-400">${usd(ai.costUsd || 0)}</span></div>
+          <div class="tokens-col col-span-2"><span class="text-slate-500 block">Tokens (in / out)</span><span class="font-mono text-slate-500">${fmtNum(ai.inputTokens || 0)} / ${fmtNum(ai.outputTokens || 0)}</span></div>
+        </div>
+      </div>`;
+        })
+        .join('');
+      const bugCards = epicBugs.length
+        ? `<div style="grid-column:1/-1;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-mute);padding:4px 0 2px">Bug Fixes (${epicBugs.length})</div>` +
+          epicBugs
+            .map((bug) => {
+              const bc = (data.costs._bugs && data.costs._bugs[bug.id]) || {};
+              return `<div class="card-elev rounded-lg p-4 flex flex-col gap-2" style="opacity:.85;border-left:3px solid var(--warn)">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="font-mono text-xs text-slate-500 whitespace-nowrap">${esc(bug.id)}</span>
+          ${badge(bug.severity)}
+          ${badge(bug.status)}
+        </div>
+        <p class="text-sm font-medium dark:text-slate-200">${esc(bug.title)}</p>
+        <div class="cost-detail-grid text-xs mt-1">
+          <div><span class="text-slate-500 block">Projected</span><span class="font-mono dark:text-slate-200">${bc.projectedUsd ? usd(bc.projectedUsd) : '—'}</span></div>
+          <div><span class="text-slate-500 block">AI Actual</span><span class="font-mono text-teal-700 dark:text-teal-400">${usd(bc.costUsd || 0)}</span></div>
+          <div class="tokens-col col-span-2"><span class="text-slate-500 block">Tokens (in / out)</span><span class="font-mono text-slate-500">${bc.isEstimated ? '—' : `${fmtNum(bc.inputTokens || 0)} / ${fmtNum(bc.outputTokens || 0)}`}</span></div>
+        </div>
+      </div>`;
+            })
+            .join('')
+        : '';
+      const epicStoriesProj = epicStories.reduce((s, st) => s + ((data.costs[st.id] || {}).projectedUsd || 0), 0);
+      const epicStoriesAI = epicStories.reduce((s, st) => s + ((data.costs[st.id] || {}).costUsd || 0), 0);
+      const epicBugsProj = epicBugs.reduce(
+        (s, b) => s + ((data.costs._bugs && data.costs._bugs[b.id] && data.costs._bugs[b.id].projectedUsd) || 0),
+        0,
+      );
+      const epicBugsAI = epicBugs.reduce(
+        (s, b) => s + ((data.costs._bugs && data.costs._bugs[b.id] && data.costs._bugs[b.id].costUsd) || 0),
+        0,
+      );
+      const epicProjTotal = epicStoriesProj + epicBugsProj;
+      const epicAITotal = epicStoriesAI + epicBugsAI;
+      const breakdownHtml =
+        epicBugsProj > 0
+          ? `<span style="font-size:10px;color:var(--text-mute)"> (stories ${usd(epicStoriesProj)} · bugs ${usd(epicBugsProj)})</span>`
+          : '';
+      const countLabel = [
+        epicStories.length ? `${epicStories.length} stor${epicStories.length !== 1 ? 'ies' : 'y'}` : '',
+        epicBugs.length ? `${epicBugs.length} bug${epicBugs.length !== 1 ? 's' : ''}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ');
+      const cceid = `costs-card-ep-${jsEsc(epic.id)}`;
+      const accent2 = EPIC_ACCENT_COLORS[data.epics.indexOf(epic) % EPIC_ACCENT_COLORS.length];
+      return `<div class="mb-6 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden" style="border-left:4px solid ${accent2.border}">
+      <div class="flex items-center gap-2 px-3 py-2 flex-wrap cursor-pointer select-none" style="background:${accent2.bg}" onclick="toggleSection('${cceid}','${cceid}-arrow')">
+        <span id="${cceid}-arrow" class="text-slate-400 text-xs w-3 flex-shrink-0">▶</span>
+        <span class="font-mono text-xs font-bold" style="color:${accent2.border}">${epic.id}</span>
+        <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">${esc(epic.title)}</span>
+        ${badge(epic.status)}
+        <span style="font-size:10px;color:var(--text-mute);margin-left:4px">${countLabel}</span>
+        <span class="ml-auto text-xs text-slate-500">Proj ${usd(epicProjTotal)} · AI ${usd(epicAITotal)}${breakdownHtml}</span>
+      </div>
+      <div id="${cceid}" class="p-3 hidden">
+        <div class="story-card-grid">${storyCards}${bugCards}</div>
+      </div>
+    </div>`;
+    })
+    .join('');
+
+  // ── Card view: bug cards grouped by epic ────────────────────────────────
+  const bugCardEpicBlocks = bugCostEpicOrder
+    .map((epicId, i) => {
+      const bugs = bugsByCostEpic[epicId];
+      const epic = data.epics.find((e) => e.id === epicId);
+      const accent = EPIC_ACCENT_COLORS[i % EPIC_ACCENT_COLORS.length];
+      const label = epic ? `${epicId}: ${esc(epic.title)}` : epicId === '_ungrouped' ? 'No Epic' : epicId;
+      const bcceid = `bug-costs-card-ep-${epicId.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      const epicBugProjected = bugs.reduce(
+        (s, b) => s + ((data.costs._bugs && data.costs._bugs[b.id] && data.costs._bugs[b.id].projectedUsd) || 0),
+        0,
+      );
+      const epicBugAI = bugs.reduce(
+        (s, b) =>
+          s +
+          (data.costs._bugs && data.costs._bugs[b.id] && !data.costs._bugs[b.id].isEstimated
+            ? data.costs._bugs[b.id].costUsd || 0
+            : 0),
+        0,
+      );
+      const bugCardItems = bugs
+        .map((bug) => {
+          const bc = (data.costs._bugs && data.costs._bugs[bug.id]) || {};
+          return `<div class="card-elev rounded-lg p-4 flex flex-col gap-2">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="font-mono text-xs text-slate-500 whitespace-nowrap">${esc(bug.id)}</span>
+          ${badge(bug.severity)} ${badge(bug.status)}
+        </div>
+        <p class="text-sm font-medium dark:text-slate-200">${esc(bug.title)}</p>
+        <div class="text-xs text-slate-500">Story: <span class="font-mono">${esc(bug.relatedStory || '—')}</span></div>
+        <div class="cost-detail-grid text-xs mt-1">
+          <div>
+            <span class="text-slate-500 block">Projected</span>
+            <span class="font-mono dark:text-slate-200">${bc.projectedUsd > 0 ? usd(bc.projectedUsd) : '—'}</span>
+          </div>
+          <div>
+            <span class="text-slate-500 block">AI Actual</span>
+            <span class="font-mono text-teal-700 dark:text-teal-400">${bc.isEstimated ? '—' : usd(bc.costUsd || 0)}</span>
+          </div>
+        </div>
+      </div>`;
+        })
+        .join('');
+      return `<div class="border-t-2 border-slate-300 dark:border-slate-600 bug-epic-card" data-epic="${esc(epicId)}" style="background:${accent.bg}">
+      <div class="flex items-center gap-2 px-3 py-2 flex-wrap cursor-pointer select-none bug-epic-header" data-epic="${esc(epicId)}" style="border-left:4px solid ${accent.border}" onclick="toggleSection('${jsEsc(bcceid)}','${jsEsc(bcceid)}-arrow')">
+        <span id="${bcceid}-arrow" class="text-slate-400 text-xs w-3 flex-shrink-0">▶</span>
+        ${epicId !== '_ungrouped' ? `<span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:${accent.border}">${epicId}</span>` : ''}
+        ${epic ? badge(epic.status) : ''}
+        <span class="font-semibold dark:text-slate-100">${epicId === '_ungrouped' ? 'No Epic' : esc(epic ? epic.title : epicId)}</span>
+        <span class="ml-2 text-xs text-slate-500 bug-count">(${bugs.length})</span>
+        <span class="ml-auto text-xs text-slate-500">Proj ${usd(epicBugProjected)} · AI ${usd(epicBugAI)}</span>
+      </div>
+      <div id="${bcceid}" class="p-3 hidden">
+        <div class="story-card-grid">${bugCardItems}</div>
+      </div>
+    </div>`;
+    })
+    .join('');
+
+  // Bug costs are now shown inside each epic expansion above.
+  // Keep a compact summary note only.
+  const bugFixColumnSection = data.bugs.length
+    ? `<p style="font-size:11px;color:var(--text-mute);margin-top:8px">Bug fix costs are included in each epic's row totals above. Bug total: projected ${usd(bugTotalProjected)} · AI ${usd(bugTotalAI)}.</p>`
+    : '';
+
+  // Bug cards are now inline within each epic block above.
+  const bugFixCardSection = '';
+
+  return `
+  <div id="tab-costs" class="p-6 hidden" role="tabpanel" aria-labelledby="tab-btn-costs">
+    ${cacheHitTile}
+    ${budgetSection}
+    <div class="flex items-center justify-between mb-4 flex-shrink-0">
+      <span class="text-sm text-slate-500 dark:text-slate-400">${data.stories.length} stories · ${data.bugs.length} bugs</span>
+      <div class="flex gap-1">
+        <button id="costs-col-btn" onclick="setCostsView('column')"
+          class="view-toggle-btn">
+          ≡ Column
+        </button>
+        <button id="costs-card-btn" onclick="setCostsView('card')"
+          class="view-toggle-btn">
+          ⊞ Card
+        </button>
+      </div>
+    </div>
+
+    <div id="costs-column-view" class="flex flex-col">
+      <div class="scroll-table">
+      <table class="w-full text-left text-sm border-collapse">
+        <thead class="text-xs uppercase">
+          <tr>
+            <th class="px-3 py-2">Story</th><th class="px-3 py-2">Title</th><th class="px-3 py-2 text-center">Status</th>
+            <th class="px-3 py-2 text-center">Size</th><th class="px-3 py-2 text-right">Projected</th>
+            <th class="px-3 py-2 text-right">AI Cost</th><th class="px-3 py-2 text-right tokens-col">Tokens (in/out)</th>
+          </tr>
+        </thead>
+        <tbody>${epicBlocks}</tbody>
+        <tfoot class="bg-slate-50 dark:bg-slate-700 font-semibold border-t-2 border-slate-300 dark:border-slate-600">
+          <tr>
+            <td colspan="4" class="px-3 py-2 text-right text-sm dark:text-slate-200">Totals</td>
+            <td class="px-3 py-2 text-right text-sm dark:text-slate-200">${usd(totalProjected)}</td>
+            <td class="px-3 py-2 text-right text-sm text-teal-700 dark:text-teal-400">${usd(t.costUsd + bugTotalAI)}</td>
+            <td class="px-3 py-2 text-right text-xs text-slate-500 tokens-col">${fmtNum(t.inputTokens)} / ${fmtNum(t.outputTokens)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      </div>
+      ${bugFixColumnSection}
+    </div>
+
+    <div id="costs-card-view" class="hidden">
+      ${epicCardBlocks}
+      ${bugFixCardSection}
+    </div>
+  </div>
+  <script>
+  function setCostsView(v) {
+    var col = document.getElementById('costs-column-view');
+    var card = document.getElementById('costs-card-view');
+    var colBtn = document.getElementById('costs-col-btn');
+    var cardBtn = document.getElementById('costs-card-btn');
+    if (!col) return;
+    col.classList.toggle('hidden', v !== 'column');
+    card.classList.toggle('hidden', v !== 'card');
+    colBtn.classList.toggle('active-view', v === 'column');
+    cardBtn.classList.toggle('active-view', v === 'card');
+    localStorage.setItem('costsView', v);
+  }
+  (function() { setCostsView(localStorage.getItem('costsView') || 'column'); })();
+  </script>`;
+}
+
+function renderBugsTab(data) {
+  if (!data.bugs.length) {
+    return `<div id="tab-bugs" class="p-6 hidden" role="tabpanel" aria-labelledby="tab-btn-bugs"><p class="text-slate-500">No bugs logged yet.</p></div>`;
+  }
+
+  // AC-0351: severity tone helper
+  function severityTone(sev) {
+    if (!sev) return 'neutral';
+    const s = sev.toLowerCase();
+    if (s === 'critical' || s === 'high') return 'danger';
+    if (s === 'medium') return 'warn';
+    return 'neutral';
+  }
+
+  // AC-0352: severity stripe color helper
+  function severityStripeColor(sev) {
+    if (!sev) return 'transparent';
+    const s = sev.toLowerCase();
+    if (s === 'critical' || s === 'high') return 'var(--badge-danger-text)';
+    if (s === 'medium') return 'var(--badge-warn-text)';
+    return 'var(--badge-neutral-text)';
+  }
+
+  // AC-0351: severity badge with badge-sev class
+  const sevBadge = (sev) => `<span class="badge badge-${severityTone(sev)} badge-sev">${esc(sev || '')}</span>`;
+
+  const lessonCell = (bug) => {
+    if (!bug.lessonEncoded || !bug.lessonEncoded.startsWith('Yes')) return '○';
+    const lm = bug.lessonEncoded.match(/L-\d{4}/);
+    if (!lm) return '✓';
+    // AC-0354: lesson pill link
+    return `<a href="#" onclick="showTab('lessons');setTimeout(function(){var colView=document.getElementById('lessons-column-view');var prefix=colView&&!colView.classList.contains('hidden')?'lesson-col-':'lesson-card-';var el=document.getElementById(prefix+'${lm[0]}');if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},50);return false;" title="View lesson ${lm[0]}" style="text-decoration:none"><span class="lesson-pill"><span class="lesson-pill-id">${esc(lm[0])}</span><span>↗</span></span></a>`;
+  };
+
+  // Build story→epic map
+  const storyEpicMap = {};
+  data.stories.forEach((s) => {
+    storyEpicMap[s.id] = s.epicId;
+  });
+
+  // Group bugs by epic
+  const bugEpicIds = [];
+  const bugsByEpic = {};
+  data.bugs.forEach((bug) => {
+    const epicId = storyEpicMap[normalizeStoryRef(bug.relatedStory)] || '_ungrouped';
+    if (!bugsByEpic[epicId]) {
+      bugsByEpic[epicId] = [];
+      bugEpicIds.push(epicId);
+    }
+    bugsByEpic[epicId].push(bug);
+  });
+  const bugEpicOrder = [...new Set(bugEpicIds)].sort((a, b) => {
+    if (a === '_ungrouped') return 1;
+    if (b === '_ungrouped') return -1;
+    return a.localeCompare(b);
+  });
+
+  // BUG-0165 / AC-0352 — severity stripe on the first td of every row.
+  const renderBugRow = (bug, accent, bugIdx = 0) => {
+    const epicId = storyEpicMap[normalizeStoryRef(bug.relatedStory)] || '_ungrouped';
+    const severityLeft = `border-left:4px solid ${severityStripeColor(bug.severity)};`;
+    return `
+    <tr id="bug-row-${esc(bug.id)}" class="bug-row border-t border-slate-100 dark:border-slate-700 anim-stagger" style="--i:${Math.min(bugIdx, 19)}" data-status="${esc(bug.status)}" data-epic="${esc(epicId)}" data-severity="${esc(bug.severity)}">
+      <td class="px-3 py-2 font-mono text-xs whitespace-nowrap dark:text-slate-200" style="${severityLeft}">${esc(bug.id)}</td>
+      <td class="px-3 py-2 text-sm dark:text-slate-200">${esc(bug.title)}</td>
+      <td class="px-3 py-2 text-center">${sevBadge(bug.severity)}</td>
+      <td class="px-3 py-2 text-center">${badge(bug.status)}</td>
+      <td class="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">${esc(bug.relatedStory)}</td>
+      <td class="px-3 py-2 text-xs text-slate-500"><span class="truncate" title="${esc(bug.fixBranch || '')}">${esc(bug.fixBranch || '—')}<button class="copy-btn" onclick="navigator.clipboard.writeText('${jsEsc(bug.fixBranch || '')}')">&#x29c7;</button></span></td>
+      <td class="px-3 py-2 text-center text-xs dark:text-slate-200">${lessonCell(bug)}</td>
+    </tr>`;
+  };
+
+  // AC-0352: bug cards get border-left severity stripe
+  const renderBugCard = (bug, bugIdx = 0) => {
+    const epicId = storyEpicMap[normalizeStoryRef(bug.relatedStory)] || '_ungrouped';
+    return `
+    <div id="bug-card-${esc(bug.id)}" class="bug-row story-card-hover card-elev rounded-lg p-4 flex flex-col gap-2 anim-stagger" style="--i:${Math.min(bugIdx, 19)};border-left:4px solid ${severityStripeColor(bug.severity)}" data-status="${esc(bug.status)}" data-epic="${esc(epicId)}" data-severity="${esc(bug.severity)}">
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="font-mono text-xs text-slate-500 whitespace-nowrap">${esc(bug.id)}</span>
+        ${sevBadge(bug.severity)} ${badge(bug.status)}
+      </div>
+      <p class="text-sm font-medium dark:text-slate-200">${esc(bug.title)}</p>
+      <div class="text-xs text-slate-500 flex flex-col gap-0.5">
+        <span>Story: <span class="font-mono">${esc(bug.relatedStory || '—')}</span></span>
+        <span class="truncate" title="${esc(bug.fixBranch || '')}">Branch: <span class="font-mono">${esc(bug.fixBranch || '—')}</span><button class="copy-btn" onclick="navigator.clipboard.writeText('${jsEsc(bug.fixBranch || '')}')">&#x29c7;</button></span>
+      </div>
+      <div class="flex items-center justify-between mt-1">
+        <span class="text-xs text-slate-500">Lesson: <span class="dark:text-slate-200">${lessonCell(bug)}</span></span>
+      </div>
+    </div>`;
+  };
+
+  const openBugCount = (bugs) =>
+    bugs.filter((b) => !/^(Fixed|Retired|Cancelled|Verified|Closed)/i.test(b.status)).length;
+
+  // AC-0355: compact view rows (flat, no epic grouping) — BUG-0225: sort ascending by ID
+  const compactRows = [...data.bugs]
+    .sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+    .map(
+      (bug) => `
+    <div class="bug-compact-row" data-status="${esc(bug.status)}" data-severity="${esc(bug.severity)}" data-epic="${esc(storyEpicMap[normalizeStoryRef(bug.relatedStory)] || '_ungrouped')}" style="border-left:4px solid ${severityStripeColor(bug.severity)}">
+      <span class="bug-compact-id">${esc(bug.id)}</span>
+      <span class="bug-compact-title">${esc(bug.title)}</span>
+      ${sevBadge(bug.severity)}
+      <span class="badge badge-${BADGE_TONE[bug.status] || 'neutral'}">${esc(bug.status)}</span>
+    </div>`,
+    )
+    .join('');
+
+  const bugColGroups = bugEpicOrder
+    .map((epicId, i) => {
+      const bugs = bugsByEpic[epicId];
+      const epic = data.epics.find((e) => e.id === epicId);
+      const accent = EPIC_ACCENT_COLORS[i % EPIC_ACCENT_COLORS.length];
+      const beid = `bugs-ep-${epicId.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      const open = openBugCount(bugs);
+      const titlePart = epic
+        ? `<span class="font-semibold dark:text-slate-100">${esc(epic.title)}</span>`
+        : epicId === '_ungrouped'
+          ? `<span class="italic text-slate-500">No Epic</span>`
+          : '';
+      // BUG-0165 — header mirrors Hierarchy: left-accent bar, epic-id +
+      // status badge + title + aggregate counter on the right.
+      // BUG-0167 — default-collapsed to match Hierarchy; ▶ arrow + hidden tbody.
+      return `<tbody>
+    <tr class="border-t-2 border-slate-300 dark:border-slate-600 cursor-pointer select-none bug-epic-header" data-epic="${epicId}" style="background:${accent.bg}" onclick="toggleSection('${beid}','${beid}-arrow')">
+      <td colspan="7" class="px-3 py-2" style="border-left:4px solid ${accent.border};">
+        <div class="flex flex-wrap items-center gap-3">
+          <span id="${beid}-arrow" class="text-slate-400 text-xs w-3 flex-shrink-0">▶</span>
+          ${epicId !== '_ungrouped' ? `<span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:${accent.border}">${epicId}</span>` : ''}
+          ${epic ? badge(epic.status) : ''}
+          ${titlePart}
+          <span class="ml-auto text-xs text-slate-500 bug-count">${open} open &middot; ${bugs.length} total</span>
+        </div>
+      </td>
+    </tr>
+    </tbody><tbody id="${beid}" class="hidden">${bugs.map((b, bugIdx) => renderBugRow(b, accent, bugIdx)).join('')}</tbody>`;
+    })
+    .join('');
+
+  const bugCardGroups = bugEpicOrder
+    .map((epicId, i) => {
+      const bugs = bugsByEpic[epicId];
+      const epic = data.epics.find((e) => e.id === epicId);
+      const accent = EPIC_ACCENT_COLORS[i % EPIC_ACCENT_COLORS.length];
+      const bceid = `bugs-card-ep-${epicId.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      const open = openBugCount(bugs);
+      const titlePart = epic
+        ? `<span class="font-semibold dark:text-slate-100">${esc(epic.title)}</span>`
+        : epicId === '_ungrouped'
+          ? `<span class="italic text-slate-500">No Epic</span>`
+          : '';
+      // BUG-0168 — mb-2 matches Hierarchy's tight spacing between epic groups.
+      return `<div class="border-t-2 border-slate-300 dark:border-slate-600 bug-epic-card" data-epic="${epicId}" style="background:${accent.bg}">
+      <div class="flex flex-wrap items-center gap-3 px-3 py-2 cursor-pointer select-none bug-epic-header" data-epic="${epicId}" style="border-left:4px solid ${accent.border}" onclick="toggleSection('${bceid}','${bceid}-arrow')">
+        <span id="${bceid}-arrow" class="text-slate-400 text-xs w-3 flex-shrink-0">▶</span>
+        ${epicId !== '_ungrouped' ? `<span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:${accent.border}">${epicId}</span>` : ''}
+        ${epic ? badge(epic.status) : ''}
+        ${titlePart}
+        <span class="ml-auto text-xs text-slate-500 bug-count">${open} open &middot; ${bugs.length} total</span>
+      </div>
+      <div id="${bceid}" class="p-3 hidden">
+        <div class="story-card-grid">${bugs.map((b, bugIdx) => renderBugCard(b, bugIdx)).join('')}</div>
+      </div>
+    </div>`;
+    })
+    .join('');
+
+  return `
+  <div id="tab-bugs" class="p-6 hidden tab-fill" role="tabpanel" aria-labelledby="tab-btn-bugs">
+    <div class="flex items-center justify-between mb-4 flex-shrink-0">
+      <span class="text-sm text-slate-500 dark:text-slate-400">${data.bugs.length} bug${data.bugs.length !== 1 ? 's' : ''}</span>
+      <div class="flex gap-1">
+        <button id="bugs-col-btn" onclick="setBugsView('column')"
+          class="view-toggle-btn">
+          ≡ Column
+        </button>
+        <button id="bugs-card-btn" onclick="setBugsView('card')"
+          class="view-toggle-btn">
+          ⊞ Card
+        </button>
+        <button id="bugs-compact-btn" onclick="setBugsView('compact')"
+          class="view-toggle-btn">
+          ☰ Compact
+        </button>
+      </div>
+    </div>
+
+    <div id="bugs-column-view" class="scroll-table">
+      <table class="w-full text-left text-sm border-collapse">
+        <thead class="text-xs uppercase">
+          <tr>
+            <th class="px-3 py-2">ID</th><th class="px-3 py-2">Title</th><th class="px-3 py-2 text-center">Severity</th>
+            <th class="px-3 py-2 text-center">Status</th><th class="px-3 py-2">Story</th>
+            <th class="px-3 py-2">Branch</th><th class="px-3 py-2 text-center whitespace-nowrap" style="min-width:8rem">Lesson</th>
+          </tr>
+        </thead>
+        ${bugColGroups}
+      </table>
+    </div>
+
+    <div id="bugs-card-view" class="hidden" style="overflow-y:auto">
+      ${bugCardGroups}
+    </div>
+
+    <div id="bugs-compact-view" class="hidden" style="overflow-y:auto">
+      ${compactRows}
+    </div>
+  </div>
+  <script>
+  function setBugsView(v) {
+    var col = document.getElementById('bugs-column-view');
+    var card = document.getElementById('bugs-card-view');
+    var compact = document.getElementById('bugs-compact-view');
+    var colBtn = document.getElementById('bugs-col-btn');
+    var cardBtn = document.getElementById('bugs-card-btn');
+    var compactBtn = document.getElementById('bugs-compact-btn');
+    if (!col) return;
+    col.classList.toggle('hidden', v !== 'column');
+    card.classList.toggle('hidden', v !== 'card');
+    if (compact) compact.classList.toggle('hidden', v !== 'compact');
+    colBtn.classList.toggle('active-view', v === 'column');
+    cardBtn.classList.toggle('active-view', v === 'card');
+    if (compactBtn) compactBtn.classList.toggle('active-view', v === 'compact');
+    localStorage.setItem('bugsView', v);
+  }
+  (function() { setBugsView(localStorage.getItem('bugsView') || 'column'); })();
+  </script>`;
+}
+
+function renderLessonsTab(data) {
+  const lessons = data.lessons || [];
+  if (!lessons.length) {
+    return `<div id="tab-lessons" class="p-6 hidden" role="tabpanel" aria-labelledby="tab-btn-lessons"><p class="text-slate-500">No lessons logged yet.</p></div>`;
+  }
+
+  // Build reverse map: lessonId → first bugId that references it
+  const lessonBugMap = {};
+  for (const bug of data.bugs) {
+    const m = bug.lessonEncoded && bug.lessonEncoded.match(/L-\d{4}/);
+    if (m && !lessonBugMap[m[0]]) lessonBugMap[m[0]] = bug.id;
+  }
+
+  const bugRefLink = (lessonId) => {
+    const bugId = lessonBugMap[lessonId];
+    if (!bugId) return '—';
+    return `<a href="#" onclick="showTab('bugs');setTimeout(function(){var el=document.getElementById('bug-row-${bugId}');if(el)el.scrollIntoView({behavior:'smooth',block:'center'});},50);return false;" class="text-blue-600 dark:text-blue-400 hover:underline font-mono text-xs">${bugId} ↗</a>`;
+  };
+
+  // US-0107 AC-0357: Category icon derived from keyword match in rule text
+  function categoryIcon(rule) {
+    const r = (rule || '').toLowerCase();
+    if (/security|auth|credential|secret|token|inject/.test(r)) return '🔒';
+    if (/performance|cache|slow|memory|latency|timeout/.test(r)) return '⚡';
+    if (/test|coverage|mock|assert|spec/.test(r)) return '🧪';
+    return '💡';
+  }
+
+  // US-0107 AC-0358: Related bug inline expansion with severity dot
+  function lessonBugDetails(l, bugs) {
+    // Use l.bugIds (from parseLessons) or fall back to BUG-XXXX in lessonEncoded
+    const bugIds =
+      l.bugIds && l.bugIds.length > 0
+        ? l.bugIds
+        : (() => {
+            const m = (l.lessonEncoded || '').match(/BUG-\d{4}/);
+            return m ? [m[0]] : [];
+          })();
+    if (!bugIds.length) return '';
+    return bugIds
+      .map((bugId) => {
+        const bug = (bugs || []).find((b) => b.id === bugId);
+        if (!bug) return `<span class="text-xs text-slate-400">${esc(bugId)}</span>`;
+        const dotColor =
+          bug.severity === 'Critical' || bug.severity === 'High'
+            ? 'var(--badge-danger-text)'
+            : bug.severity === 'Medium'
+              ? 'var(--badge-warn-text)'
+              : 'var(--badge-neutral-text)';
+        return `<details class="lesson-bug-inline">
+    <summary class="cursor-pointer text-xs text-slate-500 hover:text-slate-700 list-none flex items-center gap-1">
+      <span class="inline-block w-2 h-2 rounded-full flex-shrink-0" style="background:${dotColor}"></span>
+      <span class="font-mono">${esc(bugId)}</span>
+    </summary>
+    <div class="mt-1 text-xs text-slate-600 dark:text-slate-400 pl-3">
+      ${esc(bug.title || '')} — <span class="badge badge-${BADGE_TONE[bug.severity] || 'neutral'}">${esc(bug.severity || '')}</span>
+    </div>
+  </details>`;
+      })
+      .join('');
+  }
+
+  // Build lesson→epic grouping via lesson→bug→story→epic
+  const lessonStoryMap = {};
+  for (const bug of data.bugs) {
+    const m = bug.lessonEncoded && bug.lessonEncoded.match(/L-\d{4}/);
+    if (m) lessonStoryMap[m[0]] = normalizeStoryRef(bug.relatedStory);
+  }
+  const lessonStoryEpicMap = {};
+  data.stories.forEach((s) => {
+    lessonStoryEpicMap[s.id] = s.epicId;
+  });
+
+  const lessonsByEpic = {};
+  lessons.forEach((l) => {
+    const storyId = lessonStoryMap[l.id];
+    const epicId = (storyId && lessonStoryEpicMap[storyId]) || '_ungrouped';
+    if (!lessonsByEpic[epicId]) lessonsByEpic[epicId] = [];
+    lessonsByEpic[epicId].push(l);
+  });
+  // BUG-0256: deterministic order so the dashboard isn't a random shuffle.
+  //  - within each epic group, sort lessons by L-ID descending (newest first)
+  //  - across epics, sort by EPIC ID ascending; _ungrouped goes last
+  const lessonIdNum = (id) => parseInt(String(id).replace(/[^0-9]/g, ''), 10) || 0;
+  Object.keys(lessonsByEpic).forEach((eid) => {
+    lessonsByEpic[eid].sort((a, b) => lessonIdNum(b.id) - lessonIdNum(a.id));
+  });
+  const lessonEpicOrder = Object.keys(lessonsByEpic).sort((a, b) => {
+    if (a === '_ungrouped') return 1;
+    if (b === '_ungrouped') return -1;
+    return a.localeCompare(b);
+  });
+
+  const renderLessonRow = (l) => `
+  <tr id="lesson-col-${l.id}" class="lesson-row border-t border-slate-100 dark:border-slate-700 align-top">
+    <td class="px-3 py-3 font-mono text-xs text-blue-600 dark:text-blue-400 whitespace-nowrap">${l.id}</td>
+    <td class="px-3 py-3 text-sm text-slate-700 dark:text-slate-200">${esc(l.rule)}</td>
+    <td class="px-3 py-3 text-sm text-slate-500 dark:text-slate-400 italic">${esc(l.context)}</td>
+    <td class="px-3 py-3 text-xs text-slate-400 whitespace-nowrap">${l.date ? l.date.slice(0, 7) : '—'}</td>
+    <td class="px-3 py-3 text-xs whitespace-nowrap">${bugRefLink(l.id)}</td>
+  </tr>`;
+
+  const renderLessonCard = (l, accent, lessonIdx = 0) => `
+  <div id="lesson-card-${l.id}" class="lesson-row story-card-hover card-elev lesson-accent-bar rounded-lg p-4 flex flex-col gap-2 anim-stagger" style="--i:${Math.min(lessonIdx, 19)};border-left:4px solid ${accent.border}">
+    <div class="flex items-center gap-2">
+      <span class="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 whitespace-nowrap flex-shrink-0">${l.id}</span>
+      <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">${esc(l.title)}</span>
+    </div>
+    <hr class="border-slate-100 dark:border-slate-700">
+    <div>
+      <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Rule</span>
+      <p class="text-sm text-slate-700 dark:text-slate-200 mt-0.5"><span class="lesson-cat-icon">${categoryIcon(l.rule)}</span>${esc(l.rule)}</p>
+    </div>
+    <div>
+      <span class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Context</span>
+      <p class="text-sm text-slate-500 dark:text-slate-400 italic mt-0.5">${esc(l.context)}</p>
+    </div>
+    <div class="flex items-center justify-between mt-1">
+      <span class="text-xs text-slate-400">${l.date ? l.date.slice(0, 7) : '—'}</span>
+      <span class="text-xs text-slate-500">${lessonBugDetails(l, data.bugs) || `Bug ref: ${bugRefLink(l.id)}`}</span>
+    </div>
+  </div>`;
+
+  const lessonColGroups = lessonEpicOrder
+    .map((epicId, i) => {
+      const ls = lessonsByEpic[epicId];
+      const epic = data.epics.find((e) => e.id === epicId);
+      const accent = EPIC_ACCENT_COLORS[i % EPIC_ACCENT_COLORS.length];
+      const leid = `lessons-ep-${epicId.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      const titlePart = epic
+        ? `<span class="font-semibold dark:text-slate-100">${esc(epic.title)}</span>`
+        : epicId === '_ungrouped'
+          ? `<span class="italic text-slate-500">No Epic</span>`
+          : '';
+      return `<tbody>
+    <tr class="border-t-2 border-slate-300 dark:border-slate-600 cursor-pointer select-none" style="background:${accent.bg}" onclick="toggleSection('${leid}','${leid}-arrow')">
+      <td colspan="5" class="px-3 py-2" style="border-left:4px solid ${accent.border};">
+        <div class="flex flex-wrap items-center gap-3">
+          <span id="${leid}-arrow" class="text-slate-400 text-xs w-3 flex-shrink-0">▶</span>
+          ${epicId !== '_ungrouped' ? `<span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:${accent.border}">${epicId}</span>` : ''}
+          ${epic ? badge(epic.status) : ''}
+          ${titlePart}
+          <span class="ml-auto text-xs text-slate-500">${ls.length} lesson${ls.length !== 1 ? 's' : ''}</span>
+        </div>
+      </td>
+    </tr>
+    </tbody><tbody id="${leid}" class="hidden">${ls.map(renderLessonRow).join('')}</tbody>`;
+    })
+    .join('');
+
+  const lessonCardGroups = lessonEpicOrder
+    .map((epicId, i) => {
+      const ls = lessonsByEpic[epicId];
+      const epic = data.epics.find((e) => e.id === epicId);
+      const accent = EPIC_ACCENT_COLORS[i % EPIC_ACCENT_COLORS.length];
+      const lceid = `lessons-card-ep-${epicId.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      const titlePart = epic
+        ? `<span class="font-semibold dark:text-slate-100">${esc(epic.title)}</span>`
+        : epicId === '_ungrouped'
+          ? `<span class="italic text-slate-500">No Epic</span>`
+          : '';
+      return `<div class="border-t-2 border-slate-300 dark:border-slate-600" style="background:${accent.bg}">
+      <div class="flex flex-wrap items-center gap-3 px-3 py-2 cursor-pointer select-none" style="border-left:4px solid ${accent.border}" onclick="toggleSection('${lceid}','${lceid}-arrow')">
+        <span id="${lceid}-arrow" class="text-slate-400 text-xs w-3 flex-shrink-0">▶</span>
+        ${epicId !== '_ungrouped' ? `<span class="font-mono text-xs font-bold uppercase tracking-widest" style="color:${accent.border}">${epicId}</span>` : ''}
+        ${epic ? badge(epic.status) : ''}
+        ${titlePart}
+        <span class="ml-auto text-xs text-slate-500">${ls.length} lesson${ls.length !== 1 ? 's' : ''}</span>
+      </div>
+      <div id="${lceid}" class="p-3 hidden">
+        <div class="story-card-grid">${ls.map((l, lessonIdx) => renderLessonCard(l, accent, lessonIdx)).join('')}</div>
+      </div>
+    </div>`;
+    })
+    .join('');
+
+  return `
+  <div id="tab-lessons" class="p-6 hidden tab-fill" role="tabpanel" aria-labelledby="tab-btn-lessons">
+    <div class="flex items-center justify-between mb-4 flex-shrink-0">
+      <span class="text-sm text-slate-500 dark:text-slate-400">${lessons.length} lesson${lessons.length !== 1 ? 's' : ''}</span>
+      <div class="flex gap-1">
+        <button id="lessons-col-btn" onclick="setLessonsView('column')"
+          class="view-toggle-btn">
+          ≡ Column
+        </button>
+        <button id="lessons-card-btn" onclick="setLessonsView('card')"
+          class="view-toggle-btn">
+          ⊞ Card
+        </button>
+      </div>
+    </div>
+
+    <div id="lessons-column-view" class="scroll-table">
+      <table class="w-full text-left text-sm border-collapse">
+        <thead class="text-xs uppercase">
+          <tr>
+            <th class="px-3 py-2 whitespace-nowrap">ID</th>
+            <th class="px-3 py-2">Rule</th>
+            <th class="px-3 py-2">Context</th>
+            <th class="px-3 py-2 whitespace-nowrap">Date</th>
+            <th class="px-3 py-2 whitespace-nowrap">Bug Ref</th>
+          </tr>
+        </thead>
+        ${lessonColGroups}
+      </table>
+    </div>
+
+    <div id="lessons-card-view" class="hidden" style="overflow-y:auto">
+      ${lessonCardGroups}
+    </div>
+  </div>
+  <script>
+  function setLessonsView(v) {
+    var col = document.getElementById('lessons-column-view');
+    var card = document.getElementById('lessons-card-view');
+    var colBtn = document.getElementById('lessons-col-btn');
+    var cardBtn = document.getElementById('lessons-card-btn');
+    if (!col) return;
+    col.classList.toggle('hidden', v !== 'column');
+    card.classList.toggle('hidden', v !== 'card');
+    colBtn.classList.toggle('active-view', v === 'column');
+    cardBtn.classList.toggle('active-view', v === 'card');
+    localStorage.setItem('lessonsView', v);
+  }
+  (function() {
+    var saved = localStorage.getItem('lessonsView') || 'column';
+    setLessonsView(saved);
+  })();
+  </script>`;
+}
+
+function renderRecentActivity(data) {
+  if (!data.recentActivity.length) return '';
+  const items = data.recentActivity
+    .map(
+      (a) =>
+        `<li class="py-2 border-b border-slate-100 dark:border-slate-700 last:border-0">
+      <span class="text-xs text-slate-500 block">Session ${a.sessionNum} &middot; ${a.date}</span>
+      <span class="text-sm text-slate-700 dark:text-slate-200">${esc(a.summary)}</span>
+    </li>`,
+    )
+    .join('');
+  return `
+  <button id="activity-toggle" class="fixed top-4 right-4 z-50 block md:hidden bg-white dark:bg-slate-800 shadow rounded px-3 py-2 text-sm font-medium text-slate-700 dark:text-slate-200" onclick="var p=document.getElementById('activity-panel'); p.classList.toggle('hidden');">&#8801; Activity</button>
+  <div id="activity-panel" class="activity-panel fixed top-0 right-0 h-screen bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 shadow-lg flex flex-col hidden md:flex" style="width:280px;z-index:50;transition:width 0.25s ease">
+    <div id="activity-expanded" class="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
+      <h4 class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Recent Activity</h4>
+      <div class="flex items-center gap-2">
+        <button onclick="document.getElementById('activity-panel').classList.add('hidden')" class="md:hidden text-slate-400 hover:text-slate-700 leading-none px-1 text-base" title="Close" aria-label="Close activity panel">&times;</button>
+        <button onclick="toggleActivityPanel()" class="hidden md:block text-slate-400 hover:text-slate-700 leading-none px-1" title="Collapse" aria-label="Collapse activity panel">&#9664;</button>
+      </div>
+    </div>
+    <ul id="activity-list" class="flex-1 overflow-y-auto px-4 py-2">${items}</ul>
+    <div id="activity-collapsed" class="hidden flex-col items-center pt-3 pb-4 gap-3">
+      <button onclick="toggleActivityPanel()" class="text-slate-400 hover:text-slate-700 leading-none px-1" title="Expand" aria-label="Expand activity panel">▶</button>
+      <span class="text-xs font-semibold text-slate-500 uppercase tracking-wide select-none" style="writing-mode:vertical-rl;transform:rotate(180deg);white-space:nowrap">Recent Activity</span>
+    </div>
+  </div>`;
+}
+
+// ─── US-0135/US-0139: Status tab — release health hero + decision widgets ───
+function renderStatusTab(data) {
+  const activeStories = data.stories.filter((s) => s.status !== 'Retired');
+  const doneStories = activeStories.filter((s) => s.status === 'Done');
+  const inProgress = activeStories.filter((s) => s.status === 'In Progress' || s.status === 'In-Progress');
+  const openBugs = (data.bugs || []).filter((b) => !/^(Fixed|Retired|Cancelled|Rejected)/i.test(b.status));
+  const criticalBugs = openBugs.filter((b) => b.severity === 'Critical');
+  const highBugs = openBugs.filter((b) => b.severity === 'High');
+  const blockedStories = activeStories.filter((s) => s.status === 'Blocked');
+  const cov = data.coverage;
+  const covPct = cov && cov.available !== false ? cov.overall : null;
+  const totalAI = (data.costs && data.costs._totals && data.costs._totals.costUsd) || 0;
+  const totalProjected = activeStories.reduce(
+    (s, st) => s + ((data.costs && data.costs[st.id] && data.costs[st.id].projectedUsd) || 0),
+    0,
+  );
+  const budgetPct = totalProjected > 0 ? Math.round((totalAI / totalProjected) * 100) : 0;
+  const donePct = activeStories.length > 0 ? Math.round((doneStories.length / activeStories.length) * 100) : 0;
+
+  // hasRisk used in risks list below
+  const hasRisk = highBugs.length > 0 || openBugs.length > 3 || budgetPct > 80;
+
+  // ── Trends data (used in this-week section below) ─────────────────
+  const trends = data.trends;
+
+  // ── Epic progress list ────────────────────────────────────────────
+  const epicProgress = data.epics
+    .filter(
+      (e) =>
+        e.status !== 'Done' ||
+        data.stories.some((s) => s.epicId === e.id && s.status !== 'Done' && s.status !== 'Retired'),
+    )
+    .slice(0, 8)
+    .map((epic, i) => {
+      const accent = EPIC_ACCENT_COLORS[data.epics.indexOf(epic) % EPIC_ACCENT_COLORS.length];
+      const epicStories = data.stories.filter((s) => s.epicId === epic.id && s.status !== 'Retired');
+      const epicDone = epicStories.filter((s) => s.status === 'Done').length;
+      const pct = epicStories.length > 0 ? Math.round((epicDone / epicStories.length) * 100) : 0;
+      return `
+      <div class="pv-wl-row" style="grid-template-columns:110px 1fr 36px">
+        <span class="pv-wl-name" style="color:${accent.text}" title="${esc(epic.title)}">${esc(epic.id)}: ${esc(epic.title)}</span>
+        <div class="pv-wl-bar-bg"><div class="pv-wl-bar" style="width:${pct}%;background:${accent.border}"></div></div>
+        <span class="pv-wl-count">${pct}%</span>
+      </div>`;
+    })
+    .join('');
+
+  // ── Top risks list ────────────────────────────────────────────────
+  const risks = [];
+  criticalBugs
+    .slice(0, 2)
+    .forEach((b) =>
+      risks.push({ level: 'HIGH', label: esc(b.title), sub: `${esc(b.id)} · ${esc(b.relatedStory || 'no story')}` }),
+    );
+  highBugs
+    .slice(0, 2)
+    .forEach((b) =>
+      risks.push({ level: 'MED', label: esc(b.title), sub: `${esc(b.id)} · ${esc(b.relatedStory || 'no story')}` }),
+    );
+  blockedStories
+    .slice(0, 2)
+    .forEach((s) => risks.push({ level: 'MED', label: esc(s.title), sub: `${esc(s.id)} · Blocked` }));
+  if (budgetPct > 80) risks.push({ level: 'LOW', label: 'Budget approaching cap', sub: `${budgetPct}% consumed` });
+  if (risks.length === 0 && hasRisk && openBugs.length > 3) {
+    const medBugs = openBugs.filter((b) => b.severity === 'Medium').slice(0, 3);
+    if (medBugs.length > 0) {
+      medBugs.forEach((b) => risks.push({ level: 'MED', label: esc(b.title), sub: `${esc(b.id)} · Medium` }));
+    } else {
+      risks.push({
+        level: 'MED',
+        label: `${openBugs.length} open bugs require attention`,
+        sub: 'No Critical/High severity, but count is elevated',
+      });
+    }
+  }
+  const riskItems =
+    risks
+      .slice(0, 5)
+      .map(
+        (r) =>
+          `<div class="pv-risk-item">
+      <span class="chip ${r.level === 'HIGH' ? 'risk' : r.level === 'MED' ? 'warn' : 'ok'}" style="font-size:10px;padding:1px 6px"><span class="d"></span>${r.level}</span>
+      <span class="pv-risk-label"><strong>${r.label}</strong><br><span style="font-size:11px;opacity:.7">${r.sub}</span></span>
+    </div>`,
+      )
+      .join('') || '<p class="pv-widget-empty">No active risks — looking good 🎉</p>';
+
+  // ── Test quality ──────────────────────────────────────────────────
+  const allTCs = data.testCases || [];
+  const passed = allTCs.filter((t) => t.status === 'Pass').length;
+  const failed = allTCs.filter((t) => t.status === 'Fail').length;
+  const notRun = allTCs.filter((t) => t.status === 'Not Run').length;
+  const passRate = allTCs.length > 0 ? Math.round((passed / allTCs.length) * 100) : 0;
+  const covRingPct = covPct !== null ? Math.min(covPct, 100) : 0;
+  const covRingColor = covRingPct >= 80 ? 'var(--ok)' : covRingPct >= 60 ? 'var(--warn)' : 'var(--risk)';
+
+  // Pass-rate bars — last 14 coverage snapshots as quality proxy
+  const passRateBars = (() => {
+    const vals = trends && trends.coverage ? trends.coverage.slice(-14) : [];
+    if (vals.length === 0)
+      return '<div style="font-size:11px;color:var(--text-mute);font-style:italic">Coverage history unavailable</div>';
+    const dates = trends.dates ? trends.dates.slice(-14) : [];
+    return `<div style="display:flex;gap:3px">${vals
+      .map((v, i) => {
+        const color = v >= 80 ? 'var(--ok)' : v >= 60 ? 'var(--warn)' : v > 0 ? 'var(--risk)' : 'var(--border)';
+        const tip = dates[i] ? `${dates[i].slice(0, 10)}: ${v !== null && v !== undefined ? v.toFixed(1) : '?'}%` : '';
+        return `<div title="${tip}" style="flex:1;height:22px;border-radius:3px;background:${color};opacity:${v > 0 ? 0.6 + (v / 100) * 0.4 : 0.25}"></div>`;
+      })
+      .join('')}</div>`;
+  })();
+
+  // TC pass rate by epic
+  const tcByEpic = {};
+  allTCs.forEach((tc) => {
+    const story = data.stories.find((s) => s.id === tc.relatedStory);
+    const eid = story ? story.epicId : null;
+    if (!eid) return;
+    if (!tcByEpic[eid]) tcByEpic[eid] = { pass: 0, total: 0 };
+    tcByEpic[eid].total++;
+    if (tc.status === 'Pass') tcByEpic[eid].pass++;
+  });
+  const coverageByEpic = (() => {
+    const rows = Object.entries(tcByEpic)
+      .map(([eid, { pass, total }]) => ({ eid, pct: Math.round((pass / total) * 100), total }))
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 8);
+    if (!rows.length) return '<p style="font-size:11px;color:var(--text-mute)">No TC data</p>';
+    return rows
+      .map(({ eid, pct }) => {
+        const epic = data.epics.find((e) => e.id === eid);
+        const accent =
+          EPIC_ACCENT_COLORS[data.epics.indexOf(epic) % EPIC_ACCENT_COLORS.length] || EPIC_ACCENT_COLORS[0];
+        const barColor = pct >= 80 ? 'var(--ok)' : pct >= 60 ? 'var(--warn)' : 'var(--risk)';
+        return `<div style="display:grid;grid-template-columns:64px 1fr 40px;gap:8px;align-items:center;margin-bottom:6px">
+          <span style="font-family:var(--font-mono);font-size:10px;color:${accent.text};white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${esc(epic ? epic.title : eid)}">${eid}</span>
+          <div style="background:var(--border);border-radius:2px;height:6px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${barColor};border-radius:2px"></div></div>
+          <span style="font-family:var(--font-mono);font-size:11px;font-weight:600;text-align:right;color:${barColor}">${pct}%</span>
+        </div>`;
+      })
+      .join('');
+  })();
+
+  // ── This Week (date-windowed from trend snapshots) ─────────────────
+  const thisWeek = (() => {
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const today = new Date();
+    const dow = today.getDay();
+    const wStart = new Date(today);
+    wStart.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+    wStart.setHours(0, 0, 0, 0);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wStart.getDate() + 6);
+    // BUG-0242: include end-month name when week spans a month boundary
+    const endLabel =
+      wEnd.getMonth() !== wStart.getMonth() ? `${MONTHS[wEnd.getMonth()]} ${wEnd.getDate()}` : `${wEnd.getDate()}`;
+    const label = `${MONTHS[wStart.getMonth()]} ${wStart.getDate()}–${endLabel}`;
+
+    if (!trends || !trends.dates || trends.dates.length < 2) {
+      return { label, storiesShipped: '—', bugsOpened: '—', bugsFixed: '—', aiSpend: '—' };
+    }
+    // Find index of first snapshot on or after week start
+    const wStartIso = wStart.toISOString();
+    let wStartIdx = trends.dates.findIndex((d) => d >= wStartIso);
+    if (wStartIdx < 0) wStartIdx = trends.dates.length - 1;
+    const prevIdx = Math.max(wStartIdx - 1, 0);
+
+    const doneDelta = (trends.doneCounts[trends.dates.length - 1] || 0) - (trends.doneCounts[prevIdx] || 0);
+    const bugDelta = (trends.openBugs[trends.dates.length - 1] || 0) - (trends.openBugs[prevIdx] || 0);
+    const costDelta = (trends.aiCosts[trends.dates.length - 1] || 0) - (trends.aiCosts[prevIdx] || 0);
+
+    return {
+      label,
+      storiesShipped: Math.max(doneDelta, 0),
+      bugsOpened: bugDelta > 0 ? bugDelta : 0,
+      bugsFixed: bugDelta < 0 ? Math.abs(bugDelta) : 0,
+      aiSpend: usd(Math.max(costDelta, 0)),
+    };
+  })();
+
+  return `
+  <div id="tab-status" class="p-6" role="tabpanel" aria-labelledby="tab-btn-status">
+
+    ${_renderFullStatusHero(data)}
+
+    ${(() => {
+      const dep = data.githubStatus && data.githubStatus.deployment;
+      if (!dep) return '';
+      const stateClass = dep.status === 'success' ? 'ok' : dep.status === 'failure' ? 'risk' : 'warn';
+      const stateLabel = dep.status === 'success' ? '✓ Deployed' : dep.status === 'failure' ? '✗ Failed' : '⟳ Pending';
+      const ago = dep.createdAt ? timeAgo(dep.createdAt) : '';
+      return `<div class="pv-gh-deploy-banner card mb-4" style="display:flex;align-items:center;gap:12px;padding:10px 16px">
+        <span class="chip ${stateClass}" style="font-size:11px">${stateLabel}</span>
+        <span style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-mute)">${esc(dep.environment)}</span>
+        ${dep.url ? `<a href="${esc(dep.url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--plan-accent)">${esc(dep.url)}</a>` : ''}
+        ${ago ? `<span style="margin-left:auto;font-size:11px;color:var(--text-mute)">${esc(ago)}</span>` : ''}
+      </div>`;
+    })()}
+
+    <!-- Decision widgets row -->
+    <div class="pv-widgets mb-4">
+      <!-- Overall progress KPIs -->
+      <div class="card">
+        <div class="card-head">
+          <h3>Overall Progress</h3>
+          <span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-mute)">${doneStories.length}/${activeStories.length} stories</span>
+        </div>
+        <div class="card-body">
+          <div style="margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+              <span style="font-size:12px;color:var(--text-dim)">Completion</span>
+              <span style="font-family:var(--font-mono);font-size:13px;font-weight:600">${donePct}%</span>
+            </div>
+            <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${donePct}%;background:${donePct === 100 ? 'var(--ok)' : 'var(--plan-accent)'};border-radius:3px;transition:width 0.4s"></div>
+            </div>
+          </div>
+          <div class="pv-kv"><span class="pv-kv-k">In Progress</span><span class="pv-kv-v">${inProgress.length}</span></div>
+          <div class="pv-kv"><span class="pv-kv-k">Blocked</span><span class="pv-kv-v" style="color:${blockedStories.length > 0 ? 'var(--risk)' : 'inherit'}">${blockedStories.length}</span></div>
+          <div class="pv-kv"><span class="pv-kv-k">Coverage</span><span class="pv-kv-v">${covPct !== null ? covPct.toFixed(1) + '%' : 'N/A'}</span></div>
+          <div class="pv-kv" style="border-bottom:0"><span class="pv-kv-k">Open bugs</span><span class="pv-kv-v" style="color:${openBugs.length > 0 ? 'var(--risk)' : 'inherit'}">${openBugs.length}</span></div>
+        </div>
+      </div>
+
+      <!-- Epic progress -->
+      <div class="card">
+        <div class="card-head"><h3>Epic Progress</h3><span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-mute)">${data.epics.filter((e) => e.status === 'Done').length}/${data.epics.length} done</span></div>
+        <div class="card-body">
+          ${epicProgress || '<p class="pv-widget-empty">All epics done!</p>'}
+        </div>
+      </div>
+
+      <!-- Top Risks -->
+      <div class="card pv-widget-top-risks">
+        <div class="card-head"><h3>Top Risks</h3></div>
+        <div class="card-body">
+          <div class="pv-risk-list">${riskItems}</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quality (full-width) -->
+    <div class="card mb-4">
+      <div class="card-head">
+        <h3 style="text-transform:uppercase;letter-spacing:.08em;font-size:11px;font-weight:700">Quality</h3>
+        <span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-mute)">${allTCs.length} Tests · Jest</span>
+      </div>
+      <div style="padding:16px">
+        <!-- Top row: ring + left stats + right stats -->
+        <div style="display:grid;grid-template-columns:auto 1fr 1fr;gap:24px;align-items:start;margin-bottom:20px">
+          <div style="position:relative;width:88px;height:88px;flex-shrink:0">
+            <svg viewBox="0 0 36 36" style="width:88px;height:88px;transform:rotate(-90deg)">
+              <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--border)" stroke-width="3.2"/>
+              <circle cx="18" cy="18" r="15.9" fill="none" stroke="${covRingColor}" stroke-width="3.2"
+                stroke-dasharray="${covRingPct.toFixed(1)} 100" stroke-dashoffset="0" stroke-linecap="round"/>
+            </svg>
+            <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
+              <span style="font-family:var(--font-display);font-size:15px;font-weight:700;line-height:1">${covPct !== null ? covPct.toFixed(1) : '—'}<span style="font-size:9px">%</span></span>
+              <span style="font-size:8px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-mute);margin-top:2px">Coverage</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div>
+              <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mute)">Passed</div>
+              <div style="font-family:var(--font-display);font-size:28px;font-weight:700;color:var(--ok);line-height:1.1">${passed}</div>
+            </div>
+            <div>
+              <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mute)">Not Run</div>
+              <div style="font-family:var(--font-display);font-size:20px;font-weight:600;color:var(--text-dim);line-height:1.1">${notRun}</div>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div>
+              <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mute)">Failed</div>
+              <div style="font-family:var(--font-display);font-size:28px;font-weight:700;color:${failed > 0 ? 'var(--risk)' : 'inherit'};line-height:1.1">${failed}</div>
+            </div>
+            <div>
+              <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mute)">Open Bugs</div>
+              <div style="font-family:var(--font-display);font-size:20px;font-weight:600;color:${openBugs.length > 0 ? 'var(--warn)' : 'inherit'};line-height:1.1">${openBugs.length}</div>
+            </div>
+          </div>
+        </div>
+        <!-- Pass rate bars -->
+        <div style="margin-bottom:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mute)">Coverage Rate · Last 14 Snapshots</span>
+            <span style="font-size:11px;font-weight:600;color:${covRingColor}">${covRingPct.toFixed(1)}%</span>
+          </div>
+          ${passRateBars}
+        </div>
+        <!-- TC pass rate by epic -->
+        <div>
+          <div style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-mute);margin-bottom:8px">TC Pass Rate by Epic</div>
+          ${coverageByEpic}
+        </div>
+      </div>
+    </div>
+
+    <!-- This Week + Agent Workload -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="card pv-widget-this-week">
+        <div class="card-head">
+          <h3 style="text-transform:uppercase;letter-spacing:.08em;font-size:11px;font-weight:700">This Week</h3>
+          <span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-mute)">${esc(thisWeek.label)}</span>
+        </div>
+        <div class="card-body">
+          <div class="pv-kv"><span class="pv-kv-k" style="text-transform:uppercase;letter-spacing:.06em;font-size:10px">Stories Shipped</span><span class="pv-kv-v" style="font-size:20px;font-weight:700">${thisWeek.storiesShipped}</span></div>
+          <div class="pv-kv"><span class="pv-kv-k" style="text-transform:uppercase;letter-spacing:.06em;font-size:10px">Bugs Opened</span><span class="pv-kv-v" style="font-size:20px;font-weight:700">${thisWeek.bugsOpened}</span></div>
+          <div class="pv-kv"><span class="pv-kv-k" style="text-transform:uppercase;letter-spacing:.06em;font-size:10px">Bugs Fixed</span><span class="pv-kv-v" style="font-size:20px;font-weight:700;color:var(--ok)">${thisWeek.bugsFixed}</span></div>
+          <div class="pv-kv" style="border-bottom:0"><span class="pv-kv-k" style="text-transform:uppercase;letter-spacing:.06em;font-size:10px">AI Spend</span><span class="pv-kv-v" style="font-size:20px;font-weight:700">${thisWeek.aiSpend}</span></div>
+        </div>
+      </div>
+      <div class="card pv-widget-agent-workload">
+        <div class="card-head"><h3>Agent Workload</h3></div>
+        <div class="card-body">
+          <p class="pv-widget-empty" style="font-size:12px;color:var(--text-mute)">No live data</p>
+        </div>
+      </div>
+    </div>
+
+    ${(() => {
+      const prs = data.githubStatus && data.githubStatus.prs;
+      if (!prs || prs.length === 0) return '';
+      const rows = prs
+        .map((pr) => {
+          const ciClass =
+            pr.ciStatus === 'success'
+              ? 'ok'
+              : pr.ciStatus === 'failure'
+                ? 'risk'
+                : pr.ciStatus === 'pending'
+                  ? 'warn'
+                  : 'mute';
+          const ciLabel =
+            pr.ciStatus === 'success'
+              ? '✓ CI'
+              : pr.ciStatus === 'failure'
+                ? '✗ CI'
+                : pr.ciStatus === 'pending'
+                  ? '⟳ CI'
+                  : '— CI';
+          return `<tr>
+          <td><a href="${esc(pr.url)}" target="_blank" rel="noopener" style="color:var(--plan-accent)">#${pr.number}</a></td>
+          <td>${esc(pr.title || '')}</td>
+          <td><span class="chip ${ciClass}" style="font-size:9px">${ciLabel}</span></td>
+          <td>${pr.reviewCount !== null && pr.reviewCount !== undefined ? pr.reviewCount : ''}</td>
+          <td style="color:var(--text-mute)">${pr.createdAt ? timeAgo(pr.createdAt) : ''}</td>
+        </tr>`;
+        })
+        .join('');
+      return `<details class="pv-gh-pr-list card mb-4" style="padding:12px 16px">
+        <summary style="cursor:pointer;font-size:12px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--text-mute)">Open PRs (${prs.length})</summary>
+        <table style="width:100%;border-collapse:collapse;margin:8px 0 0;font-size:12px">
+          <thead><tr style="color:var(--text-mute);font-size:10px;text-transform:uppercase;letter-spacing:.07em">
+            <th style="text-align:left;padding:4px 8px 4px 0;font-weight:700">PR</th>
+            <th style="text-align:left;padding:4px 8px;font-weight:700">Title</th>
+            <th style="text-align:left;padding:4px 8px;font-weight:700">CI</th>
+            <th style="text-align:left;padding:4px 8px;font-weight:700">Reviews</th>
+            <th style="text-align:left;padding:4px 8px;font-weight:700">Age</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </details>`;
+    })()}
+  </div>
+  <style>
+  @media(max-width:1100px){.pv-widgets{grid-template-columns:1fr}}
+  @media(max-width:900px){#tab-status .pv-hero-vizrow{grid-template-columns:1fr 1fr}}
+  @media(max-width:640px){#tab-status [style*="repeat(4,1fr)"]{grid-template-columns:1fr 1fr}}
+  </style>`;
+}
+
+// ── EPIC-0012: Stakeholder View ──────────────────────────────────────────────
+
+const STATUS_LABELS = {
+  Done: 'Complete',
+  'In Progress': 'Being Worked On',
+  'In-Progress': 'Being Worked On',
+  Planned: 'Planned',
+  Blocked: 'Needs Attention',
+  'At Risk': 'Needs Attention',
+};
+
+const STATUS_CHIP = {
+  Done: 'info',
+  'In Progress': 'warn',
+  'In-Progress': 'warn',
+  Planned: 'mute',
+  Blocked: 'warn',
+  'At Risk': 'warn',
+};
+
+const SH_DOT_COLOR = {
+  ok: 'var(--ok)',
+  warn: 'var(--warn)',
+  risk: 'var(--risk)',
+  info: 'var(--info)',
+  mute: 'var(--text-mute)',
+};
+
+function shStoryLabel(status) {
+  return STATUS_LABELS[status] || esc(status);
+}
+function shStoryChip(status) {
+  return STATUS_CHIP[status] || 'mute';
+}
+
+function shEpicCompositeStatus(epicId, stories, bugs) {
+  const epicStories = stories.filter((s) => s.epicId === epicId && s.status !== 'Retired');
+  if (!epicStories.length) return { label: 'Planned', chipClass: 'mute', dotKey: 'mute' };
+
+  const allDone = epicStories.every((s) => /^done$/i.test(s.status));
+  const anyBlocked = epicStories.some((s) => /^blocked$/i.test(s.status));
+  const epicStoryIds = new Set(epicStories.map((s) => s.id));
+  const hasOpenCritical = (bugs || []).some(
+    (b) =>
+      epicStoryIds.has(normalizeStoryRef(b.relatedStory)) &&
+      /^(Critical|High)$/i.test(b.severity) &&
+      !/^(Fixed|Retired|Cancelled)/i.test(b.status),
+  );
+  const anyActive = epicStories.some((s) => /^(done|in[ -]progress)$/i.test(s.status));
+  const allPlanned = epicStories.every((s) => /^planned$/i.test(s.status));
+
+  if (allDone) return { label: 'Complete', chipClass: 'info', dotKey: 'info' };
+  if (anyBlocked || hasOpenCritical) return { label: 'Needs Attention', chipClass: 'risk', dotKey: 'risk' };
+  if (anyActive) return { label: 'On Track', chipClass: 'warn', dotKey: 'warn' };
+  if (allPlanned) return { label: 'Planned', chipClass: 'mute', dotKey: 'mute' };
+  return { label: 'In Progress', chipClass: 'warn', dotKey: 'warn' };
+}
+
+// Plain-text USD formatter for stakeholder tab — appends " USD" postfix instead of the <span> wrapper used by usd() elsewhere.
+function shUsdLabel(n) {
+  const num = Number(n);
+  if (num >= 1000) return '$' + Math.round(num).toLocaleString('en-US') + ' USD';
+  if (num > 0) return '$' + num.toFixed(2) + ' USD';
+  return '$0.00 USD';
+}
+
+function renderStakeholderTab(data) {
+  const costs = data.costs || null;
+  const stories = data.stories || [];
+  const epics = data.epics || [];
+  const bugs = data.bugs || [];
+
+  // ── Milestones ───────────────────────────────────────────────────────────────
+  const activeEpics = epics.filter((e) => e.status !== 'Retired');
+  activeEpics.sort((a, b) => {
+    if (a.id === '_ungrouped') return 1;
+    if (b.id === '_ungrouped') return -1;
+    return a.id.localeCompare(b.id);
+  });
+
+  const ungroupedStories = stories.filter((s) => !s.epicId && s.status !== 'Retired');
+  const epicGroups = [
+    ...activeEpics.map((e) => ({
+      epic: e,
+      epicStories: stories.filter((s) => s.epicId === e.id && s.status !== 'Retired'),
+    })),
+    ...(ungroupedStories.length
+      ? [{ epic: { id: '_ungrouped', title: 'No Epic' }, epicStories: ungroupedStories }]
+      : []),
+  ];
+
+  const epicRows = epicGroups
+    .map(({ epic, epicStories }) => {
+      const isUngrouped = epic.id === '_ungrouped';
+      const {
+        label: statusLabel,
+        chipClass,
+        dotKey,
+      } = isUngrouped
+        ? { label: 'Planned', chipClass: 'mute', dotKey: 'mute' }
+        : shEpicCompositeStatus(epic.id, stories, bugs);
+
+      const epicDone = epicStories.filter((s) => /^done$/i.test(s.status)).length;
+      const epicTotal = epicStories.length;
+      const pct = epicTotal ? Math.round((epicDone / epicTotal) * 100) : 0;
+
+      let costLine = '';
+      if (costs) {
+        const epicProjected = epicStories.reduce((s, st) => s + ((costs[st.id] && costs[st.id].projectedUsd) || 0), 0);
+        const epicSpent = epicStories.reduce((s, st) => s + ((costs[st.id] && costs[st.id].costUsd) || 0), 0);
+        costLine = `<div class="sh-epic-costs epic-costs">
+          <span><span class="sh-cost-label">Est.</span>&nbsp;<span class="sh-cost-val">${shUsdLabel(epicProjected)}</span></span>
+          <span><span class="sh-cost-label">AI spend</span>&nbsp;<span class="sh-cost-val">${shUsdLabel(epicSpent)}</span></span>
+        </div>`;
+      }
+
+      const epicRowId = `sh-epic-${esc(epic.id.replace(/[^a-zA-Z0-9]/g, '-'))}`;
+      const storiesId = `${epicRowId}-stories`;
+      const toggleId = `${epicRowId}-toggle`;
+
+      const storyRows = epicStories
+        .map((story) => {
+          const icon = /^done$/i.test(story.status) ? '✓' : '○';
+          const iconColor = /^done$/i.test(story.status)
+            ? 'var(--ok)'
+            : /^blocked$/i.test(story.status)
+              ? 'var(--risk)'
+              : 'var(--warn)';
+          const chipHtml =
+            story.status === 'Done'
+              ? ''
+              : `<span class="chip ${shStoryChip(story.status)}">${shStoryLabel(story.status)}</span>`;
+
+          const acsId = `sh-acs-${esc(story.id)}`;
+          const acRows = (story.acs || [])
+            .map(
+              (ac) =>
+                `<div class="sh-ac-row"><span class="sh-ac-id">${esc(ac.id)}</span>${ac.done ? '✓ ' : ''}${esc(ac.text)}</div>`,
+            )
+            .join('');
+          const acToggle =
+            story.acs && story.acs.length
+              ? `<button class="sh-ac-toggle" onclick="shToggle('${jsEsc(acsId)}',this)">► ${story.acs.length} AC${story.acs.length !== 1 ? 's' : ''}</button>`
+              : '';
+          const acsArea =
+            story.acs && story.acs.length
+              ? `<div id="${esc(acsId)}" class="sh-acs-area" style="display:none">${acRows}</div>`
+              : '';
+
+          return `<div class="sh-story-row">
+            <div class="sh-story-header">
+              <span class="sh-story-icon" style="color:${iconColor}">${icon}</span>
+              <div class="sh-story-name"><span class="sh-story-id">${esc(story.id)}</span>${esc(story.title)}</div>
+              ${chipHtml}
+              ${acToggle}
+            </div>
+            ${acsArea}
+          </div>`;
+        })
+        .join('');
+
+      return `<div class="sh-epic-row epic-row">
+        <div class="sh-epic-header" onclick="shToggle('${jsEsc(storiesId)}', document.getElementById('${jsEsc(toggleId)}'))">
+          <span class="sh-dot" style="background:${SH_DOT_COLOR[dotKey]}"></span>
+          <div class="sh-epic-name-block">
+            <div class="sh-epic-name"><span class="sh-epic-id">${esc(epic.id)}</span>${esc(epic.title)}</div>
+            ${(() => {
+              const fmt = (d) =>
+                d
+                  ? new Date(d + 'T00:00:00').toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })
+                  : null;
+              const start = fmt(epic.startDate);
+              const done = fmt(epic.doneDate);
+              if (!start && !done) return '';
+              const end = done ? done : '<em>in progress</em>';
+              const startPart = start ? `${start} → ` : '';
+              return `<div class="sh-epic-dates">${startPart}${end}</div>`;
+            })()}
+            ${costLine}
+          </div>
+          <div class="sh-progress-track"><div class="sh-progress-fill" style="width:${pct}%;background:${SH_DOT_COLOR[dotKey]}"></div></div>
+          <span class="sh-pct" style="color:${SH_DOT_COLOR[dotKey]}">${pct}%</span>
+          <span class="chip ${chipClass}">${statusLabel}</span>
+          <span id="${esc(toggleId)}" class="sh-toggle">►</span>
+        </div>
+        <div id="${esc(storiesId)}" class="sh-stories-area" style="display:none">
+          <div class="sh-stories-label">Stories</div>
+          ${storyRows || '<div class="sh-story-empty">No stories</div>'}
+        </div>
+      </div>`;
+    })
+    .join('');
+
+  return `
+  <div id="tab-stakeholder" class="p-6 hidden" role="tabpanel" aria-labelledby="tab-btn-stakeholder">
+    ${_renderStatusHero(data)}
+    ${_renderFullStatusHero(data)}
+    ${_renderDecisionWidgets(data)}
+    <div class="sh-milestone-section">
+      <div class="sh-section-label">Milestones</div>
+      <div class="sh-epics-list">
+        ${epicRows}
+      </div>
+    </div>
+    <div class="stakeholder-export-bar">
+      <span class="sh-export-hint">Opens your browser's Save as PDF dialog</span>
+      <button class="sh-export-btn" onclick="window.print()">Export PDF</button>
+    </div>
+  </div>
+  <script>
+  function shToggle(id, toggleEl) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    var open = el.style.display !== 'none';
+    el.style.display = open ? 'none' : '';
+    if (toggleEl) toggleEl.innerHTML = open ? '►' : '▼';
+  }
+  </script>`;
+}
+
+function renderSettingsTab({ githubConfig, githubTokenSet, syncState, memoryConfig } = {}) {
+  const cfg = githubConfig || {};
+  const enabled = cfg.enabled || false;
+  const repo = esc(cfg.repo || '');
+  const syncBugs = cfg.syncBugs !== false;
+  const syncStories = cfg.syncStories || false;
+  const defaultLabels = esc((cfg.defaultLabels || ['planvisualizer']).join(', '));
+
+  const tokenStatus = githubTokenSet
+    ? `<span style="color:var(--ok)">&#x2713; Set — GitHub sync is authorised</span>`
+    : `<span style="color:var(--text-mute)">&#x2717; Not set &mdash; only needed if you want to sync bugs/stories to GitHub Issues. Set it with: <code style="font-size:11px;background:var(--clr-surface);padding:1px 4px;border-radius:3px">export GITHUB_TOKEN=&lt;your-token&gt;</code> in your shell before running <code style="font-size:11px;background:var(--clr-surface);padding:1px 4px;border-radius:3px">node tools/generate-plan.js</code></span>`;
+
+  let syncSummary = '<span style="opacity:.5">&mdash;</span>';
+  let errorBanner = '';
+  if (syncState) {
+    const d = syncState.lastSyncAt
+      ? new Date(syncState.lastSyncAt).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
+      : '&mdash;';
+    const s = syncState.summary || {};
+    syncSummary = `${esc(d)} &middot; ${s.created || 0} created &middot; ${s.closed || 0} closed &middot; ${s.reopened || 0} reopened`;
+    if (syncState.lastError) {
+      errorBanner = `<div class="card-elev rounded p-3 mb-4" style="border-left:3px solid var(--risk);background:var(--clr-panel-bg)">
+        <span style="color:var(--risk);font-weight:600">&#x26A0; Last sync failed:</span> ${esc(syncState.lastError)}
+      </div>`;
+    }
+  }
+
+  return `
+  <div id="tab-settings" class="p-6 hidden" role="tabpanel" aria-labelledby="tab-btn-settings">
+    <h2 class="display-title mb-2">Settings</h2>
+    <p style="font-size:12px;color:var(--text-mute);margin-bottom:16px">
+      Changes are <strong>auto-saved to browser storage</strong> as you type.
+      To make them permanent, click <strong>Copy config JSON</strong> and paste the result into <code style="font-size:11px;background:var(--clr-surface);padding:1px 4px;border-radius:3px">plan-visualizer.config.json</code> at your project root.
+    </p>
+    <div id="settings-save-indicator" style="display:none;margin-bottom:12px;font-size:11px;color:var(--ok)">&#x2713; Saved to browser storage</div>
+    ${errorBanner}
+    <div class="card-elev rounded-lg p-6 mb-6" style="max-width:640px">
+      <h3 class="font-semibold text-sm uppercase tracking-widest mb-4" style="opacity:.6">GitHub Issues Sync</h3>
+
+      <div class="flex items-center gap-3 mb-4">
+        <span class="text-sm font-medium" style="min-width:120px">Enabled</span>
+        <input type="checkbox" id="gh-enabled" ${enabled ? 'checked' : ''} onchange="ghSettingsChanged()">
+      </div>
+      <div class="flex items-center gap-3 mb-3">
+        <label for="gh-repo" class="text-sm font-medium" style="min-width:120px">Repository</label>
+        <input id="gh-repo" type="text" value="${repo}" placeholder="owner/repo"
+          style="flex:1;font-size:12px;padding:4px 8px;border:1px solid var(--clr-border);border-radius:4px;background:var(--clr-input-bg);color:var(--clr-input-text)"
+          oninput="ghSettingsChanged()">
+      </div>
+      <div class="flex items-center gap-3 mb-3">
+        <span class="text-sm font-medium" style="min-width:120px">Sync bugs</span>
+        <input type="checkbox" id="gh-sync-bugs" ${syncBugs ? 'checked' : ''} onchange="ghSettingsChanged()">
+        <span class="text-sm font-medium ml-4">Sync stories</span>
+        <input type="checkbox" id="gh-sync-stories" ${syncStories ? 'checked' : ''} onchange="ghSettingsChanged()">
+      </div>
+      <div class="flex items-center gap-3 mb-4">
+        <label for="gh-default-labels" class="text-sm font-medium" style="min-width:120px">Default labels</label>
+        <input id="gh-default-labels" type="text" value="${defaultLabels}"
+          style="flex:1;font-size:12px;padding:4px 8px;border:1px solid var(--clr-border);border-radius:4px;background:var(--clr-input-bg);color:var(--clr-input-text)"
+          oninput="ghSettingsChanged()">
+      </div>
+
+      <div class="mb-4" style="padding:10px 12px;background:var(--clr-surface);border-radius:6px;font-size:12px">
+        <div style="opacity:.6;margin-bottom:4px">Token (GITHUB_TOKEN env var)</div>
+        ${tokenStatus}
+      </div>
+
+      <div class="mb-4" style="padding:10px 12px;background:var(--clr-surface);border-radius:6px;font-size:12px">
+        <div style="opacity:.6;margin-bottom:4px">Last sync</div>
+        <div>${syncSummary}</div>
+      </div>
+
+      <div class="flex gap-2">
+        <button onclick="copyGithubConfig()" class="chip info" style="cursor:pointer">Copy config JSON</button>
+        <button onclick="resetGithubConfig()" class="chip mute" style="cursor:pointer">Reset to defaults</button>
+      </div>
+    </div>
+
+        <div class="card mb-4">
+          <h3 style="font-size:14px;margin-bottom:8px">Memory</h3>
+          <p style="font-size:11px;color:var(--text-mute);margin-bottom:10px">
+            Configures how stale memory files are archived. See <code>docs/memory/</code> and <code>tools/memory.js</code>.
+          </p>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <label style="display:flex;align-items:center;gap:10px;font-size:12px">
+              <span style="min-width:160px">Stale threshold (days)</span>
+              <input id="memory-staleDays" type="number" min="1" max="3650" value="${(memoryConfig && memoryConfig.staleDays) || 90}" style="width:80px;padding:4px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text)">
+            </label>
+            <label style="display:flex;align-items:center;gap:10px;font-size:12px">
+              <span style="min-width:160px">Auto-archive on regenerate</span>
+              <input id="memory-autoArchive" type="checkbox" ${memoryConfig && memoryConfig.autoArchive ? 'checked' : ''}>
+            </label>
+          </div>
+          <div style="margin-top:10px;font-size:10px;color:var(--text-mute)">
+            Default: 90 days; auto-archive off. Edit <code>plan-visualizer.config.json</code> → <code>memory</code> block to persist.
+          </div>
+        </div>
+
+    <script>
+    var _ghDefaults = ${JSON.stringify(cfg)};
+    function ghSettingsChanged() {
+      var cfg = {
+        enabled:      document.getElementById('gh-enabled').checked,
+        repo:         document.getElementById('gh-repo').value.trim(),
+        syncBugs:     document.getElementById('gh-sync-bugs').checked,
+        syncStories:  document.getElementById('gh-sync-stories').checked,
+        defaultLabels: document.getElementById('gh-default-labels').value.split(',').map(function(s){ return s.trim(); }).filter(Boolean),
+        labelMap:     _ghDefaults.labelMap || { Critical:'critical', High:'high', Medium:'medium', Low:'low' },
+      };
+      localStorage.setItem('pv-github-config', JSON.stringify(cfg));
+      var ind = document.getElementById('settings-save-indicator');
+      if (ind) { ind.style.display = 'block'; clearTimeout(ind._t); ind._t = setTimeout(function(){ ind.style.display='none'; }, 2000); }
+    }
+    function copyGithubConfig() {
+      var stored = localStorage.getItem('pv-github-config');
+      var cfg = stored ? JSON.parse(stored) : _ghDefaults;
+      var json = JSON.stringify({ github: cfg }, null, 2);
+      navigator.clipboard && navigator.clipboard.writeText(json).then(function(){
+        alert('Copied! Paste into plan-visualizer.config.json');
+      }).catch(function(){ alert(json); });
+    }
+    function resetGithubConfig() {
+      localStorage.removeItem('pv-github-config');
+      document.getElementById('gh-enabled').checked      = _ghDefaults.enabled || false;
+      document.getElementById('gh-repo').value           = _ghDefaults.repo || '';
+      document.getElementById('gh-sync-bugs').checked    = _ghDefaults.syncBugs !== false;
+      document.getElementById('gh-sync-stories').checked = _ghDefaults.syncStories || false;
+      document.getElementById('gh-default-labels').value = (_ghDefaults.defaultLabels || ['planvisualizer']).join(', ');
+    }
+    </script>
+  </div>`;
+}
+
+function renderPendingApprovalsWidget(data) {
+  // Stories may arrive as an array (from parseReleasePlan) or an object
+  // (sdlc-status.json shape). Normalize to an array of {id, ...} records.
+  const raw = (data && data.stories) || [];
+  const storiesList = Array.isArray(raw) ? raw : Object.entries(raw).map(([id, st]) => ({ id, ...st }));
+  const pending = [];
+  for (const st of storiesList) {
+    const id = st.id;
+    if (!id || !st.specPhase) continue;
+    if (st.specPhase.state === 'awaiting_ac_approval') pending.push({ id, gate: 'ac', gateLabel: 'AC' });
+    if (st.specPhase.state === 'awaiting_spec_approval') pending.push({ id, gate: 'spec', gateLabel: 'Spec' });
+    if (st.planPhase && st.planPhase.state === 'awaiting_plan_approval')
+      pending.push({ id, gate: 'plan', gateLabel: 'Plan' });
+  }
+
+  if (pending.length === 0) {
+    return `<div class="card pv-pending-approvals" style="margin-bottom:16px">
+  <div class="card-head"><h3 style="text-transform:uppercase;letter-spacing:.08em;font-size:11px;font-weight:700">Pending Approvals</h3></div>
+  <div class="card-body" style="padding:12px;font-size:12px;color:var(--text-mute)">No pending approvals.</div>
+</div>`;
+  }
+
+  const rows = pending
+    .map(
+      (p) => `
+    <div class="pv-pending-row" style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border)">
+      <span class="font-mono" style="font-size:12px;color:var(--text)">${esc(p.id)}</span>
+      <span class="chip warn" style="font-size:9px">${p.gateLabel} review</span>
+      <button class="chip ok" style="cursor:pointer;font-size:10px"
+        data-action="approve" data-story="${esc(p.id)}" data-gate="${p.gate}"
+        onclick="pvDownloadFlag(this)" id="approve-${esc(p.id)}-${p.gate}">Approve</button>
+      <button class="chip risk" style="cursor:pointer;font-size:10px"
+        data-action="reject" data-story="${esc(p.id)}" data-gate="${p.gate}"
+        onclick="pvShowRejectForm(this)">Reject</button>
+      <textarea class="pv-reject-reason" data-reason-for="${esc(p.id)}-${p.gate}"
+        style="display:none;font-size:11px;padding:4px;border:1px solid var(--border);border-radius:4px;background:var(--clr-input-bg);color:var(--clr-input-text);flex:1"
+        placeholder="Rejection reason..." rows="2"></textarea>
+    </div>`,
+    )
+    .join('');
+
+  return `<div class="card pv-pending-approvals" style="margin-bottom:16px">
+  <div class="card-head"><h3 style="text-transform:uppercase;letter-spacing:.08em;font-size:11px;font-weight:700">Pending Approvals</h3></div>
+  <div class="card-body" style="padding:12px">${rows}</div>
+</div>
+<script>
+function pvDownloadFlag(btn) {
+  var story  = btn.getAttribute('data-story');
+  var gate   = btn.getAttribute('data-gate');
+  var action = btn.getAttribute('data-action');
+  var reason = '';
+  if (action === 'reject') {
+    var area = document.querySelector('[data-reason-for="' + story + '-' + gate + '"]');
+    if (area) reason = area.value || '';
+    if (!reason) { alert('Please enter a rejection reason.'); return; }
+  }
+  var payload = { story: story, gate: gate, action: action, timestamp: new Date().toISOString() };
+  if (reason) payload.reason = reason;
+  var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = action + '-' + story + '-' + gate + '.flag';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  alert('Flag downloaded. Move it to docs/pending-approvals/ and run: npm run plan');
+}
+function pvShowRejectForm(btn) {
+  var story = btn.getAttribute('data-story');
+  var gate  = btn.getAttribute('data-gate');
+  var area  = document.querySelector('[data-reason-for="' + story + '-' + gate + '"]');
+  if (area) {
+    if (area.style.display === 'none') {
+      area.style.display = '';
+      area.focus();
+      btn.textContent = 'Confirm Reject';
+      btn.setAttribute('onclick', 'pvDownloadFlag(this)');
+    }
+  }
+}
+</script>`;
+}
+
+module.exports = {
+  renderHierarchyTab,
+  renderKanbanTab,
+  renderTraceabilityTab,
+  renderStatusTab,
+  renderTrendsTab,
+  renderChartsTab,
+  renderCostsTab,
+  renderBugsTab,
+  renderLessonsTab,
+  renderRecentActivity,
+  renderStakeholderTab,
+  renderSettingsTab,
+  renderPendingApprovalsWidget,
+};

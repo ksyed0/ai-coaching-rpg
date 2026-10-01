@@ -1,0 +1,588 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * update-sdlc-status.js — Event-driven updater for docs/sdlc-status.json
+ *
+ * Called by the Conductor at each DM_AGENT pipeline phase transition to keep
+ * the agentic dashboard (docs/dashboard.html) in sync with real execution state.
+ *
+ * Uses atomicReadModifyWriteJson for safe concurrent updates.
+ *
+ * Usage patterns (all commands mutate sdlc-status.json and append a log entry):
+ *
+ *   # Start a story — mark the primary agent active + currentTask
+ *   node tools/update-sdlc-status.js agent-start \
+ *     --agent Pixel --story US-0096 \
+ *     --task "Implement zebra striping"
+ *
+ *   # Finish an agent's turn — flip to idle, increment tasksCompleted
+ *   node tools/update-sdlc-status.js agent-done \
+ *     --agent Pixel --story US-0096
+ *
+ *   # Record a review verdict
+ *   node tools/update-sdlc-status.js review \
+ *     --agent Lens --story US-0096 --verdict approve
+ *   # verdicts: approve | request-changes | block
+ *
+ *   # Record test results
+ *   node tools/update-sdlc-status.js test-pass \
+ *     --agent Sentinel --story US-0096 --count 1
+ *
+ *   # Record coverage
+ *   node tools/update-sdlc-status.js coverage \
+ *     --agent Circuit --percent 90.82
+ *
+ *   # Mark a story complete (increments metrics + updates stories[id])
+ *   node tools/update-sdlc-status.js story-complete \
+ *     --story US-0096 --epic EPIC-0015
+ *
+ *   # Mark a story in-progress
+ *   node tools/update-sdlc-status.js story-start \
+ *     --story US-0096 --epic EPIC-0015
+ *
+ *   # Set the current phase (1-6)
+ *   node tools/update-sdlc-status.js phase \
+ *     --number 3 --status in-progress
+ *
+ *   # Generic log entry (no state patch beyond the log)
+ *   node tools/update-sdlc-status.js log \
+ *     --agent Conductor --message "Spawned Sentinel + Circuit in parallel"
+ */
+
+const path = require('path');
+const fs = require('fs');
+const { fetchGitHubStatus } = require('./lib/fetch-github-status');
+const CONFIG_PATH = path.join(__dirname, '..', 'plan-visualizer.config.json');
+
+// D.4 (US-0235): writes route through the D.1 entity repos. We never write
+// docs/sdlc-status.json directly from this module — the JSON mirror is
+// regenerated transitively by SdlcMirror inside a file lock on every
+// repo.sdlc*.{record,upsert,set} call. The pure HANDLERS below remain in-memory
+// mutators of the legacy rich-state shape so the existing unit tests keep
+// asserting handler semantics directly; the main() loop materialises that
+// state from the repo, applies the handler, then writes back through the
+// repo's typed entity APIs (writers throw, indexers warn — AC-1013).
+const PROGRAMME_FIELDS = [
+  'currentPhase',
+  'phases',
+  'agents',
+  'stories',
+  'metrics',
+  'epics',
+  'cycles',
+  'project',
+  'githubStatus',
+];
+
+function parseArgs(argv) {
+  const cmd = argv[2];
+  const opts = {};
+  for (let i = 3; i < argv.length; i += 2) {
+    const key = argv[i];
+    const val = argv[i + 1];
+    if (!key || !key.startsWith('--')) continue;
+    opts[key.slice(2)] = val;
+  }
+  return { cmd, opts };
+}
+
+function nowISO() {
+  return new Date().toISOString();
+}
+
+function appendLog(data, agent, message, extra) {
+  data.log = data.log || [];
+  data.log.push({ time: nowISO(), agent: agent || 'Conductor', message, ...extra });
+  // Keep log bounded at last 200 entries
+  if (data.log.length > 200) data.log = data.log.slice(-200);
+  return data;
+}
+
+function ensureAgent(data, name) {
+  if (!data.agents) data.agents = {};
+  if (!data.agents[name]) {
+    data.agents[name] = { status: 'idle', currentTask: null, tasksCompleted: 0 };
+  }
+  return data.agents[name];
+}
+
+function ensureStory(data, id) {
+  if (!data.stories) data.stories = {};
+  if (!data.stories[id]) {
+    data.stories[id] = { status: 'ToDo', epic: null, assignedAgent: null, startedAt: null, completedAt: null };
+  }
+  return data.stories[id];
+}
+
+function requireAgent(opts) {
+  if (!opts.agent || opts.agent === 'undefined') {
+    throw new Error('[update-sdlc-status] --agent is required');
+  }
+}
+
+function resetSession(data, storiesTotal) {
+  const total = parseInt(storiesTotal || '0', 10);
+  if (Number.isNaN(total) || total < 0) {
+    throw new Error(`[update-sdlc-status] --stories must be a non-negative integer, got: ${storiesTotal}`);
+  }
+  data.stories = {};
+  data.currentPhase = 0;
+  if (Array.isArray(data.phases)) {
+    data.phases = data.phases.map((p) => ({
+      ...p,
+      status: 'pending',
+      startedAt: null,
+      completedAt: null,
+    }));
+  }
+  data.metrics = {
+    storiesCompleted: 0,
+    storiesTotal: total,
+    tasksCompleted: 0,
+    tasksTotal: 0,
+    testsPassed: 0,
+    testsFailed: 0,
+    testsTotal: 0,
+    bugsOpen: 0,
+    bugsFixed: 0,
+    coveragePercent: 0,
+    reviewsApproved: 0,
+    reviewsBlocked: 0,
+  };
+  return data;
+}
+
+const HANDLERS = {
+  'agent-start': (data, opts) => {
+    requireAgent(opts);
+    const VALID_MODELS = ['haiku', 'sonnet', 'opus'];
+    const model = opts.model || 'sonnet';
+    if (!VALID_MODELS.includes(model)) {
+      throw new Error(`[update-sdlc-status] --model must be one of: ${VALID_MODELS.join(', ')}. Got: ${model}`);
+    }
+    const agent = ensureAgent(data, opts.agent);
+    agent.status = 'active';
+    agent.currentTask = opts.task || `Working on ${opts.story || 'task'}`;
+    agent.model = model;
+    if (opts.story) {
+      const story = ensureStory(data, opts.story);
+      story.assignedAgent = opts.agent;
+      if (story.status === 'ToDo' || !story.startedAt) {
+        story.status = 'InProgress';
+        story.startedAt = nowISO();
+      }
+    }
+    const logExtra = { model };
+    if (opts['model-rationale']) logExtra.modelRationale = opts['model-rationale'];
+    appendLog(data, opts.agent, `started ${opts.story ? opts.story + ': ' : ''}${opts.task || 'task'}`, logExtra);
+    return data;
+  },
+
+  'agent-done': (data, opts) => {
+    requireAgent(opts);
+    const agent = ensureAgent(data, opts.agent);
+    agent.status = 'idle';
+    agent.currentTask = null;
+    agent.model = null;
+    agent.tasksCompleted = (agent.tasksCompleted || 0) + 1;
+    data.metrics = data.metrics || {};
+    data.metrics.tasksCompleted = (data.metrics.tasksCompleted || 0) + 1;
+    appendLog(data, opts.agent, `finished ${opts.story || 'task'}`);
+    return data;
+  },
+
+  review: (data, opts) => {
+    const agent = ensureAgent(data, opts.agent || 'Lens');
+    agent.reviewsCompleted = (agent.reviewsCompleted || 0) + 1;
+    data.metrics = data.metrics || {};
+    const verdict = (opts.verdict || 'approve').toLowerCase();
+    if (verdict === 'approve') {
+      data.metrics.reviewsApproved = (data.metrics.reviewsApproved || 0) + 1;
+    } else if (verdict === 'block') {
+      data.metrics.reviewsBlocked = (data.metrics.reviewsBlocked || 0) + 1;
+      agent.blockers = (agent.blockers || 0) + 1;
+      if (opts.story) {
+        const story = ensureStory(data, opts.story);
+        story.status = 'Blocked';
+      }
+    }
+    appendLog(data, opts.agent || 'Lens', `${verdict} review of ${opts.story || 'branch'}`);
+    return data;
+  },
+
+  'test-pass': (data, opts) => {
+    const agent = ensureAgent(data, opts.agent || 'Sentinel');
+    const n = parseInt(opts.count || '1', 10);
+    agent.testsPassed = (agent.testsPassed || 0) + n;
+    data.metrics = data.metrics || {};
+    data.metrics.testsPassed = (data.metrics.testsPassed || 0) + n;
+    data.metrics.testsTotal = (data.metrics.testsTotal || 0) + n;
+    appendLog(data, opts.agent || 'Sentinel', `${n} tests passed on ${opts.story || 'branch'}`);
+    return data;
+  },
+
+  'test-fail': (data, opts) => {
+    const agent = ensureAgent(data, opts.agent || 'Sentinel');
+    const n = parseInt(opts.count || '1', 10);
+    agent.testsFailed = (agent.testsFailed || 0) + n;
+    data.metrics = data.metrics || {};
+    data.metrics.testsFailed = (data.metrics.testsFailed || 0) + n;
+    data.metrics.testsTotal = (data.metrics.testsTotal || 0) + n;
+    appendLog(data, opts.agent || 'Sentinel', `${n} tests FAILED on ${opts.story || 'branch'}`);
+    return data;
+  },
+
+  coverage: (data, opts) => {
+    const agent = ensureAgent(data, opts.agent || 'Circuit');
+    const pct = parseFloat(opts.percent || '0');
+    agent.coveragePercent = pct;
+    data.metrics = data.metrics || {};
+    data.metrics.coveragePercent = pct;
+    appendLog(data, opts.agent || 'Circuit', `coverage at ${pct.toFixed(2)}%`);
+    return data;
+  },
+
+  'story-start': (data, opts) => {
+    const story = ensureStory(data, opts.story);
+    story.status = 'InProgress';
+    story.epic = opts.epic || story.epic;
+    story.startedAt = nowISO();
+    data.metrics = data.metrics || {};
+    appendLog(data, 'Conductor', `started ${opts.story}${opts.epic ? ' (' + opts.epic + ')' : ''}`);
+    return data;
+  },
+
+  'story-complete': (data, opts) => {
+    const story = ensureStory(data, opts.story);
+    story.status = 'Complete';
+    story.epic = opts.epic || story.epic;
+    story.completedAt = nowISO();
+    const agentName = story.assignedAgent;
+    if (agentName && data.agents && data.agents[agentName]) {
+      data.agents[agentName].status = 'idle';
+      data.agents[agentName].currentTask = null;
+    }
+    data.metrics = data.metrics || {};
+    data.metrics.storiesCompleted = (data.metrics.storiesCompleted || 0) + 1;
+    data.metrics.storiesTotal = Math.max(data.metrics.storiesTotal || 0, Object.keys(data.stories).length);
+    const epicId = opts.epic || story.epic;
+    if (epicId && data.epics && data.epics[epicId]) {
+      data.epics[epicId].storiesCompleted = (data.epics[epicId].storiesCompleted || 0) + 1;
+    }
+    appendLog(data, 'Conductor', `completed ${opts.story}${opts.epic ? ' (' + opts.epic + ')' : ''}`);
+    return data;
+  },
+
+  'epic-start': (data, opts) => {
+    if (!opts.epic) throw new Error('[update-sdlc-status] epic-start requires --epic');
+    data.epics = data.epics || {};
+    data.epics[opts.epic] = {
+      name: opts.name || opts.epic,
+      status: 'in-progress',
+      startedAt: nowISO(),
+      completedAt: null,
+      storiesCompleted: 0,
+      storiesTotal: parseInt(opts.stories || '0', 10),
+    };
+    appendLog(data, 'Conductor', `Epic ${opts.epic} (${opts.name || opts.epic}) started`);
+    return data;
+  },
+
+  'epic-complete': (data, opts) => {
+    if (!opts.epic) throw new Error('[update-sdlc-status] epic-complete requires --epic');
+    data.epics = data.epics || {};
+    if (data.epics[opts.epic]) {
+      data.epics[opts.epic].status = 'complete';
+      data.epics[opts.epic].completedAt = nowISO();
+    }
+    appendLog(data, 'Conductor', `Epic ${opts.epic} complete`);
+    return data;
+  },
+
+  'bug-open': (data, opts) => {
+    data.metrics = data.metrics || {};
+    data.metrics.bugsOpen = (data.metrics.bugsOpen || 0) + 1;
+    appendLog(data, opts.agent || 'Conductor', `bug opened on ${opts.story || 'unknown story'}`);
+    return data;
+  },
+
+  'bug-fix': (data, opts) => {
+    data.metrics = data.metrics || {};
+    data.metrics.bugsOpen = Math.max(0, (data.metrics.bugsOpen || 0) - 1);
+    data.metrics.bugsFixed = (data.metrics.bugsFixed || 0) + 1;
+    appendLog(data, opts.agent || 'Conductor', `bug fixed on ${opts.story || 'unknown story'}`);
+    return data;
+  },
+
+  'cycle-complete': (data, opts) => {
+    data.cycles = data.cycles || [];
+    const nextId = data.cycles.length + 1;
+
+    const phaseDurations = {};
+    (data.phases || []).forEach(function (p) {
+      if (p.startedAt && p.completedAt) {
+        const ms = Date.parse(p.completedAt) - Date.parse(p.startedAt);
+        if (isFinite(ms) && ms >= 0) {
+          phaseDurations[p.name] = Math.round(ms / 1000);
+        }
+      }
+    });
+
+    const snapshot = {
+      id: nextId,
+      completedAt: nowISO(),
+      storiesCompleted: (data.metrics && data.metrics.storiesCompleted) || 0,
+      testsPassed: (data.metrics && data.metrics.testsPassed) || 0,
+      testsFailed: (data.metrics && data.metrics.testsFailed) || 0,
+      coveragePercent: (data.metrics && data.metrics.coveragePercent) || 0,
+      bugsFixed: (data.metrics && data.metrics.bugsFixed) || 0,
+      outcome: ((data.metrics && data.metrics.testsFailed) || 0) === 0 ? 'success' : 'failed',
+      incidents: parseInt(opts.incidents || '0', 10) || 0,
+      phaseDurations,
+    };
+    data.cycles.push(snapshot);
+
+    if (data.cycles.length > 50) data.cycles = data.cycles.slice(-50);
+
+    resetSession(data, '0');
+    appendLog(
+      data,
+      'Conductor',
+      `Cycle ${nextId} complete — ${snapshot.storiesCompleted} stories, ${snapshot.coveragePercent.toFixed(1)}% coverage`,
+    );
+    return data;
+  },
+
+  'session-start': (data, opts) => {
+    resetSession(data, opts.stories);
+    appendLog(data, 'Conductor', `Session started — ${opts.stories || 0} stories planned`);
+    return data;
+  },
+
+  phase: (data, opts) => {
+    const n = parseInt(opts.number, 10);
+    if (!Number.isInteger(n) || n < 1) {
+      throw new Error(`[update-sdlc-status] phase --number must be a positive integer, got: ${opts.number}`);
+    }
+    const status = opts.status || 'in-progress';
+    data.currentPhase = n;
+    data.phases = data.phases || [];
+    // Auto-expand if phases weren't seeded by init-sdlc-status.js
+    while (data.phases.length < n) {
+      const i = data.phases.length;
+      data.phases.push({
+        id: i + 1,
+        name: `Phase ${i + 1}`,
+        agents: [],
+        deliverables: [],
+        status: 'pending',
+        startedAt: null,
+        completedAt: null,
+      });
+    }
+    const phase = data.phases[n - 1];
+    phase.status = status;
+    if (status === 'in-progress' && !phase.startedAt) phase.startedAt = nowISO();
+    if (status === 'complete' && !phase.completedAt) phase.completedAt = nowISO();
+    appendLog(data, 'Conductor', `Phase ${n} (${phase.name}) → ${status}`);
+    return data;
+  },
+
+  log: (data, opts) => {
+    appendLog(data, opts.agent || 'Conductor', opts.message || '(no message)');
+    return data;
+  },
+
+  'github-status': async (data, opts) => {
+    const token = opts.token || process.env.GITHUB_TOKEN;
+    let config = null;
+    try {
+      config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8')).github;
+    } catch (_e) {
+      /* config file optional */
+    }
+    const newStatus = await fetchGitHubStatus(config, token);
+    if (!newStatus) return data;
+
+    const prev = data.githubStatus;
+    const prevPrMap = prev && prev.prs ? new Map(prev.prs.map((p) => [p.number, p])) : new Map();
+
+    // Change detection: CI transitions and new PRs
+    for (const pr of newStatus.prs) {
+      const old = prevPrMap.get(pr.number);
+      if (!old) {
+        appendLog(data, 'GitHub', `PR #${pr.number} opened: ${pr.title}`);
+      } else if (old.ciStatus === 'pending' && (pr.ciStatus === 'success' || pr.ciStatus === 'failure')) {
+        const icon = pr.ciStatus === 'success' ? '✓' : '✗';
+        const ciResult = pr.ciStatus === 'success' ? 'passed' : 'failed';
+        appendLog(data, 'GitHub', `CI ${icon} ${ciResult} on #${pr.number}`);
+      }
+    }
+    // PRs that disappeared (merged/closed)
+    for (const [num] of prevPrMap) {
+      if (!newStatus.prs.find((p) => p.number === num)) {
+        appendLog(data, 'GitHub', `PR #${num} merged/closed`);
+      }
+    }
+    // Deployment status change
+    if (prev && prev.deployment && newStatus.deployment) {
+      if (
+        prev.deployment.status !== newStatus.deployment.status &&
+        (newStatus.deployment.status === 'success' || newStatus.deployment.status === 'failure')
+      ) {
+        const icon = newStatus.deployment.status === 'success' ? '↑' : '✗';
+        appendLog(data, 'GitHub', `${icon} deployed ${newStatus.deployment.ref} → ${newStatus.deployment.environment}`);
+      }
+    }
+
+    // ciPollUntil: set when any PR is pending, clear when all terminal
+    const hasPending = newStatus.prs.some((p) => p.ciStatus === 'pending');
+    newStatus.ciPollUntil = hasPending ? new Date(Date.now() + 15 * 60 * 1000).toISOString() : null;
+
+    data.githubStatus = newStatus;
+    return data;
+  },
+};
+
+/**
+ * Materialise the legacy rich-state shape from the repo. Returns the same
+ * structure the legacy on-disk JSON used so HANDLERS keep working unchanged.
+ * Programme fields are stored as individual keys; the log is reconstructed
+ * from sdlc_events ordered by id.
+ */
+function readState(repo) {
+  const programme = repo.sdlcProgramme.all();
+  const data = {};
+  for (const f of PROGRAMME_FIELDS) {
+    if (f in programme) data[f] = programme[f];
+  }
+  // Default scaffolding so HANDLERS that read these fields don't NPE.
+  if (!data.agents) data.agents = {};
+  if (!data.stories) data.stories = {};
+  if (!data.phases) data.phases = [];
+  if (!data.metrics) data.metrics = {};
+
+  // Reconstruct the log from the event store. Each event row was recorded
+  // by a previous handler; the payload_json carries the original log entry
+  // shape ({time, agent, message, ...extra}).
+  const events = repo.sdlcEvents.list();
+  data.log = events.map((row) => {
+    const payload = JSON.parse(row.payload_json);
+    return {
+      time: payload.time,
+      agent: payload.agent || row.agent,
+      message: payload.message,
+      ...payload,
+    };
+  });
+
+  return data;
+}
+
+/**
+ * Persist mutations the handler made back through the repo. Programme fields
+ * whose value changed are upserted via sdlcProgramme.set(); new log entries
+ * (appended by appendLog) are recorded via sdlcEvents.record(). Errors from
+ * the typed writers propagate — we do NOT catch SQLITE_CONSTRAINT_* here
+ * (AC-1013: writers throw, indexers warn).
+ */
+async function writeState(repo, before, after) {
+  // 1. Programme fields — set when the value actually changed.
+  for (const f of PROGRAMME_FIELDS) {
+    if (!(f in after)) continue;
+    const newVal = after[f];
+    const oldVal = before[f];
+    if (JSON.stringify(newVal) !== JSON.stringify(oldVal)) {
+      await repo.sdlcProgramme.set(f, newVal);
+    }
+  }
+
+  // 2. New log entries. We compare lengths since appendLog only ever
+  // appends-and-trims; in normal operation a handler adds 1 entry. If the
+  // log was truncated by appendLog's 200-entry cap, the new entries are
+  // still the tail slice.
+  const beforeLen = (before.log || []).length;
+  const afterLen = (after.log || []).length;
+  if (afterLen > beforeLen) {
+    const newEntries = (after.log || []).slice(beforeLen);
+    for (const entry of newEntries) {
+      // Derive (kind, storyId, agent) from the entry; the rest of the entry
+      // is preserved verbatim in payload_json by SdlcEventRepo.record().
+      await repo.sdlcEvents.record({
+        ts: entry.time ? Date.parse(entry.time) || Date.now() : Date.now(),
+        kind: 'log',
+        agent: entry.agent || null,
+        storyId: entry.storyId || null,
+        ...entry,
+      });
+    }
+  } else if (afterLen < beforeLen) {
+    // Trim case (appendLog's 200-cap, or session-start). The mirror would
+    // still emit the full event history; we accept that drift — it is more
+    // durable, not less. No-op.
+  }
+}
+
+async function main() {
+  const { cmd, opts } = parseArgs(process.argv);
+
+  if (!cmd || cmd === '--help' || cmd === '-h') {
+    const help = fs.readFileSync(__filename, 'utf8').match(/\/\*\*[\s\S]*?\*\//)[0];
+    console.log(help);
+    process.exit(cmd ? 0 : 1);
+  }
+
+  const handler = HANDLERS[cmd];
+  if (!handler) {
+    console.error(`Unknown command: ${cmd}`);
+    console.error(`Available: ${Object.keys(HANDLERS).join(', ')}`);
+    process.exit(1);
+  }
+
+  // Commands that mutate agent/story state and should trigger a dashboard regen
+  const REGEN_CMDS = new Set([
+    'agent-start',
+    'agent-done',
+    'story-start',
+    'story-complete',
+    'cycle-complete',
+    'cycle-fail',
+    'phase-advance',
+    'phase-complete',
+    'phase-blocked',
+  ]);
+
+  const { Repository } = require('./lib/repository');
+  const repo = Repository.getInstance({ root: path.join(__dirname, '..') });
+
+  try {
+    const before = readState(repo);
+    // Clone so the handler's mutations don't mutate `before` (which we use
+    // for change detection).
+    const data = JSON.parse(JSON.stringify(before));
+    const after = await handler(data, opts);
+    await writeState(repo, before, after);
+    console.log(`[update-sdlc-status] ${cmd} ${JSON.stringify(opts)}`);
+  } catch (err) {
+    console.error(`[update-sdlc-status] failed:`, err.message);
+    process.exit(1);
+  }
+
+  // Auto-regen the Agentic Dashboard so agent-start/done appear live.
+  // Best-effort — failure never blocks the status update.
+  if (REGEN_CMDS.has(cmd)) {
+    try {
+      const dashScript = path.join(__dirname, 'generate-dashboard.js');
+      if (fs.existsSync(dashScript)) require('./generate-dashboard');
+    } catch {
+      /* silent */
+    }
+  }
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = { HANDLERS, parseArgs, resetSession, readState, writeState, PROGRAMME_FIELDS };

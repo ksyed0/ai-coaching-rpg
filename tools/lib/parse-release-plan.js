@@ -1,0 +1,194 @@
+'use strict';
+// Used by both the dashboard read path (tools/generate-plan.js) AND the
+// SQLite indexer (tools/lib/repository/indexers/release-plan-indexer.js).
+// Survives Phase E — rename and relocate to
+// tools/lib/repository/parsers/release-plan-parser.js then, but do not delete.
+
+/**
+ * Extracts all fenced code blocks (``` ... ```) from markdown text.
+ * Returns array of block content strings.
+ * @deprecated Kept for reference; parseReleasePlan uses blank-line chunking (BUG-0158 fix).
+ */
+// eslint-disable-next-line no-unused-vars
+function extractCodeBlocks(md) {
+  // Line-by-line state machine — correctly handles adjacent fences like
+  // ```\n\n``` which previously broke regex-based pairing and dropped content
+  // between the empty-block pair and the next real block (BUG-0158).
+  const blocks = [];
+  const lines = md.split('\n');
+  let inBlock = false;
+  let buf = [];
+  for (const line of lines) {
+    if (/^```/.test(line)) {
+      if (inBlock) {
+        blocks.push(buf.join('\n') + '\n');
+        buf = [];
+      }
+      inBlock = !inBlock;
+    } else if (inBlock) {
+      buf.push(line);
+    }
+  }
+  return blocks;
+}
+
+/**
+ * Parse "None" or comma-separated IDs into an array.
+ */
+function parseDeps(val) {
+  if (!val || val.trim() === 'None' || val.trim() === '') return [];
+  return val
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Parse a single epic block into an object.
+ */
+function parseEpicBlock(text) {
+  // Two header formats accepted:
+  //   "EPIC-XXXX: Title here"                       (colon-title)
+  //   "EPIC-XXXX\nTitle: Title here\n..."           (alt: id-on-own-line + Title: key)
+  const idTitle = text.match(/^(EPIC-\d+):\s*(.+)/m);
+  const idAlt = !idTitle && text.match(/^(EPIC-\d+)\s*$/m);
+  if (!idTitle && !idAlt) return null;
+  const get = (key) => {
+    const m = text.match(new RegExp(`^${key}:[ \\t]*(.*)`, 'm'));
+    return m ? m[1].trim() : '';
+  };
+  const id = idTitle ? idTitle[1] : idAlt[1];
+  const title = idTitle ? idTitle[2].trim() : get('Title') || 'Unknown';
+  return {
+    id,
+    title,
+    description: get('Description'),
+    releaseTarget: get('Release Target') || get('ReleaseTarget'),
+    status: get('Status'),
+    startDate: get('StartDate') || null,
+    doneDate: get('DoneDate') || null,
+    dependencies: parseDeps(get('Dependencies')),
+  };
+}
+
+/**
+ * Parse acceptance criteria lines.
+ * Format: `  - [ ] AC-XXXX: Text` or `  - [x] AC-XXXX: Text`
+ */
+function parseACs(text) {
+  const acs = [];
+  const re = /- \[( |x)\] (AC-\d+|AC-TBD):\s*(.+)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    acs.push({ id: m[2], text: m[3].trim(), done: m[1] === 'x' });
+  }
+  return acs;
+}
+
+/**
+ * Parse a single user story block.
+ */
+function parseStoryBlock(text) {
+  const header = text.match(/^(US-\d+)\s*\((EPIC-\d+)\):\s*(.+)/m);
+  if (!header) return null;
+  const get = (key) => {
+    const m = text.match(new RegExp(`^${key}:[ \\t]*(.*)`, 'm'));
+    return m ? m[1].trim() : '';
+  };
+  const priorityRaw = get('Priority');
+  const priorityMatch = priorityRaw.match(/\((P\d)\)/);
+  let priority = priorityMatch ? priorityMatch[1] : priorityRaw;
+  if (!priorityMatch && priorityRaw) {
+    const levelMatch = priorityRaw.match(/^(High|Medium|Low)/i);
+    if (levelMatch) priority = levelMatch[1];
+  }
+  const prRaw = get('PR');
+  const prMatch = prRaw.match(/#(\d+)/);
+  return {
+    id: header[1],
+    epicId: header[2],
+    title: header[3].trim(),
+    priority: priority,
+    estimate: get('Estimate'),
+    status: get('Status'),
+    branch: get('Branch'),
+    prNumber: prMatch ? parseInt(prMatch[1], 10) : null,
+    specPath: get('Spec') || null,
+    planPath: get('Plan') || null,
+    planTask: get('Plan Task') || null,
+    relatedBug: get('Related Bug') || null,
+    doneDate: get('DoneDate') || null,
+    acs: parseACs(text),
+    dependencies: parseDeps(get('Dependencies')),
+  };
+}
+
+/**
+ * Parse a single task block.
+ */
+function parseTaskBlock(text) {
+  const header = text.match(/^(TASK-\d+)\s*\((US-\d+)\):\s*(.+)/m);
+  if (!header) return null;
+  const get = (key) => {
+    const m = text.match(new RegExp(`^${key}:[ \\t]*(.*)`, 'm'));
+    return m ? m[1].trim() : '';
+  };
+  return {
+    id: header[1],
+    storyId: header[2],
+    title: header[3].trim(),
+    type: get('Type'),
+    assignee: get('Assignee'),
+    status: get('Status'),
+    branch: get('Branch'),
+    notes: get('Notes'),
+  };
+}
+
+/**
+ * Main parser. Returns { epics, stories, tasks }.
+ */
+function parseReleasePlan(markdown) {
+  // Structural approach: regardless of code-fence placement, find every line
+  // that looks like an EPIC/US/TASK header and collect the following lines
+  // until the next header or a blank-line-separated delimiter. Robust to
+  // Prettier-added blank lines and adjacent empty-fence pairs that previously
+  // broke code-block based extraction (BUG-0158).
+  const epics = [],
+    stories = [],
+    tasks = [];
+  const seenEpics = new Set(),
+    seenStories = new Set(),
+    seenTasks = new Set();
+
+  // Split the document into chunks by blank lines, ignoring fence markers.
+  const cleaned = markdown.replace(/^```[^\n]*$/gm, '');
+  const chunks = cleaned.split(/\n{2,}/);
+  for (const chunk of chunks) {
+    const trimmed = chunk.trim();
+    if (!trimmed) continue;
+    if (/^EPIC-\d+(:|$)/m.test(trimmed)) {
+      const e = parseEpicBlock(trimmed);
+      if (e && !seenEpics.has(e.id)) {
+        seenEpics.add(e.id);
+        epics.push(e);
+      }
+    } else if (/^US-\d+\s*\(EPIC-/.test(trimmed)) {
+      const s = parseStoryBlock(trimmed);
+      if (s && !seenStories.has(s.id)) {
+        seenStories.add(s.id);
+        stories.push(s);
+      }
+    } else if (/^TASK-\d+\s*\(US-/.test(trimmed)) {
+      const t = parseTaskBlock(trimmed);
+      if (t && !seenTasks.has(t.id)) {
+        seenTasks.add(t.id);
+        tasks.push(t);
+      }
+    }
+  }
+
+  return { epics, stories, tasks };
+}
+
+module.exports = { parseReleasePlan };

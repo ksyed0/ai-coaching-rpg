@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node tools/capture-cost.js"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(npm run plan:*)",
+      "Bash(node tools/generate-plan.js*)",
+      "Bash(node tools/generate-dashboard.js*)",
+      "Bash(node tools/update-sdlc-status.js*)",
+      "Bash(node tools/migrate-config.js*)",
+      "Bash(npx jest*)",
+      "Bash(git status)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git branch*)",
+      "Bash(git fetch*)"
+    ]
+  }
+}

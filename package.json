@@ -1,0 +1,67 @@
+{
+  "name": "ai-coaching-rpg",
+  "version": "1.0.0",
+  "description": "",
+  "main": "eslint.config.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "plan:test": "jest --watchAll=false",
+    "plan:test:coverage": "jest --watchAll=false --coverage",
+    "plan:generate": "node tools/generate-plan.js",
+    "plan:cleanup": "bash scripts/cleanup-branches.sh",
+    "plan:cleanup:dry": "bash scripts/cleanup-branches.sh --dry-run",
+    "plan:migrate-config": "node tools/migrate-config.js",
+    "plan:migrate-config:dry": "node tools/migrate-config.js --dry-run",
+    "memory:compact": "node tools/memory.js compact",
+    "memory:archive": "node tools/memory.js archive",
+    "memory:migrate": "node tools/memory.js migrate",
+    "memory:migrate-commit": "node tools/memory.js migrate-commit",
+    "memory:suggest-model": "node tools/memory.js suggest-model",
+    "memory:validate": "node tools/memory.js validate",
+    "agent:approve": "node tools/agent-spec-plan.js approve",
+    "agent:reject": "node tools/agent-spec-plan.js reject",
+    "agent:pending": "node tools/agent-spec-plan.js show-pending",
+    "agent:apply": "node tools/agent-spec-plan.js apply-pending",
+    "agent:list": "node tools/agent-spec-plan.js list",
+    "agent:status": "node tools/agent-spec-plan.js status",
+    "agent:start": "node tools/agent-lifecycle.js start",
+    "agent:done": "node tools/agent-lifecycle.js done",
+    "agent:concerns": "node tools/agent-lifecycle.js concerns",
+    "agent:needs-context": "node tools/agent-lifecycle.js needs-context",
+    "agent:blocked": "node tools/agent-lifecycle.js blocked",
+    "agent:resolve": "node tools/agent-lifecycle.js resolve",
+    "agent:tasks": "node tools/agent-lifecycle.js list",
+    "agent:task-status": "node tools/agent-lifecycle.js status",
+    "agent:context": "node tools/agent-context.js generate",
+    "agent:review-start": "node tools/agent-task-review.js start",
+    "agent:review-spec": "node tools/agent-task-review.js spec-verdict",
+    "agent:review-quality": "node tools/agent-task-review.js quality-verdict",
+    "agent:review-retry": "node tools/agent-task-review.js forge-retry",
+    "agent:review-status": "node tools/agent-task-review.js status",
+    "dashboard:watch": "node tools/watch-dashboard.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ksyed0/ai-coaching-rpg.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/ksyed0/ai-coaching-rpg/issues"
+  },
+  "homepage": "https://github.com/ksyed0/ai-coaching-rpg#readme",
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "chart.js": "^4.5.1",
+    "eslint": "10.2.1",
+    "husky": "^9.1.7",
+    "jest": "^30.3.0",
+    "lint-staged": "^16.4.0",
+    "prettier": "^3.8.3"
+  }
+}
