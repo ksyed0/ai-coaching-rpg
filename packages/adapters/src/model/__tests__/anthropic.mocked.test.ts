@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const streamMock = vi.fn();
+const ctorMock = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => ({
-  default: class { messages = { stream: streamMock }; },
+  default: class { messages = { stream: streamMock }; constructor(opts: unknown) { ctorMock(opts); } },
 }));
 
 import { AnthropicModelProvider } from "../anthropic.js";
@@ -15,7 +16,7 @@ async function* events() {
 }
 
 describe("AnthropicModelProvider (SDK mocked)", () => {
-  beforeEach(() => { streamMock.mockReset(); streamMock.mockImplementation(() => events()); });
+  beforeEach(() => { ctorMock.mockReset(); streamMock.mockReset(); streamMock.mockImplementation(() => events()); });
 
   it("yields only text deltas and caches the system prompt by default", async () => {
     const p = new AnthropicModelProvider({ apiKey: "k", model: "m1" });
@@ -35,5 +36,15 @@ describe("AnthropicModelProvider (SDK mocked)", () => {
     expect(params.system).toBe("sys");
     expect(params.model).toBe("m2");
     expect(opts.signal).toBe(ac.signal);
+  });
+
+  it("passes only the apiKey to the SDK by default (existing behavior)", () => {
+    new AnthropicModelProvider({ apiKey: "k", model: "m1" });
+    expect(ctorMock).toHaveBeenCalledWith({ apiKey: "k" });
+  });
+
+  it("passes a custom endpoint as the SDK baseURL", () => {
+    new AnthropicModelProvider({ apiKey: "k", model: "m1", baseUrl: "https://proxy.example/anthropic" });
+    expect(ctorMock).toHaveBeenCalledWith({ apiKey: "k", baseURL: "https://proxy.example/anthropic" });
   });
 });

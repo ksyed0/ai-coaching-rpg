@@ -3,7 +3,7 @@ import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadScenario, validateScenario } from "@acr/script";
-import { selectModelProvider } from "@acr/adapters";
+import { describeModelProvider, selectModelProvider } from "@acr/adapters";
 import { SessionEngine } from "./engine/session-engine.js";
 import { JsonlEventLog, isValidSessionId } from "./engine/event-log.js";
 import { SystemClock } from "./engine/clock.js";
@@ -62,7 +62,10 @@ export async function bootstrap(opts: {
     const clock = new SystemClock();
     const engine = new SessionEngine({ scenario, log: new JsonlEventLog(sessionId, dataDir), clock });
     const npcProvider = selectModelProvider(env, "npc");
-    log(`model provider: ${npcProvider.name}; scenario dir: ${scenarioDir}`);
+    // Never log the provider object, its name or any env-derived secret: describeModelProvider returns a fixed label
+    // plus (for remote/local endpoints) the endpoint host only.
+    log(`model provider: ${describeModelProvider(env)}`);
+    log(`scenario dir: ${scenarioDir}`);
     host = new SessionHost({ scenario, engine, npcProvider, gmProvider: selectModelProvider(env, "gm"), clock, log: (m) => console.error(m) });
   } catch (err) { return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
 

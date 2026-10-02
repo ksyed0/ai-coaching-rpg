@@ -1,0 +1,188 @@
+import { parseBaseUrl, type EndpointPolicy } from "./endpoint.js";
+import type { ChatRequest, ModelProvider } from "./types.js";
+
+/** Any OpenAI-style `POST {base}/chat/completions` server: OpenRouter, Ollama, LM Studio, vLLM, llama.cpp. */
+export type OpenAICompatibleName = "openrouter" | "local";
+
+const VARIABLES: Record<OpenAICompatibleName, { key: string; url: string; policy: EndpointPolicy }> = {
+  openrouter: { key: "OPENROUTER_API_KEY", url: "OPENROUTER_BASE_URL", policy: "https-or-loopback-http" },
+  local: { key: "LOCAL_API_KEY", url: "LOCAL_BASE_URL", policy: "http-or-https" },
+};
+
+const MAX_ERROR_BODY_BYTES = 8 * 1024; // read at most this much of an error response
+const ERROR_SNIPPET_CHARS = 300;
+const MAX_JSON_BODY_BYTES = 1024 * 1024; // 1 MiB cap for the non-streaming fallback
+const MAX_LINE_CHARS = 1024 * 1024; // a single SSE line longer than this is a broken or hostile server
+
+/** Replaces control characters, collapses whitespace and truncates; never returns more than `max` chars plus an ellipsis. */
+export function sanitizeSnippet(text: string, max = ERROR_SNIPPET_CHARS): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = text.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim();
+  return clean.length > max ? `${clean.slice(0, max)}...` : clean;
+}
+
+export class OpenAICompatibleModelProvider implements ModelProvider {
+  readonly name: OpenAICompatibleName;
+  private readonly endpoint: string;
+  private readonly model: string;
+  // True private field: the key is invisible to JSON.stringify, util.inspect and property enumeration.
+  readonly #apiKey: string | undefined;
+
+  constructor(opts: { name: OpenAICompatibleName; baseUrl: string; model: string; apiKey?: string }) {
+    const vars = VARIABLES[opts.name];
+    this.name = opts.name;
+    this.endpoint = `${parseBaseUrl(opts.baseUrl, vars.url, vars.policy)}/chat/completions`;
+    if (!opts.model || opts.model.trim() === "") throw new Error(`${opts.name}: a model id is required`);
+    this.model = opts.model;
+    const key = opts.apiKey?.trim();
+    // A key that is not a plain header token would make the HTTP stack throw an error that may echo the value.
+    if (key && !/^[\x21-\x7e]+$/.test(key)) throw new Error(`${vars.key} contains whitespace or non-ASCII characters`);
+    this.#apiKey = key || undefined;
+  }
+
+  /** Only the host (with port): safe to log. Never the path, query or any credential. */
+  get endpointHost(): string { return new URL(this.endpoint).host; }
+
+  private redact(text: string): string {
+    const key = this.#apiKey;
+    return key ? text.split(key).join("[redacted]") : text;
+  }
+
+  private snippet(text: string): string { return sanitizeSnippet(this.redact(text)); }
+
+  async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<string> {
+    // req.cacheSystem is ignored on purpose: prompt caching is an Anthropic-specific feature (cache_control blocks) and
+    // OpenAI-compatible servers have no portable equivalent; sending the field could make a strict server reject the request.
+    const headers: Record<string, string> = { "Content-Type": "application/json", Accept: "text/event-stream" };
+    if (this.#apiKey) headers.Authorization = `Bearer ${this.#apiKey}`;
+    const body = JSON.stringify({
+      model: req.model ?? this.model,
+      messages: [{ role: "system", content: req.system }, ...req.messages],
+      max_tokens: req.maxTokens,
+      stream: true,
+    });
+
+    let res: Response;
+    try {
+      // redirect:"error": a redirect must never carry the Authorization header to another origin.
+      res = await fetch(this.endpoint, { method: "POST", headers, body, signal, redirect: "error" });
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+      const detail = cause?.code ?? cause?.message ?? (err instanceof Error ? err.message : "error");
+      throw new Error(`${this.name} request failed: ${this.snippet(String(detail))}`);
+    }
+
+    if (!res.ok) {
+      const text = await this.readCapped(res, MAX_ERROR_BODY_BYTES, false).catch(() => "");
+      throw new Error(`${this.name} request failed with HTTP ${res.status}${text ? `: ${this.snippet(text)}` : ""}`);
+    }
+
+    const type = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (type.includes("application/json")) {
+      // Some local servers ignore stream:true and answer with one JSON object.
+      const text = await this.readCapped(res, MAX_JSON_BODY_BYTES, true);
+      const content = this.contentOfJson(text);
+      if (content) yield content;
+      return;
+    }
+    if (!type.includes("text/event-stream") || !res.body) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`${this.name} returned an unexpected response (content-type ${JSON.stringify(sanitizeSnippet(type, 60))}); expected text/event-stream`);
+    }
+    yield* this.parseSse(res.body, signal);
+  }
+
+  /** Reads up to `max` bytes then cancels the body. `strict` = throw when the body is bigger than `max`. */
+  private async readCapped(res: Response, max: number, strict: boolean): Promise<string> {
+    if (!res.body) return "";
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let received = 0;
+    let text = "";
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        received += value.byteLength;
+        if (received > max) {
+          if (strict) throw new Error(`${this.name} response body exceeds ${max} bytes`);
+          text += decoder.decode(value.subarray(0, value.byteLength - (received - max)), { stream: true });
+          break;
+        }
+        text += decoder.decode(value, { stream: true });
+      }
+      return text + decoder.decode();
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+  }
+
+  private contentOfJson(text: string): string {
+    let obj: unknown;
+    try { obj = JSON.parse(text); }
+    catch { throw new Error(`${this.name} returned malformed JSON`); }
+    this.throwIfErrorObject(obj);
+    const content = (obj as { choices?: { message?: { content?: unknown } }[] } | null)?.choices?.[0]?.message?.content;
+    return typeof content === "string" ? content : "";
+  }
+
+  private throwIfErrorObject(obj: unknown): void {
+    const err = (obj as { error?: unknown } | null)?.error;
+    if (err === undefined || err === null) return;
+    const message = typeof err === "string" ? err : (err as { message?: unknown }).message;
+    throw new Error(`${this.name} reported an error${typeof message === "string" && message ? `: ${this.snippet(message)}` : ""}`);
+  }
+
+  /**
+   * Manual Server-Sent-Events parsing. Each `data:` line is handled as one event (OpenAI-style servers send one JSON
+   * object per line), which also tolerates a server that omits the blank separator line. Chunks may split anywhere:
+   * lines are buffered across reads and bytes go through one streaming TextDecoder so a split UTF-8 character survives.
+   */
+  private async *parseSse(body: ReadableStream<Uint8Array>, signal?: AbortSignal): AsyncGenerator<string> {
+    const reader = body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    const handle = (line: string): { done: boolean; text?: string } => {
+      if (line === "" || line.startsWith(":")) return { done: false }; // blank separator or comment/keepalive
+      if (!line.startsWith("data:")) return { done: false }; // event:, id:, retry: carry nothing we need
+      const data = line.slice(5).replace(/^ /, "");
+      if (data.trim() === "[DONE]") return { done: true };
+      let obj: unknown;
+      try { obj = JSON.parse(data); }
+      catch { throw new Error(`${this.name} sent a malformed stream event`); }
+      this.throwIfErrorObject(obj);
+      const choices = (obj as { choices?: unknown })?.choices;
+      const content = Array.isArray(choices) ? (choices[0] as { delta?: { content?: unknown } } | undefined)?.delta?.content : undefined;
+      return { done: false, text: typeof content === "string" && content.length > 0 ? content : undefined };
+    };
+    try {
+      for (;;) {
+        if (signal?.aborted) return;
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split(/\r\n|\n|\r/);
+        buffer = lines.pop() ?? "";
+        if (buffer.length > MAX_LINE_CHARS) throw new Error(`${this.name} sent an oversized stream line`);
+        for (const line of lines) {
+          const r = handle(line);
+          if (r.done) return;
+          if (r.text !== undefined) {
+            yield r.text;
+            if (signal?.aborted) return;
+          }
+        }
+      }
+      // The stream ended without [DONE]: treat as the end, but still process an unterminated final line.
+      buffer += decoder.decode();
+      if (buffer) {
+        const r = handle(buffer);
+        if (r.text !== undefined) yield r.text;
+      }
+    } finally {
+      // Cancelling the reader closes the connection, so the server stops generating.
+      await reader.cancel().catch(() => {});
+    }
+  }
+}

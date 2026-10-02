@@ -5,8 +5,9 @@ export class AnthropicModelProvider implements ModelProvider {
   readonly name = "anthropic";
   private client: Anthropic;
   private model: string;
-  constructor(opts: { apiKey: string; model: string }) {
-    this.client = new Anthropic({ apiKey: opts.apiKey });
+  /** `baseUrl` is an optional custom endpoint (proxy / gateway); it must already be validated (see endpoint.ts). */
+  constructor(opts: { apiKey: string; model: string; baseUrl?: string }) {
+    this.client = new Anthropic(opts.baseUrl ? { apiKey: opts.apiKey, baseURL: opts.baseUrl } : { apiKey: opts.apiKey });
     this.model = opts.model;
   }
 
