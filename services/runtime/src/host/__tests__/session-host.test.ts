@@ -249,6 +249,21 @@ describe("SessionHost.filterFor is default-deny per event type (I1)", () => {
   });
 });
 
+describe("SessionHost.snapshotFor scene visibility (M4)", () => {
+  it("shows a player only the scenes they take part in, agreeing with viewFor", async () => {
+    host.join("host", "p1");
+    await host.start();
+    const enteredForOutsider = host.viewFor("outsider", { seq: 1, ts: 0, sessionId: "s", type: "scene.entered", sceneId: "s1_open", participants: ["host", "guest"] });
+    expect(enteredForOutsider).toBeNull();
+    const out = host.snapshotFor("outsider");
+    expect(out.currentScene).toBeNull();
+    expect(out.sceneHistory).toEqual([]);
+    const mine = host.snapshotFor("host");
+    expect(mine.currentScene?.id).toBe("s1_open");
+    expect(mine.sceneHistory.map((s) => s.id)).toEqual(["s1_open"]);
+  });
+});
+
 describe("SessionHost.snapshotFor", () => {
   it("gives a player a snapshot without NPC goals/knowledge, GM verdicts or other scenes' lines; the facilitator sees all", async () => {
     host.join("host", "p1");

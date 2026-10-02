@@ -32,6 +32,9 @@ export function sanitizeText(s: string): string {
 
 const s = sanitizeText;
 
+/** Most history lines shown when joining (or rejoining). */
+export const MAX_HISTORY_LINES = 50;
+
 /** One printable line for an event, or null when this viewer should see nothing. Unknown event types render nothing. */
 export function renderEvent(e: SessionEvent, me: string): string | null {
   const isFacilitator = me === "facilitator";
@@ -56,6 +59,14 @@ export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>): str
     lines.push("", `Your brief: ${s(m.brief)}`);
     for (const f of m.privateFacts ?? []) lines.push(`  - ${s(f)}`);
     lines.push("");
+  }
+  // The server already filtered the transcript to what this viewer may see; it still goes through sanitizeText (R26).
+  const transcript = m.state?.transcript ?? [];
+  if (transcript.length > 0) {
+    const shown = transcript.slice(-MAX_HISTORY_LINES);
+    lines.push("--- history ---");
+    if (transcript.length > shown.length) lines.push(`(+${transcript.length - shown.length} earlier lines)`);
+    for (const u of shown) lines.push(`${u.roleId === m.roleId ? "you" : s(u.roleId)}: ${s(u.text)}`);
   }
   return lines;
 }

@@ -126,7 +126,10 @@ export class SessionHost {
   snapshotFor(who: string | "facilitator"): SessionState {
     const s = this.engine.state;
     if (who === "facilitator") return s;
-    return { ...s, roles: redactRoles(s.roles), transcript: visibleTranscript(s, who), npcs: {}, gmVerdicts: {}, injectsFired: [], advanceRequested: false };
+    // Same rule as viewFor: only scenes the player takes part in.
+    const mine = s.sceneHistory.filter((sc) => sc.participants.includes(who));
+    const currentScene = s.currentScene && s.currentScene.participants.includes(who) ? s.currentScene : null;
+    return { ...s, roles: redactRoles(s.roles), currentScene, sceneHistory: mine, transcript: visibleTranscript(s, who), npcs: {}, gmVerdicts: {}, injectsFired: [], advanceRequested: false };
   }
 
   filterFor(who: string | "facilitator"): (e: SessionEvent) => boolean {

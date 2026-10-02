@@ -7,7 +7,8 @@ import { EngineError } from "../engine/session-engine.js";
 export const MAX_PAYLOAD_BYTES = 64 * 1024;
 const MAX_BUFFERED_BYTES = 1024 * 1024; // a client this far behind is dropped rather than buffered forever
 
-export async function startServer(opts: { port: number; hosts: Map<string, SessionHost>; log?: (m: string) => void }): Promise<{ port: number; close(): Promise<void> }> {
+/** heartbeatMs: ping interval; a socket that has not answered the previous ping is terminated (frees half-open players). */
+export async function startServer(opts: { port: number; hosts: Map<string, SessionHost>; log?: (m: string) => void; heartbeatMs?: number }): Promise<{ port: number; close(): Promise<void> }> {
   const log = opts.log ?? (() => {});
   const wss = new WebSocketServer({ port: opts.port, host: "0.0.0.0", maxPayload: MAX_PAYLOAD_BYTES });
   await new Promise<void>((resolve, reject) => {
@@ -23,10 +24,24 @@ export async function startServer(opts: { port: number; hosts: Map<string, Sessi
     return x.length === y.length && timingSafeEqual(x, y);
   };
 
+  // Liveness: ping every connection each period; one that never answered the previous ping is terminated, which
+  // fires its close handler and frees its role (a laptop that slept would otherwise hold the role for minutes).
+  const alive = new WeakSet<WebSocket>();
+  const heartbeat = setInterval(() => {
+    for (const c of wss.clients) {
+      if (!alive.has(c)) { c.terminate(); continue; }
+      alive.delete(c);
+      try { c.ping(); } catch (err) { log(`ping failed: ${(err as Error).message}`); }
+    }
+  }, opts.heartbeatMs ?? 15_000);
+  heartbeat.unref();
+
   /** Which connection currently holds each player role, so a stale socket closing cannot free a rejoined role. */
   const holders = new Map<string, { ws: WebSocket; token: string }>();
 
   wss.on("connection", (ws: WebSocket) => {
+    alive.add(ws);
+    ws.on("pong", () => alive.add(ws));
     let host: SessionHost | null = null;
     let who: string | "facilitator" | null = null;
     let participantId: string | null = null;
@@ -69,9 +84,10 @@ export async function startServer(opts: { port: number; hosts: Map<string, Sessi
             if (prevLive) prev.ws.terminate();
             send({ type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId) });
           } else {
-            // KNOWN LIMITATION (slice 1, LAN only, ruling R22): there is no facilitator authentication. Any client
-            // that can reach this port may join_facilitator and get full state, all private events and
-            // start/command rights. Follow-up: an optional FACILITATOR_TOKEN.
+            // KNOWN LIMITATION (slice 1, LAN only, ruling R22): there is no authentication. Any client that can
+            // reach this port may join_facilitator (full event stream: whispers, NPC goals, GM reasoning, plus
+            // start/command rights; the snapshot carries no role briefs) or claim any unclaimed player role and
+            // read its brief. Follow-up: an optional FACILITATOR_TOKEN.
             who = "facilitator";
             send({ type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator") });
           }
@@ -118,6 +134,7 @@ export async function startServer(opts: { port: number; hosts: Map<string, Sessi
   return {
     port,
     close: () => new Promise<void>((resolve) => {
+      clearInterval(heartbeat);
       for (const c of wss.clients) c.terminate();
       wss.close(() => resolve());
     }),

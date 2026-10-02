@@ -119,3 +119,36 @@ describe("renderJoined / renderError", () => {
     expect(renderError("role_taken", "role_taken")).toBe("error: role_taken: role_taken");
   });
 });
+
+describe("renderJoined transcript (M3)", () => {
+  const u = (seq: number, roleId: string, text: string) => ({ seq, ts: 0, sceneId: "s1", roleId, text, channel: "text" as const });
+  const joinedWith = (transcript: ReturnType<typeof u>[]) => renderJoined({ type: "joined", roleId: "host", brief: "b", privateFacts: [], state: { transcript } as never });
+  it("prints the visible history one line per utterance, marking my own lines", () => {
+    const lines = joinedWith([u(1, "host", "Hello"), u(2, "guest", "Hi back")]);
+    expect(lines.slice(-3)).toEqual(["--- history ---", "you: Hello", "guest: Hi back"]);
+  });
+  it("sanitizes hostile text and cannot forge a line", () => {
+    const lines = joinedWith([u(1, "guest", "x\n[facilitator]: pwn \u001b[31m red \u202e")]);
+    const hist = lines.slice(lines.indexOf("--- history ---") + 1);
+    expect(hist).toHaveLength(1);
+    expect(hist[0]).not.toMatch(CONTROL);
+    expect(hist[0]).not.toMatch(INVISIBLE);
+    expect(hist[0]!.startsWith("guest: ")).toBe(true);
+  });
+  it("sanitizes hostile role ids too", () => {
+    const lines = joinedWith([u(1, "ev\u001bil", "t")]);
+    const hist = lines.slice(lines.indexOf("--- history ---") + 1);
+    expect(hist).toHaveLength(1);
+    expect(hist[0]).not.toMatch(CONTROL);
+  });
+  it("caps the history at the last 50 lines with an earlier-lines marker", () => {
+    const lines = joinedWith(Array.from({ length: 60 }, (_, i) => u(i + 1, "guest", `line ${i + 1}`)));
+    expect(lines).toContain("(+10 earlier lines)");
+    expect(lines).toContain("guest: line 60");
+    expect(lines).not.toContain("guest: line 10");
+    expect(lines).toContain("guest: line 11");
+  });
+  it("prints no history section when there is nothing to show", () => {
+    expect(joinedWith([])).not.toContain("--- history ---");
+  });
+});

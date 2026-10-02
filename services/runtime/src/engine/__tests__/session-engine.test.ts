@@ -252,6 +252,14 @@ describe("command validation", () => {
     await expect(engine.command({ command: "whisper", roleId: "ghost", text: "hi" })).rejects.toMatchObject({ code: "unknown_role" });
     expect(await log.all()).toHaveLength(n);
   });
+
+  it("M2: a whisper to an NPC role is rejected (nobody could ever see it) and appends nothing", async () => {
+    const n = (await log.all()).length;
+    await expect(engine.command({ command: "whisper", roleId: "guest", text: "psst" })).rejects.toMatchObject({ name: "EngineError", code: "npc_role" });
+    expect(await log.all()).toHaveLength(n);
+    await engine.command({ command: "whisper", roleId: "host", text: "psst" });
+    expect(await log.all()).toHaveLength(n + 1);
+  });
 });
 
 describe("state is a projection of the log", () => {

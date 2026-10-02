@@ -4,7 +4,7 @@ import type { Clock } from "./clock.js";
 import type { EventLog } from "./event-log.js";
 import { Mutex } from "./mutex.js";
 
-export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty";
+export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role";
 export class EngineError extends Error {
   constructor(readonly code: EngineErrorCode, message: string = code) { super(message); this.name = "EngineError"; }
 }
@@ -102,7 +102,11 @@ export class SessionEngine {
       if (!scene || !inject) throw new EngineError("unknown_inject", `no inject ${cmd.injectId} in the current scene`);
       injectToFire = { scene, inject };
     }
-    if (cmd.command === "whisper" && !this.state.roles[cmd.roleId]) throw new EngineError("unknown_role", `unknown role ${cmd.roleId}`);
+    if (cmd.command === "whisper") {
+      const target = this.state.roles[cmd.roleId];
+      if (!target) throw new EngineError("unknown_role", `unknown role ${cmd.roleId}`);
+      if (target.kind !== "player") throw new EngineError("npc_role", `${cmd.roleId} is an NPC; whispers go to player roles only`);
+    }
     if (cmd.command === "set_npc_stance" && !this.state.npcs[cmd.roleId]) throw new EngineError("unknown_role", `${cmd.roleId} is not an NPC`);
     await this.emit({ type: "facilitator.command", ...cmd });
     if (injectToFire) await this.fireInject(injectToFire.scene, injectToFire.inject);

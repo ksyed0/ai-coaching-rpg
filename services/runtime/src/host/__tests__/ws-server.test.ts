@@ -15,10 +15,12 @@ import { startServer } from "../ws-server.js";
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
 let server: Awaited<ReturnType<typeof startServer>> | null = null;
 let sockets: WebSocket[] = [];
+const afterTmp: string[] = [];
 afterEach(async () => {
   for (const s of sockets) s.terminate();
   sockets = [];
   await server?.close(); server = null;
+  for (const d of afterTmp.splice(0)) await rm(d, { recursive: true, force: true });
 });
 
 function open(port: number) {
@@ -45,12 +47,12 @@ const logWaiters: { re: RegExp; resolve: () => void }[] = [];
 const serverLog = (m: string) => { for (const w of [...logWaiters]) if (w.re.test(m)) { logWaiters.splice(logWaiters.indexOf(w), 1); w.resolve(); } };
 const waitLog = (re: RegExp) => new Promise<void>((resolve) => { logWaiters.push({ re, resolve }); });
 
-async function setup(npcReplies: string[] = ["Hi!"], dir = fixture, npcProvider?: ModelProvider) {
+async function setup(npcReplies: string[] = ["Hi!"], dir = fixture, npcProvider?: ModelProvider, heartbeatMs?: number) {
   const scenario = await loadScenario(dir);
   const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock: new FakeClock(0) });
   const npc = new MockModelProvider(npcReplies);
   const host = new SessionHost({ scenario, engine, npcProvider: npcProvider ?? npc, gmProvider: new MockModelProvider(), clock: new FakeClock(0) });
-  server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: serverLog });
+  server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: serverLog, heartbeatMs });
   return { engine, host, npc, port: server.port };
 }
 
@@ -274,7 +276,12 @@ describe("ws-server", () => {
   });
 
   it("R22f: a player never receives another role's whisper, a private inject or NPC internals; joined carries only their own brief", async () => {
-    const { port } = await setup();
+    const tmp = await mkdtemp(path.join(os.tmpdir(), "acr-ws-"));
+    const dir = path.join(tmp, "scn");
+    await cp(fixture, dir, { recursive: true });
+    await writeFile(path.join(dir, "roles", "analyst.yaml"), "id: analyst\ntype: player\nbrief: You analyse.\nprivate_facts:\n  - Numbers are shaky\n");
+    const { port } = await setup(["Hi!"], dir);
+    afterTmp.push(tmp);
     const fac = await joinFac(port);
     const { p, joined } = await joinPlayer(port);
     expect(joined.brief).toMatch(/hosting/);
@@ -282,7 +289,7 @@ describe("ws-server", () => {
     expect(JSON.stringify(joined.state)).not.toMatch(/Be welcomed|check-in|leaving the company/);
     fac.send({ type: "start" });
     await p.next((m) => m.type === "event" && m.event.type === "scene.entered");
-    fac.send({ type: "command", command: { command: "whisper", roleId: "guest", text: "PRIVATE-WHISPER" } });
+    fac.send({ type: "command", command: { command: "whisper", roleId: "analyst", text: "PRIVATE-WHISPER" } });
     fac.send({ type: "command", command: { command: "fire_inject", injectId: "late_inject" } });
     fac.send({ type: "command", command: { command: "set_npc_stance", roleId: "guest", goals: ["SECRET-GOAL"] } });
     fac.send({ type: "command", command: { command: "whisper", roleId: "host", text: "FOR-HOST" } });
@@ -332,5 +339,45 @@ describe("ws-server", () => {
     expect(err.code).toBe("log_not_empty");
     expect(err.message).not.toMatch(/[\\/]/);
     expect(err.message).not.toMatch(/\.jsonl/);
+  });
+
+  describe("heartbeat (F1)", () => {
+    it("terminates a client that stops answering pings and frees its role for the same participant", async () => {
+      const { port, host } = await setup(["Hi!"], fixture, undefined, 30);
+      const dead = new WebSocket(`ws://127.0.0.1:${port}`, { autoPong: false }); // ws >= 8.17: never answers server pings
+      sockets.push(dead);
+      const deadClosed = new Promise<void>((r) => dead.on("close", () => r()));
+      const joinedP = new Promise<any>((r) => dead.on("message", (d) => { const m = JSON.parse(d.toString()); if (m.type === "joined") r(m); }));
+      dead.on("open", () => dead.send(JSON.stringify({ type: "join", sessionId: "local", roleId: "host", participantId: "p1" })));
+      await joinedP;
+      const released = waitLog(/released host/);
+      await deadClosed;
+      await released;
+      expect(host.assignments).toEqual({});
+      const { joined } = await joinPlayer(port, "p1");
+      expect(joined.type).toBe("joined");
+    });
+
+    it("keeps a healthy client connected across several heartbeat periods", async () => {
+      const { port } = await setup(["Hi!"], fixture, undefined, 30);
+      const { p } = await joinPlayer(port, "p1");
+      let pings = 0;
+      await new Promise<void>((r) => p.ws.on("ping", () => { if (++pings >= 5) r(); }));
+      expect(p.ws.readyState).toBe(WebSocket.OPEN);
+    });
+
+    it("close() clears an unref'd interval", async () => {
+      const made: NodeJS.Timeout[] = [];
+      const cleared: unknown[] = [];
+      const realSet = global.setInterval; const realClear = global.clearInterval;
+      global.setInterval = ((...a: Parameters<typeof setInterval>) => { const t = realSet(...a); made.push(t); return t; }) as typeof setInterval;
+      global.clearInterval = ((t: NodeJS.Timeout) => { cleared.push(t); return realClear(t); }) as typeof clearInterval;
+      try {
+        await setup(["Hi!"], fixture, undefined, 30);
+        await server!.close(); server = null;
+      } finally { global.setInterval = realSet; global.clearInterval = realClear; }
+      expect(made.length).toBeGreaterThan(0);
+      for (const t of made) { expect(cleared).toContain(t); expect(t.hasRef()).toBe(false); }
+    });
   });
 });
