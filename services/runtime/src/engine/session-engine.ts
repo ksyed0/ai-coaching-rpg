@@ -4,7 +4,7 @@ import type { Clock } from "./clock.js";
 import type { EventLog } from "./event-log.js";
 import { Mutex } from "./mutex.js";
 
-export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject";
+export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty";
 export class EngineError extends Error {
   constructor(readonly code: EngineErrorCode, message: string = code) { super(message); this.name = "EngineError"; }
 }
@@ -37,6 +37,8 @@ export class SessionEngine {
 
   start(assignments: Record<string, string>): Promise<void> { return this.mutex.run(() => this.doStart(assignments)); }
   private async doStart(assignments: Record<string, string>): Promise<void> {
+    // Sessions are not resumed from a log: starting on a non-empty log would corrupt the seq order.
+    if ((await this.log.all()).length > 0) throw new EngineError("log_not_empty", "the session log already has events; sessions are not resumed, use a fresh session id");
     const roles: Record<string, { kind: "player" | "npc"; participantId?: string }> = {};
     for (const [id, role] of Object.entries(this.scenario.roles)) {
       roles[id] = role.type === "npc" ? { kind: "npc" } : { kind: "player", participantId: assignments[id] };

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, renameSync } from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -18,7 +18,7 @@ export type BootstrapResult = { ok: true; runtime: Runtime } | { ok: false; erro
 
 /** Builds and starts one session. Never calls process.exit and never logs environment values (API keys). */
 export async function bootstrap(opts: {
-  env: NodeJS.ProcessEnv; root?: string; log?: (m: string) => void; warn?: (m: string) => void; logDir?: string; tickMs?: number;
+  env: NodeJS.ProcessEnv; root?: string; now?: () => Date; log?: (m: string) => void; warn?: (m: string) => void; logDir?: string; tickMs?: number;
 }): Promise<BootstrapResult> {
   const root = opts.root ?? REPO_ROOT;
   // <root>/.env is optional; real environment variables win over it. Values are never logged.
@@ -43,10 +43,16 @@ export async function bootstrap(opts: {
   for (const w of warnings) warn(`warning: ${w}`);
   if (errors.length) return { ok: false, errors };
 
+  const dataDir = opts.logDir ?? path.join(root, "data", "sessions");
+  try {
+    const rotatedTo = rotateStaleLog(dataDir, sessionId, (opts.now ?? (() => new Date()))());
+    if (rotatedTo) log(`previous session log moved aside: ${rotatedTo}`);
+  } catch (err) { return { ok: false, errors: [`cannot rotate the previous session log: ${(err as NodeJS.ErrnoException).code ?? "failed"}`] }; }
+
   let host: SessionHost;
   try {
     const clock = new SystemClock();
-    const engine = new SessionEngine({ scenario, log: new JsonlEventLog(sessionId, opts.logDir ?? path.join(root, "data", "sessions")), clock });
+    const engine = new SessionEngine({ scenario, log: new JsonlEventLog(sessionId, dataDir), clock });
     const npcProvider = selectModelProvider(env, "npc");
     log(`model provider: ${npcProvider.name}; scenario dir: ${scenarioDir}`);
     host = new SessionHost({ scenario, engine, npcProvider, gmProvider: selectModelProvider(env, "gm"), clock, log: (m) => console.error(m) });
@@ -58,6 +64,22 @@ export async function bootstrap(opts: {
   catch (err) { host.stopTicker(); return { ok: false, errors: [`cannot listen on port ${port}: ${err instanceof Error ? err.message : String(err)}`] }; }
   log(`scenario "${scenario.meta.title}" v${scenario.meta.version}; session "${sessionId}"; players: ${Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => r.id).join(", ")}`);
   return { ok: true, runtime: { port: server.port, host, stop: async () => { host.stopTicker(); await server.close(); } } };
+}
+
+/**
+ * Slice 1 does not resume sessions: a non-empty `<id>.jsonl` from an earlier run is renamed aside (never deleted)
+ * to `<id>.<UTC timestamp>.jsonl` (numeric suffix on collision). Missing or empty files are left alone.
+ */
+function rotateStaleLog(dir: string, sessionId: string, now: Date): string | null {
+  const file = path.join(dir, `${sessionId}.jsonl`);
+  let size: number;
+  try { size = statSync(file).size; } catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return null; throw err; }
+  if (size === 0) return null;
+  const stamp = now.toISOString().replace(/\.\d+Z$/, "Z").replace(/[-:]/g, "");
+  let target = path.join(dir, `${sessionId}.${stamp}.jsonl`);
+  for (let n = 1; existsSync(target); n++) target = path.join(dir, `${sessionId}.${stamp}-${n}.jsonl`);
+  renameSync(file, target);
+  return target;
 }
 
 async function main(): Promise<void> {

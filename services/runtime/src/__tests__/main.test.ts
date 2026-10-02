@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -118,6 +118,70 @@ describe("bootstrap", () => {
       if (!r.ok) throw new Error(r.errors.join("; "));
       runtime = r.runtime;
       expect(runtime.port).toBeGreaterThan(0);
+    });
+  });
+
+  describe("stale session log rotation", () => {
+    const env = (extra: Record<string, string> = {}) => ({ SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "local", MODEL_PROVIDER: "mock", ...extra });
+    const wsOpen = (port: number) => new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.on("open", () => res(w)); w.on("error", rej); });
+    const waitMsg = (w: WebSocket, pred: (m: any) => boolean) => new Promise<any>((res) => { w.on("message", (d) => { const m = JSON.parse(d.toString()); if (pred(m)) res(m); }); });
+    const dataDir = () => path.join(tmp, "data", "sessions");
+    const rotated = async () => (await readdir(dataDir())).filter((f) => /^local\.\d{8}T\d{6}Z(-\d+)?\.jsonl$/.test(f));
+
+    async function runOnce(logs: string[]) {
+      const r = await bootstrap({ env: env(), root: tmp, tickMs: 1_000, log: (m) => logs.push(m) });
+      if (!r.ok) throw new Error(r.errors.join("; "));
+      const fac = await wsOpen(r.runtime.port);
+      const started = waitMsg(fac, (m) => m.type === "event" && m.event.type === "scene.entered");
+      const joined = waitMsg(fac, (m) => m.type === "joined");
+      fac.send(JSON.stringify({ type: "join_facilitator", sessionId: "local" }));
+      await joined;
+      fac.send(JSON.stringify({ type: "start" }));
+      await started;
+      return { runtime: r.runtime, fac };
+    }
+
+    it("a second start with the same session id rotates the old log aside, preserves it, and works end to end", async () => {
+      tmp = await mkdtemp(path.join(os.tmpdir(), "acr-rot-"));
+      const logs: string[] = [];
+      const first = await runOnce(logs);
+      first.fac.close(); await first.runtime.stop();
+      const oldText = await readFile(path.join(dataDir(), "local.jsonl"), "utf8");
+      expect(oldText.length).toBeGreaterThan(0);
+
+      const second = await runOnce(logs); // regression: used to answer "internal error" to start
+      runtime = second.runtime;
+      second.fac.close();
+      const files = await rotated();
+      expect(files).toHaveLength(1);
+      expect(await readFile(path.join(dataDir(), files[0]), "utf8")).toBe(oldText);
+      const fresh = await readFile(path.join(dataDir(), "local.jsonl"), "utf8");
+      expect(fresh.split("\n")[0]).toContain('"seq":1');
+      expect(logs.join("\n")).toContain(files[0]);
+      expect(logs.join("\n")).not.toContain("session.started");
+    });
+
+    it("a rotation name collision gets a numeric suffix", async () => {
+      tmp = await mkdtemp(path.join(os.tmpdir(), "acr-rot-"));
+      await mkdir(dataDir(), { recursive: true });
+      await writeFile(path.join(dataDir(), "local.jsonl"), "old-a\n");
+      const now = () => new Date("2026-10-02T17:45:12Z");
+      await writeFile(path.join(dataDir(), "local.20261002T174512Z.jsonl"), "taken\n");
+      const r = await bootstrap({ env: env(), root: tmp, now, log: () => {} });
+      if (!r.ok) throw new Error(r.errors.join("; "));
+      runtime = r.runtime;
+      expect(await readFile(path.join(dataDir(), "local.20261002T174512Z.jsonl"), "utf8")).toBe("taken\n");
+      expect(await readFile(path.join(dataDir(), "local.20261002T174512Z-1.jsonl"), "utf8")).toBe("old-a\n");
+    });
+
+    it("an empty or missing log file is not rotated", async () => {
+      tmp = await mkdtemp(path.join(os.tmpdir(), "acr-rot-"));
+      await mkdir(dataDir(), { recursive: true });
+      await writeFile(path.join(dataDir(), "local.jsonl"), "");
+      const r = await bootstrap({ env: env(), root: tmp, log: () => {} });
+      if (!r.ok) throw new Error(r.errors.join("; "));
+      runtime = r.runtime;
+      expect(await readdir(dataDir())).toEqual(["local.jsonl"]);
     });
   });
 });
