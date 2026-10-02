@@ -101,7 +101,11 @@ jobs:
   codeql:
     name: Analyze JavaScript
     runs-on: ubuntu-latest
+    # Code scanning on a private repo needs GitHub Advanced Security. Skipped until
+    # then; set repo variable ENABLE_CODEQL=true once Advanced Security is enabled.
+    if: ${{ !github.event.repository.private || vars.ENABLE_CODEQL == 'true' }}
     permissions:
+      actions: read
       contents: read
       security-events: write
     steps:
