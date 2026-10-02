@@ -94,4 +94,25 @@ describe("NpcAgent", () => {
     expect(await new NpcAgent({ role: guest, engine, provider }).respond()).toBeNull();
     expect(engine.state.transcript).toHaveLength(1);
   });
+
+  it("drops a reply generated in scene A when the scene switched to B (NPC in both) during the stream", async () => {
+    const provider: ModelProvider = { name: "p", async *stream() {
+      await engine.command({ command: "advance" }); await engine.tick();
+      yield "stale reply"; } };
+    const before = engine.state.transcript.length;
+    expect(await new NpcAgent({ role: guest, engine, provider }).respond()).toBeNull();
+    expect(engine.state.currentScene?.id).toBe("s2_close");
+    expect(engine.state.transcript).toHaveLength(before);
+  });
+
+  it("drops the fallback line and its alert too when the scene switched during a timeout", async () => {
+    const alerts = alertsOf();
+    const provider: ModelProvider = { name: "p", async *stream(_r: ChatRequest, signal?: AbortSignal) {
+      await engine.command({ command: "advance" }); await engine.tick();
+      await new Promise<void>((r) => signal?.addEventListener("abort", () => r())); } };
+    const before = engine.state.transcript.length;
+    expect(await new NpcAgent({ role: guest, engine, provider, firstTokenTimeoutMs: 5 }).respond()).toBeNull();
+    expect(engine.state.transcript).toHaveLength(before);
+    expect(alerts).toHaveLength(0);
+  });
 });

@@ -4,7 +4,7 @@ import type { Clock } from "./clock.js";
 import type { EventLog } from "./event-log.js";
 import { Mutex } from "./mutex.js";
 
-export type EngineErrorCode = "paused" | "not_in_scene" | "ended" | "unknown_role" | "unknown_inject";
+export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject";
 export class EngineError extends Error {
   constructor(readonly code: EngineErrorCode, message: string = code) { super(message); this.name = "EngineError"; }
 }
@@ -64,14 +64,24 @@ export class SessionEngine {
     }
   }
 
-  /** Serialized facilitator.alert for agents (timeouts, model failures). */
-  alert(message: string, level: "info" | "warning" = "warning"): Promise<SessionEvent> {
-    return this.mutex.run(() => this.emit({ type: "facilitator.alert", level, message }));
+  /**
+   * Serialized facilitator.alert for agents. Returns null (appends nothing) when the session has ended
+   * (nothing may follow session.ended) or when `expectSceneId` no longer matches the current scene
+   * (the alert belonged to a dropped, stale reply). The check runs inside the mutex, so it is atomic.
+   */
+  alert(message: string, level: "info" | "warning" = "warning", opts: { expectSceneId?: string } = {}): Promise<SessionEvent | null> {
+    return this.mutex.run(async () => {
+      if (this.state.status === "ended") return null;
+      if (opts.expectSceneId !== undefined && this.state.currentScene?.id !== opts.expectSceneId) return null;
+      return this.emit({ type: "facilitator.alert", level, message });
+    });
   }
 
-  say(roleId: string, text: string, channel: Channel = "text"): Promise<SessionEvent> { return this.mutex.run(() => this.doSay(roleId, text, channel)); }
-  private async doSay(roleId: string, text: string, channel: Channel): Promise<SessionEvent> {
+  /** `opts.expectSceneId`: throws EngineError("stale_scene") (appending nothing) if the scene has changed. */
+  say(roleId: string, text: string, channel: Channel = "text", opts: { expectSceneId?: string } = {}): Promise<SessionEvent> { return this.mutex.run(() => this.doSay(roleId, text, channel, opts)); }
+  private async doSay(roleId: string, text: string, channel: Channel, opts: { expectSceneId?: string }): Promise<SessionEvent> {
     if (this.state.status === "ended") throw new EngineError("ended");
+    if (opts.expectSceneId !== undefined && this.state.currentScene?.id !== opts.expectSceneId) throw new EngineError("stale_scene");
     if (!this.state.roles[roleId]) throw new EngineError("unknown_role", `unknown role ${roleId}`);
     if (this.state.paused) throw new EngineError("paused");
     const scene = this.currentScene();

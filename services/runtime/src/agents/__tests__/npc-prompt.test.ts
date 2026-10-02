@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { initialState, reduce, type SessionEvent } from "@acr/events";
-import type { NpcRole, Scene } from "@acr/script";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { loadScenario, type NpcRole, type PlayerRole, type Scene } from "@acr/script";
+import { SessionEngine } from "../../engine/session-engine.js";
+import { MemoryEventLog } from "../../engine/event-log.js";
+import { FakeClock } from "../../engine/clock.js";
 import { buildNpcRequest } from "../npc-prompt.js";
 
+const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
 const role: NpcRole = {
   id: "client_sponsor", type: "npc", name: "Priya Raman", title: "VP Operations", persona: "Direct, time-poor.",
   goals: ["Get the module"], knowledge: ["The CFO asked about cost"], hidden: ["Would accept phasing"],
@@ -44,20 +50,37 @@ describe("buildNpcRequest", () => {
     expect(buildNpcRequest({ role, scene, state: s }).system).toContain("Would accept phasing");
   });
 
-  it("never leaks the rubric, another role's brief/private_facts, or unreleased hidden facts", () => {
-    // Distinctive markers: the builder is only handed this NPC's role, the scene and the state,
-    // so markers living in other roles / rubric / hidden must never be reachable from the prompt.
-    const marked: NpcRole = { ...role, hidden: ["HIDDEN_MARKER_7f3a"] };
-    const otherRole = { id: "delivery_lead", type: "player", brief: "BRIEF_MARKER_91c2", private_facts: ["PRIVATE_MARKER_44de"] };
-    const rubric = { id: "r1", criteria: ["RUBRIC_MARKER_b0b0"] };
-    void otherRole; void rubric; // exist in the scenario, deliberately not passed to the builder
-    const req = buildNpcRequest({ role: marked, scene, state: stateWith(["delivery_lead", "Hello"]) });
-    const all = req.system + JSON.stringify(req.messages);
-    for (const m of ["HIDDEN_MARKER_7f3a", "BRIEF_MARKER_91c2", "PRIVATE_MARKER_44de", "RUBRIC_MARKER_b0b0"]) expect(all).not.toContain(m);
-    // ...but a hidden fact the GM released does appear
-    const s = stateWith();
-    const released = reduce(s, { ...env(s.lastSeq + 1), type: "npc.updated", roleId: "client_sponsor", goals: s.npcs.client_sponsor.goals, knowledge: s.npcs.client_sponsor.knowledge, released: ["HIDDEN_MARKER_7f3a"] });
-    expect(buildNpcRequest({ role: marked, scene, state: released }).system).toContain("HIDDEN_MARKER_7f3a");
+  it("never leaks rubric, another role's brief/private_facts, unreleased hidden facts or display names (real scenario + engine)", async () => {
+    const scenario = await loadScenario(fixture);
+    const host = scenario.roles.host as PlayerRole;
+    const guestRole = scenario.roles.guest as NpcRole;
+    host.brief = "BRIEF_MARKER_91c2"; host.private_facts = ["PRIVATE_MARKER_44de"];
+    scenario.meta.rubrics = ["RUBRIC_MARKER_b0b0"];
+    scenario.meta.learning_objectives[0].rubric_criteria = ["RUBRIC_MARKER_b0b0"];
+    guestRole.hidden = ["HIDDEN_RELEASED_1a1a", "HIDDEN_SECRET_2b2b"];
+    const engine = new SessionEngine({ scenario, log: new MemoryEventLog("s"), clock: new FakeClock(0) });
+    await engine.start({ host: "Zebediah Quux" });
+    await engine.say("host", "Hello there");
+    await engine.say("guest", "Hi");
+    await engine.say("host", "Tell me more");
+    await engine.updateNpc("guest", { released: ["HIDDEN_RELEASED_1a1a"] });
+    const req = buildNpcRequest({ role: guestRole, scene: engine.currentScene()!, state: engine.state });
+    const all = req.system + req.messages.map((m) => m.content).join("\n");
+    for (const m of ["BRIEF_MARKER_91c2", "PRIVATE_MARKER_44de", "RUBRIC_MARKER_b0b0", "HIDDEN_SECRET_2b2b", "Zebediah", "Quux"]) expect(all).not.toContain(m);
+    expect(req.system).toContain("HIDDEN_RELEASED_1a1a");
+  });
+
+  it("the input type structurally rejects the scenario, rubric and other roles (compile-time guard)", () => {
+    const state = stateWith();
+    // buildNpcRequest only accepts { role, scene, state, window }: nothing else can be handed to it.
+    // These @ts-expect-error lines fail `pnpm typecheck` if the input type ever widens to accept them.
+    // @ts-expect-error rubric is not an accepted input
+    buildNpcRequest({ role, scene, state, rubric: ["x"] });
+    // @ts-expect-error other roles are not an accepted input
+    buildNpcRequest({ role, scene, state, roles: {} });
+    // @ts-expect-error the scenario is not an accepted input
+    buildNpcRequest({ role, scene, state, scenario: {} });
+    expect(true).toBe(true);
   });
 
   it("uses role ids, never participant display names, anywhere in the prompt", () => {
@@ -93,5 +116,23 @@ describe("buildNpcRequest", () => {
     const req = buildNpcRequest({ role, scene, state: stateWith(...lines), window: 5 });
     expect(req.messages[0].content.split("\n")).toHaveLength(5);
     expect(req.messages[0].content).toContain("line 39");
+  });
+
+  it("starts with a user turn when the NPC spoke first", () => {
+    const req = buildNpcRequest({ role, scene, state: stateWith(["client_sponsor", "Let's begin"], ["delivery_lead", "Thanks"]) });
+    expect(req.messages[0].role).toBe("user");
+    expect(req.messages).toEqual([
+      { role: "user", content: "[scene]: The scene has started. Speak first if it is natural for you to." },
+      { role: "assistant", content: "Let's begin" },
+      { role: "user", content: "[delivery_lead]: Thanks" },
+    ]);
+  });
+
+  it("starts with a user turn when the window cut lands on an NPC line", () => {
+    const req = buildNpcRequest({ role, scene, state: stateWith(["delivery_lead", "a"], ["client_sponsor", "b"], ["delivery_lead", "c"], ["delivery_lead", "d"]), window: 3 });
+    expect(req.messages[0].role).toBe("user");
+    expect(req.messages.at(-1)?.role).toBe("user");
+    expect(req.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(req.messages[2].content).toBe("[delivery_lead]: c\n[delivery_lead]: d");
   });
 });

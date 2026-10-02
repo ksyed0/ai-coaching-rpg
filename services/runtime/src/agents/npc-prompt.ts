@@ -25,15 +25,24 @@ export function buildNpcRequest(opts: { role: NpcRole; scene: Scene; state: Sess
     "", `## Voice`, `Style: ${role.voice.style}. Pace: ${role.voice.pace}.`,
   ].join("\n");
 
-  const lines = visibleTranscript(state, role.id).slice(-(opts.window ?? 30));
+  const allLines = visibleTranscript(state, role.id);
+  const lines = allLines.slice(-(opts.window ?? 30));
   const messages: ChatMessage[] = [];
   for (const u of lines) {
     const turn: ChatMessage = u.roleId === role.id ? { role: "assistant", content: u.text } : { role: "user", content: `[${u.roleId}]: ${u.text}` };
     const last = messages.at(-1);
     if (last && last.role === turn.role) last.content += `\n${turn.content}`; else messages.push(turn);
   }
-  if (messages.length === 0 || messages.at(-1)!.role === "assistant") {
-    messages.push({ role: "user", content: "[scene]: The scene has started. Speak first if it is natural for you to." });
+  // The Messages API requires the first turn to be `user` and (for us) the last to be `user`.
+  // If the NPC spoke first, or the window cut landed on an NPC line, we PREPEND a synthetic
+  // role-id-only scene marker rather than dropping the leading assistant turns: dropping would
+  // erase the NPC's own earlier words from its context and let it contradict itself.
+  if (messages.length === 0 || messages[0].role === "assistant") {
+    const cut = lines.length < allLines.length;
+    messages.unshift({ role: "user", content: cut ? "[scene]: Earlier lines of the conversation are omitted." : "[scene]: The scene has started. Speak first if it is natural for you to." });
+  }
+  if (messages.at(-1)!.role === "assistant") {
+    messages.push({ role: "user", content: "[scene]: Continue the conversation in character." });
   }
   return { system, messages, maxTokens: 300, cacheSystem: true };
 }
