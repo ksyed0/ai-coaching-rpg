@@ -114,11 +114,20 @@ export class SessionEngine {
     await this.emit({ type: "npc.updated", roleId, goals: patch.goals ?? npc.goals, knowledge: patch.knowledge ?? npc.knowledge, released: patch.released ?? npc.released });
   }
 
-  recordGmVerdict(condition: string, verdict: boolean, reasoning: string): Promise<void> { return this.mutex.run(() => this.doGmVerdict(condition, verdict, reasoning)); }
-  private async doGmVerdict(condition: string, verdict: boolean, reasoning: string): Promise<void> {
+  /**
+   * Appends a gm.decision for the current scene. Returns true when recorded; false (appending nothing, never throwing)
+   * when there is no current scene, the session has ended, or `expectSceneId` no longer matches the current scene
+   * (the verdict was computed against an earlier scene). The check runs inside the mutex, so it is atomic with the append.
+   */
+  recordGmVerdict(condition: string, verdict: boolean, reasoning: string, opts: { expectSceneId?: string } = {}): Promise<boolean> {
+    return this.mutex.run(() => this.doGmVerdict(condition, verdict, reasoning, opts));
+  }
+  private async doGmVerdict(condition: string, verdict: boolean, reasoning: string, opts: { expectSceneId?: string }): Promise<boolean> {
     const scene = this.currentScene();
-    if (!scene) return;
+    if (!scene || this.state.status !== "running") return false;
+    if (opts.expectSceneId !== undefined && scene.id !== opts.expectSceneId) return false;
     await this.emit({ type: "gm.decision", sceneId: scene.id, condition, verdict, reasoning });
+    return true;
   }
 
   tick(): Promise<void> { return this.mutex.run(() => this.doTick()); }

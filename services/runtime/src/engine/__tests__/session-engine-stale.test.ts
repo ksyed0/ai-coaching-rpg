@@ -49,3 +49,32 @@ describe("expectSceneId guard", () => {
     expect(EngineError).toBeDefined();
   });
 });
+
+describe("recordGmVerdict expectSceneId guard (R18)", () => {
+  const COND = "both parties have said hello";
+  it("records with the current scene id and returns true", async () => {
+    expect(await engine.recordGmVerdict(COND, true, "ok", { expectSceneId: "s1_open" })).toBe(true);
+    expect(engine.state.gmVerdicts[COND]).toBe(true);
+  });
+
+  it("records without expectSceneId (back-compat) and returns true", async () => {
+    expect(await engine.recordGmVerdict(COND, false, "no")).toBe(true);
+  });
+
+  it("returns false and appends nothing for a stale scene id", async () => {
+    await engine.command({ command: "advance" }); await engine.tick();
+    const before = count();
+    expect(await engine.recordGmVerdict(COND, true, "stale", { expectSceneId: "s1_open" })).toBe(false);
+    expect(count()).toBe(before);
+    expect(engine.state.gmVerdicts).toEqual({});
+  });
+
+  it("returns false after the session has ended", async () => {
+    await engine.command({ command: "advance" }); await engine.tick();
+    await engine.command({ command: "advance" }); await engine.tick();
+    expect(engine.state.status).toBe("ended");
+    const before = count();
+    expect(await engine.recordGmVerdict(COND, true, "late")).toBe(false);
+    expect(count()).toBe(before);
+  });
+});
