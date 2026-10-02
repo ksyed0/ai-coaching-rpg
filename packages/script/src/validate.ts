@@ -22,6 +22,20 @@ export function validateScenario(s: Scenario): { errors: string[]; warnings: str
   }
   for (const [id, n] of injectIds) if (n > 1) errors.push(`inject id '${id}' is used more than once`);
 
+  const kindsById = new Map<string, string[]>();
+  const note = (id: string, kind: string) => {
+    const kinds = kindsById.get(id) ?? [];
+    if (!kinds.includes(kind)) kinds.push(kind);
+    kindsById.set(id, kinds);
+  };
+  note(s.meta.id, "the scenario");
+  for (const id of roleIds) note(id, "a role");
+  for (const id of sceneIds) note(id, "a scene");
+  for (const id of injectIds.keys()) note(id, "an inject");
+  for (const [id, kinds] of kindsById)
+    for (let i = 0; i < kinds.length; i++)
+      for (let j = i + 1; j < kinds.length; j++) errors.push(`id '${id}' is used by both ${kinds[i]} and ${kinds[j]}`);
+
   const playerCount = Object.values(s.roles).filter((r) => r.type === "player").length;
   if (playerCount < s.meta.players.min) errors.push(`only ${playerCount} player roles but players.min is ${s.meta.players.min}`);
   for (const lo of s.meta.learning_objectives)

@@ -34,4 +34,22 @@ describe("validateScenario", () => {
     s.meta.learning_objectives[0].rubric_criteria = [];
     expect(validateScenario(s).warnings).toContain("learning objective LO1 maps to no rubric criteria");
   });
+
+  it("errors when an inject id equals a scene id", async () => {
+    const s = await loadScenario(path.join(fixtures, "minimal"));
+    s.script.scenes[0].injects![0].id = "s2_close";
+    expect(validateScenario(s).errors).toContain("id 's2_close' is used by both a scene and an inject");
+  });
+
+  it("errors when a scene id equals a role id", async () => {
+    const s = await loadScenario(path.join(fixtures, "minimal"));
+    s.script.scenes[1].id = "guest";
+    expect(validateScenario(s).errors).toContain("id 'guest' is used by both a role and a scene");
+  });
+
+  it("errors when the scenario id equals a role id", async () => {
+    const s = await loadScenario(path.join(fixtures, "minimal"));
+    s.meta.id = "guest";
+    expect(validateScenario(s).errors).toContain("id 'guest' is used by both the scenario and a role");
+  });
 });
