@@ -42,9 +42,18 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 - `./run.sh` no longer starts the container as root when run as root or with sudo; it falls back to 1000:1000 unless `HOST_UID`/`HOST_GID` are set (US-0012).
 - Root `package.json` license corrected from ISC to MIT to match `LICENSE`.
 
+### Fixed (final review wave)
+
+- WebSocket heartbeat: the server pings every connection every 15 s and drops one that did not answer the previous ping, so a player whose machine slept no longer keeps their role until TCP gives up (US-0009).
+- A blank `NPC_MODEL`/`GM_MODEL` in `.env` now falls back to the default model instead of sending an empty model name.
+- A facilitator whisper to an NPC role is rejected (`npc_role`) instead of being logged and never seen.
+- The CLI prints the visible transcript (last 50 lines, sanitized) when you join or rejoin (US-0010).
+- A player's join snapshot no longer lists scenes they are not in.
+
 ### Known limitations
 
-- No authentication: any client that can reach the server can join as facilitator. Use a trusted local network only.
+- No authentication: any client that can reach the server can join as facilitator (full event stream, whispers, NPC goals, GM reasoning, start/command control) or claim any unclaimed player role and read its brief. Use a trusted local network only.
+- NPC hidden facts are loaded and kept out of prompts, but nothing releases them yet, so they never surface in play; a facilitator release command is planned.
 - Sessions are not resumed after a restart; the old log is rotated aside as `<id>.<timestamp>.jsonl`.
 - Two server processes on the same data directory and session id rotate each other's log file.
 - One session per server process; text only (no voice, web or Teams client); no scoring yet.

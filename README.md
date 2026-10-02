@@ -54,7 +54,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 ./run.sh --help     # usage
 ```
 
-`./run.sh` creates `.env` from `.env.example` if it is missing (mock model, no key needed). `--dev` needs Node 22+ and pnpm and prints an error if either is missing; the Docker start needs Docker with the `docker compose` plugin. The Docker start rebuilds the image on each start (Docker caches unchanged layers), so there is no separate build step.
+`./run.sh` creates `.env` from `.env.example` if it is missing (mock model, no key needed). `--dev` uses `tsx watch`, so it restarts (and rotates the live session log, see [Known limitations](#known-limitations)) on every source change. It needs Node 22+ and pnpm and prints an error if either is missing; the Docker start needs Docker with the `docker compose` plugin. The Docker start rebuilds the image on each start (Docker caches unchanged layers), so there is no separate build step.
 
 The server listens on `0.0.0.0:8080` (set `RUNTIME_PORT` to change it with `--dev`) and loads the *Friday Escalation* scenario. **It listens on all network interfaces on purpose, so teammates on your LAN can join; there is no authentication yet** (see [Known limitations](#known-limitations)).
 
@@ -91,7 +91,7 @@ The facilitator drives the session:
 | `/pause`, `/resume` | Pause or resume; while paused, nothing can be said |
 | `/advance` | Move to the next scene |
 | `/inject <id>` | Fire a scripted inject now |
-| `/whisper <role> <text>` | Send a private message to one role |
+| `/whisper <role> <text>` | Send a private message to one player role (NPC roles are refused) |
 | `/quit` | Disconnect |
 
 Each session is recorded to `data/sessions/<session-id>.jsonl` (the facilitator is not a role: the facilitator watches and controls, and cannot speak). A facilitator command sent before `/start` also starts the session.
@@ -151,7 +151,8 @@ Work follows `feature/*` → `develop` (pull request) → `main` (pull request).
 
 ## Known limitations
 
-- **No authentication.** Anyone who can reach the server's port can join, including as facilitator, and the facilitator sees everything (private briefs, whispers, NPC goals). The server binds all network interfaces. Run it on a trusted local network only. A facilitator token is the planned fix.
+- **No authentication.** Anyone who can reach the server's port can join as facilitator (full event stream, whispers, NPC goals, Game Master reasoning, start/command control) or claim any unclaimed player role and read its brief and private facts. A role is freed when its connection closes (a connection that stops answering heartbeat pings is dropped within about 30 seconds). The server binds all network interfaces. Run it on a trusted local network only. A facilitator token is the planned fix.
+- NPC hidden facts are loaded and kept out of prompts, but nothing releases them yet, so they never surface in play; a facilitator release command is planned.
 - Text only: no voice, no web or Teams client yet.
 - One session per server process.
 - Sessions are not resumed after a restart: on start, an earlier log for the same session id is moved aside as `data/sessions/<id>.<timestamp>.jsonl` and a fresh session begins. The move uses a hard link and falls back to a file copy, so the data directory's filesystem must support one of the two.
