@@ -9,13 +9,18 @@ const MAX_NAME_CHARS = 64;
 const MAX_ID_CHARS = 128;
 
 export type Options = { facilitator: boolean; role?: string; name?: string; url: string; session: string };
-export type ArgsResult = { ok: true; opts: Options } | { ok: false; error: string };
+export type ArgsResult = { ok: true; opts: Options } | { ok: false; error: string; usage: string };
 
-const fail = (msg: string): ArgsResult => ({ ok: false, error: `${msg}\n${USAGE}` });
+const fail = (error: string): ArgsResult => ({ ok: false, error, usage: USAGE });
+const FLAGS = ["role", "name", "url", "session", "facilitator"];
 const hasControl = (v: string) => new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]").test(v);
 
 /** Pure argv parser (argv excludes node and the script). Callers print `error` and exit with code 2. */
 export function parseArgs(argv: string[]): ArgsResult {
+  for (const f of FLAGS) {
+    const n = argv.filter((a) => a === `--${f}` || a.startsWith(`--${f}=`)).length;
+    if (n > 1) return fail(`error: --${f} was given more than once`);
+  }
   let values: { role?: string; name?: string; url?: string; session?: string; facilitator?: boolean };
   try {
     ({ values } = nodeParseArgs({

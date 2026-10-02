@@ -12,26 +12,41 @@ describe("parseArgs", () => {
       ok: true, opts: { facilitator: true, role: undefined, name: undefined, url: "wss://h:1/x", session: "s1" },
     });
   });
-  it.each([
-    [[], "needs --role and --name"],
-    [["--role", "a"], "needs --role and --name"],
-    [["--name", "a"], "needs --role and --name"],
-    [["--facilitator", "--role", "a"], "cannot be combined"],
-    [["--facilitator", "--name", "a"], "cannot be combined"],
-    [["--role", "a", "--name", "b", "--url", "http://x"], "ws:// or wss://"],
-    [["--role", "a", "--name", "b", "--url", "nonsense"], "ws:// or wss://"],
-    [["--role", "a", "--name", "  "], "--name"],
-    [["--role", "a", "--name", "x".repeat(65)], "--name"],
-    [["--role", "a", "--name", "b\x1b[2J"], "--name"],
-    [["--role", "", "--name", "b"], "--role"],
-    [["--role", "a", "--name", "b", "--session", ""], "--session"],
-    [["--bogus"], "usage"],
-    [["--role"], "usage"],
-    [["--role", "a", "--name", "b", "extra"], "usage"],
-  ])("rejects %j", (argv, msg) => {
-    const r = parseArgs(argv as string[]);
+  const NEEDS = "error: a player needs --role and --name (or use --facilitator)";
+  const NAME = "error: --name must be 1-64 printable characters";
+  it.each<[string[], string]>([
+    [[], NEEDS],
+    [["--role", "a"], NEEDS],
+    [["--name", "a"], NEEDS],
+    [["--facilitator", "--role", "a"], "error: --facilitator cannot be combined with --role or --name"],
+    [["--facilitator", "--name", "a"], "error: --facilitator cannot be combined with --role or --name"],
+    [["--role", "a", "--name", "b", "--url", "http://x"], "error: --url must be a ws:// or wss:// URL"],
+    [["--role", "a", "--name", "b", "--url", "nonsense"], "error: --url must be a ws:// or wss:// URL"],
+    [["--role", "a", "--name", "  "], NAME],
+    [["--role", "a", "--name", "x".repeat(65)], NAME],
+    [["--role", "a", "--name", "b\x1b[2J"], NAME],
+    [["--role", "", "--name", "b"], "error: --role must be 1-128 printable characters"],
+    [["--role", "a", "--name", "b", "--session", ""], "error: --session must be 1-128 printable characters"],
+    [["--role", "a", "--role", "b", "--name", "n"], "error: --role was given more than once"],
+    [["--facilitator", "--facilitator"], "error: --facilitator was given more than once"],
+    [["--role", "a", "--name", "n", "--url", "ws://a", "--url", "ws://b"], "error: --url was given more than once"],
+  ])("rejects %j with the specific message", (argv, msg) => {
+    const r = parseArgs(argv);
+    expect(r).toEqual({ ok: false, error: msg, usage: USAGE });
+  });
+  it.each<[string[], string]>([
+    [["--bogus"], "error: Unknown option '--bogus'"],
+    [["--role"], "error: Option '--role <value>' argument missing"],
+    [["--role", "--name", "x"], "error: Option '--role' argument is ambiguous."],
+    [["--role", "a", "--name", "b", "extra"], "error: Unexpected argument 'extra'"],
+  ])("rejects malformed argv %j", (argv, prefix) => {
+    const r = parseArgs(argv);
     expect(r.ok).toBe(false);
-    if (!r.ok) { expect(r.error).toContain(msg); expect(r.error).toContain(USAGE); }
+    if (!r.ok) { expect(r.error.startsWith(prefix)).toBe(true); expect(r.error).not.toContain("\n"); expect(r.usage).toBe(USAGE); }
+  });
+  it("accepts a name containing a dash value via = syntax", () => {
+    const r = parseArgs(["--role", "a", "--name=-x"]);
+    expect(r.ok && r.opts.name).toBe("-x");
   });
 });
 
