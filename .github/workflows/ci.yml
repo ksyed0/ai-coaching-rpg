@@ -159,6 +159,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint:sdk
       - run: bash scripts/check-sdk-imports.test.sh
+      - run: bash scripts/run-sh-uid.test.sh
 
   ws-audit:
     name: Workspace Audit

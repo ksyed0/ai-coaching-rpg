@@ -54,7 +54,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 ./run.sh --help     # usage
 ```
 
-`./run.sh` creates `.env` from `.env.example` if it is missing (mock model, no key needed). `--dev` needs Node 22+ and pnpm and prints an error if either is missing; the Docker start needs Docker with the `docker compose` plugin. The Docker start rebuilds the image every time, so there is no separate build step.
+`./run.sh` creates `.env` from `.env.example` if it is missing (mock model, no key needed). `--dev` needs Node 22+ and pnpm and prints an error if either is missing; the Docker start needs Docker with the `docker compose` plugin. The Docker start rebuilds the image on each start (Docker caches unchanged layers), so there is no separate build step.
 
 The server listens on `0.0.0.0:8080` (set `RUNTIME_PORT` to change it with `--dev`) and loads the *Friday Escalation* scenario. **It listens on all network interfaces on purpose, so teammates on your LAN can join; there is no authentication yet** (see [Known limitations](#known-limitations)).
 
@@ -62,6 +62,8 @@ Docker notes:
 
 - `.env` is passed to the container at run time and is never baked into the image. In Docker the server always listens on 8080 inside the container; to publish a different host port run `HOST_PORT=9000 ./run.sh`.
 - Session logs are written to `./data/sessions/` on the host (bind mount). The container runs as the non-root user that invoked `./run.sh` (`HOST_UID`/`HOST_GID`), so the logs are owned by you. If you start it with plain `docker compose` on Linux instead, set `HOST_UID`/`HOST_GID` yourself (default 1000:1000) or the container may not be able to write to `./data`.
+- Docker Compose reads `.env` with its own rules (quotes, `$` interpolation, inline `#`), which differ slightly from the app's own parser used by `./run.sh --dev`. Keep API keys free of `$`, `#` and quotes, or quote them per Compose rules.
+- If `./run.sh` is run as root it starts the container as 1000:1000 instead (unless `HOST_UID`/`HOST_GID` are set), so `./data` must be writable by that user.
 - The `scenarios/` folder is mounted read-only into the container, so you can edit a scenario and just restart.
 
 ### 2. Connect the participants
@@ -116,7 +118,7 @@ git pull
 pnpm install        # picks up new or changed dependencies
 ```
 
-Then read [CHANGELOG.md](CHANGELOG.md) for anything that changes how you run or configure the project (new environment variables, protocol changes). If you run it in Docker, `./run.sh` rebuilds the image on every start, so just run it again.
+Then read [CHANGELOG.md](CHANGELOG.md) for anything that changes how you run or configure the project (new environment variables, protocol changes). If you run it in Docker, `./run.sh` rebuilds the image on each start (Docker caches unchanged layers), so just run it again.
 
 ## Develop
 
@@ -152,7 +154,7 @@ Work follows `feature/*` → `develop` (pull request) → `main` (pull request).
 - **No authentication.** Anyone who can reach the server's port can join, including as facilitator, and the facilitator sees everything (private briefs, whispers, NPC goals). The server binds all network interfaces. Run it on a trusted local network only. A facilitator token is the planned fix.
 - Text only: no voice, no web or Teams client yet.
 - One session per server process.
-- Sessions are not resumed after a restart: on start, an earlier log for the same session id is moved aside as `data/sessions/<id>.<timestamp>.jsonl` and a fresh session begins.
+- Sessions are not resumed after a restart: on start, an earlier log for the same session id is moved aside as `data/sessions/<id>.<timestamp>.jsonl` and a fresh session begins. The move uses a hard link and falls back to a file copy, so the data directory's filesystem must support one of the two.
 - Two server processes on the same data directory and session id will rotate each other's log file; use a different `SESSION_ID` (or data directory) per process.
 - NPCs are a scripted mock unless you configure a model provider.
 - No scoring or feedback reports yet; sessions are recorded for later.

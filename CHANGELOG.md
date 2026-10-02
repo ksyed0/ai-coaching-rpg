@@ -36,6 +36,12 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 - A role can only be taken over by a client presenting that role's reconnect token.
 - Live-model tests are opt-in only (`RUN_LIVE_MODEL_TESTS=1` plus an API key); the default test run never reaches the network.
 
+### Fixed
+
+- Session-log rotation falls back to an exclusive file copy (never overwriting) when the filesystem refuses hard links (EPERM, ENOTSUP, EXDEV, EOPNOTSUPP), so a Docker restart works on such bind mounts; a failed removal after the copy is reported explicitly (US-0009).
+- `./run.sh` no longer starts the container as root when run as root or with sudo; it falls back to 1000:1000 unless `HOST_UID`/`HOST_GID` are set (US-0012).
+- Root `package.json` license corrected from ISC to MIT to match `LICENSE`.
+
 ### Known limitations
 
 - No authentication: any client that can reach the server can join as facilitator. Use a trusted local network only.

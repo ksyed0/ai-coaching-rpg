@@ -47,7 +47,16 @@ fi
 command -v docker >/dev/null 2>&1 || die "docker is not installed; install Docker, or use ./run.sh --dev"
 docker compose version >/dev/null 2>&1 || die "'docker compose' is not available; install Docker Compose v2, or use ./run.sh --dev"
 mkdir -p data
-HOST_UID="$(id -u)"
-HOST_GID="$(id -g)"
+# The container runs as the invoking user so ./data is writable. Never as root: if this script is run as
+# root/sudo, fall back to the image's `node` user (1000:1000) unless HOST_UID/HOST_GID were set explicitly.
+uid="$(id -u)"
+gid="$(id -g)"
+if [ "$uid" -eq 0 ] && [ -z "${HOST_UID:-}" ]; then
+  echo "warning: running as root; the container will run as 1000:1000 (set HOST_UID/HOST_GID to override; ./data must be writable by that user)" >&2
+  uid=1000
+  [ -n "${HOST_GID:-}" ] || gid=1000
+fi
+HOST_UID="${HOST_UID:-$uid}"
+HOST_GID="${HOST_GID:-$gid}"
 export HOST_UID HOST_GID
 exec docker compose -f deploy/compose/docker-compose.yml up --build
