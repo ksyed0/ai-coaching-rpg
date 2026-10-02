@@ -68,12 +68,6 @@
       "estimate": "S",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0001",
@@ -96,12 +90,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0003",
@@ -131,12 +119,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0006",
@@ -176,12 +158,6 @@
       "estimate": "S",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0011",
@@ -206,12 +182,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0013",
@@ -241,12 +211,6 @@
       "estimate": "L",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0016",
@@ -286,12 +250,6 @@
       "estimate": "L",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0021",
@@ -326,12 +284,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0025",
@@ -361,12 +313,6 @@
       "estimate": "L",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0028",
@@ -396,12 +342,6 @@
       "estimate": "S",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0031",
@@ -426,12 +366,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0033",
@@ -461,12 +395,6 @@
       "estimate": "S",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0036",
@@ -496,12 +424,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0002-US-0013-reconnect",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0039",
@@ -651,96 +573,92 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 0.448869,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 0,
-      "inputTokens": 0,
-      "outputTokens": 0,
-      "cacheReadTokens": 0,
-      "cacheHitRatio": null
+      "costUsd": 5.8353,
+      "inputTokens": 519419,
+      "outputTokens": 64947
     },
     "_bugs": {
       "_totals": {
         "costUsd": 0,
         "inputTokens": 0,
-        "outputTokens": 0,
-        "cacheReadTokens": 0,
-        "cacheHitRatio": null
+        "outputTokens": 0
       }
     }
   },
@@ -858,30 +776,109 @@
     }
   ],
   "lessons": [],
-  "generatedAt": "2026-10-01T20:30:14.835Z",
-  "commitSha": "e90be42",
-  "buildNumber": "1",
+  "generatedAt": "2026-10-01T21:28:42.694Z",
+  "commitSha": "410c535",
+  "buildNumber": "2",
   "branch": "main",
-  "sessionTimeline": [],
-  "costHistory": {},
-  "deltaSpend": null,
-  "cacheHit": {
-    "series": [],
-    "latest": null,
-    "rollingAvg": null,
-    "windowSize": 14,
-    "sampleCount": 0
+  "sessionTimeline": [
+    {
+      "date": "2026-10-01",
+      "cumCost": 1.5549
+    },
+    {
+      "date": "2026-10-01",
+      "cumCost": 5.8353
+    }
+  ],
+  "costHistory": {
+    "master": [
+      {
+        "date": "2026-10-01",
+        "costUsd": 1.5549
+      }
+    ],
+    "main": [
+      {
+        "date": "2026-10-01",
+        "costUsd": 4.2804
+      }
+    ]
   },
+  "deltaSpend": 4.28,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
   "appName": "ai-coaching-rpg",
   "appVersion": "1.0.0",
   "githubUrl": "",
-  "agents": {},
+  "agents": {
+    "Conductor": {
+      "role": "Delivery Manager",
+      "icon": "🎯",
+      "color": "oklch(52% 0.22 25)",
+      "avatar": "conductor",
+      "instructionFile": "docs/agents/DM_AGENT.md"
+    },
+    "Compass": {
+      "role": "Product Owner",
+      "icon": "🧭",
+      "color": "oklch(50% 0.20 264)",
+      "avatar": "compass",
+      "instructionFile": "docs/agents/PO_AGENT.md"
+    },
+    "Keystone": {
+      "role": "Architect",
+      "icon": "🏗️",
+      "color": "oklch(44% 0.22 310)",
+      "avatar": "keystone",
+      "instructionFile": "docs/agents/ARCHITECT_AGENT.md"
+    },
+    "Lens": {
+      "role": "Code Reviewer",
+      "icon": "🔍",
+      "color": "oklch(72% 0.19 46)",
+      "avatar": "lens",
+      "instructionFile": "docs/agents/CODE_REVIEWER_AGENT.md"
+    },
+    "Palette": {
+      "role": "UI Designer",
+      "icon": "🎨",
+      "color": "oklch(60% 0.14 185)",
+      "avatar": "palette",
+      "instructionFile": "docs/agents/UI_DESIGNER_AGENT.md"
+    },
+    "Forge": {
+      "role": "Backend Developer",
+      "icon": "⚒️",
+      "color": "oklch(44% 0.22 25)",
+      "avatar": "forge",
+      "instructionFile": "docs/agents/BE_DEV_AGENT.md"
+    },
+    "Pixel": {
+      "role": "Frontend Developer",
+      "icon": "📱",
+      "color": "oklch(38% 0.20 270)",
+      "avatar": "pixel",
+      "instructionFile": "docs/agents/FE_DEV_AGENT.md"
+    },
+    "Sentinel": {
+      "role": "Functional Tester",
+      "icon": "🛡️",
+      "color": "oklch(50% 0.17 145)",
+      "avatar": "sentinel",
+      "instructionFile": "docs/agents/FUNCTIONAL_TESTER_AGENT.md"
+    },
+    "Circuit": {
+      "role": "Automation Tester",
+      "icon": "⚡",
+      "color": "oklch(40% 0.22 285)",
+      "avatar": "circuit",
+      "instructionFile": "docs/agents/AUTOMATION_TESTER_AGENT.md"
+    }
+  },
   "budget": {
-    "totalBudget": 11200,
-    "totalSpent": 0,
+    "totalBudget": 11205.8353,
+    "totalSpent": 5.8353,
     "totalProjected": 11200,
     "percentUsed": 0,
     "burnRate": 0,
@@ -898,16 +895,16 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10400,
-        "spent": 0,
+        "budget": 10405.386428,
+        "spent": 5.386428000000001,
         "remaining": 10400,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800,
-        "spent": 0,
+        "budget": 800.448869,
+        "spent": 0.448869,
         "remaining": 800,
         "percentUsed": 0
       },

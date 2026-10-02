@@ -79,6 +79,12 @@ describe('agent-context CLI — dispatch', () => {
       root,
       'docs/sdlc-status.json',
       JSON.stringify({
+        stories: {
+          'US-0184': {
+            specPhase: { specPath: 'docs/spec.md' },
+            planPhase: { planPath: 'docs/plan.md' },
+          },
+        },
         tasks: {
           'task-abc': {
             id: 'task-abc',
@@ -88,15 +94,6 @@ describe('agent-context CLI — dispatch', () => {
             state: 'in_progress',
             planTaskIndex: 1,
             summary: null,
-          },
-        },
-        log: [],
-        programme: {
-          stories: {
-            'US-0184': {
-              specPhase: { specPath: 'docs/spec.md' },
-              planPhase: { planPath: 'docs/plan.md' },
-            },
           },
         },
       }),
@@ -127,6 +124,7 @@ describe('agent-context CLI — dispatch', () => {
       root,
       'docs/sdlc-status.json',
       JSON.stringify({
+        stories: { 'US-0184': { planPhase: { planPath: 'docs/plan.md' } } },
         tasks: {
           'task-abc': {
             id: 'task-abc',
@@ -136,10 +134,6 @@ describe('agent-context CLI — dispatch', () => {
             state: 'in_progress',
             planTaskIndex: 1,
           },
-        },
-        log: [],
-        programme: {
-          stories: { 'US-0184': { planPhase: { planPath: 'docs/plan.md' } } },
         },
       }),
     );

@@ -56,9 +56,9 @@ async function run() {
   const summary = { created: 0, closed: 0, reopened: 0, pulled: 0, skipped: 0 };
 
   try {
-    const { Repository } = require('./lib/repository');
-    const repo = Repository.getInstance({ root: ROOT });
-    const bugs = repo.bugs.listAll();
+    const { parseBugs } = require('./lib/parse-bugs');
+    const bugsRaw = fs.readFileSync(path.join(ROOT, 'docs/BUGS.md'), 'utf8');
+    const bugs = parseBugs(bugsRaw);
 
     const ghIssues = dryRun ? [] : await listIssues(token, repo, defaultLabels[0]);
 
@@ -86,16 +86,29 @@ async function run() {
       const title = ghIssue.title.replace(/^\[BUG-\d+\]\s*/, '');
 
       if (!dryRun) {
-        const { reserveId } = require('../orchestrator/atomic-write');
+        const { reserveId, atomicAppend } = require('../orchestrator/atomic-write');
         const newBugId = await reserveId('BUG');
-        const repoDB = Repository.getInstance({ root: ROOT });
-        await repoDB.bugs.create({
-          id: newBugId,
-          title,
-          severity,
-          status: 'Open',
-          ghIssueNumber: ghIssue.number,
-        });
+        const entry = [
+          '',
+          `${newBugId}: ${title}`,
+          `Severity: ${severity}`,
+          `Related Story:`,
+          `Steps to Reproduce:`,
+          ``,
+          `   1. Reported via GitHub Issue #${ghIssue.number}`,
+          `   Expected:`,
+          `   Actual:`,
+          `   Status: Open`,
+          `   GH Issue: #${ghIssue.number}`,
+          `   Fix Branch:`,
+          `   Lesson Encoded: No`,
+          '',
+          '---',
+        ].join('\n');
+        const bugsPath = path.join(ROOT, 'docs/BUGS.md');
+        const existing = fs.readFileSync(bugsPath, 'utf8');
+        const separator = existing.endsWith('\n') ? '' : '\n';
+        fs.writeFileSync(bugsPath, existing + separator + entry, 'utf8');
         state.entries.push(buildStateEntry(newBugId, ghIssue.number, 'open'));
       } else {
         console.log(`  [dry-run] PULL_CREATE BUG from GH #${ghIssue.number}: ${title}`);
@@ -154,9 +167,9 @@ async function run() {
 
     // Story sync (optional)
     if (config.syncStories) {
-      const { Repository } = require('./lib/repository');
-      const repoDB = Repository.getInstance({ root: ROOT });
-      const stories = repoDB.stories.list();
+      const { parseReleasePlan } = require('./lib/parse-release-plan');
+      const releasePlanRaw = fs.readFileSync(path.join(ROOT, 'docs/RELEASE_PLAN.md'), 'utf8');
+      const { stories } = parseReleasePlan(releasePlanRaw);
       const { classifyStoryChanges, writeStoryIssueNumber } = require('./lib/sync-stories');
       const storyChanges = classifyStoryChanges(stories, state.entries, dryRun ? [] : ghIssues);
 
