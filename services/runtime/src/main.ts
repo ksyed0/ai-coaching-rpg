@@ -1,4 +1,4 @@
-import { existsSync, linkSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
+import { constants as fsConstants, copyFileSync, existsSync, linkSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -80,9 +80,12 @@ function assertInside(dir: string, file: string): void {
   if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) throw new Error(`refusing to touch a path outside the data dir`);
 }
 
+/** linkSync errors that mean "this filesystem has no hard links": fall back to a copy. */
+const NO_HARDLINK_CODES = new Set(["EPERM", "ENOTSUP", "EXDEV", "EOPNOTSUPP"]);
+
 /**
  * Slice 1 does not resume sessions: a non-empty regular `<id>.jsonl` from an earlier run is moved aside (never
- * deleted) to `<id>.<UTC timestamp>.jsonl`, with a numeric suffix on collision. The move is link + unlink, never a
+ * deleted) to `<id>.<UTC timestamp>.jsonl`, with a numeric suffix on collision. The move is link + unlink (or, where hard links are unsupported, an exclusive copy + unlink), never a
  * bare rename, so an existing target can never be overwritten (EEXIST -> next suffix). Missing or empty files are
  * left alone; a directory or symlink in that place is an error and is not touched.
  */
@@ -97,9 +100,22 @@ function rotateStaleLog(dir: string, sessionId: string, now: Date): string | nul
   for (let n = 0; n < 1_000; n++) {
     const target = path.join(dir, `${sessionId}.${stamp}${n === 0 ? "" : `-${n}`}.jsonl`);
     assertInside(dir, target);
+    let copied = false;
     try { linkSync(file, target); }
-    catch (err) { if ((err as NodeJS.ErrnoException).code === "EEXIST") continue; throw err; }
-    unlinkSync(file);
+    catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EEXIST") continue;
+      if (!code || !NO_HARDLINK_CODES.has(code)) throw err;
+      // This filesystem cannot hard-link (some bind mounts, NFS/SMB): copy instead, still never overwriting.
+      try { copyFileSync(file, target, fsConstants.COPYFILE_EXCL); }
+      catch (cerr) { if ((cerr as NodeJS.ErrnoException).code === "EEXIST") continue; throw cerr; }
+      copied = true;
+    }
+    try { unlinkSync(file); }
+    catch (uerr) {
+      // The source is only ever removed after the target exists; if that last step fails, say so, so nobody retries blindly.
+      throw new Error(`${copied ? "a copy of" : "a second hard link to"} the old log was made at ${path.basename(target)} but ${path.basename(file)} could not be removed (${(uerr as NodeJS.ErrnoException).code ?? "error"}); remove or move ${path.basename(file)} by hand and start again`);
+    }
     return target;
   }
   throw new Error(`no free rotation name for ${file} after 1000 tries`);

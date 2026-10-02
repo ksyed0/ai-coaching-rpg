@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, vi } from "vitest";
 import { chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, symlink, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,9 +6,21 @@ import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { bootstrap, type Runtime } from "../main.js";
 
+// Seam: lets a test make linkSync / unlinkSync fail like a bind mount without hard-link support. Passthrough by default.
+const fsHooks = vi.hoisted(() => ({ link: null as null | ((src: string, dst: string) => void), unlink: null as null | ((p: string) => void) }));
+vi.mock("node:fs", async (orig) => {
+  const actual = await orig<typeof import("node:fs")>();
+  return {
+    ...actual,
+    linkSync: (s: string, d: string) => (fsHooks.link ? fsHooks.link(s, d) : actual.linkSync(s, d)),
+    unlinkSync: (p: string) => (fsHooks.unlink ? fsHooks.unlink(p) : actual.unlinkSync(p)),
+  };
+});
+const errno = (code: string) => Object.assign(new Error(code), { code });
+
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../packages/script/src/__tests__/fixtures/minimal");
 let tmp: string; let runtime: Runtime | null = null;
-afterEach(async () => { await runtime?.stop(); runtime = null; if (tmp) await rm(tmp, { recursive: true, force: true }); });
+afterEach(async () => { fsHooks.link = null; fsHooks.unlink = null; await runtime?.stop(); runtime = null; if (tmp) await rm(tmp, { recursive: true, force: true }); });
 
 describe("bootstrap", () => {
   it("starts the runtime with the mock provider on an ephemeral port and serves a facilitator join", async () => {
@@ -205,6 +217,59 @@ describe("bootstrap", () => {
       runtime = r.runtime;
       for (const f of taken) expect(await readFile(path.join(dataDir(), f), "utf8")).toBe(`old ${f}\n`);
       expect(await readFile(path.join(dataDir(), "local.20261002T174512Z-3.jsonl"), "utf8")).toBe("current\n");
+    });
+
+
+    describe("copy fallback when hard links are unsupported", () => {
+      const now = () => new Date("2026-10-02T17:45:12Z");
+      const seed = async (text: string) => { tmp = await mkdtemp(path.join(os.tmpdir(), "acr-rot-")); await mkdir(dataDir(), { recursive: true }); await writeFile(path.join(dataDir(), "local.jsonl"), text); };
+
+      it.each(["EPERM", "ENOTSUP", "EXDEV", "EOPNOTSUPP"])("%s from linkSync: rotates by copy, byte-identical, and removes the original", async (code) => {
+        await seed("old-bytes\n\u00e9\n");
+        fsHooks.link = () => { throw errno(code); };
+        const r = await bootstrap({ env: env(), root: tmp, now, log: () => {} });
+        if (!r.ok) throw new Error(r.errors.join("; "));
+        runtime = r.runtime;
+        expect(await readFile(path.join(dataDir(), "local.20261002T174512Z.jsonl"), "utf8")).toBe("old-bytes\n\u00e9\n");
+        expect(await readdir(dataDir())).not.toContain("local.jsonl");
+      });
+
+      it("never overwrites an existing target in the fallback path (numeric suffix)", async () => {
+        await seed("old-a\n");
+        await writeFile(path.join(dataDir(), "local.20261002T174512Z.jsonl"), "taken\n");
+        fsHooks.link = () => { throw errno("EPERM"); };
+        const r = await bootstrap({ env: env(), root: tmp, now, log: () => {} });
+        if (!r.ok) throw new Error(r.errors.join("; "));
+        runtime = r.runtime;
+        expect(await readFile(path.join(dataDir(), "local.20261002T174512Z.jsonl"), "utf8")).toBe("taken\n");
+        expect(await readFile(path.join(dataDir(), "local.20261002T174512Z-1.jsonl"), "utf8")).toBe("old-a\n");
+      });
+
+      it("unlink failing after a successful copy returns ok:false saying a copy exists and the stale file needs manual handling", async () => {
+        await seed("old-a\n");
+        fsHooks.link = () => { throw errno("EPERM"); };
+        fsHooks.unlink = () => { throw errno("EACCES"); };
+        const r = await bootstrap({ env: env(), root: tmp, now, log: () => {} });
+        expect(r.ok).toBe(false);
+        if (r.ok) return;
+        const msg = r.errors.join("\n");
+        expect(msg).toContain("local.20261002T174512Z.jsonl");
+        expect(msg).toMatch(/copy/i);
+        expect(msg).toMatch(/by hand/);
+        expect(msg).not.toContain("old-a");
+        expect(await readFile(path.join(dataDir(), "local.jsonl"), "utf8")).toBe("old-a\n"); // source untouched
+      });
+
+      it("another linkSync error is reported with the dir and code, and nothing is copied", async () => {
+        await seed("old-a\n");
+        fsHooks.link = () => { throw errno("EIO"); };
+        const r = await bootstrap({ env: env(), root: tmp, now, log: () => {} });
+        expect(r.ok).toBe(false);
+        if (r.ok) return;
+        expect(r.errors.join("\n")).toMatch(/EIO/);
+        expect(r.errors.join("\n")).toContain(dataDir());
+        expect(await readdir(dataDir())).toEqual(["local.jsonl"]);
+      });
     });
 
     it("a missing log file and a missing data dir are not an error and nothing is rotated", async () => {
