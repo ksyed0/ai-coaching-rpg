@@ -8,10 +8,12 @@ export class GameMaster {
   private readonly everyN: number;
   private evaluatedCount = 0; // utterances in the current scene at the last evaluation
   private lastSceneId: string | null = null;
+  private readonly onError: (err: unknown) => void;
   private evaluating = false; // R19: at most one evaluation in flight
 
-  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number }) {
+  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void }) {
     this.engine = opts.engine; this.provider = opts.provider; this.everyN = opts.everyNUtterances ?? 3;
+    this.onError = opts.onError ?? ((err) => console.error("[GameMaster] evaluation failed:", err));
   }
 
   /**
@@ -19,7 +21,7 @@ export class GameMaster {
    * utterances it also evaluates each gm_detects condition. A tick that arrives while an evaluation is in
    * flight skips evaluation (no duplicate model calls or decisions). Never throws on model problems: a model
    * error, empty reply or unparseable verdict records no decision and raises a facilitator.alert instead
-   * (warning for errors, info for empty/unparseable). The attempt still counts, so a failing model is retried
+   * (warning for errors, info for empty/unparseable). Engine/log failures go to onError (default console.error) plus a best-effort warning alert. The attempt still counts, so a failing model is retried
    * after N more utterances rather than on every tick. Verdicts are bound to the scene captured before the
    * model call (engine rejects stale ones, R18).
    */
@@ -40,11 +42,19 @@ export class GameMaster {
         await this.evaluate(scene, cond.gm_detects);
       }
       await this.engine.tick();
-    } catch {
-      // never throw into the host's ticker; engine problems surface through the next tick
+    } catch (err) {
+      // Never throw into the host's ticker, but never be silent either: report to onError, then make a
+      // best-effort facilitator alert (which can itself fail when the log is what failed).
+      this.report(err);
+      try { await this.engine.alert(`GM: evaluation failed: ${err instanceof Error ? err.message : String(err)}`, "warning"); }
+      catch (alertErr) { this.report(alertErr); }
     } finally {
       this.evaluating = false;
     }
+  }
+
+  private report(err: unknown): void {
+    try { this.onError(err); } catch { /* a throwing handler must not break the ticker */ }
   }
 
   private async evaluate(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>, condition: string): Promise<void> {
