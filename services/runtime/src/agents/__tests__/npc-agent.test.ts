@@ -115,4 +115,29 @@ describe("NpcAgent", () => {
     expect(engine.state.transcript).toHaveLength(before);
     expect(alerts).toHaveLength(0);
   });
+  it("R21: aborts and falls back when the stream stalls after the first token (overall reply deadline)", async () => {
+    let aborted = false;
+    const stall: ModelProvider = { name: "stall", async *stream(_req: ChatRequest, signal?: AbortSignal) {
+      yield "Well, I";
+      await new Promise<void>((r) => signal?.addEventListener("abort", () => { aborted = true; r(); })); } };
+    const alerts = alertsOf();
+    const before = engine.state.transcript.length;
+    await new NpcAgent({ role: guest, engine, provider: stall, replyTimeoutMs: 20 }).respond();
+    expect(aborted).toBe(true);
+    expect(engine.state.transcript).toHaveLength(before + 1);
+    expect(engine.state.transcript.at(-1)?.text).toBe(guest.fallback_line);
+    expect(alerts[0]).toMatch(/guest.*reply did not finish/);
+  });
+
+  it("R21: a stalled reply that outlives a scene change is dropped silently", async () => {
+    const alerts = alertsOf();
+    const stall: ModelProvider = { name: "stall", async *stream(_r: ChatRequest, signal?: AbortSignal) {
+      yield "Well";
+      await engine.command({ command: "advance" }); await engine.tick();
+      await new Promise<void>((r) => signal?.addEventListener("abort", () => r())); } };
+    const before = engine.state.transcript.length;
+    expect(await new NpcAgent({ role: guest, engine, provider: stall, replyTimeoutMs: 20 }).respond()).toBeNull();
+    expect(engine.state.transcript).toHaveLength(before);
+    expect(alerts).toHaveLength(0);
+  });
 });

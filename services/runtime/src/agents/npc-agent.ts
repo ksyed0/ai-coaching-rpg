@@ -12,10 +12,12 @@ export class NpcAgent {
   private readonly engine: SessionEngine;
   private readonly provider: ModelProvider;
   private readonly firstTokenTimeoutMs: number;
+  private readonly replyTimeoutMs: number;
 
-  constructor(opts: { role: NpcRole; engine: SessionEngine; provider: ModelProvider; firstTokenTimeoutMs?: number }) {
+  constructor(opts: { role: NpcRole; engine: SessionEngine; provider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number }) {
     this.role = opts.role; this.engine = opts.engine; this.provider = opts.provider;
     this.firstTokenTimeoutMs = opts.firstTokenTimeoutMs ?? 4_000;
+    this.replyTimeoutMs = opts.replyTimeoutMs ?? 20_000;
   }
 
   /**
@@ -34,24 +36,37 @@ export class NpcAgent {
     let text = "";
     let failure: string | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let replyTimer: ReturnType<typeof setTimeout> | undefined;
+    // R21: one overall deadline covers the whole reply so a mid-stream stall cannot wedge the scene.
+    const deadline = new Promise<"deadline">((r) => { replyTimer = setTimeout(() => r("deadline"), this.replyTimeoutMs); });
     try {
       const it = this.provider.stream(req, ac.signal)[Symbol.asyncIterator]();
       const firstP = it.next();
-      firstP.catch(() => undefined); // if the timeout wins, a later rejection must not go unhandled
+      firstP.catch(() => undefined); // if a timeout wins, a later rejection must not go unhandled
       const first = await Promise.race([
         firstP,
+        deadline,
         new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), this.firstTokenTimeoutMs); }),
       ]);
       if (first === "timeout") { ac.abort(); failure = "no first token within timeout"; }
+      else if (first === "deadline") { ac.abort(); failure = "reply did not finish within the overall deadline"; }
       else if (!first.done) {
         text += first.value;
-        for (let r = await it.next(); !r.done; r = await it.next()) text += r.value;
+        for (;;) {
+          const nextP = it.next();
+          nextP.catch(() => undefined);
+          const r = await Promise.race([nextP, deadline]);
+          if (r === "deadline") { ac.abort(); failure = "reply did not finish within the overall deadline"; break; }
+          if (r.done) break;
+          text += r.value;
+        }
       }
     } catch (err) {
       ac.abort();
       failure = `model error: ${err instanceof Error ? err.message : String(err)}`;
     } finally {
       clearTimeout(timer);
+      clearTimeout(replyTimer);
     }
     if (!failure && text.trim().length === 0) failure = "empty reply";
     try {
