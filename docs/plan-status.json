@@ -417,6 +417,45 @@
       ]
     },
     {
+      "id": "US-0014",
+      "epicId": "EPIC-0001",
+      "title": "As an operator, I want to configure OpenRouter or a local OpenAI-compatible endpoint, or a custom Anthropic endpoint, so that the NPCs and Game Master are not tied to one hosted provider.",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Complete",
+      "branch": "feature/EPIC-0001-US-0001-monorepo",
+      "acs": [
+        {
+          "id": "AC-0040",
+          "text": "MODEL_PROVIDER selects mock, anthropic, openrouter or local, and an unknown value lists the valid ones",
+          "done": true
+        },
+        {
+          "id": "AC-0041",
+          "text": "openrouter and local stream through an OpenAI-compatible client (SSE, JSON fallback, abort) that passes the shared provider contract",
+          "done": true
+        },
+        {
+          "id": "AC-0042",
+          "text": "ANTHROPIC_BASE_URL, OPENROUTER_BASE_URL and LOCAL_BASE_URL are validated (no userinfo, https unless loopback or local) and errors name the variable",
+          "done": true
+        },
+        {
+          "id": "AC-0043",
+          "text": "local requires NPC_MODEL and GM_MODEL; the defaults are claude-sonnet-5-5 (anthropic) and anthropic/claude-sonnet-5.5 (openrouter)",
+          "done": true
+        },
+        {
+          "id": "AC-0044",
+          "text": "API keys never appear in logs, URLs or error messages, and startup logs only a fixed provider label and the endpoint host",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0005"
+      ]
+    },
+    {
       "id": "US-0013",
       "epicId": "EPIC-0002",
       "title": "As a participant, I want to reconnect and receive the events I missed, so that a dropped connection does not lose the session.",
@@ -558,6 +597,16 @@
       "notes": "See the implementation plan task of the same number."
     },
     {
+      "id": "TASK-0014",
+      "storyId": "US-0014",
+      "title": "Add OpenRouter and local OpenAI-compatible providers and a custom Anthropic endpoint",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0001-US-0001-monorepo",
+      "notes": "packages/adapters/src/model/openai-compatible.ts, endpoint.ts, select.ts; log fix in services/runtime/src/main.ts."
+    },
+    {
       "id": "TASK-0013",
       "storyId": "US-0013",
       "title": "Add replay-from-seq to the protocol (slice 2)",
@@ -573,79 +622,85 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0014": {
+      "projectedUsd": 800,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0.474392,
+      "costUsd": 0.440507,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -747,6 +802,13 @@
       "openCriticalBug": false,
       "isAtRisk": true
     },
+    "US-0014": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
     "US-0013": {
       "missingTCs": true,
       "noBranch": false,
@@ -785,10 +847,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-01T21:38:39.454Z",
-  "commitSha": "9dff652",
-  "buildNumber": "3",
-  "branch": "feature/ci-pipeline",
+  "generatedAt": "2026-10-02T23:52:35.639Z",
+  "commitSha": "bf33afb",
+  "buildNumber": "40",
+  "branch": "feature/EPIC-0001-US-0001-monorepo",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -888,11 +950,11 @@
   "budget": {
     "totalBudget": 11206.1671,
     "totalSpent": 6.1671,
-    "totalProjected": 11200,
+    "totalProjected": 12000,
     "percentUsed": 0,
-    "burnRate": 0.33179999999999943,
-    "daysRemaining": 33755,
-    "projectedExhaustion": 33755,
+    "burnRate": 0.16589999999999971,
+    "daysRemaining": 67510,
+    "projectedExhaustion": 67510,
     "thresholds": [
       50,
       75,
@@ -904,16 +966,16 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10405.692704,
-        "spent": 5.692704,
+        "budget": 10405.726591,
+        "spent": 5.726591000000002,
         "remaining": 10400,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.474392,
-        "spent": 0.474392,
+        "budget": 800.440507,
+        "spent": 0.440507,
         "remaining": 800,
         "percentUsed": 0
       },
@@ -945,5 +1007,72 @@
     "hasBudget": true
   },
   "completion": null,
-  "trends": null
+  "trends": {
+    "dates": [
+      "2026-10-01T21:28:42.754Z",
+      "2026-10-02T23:21:24.502Z",
+      "2026-10-02T23:52:35.725Z"
+    ],
+    "doneCounts": [
+      0,
+      0,
+      0
+    ],
+    "totalStories": [
+      13,
+      13,
+      14
+    ],
+    "aiCosts": [
+      5.8353,
+      6.1671,
+      6.1671
+    ],
+    "coverage": [
+      null,
+      null,
+      null
+    ],
+    "velocity": [
+      0,
+      0,
+      0
+    ],
+    "openBugs": [
+      0,
+      0,
+      0
+    ],
+    "atRisk": [
+      0,
+      0,
+      0
+    ],
+    "inputTokens": [
+      519419,
+      522440,
+      522440
+    ],
+    "outputTokens": [
+      64947,
+      69480,
+      69480
+    ],
+    "avgRisk": [
+      1.0999999999999999,
+      1.0999999999999999,
+      1.0999999999999999
+    ],
+    "velocityByWeek": {
+      "labels": [
+        "2026-W40"
+      ],
+      "points": [
+        0
+      ],
+      "rollingAvg": [
+        0
+      ]
+    }
+  }
 }

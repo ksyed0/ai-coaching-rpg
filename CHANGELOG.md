@@ -5,7 +5,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs (EPIC-0001, US-0001 to US-0012).
+Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs (EPIC-0001, US-0001 to US-0012 and US-0014).
 
 ### Added
 
@@ -25,16 +25,24 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 - Session-log rotation on restart: an earlier `<id>.jsonl` is moved aside as `<id>.<timestamp>.jsonl` and never overwritten (US-0009).
 - CI jobs for the TypeScript workspace, added beside the existing required checks: Workspace Typecheck, Workspace Tests (per-package 80% coverage gate via `pnpm test:coverage`), SDK Import Guard, Workspace Audit and Docker Build.
 - `SESSION_ID` and `SCENARIO_DIR` documented (commented) in `.env.example`; `tsx` is now a dependency of `@acr/runtime` so the Docker image's start command works with a filtered install.
+- OpenRouter and local OpenAI-compatible providers (Ollama, LM Studio, vLLM, llama.cpp) selected with `MODEL_PROVIDER=openrouter|local`, built on the global `fetch` with streaming SSE parsing and no new dependency; optional `ANTHROPIC_BASE_URL` for a custom Anthropic endpoint (US-0014).
+- Compose maps `host.docker.internal` to the host gateway so a container can reach a model server on the host, also on Linux.
 - PlanVisualizer v2.4.0 project tracking and the Agentic SDLC dashboard (`docs/`, `agents.config.json`).
 - `README.md` and this changelog.
 
 ### Security
 
+- Provider secrets (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `LOCAL_API_KEY`) are never logged or put in URLs or error messages; the startup log shows a fixed provider label and the endpoint host only. This also resolves the CodeQL `js/clear-text-logging` alert on the provider log line in `services/runtime/src/main.ts`.
+- Endpoint URLs (`ANTHROPIC_BASE_URL`, `OPENROUTER_BASE_URL`, `LOCAL_BASE_URL`) are validated at startup: userinfo, query strings and fragments are rejected, hosted endpoints must use https (plain http only on localhost), and errors name the variable without echoing the value. The OpenAI-compatible client refuses redirects so credentials are never forwarded, caps error and JSON bodies, and truncates and sanitizes upstream error text.
 - Players only receive events they are allowed to see (default-deny filter); other participants' ids, NPC goals, whispers and private facts are never sent to them.
 - NPC and Game Master prompts never contain rubrics, other roles' private material or participant display names; the Game Master frames participant text as data so one participant cannot forge another's line.
 - The terminal client sanitizes all server-supplied text so control or escape sequences from other participants or the model cannot manipulate a terminal.
 - A role can only be taken over by a client presenting that role's reconnect token.
 - Live-model tests are opt-in only (`RUN_LIVE_MODEL_TESTS=1` plus an API key); the default test run never reaches the network.
+
+### Changed
+
+- Default model is now `claude-sonnet-5-5` (Anthropic) / `anthropic/claude-sonnet-5.5` (OpenRouter); set `NPC_MODEL` / `GM_MODEL` to keep the previous one (US-0014).
 
 ### Fixed
 

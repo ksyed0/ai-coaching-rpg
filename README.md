@@ -24,7 +24,7 @@ Design details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - **Node.js 22 or newer** (`.nvmrc` pins 22)
 - **pnpm 9** (`npm install -g pnpm@9`)
 - **Docker** (optional, only for the one-command Docker start)
-- An **Anthropic API key** (optional; without one the NPCs use a scripted mock)
+- A model (optional; without one the NPCs use a scripted mock): an **Anthropic API key**, an **OpenRouter API key**, or a **local OpenAI-compatible server** such as Ollama or LM Studio
 
 ## Install
 
@@ -35,14 +35,49 @@ pnpm install
 cp .env.example .env        # defaults to MODEL_PROVIDER=mock, no key needed
 ```
 
-To use a real model for the NPCs and Game Master, edit `.env`:
+To use a real model for the NPCs and Game Master, edit `.env` and pick one of four providers with `MODEL_PROVIDER`:
 
 ```bash
+# Anthropic (optionally behind your own endpoint/proxy: ANTHROPIC_BASE_URL=https://proxy.example.com/anthropic)
 MODEL_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
+
+# OpenRouter
+MODEL_PROVIDER=openrouter
+OPENROUTER_API_KEY=sk-or-...
+
+# A local OpenAI-compatible server (see "Local models" below); the models are required
+MODEL_PROVIDER=local
+LOCAL_BASE_URL=http://localhost:11434/v1
+NPC_MODEL=llama3.1
+GM_MODEL=llama3.1
 ```
 
-`.env` is git-ignored. Never commit it.
+`mock` (the default) needs nothing. `.env` is git-ignored. Never commit it. API keys are never logged; the startup log shows only the provider and its endpoint host.
+
+**Privacy:** prompts (scenario text, role briefs and player lines) are sent to whatever endpoint you configure, so a remote provider such as Anthropic or OpenRouter sees them. Use `local` to keep them on your own machines.
+
+### Local models
+
+Any server that speaks the OpenAI chat-completions API with streaming works (Ollama, LM Studio, vLLM, the llama.cpp server). Set `LOCAL_BASE_URL` to its `/v1` URL and name the model in `NPC_MODEL` and `GM_MODEL` (there is no default, because model ids are server-specific). `LOCAL_API_KEY` is optional; set it only if your server wants a token (it is sent as `Authorization: Bearer ...`).
+
+```bash
+# Ollama (ollama pull llama3.1)
+MODEL_PROVIDER=local
+LOCAL_BASE_URL=http://localhost:11434/v1
+NPC_MODEL=llama3.1
+GM_MODEL=llama3.1
+
+# LM Studio (start its local server; use the model id it shows)
+MODEL_PROVIDER=local
+LOCAL_BASE_URL=http://localhost:1234/v1
+NPC_MODEL=<model id from LM Studio>
+GM_MODEL=<model id from LM Studio>
+```
+
+Tip: pick a model that follows instructions well and streams; the Game Master must answer in a strict format, and small models often do not. A server that ignores streaming and returns one JSON object also works.
+
+**Docker:** inside the container `localhost` is the container itself, not your machine. Use `LOCAL_BASE_URL=http://host.docker.internal:11434/v1`. This works on Docker Desktop and OrbStack, and the compose file maps `host.docker.internal` to the host gateway so it works on Linux too. The server must listen on an address the container can reach (for Ollama on Linux, `OLLAMA_HOST=0.0.0.0`).
 
 ## Run
 
@@ -102,9 +137,14 @@ All settings are environment variables (read from `.env` at the repository root;
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `MODEL_PROVIDER` | `mock` | `mock` or `anthropic` |
+| `MODEL_PROVIDER` | `mock` | `mock`, `anthropic`, `openrouter` or `local` |
 | `ANTHROPIC_API_KEY` | – | Required when `MODEL_PROVIDER=anthropic` |
-| `NPC_MODEL`, `GM_MODEL` | `claude-sonnet-4-5` | Model for NPC replies / the Game Master |
+| `ANTHROPIC_BASE_URL` | Anthropic's API | Optional custom endpoint or proxy; `https:` (or `http:` on localhost); no `/v1` |
+| `OPENROUTER_API_KEY` | – | Required when `MODEL_PROVIDER=openrouter` |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Optional; `https:` (or `http:` on localhost) |
+| `LOCAL_BASE_URL` | – | Required when `MODEL_PROVIDER=local`; `http:` or `https:`, e.g. `http://localhost:11434/v1` |
+| `LOCAL_API_KEY` | – | Optional token for `local`; sent only when set |
+| `NPC_MODEL`, `GM_MODEL` | `claude-sonnet-5-5` (anthropic), `anthropic/claude-sonnet-5.5` (openrouter) | Model for NPC replies / the Game Master. Blank uses the default. **Required for `local`** (no default) |
 | `RUNTIME_PORT` | `8080` | Port the server listens on |
 | `SCENARIO_DIR` | `scenarios/friday-escalation` | Scenario folder (relative paths resolve from the repository root) |
 | `SESSION_ID` | `local` | Session id clients join (`--session`) |
@@ -137,7 +177,7 @@ The default test run never calls a real model or touches the network.
 ```
 packages/events     session event types and the state reducer
 packages/script     scenario schema, loader, validator, scene state machine
-packages/adapters   model provider adapters (mock, Anthropic)
+packages/adapters   model provider adapters (mock, Anthropic, OpenAI-compatible)
 services/runtime    session engine, NPC agents, Game Master, WebSocket server, terminal client
 scenarios/          playable scenarios (YAML)
 docs/               architecture, release plan, plans and the generated plan dashboard

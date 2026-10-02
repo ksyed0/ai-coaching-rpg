@@ -313,6 +313,30 @@ Notes: See the implementation plan task of the same number.
 ```
 
 ```
+US-0014 (EPIC-0001): As an operator, I want to configure OpenRouter or a local OpenAI-compatible endpoint, or a custom Anthropic endpoint, so that the NPCs and Game Master are not tied to one hosted provider.
+Priority: Medium
+Estimate: M
+Status: Complete
+Branch: feature/EPIC-0001-US-0001-monorepo
+Dependencies: US-0005
+Acceptance Criteria:
+  - [x] AC-0040: MODEL_PROVIDER selects mock, anthropic, openrouter or local, and an unknown value lists the valid ones
+  - [x] AC-0041: openrouter and local stream through an OpenAI-compatible client (SSE, JSON fallback, abort) that passes the shared provider contract
+  - [x] AC-0042: ANTHROPIC_BASE_URL, OPENROUTER_BASE_URL and LOCAL_BASE_URL are validated (no userinfo, https unless loopback or local) and errors name the variable
+  - [x] AC-0043: local requires NPC_MODEL and GM_MODEL; the defaults are claude-sonnet-5-5 (anthropic) and anthropic/claude-sonnet-5.5 (openrouter)
+  - [x] AC-0044: API keys never appear in logs, URLs or error messages, and startup logs only a fixed provider label and the endpoint host
+```
+
+```
+TASK-0014 (US-0014): Add OpenRouter and local OpenAI-compatible providers and a custom Anthropic endpoint
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0001-US-0001-monorepo
+Notes: packages/adapters/src/model/openai-compatible.ts, endpoint.ts, select.ts; log fix in services/runtime/src/main.ts.
+```
+
+```
 US-0013 (EPIC-0002): As a participant, I want to reconnect and receive the events I missed, so that a dropped connection does not lose the session.
 Priority: Medium
 Estimate: M
