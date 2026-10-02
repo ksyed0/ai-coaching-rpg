@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readdir, readFile, symlink, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -126,7 +126,7 @@ describe("bootstrap", () => {
     const wsOpen = (port: number) => new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.on("open", () => res(w)); w.on("error", rej); });
     const waitMsg = (w: WebSocket, pred: (m: any) => boolean) => new Promise<any>((res) => { w.on("message", (d) => { const m = JSON.parse(d.toString()); if (pred(m)) res(m); }); });
     const dataDir = () => path.join(tmp, "data", "sessions");
-    const rotated = async () => (await readdir(dataDir())).filter((f) => /^local\.\d{8}T\d{6}Z(-\d+)?\.jsonl$/.test(f));
+    const rotated = async () => (await readdir(dataDir()).catch(() => [] as string[])).filter((f) => /^local\.\d{8}T\d{6}Z(-\d+)?\.jsonl$/.test(f));
 
     async function runOnce(logs: string[]) {
       const r = await bootstrap({ env: env(), root: tmp, tickMs: 1_000, log: (m) => logs.push(m) });
@@ -172,6 +172,83 @@ describe("bootstrap", () => {
       runtime = r.runtime;
       expect(await readFile(path.join(dataDir(), "local.20261002T174512Z.jsonl"), "utf8")).toBe("taken\n");
       expect(await readFile(path.join(dataDir(), "local.20261002T174512Z-1.jsonl"), "utf8")).toBe("old-a\n");
+    });
+
+    const now = () => new Date("2026-10-02T17:45:12Z");
+
+    it.each([
+      ["../x"], ["../../foo/bar"], ["a/b"], ["."], [".."], [""], ["a".repeat(200)], ["bad\u0000id"], ["line\nbreak"],
+    ])("an invalid SESSION_ID %j is refused before any filesystem action, and nothing outside the data dir is moved", async (bad) => {
+      tmp = await mkdtemp(path.join(os.tmpdir(), "acr-rot-"));
+      await mkdir(path.join(tmp, "data", "sessions"), { recursive: true });
+      await mkdir(path.join(tmp, "foo"), { recursive: true });
+      await writeFile(path.join(tmp, "data", "x.jsonl"), "keep-x\n");
+      await writeFile(path.join(tmp, "foo", "bar.jsonl"), "keep-bar\n");
+      const before = [(await readdir(path.join(tmp, "data"))).sort(), (await readdir(path.join(tmp, "foo"))).sort()];
+      const logs: string[] = [];
+      const r = await bootstrap({ env: env({ SESSION_ID: bad }), root: tmp, now, log: (m) => logs.push(m) });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errors.join("\n")).not.toMatch(/[\u0000-\u001f]/);
+      expect(await readFile(path.join(tmp, "data", "x.jsonl"), "utf8")).toBe("keep-x\n");
+      expect(await readFile(path.join(tmp, "foo", "bar.jsonl"), "utf8")).toBe("keep-bar\n");
+      expect([(await readdir(path.join(tmp, "data"))).sort(), (await readdir(path.join(tmp, "foo"))).sort()]).toEqual(before);
+    });
+
+    it("collisions land on the next free suffix and never overwrite an existing file", async () => {
+      tmp = await mkdtemp(path.join(os.tmpdir(), "acr-rot-"));
+      await mkdir(dataDir(), { recursive: true });
+      await writeFile(path.join(dataDir(), "local.jsonl"), "current\n");
+      const taken = ["local.20261002T174512Z.jsonl", "local.20261002T174512Z-1.jsonl", "local.20261002T174512Z-2.jsonl"];
+      for (const f of taken) await writeFile(path.join(dataDir(), f), `old ${f}\n`);
+      const r = await bootstrap({ env: env(), root: tmp, now, log: () => {} });
+      if (!r.ok) throw new Error(r.errors.join("; "));
+      runtime = r.runtime;
+      for (const f of taken) expect(await readFile(path.join(dataDir(), f), "utf8")).toBe(`old ${f}\n`);
+      expect(await readFile(path.join(dataDir(), "local.20261002T174512Z-3.jsonl"), "utf8")).toBe("current\n");
+    });
+
+    it("a missing log file and a missing data dir are not an error and nothing is rotated", async () => {
+      tmp = await mkdtemp(path.join(os.tmpdir(), "acr-rot-"));
+      const r = await bootstrap({ env: env(), root: tmp, now, log: () => {} });
+      if (!r.ok) throw new Error(r.errors.join("; "));
+      runtime = r.runtime;
+      expect(await rotated()).toEqual([]);
+    });
+
+    it.skipIf(typeof process.getuid === "function" && process.getuid() === 0)("a rotation failure (read-only data dir) returns ok:false naming the dir and code, never contents", async () => {
+      tmp = await mkdtemp(path.join(os.tmpdir(), "acr-rot-"));
+      await mkdir(dataDir(), { recursive: true });
+      await writeFile(path.join(dataDir(), "local.jsonl"), "SECRET-CONTENT\n");
+      await chmod(dataDir(), 0o555); // skipped as root, which ignores permissions
+      try {
+        const r = await bootstrap({ env: env(), root: tmp, now, log: () => {} });
+        expect(r.ok).toBe(false);
+        if (!r.ok) {
+          expect(r.errors.join("\n")).toContain(dataDir());
+          expect(r.errors.join("\n")).toMatch(/EACCES|EPERM/);
+          expect(r.errors.join("\n")).not.toContain("SECRET-CONTENT");
+        }
+      } finally { await chmod(dataDir(), 0o755); }
+    });
+
+    it("a directory at <id>.jsonl is refused (not renamed)", async () => {
+      tmp = await mkdtemp(path.join(os.tmpdir(), "acr-rot-"));
+      await mkdir(path.join(dataDir(), "local.jsonl"), { recursive: true });
+      const r = await bootstrap({ env: env(), root: tmp, now, log: () => {} });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errors.join("\n")).toMatch(/not a regular file/);
+      expect((await lstat(path.join(dataDir(), "local.jsonl"))).isDirectory()).toBe(true);
+    });
+
+    it("a symlink at <id>.jsonl is refused and not followed", async () => {
+      tmp = await mkdtemp(path.join(os.tmpdir(), "acr-rot-"));
+      await mkdir(dataDir(), { recursive: true });
+      await writeFile(path.join(tmp, "target.txt"), "target\n");
+      await symlink(path.join(tmp, "target.txt"), path.join(dataDir(), "local.jsonl"));
+      const r = await bootstrap({ env: env(), root: tmp, now, log: () => {} });
+      expect(r.ok).toBe(false);
+      expect((await lstat(path.join(dataDir(), "local.jsonl"))).isSymbolicLink()).toBe(true);
+      expect(await readFile(path.join(tmp, "target.txt"), "utf8")).toBe("target\n");
     });
 
     it("an empty or missing log file is not rotated", async () => {

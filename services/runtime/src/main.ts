@@ -1,11 +1,11 @@
-import { existsSync, readFileSync, statSync, renameSync } from "node:fs";
+import { existsSync, linkSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadScenario, validateScenario } from "@acr/script";
 import { selectModelProvider } from "@acr/adapters";
 import { SessionEngine } from "./engine/session-engine.js";
-import { JsonlEventLog } from "./engine/event-log.js";
+import { JsonlEventLog, isValidSessionId } from "./engine/event-log.js";
 import { SystemClock } from "./engine/clock.js";
 import { SessionHost } from "./host/session-host.js";
 import { startServer } from "./host/ws-server.js";
@@ -20,6 +20,11 @@ export type BootstrapResult = { ok: true; runtime: Runtime } | { ok: false; erro
 export async function bootstrap(opts: {
   env: NodeJS.ProcessEnv; root?: string; now?: () => Date; log?: (m: string) => void; warn?: (m: string) => void; logDir?: string; tickMs?: number;
 }): Promise<BootstrapResult> {
+  // Validate the session id before ANY filesystem action: it becomes a file name under the data dir.
+  const requestedId = (opts.env.SESSION_ID ?? "local");
+  if (!isValidSessionId(requestedId)) {
+    return { ok: false, errors: [`SESSION_ID ${JSON.stringify(requestedId.slice(0, 40))} is invalid: use 1 to 64 letters, digits, '_' or '-'`] };
+  }
   const root = opts.root ?? REPO_ROOT;
   // <root>/.env is optional; real environment variables win over it. Values are never logged.
   const envFile = path.join(root, ".env");
@@ -33,6 +38,9 @@ export async function bootstrap(opts: {
   const warn = opts.warn ?? console.warn;
   const scenarioDir = path.resolve(root, env.SCENARIO_DIR ?? "scenarios/friday-escalation"); // absolute values are used as given
   const sessionId = env.SESSION_ID ?? "local";
+  if (!isValidSessionId(sessionId)) { // an id coming from <root>/.env gets the same check
+    return { ok: false, errors: [`SESSION_ID ${JSON.stringify(sessionId.slice(0, 40))} is invalid: use 1 to 64 letters, digits, '_' or '-'`] };
+  }
   const port = Number(env.RUNTIME_PORT ?? 8080);
   if (!Number.isInteger(port) || port < 0 || port > 65_535) return { ok: false, errors: [`RUNTIME_PORT '${env.RUNTIME_PORT}' is not a valid port`] };
 
@@ -47,7 +55,7 @@ export async function bootstrap(opts: {
   try {
     const rotatedTo = rotateStaleLog(dataDir, sessionId, (opts.now ?? (() => new Date()))());
     if (rotatedTo) log(`previous session log moved aside: ${rotatedTo}`);
-  } catch (err) { return { ok: false, errors: [`cannot rotate the previous session log: ${(err as NodeJS.ErrnoException).code ?? "failed"}`] }; }
+  } catch (err) { return { ok: false, errors: [`cannot rotate the previous session log in ${dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`] }; }
 
   let host: SessionHost;
   try {
@@ -66,20 +74,35 @@ export async function bootstrap(opts: {
   return { ok: true, runtime: { port: server.port, host, stop: async () => { host.stopTicker(); await server.close(); } } };
 }
 
+/** Both paths must stay inside `dir`: defense in depth on top of the session id check. */
+function assertInside(dir: string, file: string): void {
+  const rel = path.relative(path.resolve(dir), path.resolve(file));
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) throw new Error(`refusing to touch a path outside the data dir`);
+}
+
 /**
- * Slice 1 does not resume sessions: a non-empty `<id>.jsonl` from an earlier run is renamed aside (never deleted)
- * to `<id>.<UTC timestamp>.jsonl` (numeric suffix on collision). Missing or empty files are left alone.
+ * Slice 1 does not resume sessions: a non-empty regular `<id>.jsonl` from an earlier run is moved aside (never
+ * deleted) to `<id>.<UTC timestamp>.jsonl`, with a numeric suffix on collision. The move is link + unlink, never a
+ * bare rename, so an existing target can never be overwritten (EEXIST -> next suffix). Missing or empty files are
+ * left alone; a directory or symlink in that place is an error and is not touched.
  */
 function rotateStaleLog(dir: string, sessionId: string, now: Date): string | null {
   const file = path.join(dir, `${sessionId}.jsonl`);
-  let size: number;
-  try { size = statSync(file).size; } catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return null; throw err; }
-  if (size === 0) return null;
+  assertInside(dir, file);
+  let st;
+  try { st = lstatSync(file); } catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return null; throw err; }
+  if (!st.isFile()) throw new Error(`${file} is not a regular file; move it away and retry`);
+  if (st.size === 0) return null;
   const stamp = now.toISOString().replace(/\.\d+Z$/, "Z").replace(/[-:]/g, "");
-  let target = path.join(dir, `${sessionId}.${stamp}.jsonl`);
-  for (let n = 1; existsSync(target); n++) target = path.join(dir, `${sessionId}.${stamp}-${n}.jsonl`);
-  renameSync(file, target);
-  return target;
+  for (let n = 0; n < 1_000; n++) {
+    const target = path.join(dir, `${sessionId}.${stamp}${n === 0 ? "" : `-${n}`}.jsonl`);
+    assertInside(dir, target);
+    try { linkSync(file, target); }
+    catch (err) { if ((err as NodeJS.ErrnoException).code === "EEXIST") continue; throw err; }
+    unlinkSync(file);
+    return target;
+  }
+  throw new Error(`no free rotation name for ${file} after 1000 tries`);
 }
 
 async function main(): Promise<void> {

@@ -318,4 +318,19 @@ describe("ws-server", () => {
     p.send({ type: "join", sessionId: "local", roleId: "host", participantId: "p1" });
     expect((await p.next((m) => m.type === "error")).code).toBe("already_joined");
   });
+
+  it("log_not_empty reaches the client as an error message without any filesystem path", async () => {
+    const scenario = await loadScenario(fixture);
+    const log = new MemoryEventLog("local");
+    await log.append({ type: "facilitator.alert", level: "info", message: "old run" }, 0);
+    const engine = new SessionEngine({ scenario, log, clock: new FakeClock(0) });
+    const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(), gmProvider: new MockModelProvider(), clock: new FakeClock(0) });
+    server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: serverLog });
+    const fac = await joinFac(server.port);
+    fac.send({ type: "start" });
+    const err = await fac.next((m) => m.type === "error");
+    expect(err.code).toBe("log_not_empty");
+    expect(err.message).not.toMatch(/[\\/]/);
+    expect(err.message).not.toMatch(/\.jsonl/);
+  });
 });

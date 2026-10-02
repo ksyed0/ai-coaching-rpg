@@ -23,14 +23,16 @@ export class MemoryEventLog implements EventLog {
   async all() { return [...this.events]; }
 }
 
-const SESSION_ID = /^[A-Za-z0-9_-]+$/;
+const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
+/** The single source of truth for what a session id may be (it becomes a file name). */
+export const isValidSessionId = (id: string): boolean => SESSION_ID.test(id);
 
 export class JsonlEventLog implements EventLog {
   private seq: number | null = null;
   private readonly file: string;
   private readonly mutex = new Mutex();
   constructor(readonly sessionId: string, dir = "data/sessions") {
-    if (!SESSION_ID.test(sessionId)) throw new Error(`invalid session id: ${JSON.stringify(sessionId)}`);
+    if (!isValidSessionId(sessionId)) throw new Error(`invalid session id: ${JSON.stringify(sessionId)}`);
     this.file = path.join(dir, `${sessionId}.jsonl`);
   }
 
