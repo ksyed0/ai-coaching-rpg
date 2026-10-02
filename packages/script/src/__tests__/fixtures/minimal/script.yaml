@@ -1,0 +1,23 @@
+scenes:
+  - id: s1_open
+    title: Opening
+    goal: Exchange greetings
+    participants: [host, guest]
+    time_box_minutes: 2
+    injects:
+      - id: late_inject
+        at_minute: 1
+        to: [guest]
+        content: "Sam remembers an urgent email."
+        effect: { goals_add: ["Leave early"] }
+    exit_when:
+      any_of:
+        - time_box_elapsed
+        - facilitator_advance
+        - gm_detects: "both parties have said hello"
+  - id: s2_close
+    title: Close
+    goal: Say goodbye
+    participants: [host, guest]
+    time_box_minutes: 1
+    exit_when: { any_of: [time_box_elapsed, facilitator_advance] }

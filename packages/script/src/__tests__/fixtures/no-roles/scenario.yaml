@@ -1,0 +1,13 @@
+id: minimal-01
+title: Minimal
+version: "0.1"
+audience: Tests
+duration_minutes: 10
+players: { min: 1, max: 2 }
+context: A two-person check-in.
+learning_objectives:
+  - id: LO1
+    statement: Say hello clearly
+    rubric_criteria: [clarity]
+rubrics: [test_rubric]
+facilitator_notes: none
