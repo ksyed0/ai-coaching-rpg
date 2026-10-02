@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, truncate, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Mutex } from "./mutex.js";
 import type { EventBody, SessionEvent } from "@acr/events";
@@ -36,30 +36,46 @@ export class JsonlEventLog implements EventLog {
 
   append(body: EventBody, ts: number): Promise<SessionEvent> {
     return this.mutex.run(async () => {
-      if (this.seq === null) this.seq = (await this.read()).at(-1)?.seq ?? 0;
-      await mkdir(path.dirname(this.file), { recursive: true });
-      const e = { ...body, seq: this.seq + 1, ts, sessionId: this.sessionId } as SessionEvent;
-      await appendFile(this.file, JSON.stringify(e) + "\n", "utf8");
-      this.seq = e.seq; // commit only after a successful write
-      return e;
+      try {
+        await mkdir(path.dirname(this.file), { recursive: true });
+        if (this.seq === null) {
+          const { events, goodText, raw } = await this.scan();
+          if (raw !== goodText) await this.repair(raw, goodText);
+          this.seq = events.at(-1)?.seq ?? 0;
+        }
+        const e = { ...body, seq: this.seq + 1, ts, sessionId: this.sessionId } as SessionEvent;
+        await appendFile(this.file, JSON.stringify(e) + "\n", "utf8");
+        this.seq = e.seq; // commit only after a successful write
+        return e;
+      } catch (err) {
+        this.seq = null; // a failed write may have left a partial line: re-scan and repair before the next append
+        throw err;
+      }
     });
   }
 
-  all(): Promise<SessionEvent[]> { return this.mutex.run(() => this.read()); }
+  all(): Promise<SessionEvent[]> { return this.mutex.run(async () => (await this.scan()).events); }
 
-  private async read(): Promise<SessionEvent[]> {
+  /** Cut a corrupt/partial tail so the next append starts on a clean line, keeping every valid event. */
+  private async repair(raw: string, goodText: string): Promise<void> {
+    if (raw.startsWith(goodText)) await truncate(this.file, Buffer.byteLength(goodText));
+    else await writeFile(this.file, goodText, "utf8");
+  }
+
+  private async scan(): Promise<{ events: SessionEvent[]; goodText: string; raw: string }> {
     let raw: string;
     try { raw = await readFile(this.file, "utf8"); }
     catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { events: [], goodText: "", raw: "" };
       throw err;
     }
     const lines = raw.split("\n");
     const out: SessionEvent[] = [];
+    const goodLines: string[] = [];
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       if (!line) continue;
-      try { out.push(JSON.parse(line) as SessionEvent); }
+      try { out.push(JSON.parse(line) as SessionEvent); goodLines.push(line + "\n"); }
       catch {
         // a crash mid-write can truncate only the final line
         const isFinal = lines.slice(i + 1).every((l) => !l);
@@ -67,6 +83,6 @@ export class JsonlEventLog implements EventLog {
         throw new Error(`malformed event in ${this.file} at line ${i + 1}`);
       }
     }
-    return out;
+    return { events: out, goodText: goodLines.join(""), raw };
   }
 }

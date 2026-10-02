@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import path from "node:path";
 import os from "node:os";
-import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile, writeFile, appendFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { loadScenario, type Scenario } from "@acr/script";
 import { initialState, reduce } from "@acr/events";
@@ -330,5 +330,46 @@ describe("JsonlEventLog hardening", () => {
     expect(() => new JsonlEventLog("../x", dir)).toThrow();
     expect(() => new JsonlEventLog("a/b", dir)).toThrow();
     expect(() => new JsonlEventLog("", dir)).toThrow();
+  });
+
+  const ev = (seq: number) => JSON.stringify({ ...body, seq, ts: seq, sessionId: "tr" });
+
+  it("repairs a truncated tail before appending (a), keeps appending (b), reopens at right seq (c)", async () => {
+    const file = path.join(dir, "tr.jsonl");
+    await writeFile(file, ev(1) + "\n" + ev(2) + "\n" + '{"garbage', "utf8");
+    const jl = new JsonlEventLog("tr", dir);
+    const e3 = await jl.append(body, 3);
+    expect(e3.seq).toBe(3);
+    expect((await jl.all()).map((e) => e.seq)).toEqual([1, 2, 3]);
+    expect(await readFile(file, "utf8")).not.toContain("garbage");
+    await jl.append(body, 4);
+    expect((await jl.all()).map((e) => e.seq)).toEqual([1, 2, 3, 4]);
+    const reopened = new JsonlEventLog("tr", dir);
+    expect((await reopened.append(body, 5)).seq).toBe(5);
+    expect((await reopened.all()).map((e) => e.seq)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it("repairs a valid last line that lacks a trailing newline", async () => {
+    await writeFile(path.join(dir, "tr.jsonl"), ev(1) + "\n" + ev(2), "utf8");
+    const jl = new JsonlEventLog("tr", dir);
+    await jl.append(body, 3);
+    expect((await jl.all()).map((e) => e.seq)).toEqual([1, 2, 3]);
+  });
+
+  it("re-scans after a failed write so a partial line cannot merge with the next event", async () => {
+    const file = path.join(dir, "tr.jsonl");
+    const jl = new JsonlEventLog("tr", dir);
+    await jl.append(body, 1);
+    await appendFile(file, '{"partial', "utf8"); // simulate a partial write left behind
+    (jl as unknown as { seq: number | null }).seq = null; // state after a failed append
+    await jl.append(body, 2);
+    expect((await jl.all()).map((e) => e.seq)).toEqual([1, 2]);
+  });
+
+  it("still throws a clear error for a malformed non-final line (d)", async () => {
+    await writeFile(path.join(dir, "tr.jsonl"), ev(1) + "\n{bad\n" + ev(3) + "\n", "utf8");
+    const jl = new JsonlEventLog("tr", dir);
+    await expect(jl.append(body, 4)).rejects.toThrow(/tr\.jsonl at line 2/);
+    await expect(jl.all()).rejects.toThrow(/tr\.jsonl at line 2/);
   });
 });
