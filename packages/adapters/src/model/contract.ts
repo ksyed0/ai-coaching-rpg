@@ -9,14 +9,21 @@ export function modelProviderContract(make: () => ModelProvider): void {
       for await (const c of p.stream({ system: "Reply with the single word OK.", messages: [{ role: "user", content: "Ready?" }], maxTokens: 16 })) chunks.push(c);
       expect(chunks.join("").trim().length).toBeGreaterThan(0);
     });
-    it("stops when the signal aborts", async () => {
+    it("stops streaming after the signal aborts mid-stream", async () => {
       const p = make();
       const ac = new AbortController();
-      ac.abort();
-      const chunks: string[] = [];
-      try { for await (const c of p.stream({ system: "x", messages: [{ role: "user", content: "y" }], maxTokens: 16 }, ac.signal)) chunks.push(c); }
-      catch { /* an abort error is acceptable */ }
-      expect(chunks.join("").length).toBeLessThan(2_000);
+      let total = 0;
+      let afterAbort = 0;
+      let aborted = false;
+      try {
+        for await (const _chunk of p.stream({ system: "Count from 1 to 500 separated by single spaces. Output only the numbers.", messages: [{ role: "user", content: "Go." }], maxTokens: 2000 }, ac.signal)) {
+          total++;
+          if (aborted) afterAbort++;
+          else { aborted = true; ac.abort(); }
+        }
+      } catch { /* an abort error is acceptable; continued streaming is not */ }
+      expect(total).toBeGreaterThanOrEqual(1);
+      expect(afterAbort).toBeLessThanOrEqual(1);
     });
   });
 }
