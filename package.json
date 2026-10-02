@@ -33,7 +33,8 @@
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
     "dev:runtime": "pnpm --filter @acr/runtime dev",
-    "play": "pnpm --filter @acr/runtime play"
+    "play": "pnpm --filter @acr/runtime play",
+    "lint:sdk": "bash scripts/check-sdk-imports.sh"
   },
   "repository": {
     "type": "git",
