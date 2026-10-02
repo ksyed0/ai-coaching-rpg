@@ -64,6 +64,11 @@ export class SessionEngine {
     }
   }
 
+  /** Serialized facilitator.alert for agents (timeouts, model failures). */
+  alert(message: string, level: "info" | "warning" = "warning"): Promise<SessionEvent> {
+    return this.mutex.run(() => this.emit({ type: "facilitator.alert", level, message }));
+  }
+
   say(roleId: string, text: string, channel: Channel = "text"): Promise<SessionEvent> { return this.mutex.run(() => this.doSay(roleId, text, channel)); }
   private async doSay(roleId: string, text: string, channel: Channel): Promise<SessionEvent> {
     if (this.state.status === "ended") throw new EngineError("ended");
