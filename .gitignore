@@ -5,3 +5,4 @@ coverage/
 *.local
 data/sessions/
 .superpowers/
+.history/
