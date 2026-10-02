@@ -3,7 +3,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { loadScenario } from "@acr/script";
-import { MockModelProvider } from "@acr/adapters";
+import { MockModelProvider, type ChatRequest, type ModelProvider } from "@acr/adapters";
+import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
@@ -23,21 +25,32 @@ function open(port: number) {
   const ws = new WebSocket(`ws://127.0.0.1:${port}`);
   sockets.push(ws);
   const inbox: any[] = [];
-  ws.on("message", (d) => inbox.push(JSON.parse(d.toString())));
-  const next = (pred: (m: any) => boolean, ms = 2000) => new Promise<any>((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error("timeout")), ms);
-    const check = () => { const m = inbox.find(pred); if (m) { clearTimeout(t); resolve(m); } else setTimeout(check, 10); };
-    check();
+  const waiters: { pred: (m: any) => boolean; resolve: (m: any) => void; timer: ReturnType<typeof setTimeout> }[] = [];
+  ws.on("message", (d) => {
+    const m = JSON.parse(d.toString());
+    inbox.push(m);
+    for (const w of [...waiters]) if (w.pred(m)) { clearTimeout(w.timer); waiters.splice(waiters.indexOf(w), 1); w.resolve(m); }
   });
-  return { ws, inbox, next, send: (m: unknown) => ws.send(JSON.stringify(m)), sendRaw: (m: string) => ws.send(m), ready: new Promise<void>((r) => ws.on("open", () => r())) };
+  const next = (pred: (m: any) => boolean, ms = 2000) => new Promise<any>((resolve, reject) => {
+    const found = inbox.find(pred);
+    if (found) return resolve(found);
+    const w = { pred, resolve, timer: setTimeout(() => { waiters.splice(waiters.indexOf(w), 1); reject(new Error("timeout")); }, ms) };
+    waiters.push(w);
+  });
+  const closed = new Promise<number>((r) => ws.on("close", (code) => r(code)));
+  return { ws, inbox, next, closed, send: (m: unknown) => ws.send(JSON.stringify(m)), sendRaw: (m: string) => ws.send(m), ready: new Promise<void>((r) => ws.on("open", () => r())) };
 }
 
-async function setup(npcReplies: string[] = ["Hi!"]) {
-  const scenario = await loadScenario(fixture);
+const logWaiters: { re: RegExp; resolve: () => void }[] = [];
+const serverLog = (m: string) => { for (const w of [...logWaiters]) if (w.re.test(m)) { logWaiters.splice(logWaiters.indexOf(w), 1); w.resolve(); } };
+const waitLog = (re: RegExp) => new Promise<void>((resolve) => { logWaiters.push({ re, resolve }); });
+
+async function setup(npcReplies: string[] = ["Hi!"], dir = fixture, npcProvider?: ModelProvider) {
+  const scenario = await loadScenario(dir);
   const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock: new FakeClock(0) });
   const npc = new MockModelProvider(npcReplies);
-  const host = new SessionHost({ scenario, engine, npcProvider: npc, gmProvider: new MockModelProvider(), clock: new FakeClock(0) });
-  server = await startServer({ port: 0, hosts: new Map([["local", host]]) });
+  const host = new SessionHost({ scenario, engine, npcProvider: npcProvider ?? npc, gmProvider: new MockModelProvider(), clock: new FakeClock(0) });
+  server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: serverLog });
   return { engine, host, npc, port: server.port };
 }
 
@@ -47,9 +60,9 @@ async function joinFac(port: number) {
   await fac.next((m) => m.type === "joined" && m.roleId === "facilitator");
   return fac;
 }
-async function joinPlayer(port: number, participantId = "p1") {
+async function joinPlayer(port: number, participantId = "p1", extra: Record<string, unknown> = {}, roleId = "host") {
   const p = open(port); await p.ready;
-  p.send({ type: "join", sessionId: "local", roleId: "host", participantId });
+  p.send({ type: "join", sessionId: "local", roleId, participantId, ...extra });
   const joined = await p.next((m) => m.type === "joined" || m.type === "error");
   return { p, joined };
 }
@@ -136,34 +149,117 @@ describe("ws-server", () => {
   it("R22c: an oversize frame closes that connection without crashing the server", async () => {
     const { port } = await setup();
     const c = open(port); await c.ready;
-    const closed = new Promise<number>((r) => c.ws.on("close", (code) => r(code)));
     c.sendRaw("x".repeat(70 * 1024));
-    expect(await closed).toBe(1009);
+    expect(await c.closed).toBe(1009);
     const fac = await joinFac(port);
     expect(fac.inbox[0].type).toBe("joined");
   });
 
-  it("R22d: closing a player connection frees the role for the same participant, a different one gets role_taken until then", async () => {
+  it("R22d: after the holder closes the role is freed: same participant rejoins; a different one is refused until then", async () => {
     const { port, host } = await setup();
     const { p } = await joinPlayer(port, "p1");
     const { joined: other } = await joinPlayer(port, "p2");
     expect(other.code).toBe("role_taken");
-    const closed = new Promise<void>((r) => p.ws.on("close", () => r()));
-    p.ws.close(); await closed;
-    for (let i = 0; i < 100 && host.assignments.host; i++) await new Promise((r) => setTimeout(r, 10));
+    const released = waitLog(/released host/);
+    p.ws.close(); await p.closed; await released;
     expect(host.assignments).toEqual({});
     const { joined: again } = await joinPlayer(port, "p1");
     expect(again.type).toBe("joined");
   });
 
-  it("R22d: a stale connection closing after a rejoin does not free the new connection's role", async () => {
-    const { port, host } = await setup();
-    const { p: old } = await joinPlayer(port, "p1");
-    const { p: fresh } = await joinPlayer(port, "p1");
-    expect(fresh.inbox[0].type).toBe("joined");
-    old.ws.terminate();
-    await new Promise((r) => setTimeout(r, 50));
-    expect(host.assignments).toEqual({ host: "p1" });
+  it("C1: a second socket with the same participantId while the first is OPEN is refused and the first keeps receiving events", async () => {
+    const { port } = await setup();
+    const fac = await joinFac(port);
+    const { p: first, joined } = await joinPlayer(port, "p1");
+    expect(joined.reconnectToken).toEqual(expect.any(String));
+    const { p: thief, joined: refused } = await joinPlayer(port, "p1");
+    expect(refused).toMatchObject({ type: "error", code: "role_taken" });
+    fac.send({ type: "command", command: { command: "whisper", roleId: "host", text: "FOR-HOST-1" } });
+    await first.next((m) => m.type === "event" && m.event.text === "FOR-HOST-1");
+    expect(JSON.stringify(thief.inbox)).not.toMatch(/FOR-HOST-1|hosting/);
+    expect(first.ws.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it("C1: a wrong reconnectToken is refused (role_taken)", async () => {
+    const { port } = await setup();
+    await joinPlayer(port, "p1");
+    const { joined } = await joinPlayer(port, "p1", { reconnectToken: "not-the-token" });
+    expect(joined).toMatchObject({ type: "error", code: "role_taken" });
+  });
+
+  it("C1: the right reconnectToken takes over: old socket closed, only the new one gets private events, and it gets a fresh token", async () => {
+    const { port } = await setup();
+    const fac = await joinFac(port);
+    const { p: old, joined } = await joinPlayer(port, "p1");
+    const { p: fresh, joined: rejoined } = await joinPlayer(port, "p1", { reconnectToken: joined.reconnectToken });
+    expect(rejoined.type).toBe("joined");
+    expect(rejoined.brief).toMatch(/hosting/);
+    expect(rejoined.reconnectToken).not.toBe(joined.reconnectToken);
+    await old.closed;
+    fac.send({ type: "command", command: { command: "whisper", roleId: "host", text: "FOR-HOST-2" } });
+    await fresh.next((m) => m.type === "event" && m.event.text === "FOR-HOST-2");
+    expect(JSON.stringify(old.inbox)).not.toMatch(/FOR-HOST-2/);
+    // the old token is dead now
+    const { joined: replay } = await joinPlayer(port, "p1", { reconnectToken: joined.reconnectToken });
+    expect(replay).toMatchObject({ type: "error", code: "role_taken" });
+  });
+
+  it("C1: the token only works with the matching participantId", async () => {
+    const { port } = await setup();
+    const { joined } = await joinPlayer(port, "p1");
+    const { joined: other } = await joinPlayer(port, "p2", { reconnectToken: joined.reconnectToken });
+    expect(other).toMatchObject({ type: "error", code: "role_taken" });
+  });
+
+  it("C2: a player's whole inbox never contains any participant id (own or another's)", async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), "acr-ws-"));
+    try {
+      const dir = path.join(tmp, "scn");
+      await cp(fixture, dir, { recursive: true });
+      await writeFile(path.join(dir, "roles", "analyst.yaml"), "id: analyst\ntype: player\nbrief: You analyse.\nprivate_facts:\n  - Numbers are shaky\n");
+      const { port } = await setup(["Hi!"], dir);
+      const fac = await joinFac(port);
+      const { p: host, joined } = await joinPlayer(port, "Zelda-Quill");
+      const { p: analyst } = await joinPlayer(port, "Mortimer-Vance", {}, "analyst");
+      await analyst.next((m) => m.type === "joined");
+      expect(joined.state.roles).toEqual({}); // not started yet: nothing to leak
+      fac.send({ type: "start" });
+      const started = await host.next((m) => m.type === "event" && m.event.type === "session.started");
+      expect(started.event.roles.analyst).toEqual({ kind: "player" });
+      const facStarted = await fac.next((m) => m.type === "event" && m.event.type === "session.started");
+      expect(facStarted.event.roles.analyst.participantId).toBe("Mortimer-Vance"); // facilitator still sees everything
+      expect(started.event.roles).toEqual({ host: { kind: "player" }, analyst: { kind: "player" }, guest: { kind: "npc" } });
+      fac.send({ type: "command", command: { command: "whisper", roleId: "host", text: "sync-point" } });
+      await host.next((m) => m.type === "event" && m.event.text === "sync-point");
+      expect(JSON.stringify(host.inbox)).not.toMatch(/Mortimer-Vance|Zelda-Quill/);
+      expect(JSON.stringify(analyst.inbox)).not.toMatch(/Mortimer-Vance|Zelda-Quill/);
+    } finally { await rm(tmp, { recursive: true, force: true }); }
+  });
+
+  it("I2: a player say while the session is idle gets not_started and does not start it", async () => {
+    const { port, engine } = await setup();
+    const { p } = await joinPlayer(port);
+    p.send({ type: "say", text: "anyone?" });
+    expect((await p.next((m) => m.type === "error")).code).toBe("not_started");
+    expect(engine.state.status).toBe("idle");
+  });
+
+  it("I3: a facilitator pause is applied while an NPC round is still in flight (not queued behind it)", async () => {
+    let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+    let inFlight!: () => void; const flying = new Promise<void>((r) => { inFlight = r; });
+    const slow: ModelProvider = { name: "slow", async *stream(_r: ChatRequest) { inFlight(); await gate; yield "late"; } };
+    const { port, engine } = await setup(["x"], fixture, slow);
+    const fac = await joinFac(port);
+    const { p } = await joinPlayer(port);
+    fac.send({ type: "start" });
+    await p.next((m) => m.type === "event" && m.event.type === "scene.entered");
+    p.send({ type: "say", text: "Hello" });
+    await flying;
+    fac.send({ type: "command", command: { command: "advance" } });
+    fac.send({ type: "command", command: { command: "pause" } });
+    await p.next((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.command === "pause");
+    expect(engine.state.paused).toBe(true);
+    release();
   });
 
   it("R22e: a dead or closing client never breaks broadcast to the others", async () => {

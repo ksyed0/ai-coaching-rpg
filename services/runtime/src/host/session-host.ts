@@ -18,6 +18,7 @@ export class SessionHost {
   private readonly gm: GameMaster;
   private readonly log: (msg: string) => void;
   private started = false;
+  private starting: Promise<void> | null = null;
   private queue: Promise<void> = Promise.resolve();
   private ticker: NodeJS.Timeout | null = null;
   private tickPending = false;
@@ -49,10 +50,13 @@ export class SessionHost {
     if (this.assignments[roleId] === participantId) delete this.assignments[roleId];
   }
 
+  /** `started` is set only after engine.start succeeds, so a failed start can be retried (never wedged). */
   async start(): Promise<void> {
     if (this.started) return;
-    this.started = true;
-    await this.engine.start(this.assignments);
+    this.starting ??= this.engine.start(this.assignments)
+      .then(() => { this.started = true; })
+      .finally(() => { this.starting = null; });
+    await this.starting;
   }
 
   /** Serialises everything that mutates the session so NPC turns never interleave. */
@@ -62,10 +66,22 @@ export class SessionHost {
     return run;
   }
 
+  /** Resolves once everything queued so far (NPC rounds, GM ticks) has finished. */
+  idle(): Promise<void> { return this.queue; }
+
+  /** Runs in the background: never awaited by callers, errors go to the log callback. */
+  private schedule(what: string, fn: () => Promise<void>): void {
+    this.enqueue(fn).catch((err) => this.report(what, err));
+  }
+
+  /**
+   * Records the line and returns. The NPC round and GM tick are scheduled in the background (one NPC turn at
+   * a time via the queue), so a caller, and its connection's next message, never waits behind a model call.
+   */
   async onPlayerUtterance(roleId: string, text: string): Promise<void> {
     if (!this.started) throw new HostError("not_started");
     await this.engine.say(roleId, text); // throws EngineError (paused, ended, ...) before any NPC turn can start
-    return this.enqueue(async () => {
+    this.schedule("npc round", async () => {
       const scene = this.engine.currentScene();
       if (!scene) return;
       for (const id of scene.participants) {
@@ -79,7 +95,7 @@ export class SessionHost {
 
   async command(cmd: Parameters<SessionEngine["command"]>[0]): Promise<void> {
     await this.engine.command(cmd);
-    return this.enqueue(() => this.gm.tick());
+    this.schedule("gm tick", () => this.gm.tick());
   }
 
   startTicker(ms: number): void {
@@ -101,28 +117,49 @@ export class SessionHost {
     });
   }
 
-  /** State snapshot safe to send to `who`: players never get NPC internals, GM verdicts or other scenes' lines. */
+  /** State snapshot safe to send to `who`: players never get NPC internals, GM verdicts, participant ids or other scenes' lines. */
   snapshotFor(who: string | "facilitator"): SessionState {
     const s = this.engine.state;
     if (who === "facilitator") return s;
-    return { ...s, transcript: visibleTranscript(s, who), npcs: {}, gmVerdicts: {}, injectsFired: [], advanceRequested: false };
+    return { ...s, roles: redactRoles(s.roles), transcript: visibleTranscript(s, who), npcs: {}, gmVerdicts: {}, injectsFired: [], advanceRequested: false };
   }
 
   filterFor(who: string | "facilitator"): (e: SessionEvent) => boolean {
-    if (who === "facilitator") return () => true;
-    return (e) => {
-      switch (e.type) {
-        case "inject.fired": return e.to.includes(who);
-        case "utterance": {
-          const u = this.engine.state.transcript.find((x) => x.seq === e.seq);
-          const scene = this.engine.state.sceneHistory.find((s) => s.id === u?.sceneId);
-          return !!scene && scene.participants.includes(who);
-        }
-        case "npc.updated": case "gm.decision": case "facilitator.alert": return false;
-        case "facilitator.command":
-          return e.command === "pause" || e.command === "resume" || (e.command === "whisper" && e.roleId === who);
-        default: return true;
-      }
-    };
+    return (e) => this.viewFor(who, e) !== null;
   }
+
+  /**
+   * What `who` may see of `e`, or null. Default-DENY for players: an explicit decision per event type, and the
+   * `never` check below makes a new EventBody member a compile error until it is decided here.
+   */
+  viewFor(who: string | "facilitator", e: SessionEvent): SessionEvent | null {
+    if (who === "facilitator") return e;
+    const inScene = (sceneId: string | null | undefined) =>
+      this.engine.state.sceneHistory.find((s) => s.id === sceneId)?.participants.includes(who) ?? false;
+    switch (e.type) {
+      // Redacted copy: roles -> kinds only (participant ids/names are other people's display names).
+      case "session.started": return { ...e, roles: redactRoles(e.roles) };
+      case "session.ended": return e;
+      // Only for scenes the player takes part in.
+      case "scene.entered": return e.participants.includes(who) ? e : null;
+      case "scene.exited": return inScene(e.sceneId) ? e : null;
+      case "utterance": return inScene(this.engine.state.transcript.find((x) => x.seq === e.seq)?.sceneId) ? e : null;
+      // Only when addressed to this role.
+      case "inject.fired": return e.to.includes(who) ? e : null;
+      // Facilitator controls: players learn of pause/resume and of whispers addressed to them; everything else
+      // (advance, fire_inject, set_npc_stance with NPC goals) stays private.
+      case "facilitator.command":
+        return e.command === "pause" || e.command === "resume" || (e.command === "whisper" && e.roleId === who) ? e : null;
+      // Never for players: NPC goals/knowledge, GM reasoning, facilitator alerts.
+      case "npc.updated": case "gm.decision": case "facilitator.alert": return null;
+      default: {
+        const _exhaustive: never = e;
+        return _exhaustive;
+      }
+    }
+  }
+}
+
+function redactRoles(roles: SessionState["roles"]): SessionState["roles"] {
+  return Object.fromEntries(Object.entries(roles).map(([id, r]) => [id, { kind: r.kind }]));
 }

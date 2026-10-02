@@ -1,3 +1,4 @@
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import { WebSocketServer, type WebSocket } from "ws";
 import { ClientMessageSchema, type ServerMessage } from "./protocol.js";
 import { HostError, type SessionHost } from "./session-host.js";
@@ -17,8 +18,13 @@ export async function startServer(opts: { port: number; hosts: Map<string, Sessi
   const port = (wss.address() as { port: number }).port;
   log(`runtime listening on ws://0.0.0.0:${port}`);
 
+  const tokenMatches = (a: string, b: string) => {
+    const x = Buffer.from(a), y = Buffer.from(b);
+    return x.length === y.length && timingSafeEqual(x, y);
+  };
+
   /** Which connection currently holds each player role, so a stale socket closing cannot free a rejoined role. */
-  const holders = new Map<string, WebSocket>();
+  const holders = new Map<string, { ws: WebSocket; token: string }>();
 
   wss.on("connection", (ws: WebSocket) => {
     let host: SessionHost | null = null;
@@ -51,20 +57,27 @@ export async function startServer(opts: { port: number; hosts: Map<string, Sessi
           const h = opts.hosts.get(m.sessionId);
           if (!h) return fail("unknown_session", "no such session");
           if (m.type === "join") {
-            const { brief, privateFacts } = h.join(m.roleId, m.participantId);
             const key = `${m.sessionId}:${m.roleId}`;
             const prev = holders.get(key);
-            holders.set(key, ws);
+            const prevLive = !!prev && prev.ws !== ws && prev.ws.readyState === prev.ws.OPEN;
+            // A role held by a live socket can only be taken over with that role's reconnect token (C1).
+            if (prevLive && !(m.reconnectToken && tokenMatches(m.reconnectToken, prev.token))) return fail("role_taken", "role_taken");
+            const { brief, privateFacts } = h.join(m.roleId, m.participantId);
+            const token = randomUUID();
+            holders.set(key, { ws, token });
             holderKey = key; participantId = m.participantId; who = m.roleId;
-            if (prev && prev !== ws) prev.terminate();
-            send({ type: "joined", roleId: m.roleId, brief, privateFacts, state: h.snapshotFor(m.roleId) });
+            if (prevLive) prev.ws.terminate();
+            send({ type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId) });
           } else {
+            // KNOWN LIMITATION (slice 1, LAN only, ruling R22): there is no facilitator authentication. Any client
+            // that can reach this port may join_facilitator and get full state, all private events and
+            // start/command rights. Follow-up: an optional FACILITATOR_TOKEN.
             who = "facilitator";
             send({ type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator") });
           }
           host = h;
-          const filter = h.filterFor(who);
-          unsubscribe = h.subscribe((e) => { if (filter(e)) send({ type: "event", event: e }); });
+          const viewer = who;
+          unsubscribe = h.subscribe((e) => { const view = h.viewFor(viewer, e); if (view) send({ type: "event", event: view }); });
           return;
         }
         if (!host || !who) return fail("not_joined", "join first");
@@ -73,7 +86,6 @@ export async function startServer(opts: { port: number; hosts: Map<string, Sessi
           await host.start();
         } else if (m.type === "say") {
           if (who === "facilitator") return fail("forbidden", "the facilitator cannot speak as a role");
-          if (host.engine.state.status === "idle") await host.start();
           await host.onPlayerUtterance(who, m.text);
         } else if (m.type === "command") {
           if (who !== "facilitator") return fail("forbidden", "only the facilitator may send commands");
@@ -96,9 +108,9 @@ export async function startServer(opts: { port: number; hosts: Map<string, Sessi
     ws.on("error", (err) => log(`socket error: ${err.message}`)); // e.g. oversize frame; the ws library then closes it
     ws.on("close", () => {
       unsubscribe?.();
-      if (holderKey && holders.get(holderKey) === ws) {
+      if (holderKey && holders.get(holderKey)?.ws === ws) {
         holders.delete(holderKey);
-        if (host && who && who !== "facilitator" && participantId) host.release(who, participantId);
+        if (host && who && who !== "facilitator" && participantId) { host.release(who, participantId); log(`released ${who}`); }
       }
     });
   });

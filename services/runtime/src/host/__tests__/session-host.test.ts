@@ -1,4 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
+import type { ChatRequest, ModelProvider } from "@acr/adapters";
+import type { SessionEvent } from "@acr/events";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadScenario } from "@acr/script";
@@ -49,6 +51,7 @@ describe("SessionHost.onPlayerUtterance", () => {
     host.join("host", "p1");
     await host.start();
     await host.onPlayerUtterance("host", "Hi Sam");
+    await host.idle();
     expect(engine.state.transcript.map((u) => `${u.roleId}:${u.text}`)).toEqual(["host:Hi Sam", "guest:Hello host, lovely to be here"]);
     expect(npc.calls).toHaveLength(1);
   });
@@ -75,6 +78,7 @@ describe("SessionHost.onPlayerUtterance", () => {
     host.subscribe(() => { throw new Error("boom"); });
     host.subscribe((e) => { seen.push(e.type); });
     await host.onPlayerUtterance("host", "Hi Sam");
+    await host.idle();
     expect(seen).toContain("utterance");
     expect(engine.state.transcript.at(-1)?.roleId).toBe("guest");
   });
@@ -95,6 +99,52 @@ describe("SessionHost ticker", () => {
     h.stopTicker();
     expect(logs.join("\n")).toMatch(/tick exploded/);
     expect(n).toBeGreaterThan(1);
+  });
+});
+
+describe("SessionHost start (I6)", () => {
+  it("is not wedged when engine.start rejects: a later start succeeds", async () => {
+    host.join("host", "p1");
+    const orig = engine.start.bind(engine);
+    let first = true;
+    engine.start = async (a) => { if (first) { first = false; throw new Error("disk full"); } return orig(a); };
+    await expect(host.start()).rejects.toThrow(/disk full/);
+    await host.start();
+    expect(engine.state.status).toBe("running");
+  });
+});
+
+describe("SessionHost non-blocking rounds (I3)", () => {
+  it("onPlayerUtterance and command resolve while an NPC round is still in flight", async () => {
+    const scenario = await loadScenario(fixture);
+    let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+    let started!: () => void; const inFlight = new Promise<void>((r) => { started = r; });
+    const slow: ModelProvider = { name: "slow", async *stream(_r: ChatRequest) { started(); await gate; yield "late reply"; } };
+    const h = new SessionHost({ scenario, engine, npcProvider: slow, gmProvider: new MockModelProvider(), clock });
+    h.join("host", "p1");
+    await h.start();
+    await h.onPlayerUtterance("host", "Hi");
+    await inFlight; // the NPC round is now blocked on the gate
+    await h.command({ command: "pause" }); // must not wait for the round
+    expect(engine.state.paused).toBe(true);
+    release();
+    await h.idle();
+    expect(engine.state.transcript.map((u) => u.roleId)).toEqual(["host"]); // stale reply dropped, paused
+  });
+
+  it("reports a failing background round through the log callback, never an unhandled rejection", async () => {
+    const scenario = await loadScenario(fixture);
+    const logs: string[] = [];
+    const boom: ModelProvider = { name: "boom", async *stream() { throw new Error("provider down"); } };
+    const h = new SessionHost({ scenario, engine, npcProvider: boom, gmProvider: new MockModelProvider(), clock, log: (m) => logs.push(m) });
+    h.join("host", "p1");
+    await h.start();
+    const orig = engine.tick.bind(engine);
+    engine.tick = async () => { throw new Error("tick failed"); };
+    await h.onPlayerUtterance("host", "Hi");
+    await h.idle();
+    engine.tick = orig;
+    expect(logs.join("\n")).toMatch(/tick failed/);
   });
 });
 
@@ -125,17 +175,57 @@ describe("SessionHost.filterFor", () => {
   });
 });
 
+describe("SessionHost.filterFor is default-deny per event type (I1)", () => {
+  const base = { seq: 1, ts: 0, sessionId: "s" };
+  const events: [string, SessionEvent, boolean, boolean][] = [
+    // [name, event, participant (host) sees it, non-participant (outsider) sees it]
+    ["session.started", { ...base, type: "session.started", scenarioId: "x", version: "1", roles: { host: { kind: "player", participantId: "P" } } }, true, true],
+    ["scene.entered", { ...base, type: "scene.entered", sceneId: "s1_open", participants: ["host", "guest"] }, true, false],
+    ["scene.exited", { ...base, type: "scene.exited", sceneId: "s1_open", reason: "time_box_elapsed" }, true, false],
+    ["utterance (unknown seq)", { ...base, seq: 999, type: "utterance", roleId: "guest", text: "t", channel: "text" }, false, false],
+    ["inject.fired to host", { ...base, type: "inject.fired", injectId: "i", sceneId: "s1_open", to: ["host"], content: "c" }, true, false],
+    ["inject.fired to guest", { ...base, type: "inject.fired", injectId: "i", sceneId: "s1_open", to: ["guest"], content: "c" }, false, false],
+    ["npc.updated", { ...base, type: "npc.updated", roleId: "guest", goals: [], knowledge: [] }, false, false],
+    ["gm.decision", { ...base, type: "gm.decision", sceneId: "s1_open", condition: "c", verdict: true, reasoning: "r" }, false, false],
+    ["facilitator.alert", { ...base, type: "facilitator.alert", level: "info", message: "m" }, false, false],
+    ["facilitator.command advance", { ...base, type: "facilitator.command", command: "advance" }, false, false],
+    ["session.ended", { ...base, type: "session.ended", reason: "script_complete" }, true, true],
+  ];
+  for (const [name, ev, participant, outsider] of events) {
+    it(`${name}: participant=${participant}, non-participant=${outsider}`, async () => {
+      host.join("host", "p1");
+      await host.start();
+      expect(host.filterFor("host")(ev)).toBe(participant);
+      expect(host.filterFor("outsider")(ev)).toBe(outsider);
+      expect(host.filterFor("facilitator")(ev)).toBe(true);
+    });
+  }
+
+  it("redacts participant ids from session.started for players but not for the facilitator", async () => {
+    host.join("host", "p1");
+    await host.start();
+    const ev = events[0][1];
+    const forPlayer = host.viewFor("host", ev) as Extract<SessionEvent, { type: "session.started" }>;
+    expect(forPlayer.roles).toEqual({ host: { kind: "player" } });
+    expect(JSON.stringify(forPlayer)).not.toMatch(/"P"/);
+    expect(host.viewFor("facilitator", ev)).toBe(ev);
+  });
+});
+
 describe("SessionHost.snapshotFor", () => {
   it("gives a player a snapshot without NPC goals/knowledge, GM verdicts or other scenes' lines; the facilitator sees all", async () => {
     host.join("host", "p1");
     await host.start();
     await host.onPlayerUtterance("host", "Hi Sam");
+    await host.idle();
     const snap = host.snapshotFor("host");
     expect(snap.npcs).toEqual({});
     expect(snap.gmVerdicts).toEqual({});
     expect(snap.injectsFired).toEqual([]);
     expect(JSON.stringify(snap)).not.toMatch(/Be welcomed|check-in|Leave early/);
     expect(snap.transcript.map((u) => u.text)).toContain("Hi Sam");
+    expect(snap.roles).toEqual({ host: { kind: "player" }, guest: { kind: "npc" } });
+    expect(JSON.stringify(snap)).not.toMatch(/p1/);
     const fac = host.snapshotFor("facilitator");
     expect(Object.keys(fac.npcs)).toEqual(["guest"]);
   });
