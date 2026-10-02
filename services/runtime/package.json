@@ -19,6 +19,7 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
-    "@types/ws": "^8.5.12"
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.19.0"
   }
 }

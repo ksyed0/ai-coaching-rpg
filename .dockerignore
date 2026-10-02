@@ -1,0 +1,20 @@
+# Keep the build context small and secret-free. Host node_modules hold pnpm symlinks
+# that are useless (and wrong) inside the image; .env and session logs must never be baked in.
+**/node_modules
+.git
+.github
+.superpowers
+.history
+.claude
+data
+.env
+.env.*
+!.env.example
+docs
+tests
+tools
+orchestrator
+scripts
+coverage
+**/coverage
+*.log
