@@ -8,7 +8,7 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "plan:test": "jest --watchAll=false",
     "plan:test:coverage": "jest --watchAll=false --coverage",
     "plan:generate": "node tools/generate-plan.js",
@@ -28,7 +28,12 @@
     "agent:apply": "node tools/agent-spec-plan.js apply-pending",
     "agent:list": "node tools/agent-spec-plan.js list",
     "agent:status": "node tools/agent-spec-plan.js status",
-    "dashboard:watch": "node tools/watch-dashboard.js"
+    "dashboard:watch": "node tools/watch-dashboard.js",
+    "test:watch": "vitest",
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "dev:runtime": "pnpm --filter @acr/runtime dev",
+    "play": "pnpm --filter @acr/runtime play"
   },
   "repository": {
     "type": "git",
@@ -48,6 +53,16 @@
     "husky": "^9.1.7",
     "jest": "^30.3.0",
     "lint-staged": "^16.4.0",
-    "prettier": "^3.8.3"
+    "prettier": "^3.8.3",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.7.0"
+  },
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22"
   }
 }
