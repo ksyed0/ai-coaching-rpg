@@ -114,6 +114,43 @@ describe("SessionHost start (I6)", () => {
   });
 });
 
+describe("SessionHost round coalescing (R25)", () => {
+  it("K rapid utterances during a running round produce exactly one follow-up round that sees the latest transcript", async () => {
+    const scenario = await loadScenario(fixture);
+    let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+    let started!: () => void; const inFlight = new Promise<void>((r) => { started = r; });
+    const requests: ChatRequest[] = [];
+    const provider: ModelProvider = { name: "gated", async *stream(req: ChatRequest) {
+      requests.push(req);
+      if (requests.length === 1) { started(); await gate; }
+      yield "ok";
+    } };
+    const logs: string[] = [];
+    const h = new SessionHost({ scenario, engine, npcProvider: provider, gmProvider: new MockModelProvider(), clock, log: (m) => logs.push(m) });
+    h.join("host", "p1");
+    await h.start();
+    await h.onPlayerUtterance("host", "say 0");
+    await inFlight; // round 1 is running and held open
+    for (let i = 1; i < 10; i++) await h.onPlayerUtterance("host", `say ${i}`);
+    release();
+    await h.idle();
+    expect(requests.length).toBeLessThanOrEqual(2);
+    expect(JSON.stringify(requests.at(-1))).toContain("say 9");
+    const hostLines = engine.state.transcript.filter((u) => u.roleId === "host").map((u) => u.text);
+    expect(hostLines).toEqual(Array.from({ length: 10 }, (_, i) => `say ${i}`));
+    expect(logs).toEqual([]);
+  });
+});
+
+describe("SessionHost.viewFor fails closed (runtime)", () => {
+  it("denies an event of an unknown type to players; the facilitator may see it", () => {
+    const weird = { seq: 1, ts: 0, sessionId: "s", type: "future.event", secret: "x" } as never;
+    expect(host.viewFor("host", weird)).toBeNull();
+    expect(host.filterFor("host")(weird)).toBe(false);
+    expect(host.filterFor("facilitator")(weird)).toBe(true);
+  });
+});
+
 describe("SessionHost non-blocking rounds (I3)", () => {
   it("onPlayerUtterance and command resolve while an NPC round is still in flight", async () => {
     const scenario = await loadScenario(fixture);

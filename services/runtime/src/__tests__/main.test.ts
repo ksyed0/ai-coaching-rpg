@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach } from "vitest";
-import { cp, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,7 @@ describe("bootstrap", () => {
   it("starts the runtime with the mock provider on an ephemeral port and serves a facilitator join", async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
     const logs: string[] = [];
-    const r = await bootstrap({ env: { SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "t1", ANTHROPIC_API_KEY: "sk-secret-123" }, logDir: tmp, tickMs: 50, log: (m) => logs.push(m) });
+    const r = await bootstrap({ env: { SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "t1", MODEL_PROVIDER: "mock", ANTHROPIC_API_KEY: "sk-secret-123" }, root: tmp, logDir: tmp, tickMs: 50, log: (m) => logs.push(m) });
     if (!r.ok) throw new Error(r.errors.join("; "));
     runtime = r.runtime;
     expect(runtime.port).toBeGreaterThan(0);
@@ -36,19 +36,35 @@ describe("bootstrap", () => {
     await cp(fixture, bad, { recursive: true });
     const scriptFile = path.join(bad, "script.yaml");
     await writeFile(scriptFile, (await readFile(scriptFile, "utf8")).replace("participants: [host, guest]", "participants: [host, ghost]"));
-    const r = await bootstrap({ env: { SCENARIO_DIR: bad, RUNTIME_PORT: "0" }, logDir: tmp, log: () => {} });
+    const r = await bootstrap({ env: { SCENARIO_DIR: bad, RUNTIME_PORT: "0", MODEL_PROVIDER: "mock" }, root: tmp, logDir: tmp, log: () => {} });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.join("\n")).toMatch(/ghost/);
   });
 
   it("reports a scenario that cannot be loaded", async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
-    const r = await bootstrap({ env: { SCENARIO_DIR: path.join(tmp, "missing"), RUNTIME_PORT: "0" }, logDir: tmp, log: () => {} });
+    const r = await bootstrap({ env: { SCENARIO_DIR: path.join(tmp, "missing"), RUNTIME_PORT: "0", MODEL_PROVIDER: "mock" }, root: tmp, logDir: tmp, log: () => {} });
     expect(r.ok).toBe(false);
   });
 
   it("does not run on import (importing this module started nothing)", () => {
     expect(typeof bootstrap).toBe("function");
+  });
+
+  it("a temp root whose .env selects anthropic without a key fails clearly instead of calling a live model", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    await writeFile(path.join(tmp, ".env"), "MODEL_PROVIDER=anthropic\n");
+    const r = await bootstrap({ env: { SCENARIO_DIR: fixture, RUNTIME_PORT: "0" }, root: tmp, log: () => {} });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join("\n")).toMatch(/ANTHROPIC_API_KEY/);
+  });
+
+  it("an unreadable .env (a directory) is reported as an error naming the file, not a rejection", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    await mkdir(path.join(tmp, ".env"));
+    const r = await bootstrap({ env: { SCENARIO_DIR: fixture, RUNTIME_PORT: "0", MODEL_PROVIDER: "mock" }, root: tmp, log: () => {} });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join("\n")).toContain(path.join(tmp, ".env"));
   });
 
   describe("repo-root resolution (I5)", () => {

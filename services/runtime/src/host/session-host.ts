@@ -22,6 +22,7 @@ export class SessionHost {
   private queue: Promise<void> = Promise.resolve();
   private ticker: NodeJS.Timeout | null = null;
   private tickPending = false;
+  private roundQueued = false;
 
   constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; replyTimeoutMs?: number }) {
     this.scenario = opts.scenario; this.engine = opts.engine;
@@ -81,7 +82,11 @@ export class SessionHost {
   async onPlayerUtterance(roleId: string, text: string): Promise<void> {
     if (!this.started) throw new HostError("not_started");
     await this.engine.say(roleId, text); // throws EngineError (paused, ended, ...) before any NPC turn can start
+    // R25: at most one round waits behind the running one; it reads the then-current transcript anyway.
+    if (this.roundQueued) return;
+    this.roundQueued = true;
     this.schedule("npc round", async () => {
+      this.roundQueued = false;
       const scene = this.engine.currentScene();
       if (!scene) return;
       for (const id of scene.participants) {
@@ -153,8 +158,9 @@ export class SessionHost {
       // Never for players: NPC goals/knowledge, GM reasoning, facilitator alerts.
       case "npc.updated": case "gm.decision": case "facilitator.alert": return null;
       default: {
-        const _exhaustive: never = e;
-        return _exhaustive;
+        const _exhaustive: never = e; // compile time: a new EventBody member must be decided above
+        void _exhaustive;
+        return null; // runtime: fail closed on an event type this version does not know
       }
     }
   }

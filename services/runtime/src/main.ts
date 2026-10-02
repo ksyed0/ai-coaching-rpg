@@ -23,7 +23,12 @@ export async function bootstrap(opts: {
   const root = opts.root ?? REPO_ROOT;
   // <root>/.env is optional; real environment variables win over it. Values are never logged.
   const envFile = path.join(root, ".env");
-  const env: NodeJS.ProcessEnv = { ...(existsSync(envFile) ? parseEnv(readFileSync(envFile, "utf8")) : {}), ...opts.env };
+  let fileEnv: NodeJS.ProcessEnv = {};
+  if (existsSync(envFile)) {
+    try { fileEnv = parseEnv(readFileSync(envFile, "utf8")); }
+    catch (err) { return { ok: false, errors: [`cannot read ${envFile}: ${(err as NodeJS.ErrnoException).code ?? "unreadable"}`] }; }
+  }
+  const env: NodeJS.ProcessEnv = { ...fileEnv, ...opts.env };
   const log = opts.log ?? console.log;
   const warn = opts.warn ?? console.warn;
   const scenarioDir = path.resolve(root, env.SCENARIO_DIR ?? "scenarios/friday-escalation"); // absolute values are used as given
@@ -56,6 +61,11 @@ export async function bootstrap(opts: {
 }
 
 async function main(): Promise<void> {
+  try { await run(); }
+  catch (err) { console.error(`error: ${err instanceof Error ? err.message : String(err)}`); process.exit(1); }
+}
+
+async function run(): Promise<void> {
   const result = await bootstrap({ env: process.env });
   if (!result.ok) {
     for (const e of result.errors) console.error(`error: ${e}`);
