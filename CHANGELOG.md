@@ -20,6 +20,11 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 - Session host and WebSocket server with per-role event filtering and role reconnect tokens (US-0009).
 - Terminal client: `pnpm play` for players and the facilitator (US-0010).
 - CI pipeline (`.github/workflows/ci.yml`): lint, tests with an 80% coverage gate, build, orchestrator validation, dependency audit, TruffleHog secret scan and CodeQL.
+- Friday Escalation scenario (YAML) and an end-to-end simulation test that plays it through with the mock model (US-0011).
+- One-command start (US-0012): `./run.sh` runs the server in Docker (non-root user, pinned Node 22 Alpine base, healthcheck, `.dockerignore` keeping `.env` and host `node_modules` out of the image, bind-mounted `data/`); `./run.sh --dev` runs it with `tsx watch`; `./run.sh --help` lists usage. `.env` is created from `.env.example` when missing.
+- Session-log rotation on restart: an earlier `<id>.jsonl` is moved aside as `<id>.<timestamp>.jsonl` and never overwritten (US-0009).
+- CI jobs for the TypeScript workspace, added beside the existing required checks: Workspace Typecheck, Workspace Tests (per-package 80% coverage gate via `pnpm test:coverage`), SDK Import Guard, Workspace Audit and Docker Build.
+- `SESSION_ID` and `SCENARIO_DIR` documented (commented) in `.env.example`; `tsx` is now a dependency of `@acr/runtime` so the Docker image's start command works with a filtered install.
 - PlanVisualizer v2.4.0 project tracking and the Agentic SDLC dashboard (`docs/`, `agents.config.json`).
 - `README.md` and this changelog.
 
@@ -34,5 +39,8 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 ### Known limitations
 
 - No authentication: any client that can reach the server can join as facilitator. Use a trusted local network only.
+- Sessions are not resumed after a restart; the old log is rotated aside as `<id>.<timestamp>.jsonl`.
+- Two server processes on the same data directory and session id rotate each other's log file.
+- One session per server process; text only (no voice, web or Teams client); no scoring yet.
 
 <!-- Add new entries under [Unreleased]; on release, rename it to the version and date and start a fresh [Unreleased]. -->
