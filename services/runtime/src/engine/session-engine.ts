@@ -2,6 +2,7 @@ import { initialState, reduce, type Channel, type EventBody, type FacilitatorCom
 import { dueInjects, evaluateExit, nextSceneId, type Inject, type Scenario, type Scene } from "@acr/script";
 import type { Clock } from "./clock.js";
 import type { EventLog } from "./event-log.js";
+import { Mutex } from "./mutex.js";
 
 export type EngineErrorCode = "paused" | "not_in_scene" | "ended" | "unknown_role" | "unknown_inject";
 export class EngineError extends Error {
@@ -14,8 +15,7 @@ export class SessionEngine {
   private readonly log: EventLog;
   private readonly clock: Clock;
   private readonly listeners = new Set<(e: SessionEvent) => void>();
-  private advanceRequested = false;
-  private gmVerdicts: Record<string, boolean> = {};
+  private readonly mutex = new Mutex();
 
   constructor(opts: { scenario: Scenario; log: EventLog; clock: Clock }) {
     this.scenario = opts.scenario; this.log = opts.log; this.clock = opts.clock;
@@ -35,7 +35,8 @@ export class SessionEngine {
     return e;
   }
 
-  async start(assignments: Record<string, string>): Promise<void> {
+  start(assignments: Record<string, string>): Promise<void> { return this.mutex.run(() => this.doStart(assignments)); }
+  private async doStart(assignments: Record<string, string>): Promise<void> {
     const roles: Record<string, { kind: "player" | "npc"; participantId?: string }> = {};
     for (const [id, role] of Object.entries(this.scenario.roles)) {
       roles[id] = role.type === "npc" ? { kind: "npc" } : { kind: "player", participantId: assignments[id] };
@@ -48,8 +49,6 @@ export class SessionEngine {
   }
 
   private async enterScene(scene: Scene): Promise<void> {
-    this.advanceRequested = false;
-    this.gmVerdicts = {};
     await this.emit({ type: "scene.entered", sceneId: scene.id, participants: scene.participants });
     if (scene.opening_inject) await this.fireInject(scene, scene.injects!.find((i) => i.id === scene.opening_inject)!);
   }
@@ -65,7 +64,8 @@ export class SessionEngine {
     }
   }
 
-  async say(roleId: string, text: string, channel: Channel = "text"): Promise<SessionEvent> {
+  say(roleId: string, text: string, channel: Channel = "text"): Promise<SessionEvent> { return this.mutex.run(() => this.doSay(roleId, text, channel)); }
+  private async doSay(roleId: string, text: string, channel: Channel): Promise<SessionEvent> {
     if (this.state.status === "ended") throw new EngineError("ended");
     if (!this.state.roles[roleId]) throw new EngineError("unknown_role", `unknown role ${roleId}`);
     if (this.state.paused) throw new EngineError("paused");
@@ -74,33 +74,40 @@ export class SessionEngine {
     return this.emit({ type: "utterance", roleId, text, channel });
   }
 
-  async command(cmd: FacilitatorCommand): Promise<void> {
+  command(cmd: FacilitatorCommand): Promise<void> { return this.mutex.run(() => this.doCommand(cmd)); }
+  private async doCommand(cmd: FacilitatorCommand): Promise<void> {
     if (this.state.status === "ended") throw new EngineError("ended");
-    await this.emit({ type: "facilitator.command", ...cmd });
-    if (cmd.command === "advance") this.advanceRequested = true;
+    // validate first: a rejected command appends nothing
+    let injectToFire: { scene: Scene; inject: Inject } | null = null;
     if (cmd.command === "fire_inject") {
       const scene = this.currentScene();
       const inject = scene?.injects?.find((i) => i.id === cmd.injectId);
       if (!scene || !inject) throw new EngineError("unknown_inject", `no inject ${cmd.injectId} in the current scene`);
-      await this.fireInject(scene, inject);
+      injectToFire = { scene, inject };
     }
-    if (cmd.command === "set_npc_stance") await this.updateNpc(cmd.roleId, { goals: cmd.goals });
+    if (cmd.command === "whisper" && !this.state.roles[cmd.roleId]) throw new EngineError("unknown_role", `unknown role ${cmd.roleId}`);
+    if (cmd.command === "set_npc_stance" && !this.state.npcs[cmd.roleId]) throw new EngineError("unknown_role", `${cmd.roleId} is not an NPC`);
+    await this.emit({ type: "facilitator.command", ...cmd });
+    if (injectToFire) await this.fireInject(injectToFire.scene, injectToFire.inject);
+    if (cmd.command === "set_npc_stance") await this.doUpdateNpc(cmd.roleId, { goals: cmd.goals });
   }
 
-  async updateNpc(roleId: string, patch: { goals?: string[]; knowledge?: string[]; released?: string[] }): Promise<void> {
+  updateNpc(roleId: string, patch: { goals?: string[]; knowledge?: string[]; released?: string[] }): Promise<void> { return this.mutex.run(() => this.doUpdateNpc(roleId, patch)); }
+  private async doUpdateNpc(roleId: string, patch: { goals?: string[]; knowledge?: string[]; released?: string[] }): Promise<void> {
     const npc = this.state.npcs[roleId];
     if (!npc) throw new EngineError("unknown_role", `${roleId} is not an NPC`);
     await this.emit({ type: "npc.updated", roleId, goals: patch.goals ?? npc.goals, knowledge: patch.knowledge ?? npc.knowledge, released: patch.released ?? npc.released });
   }
 
-  async recordGmVerdict(condition: string, verdict: boolean, reasoning: string): Promise<void> {
+  recordGmVerdict(condition: string, verdict: boolean, reasoning: string): Promise<void> { return this.mutex.run(() => this.doGmVerdict(condition, verdict, reasoning)); }
+  private async doGmVerdict(condition: string, verdict: boolean, reasoning: string): Promise<void> {
     const scene = this.currentScene();
     if (!scene) return;
-    this.gmVerdicts[condition] = verdict;
     await this.emit({ type: "gm.decision", sceneId: scene.id, condition, verdict, reasoning });
   }
 
-  async tick(): Promise<void> {
+  tick(): Promise<void> { return this.mutex.run(() => this.doTick()); }
+  private async doTick(): Promise<void> {
     const scene = this.currentScene();
     if (!scene || this.state.paused || this.state.status !== "running") return;
     const elapsedMs = this.clock.now() - this.state.currentScene!.enteredAt;
@@ -111,7 +118,7 @@ export class SessionEngine {
       if (inject.at_minute !== undefined && inject.at_minute > timeBoxMinutes) continue;
       await this.fireInject(scene, inject);
     }
-    const reason = evaluateExit(scene, { elapsedMs, facilitatorAdvance: this.advanceRequested, gmVerdicts: this.gmVerdicts });
+    const reason = evaluateExit(scene, { elapsedMs, facilitatorAdvance: this.state.advanceRequested, gmVerdicts: this.state.gmVerdicts });
     if (!reason) return;
     await this.emit({ type: "scene.exited", sceneId: scene.id, reason });
     const nextId = nextSceneId(this.scenario.script, scene.id);

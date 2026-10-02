@@ -1,9 +1,10 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import path from "node:path";
 import os from "node:os";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { loadScenario, type Scenario } from "@acr/script";
+import { initialState, reduce } from "@acr/events";
 import { SessionEngine, EngineError } from "../session-engine.js";
 import { MemoryEventLog, JsonlEventLog } from "../event-log.js";
 import { FakeClock, SystemClock } from "../clock.js";
@@ -203,5 +204,131 @@ describe("JsonlEventLog", () => {
     await e.start({ host: "p1" });
     await e.say("host", "hi");
     expect((await new JsonlEventLog("s-10", dir).all()).map((x) => x.type)).toContain("utterance");
+  });
+});
+
+describe("serialization", () => {
+  it("two overlapping ticks fire a due inject exactly once", async () => {
+    clock.advance(61_000);
+    await Promise.all([engine.tick(), engine.tick()]);
+    expect(engine.state.injectsFired).toEqual(["late_inject"]);
+    expect((await log.all()).filter((e) => e.type === "inject.fired")).toHaveLength(1);
+  });
+
+  it("say issued right after pause (not awaited) is rejected and not logged", async () => {
+    const before = (await log.all()).length;
+    const p = engine.command({ command: "pause" });
+    const s = engine.say("host", "x");
+    await expect(s).rejects.toMatchObject({ code: "paused" });
+    await p;
+    expect(await log.all()).toHaveLength(before + 1);
+  });
+
+  it("two overlapping updateNpc patches both land", async () => {
+    await Promise.all([engine.updateNpc("guest", { goals: ["g1"] }), engine.updateNpc("guest", { knowledge: ["k1"] })]);
+    expect(engine.state.npcs.guest.goals).toEqual(["g1"]);
+    expect(engine.state.npcs.guest.knowledge).toEqual(["k1"]);
+  });
+
+  it("a failed op does not poison the chain", async () => {
+    await expect(engine.say("nobody", "x")).rejects.toBeInstanceOf(EngineError);
+    await expect(engine.say("host", "ok")).resolves.toBeTruthy();
+  });
+
+  it("notifies subscribers in seq order", async () => {
+    const seqs: number[] = [];
+    engine.subscribe((e) => seqs.push(e.seq));
+    await Promise.all([engine.say("host", "a"), engine.say("host", "b"), engine.say("host", "c")]);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(new Set(seqs).size).toBe(3);
+  });
+});
+
+describe("command validation", () => {
+  it("rejected commands append nothing", async () => {
+    const n = (await log.all()).length;
+    await expect(engine.command({ command: "fire_inject", injectId: "nope" })).rejects.toMatchObject({ code: "unknown_inject" });
+    await expect(engine.command({ command: "set_npc_stance", roleId: "ghost", goals: [] })).rejects.toMatchObject({ code: "unknown_role" });
+    await expect(engine.command({ command: "whisper", roleId: "ghost", text: "hi" })).rejects.toMatchObject({ code: "unknown_role" });
+    expect(await log.all()).toHaveLength(n);
+  });
+});
+
+describe("state is a projection of the log", () => {
+  it("replaying the log reproduces advanceRequested and gmVerdicts", async () => {
+    await engine.recordGmVerdict("both parties have said hello", false, "not yet");
+    await engine.command({ command: "advance" });
+    expect(engine.state.advanceRequested).toBe(true);
+    expect(engine.state.gmVerdicts).toEqual({ "both parties have said hello": false });
+    let replayed = initialState();
+    for (const e of await log.all()) replayed = reduce(replayed, e);
+    expect(replayed.advanceRequested).toBe(true);
+    expect(replayed.gmVerdicts).toEqual(engine.state.gmVerdicts);
+    expect(replayed).toEqual(engine.state);
+  });
+
+  it("a fresh engine over the same state would still exit on a recorded advance", async () => {
+    await engine.command({ command: "advance" });
+    await engine.tick();
+    expect(engine.state.currentScene?.id).toBe("s2_close");
+    expect(engine.state.advanceRequested).toBe(false);
+  });
+});
+
+describe("JsonlEventLog hardening", () => {
+  let dir: string;
+  beforeEach(async () => { dir = await mkdtemp(path.join(os.tmpdir(), "acr-log2-")); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+  const body = { type: "session.ended", reason: "script_complete" } as const;
+
+  it("concurrent appends yield seq 1..N in file order", async () => {
+    const jl = new JsonlEventLog("c1", dir);
+    const res = await Promise.all(Array.from({ length: 25 }, () => jl.append(body, 1)));
+    expect(res.map((e) => e.seq)).toEqual(Array.from({ length: 25 }, (_, i) => i + 1));
+    const raw = (await readFile(path.join(dir, "c1.jsonl"), "utf8")).trim().split("\n").map((l) => JSON.parse(l).seq);
+    expect(raw).toEqual(Array.from({ length: 25 }, (_, i) => i + 1));
+  });
+
+  it("MemoryEventLog concurrent appends keep seq order", async () => {
+    const m = new MemoryEventLog("m");
+    await Promise.all([m.append(body, 1), m.append(body, 1), m.append(body, 1)]);
+    expect((await m.all()).map((e) => e.seq)).toEqual([1, 2, 3]);
+  });
+
+  it("reopening continues the seq", async () => {
+    await new JsonlEventLog("r1", dir).append(body, 1);
+    await new JsonlEventLog("r1", dir).append(body, 2);
+    const e3 = await new JsonlEventLog("r1", dir).append(body, 3);
+    expect(e3.seq).toBe(3);
+    expect((await new JsonlEventLog("r1", dir).all()).map((e) => e.seq)).toEqual([1, 2, 3]);
+  });
+
+  it("a failed write leaves no seq gap", async () => {
+    await mkdir(path.join(dir, "f1.jsonl")); // a directory where the file should be
+    const jl = new JsonlEventLog("f1", dir);
+    await expect(jl.append(body, 1)).rejects.toBeTruthy();
+    await rm(path.join(dir, "f1.jsonl"), { recursive: true });
+    const e = await jl.append(body, 2);
+    expect(e.seq).toBe(1);
+  });
+
+  it("all() returns [] only for ENOENT; other I/O errors propagate", async () => {
+    expect(await new JsonlEventLog("none", dir).all()).toEqual([]);
+    await mkdir(path.join(dir, "d1.jsonl"));
+    await expect(new JsonlEventLog("d1", dir).all()).rejects.toMatchObject({ code: "EISDIR" });
+  });
+
+  it("ignores a truncated final line but rejects a malformed middle line", async () => {
+    const good = JSON.stringify({ ...body, seq: 1, ts: 1, sessionId: "t1" });
+    await writeFile(path.join(dir, "t1.jsonl"), good + "\n" + '{"type":"sess', "utf8");
+    expect(await new JsonlEventLog("t1", dir).all()).toHaveLength(1);
+    await writeFile(path.join(dir, "t2.jsonl"), good + "\n{bad\n" + good + "\n", "utf8");
+    await expect(new JsonlEventLog("t2", dir).all()).rejects.toThrow(/t2\.jsonl.*line 2/);
+  });
+
+  it("rejects unsafe session ids", () => {
+    expect(() => new JsonlEventLog("../x", dir)).toThrow();
+    expect(() => new JsonlEventLog("a/b", dir)).toThrow();
+    expect(() => new JsonlEventLog("", dir)).toThrow();
   });
 });

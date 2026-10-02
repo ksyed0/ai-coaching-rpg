@@ -68,3 +68,40 @@ describe("visibleTranscript", () => {
     expect(visibleTranscript(s, "delivery_lead").map((u) => u.text)).toEqual(["internal only", "Hi Priya"]);
   });
 });
+
+describe("reduce: advance request and GM verdicts", () => {
+  const enter = (seq: number, sceneId: string) => ({ ...env(seq), type: "scene.entered" as const, sceneId, participants: ["delivery_lead"] });
+  const inScene = () => reduce(reduce(initialState(), started), enter(2, "a"));
+
+  it("starts with no advance request and no verdicts", () => {
+    expect(initialState().advanceRequested).toBe(false);
+    expect(initialState().gmVerdicts).toEqual({});
+  });
+
+  it("advance command sets the flag and scene.entered resets it", () => {
+    let s = reduce(inScene(), { ...env(3), type: "facilitator.command", command: "advance" });
+    expect(s.advanceRequested).toBe(true);
+    s = reduce(s, enter(4, "b"));
+    expect(s.advanceRequested).toBe(false);
+  });
+
+  it("records gm.decision for the current scene keyed by condition", () => {
+    const before = inScene();
+    const s = reduce(before, { ...env(3), type: "gm.decision", sceneId: "a", condition: "said hello", verdict: true, reasoning: "r" });
+    expect(s.gmVerdicts).toEqual({ "said hello": true });
+    expect(before.gmVerdicts).toEqual({});
+  });
+
+  it("ignores gm.decision for a different scene", () => {
+    const s = reduce(inScene(), { ...env(3), type: "gm.decision", sceneId: "zzz", condition: "c", verdict: true, reasoning: "r" });
+    expect(s.gmVerdicts).toEqual({});
+  });
+
+  it("resets verdicts on scene.entered and scene.exited", () => {
+    let s = reduce(inScene(), { ...env(3), type: "gm.decision", sceneId: "a", condition: "c", verdict: true, reasoning: "r" });
+    const exited = reduce(s, { ...env(4), type: "scene.exited", sceneId: "a", reason: "time_box_elapsed" });
+    expect(exited.gmVerdicts).toEqual({});
+    s = reduce(s, enter(4, "b"));
+    expect(s.gmVerdicts).toEqual({});
+  });
+});

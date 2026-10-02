@@ -15,12 +15,17 @@ export type SessionState = {
   transcript: Utterance[];
   injectsFired: string[];
   npcs: Record<string, NpcState>;
+  /** True once the facilitator asked to advance the current scene; reset on scene.entered. */
+  advanceRequested: boolean;
+  /** GM verdicts for the CURRENT scene, keyed by condition text. */
+  gmVerdicts: Record<string, boolean>;
 };
 
 export function initialState(): SessionState {
   return {
     status: "idle", lastSeq: 0, scenarioId: null, version: null, roles: {},
     currentScene: null, sceneHistory: [], paused: false, transcript: [], injectsFired: [], npcs: {},
+    advanceRequested: false, gmVerdicts: {},
   };
 }
 
@@ -31,10 +36,10 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
     case "session.started":
       return { ...s, status: "running", scenarioId: e.scenarioId, version: e.version, roles: e.roles };
     case "scene.entered":
-      return { ...s, currentScene: { id: e.sceneId, enteredAt: e.ts, participants: e.participants },
+      return { ...s, advanceRequested: false, gmVerdicts: {}, currentScene: { id: e.sceneId, enteredAt: e.ts, participants: e.participants },
         sceneHistory: [...s.sceneHistory, { id: e.sceneId, participants: e.participants }] };
     case "scene.exited":
-      return { ...s, currentScene: null };
+      return { ...s, currentScene: null, gmVerdicts: {} };
     case "utterance":
       return { ...s, transcript: [...s.transcript, { seq: e.seq, ts: e.ts, sceneId: s.currentScene?.id ?? null, roleId: e.roleId, text: e.text, channel: e.channel }] };
     case "inject.fired":
@@ -46,8 +51,11 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
     case "facilitator.command":
       if (e.command === "pause") return { ...s, paused: true };
       if (e.command === "resume") return { ...s, paused: false };
+      if (e.command === "advance") return { ...s, advanceRequested: true };
       return s;
     case "gm.decision":
+      if (s.currentScene?.id !== e.sceneId) return s;
+      return { ...s, gmVerdicts: { ...s.gmVerdicts, [e.condition]: e.verdict } };
     case "facilitator.alert":
       return s;
     case "session.ended":
