@@ -88,20 +88,16 @@ export function selectModelProvider(env: NodeJS.ProcessEnv, role: "npc" | "gm"):
 }
 
 /**
- * A log-safe description of the configured provider: a fixed label and, for remote or local endpoints, the endpoint
- * host only (no path, query, userinfo or key). Call it after selectModelProvider succeeded; it re-validates the URLs.
+ * A log-safe description of the configured provider: a fixed label and whether a custom endpoint is configured.
+ * The yes/no comes from a comparison feeding a LITERAL ternary, so no env-derived string reaches the log, and the
+ * endpoint host is deliberately not included. Call it after selectModelProvider succeeded; it re-validates the URLs.
  */
 export function describeModelProvider(env: NodeJS.ProcessEnv): string {
   const kind = kindOf(env);
-  const label = LABELS[kind];
-  const hostOf = (base: string) => new URL(base).host;
-  switch (kind) {
-    case "mock": return label;
-    case "anthropic": {
-      const base = optionalAnthropicBaseUrl(env);
-      return base ? `${label} at ${hostOf(base)}` : label;
-    }
-    case "openrouter": return `${label} at ${hostOf(openRouterBaseUrl(env))}`;
-    case "local": return `${label} at ${hostOf(parseBaseUrl(env.LOCAL_BASE_URL, "LOCAL_BASE_URL", "http-or-https"))}`;
-  }
+  if (kind === "mock") return LABELS.mock;
+  const custom =
+    kind === "anthropic" ? optionalAnthropicBaseUrl(env) !== undefined
+    : kind === "openrouter" ? openRouterBaseUrl(env) !== OPENROUTER_DEFAULT_BASE_URL
+    : true; // local is always a self-configured endpoint
+  return `${LABELS[kind]} (custom endpoint: ${custom ? "yes" : "no"})`;
 }

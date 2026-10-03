@@ -5,7 +5,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs (EPIC-0001, US-0001 to US-0012 and US-0014).
+Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs (EPIC-0001, US-0001 to US-0012).
 
 ### Added
 
@@ -32,8 +32,8 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 
 ### Security
 
-- Provider secrets (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `LOCAL_API_KEY`) are never logged or put in URLs or error messages; the startup log shows a fixed provider label and the endpoint host only. This also resolves the CodeQL `js/clear-text-logging` alert on the provider log line in `services/runtime/src/main.ts`.
-- Endpoint URLs (`ANTHROPIC_BASE_URL`, `OPENROUTER_BASE_URL`, `LOCAL_BASE_URL`) are validated at startup: userinfo, query strings and fragments are rejected, hosted endpoints must use https (plain http only on localhost), and errors name the variable without echoing the value. The OpenAI-compatible client refuses redirects so credentials are never forwarded, caps error and JSON bodies, and truncates and sanitizes upstream error text.
+- Provider secrets (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `LOCAL_API_KEY`) are never logged or put in URLs or error messages; the startup log shows a fixed provider label and a yes/no for "custom endpoint" only (no host or path), and the scenario-dir log line was removed. This addresses the CodeQL `js/clear-text-logging` alert on the provider log line in `services/runtime/src/main.ts`.
+- Endpoint URLs (`ANTHROPIC_BASE_URL`, `OPENROUTER_BASE_URL`, `LOCAL_BASE_URL`) are validated at startup: userinfo, query strings and fragments are rejected, hosted endpoints must use https (plain http only on localhost), and errors name the variable without echoing the value. The OpenAI-compatible client and a custom Anthropic endpoint refuse redirects so credentials are never forwarded (the default Anthropic path is unchanged), caps error and JSON bodies, and truncates and sanitizes upstream error text.
 - Players only receive events they are allowed to see (default-deny filter); other participants' ids, NPC goals, whispers and private facts are never sent to them.
 - NPC and Game Master prompts never contain rubrics, other roles' private material or participant display names; the Game Master frames participant text as data so one participant cannot forge another's line.
 - The terminal client sanitizes all server-supplied text so control or escape sequences from other participants or the model cannot manipulate a terminal.

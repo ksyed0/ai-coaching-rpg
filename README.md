@@ -53,7 +53,7 @@ NPC_MODEL=llama3.1
 GM_MODEL=llama3.1
 ```
 
-`mock` (the default) needs nothing. `.env` is git-ignored. Never commit it. API keys are never logged; the startup log shows only the provider and its endpoint host.
+`mock` (the default) needs nothing. `.env` is git-ignored. Never commit it. API keys are never logged; the startup log shows only the provider and whether a custom endpoint is configured.
 
 **Privacy:** prompts (scenario text, role briefs and player lines) are sent to whatever endpoint you configure, so a remote provider such as Anthropic or OpenRouter sees them. Use `local` to keep them on your own machines.
 
@@ -77,7 +77,11 @@ GM_MODEL=<model id from LM Studio>
 
 Tip: pick a model that follows instructions well and streams; the Game Master must answer in a strict format, and small models often do not. A server that ignores streaming and returns one JSON object also works.
 
-**Docker:** inside the container `localhost` is the container itself, not your machine. Use `LOCAL_BASE_URL=http://host.docker.internal:11434/v1`. This works on Docker Desktop and OrbStack, and the compose file maps `host.docker.internal` to the host gateway so it works on Linux too. The server must listen on an address the container can reach (for Ollama on Linux, `OLLAMA_HOST=0.0.0.0`).
+**Docker:** inside the container `localhost` is the container itself, not your machine, so use `LOCAL_BASE_URL=http://host.docker.internal:11434/v1`. Only `LOCAL_BASE_URL` accepts that URL: `ANTHROPIC_BASE_URL` and `OPENROUTER_BASE_URL` are rejected by design when they point at `http://host.docker.internal...` (plain http is only allowed for localhost, 127.0.0.1 and [::1]; remote providers must use https). The compose file maps `host.docker.internal` to the host gateway (`extra_hosts`). What that reaches depends on your setup (general guidance):
+
+- **Docker Desktop and OrbStack:** `host.docker.internal` reaches services bound to the host's loopback, so Ollama's default `127.0.0.1` bind works with no `OLLAMA_HOST` change.
+- **Plain Docker Engine on Linux:** `host-gateway` resolves to the docker0 bridge address (usually `172.17.0.1`), so a loopback-only server is unreachable. Bind it to the bridge address (for Ollama, `OLLAMA_HOST=172.17.0.1:11434`). If you must bind `0.0.0.0`, remember that this exposes an unauthenticated model API to your whole network; firewall port 11434 to the Docker subnet. Host firewalls (ufw, firewalld) may also drop container-to-host traffic.
+- **LM Studio** in that Linux case needs "serve on local network", with the same exposure caveat.
 
 ## Run
 

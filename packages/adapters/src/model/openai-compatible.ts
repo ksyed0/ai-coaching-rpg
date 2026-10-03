@@ -40,9 +40,6 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     this.#apiKey = key || undefined;
   }
 
-  /** Only the host (with port): safe to log. Never the path, query or any credential. */
-  get endpointHost(): string { return new URL(this.endpoint).host; }
-
   private redact(text: string): string {
     const key = this.#apiKey;
     return key ? text.split(key).join("[redacted]") : text;
@@ -57,7 +54,8 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     if (this.#apiKey) headers.Authorization = `Bearer ${this.#apiKey}`;
     const body = JSON.stringify({
       model: req.model ?? this.model,
-      messages: [{ role: "system", content: req.system }, ...req.messages],
+      // An empty system message is omitted: some local chat templates mishandle it.
+      messages: req.system ? [{ role: "system", content: req.system }, ...req.messages] : req.messages,
       max_tokens: req.maxTokens,
       stream: true,
     });
@@ -138,6 +136,8 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
    * Manual Server-Sent-Events parsing. Each `data:` line is handled as one event (OpenAI-style servers send one JSON
    * object per line), which also tolerates a server that omits the blank separator line. Chunks may split anywhere:
    * lines are buffered across reads and bytes go through one streaming TextDecoder so a split UTF-8 character survives.
+   * Not supported (OpenAI-style servers only): multi-line `data:` events (joined with newlines per the SSE spec) and
+   * `delta.content` given as an array of parts; such content is skipped.
    */
   private async *parseSse(body: ReadableStream<Uint8Array>, signal?: AbortSignal): AsyncGenerator<string> {
     const reader = body.getReader();
@@ -161,7 +161,14 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
         if (signal?.aborted) return;
         const { done, value } = await reader.read();
         if (done) break;
-        buffer += decoder.decode(value, { stream: true });
+        const text = decoder.decode(value, { stream: true });
+        buffer += text;
+        // Split only when a terminator arrived in the NEW text: a line trickling in tiny chunks is then not re-scanned
+        // on every read (linear, not quadratic), and the pending partial line is capped.
+        if (!/[\r\n]/.test(text)) {
+          if (buffer.length > MAX_LINE_CHARS) throw new Error(`${this.name} sent an oversized stream line`);
+          continue;
+        }
         const lines = buffer.split(/\r\n|\n|\r/);
         buffer = lines.pop() ?? "";
         if (buffer.length > MAX_LINE_CHARS) throw new Error(`${this.name} sent an oversized stream line`);

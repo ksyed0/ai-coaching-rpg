@@ -57,7 +57,7 @@ describe("selectModelProvider: openrouter", () => {
     expect(p).toBeInstanceOf(OpenAICompatibleModelProvider);
     expect(p.name).toBe("openrouter");
     expect(modelOf(p)).toBe("anthropic/claude-sonnet-5.5");
-    expect(describeModelProvider(env)).toBe("OpenRouter at openrouter.ai");
+    expect(describeModelProvider(env)).toBe("OpenRouter (custom endpoint: no)");
   });
   it("requires the key and names the variable only", () => {
     const msg = errorOf({ MODEL_PROVIDER: "openrouter" });
@@ -67,7 +67,7 @@ describe("selectModelProvider: openrouter", () => {
     expect(modelOf(selectModelProvider({ ...env, NPC_MODEL: "x/y" }, "npc"))).toBe("x/y");
     expect(modelOf(selectModelProvider({ ...env, NPC_MODEL: "x/y" }, "gm"))).toBe("anthropic/claude-sonnet-5.5");
     expect(modelOf(selectModelProvider({ ...env, GM_MODEL: "  " }, "gm"))).toBe("anthropic/claude-sonnet-5.5");
-    expect(describeModelProvider({ ...env, OPENROUTER_BASE_URL: "https://gw.example:8443/or/v1" })).toBe("OpenRouter at gw.example:8443");
+    expect(describeModelProvider({ ...env, OPENROUTER_BASE_URL: "https://gw.example:8443/or/v1" })).toBe("OpenRouter (custom endpoint: yes)");
   });
   it("rejects a non-https base URL for a remote host", () => {
     expect(errorOf({ ...env, OPENROUTER_BASE_URL: "http://gw.example/v1" })).toMatch(/OPENROUTER_BASE_URL must use https/);
@@ -81,7 +81,7 @@ describe("selectModelProvider: local", () => {
     expect(npc.name).toBe("local");
     expect(modelOf(npc)).toBe("llama3.1");
     expect(modelOf(selectModelProvider({ ...env, LOCAL_API_KEY: KEY }, "gm"))).toBe("qwen2.5");
-    expect(describeModelProvider(env)).toBe("local OpenAI-compatible server at localhost:11434");
+    expect(describeModelProvider(env)).toBe("local OpenAI-compatible server (custom endpoint: yes)");
   });
   it("requires LOCAL_BASE_URL", () => {
     expect(errorOf({ ...env, LOCAL_BASE_URL: "" })).toMatch(/LOCAL_BASE_URL is empty/);
@@ -104,11 +104,14 @@ describe("selectModelProvider: local", () => {
 });
 
 describe("describeModelProvider", () => {
-  it("returns fixed labels, the endpoint host only, and never a key, path or query", () => {
+  it("returns a fixed label and a custom-endpoint flag, never a key, host, path or query", () => {
     expect(describeModelProvider({})).toBe("mock");
-    expect(describeModelProvider({ MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: KEY })).toBe("Anthropic");
+    expect(describeModelProvider({ MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: KEY })).toBe("Anthropic (custom endpoint: no)");
     const custom = describeModelProvider({ MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: KEY, ANTHROPIC_BASE_URL: "https://proxy.example/secret-path" });
-    expect(custom).toBe("Anthropic at proxy.example");
-    expect(describeModelProvider({ MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://10.0.0.5:8000/v1/deep", LOCAL_API_KEY: KEY })).toBe("local OpenAI-compatible server at 10.0.0.5:8000");
+    expect(custom).toBe("Anthropic (custom endpoint: yes)");
+    expect(describeModelProvider({ MODEL_PROVIDER: "openrouter", OPENROUTER_API_KEY: KEY, OPENROUTER_BASE_URL: "https://openrouter.ai/api/v1/" })).toBe("OpenRouter (custom endpoint: no)");
+    const local = describeModelProvider({ MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://10.0.0.5:8000/v1/deep", LOCAL_API_KEY: KEY });
+    expect(local).toBe("local OpenAI-compatible server (custom endpoint: yes)");
+    for (const out of [custom, local]) for (const bad of [KEY, "10.0.0.5", "secret-path", "proxy.example"]) expect(out).not.toContain(bad);
   });
 });

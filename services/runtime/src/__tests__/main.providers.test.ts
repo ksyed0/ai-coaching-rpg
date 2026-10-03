@@ -43,19 +43,20 @@ async function boot(env: Record<string, string>) {
 describe("bootstrap with each provider kind", () => {
   const cases: [string, () => Record<string, string>, () => string][] = [
     ["mock", () => ({ MODEL_PROVIDER: "mock", ANTHROPIC_API_KEY: KEY, OPENROUTER_API_KEY: KEY, LOCAL_API_KEY: KEY }), () => "model provider: mock"],
-    ["anthropic", () => ({ MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: KEY }), () => "model provider: Anthropic"],
-    ["anthropic with a base URL", () => ({ MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: KEY, ANTHROPIC_BASE_URL: localUrl }), () => `model provider: Anthropic at ${localHost}`],
-    ["openrouter", () => ({ MODEL_PROVIDER: "openrouter", OPENROUTER_API_KEY: KEY, OPENROUTER_BASE_URL: localUrl }), () => `model provider: OpenRouter at ${localHost}`],
-    ["local", () => ({ MODEL_PROVIDER: "local", LOCAL_BASE_URL: localUrl, LOCAL_API_KEY: KEY, NPC_MODEL: "llama3.1", GM_MODEL: "qwen2.5" }), () => `model provider: local OpenAI-compatible server at ${localHost}`],
+    ["anthropic", () => ({ MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: KEY }), () => "model provider: Anthropic (custom endpoint: no)"],
+    ["anthropic with a base URL", () => ({ MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: KEY, ANTHROPIC_BASE_URL: localUrl }), () => "model provider: Anthropic (custom endpoint: yes)"],
+    ["openrouter", () => ({ MODEL_PROVIDER: "openrouter", OPENROUTER_API_KEY: KEY, OPENROUTER_BASE_URL: localUrl }), () => "model provider: OpenRouter (custom endpoint: yes)"],
+    ["local", () => ({ MODEL_PROVIDER: "local", LOCAL_BASE_URL: localUrl, LOCAL_API_KEY: KEY, NPC_MODEL: "llama3.1", GM_MODEL: "qwen2.5" }), () => "model provider: local OpenAI-compatible server (custom endpoint: yes)"],
   ];
   for (const [label, env, expected] of cases) {
-    it(`${label}: starts, logs a fixed label and host only, and never the key or the URL path`, async () => {
+    it(`${label}: starts, logs a fixed label only, and never the key, host or URL path`, async () => {
       const { r, logs, all } = await boot(env());
       if (!r.ok) throw new Error(r.errors.join("; "));
       expect(logs).toContain(expected());
       expect(all()).not.toContain(KEY);
       expect(all()).not.toContain("private-path");
-      expect(all()).not.toContain("http://127.0.0.1");
+      expect(all()).not.toContain("127.0.0.1");
+      expect(all()).not.toContain("scenario dir");
     });
   }
 

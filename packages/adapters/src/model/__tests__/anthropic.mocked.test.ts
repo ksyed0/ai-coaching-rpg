@@ -45,6 +45,6 @@ describe("AnthropicModelProvider (SDK mocked)", () => {
 
   it("passes a custom endpoint as the SDK baseURL", () => {
     new AnthropicModelProvider({ apiKey: "k", model: "m1", baseUrl: "https://proxy.example/anthropic" });
-    expect(ctorMock).toHaveBeenCalledWith({ apiKey: "k", baseURL: "https://proxy.example/anthropic" });
+    expect(ctorMock).toHaveBeenCalledWith({ apiKey: "k", baseURL: "https://proxy.example/anthropic", fetch: expect.any(Function) });
   });
 });

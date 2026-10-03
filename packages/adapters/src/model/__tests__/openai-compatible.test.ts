@@ -1,4 +1,4 @@
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAICompatibleModelProvider, sanitizeSnippet } from "../openai-compatible.js";
 import { modelProviderContract } from "../contract.js";
 import type { ChatRequest } from "../types.js";
@@ -44,14 +44,17 @@ describe("request shape", () => {
     await collect(make({ apiKey: "   " }));
     expect(srv.requests[1]!.headers.authorization).toBeUndefined();
   });
+  it("omits the system message when the system prompt is empty", async () => {
+    await collect(make(), { ...REQ, system: "" });
+    expect(JSON.parse(srv.requests[0]!.body).messages).toEqual([{ role: "user", content: "hi" }]);
+  });
   it("lets req.model override the constructor model", async () => {
     await collect(make(), { ...REQ, model: "other" });
     expect(JSON.parse(srv.requests[0]!.body).model).toBe("other");
   });
-  it("exposes its name and the endpoint host but never the key", () => {
+  it("exposes its name but never the key", () => {
     const p = make({ apiKey: KEY });
     expect(p.name).toBe("local");
-    expect(p.endpointHost).toBe(srv.host);
     expect(JSON.stringify(p) + Object.getOwnPropertyNames(p).join(",") + String(Object.values(p))).not.toContain(KEY);
     expect(make({ name: "openrouter" }).name).toBe("openrouter");
   });
@@ -134,6 +137,21 @@ describe("stream parsing", () => {
     expect(e.message).toMatch(/malformed/);
     expect(e.message).not.toContain(KEY);
   });
+  it("does not support delta.content arrays or multi-line data: events (OpenAI-style servers only)", async () => {
+    raw(['data: {"choices":[{"delta":{"content":[{"type":"text","text":"x"}]}}]}\n\n', delta("ok")]);
+    expect(await collect(make())).toEqual(["ok"]);
+  });
+  it("scans a long line trickled in tiny chunks in linear time and still errors at the cap", async () => {
+    const bytes = Buffer.from("data: " + "x".repeat(1024 * 1024 + 10));
+    let at = 0;
+    const body = new ReadableStream<Uint8Array>({ pull(c) { if (at >= bytes.length) return c.close(); c.enqueue(bytes.subarray(at, at + 16)); at += 16; } });
+    vi.stubGlobal("fetch", async () => new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }));
+    try {
+      const started = Date.now();
+      expect((await failure(make())).message).toMatch(/oversized/);
+      expect(Date.now() - started).toBeLessThan(3_000);
+    } finally { vi.unstubAllGlobals(); }
+  }, 30_000);
   it("rejects an endless line without a terminator", async () => {
     raw(["data: " + "x".repeat(600 * 1024), "y".repeat(600 * 1024)]);
     expect((await failure(make())).message).toMatch(/oversized/);

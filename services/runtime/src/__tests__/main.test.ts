@@ -88,7 +88,7 @@ describe("bootstrap", () => {
       ws.on("error", reject);
     });
 
-    it("loads <root>/.env, resolves a relative SCENARIO_DIR and the data dir against the root, and logs provider + dir but no secret", async () => {
+    it("loads <root>/.env, resolves a relative SCENARIO_DIR and the data dir against the root, (the scenario loaded from it), and logs the provider but no secret or path", async () => {
       tmp = await mkdtemp(path.join(os.tmpdir(), "acr-root-"));
       await cp(fixture, path.join(tmp, "scn"), { recursive: true });
       await writeFile(path.join(tmp, ".env"), "SESSION_ID=fromdotenv\nRUNTIME_PORT=0\nSCENARIO_DIR=scn\nANTHROPIC_API_KEY=sk-from-dotenv\n");
@@ -98,7 +98,8 @@ describe("bootstrap", () => {
       runtime = r.runtime;
       const [msg] = await connect(runtime.port, { type: "join_facilitator", sessionId: "fromdotenv" });
       expect(msg.type).toBe("joined");
-      expect(logs.join("\n")).toContain(path.join(tmp, "scn"));
+      expect(logs.join("\n")).toMatch(/scenario "Minimal"/); // the relative SCENARIO_DIR resolved against the root
+      expect(logs.join("\n")).not.toContain(tmp);
       expect(logs.join("\n")).toMatch(/provider.*mock/);
       expect(logs.join("\n")).not.toContain("sk-from-dotenv");
       // the event log lands under <root>/data/sessions
