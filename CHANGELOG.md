@@ -30,10 +30,12 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 - PlanVisualizer v2.4.0 project tracking and the Agentic SDLC dashboard (`docs/`, `agents.config.json`).
 - `README.md` and this changelog.
 - `NPC_FIRST_TOKEN_TIMEOUT_MS` (default 10000) and `NPC_REPLY_TIMEOUT_MS` (default 20000) environment variables to configure the NPC first-token timeout and overall reply deadline; values are validated at startup (whole milliseconds, 500 to 600000, reply deadline at least the first-token timeout) (US-0015).
+- `pnpm demo`: an unattended demo and test runner that plays the whole Friday Escalation with a facilitator bot and three player bots over real WebSockets and ends with a pass/fail checklist of 29 features (`--fast`, `--speed`, `--json <path|->`, `--live`, `--url ws://host:port`, `--session`, `--no-color`); exit code 0 when every executed check passed, 1 on a failure or the watchdog, 2 on a usage error. The default mode uses scripted mock models and a fake clock and is offline and deterministic; `--url` smoke-tests a running server such as the Docker container; a new non-required `Demo Run` CI job uploads the JSON report (US-0021).
 
 ### Changed
 
 - NPC first-token timeout default raised from 4 s to 10 s, so reasoning and slower models no longer trip the fallback line (US-0015).
+- `pnpm demo` hardening (US-0021): `pnpm -s demo --fast --json -` now writes only the JSON report to stdout (the root script is silent; use `-s` so pnpm's own banner stays out); `--url` prints exactly what it will send to the target server before running; a check that did not run (other than the intended `--live`/`--url` mode skips) is a failure; `--url` lists everything it sends and warns that it ends the target's session; Ctrl-C/SIGTERM clean up the temp directory and exit 130/143; the bot clients cap frames (1 MiB) and inbox size (5,000 frames) against a hostile server.
 
 ### Security
 
