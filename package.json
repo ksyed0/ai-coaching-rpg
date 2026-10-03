@@ -35,7 +35,7 @@
     "typecheck": "pnpm -r run typecheck",
     "dev:runtime": "pnpm --filter @acr/runtime dev",
     "play": "pnpm --filter @acr/runtime play",
-    "demo": "pnpm --filter @acr/runtime demo",
+    "demo": "pnpm -s --filter @acr/runtime demo",
     "lint:sdk": "bash scripts/check-sdk-imports.sh"
   },
   "repository": {

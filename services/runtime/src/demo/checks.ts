@@ -13,7 +13,7 @@ export const CHECKS: readonly CheckDef[] = [
   { id: "F-03", title: "Players cannot start or command; speech before the start is refused", kind: "any" },
   { id: "F-04", title: "Only the facilitator starts the session", kind: "any" },
   { id: "F-05", title: "session.started is redacted for players and complete for the facilitator", kind: "any" },
-  { id: "F-06", title: "Scene 1 starts and its opening inject reaches only its recipients", kind: "any" },
+  { id: "F-06", title: "Scene 1 starts and its opening inject reaches its recipients (and, in-process, only them)", kind: "any" },
   { id: "F-07", title: "The timed inject fires at its fake-clock minute, not before", kind: "scripted" },
   { id: "F-08", title: "The AI character answers once per player line where it is present", kind: "any" },
   { id: "F-09", title: "The AI character is silent where absent; absent roles cannot speak", kind: "any" },
@@ -63,7 +63,7 @@ export function ensure(cond: unknown, message: string): asserts cond {
 export class Recorder {
   private readonly results = new Map<string, CheckResult>();
   constructor(private readonly o: {
-    kind: RunKind; now: () => number; forceFail?: ReadonlySet<string>; onResult?: (r: CheckResult) => void; aborted?: () => boolean;
+    kind: RunKind; now: () => number; forceFail?: ReadonlySet<string>; bypass?: ReadonlySet<string>; onResult?: (r: CheckResult) => void; aborted?: () => boolean;
   }) {
     for (const d of CHECKS) {
       const reason = skipReason(d, o.kind);
@@ -78,10 +78,10 @@ export class Recorder {
   /** Runs one check. `fn` returns the one-line evidence; throwing marks it failed. Returns whether it passed. */
   async run(id: string, fn: () => Promise<string> | string, needs: string[] = []): Promise<boolean> {
     const d = def(id);
-    if (!this.applicable(id)) return false;
+    if (!this.applicable(id) || this.o.bypass?.has(id)) return false; // a bypassed check is left unrecorded (test hook)
     const blocked = needs.filter((n) => !this.passed(n));
     if (blocked.length) {
-      this.put({ id, title: d.title, status: "skipped", details: `skipped (prerequisite failed: ${blocked.join(", ")})`, durationMs: 0 });
+      this.put(this.notRun(d, `prerequisite failed: ${blocked.join(", ")}`));
       return false;
     }
     const t0 = this.o.now();
@@ -99,9 +99,19 @@ export class Recorder {
     return status === "passed";
   }
 
-  /** Marks every check that never ran as skipped, with the given reason. */
+  /**
+   * A check that did not run. In mock mode every check must run, so this is a FAILURE (a code-path regression must never
+   * exit 0); in live and --url runs the mode-based skips were recorded up front and anything else is reported as skipped.
+   */
+  private notRun(d: CheckDef, reason: string): CheckResult {
+    return this.o.kind === "mock"
+      ? { id: d.id, title: d.title, status: "failed", details: `did not run (${reason})`, durationMs: 0 }
+      : { id: d.id, title: d.title, status: "skipped", details: `skipped (${reason})`, durationMs: 0 };
+  }
+
+  /** Records every check that never ran (see notRun). */
   finish(reason: string): void {
-    for (const d of CHECKS) if (!this.results.has(d.id)) this.put({ id: d.id, title: d.title, status: "skipped", details: `skipped (${reason})`, durationMs: 0 });
+    for (const d of CHECKS) if (!this.results.has(d.id)) this.put(this.notRun(d, reason));
   }
   ordered(): CheckResult[] { return CHECKS.map((d) => this.results.get(d.id)).filter((r): r is CheckResult => r !== undefined); }
 }
@@ -181,4 +191,15 @@ export function logShapeProblems(events: SessionEvent[], sessionId: string): str
     if (i > 0 && typeof e.ts === "number" && e.ts < events[i - 1]!.ts) problems.push(`event ${e.seq} goes back in time`);
   });
   return problems.slice(0, 5);
+}
+
+/** Injects (by scene) whose text reached `inboxJson` although they are not addressed to `role`. Matches the JSON-escaped form. */
+export function findInjectLeaks(inboxJson: string, role: string, scenes: Scenario["script"]["scenes"]): string[] {
+  const out: string[] = [];
+  for (const scene of scenes) {
+    for (const inj of scene.injects ?? []) {
+      if (!inj.to.includes(role) && inboxJson.includes(JSON.stringify(inj.content).slice(1, -1))) out.push(inj.id);
+    }
+  }
+  return out;
 }

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { loadScenario } from "@acr/script";
 import type { SessionEvent } from "@acr/events";
 import { REPO_ROOT } from "../../main.js";
-import { CHECKS, CHECK_IDS, CheckFailure, Recorder, UNSAFE_CHARS, buildMarkers, def, ensure, findMarkers, logShapeProblems, missingMarkers, sceneTrace, skipReason } from "../checks.js";
+import { CHECKS, CHECK_IDS, CheckFailure, Recorder, UNSAFE_CHARS, buildMarkers, def, ensure, findInjectLeaks, findMarkers, logShapeProblems, missingMarkers, sceneTrace, skipReason } from "../checks.js";
 
 const rec = (kind: "mock" | "live" | "url", over: Partial<ConstructorParameters<typeof Recorder>[0]> = {}) => new Recorder({ kind, now: () => 0, ...over });
 
@@ -40,7 +40,19 @@ describe("Recorder", () => {
     let ran = false;
     expect(await r.run("F-04", () => { ran = true; return "x"; }, ["F-01"])).toBe(false);
     expect(ran).toBe(false);
-    expect(r.ordered().find((x) => x.id === "F-04")).toMatchObject({ status: "skipped", details: "skipped (prerequisite failed: F-01)" });
+    // Mock mode must run every check: a dependent that cannot run is a failure, never a quiet skip.
+    expect(r.ordered().find((x) => x.id === "F-04")).toMatchObject({ status: "failed", details: "did not run (prerequisite failed: F-01)" });
+    const live = rec("live");
+    await live.run("F-01", () => { throw new CheckFailure("no"); });
+    await live.run("F-04", () => "x", ["F-01"]);
+    expect(live.ordered().find((x) => x.id === "F-04")).toMatchObject({ status: "skipped", details: "skipped (prerequisite failed: F-01)" });
+  });
+  it("leaves a bypassed check unrecorded, so finish() reports it", async () => {
+    const r = rec("mock", { bypass: new Set(["F-05"]) });
+    expect(await r.run("F-05", () => "x")).toBe(false);
+    expect(r.status("F-05")).toBeUndefined();
+    r.finish("prerequisite failed");
+    expect(r.ordered().find((x) => x.id === "F-05")).toMatchObject({ status: "failed", details: "did not run (prerequisite failed)" });
   });
   it("pre-skips inapplicable checks and never runs their body", async () => {
     const r = rec("url");
@@ -64,8 +76,11 @@ describe("Recorder", () => {
     aborted = true;
     await expect(r.run("F-01", () => { throw new Error("run aborted"); })).rejects.toThrow("run aborted");
   });
-  it("finish() marks every unrun check skipped with the reason, in catalogue order", async () => {
-    const r = rec("mock");
+  it("finish() records every unrun check with the reason (skipped outside mock mode, failed in mock), in catalogue order", async () => {
+    const m = rec("mock");
+    m.finish("run aborted");
+    expect(m.ordered().every((x) => x.status === "failed" && x.details === "did not run (run aborted)")).toBe(true);
+    const r = rec("live");
     await r.run("F-02", () => "ok");
     r.finish("run aborted");
     const out = r.ordered();
@@ -114,6 +129,14 @@ describe("log helpers", () => {
       ev(4, { type: "session.ended", reason: "script_complete" } as Partial<SessionEvent>),
     ];
     expect(sceneTrace(events)).toEqual(["entered:a", "exited:a:gm_detects", "ended:script_complete"]);
+  });
+  it("findInjectLeaks matches multi-line inject content in its JSON-escaped form and can fail (positive control)", () => {
+    const scenes = [{ id: "s", title: "t", goal: "g", participants: ["a", "b"], time_box_minutes: 1, exit_when: { any_of: ["time_box_elapsed"] },
+      injects: [{ id: "private", to: ["a"], content: "line one\nline two \"quoted\"" }, { id: "public", to: ["a", "b"], content: "everyone\nsees" }] }] as unknown as Parameters<typeof findInjectLeaks>[2];
+    const inboxWithLeak = JSON.stringify([{ type: "event", event: { type: "inject.fired", content: "line one\nline two \"quoted\"" } }]);
+    expect(findInjectLeaks(inboxWithLeak, "b", scenes)).toEqual(["private"]); // the old raw-string comparison could never match this
+    expect(findInjectLeaks(inboxWithLeak, "a", scenes)).toEqual([]);
+    expect(findInjectLeaks(JSON.stringify([{ content: "everyone\nsees" }]), "b", scenes)).toEqual([]);
   });
   it("UNSAFE_CHARS matches control, C1 and bidi characters only", () => {
     for (const c of ["\u001b", "\u0007", "\n", "\u0085", "‮", "⁦"]) expect(UNSAFE_CHARS.test(c)).toBe(true);

@@ -141,7 +141,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
         ensure(sys.host.viewFor("tech_lead", probe) === null, "an inject addressed to one role was visible to another");
         extra = "; an inject addressed to one role is hidden from the others";
       }
-      return `scene ${s1} entered and the opening inject reached every recipient${extra}`;
+      return `scene ${s1} entered and the opening inject reached every recipient${extra || "; recipient privacy is proven only in-process, not in this run"}`;
     }, ["F-04"]);
 
     const lines = mock ? S1_LINES : S1_LINES.slice(0, 3);

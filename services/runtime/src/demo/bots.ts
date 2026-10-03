@@ -6,6 +6,9 @@ export type Inbound = ServerMessage | { type: "__unparseable" };
 type Waiter = { from: number; pred: (m: Inbound) => boolean; resolve: (m: Inbound) => void; timer: NodeJS.Timeout; off: () => void; reject: (e: Error) => void };
 
 export const DEFAULT_WAIT_MS = 5_000;
+/** A server that sends more than this many frames, or any frame above MAX_FRAME_BYTES, is treated as flooding the client. */
+export const MAX_INBOX = 5_000;
+export const MAX_FRAME_BYTES = 1024 * 1024;
 
 /**
  * A scripted participant: one real WebSocket connection that records every server message. `waitFor` resolves on
@@ -16,25 +19,35 @@ export class Bot {
   readonly inbox: Inbound[];
   /** Resolves with the close code when the socket closes. */
   readonly closed: Promise<number>;
+  /** Set when the server exceeded MAX_INBOX frames (the connection is then terminated and waits fail). */
+  flooded = false;
   private readonly waiters = new Set<Waiter>();
   private constructor(readonly label: string, readonly ws: WebSocket, inbox: Inbound[], private readonly signal: AbortSignal | undefined) {
     this.inbox = inbox;
     this.closed = new Promise<number>((resolve) => ws.on("close", (code) => resolve(code)));
     ws.on("message", (data) => {
+      if (this.flooded) return;
+      if (this.inbox.length >= MAX_INBOX) {
+        this.flooded = true;
+        this.failWaiters(`${this.label}: the server flooded the client (more than ${MAX_INBOX} frames)`);
+        ws.terminate();
+        return;
+      }
       let m: Inbound;
       try { m = JSON.parse(data.toString()) as Inbound; } catch { m = { type: "__unparseable" }; }
-      this.inbox.push(m);
+      const index = this.inbox.push(m) - 1;
+      // Only the new message is tested (never a rescan of the whole inbox), so a flood costs O(frames).
       for (const w of [...this.waiters]) {
-        const hit = this.inbox.slice(w.from).find(w.pred);
-        if (hit) { this.settle(w); w.resolve(hit); }
+        if (index >= w.from && w.pred(m)) { this.settle(w); w.resolve(m); }
       }
     });
+    ws.on("close", () => this.failWaiters(`${this.label}: the connection closed`));
     ws.on("error", () => { /* surfaced through close / waitFor timeouts; never an unhandled error event */ });
   }
 
   static async connect(url: string, label: string, opts: { signal?: AbortSignal; autoPong?: boolean; inbox?: Inbound[]; timeoutMs?: number } = {}): Promise<Bot> {
     if (opts.signal?.aborted) throw new Error("run aborted");
-    const ws = new WebSocket(url, { autoPong: opts.autoPong ?? true, handshakeTimeout: opts.timeoutMs ?? DEFAULT_WAIT_MS });
+    const ws = new WebSocket(url, { autoPong: opts.autoPong ?? true, handshakeTimeout: opts.timeoutMs ?? DEFAULT_WAIT_MS, maxPayload: MAX_FRAME_BYTES });
     const bot = new Bot(label, ws, opts.inbox ?? [], opts.signal);
     await new Promise<void>((resolve, reject) => {
       const onAbort = () => { ws.terminate(); reject(new Error("run aborted")); };
@@ -43,6 +56,10 @@ export class Bot {
       ws.once("error", (err) => { opts.signal?.removeEventListener("abort", onAbort); reject(new Error(`${label}: cannot connect: ${err.message}`)); });
     });
     return bot;
+  }
+
+  private failWaiters(message: string): void {
+    for (const w of [...this.waiters]) { this.settle(w); w.reject(new Error(message)); }
   }
 
   private settle(w: Waiter): void { clearTimeout(w.timer); w.off(); this.waiters.delete(w); }
@@ -57,6 +74,8 @@ export class Bot {
     const from = o.from ?? 0;
     const hit = this.inbox.slice(from).find(pred);
     if (hit) return Promise.resolve(hit);
+    if (this.flooded) return Promise.reject(new Error(`${this.label}: the server flooded the client (more than ${MAX_INBOX} frames)`));
+    if (this.ws.readyState === WebSocket.CLOSED) return Promise.reject(new Error(`${this.label}: the connection closed`));
     return new Promise<Inbound>((resolve, reject) => {
       const onAbort = () => { this.settle(w); reject(new Error("run aborted")); };
       const w: Waiter = {
@@ -87,7 +106,7 @@ export class Bot {
   events(): SessionEvent[] { return this.inbox.flatMap((m) => (m.type === "event" ? [m.event] : [])); }
   close(): void { try { this.ws.close(); } catch { /* already closed */ } }
   terminate(): void {
-    for (const w of [...this.waiters]) { this.settle(w); w.reject(new Error(`${this.label}: connection closed`)); }
+    this.failWaiters(`${this.label}: connection closed`);
     try { this.ws.terminate(); } catch { /* already closed */ }
   }
 }

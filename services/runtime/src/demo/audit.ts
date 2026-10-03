@@ -4,7 +4,7 @@ import path from "node:path";
 import type { SessionEvent } from "@acr/events";
 import { bootstrap } from "../main.js";
 import { isEvent, type Inbound } from "./bots.js";
-import { ensure, findMarkers, logShapeProblems, missingMarkers, sceneTrace } from "./checks.js";
+import { ensure, findInjectLeaks, findMarkers, logShapeProblems, missingMarkers, sceneTrace } from "./checks.js";
 import {
   PARTICIPANT_NAMES, ROLE_PLAYERS, act, connectBot, got, isJoinedMsg, npcRole, sceneIds, utterancesByScene,
   type Ctx, type PlayerId, type Story,
@@ -44,7 +44,11 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
       const next = ev.slice(i + 1).find((e) => e.type === "scene.entered" || e.type === "session.ended");
       ensure(next, "nothing followed the advance");
       const exited = ev[i] as Extract<SessionEvent, { type: "scene.exited" }>;
-      const lab = st.ev.labAdvance?.ok ? "; in the side room an advance moved scene 1 to scene 2" : "";
+      let lab = "";
+      if (rec.applicable("F-10")) {
+        got(st.ev.labAdvance, "the side room's scene 1 -> 2 advance");
+        lab = "; in the side room an advance moved scene 1 to scene 2";
+      }
       return `advance ended ${exited.sceneId} and was followed by ${next.type === "scene.entered" ? `scene.entered ${next.sceneId}` : "session.ended"}${lab}`;
     }, ended);
 
@@ -84,8 +88,9 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
         ensure(leaked.length === 0, `${role} received text it must not see: ${leaked.join(" | ")}`);
         markerCount += others.length;
         // Injects addressed to others, and the lines of scenes this role is not in.
+        const injectLeaks = findInjectLeaks(text, role, ctx.scenario.script.scenes);
+        ensure(injectLeaks.length === 0, `${role} saw inject ${injectLeaks.join(", ")}, which is not addressed to them`);
         for (const scene of ctx.scenario.script.scenes) {
-          for (const inj of scene.injects ?? []) if (!inj.to.includes(role)) ensure(!text.includes(inj.content), `${role} saw inject ${inj.id}, which is not addressed to them`);
           if (!scene.participants.includes(role)) {
             ensure(!bot.events().some((e) => e.type === "scene.entered" && e.sceneId === scene.id), `${role} saw scene ${scene.id} start`);
             for (const u of by[scene.id] ?? []) if (u.text.length >= 12) ensure(!text.includes(JSON.stringify(u.text).slice(1, -1)), `${role} saw a line from scene ${scene.id}`);
@@ -189,8 +194,8 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
         const found = findMarkers(hay, ctx.secretValues);
         ensure(found.length === 0, `a secret value appeared in the ${what}`);
       }
-      return `${ctx.secretValues.length} secret value(s) (a fake API key set in the runner's env and any key-like environment values) are absent from ${haystacks.length} places: logs, every client's inbox, the narration and server logs`;
-    });
+      return `${ctx.secretValues.length} secret value(s) (a fake API key, passed through the env of the restarted bootstrap() server in F-24, plus any key-like values in the runner's own environment) are absent from ${haystacks.length} places: every session log on disk (the old, rotated and new ones), every client's inbox, the narration so far and the server logs`;
+    }, ["F-24"]);
 
     await rec.run("F-29", () => {
       const host = [...sys!.hostLog, ...ctx.labHostLog];

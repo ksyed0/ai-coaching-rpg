@@ -35,6 +35,10 @@ export type RunDeps = {
   watchdogMs?: number;
   /** Check ids to fail on purpose (exit-code tests). */
   forceFail?: string[];
+  /** Check ids to leave unrun, simulating a code path that skips a check (tests). */
+  bypass?: string[];
+  /** Where SIGINT/SIGTERM are observed (run.ts passes `process`). An interrupt aborts the run, cleans up and exits 130 / 143. */
+  signals?: { on(event: "SIGINT" | "SIGTERM", fn: () => void): unknown; off(event: "SIGINT" | "SIGTERM", fn: () => void): unknown };
   /** Called before each act; tests block it to simulate a hung run. */
   beforeAct?: (name: string) => Promise<void>;
   /** Only called for --live without --url. Default: the repo-root .env plus the real environment (real env wins). */
@@ -67,7 +71,7 @@ export function readVersion(): string {
  * Runs the demo. Never calls process.exit and never leaves a socket, server, timer or temp dir behind. Returns the exit
  * code (0 all executed checks passed, 1 a check failed or something unexpected happened, 2 usage error).
  */
-export async function runDemo(deps: RunDeps): Promise<{ exitCode: 0 | 1 | 2; report?: Report }> {
+export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report?: Report }> {
   const parsed = parseDemoArgs(deps.argv);
   if (!parsed.ok) { deps.stderr.write(`${scrubText(parsed.error)}\n${parsed.usage}\n`); return { exitCode: 2 }; }
   const opts = parsed.opts;
@@ -109,7 +113,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: 0 | 1 | 2; rep
 
   const startedMs = now();
   const rec = new Recorder({
-    kind, now, forceFail: new Set(deps.forceFail ?? []), aborted: () => ac.signal.aborted,
+    kind, now, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
     onResult: (r) => { if (r.status === "passed") n.ok(`${r.id} ${r.details}`); else if (r.status === "failed") n.fail(`${r.id} ${r.details}`); },
   });
   const cleanups: (() => Promise<void> | void)[] = [];
@@ -127,7 +131,13 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: 0 | 1 | 2; rep
         : `NOTICE: --live sends the scenario text and the scripted lines to the configured model provider (${providerLabel}) and may cost money.`, "yellow");
       if (opts.url) n.line("The checks that depend on exact model output are skipped.");
     }
-    if (opts.url) n.line("Smoke-testing an already running server: it must allow facilitator joins (Slice 1 has no authentication) and have a fresh session. Structure is checked, not model content.");
+    if (opts.url) {
+      n.styled("NOTICE: --url sends test traffic to the TARGET server's real session and its permanent event log:", "yellow");
+      n.line("  - scripted player lines (as delivery_lead, tech_lead, account_manager) and a line containing an escape sequence and a forged newline;");
+      n.line("  - a facilitator join and the commands start, pause, resume, advance and whisper;");
+      n.line("  - malformed frames (bad JSON, an unknown type, an over-long line) and one oversized (~70 kB) frame.");
+      n.line("The server must allow facilitator joins (Slice 1 has no authentication) and have a FRESH session (restart it between runs). Structure is checked, not model content.");
+    }
 
     const scenario = await loadScenario(path.join(repoRoot, "scenarios", "friday-escalation"));
     const { errors } = validateScenario(scenario);
@@ -159,11 +169,22 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: 0 | 1 | 2; rep
   const limit = deps.watchdogMs ?? (kind === "live" ? LIVE_WATCHDOG_MS : DEFAULT_WATCHDOG_MS);
   let timer: NodeJS.Timeout | undefined;
   const watchdog = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), limit); });
+  let interrupted: "SIGINT" | "SIGTERM" | null = null;
+  let onInterrupt: (() => void) | undefined;
+  const interruptP = new Promise<"interrupt">((resolve) => { onInterrupt = () => resolve("interrupt"); });
+  const onSigint = () => { interrupted ??= "SIGINT"; onInterrupt?.(); };
+  const onSigterm = () => { interrupted ??= "SIGTERM"; onInterrupt?.(); };
+  deps.signals?.on("SIGINT", onSigint); deps.signals?.on("SIGTERM", onSigterm);
   const body = execute().then(() => "done" as const, (err: unknown) => err);
-  const outcome = await Promise.race([body, watchdog]);
+  const outcome = await Promise.race([body, watchdog, interruptP]);
   clearTimeout(timer);
+  deps.signals?.off("SIGINT", onSigint); deps.signals?.off("SIGTERM", onSigterm);
   let finishReason = "prerequisite failed";
-  if (outcome === "timeout") {
+  if (outcome === "interrupt") {
+    unexpected = true; finishReason = "run interrupted";
+    ac.abort();
+    extra.push({ id: "INTERRUPTED", title: "The run was not interrupted", status: "failed", details: `stopped by ${interrupted}`, durationMs: 0 });
+  } else if (outcome === "timeout") {
     unexpected = true; finishReason = "run aborted";
     ac.abort();
     extra.push({ id: "WATCHDOG", title: "The run finished within its time limit", status: "failed", details: `aborted after ${Math.round(limit / 1000)} s of real time`, durationMs: limit });
@@ -171,7 +192,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: 0 | 1 | 2; rep
     unexpected = true; finishReason = ac.signal.aborted ? "run aborted" : "run stopped by an error";
     extra.push({ id: "ERROR", title: "The run completed without an unexpected error", status: "failed", details: outcome instanceof Error ? outcome.message : String(outcome), durationMs: 0 });
   }
-  if (outcome === "timeout") void body.then(() => undefined);
+  if (outcome === "timeout" || outcome === "interrupt") void body.then(() => undefined);
 
   // Close everything, newest first, whatever happened. Later registrations (from a run that is still unwinding) clean up at once.
   closed = true;
@@ -183,7 +204,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: 0 | 1 | 2; rep
     tool: TOOL, version: deps.version ?? readVersion(), mode, startedAt: new Date(startedMs).toISOString(), durationMs: now() - startedMs,
     results: [...rec.ordered(), ...extra], secrets: secretValues,
   });
-  const code = exitCodeFor(report, unexpected || extra.length > 0);
+  const code = interrupted ? (interrupted === "SIGINT" ? 130 : 143) : exitCodeFor(report, unexpected || extra.length > 0);
   for (const line of ["", ...formatChecklist(report, color)]) sink.write(`${line}\n`);
 
   if (opts.json !== undefined) {

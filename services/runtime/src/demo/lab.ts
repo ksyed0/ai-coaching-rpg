@@ -1,6 +1,6 @@
 import { Bot, isEvent, type Inbound } from "./bots.js";
 import { ensure } from "./checks.js";
-import { act, connectBot, errCode, isJoinedMsg, npcRole, sceneIds, utterancesOf, withTimeout, type Ctx, type Story, type Utter } from "./ctx.js";
+import { act, attempt, connectBot, errCode, isJoinedMsg, npcRole, sceneIds, utterancesOf, withTimeout, type Ctx, type Story, type Utter } from "./ctx.js";
 import { LAB_FIRST_TOKEN_MS, LAB_HEARTBEAT_MS, startLabSystem } from "./harness.js";
 
 /**
@@ -48,9 +48,12 @@ export async function playLab(ctx: Ctx, st: Story): Promise<void> {
 
     fac.send({ type: "start" });
     await fac.waitFor(isEvent("scene.entered", (e) => e.sceneId === s1), { what: "the lab's scene 1" });
-    fac.send({ type: "command", command: { command: "advance" } });
-    await fac.waitFor(isEvent("scene.entered", (e) => e.sceneId === s2), { what: "the lab's scene 2 after advance" });
-    st.ev.labAdvance = { ok: true, value: true };
+    st.ev.labAdvance = await attempt(async () => {
+      fac.send({ type: "command", command: { command: "advance" } });
+      await fac.waitFor(isEvent("scene.entered", (e) => e.sceneId === s2), { what: "the lab's scene 2 after advance" });
+      return true;
+    }, ctx.signal);
+    if (!st.ev.labAdvance.ok) throw new Error(`the side room's advance failed: ${st.ev.labAdvance.error}`);
     await n.step("lab: the facilitator advances from scene 1 to scene 2, where the AI character is present");
 
     const reply = async (who: Bot, role: string, text: string) => {

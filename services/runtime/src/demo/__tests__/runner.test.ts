@@ -1,9 +1,11 @@
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
+import { EventEmitter } from "node:events";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { WebSocketServer } from "ws";
 import { REPO_ROOT, bootstrap } from "../../main.js";
 import { CHECKS, CHECK_IDS } from "../checks.js";
 import { FAKE_KEY, makeTempRoot } from "../harness.js";
@@ -89,8 +91,11 @@ describe("the demo runner, in-process, fast, mock mode", () => {
     const { exitCode, report } = await runDemo(deps(c, ["--fast", "--no-color"], { watchdogMs: 100, beforeAct: () => new Promise(() => {}) }));
     expect(exitCode).toBe(1);
     expect(report!.results.find((r) => r.id === "WATCHDOG")).toMatchObject({ status: "failed" });
-    expect(report!.summary.failed).toBe(1);
-    expect(report!.results.filter((r) => r.status === "skipped").every((r) => /aborted|needs|live/.test(r.details))).toBe(true);
+    // In mock mode every check that did not run is a failure, so an aborted run can never look healthy.
+    const failed = report!.results.filter((r) => r.status === "failed");
+    expect(failed).toHaveLength(CHECKS.length + 1);
+    expect(failed.filter((r) => r.id !== "WATCHDOG").every((r) => r.details === "did not run (run aborted)")).toBe(true);
+    expect(report!.summary.passed).toBe(0);
     expect(tcpHandles()).toBe(tcpBefore);
     expect(demoTempDirs()).toEqual(dirsBefore);
   });
@@ -274,10 +279,67 @@ describe("--url (smoke test of a running server)", () => {
     expect(text).toContain("Structure is checked, not model content");
   });
 
-  it("reports a server that is not there as a failure, not a hang", async () => {
+  it("reports a server that is not there as a failure, not a hang, after telling the user exactly what it will send", async () => {
     const c = capture();
-    const { exitCode, report } = await runDemo(deps(c, ["--url", "ws://127.0.0.1:9", "--fast"], { watchdogMs: 10_000 }));
+    const { exitCode, report } = await runDemo(deps(c, ["--url", "ws://127.0.0.1:9", "--fast", "--no-color"], { watchdogMs: 10_000 }));
     expect(exitCode).toBe(1);
     expect(report!.results.find((r) => r.id === "F-01")?.status).toBe("failed");
+    const text = c.out.join("");
+    for (const phrase of [
+      "TARGET server's real session and its permanent event log", "scripted player lines", "escape sequence and a forged newline", "facilitator join",
+      "start, pause, resume, advance and whisper", "malformed frames", "oversized (~70 kB) frame", "allow facilitator joins", "no authentication", "FRESH session",
+    ]) expect(text, phrase).toContain(phrase);
+  });
+
+  it("fails cleanly, with bounded memory, against a server that floods the client", async () => {
+    const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    await new Promise<void>((r) => wss.once("listening", r));
+    wss.on("connection", (ws) => { for (let i = 0; i < 8_000; i++) ws.send(JSON.stringify({ type: "noise", pad: "x".repeat(200) })); });
+    cleanups.push(() => new Promise<void>((r) => { for (const cl of wss.clients) cl.terminate(); wss.close(() => r()); }));
+    const tcpBefore = tcpHandles();
+    const c = capture();
+    const { exitCode, report } = await runDemo(deps(c, ["--url", `ws://127.0.0.1:${(wss.address() as { port: number }).port}`, "--fast"], { watchdogMs: 20_000 }));
+    expect(exitCode).toBe(1);
+    expect(report!.results.find((r) => r.id === "F-01")).toMatchObject({ status: "failed" });
+    expect(report!.results.find((r) => r.id === "F-01")!.details).toMatch(/flooded the client/);
+    await vi.waitFor(() => expect(tcpHandles()).toBeLessThanOrEqual(tcpBefore + 1)); // only the test's own listening server remains
+  });
+
+  it("fails cleanly against a server that sends an oversized frame", async () => {
+    const wss = new WebSocketServer({ port: 0, host: "127.0.0.1" });
+    await new Promise<void>((r) => wss.once("listening", r));
+    wss.on("connection", (ws) => ws.send(Buffer.alloc(3 * 1024 * 1024, 0x61)));
+    cleanups.push(() => new Promise<void>((r) => { for (const cl of wss.clients) cl.terminate(); wss.close(() => r()); }));
+    const c = capture();
+    const { exitCode, report } = await runDemo(deps(c, ["--url", `ws://127.0.0.1:${(wss.address() as { port: number }).port}`, "--fast"], { watchdogMs: 20_000 }));
+    expect(exitCode).toBe(1);
+    expect(report!.results.find((r) => r.id === "F-01")?.status).toBe("failed");
+  });
+});
+
+describe("strict mock mode and interrupts", () => {
+  it("a check that never ran is a failure in mock mode (exit 1), never a quiet skip", async () => {
+    const c = capture();
+    const { exitCode, report } = await runDemo(deps(c, ["--fast", "--no-color"], { bypass: ["F-12"] }));
+    expect(exitCode).toBe(1);
+    expect(report!.results.find((r) => r.id === "F-12")).toMatchObject({ status: "failed", details: expect.stringContaining("did not run") });
+    expect(report!.summary.skipped).toBe(0);
+  });
+
+  it("an interrupt aborts the run, runs the cleanups (temp dir, sockets) and exits 130 / 143", async () => {
+    for (const [sig, code] of [["SIGINT", 130], ["SIGTERM", 143]] as const) {
+      const dirsBefore = demoTempDirs(); const tcpBefore = tcpHandles();
+      const signals = new EventEmitter();
+      const c = capture();
+      const { exitCode, report } = await runDemo(deps(c, ["--fast", "--no-color"], {
+        signals: { on: (e, f) => signals.on(e, f), off: (e, f) => signals.off(e, f) },
+        beforeAct: () => { setImmediate(() => signals.emit(sig)); return new Promise(() => {}); },
+      }));
+      expect(exitCode).toBe(code);
+      expect(report!.results.find((r) => r.id === "INTERRUPTED")).toMatchObject({ status: "failed", details: `stopped by ${sig}` });
+      expect(signals.listenerCount("SIGINT") + signals.listenerCount("SIGTERM")).toBe(0); // handlers removed
+      expect(tcpHandles()).toBe(tcpBefore);
+      expect(demoTempDirs()).toEqual(dirsBefore);
+    }
   });
 });
