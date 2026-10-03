@@ -1,0 +1,24 @@
+id: esc-scope-creep-01
+title: The Friday Escalation
+version: "1.2"
+audience: Delivery leads and project managers
+duration_minutes: 45
+players: { min: 3, max: 3 }
+context: >
+  A fixed-fee data platform programme is six weeks from go-live. The client
+  sponsor has emailed asking for a "small" additional reconciliation module
+  before launch and expects an answer by end of day Friday.
+learning_objectives:
+  - id: LO1
+    statement: Separate the client's stated request from their underlying need before responding
+    rubric_criteria: [discovery, listening]
+  - id: LO2
+    statement: Protect scope and margin while preserving the relationship
+    rubric_criteria: [negotiation, commercial_judgement]
+  - id: LO3
+    statement: Align the delivery team on one position before engaging the client
+    rubric_criteria: [team_alignment, role_clarity]
+rubrics: [individual_delivery_v2, group_collaboration_v1]
+facilitator_notes: >
+  Common failure mode is agreeing to the module in scene 2 without pricing it.
+  Let it happen; the debrief is where the learning lands.

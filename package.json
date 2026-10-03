@@ -8,7 +8,8 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
+    "test:coverage": "pnpm -r exec vitest run --coverage",
     "plan:test": "jest --watchAll=false",
     "plan:test:coverage": "jest --watchAll=false --coverage",
     "plan:generate": "node tools/generate-plan.js",
@@ -28,21 +29,13 @@
     "agent:apply": "node tools/agent-spec-plan.js apply-pending",
     "agent:list": "node tools/agent-spec-plan.js list",
     "agent:status": "node tools/agent-spec-plan.js status",
-    "agent:start": "node tools/agent-lifecycle.js start",
-    "agent:done": "node tools/agent-lifecycle.js done",
-    "agent:concerns": "node tools/agent-lifecycle.js concerns",
-    "agent:needs-context": "node tools/agent-lifecycle.js needs-context",
-    "agent:blocked": "node tools/agent-lifecycle.js blocked",
-    "agent:resolve": "node tools/agent-lifecycle.js resolve",
-    "agent:tasks": "node tools/agent-lifecycle.js list",
-    "agent:task-status": "node tools/agent-lifecycle.js status",
-    "agent:context": "node tools/agent-context.js generate",
-    "agent:review-start": "node tools/agent-task-review.js start",
-    "agent:review-spec": "node tools/agent-task-review.js spec-verdict",
-    "agent:review-quality": "node tools/agent-task-review.js quality-verdict",
-    "agent:review-retry": "node tools/agent-task-review.js forge-retry",
-    "agent:review-status": "node tools/agent-task-review.js status",
-    "dashboard:watch": "node tools/watch-dashboard.js"
+    "dashboard:watch": "node tools/watch-dashboard.js",
+    "test:watch": "vitest",
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "dev:runtime": "pnpm --filter @acr/runtime dev",
+    "play": "pnpm --filter @acr/runtime play",
+    "lint:sdk": "bash scripts/check-sdk-imports.sh"
   },
   "repository": {
     "type": "git",
@@ -50,18 +43,29 @@
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "bugs": {
     "url": "https://github.com/ksyed0/ai-coaching-rpg/issues"
   },
   "homepage": "https://github.com/ksyed0/ai-coaching-rpg#readme",
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@types/node": "^22.7.0",
+    "@vitest/coverage-v8": "^5.0.3",
     "chart.js": "^4.5.1",
     "eslint": "10.2.1",
     "husky": "^9.1.7",
     "jest": "^30.3.0",
     "lint-staged": "^16.4.0",
-    "prettier": "^3.8.3"
+    "prettier": "^3.8.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vite": "^7",
+    "vitest": "^5.0.3"
+  },
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=22"
   }
 }

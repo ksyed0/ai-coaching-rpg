@@ -68,12 +68,6 @@
       "estimate": "S",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0001",
@@ -96,12 +90,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0003",
@@ -131,12 +119,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0006",
@@ -176,12 +158,6 @@
       "estimate": "S",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0011",
@@ -206,12 +182,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0013",
@@ -241,12 +211,6 @@
       "estimate": "L",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0016",
@@ -286,12 +250,6 @@
       "estimate": "L",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0021",
@@ -326,12 +284,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0025",
@@ -361,12 +313,6 @@
       "estimate": "L",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0028",
@@ -396,12 +342,6 @@
       "estimate": "S",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0031",
@@ -426,12 +366,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0033",
@@ -461,12 +395,6 @@
       "estimate": "S",
       "status": "Planned",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0036",
@@ -489,6 +417,79 @@
       ]
     },
     {
+      "id": "US-0014",
+      "epicId": "EPIC-0001",
+      "title": "As an operator, I want to configure OpenRouter or a local OpenAI-compatible endpoint, or a custom Anthropic endpoint, so that the NPCs and Game Master are not tied to one hosted provider.",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Complete",
+      "branch": "feature/EPIC-0001-US-0001-monorepo",
+      "acs": [
+        {
+          "id": "AC-0040",
+          "text": "MODEL_PROVIDER selects mock, anthropic, openrouter or local, and an unknown value lists the valid ones",
+          "done": true
+        },
+        {
+          "id": "AC-0041",
+          "text": "openrouter and local stream through an OpenAI-compatible client (SSE, JSON fallback, abort) that passes the shared provider contract",
+          "done": true
+        },
+        {
+          "id": "AC-0042",
+          "text": "ANTHROPIC_BASE_URL, OPENROUTER_BASE_URL and LOCAL_BASE_URL are validated (no userinfo, https unless loopback or local) and errors name the variable",
+          "done": true
+        },
+        {
+          "id": "AC-0043",
+          "text": "local requires NPC_MODEL and GM_MODEL; the defaults are claude-sonnet-5-5 (anthropic) and anthropic/claude-sonnet-5.5 (openrouter)",
+          "done": true
+        },
+        {
+          "id": "AC-0044",
+          "text": "API keys never appear in logs, URLs or error messages, and startup logs only a fixed provider label and the endpoint host",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0005"
+      ]
+    },
+    {
+      "id": "US-0015",
+      "epicId": "EPIC-0001",
+      "title": "As an operator, I want to configure the NPC first-token and reply timeouts, so that slower or reasoning models do not constantly trigger the fallback line.",
+      "priority": "Medium",
+      "estimate": "S",
+      "status": "Complete",
+      "branch": "feature/EPIC-0001-US-0001-monorepo",
+      "acs": [
+        {
+          "id": "AC-0045",
+          "text": "The NPC first-token timeout defaults to 10 000 ms and the reply deadline to 20 000 ms, from one shared set of constants used by NpcAgent, SessionHost and bootstrap",
+          "done": true
+        },
+        {
+          "id": "AC-0046",
+          "text": "NPC_FIRST_TOKEN_TIMEOUT_MS and NPC_REPLY_TIMEOUT_MS override them at startup (real environment wins over .env) and reach every NPC agent",
+          "done": true
+        },
+        {
+          "id": "AC-0047",
+          "text": "Values must be whole base-10 milliseconds from 500 to 600000 with the reply deadline at least the first-token timeout; an invalid value stops startup with an error naming the variable and the allowed range",
+          "done": true
+        },
+        {
+          "id": "AC-0048",
+          "text": "README, .env.example, CHANGELOG and ARCHITECTURE document the 10 s default and the two variables",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0007"
+      ]
+    },
+    {
       "id": "US-0013",
       "epicId": "EPIC-0002",
       "title": "As a participant, I want to reconnect and receive the events I missed, so that a dropped connection does not lose the session.",
@@ -496,12 +497,6 @@
       "estimate": "M",
       "status": "Planned",
       "branch": "feature/EPIC-0002-US-0013-reconnect",
-      "prNumber": null,
-      "specPath": null,
-      "planPath": null,
-      "planTask": null,
-      "relatedBug": null,
-      "doneDate": null,
       "acs": [
         {
           "id": "AC-0039",
@@ -636,6 +631,26 @@
       "notes": "See the implementation plan task of the same number."
     },
     {
+      "id": "TASK-0014",
+      "storyId": "US-0014",
+      "title": "Add OpenRouter and local OpenAI-compatible providers and a custom Anthropic endpoint",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0001-US-0001-monorepo",
+      "notes": "packages/adapters/src/model/openai-compatible.ts, endpoint.ts, select.ts; log fix in services/runtime/src/main.ts."
+    },
+    {
+      "id": "TASK-0015",
+      "storyId": "US-0015",
+      "title": "Make the NPC timeouts configurable with a 10 s first-token default",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0001-US-0001-monorepo",
+      "notes": "services/runtime/src/agents/timeouts.ts (constants and validation), npc-agent.ts, host/session-host.ts, main.ts. Ruling R36."
+    },
+    {
       "id": "TASK-0013",
       "storyId": "US-0013",
       "title": "Add replay-from-seq to the protocol (slice 2)",
@@ -651,96 +666,104 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0014": {
+      "projectedUsd": 800,
+      "costUsd": 4.546193,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0015": {
+      "projectedUsd": 400,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 4.171708,
+      "costUsd": 4.546193,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 54.2322,
-      "inputTokens": 3089930,
-      "outputTokens": 559978,
-      "cacheReadTokens": 114152385,
-      "cacheHitRatio": 0.973645
+      "costUsd": 68.1929,
+      "inputTokens": 3656992,
+      "outputTokens": 654229
     },
     "_bugs": {
       "_totals": {
         "costUsd": 0,
         "inputTokens": 0,
-        "outputTokens": 0,
-        "cacheReadTokens": 0,
-        "cacheHitRatio": null
+        "outputTokens": 0
       }
     }
   },
@@ -829,6 +852,20 @@
       "openCriticalBug": false,
       "isAtRisk": true
     },
+    "US-0014": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0015": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
     "US-0013": {
       "missingTCs": true,
       "noBranch": false,
@@ -857,54 +894,134 @@
       "summary": ""
     }
   ],
-  "lessons": [],
-  "generatedAt": "2026-10-03T02:24:51.390Z",
-  "commitSha": "410c535",
-  "buildNumber": "2",
-  "branch": "main",
+  "lessons": [
+    {
+      "id": "L-0001",
+      "title": "PlanVisualizer installs are additive; install only from the released main",
+      "rule": "Install PlanVisualizer only from a fresh clone of the released `main` branch, never from a local `develop` checkout. `install.sh` copies files but never deletes them, so installing over a different-version install leaves orphaned tools and tests that fail against the new version. When reinstalling, restore your own `AGENTS.md`, `plan-visualizer.config.json` and docs afterwards; the installer replaces a missing `AGENTS.md` with a 7-line stub and resets the config project name.\n_Learned when a develop-era install (repository layer needing `proper-lockfile` and `better-sqlite3`) was overwritten by `main` v2.4.0 and 47 test suites failed on 189 leftover files._",
+      "context": "",
+      "date": "2026-10-01",
+      "bugIds": []
+    }
+  ],
+  "generatedAt": "2026-10-03T02:31:06.792Z",
+  "commitSha": "5ddb9cf",
+  "buildNumber": "4",
+  "branch": "chore/ai-cost-log-session-1",
   "sessionTimeline": [
     {
+      "date": "2026-10-01",
+      "cumCost": 1.5549
+    },
+    {
+      "date": "2026-10-01",
+      "cumCost": 6.1671
+    },
+    {
       "date": "2026-10-03",
-      "cumCost": 54.2322
+      "cumCost": 68.1929
     }
   ],
   "costHistory": {
-    "main": [
+    "master": [
+      {
+        "date": "2026-10-01",
+        "costUsd": 1.5549
+      }
+    ],
+    "feature/reinstall-plan-visualizer": [
+      {
+        "date": "2026-10-01",
+        "costUsd": 4.6122
+      }
+    ],
+    "chore/ai-cost-log-session-1": [
       {
         "date": "2026-10-03",
-        "costUsd": 54.2322
+        "costUsd": 62.0258
       }
     ]
   },
-  "deltaSpend": null,
-  "cacheHit": {
-    "series": [
-      {
-        "date": "2026-10-03",
-        "sessionId": "97899fb7-c898-5390-94ed-4bd9e72bd92d",
-        "ratio": 0.973645
-      }
-    ],
-    "latest": 0.973645,
-    "rollingAvg": 0.973645,
-    "windowSize": 14,
-    "sampleCount": 1
-  },
+  "deltaSpend": 62.03,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
   "appName": "ai-coaching-rpg",
   "appVersion": "1.0.0",
   "githubUrl": "",
-  "agents": {},
+  "agents": {
+    "Conductor": {
+      "role": "Delivery Manager",
+      "icon": "🎯",
+      "color": "oklch(52% 0.22 25)",
+      "avatar": "conductor",
+      "instructionFile": "docs/agents/DM_AGENT.md"
+    },
+    "Compass": {
+      "role": "Product Owner",
+      "icon": "🧭",
+      "color": "oklch(50% 0.20 264)",
+      "avatar": "compass",
+      "instructionFile": "docs/agents/PO_AGENT.md"
+    },
+    "Keystone": {
+      "role": "Architect",
+      "icon": "🏗️",
+      "color": "oklch(44% 0.22 310)",
+      "avatar": "keystone",
+      "instructionFile": "docs/agents/ARCHITECT_AGENT.md"
+    },
+    "Lens": {
+      "role": "Code Reviewer",
+      "icon": "🔍",
+      "color": "oklch(72% 0.19 46)",
+      "avatar": "lens",
+      "instructionFile": "docs/agents/CODE_REVIEWER_AGENT.md"
+    },
+    "Palette": {
+      "role": "UI Designer",
+      "icon": "🎨",
+      "color": "oklch(60% 0.14 185)",
+      "avatar": "palette",
+      "instructionFile": "docs/agents/UI_DESIGNER_AGENT.md"
+    },
+    "Forge": {
+      "role": "Backend Developer",
+      "icon": "⚒️",
+      "color": "oklch(44% 0.22 25)",
+      "avatar": "forge",
+      "instructionFile": "docs/agents/BE_DEV_AGENT.md"
+    },
+    "Pixel": {
+      "role": "Frontend Developer",
+      "icon": "📱",
+      "color": "oklch(38% 0.20 270)",
+      "avatar": "pixel",
+      "instructionFile": "docs/agents/FE_DEV_AGENT.md"
+    },
+    "Sentinel": {
+      "role": "Functional Tester",
+      "icon": "🛡️",
+      "color": "oklch(50% 0.17 145)",
+      "avatar": "sentinel",
+      "instructionFile": "docs/agents/FUNCTIONAL_TESTER_AGENT.md"
+    },
+    "Circuit": {
+      "role": "Automation Tester",
+      "icon": "⚡",
+      "color": "oklch(40% 0.22 285)",
+      "avatar": "circuit",
+      "instructionFile": "docs/agents/AUTOMATION_TESTER_AGENT.md"
+    }
+  },
   "budget": {
-    "totalBudget": 11254.2322,
-    "totalSpent": 54.2322,
-    "totalProjected": 11200,
-    "percentUsed": 0,
-    "burnRate": 27.1161,
-    "daysRemaining": 413,
-    "projectedExhaustion": 413,
+    "totalBudget": 11268.1929,
+    "totalSpent": 68.1929,
+    "totalProjected": 12400,
+    "percentUsed": 1,
+    "burnRate": 2.1973267777777776,
+    "daysRemaining": 5097,
+    "projectedExhaustion": 5097,
     "thresholds": [
       50,
       75,
@@ -914,20 +1031,20 @@
     "crossedThresholds": [],
     "epicBudgets": [
       {
-        "id": "EPIC-0002",
-        "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 804.171708,
-        "spent": 4.171708,
-        "remaining": 800,
+        "id": "EPIC-0001",
+        "title": "Slice 1 — script package and text-only runtime",
+        "budget": 10463.646702,
+        "spent": 63.64670200000001,
+        "remaining": 10400,
         "percentUsed": 1
       },
       {
-        "id": "EPIC-0001",
-        "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10450.060496,
-        "spent": 50.06049600000001,
-        "remaining": 10400,
-        "percentUsed": 0
+        "id": "EPIC-0002",
+        "title": "Slice 2 — web lobby, session view and reconnect",
+        "budget": 804.546193,
+        "spent": 4.546193,
+        "remaining": 800,
+        "percentUsed": 1
       },
       {
         "id": "EPIC-0003",
@@ -959,57 +1076,388 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-10-01T20:30:14.862Z",
-      "2026-10-03T02:24:51.406Z"
+      "2026-09-03T02:31:06.815Z",
+      "2026-09-04T02:31:06.815Z",
+      "2026-09-05T02:31:06.815Z",
+      "2026-09-06T02:31:06.815Z",
+      "2026-09-07T02:31:06.815Z",
+      "2026-09-08T02:31:06.815Z",
+      "2026-09-09T02:31:06.815Z",
+      "2026-09-10T02:31:06.815Z",
+      "2026-09-11T02:31:06.815Z",
+      "2026-09-12T02:31:06.815Z",
+      "2026-09-13T02:31:06.815Z",
+      "2026-09-14T02:31:06.815Z",
+      "2026-09-15T02:31:06.815Z",
+      "2026-09-16T02:31:06.815Z",
+      "2026-09-17T02:31:06.815Z",
+      "2026-09-18T02:31:06.815Z",
+      "2026-09-19T02:31:06.815Z",
+      "2026-09-20T02:31:06.815Z",
+      "2026-09-21T02:31:06.815Z",
+      "2026-09-22T02:31:06.815Z",
+      "2026-09-23T02:31:06.815Z",
+      "2026-09-24T02:31:06.815Z",
+      "2026-09-25T02:31:06.815Z",
+      "2026-09-26T02:31:06.815Z",
+      "2026-09-27T02:31:06.815Z",
+      "2026-09-28T02:31:06.815Z",
+      "2026-09-29T02:31:06.815Z",
+      "2026-09-30T02:31:06.815Z",
+      "2026-10-01T02:31:06.815Z",
+      "2026-10-02T02:31:06.815Z",
+      "2026-10-03T02:31:06.813Z"
     ],
     "doneCounts": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0,
       0
     ],
     "totalStories": [
-      13,
-      13
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15,
+      15
     ],
     "aiCosts": [
-      0,
-      54.2322
+      2.2730966666666665,
+      4.546193333333333,
+      6.81929,
+      9.092386666666666,
+      11.365483333333332,
+      13.63858,
+      15.911676666666665,
+      18.184773333333332,
+      20.457869999999996,
+      22.730966666666664,
+      25.00406333333333,
+      27.27716,
+      29.550256666666666,
+      31.82335333333333,
+      34.09645,
+      36.369546666666665,
+      38.64264333333333,
+      40.91573999999999,
+      43.18883666666666,
+      45.46193333333333,
+      47.735029999999995,
+      50.00812666666666,
+      52.28122333333333,
+      54.55432,
+      56.827416666666664,
+      59.10051333333333,
+      61.37361,
+      63.64670666666666,
+      65.91980333333333,
+      68.1929,
+      68.1929
     ],
     "coverage": [
-      null,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       null
     ],
     "velocity": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0,
       0
     ],
     "openBugs": [
       0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0
     ],
     "atRisk": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0,
       0
     ],
     "inputTokens": [
       0,
-      3089930
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3656992
     ],
     "outputTokens": [
       0,
-      559978
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      654229
     ],
     "avgRisk": [
       1.0999999999999999,
+      1.0999999999999999,
+      1.0999999999999999,
+      1.0999999999999999,
+      1.0999999999999999,
+      1.0999999999999999,
+      1.0999999999999999,
+      1.0999999999999999,
+      1.0999999999999999,
+      1.0999999999999999,
+      1.0999999999999999,
+      1.1199999999999999,
+      1.1199999999999999,
+      1.1199999999999999,
+      1.1199999999999999,
+      1.1199999999999999,
+      1.1199999999999999,
+      1.1199999999999999,
+      1.1199999999999999,
+      1.1199999999999999,
+      1.1199999999999999,
+      1.1199999999999999,
+      1.1199999999999999,
+      1.14,
+      1.14,
+      1.14,
+      1.14,
+      1.14,
+      1.14,
+      1.14,
       1.0999999999999999
     ],
     "velocityByWeek": {
       "labels": [
+        "2026-W36",
+        "2026-W37",
+        "2026-W38",
+        "2026-W39",
         "2026-W40"
       ],
       "points": [
+        0,
+        0,
+        0,
+        0,
         0
       ],
       "rollingAvg": [
+        0,
+        0,
+        0,
+        0,
         0
       ]
     }

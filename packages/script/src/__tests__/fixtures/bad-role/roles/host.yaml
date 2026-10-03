@@ -1,0 +1,5 @@
+id: host
+type: player
+brief: You are hosting the check-in.
+private_facts:
+  - You have five minutes

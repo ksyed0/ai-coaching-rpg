@@ -1,0 +1,170 @@
+{
+  "project": {
+    "name": "PlanVisualizer",
+    "description": "Agentic AI SDLC",
+    "repoUrl": "https://github.com/ksyed0/PlanVisualizer",
+    "startDate": "2026-03-10"
+  },
+  "currentPhase": 0,
+  "phases": [
+    {
+      "id": 1,
+      "name": "Blueprint",
+      "agents": [
+        "Compass"
+      ],
+      "deliverables": [
+        "refined ACs",
+        "priority list"
+      ],
+      "status": "pending",
+      "startedAt": null,
+      "completedAt": null
+    },
+    {
+      "id": 2,
+      "name": "Architect",
+      "agents": [
+        "Keystone"
+      ],
+      "deliverables": [
+        "scaffold",
+        "types",
+        "service stubs"
+      ],
+      "status": "pending",
+      "startedAt": null,
+      "completedAt": null
+    },
+    {
+      "id": 3,
+      "name": "Build",
+      "agents": [
+        "Pixel",
+        "Forge",
+        "Palette"
+      ],
+      "deliverables": [
+        "implementation",
+        "unit tests"
+      ],
+      "status": "pending",
+      "startedAt": null,
+      "completedAt": null
+    },
+    {
+      "id": 4,
+      "name": "Integration",
+      "agents": [
+        "Pixel"
+      ],
+      "deliverables": [
+        "wired services",
+        "e2e flows"
+      ],
+      "status": "pending",
+      "startedAt": null,
+      "completedAt": null
+    },
+    {
+      "id": 5,
+      "name": "Test",
+      "agents": [
+        "Sentinel",
+        "Circuit"
+      ],
+      "deliverables": [
+        "test report",
+        "coverage"
+      ],
+      "status": "pending",
+      "startedAt": null,
+      "completedAt": null
+    },
+    {
+      "id": 6,
+      "name": "Polish",
+      "agents": [
+        "Pixel",
+        "Forge"
+      ],
+      "deliverables": [
+        "bug fixes",
+        "demo prep"
+      ],
+      "status": "pending",
+      "startedAt": null,
+      "completedAt": null
+    }
+  ],
+  "agents": {
+    "Conductor": {
+      "status": "idle",
+      "currentTask": null,
+      "tasksCompleted": 0
+    },
+    "Compass": {
+      "status": "idle",
+      "currentTask": null,
+      "tasksCompleted": 0
+    },
+    "Keystone": {
+      "status": "idle",
+      "currentTask": null,
+      "tasksCompleted": 0
+    },
+    "Lens": {
+      "status": "idle",
+      "currentTask": null,
+      "tasksCompleted": 0,
+      "reviewsCompleted": 0,
+      "blockers": 0
+    },
+    "Palette": {
+      "status": "idle",
+      "currentTask": null,
+      "tasksCompleted": 0
+    },
+    "Forge": {
+      "status": "idle",
+      "currentTask": null,
+      "tasksCompleted": 0
+    },
+    "Pixel": {
+      "status": "idle",
+      "currentTask": null,
+      "tasksCompleted": 0
+    },
+    "Sentinel": {
+      "status": "idle",
+      "currentTask": null,
+      "tasksCompleted": 0,
+      "testsPassed": 0,
+      "testsFailed": 0
+    },
+    "Circuit": {
+      "status": "idle",
+      "currentTask": null,
+      "tasksCompleted": 0,
+      "coveragePercent": 0
+    }
+  },
+  "epics": {},
+  "stories": {},
+  "cycles": [],
+  "metrics": {
+    "storiesCompleted": 0,
+    "storiesTotal": 0,
+    "tasksCompleted": 0,
+    "tasksTotal": 0,
+    "testsPassed": 0,
+    "testsFailed": 0,
+    "testsTotal": 0,
+    "bugsOpen": 0,
+    "bugsFixed": 0,
+    "coveragePercent": 0,
+    "reviewsApproved": 0,
+    "reviewsBlocked": 0
+  },
+  "log": []
+}
