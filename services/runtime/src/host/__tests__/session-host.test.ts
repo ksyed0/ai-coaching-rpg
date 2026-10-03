@@ -282,3 +282,18 @@ describe("SessionHost.snapshotFor", () => {
     expect(Object.keys(fac.npcs)).toEqual(["guest"]);
   });
 });
+
+describe("SessionHost NPC timeouts", () => {
+  const npcAgents = (h: SessionHost) => [...(h as unknown as { npcs: Map<string, { timeouts: { firstTokenMs: number; replyMs: number } }> }).npcs.values()];
+  it("gives every NPC the shared defaults when none are passed", async () => {
+    const scenario = await loadScenario(fixture);
+    const h = new SessionHost({ scenario, engine, npcProvider: npc, gmProvider: new MockModelProvider(), clock });
+    expect(npcAgents(h).length).toBeGreaterThan(0);
+    for (const a of npcAgents(h)) expect(a.timeouts).toEqual({ firstTokenMs: 10_000, replyMs: 20_000 });
+  });
+  it("passes configured timeouts to every NPC", async () => {
+    const scenario = await loadScenario(fixture);
+    const h = new SessionHost({ scenario, engine, npcProvider: npc, gmProvider: new MockModelProvider(), clock, firstTokenTimeoutMs: 1234, replyTimeoutMs: 5678 });
+    for (const a of npcAgents(h)) expect(a.timeouts).toEqual({ firstTokenMs: 1234, replyMs: 5678 });
+  });
+});

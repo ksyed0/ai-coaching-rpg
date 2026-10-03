@@ -337,6 +337,29 @@ Notes: packages/adapters/src/model/openai-compatible.ts, endpoint.ts, select.ts;
 ```
 
 ```
+US-0015 (EPIC-0001): As an operator, I want to configure the NPC first-token and reply timeouts, so that slower or reasoning models do not constantly trigger the fallback line.
+Priority: Medium
+Estimate: S
+Status: Complete
+Branch: feature/EPIC-0001-US-0001-monorepo
+Dependencies: US-0007
+Acceptance Criteria:
+  - [x] AC-0045: The NPC first-token timeout defaults to 10 000 ms and the reply deadline to 20 000 ms, from one shared set of constants used by NpcAgent, SessionHost and bootstrap
+  - [x] AC-0046: NPC_FIRST_TOKEN_TIMEOUT_MS and NPC_REPLY_TIMEOUT_MS override them at startup (real environment wins over .env) and reach every NPC agent
+  - [x] AC-0047: Values must be whole base-10 milliseconds from 500 to 600000 with the reply deadline at least the first-token timeout; an invalid value stops startup with an error naming the variable and the allowed range
+  - [x] AC-0048: README, .env.example, CHANGELOG and ARCHITECTURE document the 10 s default and the two variables
+```
+
+```
+TASK-0015 (US-0015): Make the NPC timeouts configurable with a 10 s first-token default
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0001-US-0001-monorepo
+Notes: services/runtime/src/agents/timeouts.ts (constants and validation), npc-agent.ts, host/session-host.ts, main.ts. Ruling R36.
+```
+
+```
 US-0013 (EPIC-0002): As a participant, I want to reconnect and receive the events I missed, so that a dropped connection does not lose the session.
 Priority: Medium
 Estimate: M

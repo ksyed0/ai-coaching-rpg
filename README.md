@@ -150,10 +150,14 @@ All settings are environment variables (read from `.env` at the repository root;
 | `LOCAL_API_KEY` | – | Optional token for `local`; sent only when set |
 | `NPC_MODEL`, `GM_MODEL` | `claude-sonnet-5-5` (anthropic), `anthropic/claude-sonnet-5.5` (openrouter) | Model for NPC replies / the Game Master. Blank uses the default. **Required for `local`** (no default) |
 | `RUNTIME_PORT` | `8080` | Port the server listens on |
+| `NPC_FIRST_TOKEN_TIMEOUT_MS` | `10000` | Milliseconds an NPC waits for the model's first token before speaking its scripted fallback line and alerting the facilitator. Whole number, `500` to `600000` |
+| `NPC_REPLY_TIMEOUT_MS` | `20000` | Milliseconds allowed for a whole NPC reply (stalls after the first token included). Whole number, `500` to `600000`, and **must be at least `NPC_FIRST_TOKEN_TIMEOUT_MS`** |
 | `SCENARIO_DIR` | `scenarios/friday-escalation` | Scenario folder (relative paths resolve from the repository root) |
 | `SESSION_ID` | `local` | Session id clients join (`--session`) |
 | `DEPLOYMENT_STAGE` | `local` | Present in `.env.example` but not read by the code yet |
 | `RUN_LIVE_MODEL_TESTS` | unset | Set to `1` (with a key) to run the live-API contract tests. Costs money; off by default |
+
+**When to raise the NPC timeouts.** The defaults suit fast chat models. Raise `NPC_FIRST_TOKEN_TIMEOUT_MS` (and `NPC_REPLY_TIMEOUT_MS` with it, since the reply deadline must be at least as long) for reasoning models that think before the first token, free-tier OpenRouter models that queue requests, and slow local models (for example a large model on CPU with Ollama). If NPCs keep answering with their canned fallback line and the facilitator sees "no first token" alerts, the timeout is too short for your model. Values must be plain whole numbers of milliseconds (`15000`, not `15s` or `1.5e4`); an invalid value stops startup with an error naming the variable.
 
 ## Update
 

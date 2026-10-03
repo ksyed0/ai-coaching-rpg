@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
@@ -85,4 +85,59 @@ describe("bootstrap with each provider kind", () => {
       expect(all()).not.toContain(KEY);
     });
   }
+});
+
+describe("bootstrap NPC timeouts", () => {
+  const timeoutsOf = (rt: Runtime) => [...(rt.host as unknown as { npcs: Map<string, { timeouts: { firstTokenMs: number; replyMs: number } }> }).npcs.values()].map((a) => a.timeouts);
+
+  it("defaults to 10 s / 20 s", async () => {
+    const { r } = await boot({});
+    expect(r.ok).toBe(true);
+    const t = timeoutsOf(runtime!);
+    expect(t.length).toBeGreaterThan(0);
+    for (const x of t) expect(x).toEqual({ firstTokenMs: 10_000, replyMs: 20_000 });
+  });
+  it("applies the environment overrides to every NPC", async () => {
+    const { r } = await boot({ NPC_FIRST_TOKEN_TIMEOUT_MS: " 3000 ", NPC_REPLY_TIMEOUT_MS: "9000" });
+    expect(r.ok).toBe(true);
+    for (const x of timeoutsOf(runtime!)) expect(x).toEqual({ firstTokenMs: 3000, replyMs: 9000 });
+  });
+  it("treats an empty value as the default", async () => {
+    const { r } = await boot({ NPC_FIRST_TOKEN_TIMEOUT_MS: "  ", NPC_REPLY_TIMEOUT_MS: "" });
+    expect(r.ok).toBe(true);
+    for (const x of timeoutsOf(runtime!)) expect(x).toEqual({ firstTokenMs: 10_000, replyMs: 20_000 });
+  });
+  it("real environment wins over <root>/.env", async () => {
+    await writeFile(path.join(tmp, ".env"), "NPC_FIRST_TOKEN_TIMEOUT_MS=4000\nNPC_REPLY_TIMEOUT_MS=8000\n");
+    const { r } = await boot({ NPC_FIRST_TOKEN_TIMEOUT_MS: "6000" });
+    expect(r.ok).toBe(true);
+    for (const x of timeoutsOf(runtime!)) expect(x).toEqual({ firstTokenMs: 6000, replyMs: 8000 });
+  });
+
+  const bad: [string, Record<string, string>, string][] = [
+    ["exponent", { NPC_FIRST_TOKEN_TIMEOUT_MS: "1e3" }, "NPC_FIRST_TOKEN_TIMEOUT_MS"],
+    ["unit suffix", { NPC_FIRST_TOKEN_TIMEOUT_MS: "10s" }, "NPC_FIRST_TOKEN_TIMEOUT_MS"],
+    ["hex", { NPC_REPLY_TIMEOUT_MS: "0x10" }, "NPC_REPLY_TIMEOUT_MS"],
+    ["negative", { NPC_REPLY_TIMEOUT_MS: "-5" }, "NPC_REPLY_TIMEOUT_MS"],
+    ["decimal", { NPC_FIRST_TOKEN_TIMEOUT_MS: "1000.5" }, "NPC_FIRST_TOKEN_TIMEOUT_MS"],
+    ["below minimum", { NPC_FIRST_TOKEN_TIMEOUT_MS: "499" }, "NPC_FIRST_TOKEN_TIMEOUT_MS"],
+    ["above maximum", { NPC_REPLY_TIMEOUT_MS: "600001" }, "NPC_REPLY_TIMEOUT_MS"],
+    ["reply below first token", { NPC_FIRST_TOKEN_TIMEOUT_MS: "5000", NPC_REPLY_TIMEOUT_MS: "4999" }, "NPC_REPLY_TIMEOUT_MS"],
+    ["raised first token over default reply", { NPC_FIRST_TOKEN_TIMEOUT_MS: "30000" }, "NPC_REPLY_TIMEOUT_MS"],
+  ];
+  it.each(bad)("refuses to start on %s and names the variable without leaking anything else", async (_n, env, name) => {
+    const { r, all } = await boot({ ...env, MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: KEY });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.join("\n")).toContain(name);
+    expect(r.errors.join("\n")).toMatch(/500/);
+    expect(r.errors.join("\n")).not.toMatch(/\n\s+at /);
+    expect(all()).not.toContain(KEY);
+    expect(all()).not.toContain("model provider:"); // nothing was started or logged
+  });
+  it("sanitizes and truncates a hostile value", async () => {
+    const { r } = await boot({ NPC_FIRST_TOKEN_TIMEOUT_MS: "9".repeat(300) + "\u001b[2J" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) { expect(r.errors[0]!.length).toBeLessThan(250); expect(r.errors[0]).not.toContain("\u001b"); }
+  });
 });

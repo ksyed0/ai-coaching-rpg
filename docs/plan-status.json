@@ -456,6 +456,40 @@
       ]
     },
     {
+      "id": "US-0015",
+      "epicId": "EPIC-0001",
+      "title": "As an operator, I want to configure the NPC first-token and reply timeouts, so that slower or reasoning models do not constantly trigger the fallback line.",
+      "priority": "Medium",
+      "estimate": "S",
+      "status": "Complete",
+      "branch": "feature/EPIC-0001-US-0001-monorepo",
+      "acs": [
+        {
+          "id": "AC-0045",
+          "text": "The NPC first-token timeout defaults to 10 000 ms and the reply deadline to 20 000 ms, from one shared set of constants used by NpcAgent, SessionHost and bootstrap",
+          "done": true
+        },
+        {
+          "id": "AC-0046",
+          "text": "NPC_FIRST_TOKEN_TIMEOUT_MS and NPC_REPLY_TIMEOUT_MS override them at startup (real environment wins over .env) and reach every NPC agent",
+          "done": true
+        },
+        {
+          "id": "AC-0047",
+          "text": "Values must be whole base-10 milliseconds from 500 to 600000 with the reply deadline at least the first-token timeout; an invalid value stops startup with an error naming the variable and the allowed range",
+          "done": true
+        },
+        {
+          "id": "AC-0048",
+          "text": "README, .env.example, CHANGELOG and ARCHITECTURE document the 10 s default and the two variables",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0007"
+      ]
+    },
+    {
       "id": "US-0013",
       "epicId": "EPIC-0002",
       "title": "As a participant, I want to reconnect and receive the events I missed, so that a dropped connection does not lose the session.",
@@ -607,6 +641,16 @@
       "notes": "packages/adapters/src/model/openai-compatible.ts, endpoint.ts, select.ts; log fix in services/runtime/src/main.ts."
     },
     {
+      "id": "TASK-0015",
+      "storyId": "US-0015",
+      "title": "Make the NPC timeouts configurable with a 10 s first-token default",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0001-US-0001-monorepo",
+      "notes": "services/runtime/src/agents/timeouts.ts (constants and validation), npc-agent.ts, host/session-host.ts, main.ts. Ruling R36."
+    },
+    {
       "id": "TASK-0013",
       "storyId": "US-0013",
       "title": "Add replay-from-seq to the protocol (slice 2)",
@@ -622,85 +666,91 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0015": {
+      "projectedUsd": 400,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0.440507,
+      "costUsd": 0.41114,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -809,6 +859,13 @@
       "openCriticalBug": false,
       "isAtRisk": true
     },
+    "US-0015": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
     "US-0013": {
       "missingTCs": true,
       "noBranch": false,
@@ -847,9 +904,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-02T23:52:35.639Z",
-  "commitSha": "bf33afb",
-  "buildNumber": "40",
+  "generatedAt": "2026-10-03T00:39:42.768Z",
+  "commitSha": "81b1728",
+  "buildNumber": "43",
   "branch": "feature/EPIC-0001-US-0001-monorepo",
   "sessionTimeline": [
     {
@@ -950,7 +1007,7 @@
   "budget": {
     "totalBudget": 11206.1671,
     "totalSpent": 6.1671,
-    "totalProjected": 12000,
+    "totalProjected": 12400,
     "percentUsed": 0,
     "burnRate": 0.16589999999999971,
     "daysRemaining": 67510,
@@ -966,16 +1023,16 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10405.726591,
-        "spent": 5.726591000000002,
+        "budget": 10405.75596,
+        "spent": 5.755959999999998,
         "remaining": 10400,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.440507,
-        "spent": 0.440507,
+        "budget": 800.41114,
+        "spent": 0.41114,
         "remaining": 800,
         "percentUsed": 0
       },
@@ -1011,9 +1068,11 @@
     "dates": [
       "2026-10-01T21:28:42.754Z",
       "2026-10-02T23:21:24.502Z",
-      "2026-10-02T23:52:35.725Z"
+      "2026-10-02T23:52:35.725Z",
+      "2026-10-03T00:39:42.837Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0
@@ -1021,14 +1080,17 @@
     "totalStories": [
       13,
       13,
-      14
+      14,
+      15
     ],
     "aiCosts": [
       5.8353,
       6.1671,
+      6.1671,
       6.1671
     ],
     "coverage": [
+      null,
       null,
       null,
       null
@@ -1036,9 +1098,11 @@
     "velocity": [
       0,
       0,
+      0,
       0
     ],
     "openBugs": [
+      0,
       0,
       0,
       0
@@ -1046,19 +1110,23 @@
     "atRisk": [
       0,
       0,
+      0,
       0
     ],
     "inputTokens": [
       519419,
+      522440,
       522440,
       522440
     ],
     "outputTokens": [
       64947,
       69480,
+      69480,
       69480
     ],
     "avgRisk": [
+      1.0999999999999999,
       1.0999999999999999,
       1.0999999999999999,
       1.0999999999999999

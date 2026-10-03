@@ -9,6 +9,7 @@ import { JsonlEventLog, isValidSessionId } from "./engine/event-log.js";
 import { SystemClock } from "./engine/clock.js";
 import { SessionHost } from "./host/session-host.js";
 import { startServer } from "./host/ws-server.js";
+import { parseNpcTimeouts } from "./agents/timeouts.js";
 
 /** services/runtime/src/main.ts: the repo root is three levels up from this file's directory. */
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -43,6 +44,8 @@ export async function bootstrap(opts: {
   }
   const port = Number(env.RUNTIME_PORT ?? 8080);
   if (!Number.isInteger(port) || port < 0 || port > 65_535) return { ok: false, errors: [`RUNTIME_PORT '${env.RUNTIME_PORT}' is not a valid port`] };
+  const timeouts = parseNpcTimeouts(env);
+  if (!timeouts.ok) return { ok: false, errors: timeouts.errors };
 
   let scenario;
   try { scenario = await loadScenario(scenarioDir); }
@@ -65,7 +68,7 @@ export async function bootstrap(opts: {
     // Never log the provider object, its name, an endpoint or any env-derived value: describeModelProvider returns a
     // fixed label plus a literal yes/no for "custom endpoint".
     log(`model provider: ${describeModelProvider(env)}`);
-    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: selectModelProvider(env, "gm"), clock, log: (m) => console.error(m) });
+    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: selectModelProvider(env, "gm"), clock, log: (m) => console.error(m), firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs });
   } catch (err) { return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
 
   host.startTicker(opts.tickMs ?? 1_000);

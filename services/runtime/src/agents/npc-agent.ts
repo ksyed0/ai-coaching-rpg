@@ -3,6 +3,7 @@ import type { NpcRole } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import { EngineError, type SessionEngine } from "../engine/session-engine.js";
 import { buildNpcRequest } from "./npc-prompt.js";
+import { DEFAULT_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_REPLY_TIMEOUT_MS } from "./timeouts.js";
 
 /** Engine refusals that mean "this reply is no longer wanted": drop it rather than crash. */
 const STALE_CODES = new Set(["paused", "not_in_scene", "ended", "stale_scene"]);
@@ -16,9 +17,12 @@ export class NpcAgent {
 
   constructor(opts: { role: NpcRole; engine: SessionEngine; provider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number }) {
     this.role = opts.role; this.engine = opts.engine; this.provider = opts.provider;
-    this.firstTokenTimeoutMs = opts.firstTokenTimeoutMs ?? 4_000;
-    this.replyTimeoutMs = opts.replyTimeoutMs ?? 20_000;
+    this.firstTokenTimeoutMs = opts.firstTokenTimeoutMs ?? DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
+    this.replyTimeoutMs = opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS;
   }
+
+  /** The effective timeouts (defaults applied), for diagnostics and tests. */
+  get timeouts(): { firstTokenMs: number; replyMs: number } { return { firstTokenMs: this.firstTokenTimeoutMs, replyMs: this.replyTimeoutMs }; }
 
   /**
    * Returns the emitted utterance, or null when no NPC turn may happen (not in scene, paused, ended),

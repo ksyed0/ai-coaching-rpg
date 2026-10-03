@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadScenario, type NpcRole } from "@acr/script";
@@ -7,6 +7,7 @@ import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
 import { NpcAgent } from "../npc-agent.js";
+import { DEFAULT_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_REPLY_TIMEOUT_MS } from "../timeouts.js";
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
 let engine: SessionEngine; let guest: NpcRole;
@@ -22,6 +23,28 @@ beforeEach(async () => {
 const alertsOf = () => { const a: string[] = []; engine.subscribe((e) => { if (e.type === "facilitator.alert") a.push(e.message); }); return a; };
 
 describe("NpcAgent", () => {
+  it("defaults to a 10 s first-token timeout and a 20 s reply deadline", () => {
+    const agent = new NpcAgent({ role: guest, engine, provider: new MockModelProvider() });
+    expect(agent.timeouts).toEqual({ firstTokenMs: 10_000, replyMs: 20_000 });
+    expect(agent.timeouts).toEqual({ firstTokenMs: DEFAULT_FIRST_TOKEN_TIMEOUT_MS, replyMs: DEFAULT_REPLY_TIMEOUT_MS });
+  });
+
+  it("falls back at exactly the default first-token timeout, not before (fake timers)", async () => {
+    vi.useFakeTimers();
+    try {
+      const hang: ModelProvider = { name: "hang", async *stream(_req: ChatRequest, signal?: AbortSignal) { await new Promise<void>((r) => signal?.addEventListener("abort", () => r())); } };
+      const alerts = alertsOf();
+      let done = false;
+      const p = new NpcAgent({ role: guest, engine, provider: hang }).respond().then(() => { done = true; });
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await p;
+      expect(alerts[0]).toMatch(/guest.*no first token/);
+      expect(engine.state.transcript.at(-1)?.text).toBe(guest.fallback_line);
+    } finally { vi.useRealTimers(); }
+  });
+
   it("emits one utterance with the streamed reply", async () => {
     const agent = new NpcAgent({ role: guest, engine, provider: new MockModelProvider(["Hi there, good to see you"]) });
     const e = await agent.respond();

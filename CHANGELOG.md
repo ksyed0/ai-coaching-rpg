@@ -29,6 +29,11 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 - Compose maps `host.docker.internal` to the host gateway so a container can reach a model server on the host, also on Linux.
 - PlanVisualizer v2.4.0 project tracking and the Agentic SDLC dashboard (`docs/`, `agents.config.json`).
 - `README.md` and this changelog.
+- `NPC_FIRST_TOKEN_TIMEOUT_MS` (default 10000) and `NPC_REPLY_TIMEOUT_MS` (default 20000) environment variables to configure the NPC first-token timeout and overall reply deadline; values are validated at startup (whole milliseconds, 500 to 600000, reply deadline at least the first-token timeout) (US-0015).
+
+### Changed
+
+- NPC first-token timeout default raised from 4 s to 10 s, so reasoning and slower models no longer trip the fallback line (US-0015).
 
 ### Security
 
