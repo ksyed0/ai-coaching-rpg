@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import http from "node:http";
@@ -9,7 +9,7 @@ import { WebSocketServer } from "ws";
 import { REPO_ROOT, bootstrap } from "../../main.js";
 import { CHECKS, CHECK_IDS } from "../checks.js";
 import { FAKE_KEY, makeTempRoot } from "../harness.js";
-import { runDemo, type RunDeps } from "../runner.js";
+import { loadLiveEnv, runDemo, type RunDeps } from "../runner.js";
 import type { Report } from "../report.js";
 
 type Captured = { out: string[]; err: string[]; stdout: { write(s: string): void; isTTY?: boolean }; stderr: { write(s: string): void; isTTY?: boolean } };
@@ -373,5 +373,21 @@ describe("strict mock mode and interrupts", () => {
       expect(tcpHandles()).toBe(tcpBefore);
       expect(demoTempDirs()).toEqual(dirsBefore);
     }
+  });
+});
+
+describe("loadLiveEnv", () => {
+  it("treats a missing .env as empty, merges a present one with the real environment winning (a temp dir, never the repo's .env)", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "acrx-env-"));
+    cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    expect(loadLiveEnv(dir, { A: "1" })).toEqual({ A: "1" });
+    writeFileSync(path.join(dir, ".env"), "A=file\nB=file\n");
+    expect(loadLiveEnv(dir, { A: "real" })).toEqual({ A: "real", B: "file" });
+  });
+  it("rethrows an unreadable .env (not ENOENT)", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "acrx-env-"));
+    cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    mkdirSync(path.join(dir, ".env")); // a directory: EISDIR
+    expect(() => loadLiveEnv(dir, {})).toThrow();
   });
 });

@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { SessionEvent } from "@acr/events";
 import { bootstrap } from "../main.js";
 import { isEvent, type Inbound } from "./bots.js";
-import { ensure, findInjectLeaks, findMarkers, logShapeProblems, missingMarkers, sceneTrace } from "./checks.js";
+import { assertRotatedOnly, ensure, findInjectLeaks, findMarkers, logShapeProblems, missingMarkers, sceneTrace } from "./checks.js";
 import {
   PARTICIPANT_NAMES, ROLE_PLAYERS, act, connectBot, got, isJoinedMsg, npcRole, sceneIds, utterancesByScene,
   type Ctx, type PlayerId, type Story,
@@ -164,7 +164,7 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
       const rotatedName = `${ctx.sessionId}.20300102T030405Z.jsonl`;
       const rotated = await readFile(path.join(ctx.tmp!.dataDir, rotatedName));
       ensure(sha(rotated) === sha(before) && rotated.equals(before), "the rotated log differs from the original");
-      await stat(file).then(() => { throw new Error("the new log existed before the new session started"); }, (e: NodeJS.ErrnoException) => { if (e.code !== "ENOENT") throw e; });
+      assertRotatedOnly(await readdir(ctx.tmp!.dataDir), ctx.sessionId, rotatedName);
       const f2 = await connectBot(ctx, "restart facilitator", { url: `ws://127.0.0.1:${r.runtime.port}` });
       const j = await f2.call({ type: "join_facilitator", sessionId: ctx.sessionId }, isJoinedMsg, { what: "the restarted server" });
       ensure(isJoinedMsg(j), "the facilitator could not join the restarted server");
@@ -208,7 +208,6 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
 }
 
 async function listLogs(ctx: Ctx): Promise<string[]> {
-  const { readdir } = await import("node:fs/promises");
   const names = await readdir(ctx.tmp!.dataDir).catch(() => [] as string[]);
   return names.filter((x) => x.endsWith(".jsonl")).map((x) => path.join(ctx.tmp!.dataDir, x));
 }

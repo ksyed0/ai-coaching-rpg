@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { loadScenario } from "@acr/script";
 import type { SessionEvent } from "@acr/events";
 import { REPO_ROOT } from "../../main.js";
-import { CHECKS, CHECK_IDS, CheckFailure, Recorder, UNSAFE_CHARS, buildMarkers, def, ensure, findInjectLeaks, findMarkers, logShapeProblems, missingMarkers, sceneTrace, skipReason } from "../checks.js";
+import { CHECKS, CHECK_IDS, CheckFailure, Recorder, UNSAFE_CHARS, buildMarkers, def, ensure, findInjectLeaks, findMarkers, assertRotatedOnly, logShapeProblems, missingMarkers, sceneTrace, skipReason } from "../checks.js";
 
 const rec = (kind: "mock" | "live" | "url", over: Partial<ConstructorParameters<typeof Recorder>[0]> = {}) => new Recorder({ kind, now: () => 0, ...over });
 
@@ -120,6 +120,14 @@ describe("markers", () => {
   it("findMarkers returns de-duplicated, shortened hits and ignores empty markers", () => {
     expect(findMarkers("a SECRET b SECRET", ["SECRET", "SECRET", "", "nope"])).toEqual(["SECRET"]);
     expect(findMarkers("x".repeat(100), ["x".repeat(60)])[0]!.endsWith("…")).toBe(true);
+  });
+});
+
+describe("assertRotatedOnly", () => {
+  it("passes with the rotated file alone and fails (positive control) when a new log or no rotated file is present", () => {
+    expect(() => assertRotatedOnly(["demo.20300102T030405Z.jsonl"], "demo", "demo.20300102T030405Z.jsonl")).not.toThrow();
+    expect(() => assertRotatedOnly(["demo.20300102T030405Z.jsonl", "demo.jsonl"], "demo", "demo.20300102T030405Z.jsonl")).toThrow("the new log existed before the new session started");
+    expect(() => assertRotatedOnly(["other.jsonl"], "demo", "demo.20300102T030405Z.jsonl")).toThrow(/rotated log .* is missing/);
   });
 });
 

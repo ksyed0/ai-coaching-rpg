@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseEnv } from "node:util";
@@ -56,7 +56,8 @@ const SECRETISH = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/i;
 export function loadLiveEnv(repoRoot: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const file = path.join(repoRoot, ".env");
   let fileEnv: NodeJS.ProcessEnv = {};
-  if (existsSync(file)) fileEnv = parseEnv(readFileSync(file, "utf8"));
+  try { fileEnv = parseEnv(readFileSync(file, "utf8")); } // a single read: no existence check to race with
+  catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
   return { ...fileEnv, ...env };
 }
 

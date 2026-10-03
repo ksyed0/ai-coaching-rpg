@@ -201,3 +201,9 @@ export function findInjectLeaks(inboxJson: string, role: string, scenes: Scenari
   }
   return out;
 }
+
+/** Before the restarted session starts, the data dir must hold the rotated log and NO `<sessionId>.jsonl` (judged from a directory listing, never a stat of a path read later). */
+export function assertRotatedOnly(listing: string[], sessionId: string, rotatedName: string): void {
+  ensure(listing.includes(rotatedName), `the rotated log ${rotatedName} is missing from the data directory`);
+  ensure(!listing.includes(`${sessionId}.jsonl`), "the new log existed before the new session started");
+}
