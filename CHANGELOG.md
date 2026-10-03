@@ -35,6 +35,7 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 ### Changed
 
 - NPC first-token timeout default raised from 4 s to 10 s, so reasoning and slower models no longer trip the fallback line (US-0015).
+- `pnpm demo` hardening (US-0021): `pnpm -s demo --fast --json -` now writes only the JSON report to stdout (the root script is silent; use `-s` so pnpm's own banner stays out); `--url` prints exactly what it will send to the target server before running; in mock mode a check that did not run is a failure; Ctrl-C/SIGTERM clean up the temp directory and exit 130/143; the bot clients cap frames (1 MiB) and inbox size (5,000 frames) against a hostile server.
 
 ### Security
 
