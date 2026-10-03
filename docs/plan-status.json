@@ -651,88 +651,88 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0,
+      "costUsd": 4.171708,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 0,
-      "inputTokens": 0,
-      "outputTokens": 0,
-      "cacheReadTokens": 0,
-      "cacheHitRatio": null
+      "costUsd": 54.2322,
+      "inputTokens": 3089930,
+      "outputTokens": 559978,
+      "cacheReadTokens": 114152385,
+      "cacheHitRatio": 0.973645
     },
     "_bugs": {
       "_totals": {
@@ -858,19 +858,37 @@
     }
   ],
   "lessons": [],
-  "generatedAt": "2026-10-01T20:30:14.835Z",
-  "commitSha": "e90be42",
-  "buildNumber": "1",
+  "generatedAt": "2026-10-03T02:24:51.390Z",
+  "commitSha": "410c535",
+  "buildNumber": "2",
   "branch": "main",
-  "sessionTimeline": [],
-  "costHistory": {},
+  "sessionTimeline": [
+    {
+      "date": "2026-10-03",
+      "cumCost": 54.2322
+    }
+  ],
+  "costHistory": {
+    "main": [
+      {
+        "date": "2026-10-03",
+        "costUsd": 54.2322
+      }
+    ]
+  },
   "deltaSpend": null,
   "cacheHit": {
-    "series": [],
-    "latest": null,
-    "rollingAvg": null,
+    "series": [
+      {
+        "date": "2026-10-03",
+        "sessionId": "97899fb7-c898-5390-94ed-4bd9e72bd92d",
+        "ratio": 0.973645
+      }
+    ],
+    "latest": 0.973645,
+    "rollingAvg": 0.973645,
     "windowSize": 14,
-    "sampleCount": 0
+    "sampleCount": 1
   },
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
@@ -880,13 +898,13 @@
   "githubUrl": "",
   "agents": {},
   "budget": {
-    "totalBudget": 11200,
-    "totalSpent": 0,
+    "totalBudget": 11254.2322,
+    "totalSpent": 54.2322,
     "totalProjected": 11200,
     "percentUsed": 0,
-    "burnRate": 0,
-    "daysRemaining": null,
-    "projectedExhaustion": null,
+    "burnRate": 27.1161,
+    "daysRemaining": 413,
+    "projectedExhaustion": 413,
     "thresholds": [
       50,
       75,
@@ -896,19 +914,19 @@
     "crossedThresholds": [],
     "epicBudgets": [
       {
-        "id": "EPIC-0001",
-        "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10400,
-        "spent": 0,
-        "remaining": 10400,
-        "percentUsed": 0
-      },
-      {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800,
-        "spent": 0,
+        "budget": 804.171708,
+        "spent": 4.171708,
         "remaining": 800,
+        "percentUsed": 1
+      },
+      {
+        "id": "EPIC-0001",
+        "title": "Slice 1 — script package and text-only runtime",
+        "budget": 10450.060496,
+        "spent": 50.06049600000001,
+        "remaining": 10400,
         "percentUsed": 0
       },
       {
@@ -939,5 +957,61 @@
     "hasBudget": true
   },
   "completion": null,
-  "trends": null
+  "trends": {
+    "dates": [
+      "2026-10-01T20:30:14.862Z",
+      "2026-10-03T02:24:51.406Z"
+    ],
+    "doneCounts": [
+      0,
+      0
+    ],
+    "totalStories": [
+      13,
+      13
+    ],
+    "aiCosts": [
+      0,
+      54.2322
+    ],
+    "coverage": [
+      null,
+      null
+    ],
+    "velocity": [
+      0,
+      0
+    ],
+    "openBugs": [
+      0,
+      0
+    ],
+    "atRisk": [
+      0,
+      0
+    ],
+    "inputTokens": [
+      0,
+      3089930
+    ],
+    "outputTokens": [
+      0,
+      559978
+    ],
+    "avgRisk": [
+      1.0999999999999999,
+      1.0999999999999999
+    ],
+    "velocityByWeek": {
+      "labels": [
+        "2026-W40"
+      ],
+      "points": [
+        0
+      ],
+      "rollingAvg": [
+        0
+      ]
+    }
+  }
 }
