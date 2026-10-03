@@ -200,6 +200,23 @@ describe("--live", () => {
     expect(c.out).toEqual([]);
     expect(demoTempDirs()).toEqual(dirsBefore);
   });
+  it("a bypassed check is a failure in --live mode too, while the intended live skips stay allowed", async () => {
+    const server = http.createServer((req, res) => {
+      req.resume();
+      req.on("end", () => { res.writeHead(200, { "Content-Type": "text/event-stream" }); res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "ok then" } }] })}\n\n`); res.end("data: [DONE]\n\n"); });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    cleanups.push(() => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }));
+    const port = (server.address() as { port: number }).port;
+    const c = capture();
+    const { exitCode, report } = await runDemo(deps(c, ["--live", "--fast"], {
+      bypass: ["F-17"], resolveLiveEnv: () => ({ MODEL_PROVIDER: "local", LOCAL_BASE_URL: `http://127.0.0.1:${port}/v1`, NPC_MODEL: "m", GM_MODEL: "m" }),
+    }));
+    expect(exitCode).toBe(1);
+    expect(report!.results.find((r) => r.id === "F-17")).toMatchObject({ status: "failed", details: expect.stringContaining("did not run") });
+    expect(report!.results.filter((r) => r.status === "skipped").every((r) => r.details === "skipped (live mode)")).toBe(true);
+  });
+
   it("also refuses when MODEL_PROVIDER is unset, and names variables (never values) when the config is incomplete", async () => {
     const unset = capture();
     expect((await runDemo(deps(unset, ["--live"], { resolveLiveEnv: () => ({}) }))).exitCode).toBe(2);
@@ -286,9 +303,24 @@ describe("--url (smoke test of a running server)", () => {
     expect(report!.results.find((r) => r.id === "F-01")?.status).toBe("failed");
     const text = c.out.join("");
     for (const phrase of [
-      "TARGET server's real session and its permanent event log", "scripted player lines", "escape sequence and a forged newline", "facilitator join",
-      "start, pause, resume, advance and whisper", "malformed frames", "oversized (~70 kB) frame", "allow facilitator joins", "no authentication", "FRESH session",
+      "TARGET server's real session and writes to its permanent event log", "throwaway server with a FRESH session", "ADVANCES THE SESSION TO ITS END (script_complete)",
+      "cannot be resumed", "a facilitator join and the commands start, pause, resume, advance and whisper", "scripted player lines", "escape sequence and a forged newline",
+      "speech while the session is paused", "role-claim attempts (a taken, an NPC and an unknown role)", "forged-token takeover attempts", "rejoin with the real token",
+      "player-issued start and pause", "a whisper to the NPC role", "malformed frames", "an over-long line", "oversized (~70 kB) frame", "allow facilitator joins", "no authentication",
     ]) expect(text, phrase).toContain(phrase);
+  });
+
+  it("a bypassed check is a failure in --url mode too, while the intended mode skips stay allowed", async () => {
+    const tmp = await makeTempRoot(REPO_ROOT);
+    cleanups.push(() => tmp.cleanup());
+    const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root: tmp.root, logDir: tmp.dataDir, log: () => {}, warn: () => {}, tickMs: 60_000 });
+    if (!boot.ok) throw new Error(boot.errors.join("; "));
+    cleanups.push(() => boot.runtime.stop());
+    const c = capture();
+    const { exitCode, report } = await runDemo(deps(c, ["--url", `ws://127.0.0.1:${boot.runtime.port}`, "--session", "smoke", "--fast"], { bypass: ["F-17"] }));
+    expect(exitCode).toBe(1);
+    expect(report!.results.find((r) => r.id === "F-17")).toMatchObject({ status: "failed", details: expect.stringContaining("did not run") });
+    expect(report!.results.filter((r) => r.status === "skipped").every((r) => r.details === "skipped (needs in-process server)")).toBe(true);
   });
 
   it("fails cleanly, with bounded memory, against a server that floods the client", async () => {

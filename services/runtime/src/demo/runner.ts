@@ -132,11 +132,14 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       if (opts.url) n.line("The checks that depend on exact model output are skipped.");
     }
     if (opts.url) {
-      n.styled("NOTICE: --url sends test traffic to the TARGET server's real session and its permanent event log:", "yellow");
-      n.line("  - scripted player lines (as delivery_lead, tech_lead, account_manager) and a line containing an escape sequence and a forged newline;");
+      n.styled("NOTICE: --url drives the TARGET server's real session and writes to its permanent event log. Point it only at a throwaway server with a FRESH session:", "yellow");
+      n.line("  - it ADVANCES THE SESSION TO ITS END (script_complete); that session then cannot be resumed;");
       n.line("  - a facilitator join and the commands start, pause, resume, advance and whisper;");
-      n.line("  - malformed frames (bad JSON, an unknown type, an over-long line) and one oversized (~70 kB) frame.");
-      n.line("The server must allow facilitator joins (Slice 1 has no authentication) and have a FRESH session (restart it between runs). Structure is checked, not model content.");
+      n.line("  - scripted player lines (as delivery_lead, tech_lead, account_manager), including one containing an escape sequence and a forged newline, and speech while the session is paused;");
+      n.line("  - role-claim attempts (a taken, an NPC and an unknown role), forged-token takeover attempts and a rejoin with the real token;");
+      n.line("  - player-issued start and pause, speech before the start and a whisper to the NPC role (all expected to be refused);");
+      n.line("  - malformed frames (bad JSON, an unknown type, an over-long line, an empty id) and one oversized (~70 kB) frame.");
+      n.line("The server must allow facilitator joins (Slice 1 has no authentication). Structure is checked, not model content.");
     }
 
     const scenario = await loadScenario(path.join(repoRoot, "scenarios", "friday-escalation"));

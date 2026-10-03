@@ -100,13 +100,11 @@ export class Recorder {
   }
 
   /**
-   * A check that did not run. In mock mode every check must run, so this is a FAILURE (a code-path regression must never
-   * exit 0); in live and --url runs the mode-based skips were recorded up front and anything else is reported as skipped.
+   * A check that did not run. Mode-based skips (live, --url) were recorded up front by the constructor; anything else that
+   * did not run is a FAILURE in every mode, so a silent code-path bypass can never exit 0 because something else passed.
    */
   private notRun(d: CheckDef, reason: string): CheckResult {
-    return this.o.kind === "mock"
-      ? { id: d.id, title: d.title, status: "failed", details: `did not run (${reason})`, durationMs: 0 }
-      : { id: d.id, title: d.title, status: "skipped", details: `skipped (${reason})`, durationMs: 0 };
+    return { id: d.id, title: d.title, status: "failed", details: `did not run (${reason})`, durationMs: 0 };
   }
 
   /** Records every check that never ran (see notRun). */

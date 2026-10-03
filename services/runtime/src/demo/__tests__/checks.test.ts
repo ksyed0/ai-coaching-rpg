@@ -45,7 +45,8 @@ describe("Recorder", () => {
     const live = rec("live");
     await live.run("F-01", () => { throw new CheckFailure("no"); });
     await live.run("F-04", () => "x", ["F-01"]);
-    expect(live.ordered().find((x) => x.id === "F-04")).toMatchObject({ status: "skipped", details: "skipped (prerequisite failed: F-01)" });
+    expect(live.ordered().find((x) => x.id === "F-04")).toMatchObject({ status: "failed", details: "did not run (prerequisite failed: F-01)" });
+    expect(live.ordered().find((x) => x.id === "F-12")).toMatchObject({ status: "skipped", details: "skipped (live mode)" }); // the intended mode skip stays
   });
   it("leaves a bypassed check unrecorded, so finish() reports it", async () => {
     const r = rec("mock", { bypass: new Set(["F-05"]) });
@@ -76,16 +77,16 @@ describe("Recorder", () => {
     aborted = true;
     await expect(r.run("F-01", () => { throw new Error("run aborted"); })).rejects.toThrow("run aborted");
   });
-  it("finish() records every unrun check with the reason (skipped outside mock mode, failed in mock), in catalogue order", async () => {
+  it("finish() records every unrun check with the reason (failed in every mode; only mode skips are skipped), in catalogue order", async () => {
     const m = rec("mock");
     m.finish("run aborted");
     expect(m.ordered().every((x) => x.status === "failed" && x.details === "did not run (run aborted)")).toBe(true);
     const r = rec("live");
     await r.run("F-02", () => "ok");
     r.finish("run aborted");
+    expect(r.ordered().find((x) => x.id === "F-01")).toMatchObject({ status: "failed", details: "did not run (run aborted)" });
     const out = r.ordered();
     expect(out.map((x) => x.id)).toEqual([...CHECK_IDS]);
-    expect(out.find((x) => x.id === "F-01")).toMatchObject({ status: "skipped", details: "skipped (run aborted)" });
     expect(out.find((x) => x.id === "F-02")?.status).toBe("passed");
   });
 });

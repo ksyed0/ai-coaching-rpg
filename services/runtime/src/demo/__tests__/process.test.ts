@@ -51,15 +51,34 @@ describe("the real process", () => {
   it.each([["SIGINT", 130], ["SIGTERM", 143]] as const)("%s mid-run cleans up (no temp dir left), reports the interruption and exits %i", async (signal, code) => {
     const tmp = await privateTmp();
     const child = spawn(tsx, ["src/demo/run.ts", "--speed", "1"], { cwd: runtimeDir, env: env(tmp), stdio: ["ignore", "pipe", "pipe"] });
-    let out = "";
-    const started = new Promise<void>((resolve) => child.stdout.on("data", (d) => { out += d; if (out.includes("ACT 2")) resolve(); }));
-    child.stderr.resume();
-    const exited = new Promise<number | null>((resolve) => child.on("close", (c) => resolve(c)));
-    await started;
-    expect(demoDirs(tmp).length).toBe(1); // the run really had a temp dir
-    child.kill(signal);
-    expect(await exited).toBe(code);
-    expect(out).toContain("INTERRUPTED");
-    expect(demoDirs(tmp)).toEqual([]);
+    try {
+      let out = "";
+      const exited = new Promise<number | null>((resolve) => child.once("close", (c) => resolve(c)));
+      // Fails fast, with the exit code only, if the child dies before it reaches ACT 2 (no 60 s wait, no output dump).
+      const started = new Promise<void>((resolve, reject) => {
+        child.stdout.on("data", (d) => { out += d; if (out.includes("ACT 2")) resolve(); });
+        child.once("exit", (c, sig) => { if (!out.includes("ACT 2")) reject(new Error(`the demo process exited early (code ${c}, signal ${sig})`)); });
+        child.once("error", (e) => reject(new Error(`the demo process could not start: ${e.message}`)));
+      });
+      child.stderr.resume();
+      await started;
+      expect(demoDirs(tmp).length).toBe(1); // the run really had a temp dir
+      child.kill(signal);
+      expect(await exited).toBe(code);
+      expect(out).toContain("INTERRUPTED");
+      expect(demoDirs(tmp)).toEqual([]);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); // never leave a demo process behind
+    }
   }, 60_000);
+
+  it("a child that dies early fails the wait immediately instead of hanging", async () => {
+    const child = spawn(process.execPath, ["-e", "process.exit(7)"], { stdio: ["ignore", "pipe", "pipe"] });
+    try {
+      await expect(new Promise<void>((resolve, reject) => {
+        child.stdout.on("data", () => resolve());
+        child.once("exit", (c) => reject(new Error(`the demo process exited early (code ${c})`)));
+      })).rejects.toThrow("exited early (code 7)");
+    } finally { if (child.exitCode === null) child.kill("SIGKILL"); }
+  });
 });
