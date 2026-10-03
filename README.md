@@ -159,6 +159,58 @@ All settings are environment variables (read from `.env` at the repository root;
 
 **When to raise the NPC timeouts.** The defaults suit fast chat models. Raise `NPC_FIRST_TOKEN_TIMEOUT_MS` (and `NPC_REPLY_TIMEOUT_MS` with it, since the reply deadline must be at least as long) for reasoning models that think before the first token, free-tier OpenRouter models that queue requests, and slow local models (for example a large model on CPU with Ollama). If NPCs keep answering with their canned fallback line and the facilitator sees "no first token" alerts, the timeout is too short for your model. Values must be plain whole numbers of milliseconds (`15000`, not `15s` or `1.5e4`); an invalid value stops startup with an error naming the variable.
 
+## Demo and test runner
+
+`pnpm demo` plays the whole *Friday Escalation* by itself and checks the system's features while it does. A facilitator bot and three player bots (`delivery_lead`, `tech_lead`, `account_manager`) connect over real WebSockets to a server the runner starts in-process; the AI character is `client_sponsor`. It prints a narrated transcript in acts and ends with a pass/fail checklist. Nobody has to touch the keyboard.
+
+```bash
+pnpm demo                      # watchable: about 30 seconds of paced narration, mock models, offline, free
+pnpm demo --fast               # the same run without pacing delays (about a second)
+pnpm demo --speed 2            # pacing 2x faster (0.1 to 20); --fast and --speed cannot be combined
+pnpm demo --fast --json -      # JSON report on stdout, narration on stderr
+pnpm demo --fast --json out.json   # JSON report to a file (a relative path is relative to where you ran pnpm)
+pnpm demo --live               # use the real configured model provider (see the warning below)
+pnpm demo --url ws://localhost:8080 --fast   # smoke-test a server that is already running
+pnpm demo --help
+```
+
+Other flags: `--session <id>` (default `demo`, or `local` with `--url`) and `--no-color`. Colour is used only on a terminal, with `NO_COLOR` unset and no `--no-color`. Everything a server, participant or model wrote goes through the same sanitiser as the terminal client, so hostile text cannot put control characters on your screen.
+
+**Exit codes.** `0` when every check that ran passed (skipped checks do not count against it); `1` when a check failed, the run hit an unexpected error or the real-time watchdog fired (2 minutes in mock mode, 10 minutes with `--live`); `2` for a usage error.
+
+### What each mode verifies
+
+- **Default (mock).** Scripted models and a fake clock make the run deterministic, so all 29 checks run: the lobby rules (taken, NPC and unknown roles, who may start), scene flow and the timed inject at exactly minute 7, the AI character answering once per line and staying silent where it is absent, the Game Master exiting a scene, ignoring a malformed reply and refusing stale verdicts, pause/resume, advance, whispers, per-player isolation (every player's whole inbox is audited against strings taken from the scenario files, and every model prompt is audited for the rubric, other roles' secrets, hidden facts and names), hostile and oversized frames, terminal safety, reconnecting with the token, a client that stops answering pings, log rotation on restart, and the on-disk event log. A short side room (a second in-process server) covers the failure paths a main run cannot wait for: a stalled model, an empty reply and the dead client.
+- **`--live`.** Uses the provider you configured (`MODEL_PROVIDER`, read from `.env` and the environment, **only** when you pass `--live`). It refuses with exit code 2 if the provider resolves to `mock`. **This sends the scenario text and the scripted lines to that provider and may cost money**; the run prints only the provider's label and whether a custom endpoint is used, never keys or URLs. Model output is not deterministic, so the scripted-content checks (the timed inject, Game Master verdicts, prompt capture) are marked `skipped (live mode)`, the facilitator's `advance` drives the scenes, and the NPC check accepts any non-empty reply or the fallback line.
+- **`--url ws://host:port`.** Starts no server; runs the externally observable subset (join, start, speech, the NPC reply, whisper and private-event isolation, pause/resume, advance, reconnect with the token, hostile frames, terminal safety) against a running one and marks the checks that need control of the process (fake clock, prompt capture, restart and log rotation, heartbeat, the log file) as `skipped (needs in-process server)`. It checks structure, not content: an NPC reply is "non-empty or the fallback line". The server must allow facilitator joins (Slice 1 has no authentication) and must have a **fresh** session (the runner starts it), so restart the server between runs. The URL must be `ws:` or `wss:` with no credentials, query or fragment. Combined with `--live`, content checks are skipped as well, and the notice reminds you that the server's own provider receives the text.
+
+A Docker smoke test: start the container, run the demo against it, restart it before the next run. This was verified with the image built from `deploy/compose/Dockerfile.runtime` and started as `docker run -d --rm --name acr-demo -e MODEL_PROVIDER=mock -p 18080:8080 <image>`, then `pnpm demo --url ws://localhost:18080 --fast` (17 checks passed, 12 skipped) and `docker restart acr-demo` before a second run. The `./run.sh` route (which uses your `.env`, so a real provider there would receive the scenario text) was not exercised for this.
+
+### Reading the checklist
+
+Each feature has an id (`F-01` to `F-29`), a title and one line of evidence. `✓` passed, `✗` failed (the evidence says why), `–` skipped (the evidence says why: `live mode`, `needs in-process server` or `prerequisite failed`). A failed check does not hide the others; checks that depend on it are skipped, not faked. The JSON report has the same content: `{ tool, version, mode, startedAt, durationMs, summary: { passed, failed, skipped }, results: [{ id, title, status, details, durationMs }] }`. It contains no secrets, no environment values and no paths from your home or temp directories. CI runs `pnpm demo --fast --json demo-report.json` as the (non-required) "Demo Run" job and uploads the report.
+
+An excerpt of a real run (`pnpm demo --fast --no-color`):
+
+```text
+ACT 3 · Scene 2: Call with Priya
+  delivery_lead: Hi Priya, thanks for making time.
+  Priya Raman (client_sponsor): Thanks for calling. So, can you confirm the reconciliation module for go-live?
+  facilitator: pause
+  delivery_lead tries to speak while paused: refused (paused)
+  clock at 6:59, one second before the inject
+  clock at 7:00
+  inject cfo_pressure fires now (addressed only to client_sponsor)
+  ...
+Checklist
+  ✓ F-07  The timed inject fires at its fake-clock minute, not before
+      cfo_pressure was absent at 6:59 and fired at 7:00; its goal reached the NPC's next prompt
+  ✓ F-18  Players never receive facilitator-only events, other roles' secrets or participant identities
+      100 messages in 3 players' whole inboxes audited against 54 real scenario strings, 7 names and scene/inject scopes: nothing leaked
+  ...
+Summary: 29 passed, 0 failed, 0 skipped (mock mode, 0.9 s)
+```
+
 ## Update
 
 ```bash
@@ -176,6 +228,7 @@ pnpm test:coverage  # the same with coverage; each package must stay at or above
 pnpm typecheck      # TypeScript, strict
 pnpm lint:sdk       # fails if anything outside packages/adapters imports a provider SDK
 pnpm dev:runtime    # server with auto-restart
+pnpm demo --fast    # unattended end-to-end run of the whole scenario with a feature checklist
 ```
 
 The default test run never calls a real model or touches the network.
@@ -186,7 +239,7 @@ The default test run never calls a real model or touches the network.
 packages/events     session event types and the state reducer
 packages/script     scenario schema, loader, validator, scene state machine
 packages/adapters   model provider adapters (mock, Anthropic, OpenAI-compatible)
-services/runtime    session engine, NPC agents, Game Master, WebSocket server, terminal client
+services/runtime    session engine, NPC agents, Game Master, WebSocket server, terminal client, demo runner (src/demo)
 scenarios/          playable scenarios (YAML)
 docs/               architecture, release plan, plans and the generated plan dashboard
 ```
@@ -195,7 +248,7 @@ docs/               architecture, release plan, plans and the generated plan das
 
 The repository uses PlanVisualizer (npm-based tooling in `tools/`, spec in `plan_visualizer.md`) for planning (`docs/RELEASE_PLAN.md`, `docs/BUGS.md`, `docs/TEST_CASES.md`). Regenerate the dashboard with `npm run plan:generate` and open `docs/plan-status.html`. Its own tests run with `npm run plan:test`.
 
-Work follows `feature/*` → `develop` (pull request) → `main` (pull request). `main` and `develop` are protected and every pull request must pass the required CI checks (Lint, Test & Coverage Gate, Build, Orchestrator Validation, Dependency Audit, Secret Scanning, Analyze JavaScript). CI also runs Workspace Typecheck, Workspace Tests (with the per-package 80% coverage gate), SDK Import Guard, Workspace Audit and Docker Build for the TypeScript workspace. Conventions are in [AGENTS.md](AGENTS.md).
+Work follows `feature/*` → `develop` (pull request) → `main` (pull request). `main` and `develop` are protected and every pull request must pass the required CI checks (Lint, Test & Coverage Gate, Build, Orchestrator Validation, Dependency Audit, Secret Scanning, Analyze JavaScript). CI also runs Workspace Typecheck, Workspace Tests (with the per-package 80% coverage gate), SDK Import Guard, Workspace Audit, Docker Build and Demo Run (the unattended demo, `pnpm demo --fast`) for the TypeScript workspace. Conventions are in [AGENTS.md](AGENTS.md).
 
 ## Known limitations
 

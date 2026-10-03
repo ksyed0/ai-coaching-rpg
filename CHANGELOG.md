@@ -30,6 +30,7 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 - PlanVisualizer v2.4.0 project tracking and the Agentic SDLC dashboard (`docs/`, `agents.config.json`).
 - `README.md` and this changelog.
 - `NPC_FIRST_TOKEN_TIMEOUT_MS` (default 10000) and `NPC_REPLY_TIMEOUT_MS` (default 20000) environment variables to configure the NPC first-token timeout and overall reply deadline; values are validated at startup (whole milliseconds, 500 to 600000, reply deadline at least the first-token timeout) (US-0015).
+- `pnpm demo`: an unattended demo and test runner that plays the whole Friday Escalation with a facilitator bot and three player bots over real WebSockets and ends with a pass/fail checklist of 29 features (`--fast`, `--speed`, `--json <path|->`, `--live`, `--url ws://host:port`, `--session`, `--no-color`); exit code 0 when every executed check passed, 1 on a failure or the watchdog, 2 on a usage error. The default mode uses scripted mock models and a fake clock and is offline and deterministic; `--url` smoke-tests a running server such as the Docker container; a new non-required `Demo Run` CI job uploads the JSON report (US-0021).
 
 ### Changed
 

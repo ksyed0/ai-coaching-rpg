@@ -12,4 +12,5 @@
 - CI pipeline, branch protection on `main` and `develop`, README, CHANGELOG and the product spec snapshot (`docs/PRODUCT_SPEC.md`) added.
 - Follow-ups captured in `docs/RELEASE_PLAN.md` as EPIC-0006: US-0016 release hidden facts, US-0017 facilitator token and limits, US-0018 resume after restart, US-0019 model cost, US-0020 shared id rules, US-0021 unattended demo runner; bugs BUG-0001 (heartbeat test timing) and BUG-0002 (custom Anthropic endpoint error message). US-0013 (reconnect replay) stays in EPIC-0002.
 - Known limitations: no facilitator authentication, server binds all interfaces, hidden NPC facts never released, sessions not resumed after a restart.
-- Next: US-0021 demo runner (in progress on `feature/EPIC-0006-followups-and-demo-runner`), then the EPIC-0006 stories by priority.
+- US-0021 demo runner built on `feature/EPIC-0006-followups-and-demo-runner`: `pnpm demo` (mock, `--live`, `--url`, `--json`), 29-check feature checklist, tests and a non-required `Demo Run` CI job.
+- Next: the EPIC-0006 stories by priority.

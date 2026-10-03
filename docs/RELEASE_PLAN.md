@@ -501,22 +501,22 @@ Notes: Three id rules currently live in schema.ts, protocol.ts, commands.ts and 
 US-0021 (EPIC-0006): As a developer or evaluator, I want an unattended demo and test runner that plays the whole scenario and checks every feature, so that I can verify or show the system without anyone at the keyboard.
 Priority: High
 Estimate: M
-Status: Planned
-Branch: feature/EPIC-0006-US-0021-demo-runner
+Status: Complete
+Branch: feature/EPIC-0006-followups-and-demo-runner
 Dependencies: US-0012
 Acceptance Criteria:
-  - [ ] AC-0064: `pnpm demo` starts an in-process server and scripted bot participants (a facilitator and three players) over real WebSocket connections and plays Friday Escalation to the end without any input
-  - [ ] AC-0065: the run prints a narrated, paced transcript (adjustable speed, instant with `--fast`) and ends with a pass/fail checklist of the features it verified and a non-zero exit code on any failure
-  - [ ] AC-0066: it uses the mock provider by default and a `--live` mode with the configured provider, where checks are limited to what a real model cannot make flaky
-  - [ ] AC-0067: it can target an already running server (`--url`), for example the Docker container, as a smoke test
-  - [ ] AC-0068: it can write a machine-readable report (`--json`) for CI
+  - [x] AC-0064: `pnpm demo` starts an in-process server and scripted bot participants (a facilitator and three players) over real WebSocket connections and plays Friday Escalation to the end without any input
+  - [x] AC-0065: the run prints a narrated, paced transcript (adjustable speed, instant with `--fast`) and ends with a pass/fail checklist of the features it verified and a non-zero exit code on any failure
+  - [x] AC-0066: it uses the mock provider by default and a `--live` mode with the configured provider, where checks are limited to what a real model cannot make flaky
+  - [x] AC-0067: it can target an already running server (`--url`), for example the Docker container, as a smoke test
+  - [x] AC-0068: it can write a machine-readable report (`--json`) for CI
 ```
 
 ```
 TASK-0021 (US-0021): Build the demo runner: bot participants, narration, feature checklist, report and CLI
 Type: Dev
 Assignee: Agent
-Status: To Do
-Branch: feature/EPIC-0006-US-0021-demo-runner
-Notes: Requested by the user as an automated runner that can test the features unattended in a demo-like mode.
+Status: Done
+Branch: feature/EPIC-0006-followups-and-demo-runner
+Notes: Requested by the user as an automated runner that can test the features unattended in a demo-like mode. Code in services/runtime/src/demo/ (args, narrator, bots, checks, harness, story, lab, audit, report, runner, run); CI job Demo Run.
 ```

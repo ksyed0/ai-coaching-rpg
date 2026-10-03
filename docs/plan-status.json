@@ -672,33 +672,33 @@
       "title": "As a developer or evaluator, I want an unattended demo and test runner that plays the whole scenario and checks every feature, so that I can verify or show the system without anyone at the keyboard.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
-      "branch": "feature/EPIC-0006-US-0021-demo-runner",
+      "status": "Complete",
+      "branch": "feature/EPIC-0006-followups-and-demo-runner",
       "acs": [
         {
           "id": "AC-0064",
           "text": "`pnpm demo` starts an in-process server and scripted bot participants (a facilitator and three players) over real WebSocket connections and plays Friday Escalation to the end without any input",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0065",
           "text": "the run prints a narrated, paced transcript (adjustable speed, instant with `--fast`) and ends with a pass/fail checklist of the features it verified and a non-zero exit code on any failure",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0066",
           "text": "it uses the mock provider by default and a `--live` mode with the configured provider, where checks are limited to what a real model cannot make flaky",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0067",
           "text": "it can target an already running server (`--url`), for example the Docker container, as a smoke test",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0068",
           "text": "it can write a machine-readable report (`--json`) for CI",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -913,9 +913,9 @@
       "title": "Build the demo runner: bot participants, narration, feature checklist, report and CLI",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
-      "branch": "feature/EPIC-0006-US-0021-demo-runner",
-      "notes": "Requested by the user as an automated runner that can test the features unattended in a demo-like mode."
+      "status": "Done",
+      "branch": "feature/EPIC-0006-followups-and-demo-runner",
+      "notes": "Requested by the user as an automated runner that can test the features unattended in a demo-like mode. Code in services/runtime/src/demo/ (args, narrator, bots, checks, harness, story, lab, audit, report, runner, run); CI job Demo Run."
     }
   ],
   "testCases": [],
@@ -1268,6 +1268,11 @@
       "sessionNum": 1,
       "date": "2026-10-01",
       "summary": ""
+    },
+    {
+      "sessionNum": 2,
+      "date": "2026-10-02",
+      "summary": ""
     }
   ],
   "lessons": [
@@ -1280,9 +1285,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-03T16:27:50.201Z",
-  "commitSha": "3c4302a",
-  "buildNumber": "45",
+  "generatedAt": "2026-10-03T16:49:27.693Z",
+  "commitSha": "d02cf54",
+  "buildNumber": "46",
   "branch": "feature/EPIC-0006-followups-and-demo-runner",
   "sessionTimeline": [
     {
@@ -1381,13 +1386,13 @@
     }
   },
   "budget": {
-    "totalBudget": 16006.1671,
+    "totalBudget": 15206.1671,
     "totalSpent": 6.1671,
     "totalProjected": 17200,
     "percentUsed": 0,
     "burnRate": 0.16589999999999971,
-    "daysRemaining": 96443,
-    "projectedExhaustion": 96443,
+    "daysRemaining": 91621,
+    "projectedExhaustion": 91621,
     "thresholds": [
       50,
       75,
@@ -1415,9 +1420,9 @@
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 4801.762026,
+        "budget": 4001.762026,
         "spent": 1.762026,
-        "remaining": 4800,
+        "remaining": 4000,
         "percentUsed": 0
       },
       {
@@ -1454,7 +1459,7 @@
       "2026-10-02T23:21:24.502Z",
       "2026-10-02T23:52:35.725Z",
       "2026-10-03T00:39:42.837Z",
-      "2026-10-03T16:27:50.285Z"
+      "2026-10-03T16:49:27.780Z"
     ],
     "doneCounts": [
       0,
