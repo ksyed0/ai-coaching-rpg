@@ -1,0 +1,41 @@
+scenes:
+  - id: s1_huddle
+    title: Team huddle
+    goal: Agree the team's position before replying to the client
+    participants: [delivery_lead, tech_lead, account_manager]
+    time_box_minutes: 10
+    opening_inject: email_from_priya
+    injects:
+      - id: email_from_priya
+        to: [delivery_lead, tech_lead, account_manager]
+        content: >
+          Email from Priya Raman: "Quick one. Before go-live we need a small
+          reconciliation module so Finance can tie out the daily loads. I know
+          it's late but it's a must-have. Can you confirm by end of day Friday?"
+    exit_when:
+      any_of:
+        - time_box_elapsed
+        - facilitator_advance
+        - gm_detects: "the team has stated a single agreed position on the request"
+  - id: s2_client_call
+    title: Call with Priya
+    goal: Respond to the request and agree next steps
+    participants: [delivery_lead, account_manager, client_sponsor]
+    time_box_minutes: 15
+    injects:
+      - id: cfo_pressure
+        at_minute: 7
+        to: [client_sponsor]
+        content: Priya's CFO messages her during the call asking for an update.
+        effect: { goals_add: ["Get a yes on this call"] }
+    exit_when:
+      any_of:
+        - time_box_elapsed
+        - facilitator_advance
+        - gm_detects: "a concrete next step has been agreed between the team and Priya"
+  - id: s3_internal_wrap
+    title: Internal wrap-up
+    goal: Capture decisions, owners and the message to the wider team
+    participants: [delivery_lead, tech_lead, account_manager]
+    time_box_minutes: 8
+    exit_when: { any_of: [time_box_elapsed, facilitator_advance] }

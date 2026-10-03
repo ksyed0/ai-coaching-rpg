@@ -4,3 +4,5 @@ coverage/
 .env
 *.local
 data/sessions/
+.superpowers/
+.history/

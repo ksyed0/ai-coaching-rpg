@@ -31,7 +31,8 @@ Run `npm run plan:generate` to regenerate the dashboard after making changes to
 | ------------------ | ----------------------------------------------------------------- |
 | Unit Testing       | ≥80% coverage; all tests pass before any commit                   |
 | Git Workflow       | `feature/*` → `develop` (PR) → `main` (PR)                       |
-| Session Close      | Update `progress.md` and `MEMORY.md` before ending               |
+| Changelog          | Add every user-visible change under `[Unreleased]` in `CHANGELOG.md` ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format) in the same PR as the change |
+| Session Close      | Update `progress.md`, `CHANGELOG.md` and `MEMORY.md` before ending |
 
 ---
 

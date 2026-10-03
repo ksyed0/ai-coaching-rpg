@@ -313,6 +313,53 @@ Notes: See the implementation plan task of the same number.
 ```
 
 ```
+US-0014 (EPIC-0001): As an operator, I want to configure OpenRouter or a local OpenAI-compatible endpoint, or a custom Anthropic endpoint, so that the NPCs and Game Master are not tied to one hosted provider.
+Priority: Medium
+Estimate: M
+Status: Complete
+Branch: feature/EPIC-0001-US-0001-monorepo
+Dependencies: US-0005
+Acceptance Criteria:
+  - [x] AC-0040: MODEL_PROVIDER selects mock, anthropic, openrouter or local, and an unknown value lists the valid ones
+  - [x] AC-0041: openrouter and local stream through an OpenAI-compatible client (SSE, JSON fallback, abort) that passes the shared provider contract
+  - [x] AC-0042: ANTHROPIC_BASE_URL, OPENROUTER_BASE_URL and LOCAL_BASE_URL are validated (no userinfo, https unless loopback or local) and errors name the variable
+  - [x] AC-0043: local requires NPC_MODEL and GM_MODEL; the defaults are claude-sonnet-5-5 (anthropic) and anthropic/claude-sonnet-5.5 (openrouter)
+  - [x] AC-0044: API keys never appear in logs, URLs or error messages, and startup logs only a fixed provider label and the endpoint host
+```
+
+```
+TASK-0014 (US-0014): Add OpenRouter and local OpenAI-compatible providers and a custom Anthropic endpoint
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0001-US-0001-monorepo
+Notes: packages/adapters/src/model/openai-compatible.ts, endpoint.ts, select.ts; log fix in services/runtime/src/main.ts.
+```
+
+```
+US-0015 (EPIC-0001): As an operator, I want to configure the NPC first-token and reply timeouts, so that slower or reasoning models do not constantly trigger the fallback line.
+Priority: Medium
+Estimate: S
+Status: Complete
+Branch: feature/EPIC-0001-US-0001-monorepo
+Dependencies: US-0007
+Acceptance Criteria:
+  - [x] AC-0045: The NPC first-token timeout defaults to 10 000 ms and the reply deadline to 20 000 ms, from one shared set of constants used by NpcAgent, SessionHost and bootstrap
+  - [x] AC-0046: NPC_FIRST_TOKEN_TIMEOUT_MS and NPC_REPLY_TIMEOUT_MS override them at startup (real environment wins over .env) and reach every NPC agent
+  - [x] AC-0047: Values must be whole base-10 milliseconds from 500 to 600000 with the reply deadline at least the first-token timeout; an invalid value stops startup with an error naming the variable and the allowed range
+  - [x] AC-0048: README, .env.example, CHANGELOG and ARCHITECTURE document the 10 s default and the two variables
+```
+
+```
+TASK-0015 (US-0015): Make the NPC timeouts configurable with a 10 s first-token default
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0001-US-0001-monorepo
+Notes: services/runtime/src/agents/timeouts.ts (constants and validation), npc-agent.ts, host/session-host.ts, main.ts. Ruling R36.
+```
+
+```
 US-0013 (EPIC-0002): As a participant, I want to reconnect and receive the events I missed, so that a dropped connection does not lose the session.
 Priority: Medium
 Estimate: M

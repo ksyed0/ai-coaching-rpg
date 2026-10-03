@@ -1,0 +1,77 @@
+import type { SessionEvent } from "@acr/events";
+import type { ServerMessage } from "../host/protocol.js";
+
+/** Longest server-supplied string we will display (R26). */
+export const MAX_DISPLAY_CHARS = 4_000;
+const TRUNCATED = "…[truncated]";
+
+// Written with double-escaped \\u sequences so no invisible character ever lives in this source file.
+const NEWLINE = new RegExp("\\r\\n|\\n|\\u2028|\\u2029", "g");
+// Bidi embedding/override/isolate, zero-width and directional marks, BOM: removed outright.
+const INVISIBLE = new RegExp("[\\u202a-\\u202e\\u2066-\\u2069\\u200b-\\u200f\\ufeff]", "g");
+// Remaining C0 (incl. ESC, NUL, bare CR), DEL and C1 (incl. 8-bit CSI/OSC introducers): visibly replaced.
+const CONTROL = new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]", "g");
+
+/**
+ * R26: makes text written by other participants / NPCs / the GM safe to print on a terminal. It can never contain an
+ * escape sequence, a control character, a bidi override or an embedded line break (newlines become a visible marker
+ * so nobody can forge a fresh "[role]:" line). Output is capped at MAX_DISPLAY_CHARS. Pure; apply BEFORE any styling.
+ */
+export function sanitizeText(s: string): string {
+  const raw = typeof s === "string" ? s : s === undefined || s === null ? "" : String(s);
+  // Cap first so a huge payload costs O(cap); the multiplier leaves room for characters that are stripped.
+  const clipped = raw.length > MAX_DISPLAY_CHARS * 2 ? raw.slice(0, MAX_DISPLAY_CHARS * 2) : raw;
+  let out = clipped
+    .replace(NEWLINE, " ⏎ ")
+    .replace(INVISIBLE, "")
+    .replace(/\t/g, " ")
+    .replace(CONTROL, "·");
+  if (raw.length > clipped.length || out.length > MAX_DISPLAY_CHARS) out = out.slice(0, MAX_DISPLAY_CHARS) + TRUNCATED;
+  return out;
+}
+
+const s = sanitizeText;
+
+/** Most history lines shown when joining (or rejoining). */
+export const MAX_HISTORY_LINES = 50;
+
+/** One printable line for an event, or null when this viewer should see nothing. Unknown event types render nothing. */
+export function renderEvent(e: SessionEvent, me: string): string | null {
+  const isFacilitator = me === "facilitator";
+  switch (e.type) {
+    case "utterance": return `${e.roleId === me ? "you" : s(e.roleId)}: ${s(e.text)}`;
+    case "scene.entered": return `--- scene ${s(e.sceneId)} ---`;
+    case "scene.exited": return `--- scene ${s(e.sceneId)} ended (${s(e.reason)}) ---`;
+    case "inject.fired": return `[inject] ${s(e.content)}`;
+    case "gm.decision": return isFacilitator ? `[gm] ${s(e.condition)} => ${s(String(e.verdict))} (${s(e.reasoning)})` : null;
+    case "facilitator.alert": return isFacilitator ? `[alert] ${s(e.message)}` : null;
+    case "facilitator.command": return e.command === "whisper" ? `[whisper] ${s(e.text)}` : `[facilitator] ${s(e.command)}`;
+    case "session.started": return `session started: ${s(e.scenarioId)} v${s(e.version)}`;
+    case "session.ended": return `=== session ended (${s(e.reason)}) ===`;
+    case "npc.updated": return isFacilitator ? `[npc ${s(e.roleId)}] goals: ${(e.goals ?? []).map(s).join("; ")}` : null;
+    default: return null;
+  }
+}
+
+export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>): string[] {
+  const lines = [`joined as ${s(m.roleId)}`]; // never the reconnect token
+  if (m.brief) {
+    lines.push("", `Your brief: ${s(m.brief)}`);
+    for (const f of m.privateFacts ?? []) lines.push(`  - ${s(f)}`);
+    lines.push("");
+  }
+  // The server already filtered the transcript to what this viewer may see; it still goes through sanitizeText (R26).
+  const transcript = m.state?.transcript ?? [];
+  if (transcript.length > 0) {
+    const shown = transcript.slice(-MAX_HISTORY_LINES);
+    lines.push("--- history ---");
+    if (transcript.length > shown.length) lines.push(`(+${transcript.length - shown.length} earlier lines)`);
+    for (const u of shown) lines.push(`${u.roleId === m.roleId ? "you" : s(u.roleId)}: ${s(u.text)}`);
+  }
+  return lines;
+}
+
+export function renderError(code: string, message: string): string {
+  if (code === "not_started") return "waiting for the facilitator to /start the session before anyone can speak";
+  return `error: ${s(code)}: ${s(message)}`;
+}
