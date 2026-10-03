@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -15,6 +15,22 @@ afterEach(async () => { for (const d of priv.splice(0)) await rm(d, { recursive:
 const privateTmp = async () => { const d = await mkdtemp(path.join(os.tmpdir(), "acrx-")); priv.push(d); return d; };
 const demoDirs = (tmp: string) => readdirSync(tmp).filter((d) => d.startsWith("acr-demo-")); // (tsx keeps its own cache dir there)
 const env = (tmp: string) => ({ ...process.env, TMPDIR: tmp, NO_COLOR: "1" });
+
+/** Spawns detached (its own process group), so the whole tree (tsx wrapper AND the node grandchild) can be killed. */
+const spawnGroup = (cmd: string, args: string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv }): ChildProcess =>
+  spawn(cmd, args, { ...opts, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+const killGroup = (child: ChildProcess): void => {
+  if (child.pid === undefined) return;
+  try { process.kill(-child.pid, "SIGKILL"); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e; }
+};
+/** Resolves with the output once `marker` appears; rejects at once (exit code only, no output dump) if the child exits or fails to start first. */
+export function waitForMarker(child: ChildProcess, marker: string, sink: { out: string }): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    child.stdout!.on("data", (d) => { sink.out += d; if (sink.out.includes(marker)) resolve(); });
+    child.once("exit", (code, sig) => { if (!sink.out.includes(marker)) reject(new Error(`the process exited early (code ${code}, signal ${sig})`)); });
+    child.once("error", (e) => reject(new Error(`the process could not start: ${e.message}`)));
+  });
+}
 
 describe("the real process", () => {
   it("writes ONLY the JSON report to stdout with --json - (narration on stderr), exit 0", async () => {
@@ -50,35 +66,29 @@ describe("the real process", () => {
 
   it.each([["SIGINT", 130], ["SIGTERM", 143]] as const)("%s mid-run cleans up (no temp dir left), reports the interruption and exits %i", async (signal, code) => {
     const tmp = await privateTmp();
-    const child = spawn(tsx, ["src/demo/run.ts", "--speed", "1"], { cwd: runtimeDir, env: env(tmp), stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawnGroup(tsx, ["src/demo/run.ts", "--speed", "1"], { cwd: runtimeDir, env: env(tmp) });
     try {
-      let out = "";
+      const sink = { out: "" };
       const exited = new Promise<number | null>((resolve) => child.once("close", (c) => resolve(c)));
-      // Fails fast, with the exit code only, if the child dies before it reaches ACT 2 (no 60 s wait, no output dump).
-      const started = new Promise<void>((resolve, reject) => {
-        child.stdout.on("data", (d) => { out += d; if (out.includes("ACT 2")) resolve(); });
-        child.once("exit", (c, sig) => { if (!out.includes("ACT 2")) reject(new Error(`the demo process exited early (code ${c}, signal ${sig})`)); });
-        child.once("error", (e) => reject(new Error(`the demo process could not start: ${e.message}`)));
-      });
-      child.stderr.resume();
-      await started;
+      child.stderr!.resume();
+      await waitForMarker(child, "ACT 2", sink);
       expect(demoDirs(tmp).length).toBe(1); // the run really had a temp dir
       child.kill(signal);
       expect(await exited).toBe(code);
-      expect(out).toContain("INTERRUPTED");
+      expect(sink.out).toContain("INTERRUPTED");
       expect(demoDirs(tmp)).toEqual([]);
-    } finally {
-      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); // never leave a demo process behind
-    }
+    } finally { killGroup(child); }
   }, 60_000);
 
-  it("a child that dies early fails the wait immediately instead of hanging", async () => {
-    const child = spawn(process.execPath, ["-e", "process.exit(7)"], { stdio: ["ignore", "pipe", "pipe"] });
+  it("waitForMarker fails at once, with the exit code only, when the child exits before the marker", async () => {
+    const child = spawnGroup(process.execPath, ["-e", "console.log('some output'); process.exit(7)"], {});
     try {
-      await expect(new Promise<void>((resolve, reject) => {
-        child.stdout.on("data", () => resolve());
-        child.once("exit", (c) => reject(new Error(`the demo process exited early (code ${c})`)));
-      })).rejects.toThrow("exited early (code 7)");
-    } finally { if (child.exitCode === null) child.kill("SIGKILL"); }
+      const sink = { out: "" };
+      await expect(waitForMarker(child, "ACT 2", sink)).rejects.toThrow("the process exited early (code 7, signal null)");
+    } finally { killGroup(child); }
+  });
+  it("waitForMarker resolves when the marker appears", async () => {
+    const child = spawnGroup(process.execPath, ["-e", "console.log('hello ACT 2'); setTimeout(()=>{}, 50)"], {});
+    try { await waitForMarker(child, "ACT 2", { out: "" }); } finally { killGroup(child); }
   });
 });

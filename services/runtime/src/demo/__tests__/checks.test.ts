@@ -23,6 +23,15 @@ describe("the check catalogue", () => {
   });
 });
 
+describe("the pinned mode-skip sets", () => {
+  it("lists literally which checks are skipped in --url and in --live mode (re-kinding a check must be a conscious change)", () => {
+    const skipped = (kind: "live" | "url") => CHECKS.filter((c) => skipReason(c, kind) !== null).map((c) => c.id);
+    expect(skipped("url")).toEqual(["F-07", "F-10", "F-11", "F-12", "F-13", "F-14", "F-19", "F-23", "F-24", "F-26", "F-28", "F-29"]);
+    expect(skipped("live")).toEqual(["F-07", "F-12", "F-13", "F-19"]);
+    expect(CHECKS.filter((c) => skipReason(c, "mock") !== null)).toEqual([]);
+  });
+});
+
 describe("Recorder", () => {
   it("records pass, fail (CheckFailure text) and error (other throws), and continues", async () => {
     const r = rec("mock");

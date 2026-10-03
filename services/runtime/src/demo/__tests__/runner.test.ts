@@ -306,7 +306,7 @@ describe("--url (smoke test of a running server)", () => {
       "TARGET server's real session and writes to its permanent event log", "throwaway server with a FRESH session", "ADVANCES THE SESSION TO ITS END (script_complete)",
       "cannot be resumed", "a facilitator join and the commands start, pause, resume, advance and whisper", "scripted player lines", "escape sequence and a forged newline",
       "speech while the session is paused", "role-claim attempts (a taken, an NPC and an unknown role)", "forged-token takeover attempts", "rejoin with the real token",
-      "player-issued start and pause", "a whisper to the NPC role", "malformed frames", "an over-long line", "oversized (~70 kB) frame", "allow facilitator joins", "no authentication",
+      "player-issued start and pause", "a facilitator say", "speech from a role that is absent from the scene", "speech and a resume command after the session ends", "speech before joining", "a whisper to the NPC role", "malformed frames", "an over-long line", "oversized (~70 kB) frame", "allow facilitator joins", "no authentication",
     ]) expect(text, phrase).toContain(phrase);
   });
 
