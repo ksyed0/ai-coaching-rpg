@@ -704,6 +704,70 @@
       "dependencies": [
         "US-0012"
       ]
+    },
+    {
+      "id": "US-0022",
+      "epicId": "EPIC-0006",
+      "title": "As an operator, I want transient model errors retried within the first-token budget, so that a brief capacity blip or an overloaded free-tier model does not turn into a canned fallback line.",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0022-retry-transient-model-errors",
+      "acs": [
+        {
+          "id": "AC-0069",
+          "text": "a transient upstream failure (an in-band overloaded or rate-limit error, HTTP 429 or 5xx, or a connection reset before any token) is retried a bounded number of times with backoff, inside the configured first-token and reply deadlines",
+          "done": false
+        },
+        {
+          "id": "AC-0070",
+          "text": "non-transient errors (401, 403, 404 unknown model, 400 bad request) are not retried and surface immediately as the fallback line plus a facilitator alert",
+          "done": false
+        },
+        {
+          "id": "AC-0071",
+          "text": "a retry never produces a duplicate or partial utterance, never outlives the deadlines, and the facilitator alert and log state how many attempts were made and why the last one failed (sanitized, no keys or URLs)",
+          "done": false
+        },
+        {
+          "id": "AC-0072",
+          "text": "the model adapters classify failures as transient or permanent through a typed error, and the shared adapter contract tests cover the classification for the mock, Anthropic and OpenAI-compatible providers",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0014",
+        "US-0015"
+      ]
+    },
+    {
+      "id": "US-0023",
+      "epicId": "EPIC-0006",
+      "title": "As a developer or evaluator, I want the demo runner's live mode to report fallback lines and alert reasons, so that a run cannot pass while the characters only spoke canned lines.",
+      "priority": "Medium",
+      "estimate": "S",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0023-demo-live-evidence",
+      "acs": [
+        {
+          "id": "AC-0073",
+          "text": "in live mode the runner counts NPC replies that were the persona's fallback line and shows the count in the narration, in the checklist evidence and in the JSON report",
+          "done": false
+        },
+        {
+          "id": "AC-0074",
+          "text": "facilitator alert messages raised during the run are captured (sanitized) with their reason and shown next to the affected reply",
+          "done": false
+        },
+        {
+          "id": "AC-0075",
+          "text": "an option such as `--max-fallbacks <n>` fails the run when more than n replies were fallback lines; without it the count is reported as a warning",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0021"
+      ]
     }
   ],
   "tasks": [
@@ -916,6 +980,26 @@
       "status": "Done",
       "branch": "feature/EPIC-0006-followups-and-demo-runner",
       "notes": "Requested by the user as an automated runner that can test the features unattended in a demo-like mode. Code in services/runtime/src/demo/ (args, narrator, bots, checks, harness, story, lab, audit, report, runner, run); CI job Demo Run."
+    },
+    {
+      "id": "TASK-0022",
+      "storyId": "US-0022",
+      "title": "Add a typed transient/permanent error classification to the adapters and a bounded retry in the NPC agent and Game Master",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0022-retry-transient-model-errors",
+      "notes": "Found in a live demo run: about 4 of 10 calls to a free OpenRouter model failed within 0.4 s with 'Upstream error from Nvidia: Service temporarily overloaded' and each became the canned fallback line."
+    },
+    {
+      "id": "TASK-0023",
+      "storyId": "US-0023",
+      "title": "Count fallback replies and capture alert reasons in the demo runner, with an optional failure threshold",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0023-demo-live-evidence",
+      "notes": "In three live runs 2 of 6 main-story replies were canned fallback lines, yet check F-08 passed because a fallback line is non-empty."
     }
   ],
   "testCases": [],
@@ -943,132 +1027,156 @@
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0003",
+      "title": "Demo check F-23 (dead client dropped) reports a timing-dependent figure against a very lenient limit",
+      "severity": "Low",
+      "relatedStory": "US-0021",
+      "relatedTask": "TASK-0021",
+      "status": "Open",
+      "fixBranch": "bugfix/BUG-0003-demo-heartbeat-evidence",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
     }
   ],
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 0.293671,
+      "costUsd": 0.268135,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0022": {
+      "projectedUsd": 800,
+      "costUsd": 0.268135,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0023": {
+      "projectedUsd": 400,
+      "costUsd": 0.268135,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -1087,6 +1195,14 @@
         "projectedUsd": 400
       },
       "BUG-0002": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0003": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -1248,6 +1364,20 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": true
+    },
+    "US-0022": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0023": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -1285,10 +1415,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-03T16:49:27.693Z",
-  "commitSha": "d02cf54",
-  "buildNumber": "46",
-  "branch": "feature/EPIC-0006-followups-and-demo-runner",
+  "generatedAt": "2026-10-05T14:07:31.025Z",
+  "commitSha": "d7e2ba2",
+  "buildNumber": "56",
+  "branch": "feature/EPIC-0006-backlog-refinements",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -1386,13 +1516,13 @@
     }
   },
   "budget": {
-    "totalBudget": 15206.1671,
+    "totalBudget": 16406.1671,
     "totalSpent": 6.1671,
-    "totalProjected": 17200,
+    "totalProjected": 18400,
     "percentUsed": 0,
-    "burnRate": 0.16589999999999971,
-    "daysRemaining": 91621,
-    "projectedExhaustion": 91621,
+    "burnRate": 0.08294999999999986,
+    "daysRemaining": 197709,
+    "projectedExhaustion": 197709,
     "thresholds": [
       50,
       75,
@@ -1404,25 +1534,25 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10404.111394,
-        "spent": 4.111393999999999,
+        "budget": 10403.75389,
+        "spent": 3.75389,
         "remaining": 10400,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.293671,
-        "spent": 0.293671,
+        "budget": 800.268135,
+        "spent": 0.268135,
         "remaining": 800,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 4001.762026,
-        "spent": 1.762026,
-        "remaining": 4000,
+        "budget": 5202.14508,
+        "spent": 2.14508,
+        "remaining": 5200,
         "percentUsed": 0
       },
       {
@@ -1459,9 +1589,11 @@
       "2026-10-02T23:21:24.502Z",
       "2026-10-02T23:52:35.725Z",
       "2026-10-03T00:39:42.837Z",
-      "2026-10-03T16:49:27.780Z"
+      "2026-10-03T16:49:27.780Z",
+      "2026-10-05T14:07:31.101Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -1473,16 +1605,19 @@
       13,
       14,
       15,
-      21
+      21,
+      23
     ],
     "aiCosts": [
       5.8353,
       6.1671,
       6.1671,
       6.1671,
+      6.1671,
       6.1671
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -1494,6 +1629,7 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "openBugs": [
@@ -1501,9 +1637,11 @@
       0,
       0,
       0,
-      2
+      2,
+      3
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -1515,10 +1653,12 @@
       522440,
       522440,
       522440,
+      522440,
       522440
     ],
     "outputTokens": [
       64947,
+      69480,
       69480,
       69480,
       69480,
@@ -1529,16 +1669,20 @@
       1.0999999999999999,
       1.0999999999999999,
       1.0999999999999999,
-      1.1285714285714288
+      1.1285714285714288,
+      1.139130434782609
     ],
     "velocityByWeek": {
       "labels": [
-        "2026-W40"
+        "2026-W40",
+        "2026-W41"
       ],
       "points": [
+        0,
         0
       ],
       "rollingAvg": [
+        0,
         0
       ]
     }

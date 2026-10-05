@@ -520,3 +520,48 @@ Status: Done
 Branch: feature/EPIC-0006-followups-and-demo-runner
 Notes: Requested by the user as an automated runner that can test the features unattended in a demo-like mode. Code in services/runtime/src/demo/ (args, narrator, bots, checks, harness, story, lab, audit, report, runner, run); CI job Demo Run.
 ```
+
+```
+US-0022 (EPIC-0006): As an operator, I want transient model errors retried within the first-token budget, so that a brief capacity blip or an overloaded free-tier model does not turn into a canned fallback line.
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0006-US-0022-retry-transient-model-errors
+Dependencies: US-0014, US-0015
+Acceptance Criteria:
+  - [ ] AC-0069: a transient upstream failure (an in-band overloaded or rate-limit error, HTTP 429 or 5xx, or a connection reset before any token) is retried a bounded number of times with backoff, inside the configured first-token and reply deadlines
+  - [ ] AC-0070: non-transient errors (401, 403, 404 unknown model, 400 bad request) are not retried and surface immediately as the fallback line plus a facilitator alert
+  - [ ] AC-0071: a retry never produces a duplicate or partial utterance, never outlives the deadlines, and the facilitator alert and log state how many attempts were made and why the last one failed (sanitized, no keys or URLs)
+  - [ ] AC-0072: the model adapters classify failures as transient or permanent through a typed error, and the shared adapter contract tests cover the classification for the mock, Anthropic and OpenAI-compatible providers
+```
+
+```
+TASK-0022 (US-0022): Add a typed transient/permanent error classification to the adapters and a bounded retry in the NPC agent and Game Master
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0022-retry-transient-model-errors
+Notes: Found in a live demo run: about 4 of 10 calls to a free OpenRouter model failed within 0.4 s with 'Upstream error from Nvidia: Service temporarily overloaded' and each became the canned fallback line.
+```
+
+```
+US-0023 (EPIC-0006): As a developer or evaluator, I want the demo runner's live mode to report fallback lines and alert reasons, so that a run cannot pass while the characters only spoke canned lines.
+Priority: Medium
+Estimate: S
+Status: Planned
+Branch: feature/EPIC-0006-US-0023-demo-live-evidence
+Dependencies: US-0021
+Acceptance Criteria:
+  - [ ] AC-0073: in live mode the runner counts NPC replies that were the persona's fallback line and shows the count in the narration, in the checklist evidence and in the JSON report
+  - [ ] AC-0074: facilitator alert messages raised during the run are captured (sanitized) with their reason and shown next to the affected reply
+  - [ ] AC-0075: an option such as `--max-fallbacks <n>` fails the run when more than n replies were fallback lines; without it the count is reported as a warning
+```
+
+```
+TASK-0023 (US-0023): Count fallback replies and capture alert reasons in the demo runner, with an optional failure threshold
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0023-demo-live-evidence
+Notes: In three live runs 2 of 6 main-story replies were canned fallback lines, yet check F-08 passed because a fallback line is non-empty.
+```

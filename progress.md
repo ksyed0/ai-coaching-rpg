@@ -14,3 +14,10 @@
 - Known limitations: no facilitator authentication, server binds all interfaces, hidden NPC facts never released, sessions not resumed after a restart.
 - US-0021 demo runner built on `feature/EPIC-0006-followups-and-demo-runner`: `pnpm demo` (mock, `--live`, `--url`, `--json`), 29-check feature checklist, tests and a non-required `Demo Run` CI job.
 - Next: the EPIC-0006 stories by priority.
+
+## Session 2 (continued) — 2026-10-05
+
+- PR #5 merged (US-0021 demo runner, EPIC-0006 backlog). GitHub Pages enabled with the Actions source; `develop` added as an allowed deploy branch of the `github-pages` environment; the Plan Visualizer dashboard now deploys (plan-status.html, dashboard.html).
+- Real demo runs captured (mock x2, paced x1, live x3 against OpenRouter nvidia/nemotron-3-ultra-550b-a55b:free): all exit 0. Live runs showed 2 of 6 main-story NPC replies were the canned fallback line (free-tier "Service temporarily overloaded" on about 4 of 10 direct calls).
+- Local model configured for the runtime: osaurus at http://127.0.0.1:1337/v1, model qwen3.8-27b-mxfp8. First token takes 32-95 s on this machine, so `NPC_FIRST_TOKEN_TIMEOUT_MS=120000` and `NPC_REPLY_TIMEOUT_MS=180000` are set in the git-ignored `.env`.
+- Filed: US-0022 (retry transient model errors), US-0023 (demo live-mode fallback evidence), BUG-0003 (demo check F-23 weak evidence).
