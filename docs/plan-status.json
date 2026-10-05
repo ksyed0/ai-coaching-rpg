@@ -716,7 +716,7 @@
       "acs": [
         {
           "id": "AC-0069",
-          "text": "a transient upstream failure (an in-band overloaded or rate-limit error, HTTP 429 or 5xx, or a connection reset before any token) is retried a bounded number of times with backoff, inside the configured first-token and reply deadlines (verified with fakes: loopback servers and the mock provider; the real-provider effect on the fallback rate is measured by the controller afterwards)",
+          "text": "a transient upstream failure (an in-band overloaded or rate-limit error, HTTP 429 or 5xx, or a connection reset before any token) is retried a bounded number of times with backoff, inside the configured first-token and reply deadlines (verified with fakes: loopback servers and the mock provider. Real measurement by the controller after the review: a live OpenRouter run with the free Nemotron model, 30 s / 60 s timeouts, went from 10 of 20 canned fallbacks without retries to 0 of 20 with retries, wall time 315 s to 365 s; a single run on a shared free endpoint, a sample not a benchmark)",
           "done": true
         },
         {
@@ -731,7 +731,7 @@
         },
         {
           "id": "AC-0072",
-          "text": "the model adapters classify failures as transient or permanent through a typed error, and the shared adapter contract tests cover the classification for the mock, Anthropic and OpenAI-compatible providers",
+          "text": "the model adapters classify failures as transient or permanent through a typed error, and the shared adapter contract tests cover the classification for the mock, Anthropic and OpenAI-compatible providers (the shared contract suite's typed-error case covers the mock, the OpenAI-compatible provider and the wrapper; the Anthropic classification is covered by separate tests built from the real SDK's error classes and by loopback tests of the real SDK, not by the shared contract suite)",
           "done": true
         }
       ],
@@ -1058,7 +1058,7 @@
       "assignee": "Agent",
       "status": "Done",
       "branch": "feature/EPIC-0006-US-0022-retry-transient-model-errors",
-      "notes": "Found in a live demo run: about 4 of 10 calls to a free OpenRouter model failed within 0.4 s with 'Upstream error from Nvidia: Service temporarily overloaded' and each became the canned fallback line. Delivered as ModelProviderError classification in the adapters, RetryingModelProvider, MODEL_MAX_RETRIES / MODEL_RETRY_BASE_MS, and attempt count plus kind in the NPC and GM alerts. The Game Master call has no deadline of its own (unchanged); its retries are bounded by the retry cap (about 1.5 s of waiting with the defaults)."
+      "notes": "Found in a live demo run: about 4 of 10 calls to a free OpenRouter model failed within 0.4 s with 'Upstream error from Nvidia: Service temporarily overloaded' and each became the canned fallback line. Delivered as ModelProviderError classification in the adapters, RetryingModelProvider, MODEL_MAX_RETRIES / MODEL_RETRY_BASE_MS, and attempt count plus kind in the NPC and GM alerts. The Game Master call now has its own deadline of max(NPC_REPLY_TIMEOUT_MS, 60 s) and retries stop at it; the wait per retry is the backoff (base x 2^(n-1), +/-25%, capped at 4 s or the base) or a Retry-After up to 10 s, so the worst case is the attempts times 10 s, cut by the deadline. The Anthropic SDK's own retries are off when the provider is wrapped."
     },
     {
       "id": "TASK-0023",
@@ -1540,9 +1540,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-05T20:42:27.643Z",
-  "commitSha": "3628894",
-  "buildNumber": "74",
+  "generatedAt": "2026-10-05T20:59:11.492Z",
+  "commitSha": "a9d5a3c",
+  "buildNumber": "78",
   "branch": "feature/EPIC-0006-US-0022-retry-transient-model-errors",
   "sessionTimeline": [
     {
@@ -1645,9 +1645,9 @@
     "totalSpent": 6.1671,
     "totalProjected": 20800,
     "percentUsed": 0,
-    "burnRate": 0.19871766666666665,
-    "daysRemaining": 82529,
-    "projectedExhaustion": 82529,
+    "burnRate": 0.19186533333333333,
+    "daysRemaining": 85476,
+    "projectedExhaustion": 85476,
     "thresholds": [
       50,
       75,
@@ -1740,7 +1740,7 @@
       "2026-10-02T20:42:27.858Z",
       "2026-10-03T20:42:27.858Z",
       "2026-10-04T20:42:27.858Z",
-      "2026-10-05T20:42:27.854Z"
+      "2026-10-05T20:59:11.589Z"
     ],
     "doneCounts": [
       0,

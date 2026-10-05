@@ -529,10 +529,10 @@ Status: Complete
 Branch: feature/EPIC-0006-US-0022-retry-transient-model-errors
 Dependencies: US-0014, US-0015
 Acceptance Criteria:
-  - [x] AC-0069: a transient upstream failure (an in-band overloaded or rate-limit error, HTTP 429 or 5xx, or a connection reset before any token) is retried a bounded number of times with backoff, inside the configured first-token and reply deadlines (verified with fakes: loopback servers and the mock provider; the real-provider effect on the fallback rate is measured by the controller afterwards)
+  - [x] AC-0069: a transient upstream failure (an in-band overloaded or rate-limit error, HTTP 429 or 5xx, or a connection reset before any token) is retried a bounded number of times with backoff, inside the configured first-token and reply deadlines (verified with fakes: loopback servers and the mock provider. Real measurement by the controller after the review: a live OpenRouter run with the free Nemotron model, 30 s / 60 s timeouts, went from 10 of 20 canned fallbacks without retries to 0 of 20 with retries, wall time 315 s to 365 s; a single run on a shared free endpoint, a sample not a benchmark)
   - [x] AC-0070: non-transient errors (401, 403, 404 unknown model, 400 bad request) are not retried and surface immediately as the fallback line plus a facilitator alert
   - [x] AC-0071: a retry never produces a duplicate or partial utterance, never outlives the deadlines, and the facilitator alert and log state how many attempts were made and why the last one failed (sanitized, no keys or URLs)
-  - [x] AC-0072: the model adapters classify failures as transient or permanent through a typed error, and the shared adapter contract tests cover the classification for the mock, Anthropic and OpenAI-compatible providers
+  - [x] AC-0072: the model adapters classify failures as transient or permanent through a typed error, and the shared adapter contract tests cover the classification for the mock, Anthropic and OpenAI-compatible providers (the shared contract suite's typed-error case covers the mock, the OpenAI-compatible provider and the wrapper; the Anthropic classification is covered by separate tests built from the real SDK's error classes and by loopback tests of the real SDK, not by the shared contract suite)
 ```
 
 ```
@@ -541,7 +541,7 @@ Type: Dev
 Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0006-US-0022-retry-transient-model-errors
-Notes: Found in a live demo run: about 4 of 10 calls to a free OpenRouter model failed within 0.4 s with 'Upstream error from Nvidia: Service temporarily overloaded' and each became the canned fallback line. Delivered as ModelProviderError classification in the adapters, RetryingModelProvider, MODEL_MAX_RETRIES / MODEL_RETRY_BASE_MS, and attempt count plus kind in the NPC and GM alerts. The Game Master call has no deadline of its own (unchanged); its retries are bounded by the retry cap (about 1.5 s of waiting with the defaults).
+Notes: Found in a live demo run: about 4 of 10 calls to a free OpenRouter model failed within 0.4 s with 'Upstream error from Nvidia: Service temporarily overloaded' and each became the canned fallback line. Delivered as ModelProviderError classification in the adapters, RetryingModelProvider, MODEL_MAX_RETRIES / MODEL_RETRY_BASE_MS, and attempt count plus kind in the NPC and GM alerts. The Game Master call now has its own deadline of max(NPC_REPLY_TIMEOUT_MS, 60 s) and retries stop at it; the wait per retry is the backoff (base x 2^(n-1), +/-25%, capped at 4 s or the base) or a Retry-After up to 10 s, so the worst case is the attempts times 10 s, cut by the deadline. The Anthropic SDK's own retries are off when the provider is wrapped.
 ```
 
 ```
