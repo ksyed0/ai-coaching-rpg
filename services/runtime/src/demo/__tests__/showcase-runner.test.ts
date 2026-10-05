@@ -314,6 +314,32 @@ describe("--showcase --live (an in-process OpenAI-compatible fake on loopback)",
     expect(demoTempDirs()).toEqual(dirsBefore);
   });
 
+  it("retries transient 503s: every AI reply is a real one (no fallback lines) and the Game Master still judges", async () => {
+    const seenBodies = new Set<string>(); let failed = 0;
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (d) => { body += d; });
+      req.on("end", () => {
+        if (!seenBodies.has(body)) { seenBodies.add(body); failed++; res.writeHead(503, { "Content-Type": "application/json" }); res.end("{}"); return; }
+        const text = body.includes("Game Master") ? '{"verdict": false, "reasoning": "not yet"}' : "I hear you, tell me more.";
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.end("data: [DONE]\n\n");
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    cleanups.push(() => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }));
+    const port = (server.address() as { port: number }).port;
+    const env = { MODEL_PROVIDER: "local", LOCAL_BASE_URL: `http://127.0.0.1:${port}/v1`, NPC_MODEL: "m", GM_MODEL: "m", MODEL_RETRY_BASE_MS: "100" };
+    const { exitCode, report, showcase } = await run(["--showcase", "--live", "--max-lines", "1", "--max-fallbacks", "0", "--fast", "--no-color"], { resolveLiveEnv: () => env });
+    expect(report!.results.filter((r) => r.status === "failed")).toEqual([]);
+    expect(exitCode).toBe(0);
+    expect(failed).toBeGreaterThan(0);
+    expect(showcase.fallbackLines).toBe(0);
+    expect(showcase.lines.filter((l) => l.source === "ai-character")).toHaveLength(5);
+    expect(showcase.gm.evaluations).toBe(2);
+  });
+
   it("fails the run when more than --max-fallbacks replies are canned lines (a model that never answers)", async () => {
     const server = http.createServer((req, res) => { req.resume(); res.writeHead(200, { "Content-Type": "text/event-stream" }); res.end("data: [DONE]\n\n"); });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));

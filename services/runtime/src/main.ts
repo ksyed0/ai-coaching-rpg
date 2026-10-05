@@ -10,6 +10,7 @@ import { SystemClock } from "./engine/clock.js";
 import { SessionHost } from "./host/session-host.js";
 import { startServer } from "./host/ws-server.js";
 import { parseNpcTimeouts } from "./agents/timeouts.js";
+import { parseModelRetry, withModelRetry } from "./agents/retry-config.js";
 
 /** services/runtime/src/main.ts: the repo root is three levels up from this file's directory. */
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -46,6 +47,8 @@ export async function bootstrap(opts: {
   if (!Number.isInteger(port) || port < 0 || port > 65_535) return { ok: false, errors: [`RUNTIME_PORT '${env.RUNTIME_PORT}' is not a valid port`] };
   const timeouts = parseNpcTimeouts(env);
   if (!timeouts.ok) return { ok: false, errors: timeouts.errors };
+  const retry = parseModelRetry(env);
+  if (!retry.ok) return { ok: false, errors: retry.errors };
 
   let scenario;
   try { scenario = await loadScenario(scenarioDir); }
@@ -64,11 +67,15 @@ export async function bootstrap(opts: {
   try {
     const clock = new SystemClock();
     const engine = new SessionEngine({ scenario, log: new JsonlEventLog(sessionId, dataDir), clock });
-    const npcProvider = selectModelProvider(env, "npc");
+    // Live providers retry transient errors inside the NPC deadlines; the scripted mock is never wrapped.
+    const hostLog = (m: string) => console.error(m);
+    const wrap = (p: ReturnType<typeof selectModelProvider>, role: "NPC" | "GM") => (p.name === "mock" ? p : withModelRetry(p, retry, role, hostLog));
+    const noSdkRetries = { sdkRetries: false }; // the wrapper is the only retry layer
+    const npcProvider = wrap(selectModelProvider(env, "npc", noSdkRetries), "NPC");
     // Never log the provider object, its name, an endpoint or any env-derived value: describeModelProvider returns a
     // fixed label plus a literal yes/no for "custom endpoint".
     log(`model provider: ${describeModelProvider(env)}`);
-    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: selectModelProvider(env, "gm"), clock, log: (m) => console.error(m), firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs });
+    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs });
   } catch (err) { return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
 
   host.startTicker(opts.tickMs ?? 1_000);

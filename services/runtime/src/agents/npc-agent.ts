@@ -2,6 +2,7 @@ import type { SessionEvent } from "@acr/events";
 import type { NpcRole } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import { EngineError, type SessionEngine } from "../engine/session-engine.js";
+import { describeModelFailure, describeRetryProgress } from "./model-failure.js";
 import { buildNpcRequest } from "./npc-prompt.js";
 import { DEFAULT_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_REPLY_TIMEOUT_MS } from "./timeouts.js";
 
@@ -29,7 +30,9 @@ export class NpcAgent {
    * including when the engine refuses the reply because the state changed during the model call
    * (stale reply is dropped, nothing is said). The scene id is captured before the model call and
    * enforced inside the engine mutex, so a reply (or fallback) from scene A is never posted into scene B.
-   * Timeout, stream error, or empty reply: a facilitator.alert is emitted and the fallback line is spoken.
+   * Timeout, stream error, or empty reply: a facilitator.alert is emitted and the fallback line is spoken. A transient model error
+   * is retried by the provider wrapper (when configured) inside the first-token and reply deadlines before it gets here; the alert then
+   * carries the attempt count and the error kind.
    */
   async respond(): Promise<SessionEvent | null> {
     const scene = this.engine.currentScene();
@@ -52,8 +55,8 @@ export class NpcAgent {
         deadline,
         new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), this.firstTokenTimeoutMs); }),
       ]);
-      if (first === "timeout") { ac.abort(); failure = "no first token within timeout"; }
-      else if (first === "deadline") { ac.abort(); failure = "reply did not finish within the overall deadline"; }
+      if (first === "timeout") { ac.abort(); failure = `no first token within timeout${describeRetryProgress(ac.signal)}`; }
+      else if (first === "deadline") { ac.abort(); failure = `reply did not finish within the overall deadline${describeRetryProgress(ac.signal)}`; }
       else if (!first.done) {
         text += first.value;
         for (;;) {
@@ -67,7 +70,7 @@ export class NpcAgent {
       }
     } catch (err) {
       ac.abort();
-      failure = `model error: ${err instanceof Error ? err.message : String(err)}`;
+      failure = describeModelFailure(err);
     } finally {
       clearTimeout(timer);
       clearTimeout(replyTimer);

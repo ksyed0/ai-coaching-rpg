@@ -52,8 +52,11 @@ function openRouterBaseUrl(env: NodeJS.ProcessEnv): string {
   return parseBaseUrl(raw === undefined || raw.trim() === "" ? OPENROUTER_DEFAULT_BASE_URL : raw, "OPENROUTER_BASE_URL", "https-or-loopback-http");
 }
 
-/** The single entry point: every error names variables, never values. */
-export function selectModelProvider(env: NodeJS.ProcessEnv, role: "npc" | "gm"): ModelProvider {
+/**
+ * The single entry point: every error names variables, never values. `sdkRetries: false` is for callers that wrap the result
+ * in a RetryingModelProvider (see AnthropicModelProvider); other providers have no built-in retries.
+ */
+export function selectModelProvider(env: NodeJS.ProcessEnv, role: "npc" | "gm", opts: { sdkRetries?: boolean } = {}): ModelProvider {
   const kind = kindOf(env);
   const model = modelOverride(env, role);
   switch (kind) {
@@ -65,6 +68,7 @@ export function selectModelProvider(env: NodeJS.ProcessEnv, role: "npc" | "gm"):
         apiKey: required(env, kind, "ANTHROPIC_API_KEY"),
         model: model.value || ANTHROPIC_DEFAULT_MODEL,
         baseUrl: optionalAnthropicBaseUrl(env),
+        sdkRetries: opts.sdkRetries,
       });
     case "openrouter":
       return new OpenAICompatibleModelProvider({

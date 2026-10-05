@@ -5,6 +5,7 @@ import type { Clock } from "../engine/clock.js";
 import { type SessionEngine } from "../engine/session-engine.js";
 import { NpcAgent } from "../agents/npc-agent.js";
 import { GameMaster } from "../agents/game-master.js";
+import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
 
 export class HostError extends Error {
   constructor(readonly code: "role_taken" | "unknown_role" | "npc_role" | "not_started") { super(code); this.name = "HostError"; }
@@ -30,7 +31,7 @@ export class SessionHost {
     for (const role of Object.values(opts.scenario.roles)) {
       if (role.type === "npc") this.npcs.set(role.id, new NpcAgent({ role: role as NpcRole, engine: opts.engine, provider: opts.npcProvider, firstTokenTimeoutMs: opts.firstTokenTimeoutMs, replyTimeoutMs: opts.replyTimeoutMs }));
     }
-    this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err) });
+    this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), evaluationTimeoutMs: gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS) });
   }
 
   private report(what: string, err: unknown): void {

@@ -1,4 +1,5 @@
 import { parseBaseUrl, type EndpointPolicy } from "./endpoint.js";
+import { ModelProviderError, classifyHttpStatus, isPermanentQuotaText, classifyInBandError, classifyNetworkError, parseRetryAfter } from "./errors.js";
 import type { ChatRequest, ModelProvider } from "./types.js";
 
 /** Any OpenAI-style `POST {base}/chat/completions` server: OpenRouter, Ollama, LM Studio, vLLM, llama.cpp. */
@@ -68,12 +69,16 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       if (signal?.aborted) throw err;
       const cause = (err as { cause?: { code?: string; message?: string } }).cause;
       const detail = cause?.code ?? cause?.message ?? (err instanceof Error ? err.message : "error");
-      throw new Error(`${this.name} request failed: ${this.snippet(String(detail))}`);
+      throw new ModelProviderError(`${this.name} request failed: ${this.snippet(String(detail))}`, classifyNetworkError(err));
     }
 
     if (!res.ok) {
       const text = await this.readCapped(res, MAX_ERROR_BODY_BYTES, false).catch(() => "");
-      throw new Error(`${this.name} request failed with HTTP ${res.status}${text ? `: ${this.snippet(text)}` : ""}`);
+      // A 429 that says the quota or billing limit is used up is permanent: waiting cannot fix it.
+      const c = res.status === 429 && isPermanentQuotaText(text) ? { kind: "rate_limited" as const, transient: false } : classifyHttpStatus(res.status);
+      throw new ModelProviderError(`${this.name} request failed with HTTP ${res.status}${text ? `: ${this.snippet(text)}` : ""}`, {
+        ...c, status: res.status, retryAfterMs: c.transient ? parseRetryAfter(res.headers.get("retry-after")) : undefined,
+      });
     }
 
     const type = (res.headers.get("content-type") ?? "").toLowerCase();
@@ -89,6 +94,17 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       throw new Error(`${this.name} returned an unexpected response (content-type ${JSON.stringify(sanitizeSnippet(type, 60))}); expected text/event-stream`);
     }
     yield* this.parseSse(res.body, signal);
+  }
+
+  /** One body read; a failure that is not the caller's own abort is a (usually transient) network error, with a sanitized message. */
+  private async readChunk(reader: ReadableStreamDefaultReader<Uint8Array>, signal?: AbortSignal): Promise<ReadableStreamReadResult<Uint8Array>> {
+    try { return await reader.read(); }
+    catch (err) {
+      if (signal?.aborted) throw err;
+      const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+      const detail = cause?.code ?? cause?.message ?? (err instanceof Error ? err.message : "error");
+      throw new ModelProviderError(`${this.name} stream failed: ${this.snippet(String(detail))}`, classifyNetworkError(err));
+    }
   }
 
   /** Reads up to `max` bytes then cancels the body. `strict` = throw when the body is bigger than `max`. */
@@ -129,7 +145,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     const err = (obj as { error?: unknown } | null)?.error;
     if (err === undefined || err === null) return;
     const message = typeof err === "string" ? err : (err as { message?: unknown }).message;
-    throw new Error(`${this.name} reported an error${typeof message === "string" && message ? `: ${this.snippet(message)}` : ""}`);
+    throw new ModelProviderError(`${this.name} reported an error${typeof message === "string" && message ? `: ${this.snippet(message)}` : ""}`, classifyInBandError(err));
   }
 
   /**
@@ -159,7 +175,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     try {
       for (;;) {
         if (signal?.aborted) return;
-        const { done, value } = await reader.read();
+        const { done, value } = await this.readChunk(reader, signal);
         if (done) break;
         const text = decoder.decode(value, { stream: true });
         buffer += text;

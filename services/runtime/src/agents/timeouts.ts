@@ -2,12 +2,16 @@
 export const DEFAULT_FIRST_TOKEN_TIMEOUT_MS = 10_000;
 export const DEFAULT_REPLY_TIMEOUT_MS = 20_000;
 export const MIN_TIMEOUT_MS = 500;
+/** The Game Master's model call may take at least this long (the showcase allows the same per condition). */
+export const MIN_GM_DEADLINE_MS = 60_000;
+/** The ONE computation of the Game Master call's deadline: max(NPC reply timeout, 60 s). Retries and backoff happen inside it. */
+export function gmDeadlineMs(replyTimeoutMs: number): number { return Math.max(replyTimeoutMs, MIN_GM_DEADLINE_MS); }
 export const MAX_TIMEOUT_MS = 600_000;
 
 export type TimeoutParse = { ok: true; value: number } | { ok: false; error: string };
 
 /** Quote an untrusted value for an error message: truncated, with control characters escaped (JSON.stringify). */
-function show(raw: string): string { return JSON.stringify(raw.slice(0, 40)); }
+export function show(raw: string): string { return JSON.stringify(raw.slice(0, 40)); }
 
 /**
  * Parses one timeout environment variable: a base-10 positive integer number of milliseconds (no sign, exponent,

@@ -1,5 +1,7 @@
 import type { ModelProvider } from "@acr/adapters";
 import type { SessionEngine } from "../engine/session-engine.js";
+import { describeModelFailure, describeRetryProgress } from "./model-failure.js";
+import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "./timeouts.js";
 import { buildGmRequest, parseGmVerdict } from "./gm-prompt.js";
 
 /** The Game Master judges each gm_detects condition after this many NEW utterances in a scene. */
@@ -12,10 +14,12 @@ export class GameMaster {
   private evaluatedCount = 0; // utterances in the current scene at the last evaluation
   private lastSceneId: string | null = null;
   private readonly onError: (err: unknown) => void;
+  private readonly evaluationTimeoutMs: number;
   private evaluating = false; // R19: at most one evaluation in flight
 
-  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void }) {
+  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number }) {
     this.engine = opts.engine; this.provider = opts.provider; this.everyN = opts.everyNUtterances ?? GM_EVERY_N_UTTERANCES;
+    this.evaluationTimeoutMs = opts.evaluationTimeoutMs ?? gmDeadlineMs(DEFAULT_REPLY_TIMEOUT_MS);
     this.onError = opts.onError ?? ((err) => console.error("[GameMaster] evaluation failed:", err));
   }
 
@@ -94,10 +98,31 @@ export class GameMaster {
   private async evaluate(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>, condition: string): Promise<void> {
     const expectSceneId = scene.id;
     let text = "";
+    // One deadline per evaluation (retries and their backoff happen inside it): a stalled model can no longer hold the
+    // in-flight guard forever. The abort also cuts a retry backoff short at once.
+    const ac = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let expired = false;
+    const deadline = new Promise<"deadline">((r) => { timer = setTimeout(() => r("deadline"), this.evaluationTimeoutMs); });
     try {
-      for await (const c of this.provider.stream(buildGmRequest({ scene, condition, state: this.engine.state }))) text += c;
+      const it = this.provider.stream(buildGmRequest({ scene, condition, state: this.engine.state }), ac.signal)[Symbol.asyncIterator]();
+      for (;;) {
+        const nextP = it.next();
+        nextP.catch(() => undefined); // if the deadline wins, a later rejection must not go unhandled
+        const r = await Promise.race([nextP, deadline]);
+        if (r === "deadline") { ac.abort(); expired = true; break; }
+        if (r.done) break;
+        text += r.value;
+      }
     } catch (err) {
-      await this.engine.alert(`GM: model error: ${err instanceof Error ? err.message : String(err)}`, "warning", { expectSceneId });
+      ac.abort();
+      await this.engine.alert(`GM: ${describeModelFailure(err, ` for "${condition}"`)}`, "warning", { expectSceneId });
+      return;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (expired) {
+      await this.engine.alert(`GM: model call exceeded its deadline of ${this.evaluationTimeoutMs} ms for "${condition}"${describeRetryProgress(ac.signal)}`, "warning", { expectSceneId });
       return;
     }
     const parsed = parseGmVerdict(text);
