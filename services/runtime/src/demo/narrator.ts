@@ -32,7 +32,10 @@ export type Narrator = ReturnType<typeof createNarrator>;
 export function createNarrator(o: {
   write: (line: string) => void; color: boolean; speed: number; fast: boolean;
   sleep: (ms: number) => Promise<void>; signal?: AbortSignal;
+  /** Receives a structured copy of every heading and technical-log line (for the Markdown transcript). Dialogue is recorded elsewhere. */
+  record?: (r: { kind: "heading" | "log"; source: "system"; text: string }) => void;
 }) {
+  const rec = (kind: "heading" | "log", text: string) => o.record?.({ kind, source: "system", text });
   const s = sanitizeText;
   const pace = async (kind: "step" | "act") => {
     if (o.signal?.aborted) throw new Error("run aborted");
@@ -49,21 +52,35 @@ export function createNarrator(o: {
   return {
     /** A section heading. */
     async act(n: number | string, title: string): Promise<void> {
+      rec("heading", `ACT ${n} · ${title}`);
       o.write("");
       o.write(paint(`ACT ${s(String(n))} · ${s(title)}`, "bold", o.color));
       await pace("act");
     },
     /** One narrated step. */
-    async step(text: string): Promise<void> { o.write(`  ${s(text)}`); await pace("step"); },
+    async step(text: string): Promise<void> { rec("log", text); o.write(`  ${s(text)}`); await pace("step"); },
     /** Who says what. */
     async say(who: string, text: string): Promise<void> { o.write(`  ${paint(`${s(who)}:`, "cyan", o.color)} ${s(text)}`); await pace("step"); },
-    async note(text: string): Promise<void> { o.write(`  ${paint(s(text), "dim", o.color)}`); await pace("step"); },
+    /** A scene heading, without the numbered "ACT" prefix. */
+    async heading(text: string, opts: { record?: boolean } = {}): Promise<void> {
+      if (opts.record !== false) rec("heading", text);
+      o.write("");
+      o.write(paint(s(text), "bold", o.color));
+      await pace("act");
+    },
+    /** A line labelled with its source, e.g. "[AI character] Priya: ...". The tag is ours; `who` and `text` are sanitized. */
+    async tagged(tag: string, style: Style, who: string, text: string): Promise<void> {
+      o.write(`  ${paint(`[${tag}]`, style, o.color)}${who ? ` ${s(who)}:` : ""} ${s(text)}`);
+      await pace("step");
+    },
+    async note(text: string, record = true): Promise<void> {
+      if (record) rec("log", text); o.write(`  ${paint(s(text), "dim", o.color)}`); await pace("step"); },
     /** Unpaced lines, for check results. */
     ok(text: string): void { o.write(`  ${paint("✓", "green", o.color)} ${s(text)}`); },
     fail(text: string): void { o.write(`  ${paint("✗", "red", o.color)} ${s(text)}`); },
     skip(text: string): void { o.write(`  ${paint("–", "yellow", o.color)} ${s(text)}`); },
     /** A plain line (banner, summary). */
-    line(text: string): void { o.write(s(text)); },
-    styled(text: string, style: Style): void { o.write(paint(s(text), style, o.color)); },
+    line(text: string, record = true): void { if (record) rec("log", text); o.write(s(text)); },
+    styled(text: string, style: Style): void { rec("log", text); o.write(paint(s(text), style, o.color)); },
   };
 }

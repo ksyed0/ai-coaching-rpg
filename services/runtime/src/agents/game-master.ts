@@ -2,6 +2,9 @@ import type { ModelProvider } from "@acr/adapters";
 import type { SessionEngine } from "../engine/session-engine.js";
 import { buildGmRequest, parseGmVerdict } from "./gm-prompt.js";
 
+/** The Game Master judges each gm_detects condition after this many NEW utterances in a scene. */
+export const GM_EVERY_N_UTTERANCES = 3;
+
 export class GameMaster {
   private readonly engine: SessionEngine;
   private readonly provider: ModelProvider;
@@ -12,7 +15,7 @@ export class GameMaster {
   private evaluating = false; // R19: at most one evaluation in flight
 
   constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void }) {
-    this.engine = opts.engine; this.provider = opts.provider; this.everyN = opts.everyNUtterances ?? 3;
+    this.engine = opts.engine; this.provider = opts.provider; this.everyN = opts.everyNUtterances ?? GM_EVERY_N_UTTERANCES;
     this.onError = opts.onError ?? ((err) => console.error("[GameMaster] evaluation failed:", err));
   }
 
@@ -51,6 +54,37 @@ export class GameMaster {
     } finally {
       this.evaluating = false;
     }
+  }
+
+  /**
+   * One more evaluation of the current scene, for a caller that has just seen the last reply of a turn. The normal tick can
+   * judge while a player's line is recorded, BEFORE the characters answer, and then waits for N more utterances. This runs only
+   * when the scene was already evaluated (so a scene with too few lines still gets none) and utterances have arrived since,
+   * and it counts them as evaluated. Returns whether it evaluated.
+   */
+  async finalEvaluation(expectSceneId?: string): Promise<boolean> {
+    await this.engine.tick();
+    if (this.evaluating) return false;
+    const scene = this.engine.currentScene();
+    if (!scene || this.engine.state.paused || this.engine.state.status !== "running") return false;
+    if (expectSceneId !== undefined && scene.id !== expectSceneId) return false; // the scene changed since the caller looked
+    if (scene.id !== this.lastSceneId || this.evaluatedCount === 0) return false;
+    const count = this.engine.state.transcript.filter((u) => u.sceneId === scene.id).length;
+    if (count <= this.evaluatedCount) return false;
+    this.evaluatedCount = count;
+    this.evaluating = true;
+    try {
+      for (const cond of scene.exit_when.any_of) {
+        if (typeof cond !== "object") continue;
+        if (this.engine.state.currentScene?.id !== scene.id) break;
+        await this.evaluate(scene, cond.gm_detects);
+      }
+      await this.engine.tick();
+    } catch (err) {
+      this.report(err);
+      try { await this.engine.alert(`GM: evaluation failed: ${err instanceof Error ? err.message : String(err)}`, "warning"); } catch (alertErr) { this.report(alertErr); }
+    } finally { this.evaluating = false; }
+    return true;
   }
 
   private report(err: unknown): void {

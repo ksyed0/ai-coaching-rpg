@@ -80,20 +80,27 @@ export class SessionEngine {
   }
 
   /** `opts.expectSceneId`: throws EngineError("stale_scene") (appending nothing) if the scene has changed. */
-  say(roleId: string, text: string, channel: Channel = "text", opts: { expectSceneId?: string } = {}): Promise<SessionEvent> { return this.mutex.run(() => this.doSay(roleId, text, channel, opts)); }
-  private async doSay(roleId: string, text: string, channel: Channel, opts: { expectSceneId?: string }): Promise<SessionEvent> {
+  say(roleId: string, text: string, channel: Channel = "text", opts: { expectSceneId?: string; fallback?: true } = {}): Promise<SessionEvent> { return this.mutex.run(() => this.doSay(roleId, text, channel, opts)); }
+  private async doSay(roleId: string, text: string, channel: Channel, opts: { expectSceneId?: string; fallback?: true }): Promise<SessionEvent> {
     if (this.state.status === "ended") throw new EngineError("ended");
+    // Participation first: a role outside the current scene must not be able to probe the scene id through the guard.
+    if (opts.expectSceneId !== undefined && this.state.roles[roleId]) {
+      const cur = this.currentScene();
+      if (!cur || !cur.participants.includes(roleId)) throw new EngineError("not_in_scene", `${roleId} is not in the current scene`);
+    }
     if (opts.expectSceneId !== undefined && this.state.currentScene?.id !== opts.expectSceneId) throw new EngineError("stale_scene");
     if (!this.state.roles[roleId]) throw new EngineError("unknown_role", `unknown role ${roleId}`);
     if (this.state.paused) throw new EngineError("paused");
     const scene = this.currentScene();
     if (!scene || !scene.participants.includes(roleId)) throw new EngineError("not_in_scene", `${roleId} is not in the current scene`);
-    return this.emit({ type: "utterance", roleId, text, channel });
+    return this.emit({ type: "utterance", roleId, text, channel, ...(opts.fallback ? { fallback: true as const } : {}) });
   }
 
-  command(cmd: FacilitatorCommand): Promise<void> { return this.mutex.run(() => this.doCommand(cmd)); }
-  private async doCommand(cmd: FacilitatorCommand): Promise<void> {
+  /** `opts.expectSceneId`: throws EngineError("stale_scene") (appending nothing) if the scene has changed, so a late `advance` can never end the NEXT scene. */
+  command(cmd: FacilitatorCommand, opts: { expectSceneId?: string } = {}): Promise<void> { return this.mutex.run(() => this.doCommand(cmd, opts)); }
+  private async doCommand(cmd: FacilitatorCommand, opts: { expectSceneId?: string } = {}): Promise<void> {
     if (this.state.status === "ended") throw new EngineError("ended");
+    if (opts.expectSceneId !== undefined && this.state.currentScene?.id !== opts.expectSceneId) throw new EngineError("stale_scene");
     // validate first: a rejected command appends nothing
     let injectToFire: { scene: Scene; inject: Inject } | null = null;
     if (cmd.command === "fire_inject") {

@@ -164,3 +164,22 @@ describe("NpcAgent", () => {
     expect(alerts).toHaveLength(0);
   });
 });
+
+describe("NpcAgent fallback marker (R44)", () => {
+  it("sets fallback: true on the fallback utterance only", async () => {
+    const seen: any[] = [];
+    engine.subscribe((e) => { if (e.type === "utterance" && e.roleId === "guest") seen.push(e); });
+    await new NpcAgent({ role: guest, engine, provider: new MockModelProvider(["a real reply", ""]) }).respond();
+    await engine.say("host", "again");
+    await new NpcAgent({ role: guest, engine, provider: new MockModelProvider([""]) }).respond();
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).not.toHaveProperty("fallback");
+    expect(seen[1]).toMatchObject({ text: guest.fallback_line, fallback: true });
+  });
+  it("a model that says the fallback text itself gets no marker", async () => {
+    const seen: any[] = [];
+    engine.subscribe((e) => { if (e.type === "utterance" && e.roleId === "guest") seen.push(e); });
+    await new NpcAgent({ role: guest, engine, provider: new MockModelProvider([guest.fallback_line]) }).respond();
+    expect(seen[0]).not.toHaveProperty("fallback");
+  });
+});

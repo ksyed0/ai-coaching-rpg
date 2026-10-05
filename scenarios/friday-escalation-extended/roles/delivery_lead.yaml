@@ -1,0 +1,10 @@
+id: delivery_lead
+type: player
+brief: >-
+  You run the programme day to day. Margin is already thin. You want to keep
+  Priya happy without eating the cost of the module, and you will be asked to
+  defend the delivery plan.
+private_facts:
+  - The module is roughly 6 person-weeks of work
+  - Your account lead has hinted that a renewal is being discussed
+  - Contingency on the programme budget is down to about 8 percent

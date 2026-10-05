@@ -1,0 +1,30 @@
+id: esc-scope-creep-02
+title: The Friday Escalation, Extended
+version: "1.0"
+audience: Delivery leads and project managers
+duration_minutes: 50
+players: { min: 3, max: 3 }
+context: >-
+  A fixed-fee data platform programme is six weeks from go-live. The client
+  sponsor has emailed asking for a "small" additional reconciliation module
+  before launch and expects an answer by end of day Friday. Her CFO is watching
+  the programme budget closely and will join the later calls, so the team has
+  to align, answer the sponsor, and then defend a price to a finance executive.
+learning_objectives:
+  - id: LO1
+    statement: Separate the client's stated request from their underlying need before responding
+    rubric_criteria: [discovery, listening]
+  - id: LO2
+    statement: Protect scope and margin while preserving the relationship
+    rubric_criteria: [negotiation, commercial_judgement]
+  - id: LO3
+    statement: Align the delivery team on one position before engaging the client
+    rubric_criteria: [team_alignment, role_clarity]
+  - id: LO4
+    statement: Defend a price and its terms to a cost-focused finance executive
+    rubric_criteria: [commercial_judgement, stakeholder_management]
+rubrics: [individual_delivery_v2, group_collaboration_v1]
+facilitator_notes: >-
+  Watch whether the team prices the phased module before the CFO asks for a
+  number. The debrief should compare the first price offered with the final
+  terms and ask what moved the CFO.

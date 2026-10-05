@@ -21,6 +21,8 @@ export class Bot {
   readonly closed: Promise<number>;
   /** Set when the server exceeded MAX_INBOX frames (the connection is then terminated and waits fail). */
   flooded = false;
+  /** Called synchronously for every message as it arrives (the showcase narrates the facilitator's stream with it). */
+  onMessage: ((m: Inbound) => void) | undefined;
   private readonly waiters = new Set<Waiter>();
   private constructor(readonly label: string, readonly ws: WebSocket, inbox: Inbound[], private readonly signal: AbortSignal | undefined) {
     this.inbox = inbox;
@@ -36,6 +38,7 @@ export class Bot {
       let m: Inbound;
       try { m = JSON.parse(data.toString()) as Inbound; } catch { m = { type: "__unparseable" }; }
       const index = this.inbox.push(m) - 1;
+      try { this.onMessage?.(m); } catch { /* a listener must never break the connection */ }
       // Only the new message is tested (never a rescan of the whole inbox), so a flood costs O(frames).
       for (const w of [...this.waiters]) {
         if (index >= w.from && w.pred(m)) { this.settle(w); w.resolve(m); }

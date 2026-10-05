@@ -7,3 +7,5 @@ data/sessions/
 .superpowers/
 .history/
 demo-report.json
+demo-showcase-report.json
+demo-transcript*.md

@@ -102,11 +102,11 @@ export async function startServer(opts: { port: number; hosts: Map<string, Sessi
           await host.start();
         } else if (m.type === "say") {
           if (who === "facilitator") return fail("forbidden", "the facilitator cannot speak as a role");
-          await host.onPlayerUtterance(who, m.text);
+          await host.onPlayerUtterance(who, m.text, { expectSceneId: m.expectSceneId });
         } else if (m.type === "command") {
           if (who !== "facilitator") return fail("forbidden", "only the facilitator may send commands");
           if (host.engine.state.status === "idle") await host.start();
-          await host.command(m.command);
+          await host.command(m.command, { expectSceneId: m.expectSceneId });
         }
       } catch (err) {
         if (err instanceof HostError || err instanceof EngineError) return fail(err.code, err.message);

@@ -15,8 +15,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("join"), sessionId: Id, roleId: Id, participantId: Id, reconnectToken: z.string().min(1).max(128).optional() }),
   z.object({ type: z.literal("join_facilitator"), sessionId: Id }),
   z.object({ type: z.literal("start") }),
-  z.object({ type: z.literal("say"), text: z.string().min(1).max(MAX_UTTERANCE_CHARS) }),
-  z.object({ type: z.literal("command"), command: FacilitatorCommandSchema }),
+  z.object({ type: z.literal("say"), text: z.string().min(1).max(MAX_UTTERANCE_CHARS), expectSceneId: Id.optional() }),
+  z.object({ type: z.literal("command"), command: FacilitatorCommandSchema, expectSceneId: Id.optional() }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 

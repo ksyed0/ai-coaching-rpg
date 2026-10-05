@@ -4,6 +4,9 @@ import type { ChatMessage, ChatRequest } from "@acr/adapters";
 
 const bullets = (items: string[]) => (items.length ? items.map((i) => `- ${i}`).join("\n") : "- (none)");
 
+/** The sentence that names the character in the system prompt; the demo's scripted mock provider routes on it, so it lives in one place. */
+export const npcIntro = (role: { name: string }): string => `You are playing ${role.name}`;
+
 /**
  * Builds the NPC model request. Pure. Guardrails (Architecture section 4): only this role's own
  * persona/goals/knowledge, plus hidden facts the Game Master has released, ever reach the prompt.
@@ -14,7 +17,7 @@ export function buildNpcRequest(opts: { role: NpcRole; scene: Scene; state: Sess
   const { role, scene, state } = opts;
   const npc = state.npcs[role.id] ?? { goals: role.goals, knowledge: role.knowledge, released: [] };
   const system = [
-    `You are playing ${role.name}${role.title ? `, ${role.title}` : ""} in a live role-play training session.`,
+    `${npcIntro(role)}${role.title ? `, ${role.title}` : ""} in a live role-play training session.`,
     `Stay in character at all times. Speak only as ${role.name}. Reply in one to four sentences of natural spoken dialogue, no stage directions, no lists.`,
     `Other speakers are shown as [role_id]: text. Never mention role ids; address people the way ${role.name} would.`,
     "", "## Persona", role.persona,

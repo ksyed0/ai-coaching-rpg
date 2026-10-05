@@ -62,10 +62,14 @@ export function ensure(cond: unknown, message: string): asserts cond {
 /** Collects one result per check. A failing check never stops the others; dependents are skipped, never hidden. */
 export class Recorder {
   private readonly results = new Map<string, CheckResult>();
+  private readonly defs: readonly CheckDef[];
   constructor(private readonly o: {
     kind: RunKind; now: () => number; forceFail?: ReadonlySet<string>; bypass?: ReadonlySet<string>; onResult?: (r: CheckResult) => void; aborted?: () => boolean;
+    /** The checks this run owns (default: the 29 feature checks; the showcase passes its own list). */
+    defs?: readonly CheckDef[];
   }) {
-    for (const d of CHECKS) {
+    this.defs = o.defs ?? CHECKS;
+    for (const d of this.defs) {
       const reason = skipReason(d, o.kind);
       if (reason) this.put({ id: d.id, title: d.title, status: "skipped", details: reason, durationMs: 0 });
     }
@@ -73,11 +77,16 @@ export class Recorder {
   private put(r: CheckResult): void { this.results.set(r.id, r); this.o.onResult?.(r); }
   status(id: string): CheckResult["status"] | undefined { return this.results.get(id)?.status; }
   passed(id: string): boolean { return this.status(id) === "passed"; }
-  applicable(id: string): boolean { return skipReason(def(id), this.o.kind) === null; }
+  private defOf(id: string): CheckDef {
+    const d = this.defs.find((c) => c.id === id);
+    if (!d) throw new Error(`unknown check ${id}`);
+    return d;
+  }
+  applicable(id: string): boolean { return skipReason(this.defOf(id), this.o.kind) === null; }
 
   /** Runs one check. `fn` returns the one-line evidence; throwing marks it failed. Returns whether it passed. */
   async run(id: string, fn: () => Promise<string> | string, needs: string[] = []): Promise<boolean> {
-    const d = def(id);
+    const d = this.defOf(id);
     if (!this.applicable(id) || this.o.bypass?.has(id)) return false; // a bypassed check is left unrecorded (test hook)
     const blocked = needs.filter((n) => !this.passed(n));
     if (blocked.length) {
@@ -109,9 +118,9 @@ export class Recorder {
 
   /** Records every check that never ran (see notRun). */
   finish(reason: string): void {
-    for (const d of CHECKS) if (!this.results.has(d.id)) this.put(this.notRun(d, reason));
+    for (const d of this.defs) if (!this.results.has(d.id)) this.put(this.notRun(d, reason));
   }
-  ordered(): CheckResult[] { return CHECKS.map((d) => this.results.get(d.id)).filter((r): r is CheckResult => r !== undefined); }
+  ordered(): CheckResult[] { return this.defs.map((d) => this.results.get(d.id)).filter((r): r is CheckResult => r !== undefined); }
 }
 
 // ---- pure helpers shared by the acts --------------------------------------------------------------------------
