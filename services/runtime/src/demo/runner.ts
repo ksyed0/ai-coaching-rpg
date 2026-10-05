@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseEnv } from "node:util";
@@ -18,6 +18,7 @@ import { buildReport, exitCodeFor, formatChecklist, scrubText, type CheckResult,
 import { SHOWCASE_CHECKS, expectedModelCalls, playShowcase, showcaseMarkers, type ShowcaseHolder } from "./showcase.js";
 import { loadShowcaseScript, type ShowcaseScript } from "./showcase-script.js";
 import { playStory } from "./story.js";
+import type { ProviderKind } from "./provenance.js";
 import { Transcript } from "./transcript.js";
 import { renderTranscript } from "./transcript-md.js";
 import { parseNpcTimeouts, DEFAULT_REPLY_TIMEOUT_MS } from "../agents/timeouts.js";
@@ -100,6 +101,8 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     const target = path.resolve(base, opts.transcript);
     const inside = (root: string) => { const rel = path.relative(root, target); return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel); };
     const problem = await (async (): Promise<string | null> => {
+      if ((await lstat(target).catch(() => null))?.isSymbolicLink()) return "that path is a symbolic link";
+      if (opts.json !== undefined && opts.json !== "-" && path.resolve(base, opts.json) === target) return "that is the same file as --json";
       const st = await stat(target).catch(() => null);
       if (st?.isDirectory()) return "that path is a directory";
       if (!(await stat(path.dirname(target)).catch(() => null))?.isDirectory() && ![repoRoot, base, os.tmpdir()].some(inside)) {
@@ -151,7 +154,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const tap: string[] = [];
   const write = (line: string) => { tap.push(line); sink.write(`${line}\n`); };
   const ac = new AbortController();
-  const providerKind = opts.live ? "live" : "mock";
+  const providerKind: ProviderKind = opts.url ? "remote" : opts.live ? "live" : "mock";
   const startedForTranscript = now();
   const tr = transcriptPath ? new Transcript(now, startedForTranscript) : undefined;
   const n = createNarrator({ write, color, speed: opts.speed, fast: opts.fast, sleep: deps.sleep ?? realSleep, signal: ac.signal, record: tr ? (r) => tr.add(r) : undefined });
@@ -307,7 +310,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     }
   }
   if (tr && transcriptPath) {
-    const providerText = opts.url ? "the target server's own provider (not known to the runner)" : opts.live ? providerLabel : "scripted mock providers";
+    const providerText = opts.url ? "AI line tags are unverified: remote server (its provider is not known to the runner)" : opts.live ? providerLabel : "scripted mock providers";
     const text = renderTranscript({
       title: `${scenarioTitle}${showcase ? " AI showcase" : " demo"} transcript`,
       meta: {

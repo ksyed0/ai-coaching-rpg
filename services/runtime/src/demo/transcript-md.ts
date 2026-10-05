@@ -6,7 +6,11 @@ import type { TLine } from "./transcript.js";
 /** Escapes every Markdown and HTML metacharacter, and breaks anything an auto-linker would turn into a link. */
 export function mdEscape(text: string): string {
   return text
-    .replace(/[\\*_`[\]<>|~!#&]/g, (c) => `\\${c}`)
+    .replace(/[\\*_`[\]<>|~!#&$]/g, (c) => `\\${c}`)
+    // GitHub autolinks: #123 and owner/repo#1 (break after the #), GH-123, and 7 to 40 hex digit SHAs (break every 6 characters).
+    .replace(/\\#(?=\d)/g, "\\#&#8203;")
+    .replace(/\bGH-(?=\d)/gi, (m) => `${m}&#8203;`)
+    .replace(/[0-9a-f]{7,}/gi, (m) => (m.match(/.{1,6}/g) as string[]).join("&#8203;"))
     .replace(/:\/\//g, ":&#8203;//")
     .replace(/www\./gi, (m) => `${m.slice(0, 3)}&#8203;.`)
     .replace(/@/g, "@&#8203;");
@@ -18,8 +22,12 @@ const CELL_CHARS = 300;
 
 /** The one safe path for any text that goes into the file: scrub secrets and paths, sanitize, truncate, then escape Markdown. */
 export function safeMd(text: string, max: number, secrets: string[] = []): string {
-  const clean = scrubText(String(text ?? ""), secrets);
-  return mdEscape(clean.length > max ? `${clean.slice(0, max - 1)}…` : clean);
+  // Sanitizing turns newlines into a visible marker; trim those and whitespace at both ends so a bold span always closes.
+  const clean = scrubText(String(text ?? ""), secrets).replace(/^(?:\s|⏎)+|(?:\s|⏎)+$/gu, "");
+  // A tag-shaped token inside dialogue must never read as a tag: [SCRIPTED] becomes (SCRIPTED).
+  const inert = clean.replace(/\[\s*(SCRIPTED|GENERATED|FALLBACK|UNVERIFIED|SYSTEM)\s*\]/gi, "($1)");
+  const points = Array.from(inert); // truncate by code points: never inside a surrogate pair
+  return mdEscape(points.length > max ? `${points.slice(0, max - 1).join("")}…` : inert);
 }
 const ID = /^[a-z0-9_-]+$/;
 const who = (speaker: string, role: string | undefined, secrets: string[]): string => {
@@ -51,6 +59,7 @@ export function renderTranscript(i: TranscriptInput): string {
     `${TAGS.scripted} text authored in advance: bot player lines, facilitator whispers and every reply of the scripted mock providers.`, "",
     `${TAGS.generated} produced by a live model at run time: live AI character replies and the Game Master's reasoning.`, "",
     `${TAGS.fallback} the character's canned fallback line, used in place of a missing model reply (scripted text, never generated).`, "",
+    `${TAGS.unverified} an AI character or Game Master line seen through \`--url\`: the runner cannot tell whether the remote server used a real model or a script.`, "",
     `${TAGS.system} technical logging, not dialogue.`, "",
     "Dialogue lines are **bold**. Text is escaped, so nothing in a line can forge a tag, a heading, a table or a link.", "");
 
@@ -58,9 +67,9 @@ export function renderTranscript(i: TranscriptInput): string {
     if (r.kind === "heading") out.push(`## ${safeMd(r.text, 200, sec)}`, "");
     else if (r.kind === "log") out.push(`${TAGS.system} ${safeMd(r.text, DIALOGUE_CHARS, sec)}`, "");
     else if (r.gm) {
-      out.push(`**${TAGS[r.source === "system" ? "scripted" : r.source]} Game Master (verdict: ${r.gm.verdict ? "true" : "false"}) on "${safeMd(r.gm.condition, 200, sec)}": ${safeMd(r.text, REASONING_CHARS, sec)}**`, "");
+      out.push(`**${TAGS[r.source]} Game Master (verdict: ${r.gm.verdict ? "true" : "false"}) on "${safeMd(r.gm.condition, 200, sec)}": ${safeMd(r.text, REASONING_CHARS, sec)}**`, "");
     } else {
-      out.push(`**${TAGS[r.source === "system" ? "scripted" : r.source]} ${who(r.speaker ?? "?", r.role, sec)}: ${safeMd(r.text, DIALOGUE_CHARS, sec)}**`, "");
+      out.push(`**${TAGS[r.source]} ${who(r.speaker ?? "?", r.role, sec)}: ${safeMd(r.text, DIALOGUE_CHARS, sec)}**`, "");
     }
   }
 

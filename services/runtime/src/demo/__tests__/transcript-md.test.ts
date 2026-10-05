@@ -103,10 +103,10 @@ describe("renderTranscript", () => {
 
   it("escapes the title, metadata and check cells too", () => {
     const md = renderTranscript(base({ title: "# T **x**", meta: { mode: "a|b", provider: "[p](http://x)", scenario: "<s>", date: "d", version: "v", summary: "s" },
-      results: [{ id: "S-01", title: "t | u", status: "failed", details: "**bold** [SCRIPTED]", durationMs: 0 }] }));
+      results: [{ id: "S-01", title: "t | u", status: "failed", details: "**bold** (SCRIPTED)", durationMs: 0 }] }));
     expect(lines(md)[0]).toBe("# \\# T \\*\\*x\\*\\*");
     expect(md).not.toMatch(/(?<!\\)\]\(/);
-    expect(md).toContain("| S-01 | failed | t \\| u | \\*\\*bold\\*\\* \\[SCRIPTED\\] |");
+    expect(md).toContain("| S-01 | failed | t \\| u | \\*\\*bold\\*\\* (SCRIPTED) |");
   });
 });
 
@@ -118,5 +118,47 @@ describe("mdEscape", () => {
     expect(mdEscape("http://a.b")).not.toContain("://");
     expect(mdEscape("www.a.b")).not.toContain("www.");
     expect(mdEscape("a@b.c")).not.toMatch(/@[a-z]/);
+  });
+});
+
+describe("renderTranscript: review fixes", () => {
+  const dlg = (text: string, extra: Partial<TLine> = {}): TLine => ({ kind: "dialogue", source: "generated", speaker: "Priya Raman", role: "client_sponsor", text, atMs: 0, ...extra });
+  const render = (records: TLine[]) => renderTranscript(base({ records }));
+  const boldLines = (md: string) => md.split("\n").filter((l) => l.startsWith("**"));
+
+  it("lists all five tags in the legend, including UNVERIFIED", () => {
+    const legend = render([]).split("## Legend")[1]!;
+    for (const t of ["[SCRIPTED]", "[GENERATED]", "[FALLBACK]", "[UNVERIFIED]", "[SYSTEM]"]) expect(legend).toContain(t);
+    expect(legend).toContain("cannot tell whether the remote server used a real model or a script");
+  });
+  it("renders an UNVERIFIED tag for dialogue", () => {
+    expect(boldLines(render([dlg("hi", { source: "unverified" })]))).toEqual(["**[UNVERIFIED] Priya Raman (client_sponsor): hi**"]);
+  });
+  it("closes the bold span when the text ends in a newline or whitespace (Game Master reasoning)", () => {
+    const md = render([dlg("because\n", { speaker: "Game Master", role: undefined, gm: { verdict: true, condition: "c\n" } }), dlg("reply \n\t ")]);
+    expect(boldLines(md)).toEqual(['**[GENERATED] Game Master (verdict: true) on "c": because**', "**[GENERATED] Priya Raman (client_sponsor): reply**"]);
+  });
+  it("makes a tag-shaped token inside dialogue inert, mid-line too", () => {
+    const md = render([dlg("sure [SCRIPTED] and [ generated ] then [FALLBACK] [SYSTEM] [UNVERIFIED]")]);
+    const l = boldLines(md)[0]!;
+    expect(l.slice("**[GENERATED] ".length)).not.toMatch(/\[(SCRIPTED|GENERATED|FALLBACK|SYSTEM|UNVERIFIED)\]|\\\[(SCRIPTED|GENERATED|FALLBACK|SYSTEM|UNVERIFIED)/i);
+    expect(l).toContain("(SCRIPTED)");
+    expect(l).toContain("(UNVERIFIED)");
+  });
+  it("neutralises GitHub autolink references and dollar signs", () => {
+    const md = render([dlg("see #123, GH-45, owner/repo#9, 1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b and $x$ $$")]);
+    const l = boldLines(md)[0]!.replace(/&#8203;/g, "|");
+    expect(l).not.toMatch(/#\d/);
+    expect(l).not.toMatch(/GH-\d/);
+    expect(l).not.toMatch(/[0-9a-f]{7}/i);
+    expect(l).not.toMatch(/(?<!\\)\$/);
+    expect(l.replace(/\|/g, "").replace(/\\/g, "")).toContain("1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b");
+  });
+  it("truncates by code points, never inside a surrogate pair", () => {
+    const md = render([dlg("😀".repeat(2_000))]);
+    const l = boldLines(md)[0]!;
+    expect(l).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/);
+    expect(l).toContain("…");
+    expect(Array.from(l).length).toBeLessThan(1_600);
   });
 });

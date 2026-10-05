@@ -1,13 +1,13 @@
 import type { SessionEvent } from "@acr/events";
 import type { NpcRole, Scenario } from "@acr/script";
 import type { Bot, Inbound } from "./bots.js";
-import { classifyGmDecision, classifyNpcReply, fallbackReason, isFallbackReply, type ProviderKind } from "./provenance.js";
+import { classifyGmDecision, classifyNpcReply, fallbackReason, isFallbackReply, type Provenance, type ProviderKind } from "./provenance.js";
 
 /** One structured line of a run. Produced where the story knows who produced it; the Markdown file is rendered from these, never from narration text. */
 export type TLine = {
   kind: "dialogue" | "log" | "heading";
   /** Dialogue: scripted | generated | fallback. Logging and headings: system. */
-  source: "scripted" | "generated" | "fallback" | "system";
+  source: Provenance;
   speaker?: string;
   role?: string;
   text: string;
@@ -62,7 +62,7 @@ export class Transcript {
           const role = o.scenario.roles[e.roleId];
           if (role?.type === "npc") {
             const npc = role as NpcRole;
-            this.add({ kind: "dialogue", source: classifyNpcReply(o.provider, isFallbackReply(npc.fallback_line, e, prev)), speaker: npc.name, role: npc.id, text: e.text, scene });
+            this.add({ kind: "dialogue", source: classifyNpcReply(o.provider, isFallbackReply(npc, e, prev, { legacy: o.provider === "remote" })), speaker: npc.name, role: npc.id, text: e.text, scene });
           } else this.add({ kind: "dialogue", source: "scripted", speaker: e.roleId, role: e.roleId, text: e.text, scene });
           break;
         }

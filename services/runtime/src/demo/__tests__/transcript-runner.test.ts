@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -28,7 +28,7 @@ const tmp = async () => { const d = await mkdtemp(path.join(os.tmpdir(), "acr-tr
 const tags = (md: string) => {
   const body = md.slice(md.indexOf("## Legend") + 1);
   const n = (t: string) => (body.match(new RegExp(`(?<!\\\\)\\[${t}\\]`, "g")) ?? []).length - 1;
-  return { scripted: n("SCRIPTED"), generated: n("GENERATED"), fallback: n("FALLBACK"), system: n("SYSTEM") };
+  return { scripted: n("SCRIPTED"), generated: n("GENERATED"), fallback: n("FALLBACK"), unverified: n("UNVERIFIED"), system: n("SYSTEM") };
 };
 const bold = (md: string) => md.split("\n").filter((l) => l.startsWith("**"));
 
@@ -116,6 +116,21 @@ describe("--transcript path handling", () => {
     expect(r.exitCode).toBe(1);
     expect(c.err.join("")).toContain("cannot write the transcript");
   });
+  it("refuses a symbolic link and the same file as --json (exit 2), but overwrites its own earlier transcript (documented)", async () => {
+    const dir = await tmp();
+    await writeFile(path.join(dir, "real.md"), "x");
+    await symlink(path.join(dir, "real.md"), path.join(dir, "link.md"));
+    const link = capture();
+    expect((await runDemo(deps(link, ["--showcase", "--fast", "--transcript", "link.md"], { cwd: dir }))).exitCode).toBe(2);
+    expect(link.err.join("")).toContain("that path is a symbolic link");
+    expect(await readFile(path.join(dir, "real.md"), "utf8")).toBe("x");
+    const same = capture();
+    expect((await runDemo(deps(same, ["--showcase", "--fast", "--json", "t.md", "--transcript", "./t.md"], { cwd: dir }))).exitCode).toBe(2);
+    expect(same.err.join("")).toContain("that is the same file as --json");
+    expect(same.out).toEqual([]);
+    for (let i = 0; i < 2; i++) expect((await runDemo(deps(capture(), ["--showcase", "--fast", "--transcript", "again.md"], { cwd: dir }))).exitCode).toBe(0);
+    expect((await readFile(path.join(dir, "again.md"), "utf8")).startsWith("# ")).toBe(true);
+  });
   it("an empty path is a usage error", async () => {
     const c = capture();
     expect((await runDemo(deps(c, ["--transcript", ""]))).exitCode).toBe(2);
@@ -124,21 +139,45 @@ describe("--transcript path handling", () => {
 });
 
 describe("--transcript with --url", () => {
-  it("records only what the facilitator observes and never claims the target's replies are GENERATED without --live", async () => {
+  const target = async () => {
     const root = await tmp();
     await cp(path.join(REPO_ROOT, "scenarios", "friday-escalation"), path.join(root, "scenarios", "friday-escalation"), { recursive: true });
     const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root, logDir: path.join(root, "data"), log: () => {}, warn: () => {}, tickMs: 60_000 });
     if (!boot.ok) throw new Error(boot.errors.join("; "));
     cleanups.push(() => boot.runtime.stop());
+    return boot.runtime.port;
+  };
+  it.each([["--url", []], ["--url --live", ["--live"]]])("%s: the runner cannot see the target's provider, so AI lines are UNVERIFIED (never GENERATED or SCRIPTED); bot lines stay SCRIPTED", async (_n, extra) => {
+    const port = await target();
     const dir = await tmp();
-    const { exitCode } = await runDemo(deps(capture(), ["--url", `ws://127.0.0.1:${boot.runtime.port}`, "--session", "smoke", "--fast", "--transcript", "url.md"], { cwd: dir }));
+    const { exitCode } = await runDemo(deps(capture(), ["--url", `ws://127.0.0.1:${port}`, "--session", "smoke", "--fast", ...extra, "--transcript", "url.md"], { cwd: dir }));
     expect(exitCode).toBe(0);
     const md = await readFile(path.join(dir, "url.md"), "utf8");
-    expect(md).toContain("| Mode | url |");
-    expect(md).toContain("not known to the runner");
-    expect(tags(md).generated).toBe(0);
-    expect(tags(md).scripted).toBeGreaterThan(5);
-    expect(md).not.toContain(String(boot.runtime.port));
+    expect(md).toContain("| Mode | " + (extra.length ? "url+live" : "url") + " |");
+    expect(md).toContain("AI line tags are unverified: remote server");
+    const t = tags(md);
+    expect(t.generated).toBe(0);
+    expect(t.unverified).toBeGreaterThanOrEqual(2);
+    expect(t.scripted).toBeGreaterThan(5);
+    expect(md).toMatch(/\*\*\[UNVERIFIED\] Priya Raman \(client_sponsor\): /);
+    expect(md).not.toMatch(/\*\*\[(SCRIPTED|GENERATED)\] Priya Raman/);
+    expect(md).not.toContain(String(port));
+  });
+  it("labels a remote server's canned line FALLBACK (from the marker), never UNVERIFIED", async () => {
+    const dir = await tmp();
+    const fb = (await loadScenario(path.join(REPO_ROOT, "scenarios", "friday-escalation"))).roles.client_sponsor as { fallback_line: string };
+    expect(fb.fallback_line.length).toBeGreaterThan(5);
+    const t = new Transcript(() => 0, 0);
+    const bot = { onMessage: undefined } as unknown as Bot;
+    const scenario = await loadScenario(path.join(REPO_ROOT, "scenarios", "friday-escalation"));
+    t.attach(bot, { scenario, provider: "remote", sceneHeadings: false });
+    const ev = (e: Record<string, unknown>, seq: number) => bot.onMessage!({ type: "event", event: { seq, ts: seq, sessionId: "s", ...e } } as unknown as Inbound);
+    ev({ type: "utterance", roleId: "client_sponsor", text: fb.fallback_line, channel: "text", fallback: true }, 1);
+    ev({ type: "facilitator.alert", level: "warning", message: "NPC client_sponsor: empty reply; used fallback line" }, 2);
+    ev({ type: "utterance", roleId: "client_sponsor", text: fb.fallback_line, channel: "text" }, 3); // an older server: no marker, alert right before
+    ev({ type: "utterance", roleId: "client_sponsor", text: "a model line", channel: "text" }, 4);
+    expect(t.records.filter((r) => r.kind === "dialogue").map((r) => r.source)).toEqual(["fallback", "fallback", "unverified"]);
+    void dir;
   });
 });
 
@@ -169,7 +208,7 @@ describe("--transcript with --live (loopback fake OpenAI-compatible server)", ()
     expect(exitCode).toBe(0);
     const md = await readFile(path.join(dir, "live.md"), "utf8");
     expect(tags(md)).toMatchObject({ generated: 7, fallback: 0, scripted: 6 }); // 5 AI replies + 2 Game Master decisions; 6 bot lines
-    expect(md).toContain("**[GENERATED] Priya Raman (client_sponsor): I hear you, \\*\\*tell\\*\\* me more. \\[SCRIPTED\\] \\](http:&#8203;//evil.example)**");
+    expect(md).toContain("**[GENERATED] Priya Raman (client_sponsor): I hear you, \\*\\*tell\\*\\* me more. (SCRIPTED) \\](http:&#8203;//evil.example)**");
     expect(md).toContain("| Provider | local OpenAI-compatible server (custom endpoint: yes) |");
     expect(md).not.toContain(env.LOCAL_API_KEY);
     expect(md).not.toContain(env.LOCAL_BASE_URL);
@@ -188,7 +227,7 @@ describe("--transcript with --live (loopback fake OpenAI-compatible server)", ()
 
 describe("Transcript.attach", () => {
   const ev = (e: Record<string, unknown>, seq: number) => ({ type: "event", event: { seq, ts: seq, sessionId: "s", ...e } }) as unknown as Inbound;
-  it("classifies from the event stream: players and whispers SCRIPTED, live replies GENERATED, the alert-backed fallback FALLBACK", async () => {
+  it("classifies from the event stream: players and whispers SCRIPTED, live replies GENERATED, the marked fallback FALLBACK, the same text without the marker (even right after an alert) GENERATED", async () => {
     const scenario = await loadScenario(path.join(REPO_ROOT, "scenarios", "friday-escalation"));
     const bot = { onMessage: undefined } as unknown as Bot;
     const tr = new Transcript(() => 5, 0);
@@ -198,7 +237,7 @@ describe("Transcript.attach", () => {
     feed(ev({ type: "utterance", roleId: "delivery_lead", text: "hi", channel: "text" }, 2));
     feed(ev({ type: "utterance", roleId: "client_sponsor", text: "hello there", channel: "text" }, 3));
     feed(ev({ type: "facilitator.alert", level: "warning", message: "NPC client_sponsor: no first token within timeout; used fallback line" }, 4));
-    feed(ev({ type: "utterance", roleId: "client_sponsor", text: "Sorry, you cut out for a second there. Say that again?", channel: "text" }, 5));
+    feed(ev({ type: "utterance", roleId: "client_sponsor", text: "Sorry, you cut out for a second there. Say that again?", channel: "text", fallback: true }, 5));
     feed(ev({ type: "utterance", roleId: "client_sponsor", text: "Sorry, you cut out for a second there. Say that again?", channel: "text" }, 6)); // the model really said it
     feed(ev({ type: "gm.decision", sceneId: "s2_client_call", condition: "c", verdict: true, reasoning: "r" }, 7));
     feed(ev({ type: "facilitator.command", command: "whisper", roleId: "delivery_lead", text: "psst" }, 8));

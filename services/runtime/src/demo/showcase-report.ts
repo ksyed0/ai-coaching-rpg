@@ -98,7 +98,7 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
           lines.push({ seq: e.seq, source: "player-bot", tag: "scripted", sceneId: current, role: e.roleId, text: clip(e.text, TEXT_CHARS) });
         } else {
           const prev = i.events[idx - 1];
-          const fallback = isFallbackReply(npc.fallback_line, e, prev);
+          const fallback = isFallbackReply(npc, e, prev, { legacy: false });
           const st = stats.get(npc.id)!;
           st.replies++; npcReplies++;
           if (fallback) { st.fallback++; fallbackLines++; }
