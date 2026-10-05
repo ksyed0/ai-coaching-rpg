@@ -17,6 +17,7 @@
     "@acr/events": "workspace:*",
     "@acr/script": "workspace:*",
     "ws": "^8.18.0",
+    "yaml": "^2.5.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
