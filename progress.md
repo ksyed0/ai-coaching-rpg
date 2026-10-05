@@ -25,4 +25,5 @@
 ## Session 3 — 2026-10-05
 
 - US-0024 built on `feature/EPIC-0006-US-0024-showcase-demo` (stacked on PR #6): `scenarios/friday-escalation-extended` (6 scenes, 2 AI characters incl. a new CFO, showcase.yaml), `pnpm demo --showcase` (mock for CI, `--live` with the real Game Master) with `--scenario`, `--max-lines`, `--max-fallbacks`, `--watchdog`, checks S-01 to S-12, an AI contribution summary and a `showcase` JSON section; `--transcript <path.md>` (all modes) writes a Markdown transcript tagged SCRIPTED / GENERATED / FALLBACK. CI Demo Run job gained the showcase step.
+- Review fix round 1 (R42-R44): UNVERIFIED tag for `--url`, scene guards (`expectSceneId`, `stale_scene`), exact fallback marker, final GM evaluation, S-13/S-14, safer Markdown. AC-0078 is unticked until a real live run is recorded.
 - Next: the controller runs the real live showcase; then US-0022 / US-0023 (note AC-0075 is now partly delivered by `--max-fallbacks` for the showcase).

@@ -758,11 +758,6 @@
           "id": "AC-0074",
           "text": "facilitator alert messages raised during the run are captured (sanitized) with their reason and shown next to the affected reply",
           "done": false
-        },
-        {
-          "id": "AC-0075",
-          "text": "an option such as `--max-fallbacks <n>` fails the run when more than n replies were fallback lines; without it the count is reported as a warning",
-          "done": false
         }
       ],
       "dependencies": [
@@ -775,7 +770,7 @@
       "title": "As an evaluator, I want a longer demo scenario and a showcase mode, so that a live demo shows the AI characters and the Game Master doing substantial real work.",
       "priority": "High",
       "estimate": "L",
-      "status": "Complete",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0024-showcase-demo",
       "acs": [
         {
@@ -790,8 +785,8 @@
         },
         {
           "id": "AC-0078",
-          "text": "`pnpm demo --showcase --live` uses the configured provider for the AI characters and for the Game Master, scene exits are decided by the real Game Master, and the facilitator advance is only a recorded safety net",
-          "done": true
+          "text": "`pnpm demo --showcase --live` uses the configured provider for the AI characters and for the Game Master, scene exits are decided by the real Game Master, and the facilitator advance is only a recorded safety net (verified so far only against an in-process fake OpenAI-compatible server; to be ticked after a recorded real live run)",
+          "done": false
         },
         {
           "id": "AC-0079",
@@ -1487,9 +1482,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-05T14:39:25.120Z",
-  "commitSha": "1c24f89",
-  "buildNumber": "62",
+  "generatedAt": "2026-10-05T15:07:33.766Z",
+  "commitSha": "40d0533",
+  "buildNumber": "67",
   "branch": "feature/EPIC-0006-US-0024-showcase-demo",
   "sessionTimeline": [
     {
@@ -1663,7 +1658,7 @@
       "2026-10-03T00:39:42.837Z",
       "2026-10-03T16:49:27.780Z",
       "2026-10-05T14:07:31.101Z",
-      "2026-10-05T14:39:25.204Z"
+      "2026-10-05T15:07:33.830Z"
     ],
     "doneCounts": [
       0,
@@ -1753,7 +1748,7 @@
       1.0999999999999999,
       1.1285714285714288,
       1.139130434782609,
-      1.1375000000000004
+      1.1500000000000001
     ],
     "velocityByWeek": {
       "labels": [

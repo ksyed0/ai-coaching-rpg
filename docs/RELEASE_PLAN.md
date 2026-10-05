@@ -554,7 +554,7 @@ Dependencies: US-0021
 Acceptance Criteria:
   - [ ] AC-0073: in live mode the runner counts NPC replies that were the persona's fallback line and shows the count in the narration, in the checklist evidence and in the JSON report
   - [ ] AC-0074: facilitator alert messages raised during the run are captured (sanitized) with their reason and shown next to the affected reply
-  - [ ] AC-0075: an option such as `--max-fallbacks <n>` fails the run when more than n replies were fallback lines; without it the count is reported as a warning
+  - [ ] AC-0075 (the showcase-only part, `--max-fallbacks` for `pnpm demo --showcase`, is delivered by US-0024; the 29-check run still needs it): an option such as `--max-fallbacks <n>` fails the run when more than n replies were fallback lines; without it the count is reported as a warning
 ```
 
 ```
@@ -570,13 +570,13 @@ Notes: In three live runs 2 of 6 main-story replies were canned fallback lines, 
 US-0024 (EPIC-0006): As an evaluator, I want a longer demo scenario and a showcase mode, so that a live demo shows the AI characters and the Game Master doing substantial real work.
 Priority: High
 Estimate: L
-Status: Complete
+Status: In Progress
 Branch: feature/EPIC-0006-US-0024-showcase-demo
 Dependencies: US-0021
 Acceptance Criteria:
   - [x] AC-0076: `scenarios/friday-escalation-extended` (6 scenes, 3 players, 2 AI characters including a new CFO, time boxes, gm_detects exit conditions, timed and private injects) loads and validates with zero errors and zero warnings, and a validated `showcase.yaml` script drives the bot players
   - [x] AC-0077: `pnpm demo --showcase --fast` runs offline in mock mode and passes its own checks (S-01 to S-12), and CI runs it as a step of the Demo Run job
-  - [x] AC-0078: `pnpm demo --showcase --live` uses the configured provider for the AI characters and for the Game Master, scene exits are decided by the real Game Master, and the facilitator advance is only a recorded safety net
+  - [ ] AC-0078: `pnpm demo --showcase --live` uses the configured provider for the AI characters and for the Game Master, scene exits are decided by the real Game Master, and the facilitator advance is only a recorded safety net (verified so far only against an in-process fake OpenAI-compatible server; to be ticked after a recorded real live run)
   - [x] AC-0079: the run ends with an AI contribution report (replies per character split into real model output and canned fallback lines, latency, Game Master evaluations and exits, advances, alerts, wall time), also in the JSON report, with `--max-fallbacks` and `--watchdog` limits
   - [x] AC-0080: the flags, the run-time guidance, the privacy and cost notice and a real output excerpt are documented in the README and CHANGELOG
   - [x] AC-0081: `--transcript <path.md>` writes a Markdown transcript in every demo mode with bold dialogue lines tagged [SCRIPTED], [GENERATED] or [FALLBACK], plain [SYSTEM] logging, and Markdown-safe escaping that lets no model or server text forge a tag, heading, table or link
