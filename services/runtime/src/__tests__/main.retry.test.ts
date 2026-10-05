@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
@@ -94,9 +94,30 @@ describe("bootstrap: model retries", () => {
     expect(requests).toBe(2);
     expect(seen.find((e) => e.type === "facilitator.alert")?.message).toMatch(/after 2 attempts \(overloaded\)/);
   });
-  it("real environment wins over .env for the retry variables (parsed from the merged environment)", async () => {
-    const r = await boot({ MODEL_MAX_RETRIES: "4", MODEL_RETRY_BASE_MS: "250" });
+  it("real environment wins over <root>/.env for the retry variables", async () => {
+    failFirst = 99;
+    await writeFile(path.join(tmp, ".env"), "MODEL_MAX_RETRIES=1\n");
+    const r = await boot({ MODEL_MAX_RETRIES: "3" });
     expect(r.ok).toBe(true);
+    await converse(runtime!);
+    expect(requests).toBe(4); // 1 + 3 (the .env value 1 would give 2)
+  });
+  it("a value that only the .env file sets is used", async () => {
+    failFirst = 99;
+    await writeFile(path.join(tmp, ".env"), "MODEL_MAX_RETRIES=1\n");
+    const base = { ...env() } as Record<string, string>; delete base.MODEL_MAX_RETRIES;
+    const r = await bootstrap({ env: base, root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {} });
+    if (r.ok) runtime = r.runtime;
+    expect(r.ok).toBe(true);
+    await converse(runtime!);
+    expect(requests).toBe(2);
+  });
+  it("Anthropic: only the wrapper retries (the SDK's own retries are off), so a 529 makes exactly 1 + MODEL_MAX_RETRIES requests", async () => {
+    failFirst = 99;
+    await boot({ MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: KEY, ANTHROPIC_BASE_URL: baseUrl.replace(/\/v1$/, ""), MODEL_MAX_RETRIES: "1" });
+    const seen = await converse(runtime!);
+    expect(requests).toBe(2);
+    expect(seen.find((e) => e.type === "facilitator.alert")?.message).toMatch(/after 2 attempts \(overloaded\)/);
   });
 
   const bad: [string, Record<string, string>, RegExp][] = [

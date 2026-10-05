@@ -70,11 +70,12 @@ export async function bootstrap(opts: {
     // Live providers retry transient errors inside the NPC deadlines; the scripted mock is never wrapped.
     const hostLog = (m: string) => console.error(m);
     const wrap = (p: ReturnType<typeof selectModelProvider>, role: "NPC" | "GM") => (p.name === "mock" ? p : withModelRetry(p, retry, role, hostLog));
-    const npcProvider = wrap(selectModelProvider(env, "npc"), "NPC");
+    const noSdkRetries = { sdkRetries: false }; // the wrapper is the only retry layer
+    const npcProvider = wrap(selectModelProvider(env, "npc", noSdkRetries), "NPC");
     // Never log the provider object, its name, an endpoint or any env-derived value: describeModelProvider returns a
     // fixed label plus a literal yes/no for "custom endpoint".
     log(`model provider: ${describeModelProvider(env)}`);
-    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm"), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs });
+    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs });
   } catch (err) { return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
 
   host.startTicker(opts.tickMs ?? 1_000);

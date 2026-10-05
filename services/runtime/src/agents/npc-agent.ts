@@ -2,7 +2,7 @@ import type { SessionEvent } from "@acr/events";
 import type { NpcRole } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import { EngineError, type SessionEngine } from "../engine/session-engine.js";
-import { describeModelFailure } from "./model-failure.js";
+import { describeModelFailure, describeRetryProgress } from "./model-failure.js";
 import { buildNpcRequest } from "./npc-prompt.js";
 import { DEFAULT_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_REPLY_TIMEOUT_MS } from "./timeouts.js";
 
@@ -55,8 +55,8 @@ export class NpcAgent {
         deadline,
         new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), this.firstTokenTimeoutMs); }),
       ]);
-      if (first === "timeout") { ac.abort(); failure = "no first token within timeout"; }
-      else if (first === "deadline") { ac.abort(); failure = "reply did not finish within the overall deadline"; }
+      if (first === "timeout") { ac.abort(); failure = `no first token within timeout${describeRetryProgress(ac.signal)}`; }
+      else if (first === "deadline") { ac.abort(); failure = `reply did not finish within the overall deadline${describeRetryProgress(ac.signal)}`; }
       else if (!first.done) {
         text += first.value;
         for (;;) {

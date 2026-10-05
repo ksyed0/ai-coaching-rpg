@@ -8,6 +8,7 @@ import {
   PARTICIPANT_NAMES, ROLE_PLAYERS, connectBot, errCode, isJoinedMsg, settle, withTimeout, type Ctx, type PlayerId, type Story,
 } from "./ctx.js";
 import { MIN, type System } from "./harness.js";
+import { gmDeadlineMs } from "../agents/timeouts.js";
 import { fallbackReason, isFallbackReply } from "./provenance.js";
 import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from "./showcase-report.js";
 import { expectedGmEvaluations, type ShowcaseScript } from "./showcase-script.js";
@@ -189,7 +190,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
   fac.onMessage = (m) => { prior?.(m); narrate(m); };
 
   const waitSettled = async (npcCount: number, gmConditions: number): Promise<void> => {
-    const bound = mock ? 20_000 : npcCount * o.replyTimeoutMs + gmConditions * Math.max(o.replyTimeoutMs, 60_000) + 10_000;
+    const bound = mock ? 20_000 : npcCount * o.replyTimeoutMs + gmConditions * gmDeadlineMs(o.replyTimeoutMs) + 10_000;
     await withTimeout(settle(ctx, st), bound, "the AI characters and the Game Master to finish");
     await flush();
   };
@@ -251,7 +252,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
 
     // A live run's ticker can judge while a line is being recorded, before the characters answer; judge once more on the full turn.
     if (!mock && !exited(scene.id) && sys) {
-      const bound = (npcCount + 1) * o.replyTimeoutMs + gmConditions * Math.max(o.replyTimeoutMs, 60_000);
+      const bound = (npcCount + 1) * o.replyTimeoutMs + gmConditions * gmDeadlineMs(o.replyTimeoutMs);
       if (await withTimeout(sys.host.evaluateFinal(scene.id), bound, "the final Game Master evaluation")) await n.note("the Game Master judges the scene once more after the last reply");
       await flush();
     }

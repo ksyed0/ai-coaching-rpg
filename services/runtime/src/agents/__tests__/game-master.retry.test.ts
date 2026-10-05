@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadScenario } from "@acr/script";
-import { MockModelProvider, ModelProviderError, withRetry } from "@acr/adapters";
+import { MockModelProvider, ModelProviderError, withRetry, type ChatRequest, type ModelProvider } from "@acr/adapters";
 import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
@@ -64,7 +64,7 @@ describe("GameMaster with retried model errors", () => {
     const gm = new GameMaster({ engine, provider: new MockModelProvider([new Error("boom")]), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await tickAfter(gm, 0);
-    expect((await events("facilitator.alert"))[0]).toMatchObject({ message: "GM: model error: boom" });
+    expect((await events("facilitator.alert"))[0]).toMatchObject({ message: expect.stringMatching(/^GM: model error for ".+": boom$/) });
   });
 
   it("the wait is bounded: at most 1 + maxRetries attempts and no timer left behind once the evaluation is over", async () => {
@@ -87,5 +87,59 @@ describe("GameMaster with retried model errors", () => {
     await engine.say("host", "hello");
     await tickAfter(gm, 500);
     expect(await events("gm.decision")).toHaveLength(0);
+  });
+
+  describe("the Game Master's own deadline", () => {
+    const deadlineAlert = /^GM: model call exceeded its deadline of 1000 ms for ".+"$/;
+
+    it("a stalled call is aborted at the deadline: no verdict, an alert, no timer left behind, and the next tick evaluates again", async () => {
+      let calls = 0; let sawAbort = false;
+      const provider: ModelProvider = { name: "p", async *stream(_r: ChatRequest, signal?: AbortSignal) {
+        calls++;
+        if (calls === 1) { await new Promise<void>((r) => signal?.addEventListener("abort", () => { sawAbort = true; r(); })); return; }
+        yield VERDICT;
+      } };
+      const gm = new GameMaster({ engine, provider, everyNUtterances: 1, evaluationTimeoutMs: 1_000 });
+      await engine.say("host", "hello");
+      const t = gm.tick();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(await events("facilitator.alert")).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      await t;
+      expect(sawAbort).toBe(true);
+      expect(await events("gm.decision")).toHaveLength(0);
+      expect(await events("facilitator.alert")).toEqual([expect.objectContaining({ level: "warning", message: expect.stringMatching(deadlineAlert) })]);
+      expect(vi.getTimerCount()).toBe(0);
+      await engine.say("guest", "hi");
+      await gm.tick(); // the in-flight guard was released
+      expect(calls).toBe(2);
+      expect(await events("gm.decision")).toHaveLength(1);
+    });
+    it("also ends when the provider ignores the abort and never answers", async () => {
+      const never: ModelProvider = { name: "never", async *stream() { await new Promise<void>(() => {}); } };
+      const gm = new GameMaster({ engine, provider: never, everyNUtterances: 1, evaluationTimeoutMs: 1_000 });
+      await engine.say("host", "hello");
+      await tickAfter(gm, 1_000);
+      expect((await events("facilitator.alert"))[0]).toMatchObject({ message: expect.stringMatching(deadlineAlert) });
+      expect(vi.getTimerCount()).toBe(0);
+    });
+    it("retries stop at the deadline (no extra attempt) and the alert names the attempts and the last error", async () => {
+      const inner = new MockModelProvider([overloaded(), overloaded(), overloaded(), VERDICT]);
+      const gm = new GameMaster({ engine, provider: withRetry(inner, { random: () => 0.5 }), everyNUtterances: 1, evaluationTimeoutMs: 800 });
+      await engine.say("host", "hello");
+      await tickAfter(gm, 800);
+      expect(inner.calls).toHaveLength(2);
+      expect((await events("facilitator.alert"))[0]).toMatchObject({ message: expect.stringMatching(/^GM: model call exceeded its deadline of 800 ms for ".+" \(2 attempts made; last error: overloaded\)$/) });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(inner.calls).toHaveLength(2);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+    it("a verdict inside the deadline clears its timer", async () => {
+      const gm = new GameMaster({ engine, provider: new MockModelProvider([VERDICT]), everyNUtterances: 1, evaluationTimeoutMs: 1_000 });
+      await engine.say("host", "hello");
+      await tickAfter(gm, 0);
+      expect(await events("gm.decision")).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 });

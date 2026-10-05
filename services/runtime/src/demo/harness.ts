@@ -129,7 +129,7 @@ export async function startLiveSystem(o: { scenario: Scenario; sessionId: string
   // Live providers retry transient model errors like the real runtime does (no log line: the demo's host log means "background failure").
   const sys = await buildSystem({
     ...o, clock: new SystemClock(),
-    npcProvider: withModelRetry(selectModelProvider(o.env, "npc"), retry, "NPC"), gmProvider: withModelRetry(selectModelProvider(o.env, "gm"), retry, "GM"),
+    npcProvider: withModelRetry(selectModelProvider(o.env, "npc", { sdkRetries: false }), retry, "NPC"), gmProvider: withModelRetry(selectModelProvider(o.env, "gm", { sdkRetries: false }), retry, "GM"),
     firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs,
   });
   sys.host.startTicker(1_000);

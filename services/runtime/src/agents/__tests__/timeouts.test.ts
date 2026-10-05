@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_REPLY_TIMEOUT_MS, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, parseNpcTimeouts, parseTimeoutEnv,
+  gmDeadlineMs, MIN_GM_DEADLINE_MS, DEFAULT_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_REPLY_TIMEOUT_MS, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, parseNpcTimeouts, parseTimeoutEnv,
 } from "../timeouts.js";
 
 const NAME = "NPC_FIRST_TOKEN_TIMEOUT_MS";
@@ -70,5 +70,14 @@ describe("parseNpcTimeouts", () => {
     const r = parseNpcTimeouts({ NPC_FIRST_TOKEN_TIMEOUT_MS: "1e3", NPC_REPLY_TIMEOUT_MS: "0x10" });
     expect(r.ok).toBe(false);
     if (!r.ok) { expect(r.errors).toHaveLength(2); expect(r.errors[0]).toContain("NPC_FIRST_TOKEN_TIMEOUT_MS"); expect(r.errors[1]).toContain("NPC_REPLY_TIMEOUT_MS"); }
+  });
+});
+
+describe("gmDeadlineMs", () => {
+  it("is max(reply timeout, 60 s): one computation for the Game Master call and the showcase bounds", () => {
+    expect(MIN_GM_DEADLINE_MS).toBe(60_000);
+    expect(gmDeadlineMs(20_000)).toBe(60_000);
+    expect(gmDeadlineMs(60_000)).toBe(60_000);
+    expect(gmDeadlineMs(180_000)).toBe(180_000);
   });
 });

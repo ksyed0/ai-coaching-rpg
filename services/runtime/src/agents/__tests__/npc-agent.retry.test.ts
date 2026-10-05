@@ -83,13 +83,23 @@ describe("NpcAgent with retried model errors", () => {
     const agent = new NpcAgent({ role: guest, engine, provider: retrying(inner), firstTokenTimeoutMs: 800, replyTimeoutMs: 5_000 });
     await respondAfter(agent, 800);
     expect(inner.calls).toHaveLength(2); // attempt 1 at 0 ms, attempt 2 at 500 ms; the 1000 ms backoff was cut at 800 ms
-    expect(alerts).toEqual(["NPC guest: no first token within timeout; used fallback line"]);
+    expect(alerts).toEqual(["NPC guest: no first token within timeout (2 attempts made; last error: overloaded); used fallback line"]);
     expect(lastSpoken()).toMatchObject({ text: guest.fallback_line, fallback: true });
     await vi.advanceTimersByTimeAsync(10_000);
     expect(inner.calls).toHaveLength(2);
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("the reply deadline firing during a retry also reports the attempts made and the last error", async () => {
+    const inner = new MockModelProvider([overloaded(), overloaded(), overloaded()]);
+    await respondAfter(new NpcAgent({ role: guest, engine, provider: retrying(inner), firstTokenTimeoutMs: 800, replyTimeoutMs: 800 }), 800);
+    expect(alerts[0]).toMatch(/^NPC guest: (no first token within timeout|reply did not finish within the overall deadline) \(2 attempts made; last error: overloaded\); used fallback line$/);
+  });
+  it("a deadline with no retry involved keeps the plain wording", async () => {
+    const stall: ModelProvider = { name: "stall", async *stream(_r: ChatRequest, signal?: AbortSignal) { await new Promise<void>((r) => signal?.addEventListener("abort", () => r())); } };
+    await respondAfter(new NpcAgent({ role: guest, engine, provider: retrying(stall), firstTokenTimeoutMs: 1_000 }), 1_000);
+    expect(alerts).toEqual(["NPC guest: no first token within timeout; used fallback line"]);
+  });
   it("a stalled attempt still hits the first-token timeout", async () => {
     let calls = 0;
     const stall: ModelProvider = { name: "stall", async *stream(_r: ChatRequest, signal?: AbortSignal) { calls++; await new Promise<void>((r) => signal?.addEventListener("abort", () => r())); } };

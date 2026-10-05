@@ -1,4 +1,4 @@
-import { DEFAULT_MODEL_MAX_RETRIES, DEFAULT_MODEL_RETRY_BASE_MS, withRetry, type ModelProvider, type RetryInfo } from "@acr/adapters";
+import { DEFAULT_MODEL_MAX_RETRIES, DEFAULT_MODEL_RETRY_BASE_MS, DEFAULT_MODEL_RETRY_CAP_MS, withRetry, type ModelProvider, type RetryInfo } from "@acr/adapters";
 import { show } from "./timeouts.js";
 
 /** MODEL_MAX_RETRIES and MODEL_RETRY_BASE_MS: the defaults live in @acr/adapters (retry.ts); only the allowed ranges live here. */
@@ -33,11 +33,14 @@ export function parseModelRetry(env: NodeJS.ProcessEnv): ModelRetryParse {
   return { ok: true, maxRetries: retries.value, baseMs: base.value };
 }
 
+/** The backoff cap: 4 s, or the base itself when MODEL_RETRY_BASE_MS is larger, so every allowed base is honoured. */
+export function retryCapMs(baseMs: number): number { return Math.max(DEFAULT_MODEL_RETRY_CAP_MS, baseMs); }
+
 /**
  * Wraps a LIVE provider with the retry policy (the name is unchanged). `log` receives at most one short line per model call
  * that needed a retry: the role label, the failure kind, an HTTP status and the delay; never a message, URL or key.
  */
 export function withModelRetry(provider: ModelProvider, cfg: ModelRetryConfig, role: "NPC" | "GM", log?: (m: string) => void): ModelProvider {
   const onRetry = log ? (i: RetryInfo) => log(`${role} model call: ${i.kind}${i.status !== undefined ? ` (HTTP ${i.status})` : ""}, retrying in ${i.delayMs} ms`) : undefined;
-  return withRetry(provider, { maxRetries: cfg.maxRetries, baseMs: cfg.baseMs, onRetry });
+  return withRetry(provider, { maxRetries: cfg.maxRetries, baseMs: cfg.baseMs, capMs: retryCapMs(cfg.baseMs), onRetry });
 }

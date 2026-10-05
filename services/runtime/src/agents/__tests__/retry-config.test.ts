@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_MODEL_MAX_RETRIES, DEFAULT_MODEL_RETRY_BASE_MS } from "@acr/adapters";
-import { MAX_MODEL_RETRIES, MAX_RETRY_BASE_MS, MIN_RETRY_BASE_MS, parseModelRetry, parseRetryEnv } from "../retry-config.js";
+import { MockModelProvider, ModelProviderError } from "@acr/adapters";
+import { retryCapMs, withModelRetry, MAX_MODEL_RETRIES, MAX_RETRY_BASE_MS, MIN_RETRY_BASE_MS, parseModelRetry, parseRetryEnv } from "../retry-config.js";
 
 describe("retry config defaults and bounds", () => {
   it("default to 2 retries and a 500 ms base (the adapters' constants), within 0..5 and 100..10000", () => {
@@ -53,5 +54,24 @@ describe("parseModelRetry", () => {
   });
   it("treats blank values as unset", () => {
     expect(parseModelRetry({ MODEL_MAX_RETRIES: " ", MODEL_RETRY_BASE_MS: "" })).toEqual({ ok: true, maxRetries: 2, baseMs: 500 });
+  });
+});
+
+describe("retryCapMs and withModelRetry", () => {
+  it("the cap is max(4 s, base): a larger MODEL_RETRY_BASE_MS is not silently clamped", () => {
+    expect([retryCapMs(100), retryCapMs(500), retryCapMs(4_000), retryCapMs(8_000), retryCapMs(10_000)]).toEqual([4_000, 4_000, 4_000, 8_000, 10_000]);
+  });
+  it("with a base of 8 s the first wait is at least 6 s (it would be at most 5 s under a fixed 4 s cap)", async () => {
+    vi.useFakeTimers();
+    try {
+      const inner = new MockModelProvider([new ModelProviderError("busy", { kind: "overloaded", transient: true, status: 503 }), "ok"]);
+      const p = withModelRetry(inner, { maxRetries: 1, baseMs: 8_000 }, "NPC");
+      const done = (async () => { for await (const _ of p.stream({ system: "", messages: [], maxTokens: 1 })) void _; })();
+      await vi.advanceTimersByTimeAsync(5_999);
+      expect(inner.calls).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(4_001);
+      await done;
+      expect(inner.calls).toHaveLength(2);
+    } finally { vi.useRealTimers(); }
   });
 });
