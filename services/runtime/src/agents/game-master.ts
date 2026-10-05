@@ -1,5 +1,6 @@
 import type { ModelProvider } from "@acr/adapters";
 import type { SessionEngine } from "../engine/session-engine.js";
+import { describeModelFailure } from "./model-failure.js";
 import { buildGmRequest, parseGmVerdict } from "./gm-prompt.js";
 
 /** The Game Master judges each gm_detects condition after this many NEW utterances in a scene. */
@@ -97,7 +98,7 @@ export class GameMaster {
     try {
       for await (const c of this.provider.stream(buildGmRequest({ scene, condition, state: this.engine.state }))) text += c;
     } catch (err) {
-      await this.engine.alert(`GM: model error: ${err instanceof Error ? err.message : String(err)}`, "warning", { expectSceneId });
+      await this.engine.alert(`GM: ${describeModelFailure(err, ` for "${condition}"`)}`, "warning", { expectSceneId });
       return;
     }
     const parsed = parseGmVerdict(text);

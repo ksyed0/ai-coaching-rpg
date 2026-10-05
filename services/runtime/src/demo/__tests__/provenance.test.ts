@@ -26,6 +26,21 @@ describe("isFallbackReply", () => {
   });
 });
 
+describe("the retry-era alert wording (US-0022) is still recognised", () => {
+  const retried = "NPC bot: model error after 3 attempts (overloaded): Upstream error from Nvidia: Service temporarily overloaded; used fallback line";
+  it("the legacy remote-server rule matches the attempt-count wording for the right character only", () => {
+    expect(isFallbackReply(bot, { text: FB }, alert(retried), { legacy: true })).toBe(true);
+    expect(isFallbackReply(bot, { text: FB }, alert("NPC bot: model error after 1 attempt (auth): HTTP 401; used fallback line"), { legacy: true })).toBe(true);
+    expect(isFallbackReply(bot, { text: FB }, alert("NPC bot: model error (network): reset; used fallback line"), { legacy: true })).toBe(true);
+    expect(isFallbackReply(bot, { text: FB }, alert(retried.replace("NPC bot", "NPC other")), { legacy: true })).toBe(false);
+    expect(isFallbackReply(bot, { text: FB }, alert(retried), { legacy: false })).toBe(false);
+  });
+  it("fallbackReason returns the whole reason, attempt count and kind included", () => {
+    expect(fallbackReason(retried)).toBe("model error after 3 attempts (overloaded): Upstream error from Nvidia: Service temporarily overloaded");
+    expect(fallbackReason(retried, "bot")).toBe(fallbackReason(retried));
+  });
+});
+
 describe("fallbackReason", () => {
   it("extracts the reason, optionally for one character", () => {
     expect(fallbackReason("NPC bot: empty reply; used fallback line")).toBe("empty reply");
