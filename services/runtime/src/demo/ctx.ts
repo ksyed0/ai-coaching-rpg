@@ -4,6 +4,8 @@ import { Bot, isEvent, type Inbound } from "./bots.js";
 import { ensure, type Markers, type Recorder, type RunKind } from "./checks.js";
 import type { System, TempRoot } from "./harness.js";
 import type { Narrator } from "./narrator.js";
+import type { ProviderKind } from "./provenance.js";
+import type { Transcript } from "./transcript.js";
 
 export const ROLE_PLAYERS = [
   ["delivery_lead", "ZedAlphaParticipant"],
@@ -20,6 +22,10 @@ export type Utter = Extract<SessionEvent, { type: "utterance" }>;
 
 export type Ctx = {
   kind: RunKind;
+  /** The structured record of the run (Markdown transcript); absent unless --transcript was given. */
+  tr?: Transcript;
+  /** Whose models answer the AI characters (decides GENERATED vs SCRIPTED); mock when unspecified. */
+  provider?: ProviderKind;
   n: Narrator;
   rec: Recorder;
   signal: AbortSignal;

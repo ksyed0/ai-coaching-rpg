@@ -45,6 +45,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
   await act(ctx, st, 1, "Lobby: who may join, and what each person may know", async () => {
     await rec.run("F-01", async () => {
       st.fac = await connectBot(ctx, "facilitator");
+      ctx.tr?.attach(st.fac, { scenario: ctx.scenario, provider: ctx.provider ?? "mock", sceneHeadings: false });
       const fj = await st.fac.call({ type: "join_facilitator", sessionId: ctx.sessionId }, isJoinedMsg, { what: "the facilitator to join" });
       ensure(isJoinedMsg(fj), `the facilitator could not join: ${errCode(fj)}`);
       ensure(fj.state.status === "idle", "the server's session has already started: restart the server so the demo gets a fresh session");

@@ -2,7 +2,7 @@ import { cp, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { MockModelProvider, selectModelProvider, type ChatRequest, type ModelProvider } from "@acr/adapters";
-import type { Scenario } from "@acr/script";
+import type { NpcRole, Scenario } from "@acr/script";
 import { FakeClock, SystemClock, type Clock } from "../engine/clock.js";
 import { JsonlEventLog, MemoryEventLog, type EventLog } from "../engine/event-log.js";
 import { SessionEngine } from "../engine/session-engine.js";
@@ -26,9 +26,12 @@ export async function makeTempRoot(repoRoot: string): Promise<TempRoot> {
   return { root, dataDir: path.join(root, "data"), scenarioDir, cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
+/** A model provider that keeps every request it received (the mock providers do), for the prompt audit. */
+export type RecordingProvider = ModelProvider & { readonly calls: ChatRequest[] };
+
 export type System = {
   port: number; host: SessionHost; engine: SessionEngine; clock: Clock; fakeClock?: FakeClock;
-  npc?: MockModelProvider; gm?: MockModelProvider;
+  npc?: RecordingProvider; gm?: RecordingProvider;
   /** Lines the host's background workers reported (must stay empty) and the server's own log lines. */
   hostLog: string[]; serverLog: string[];
   logFile: string;
@@ -59,6 +62,60 @@ export async function startMockSystem(o: { scenario: Scenario; sessionId: string
   return buildSystem({ ...o, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: gm });
 }
 
+/** A private temp dir for a run's data (the session log). Removed by cleanup(). */
+export async function makeTempDataDir(): Promise<{ root: string; dataDir: string; cleanup(): Promise<void> }> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "acr-showcase-run-"));
+  return { root, dataDir: path.join(root, "data"), cleanup: () => rm(root, { recursive: true, force: true }) };
+}
+
+export type MockScenePlan = { npc: Record<string, string[]>; gm: string[] };
+
+/**
+ * A scripted model for the showcase's mock run. Replies are picked per scene (and, for the AI characters, per character):
+ * the NPC provider tells characters apart by the name in its system prompt, the Game Master provider by the scene id.
+ * Within one scene and character the replies come out in the scripted order; when they run out, `exhausted` answers.
+ */
+export class SceneRoutedMock implements RecordingProvider {
+  readonly name = "demo-scripted";
+  readonly calls: ChatRequest[] = [];
+  private readonly queues = new Map<string, string[]>();
+  constructor(private readonly o: { sceneId: () => string | undefined; keyOf: (req: ChatRequest) => string | undefined; plan: Record<string, string[]>; exhausted: string }) {
+    for (const [k, v] of Object.entries(o.plan)) this.queues.set(k, [...v]);
+  }
+  async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<string> {
+    this.calls.push(req);
+    const who = this.o.keyOf(req);
+    const key = `${this.o.sceneId() ?? ""}|${who ?? ""}`;
+    const next = this.queues.get(key)?.shift();
+    const words = (next ?? this.o.exhausted).split(" ");
+    for (let i = 0; i < words.length; i++) {
+      if (signal?.aborted) return;
+      yield i < words.length - 1 ? `${words[i]} ` : words[i]!;
+    }
+  }
+}
+
+/**
+ * The showcase's mock system: scripted AI characters and Game Master (per scene), a fake clock, a real JSONL log on disk and
+ * a real WebSocket server on port 0.
+ */
+export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId: string; dataDir: string; scenes: { scene: string; mock: MockScenePlan }[] }): Promise<System> {
+  const ref: { engine?: SessionEngine } = {};
+  const sceneId = () => ref.engine?.currentScene()?.id;
+  const npcRoles = Object.values(o.scenario.roles).filter((r): r is NpcRole => r.type === "npc");
+  const npcPlan: Record<string, string[]> = {}; const gmPlan: Record<string, string[]> = {};
+  for (const { scene, mock } of o.scenes) {
+    for (const [role, replies] of Object.entries(mock.npc)) npcPlan[`${scene}|${role}`] = replies;
+    gmPlan[`${scene}|`] = mock.gm;
+  }
+  const npc = new SceneRoutedMock({ sceneId, plan: npcPlan, exhausted: "[mock reply]", keyOf: (req) => npcRoles.find((r) => req.system.includes(`You are playing ${r.name}`))?.id });
+  const gm = new SceneRoutedMock({ sceneId, plan: gmPlan, exhausted: '{"verdict": false, "reasoning": "no scripted verdict left"}', keyOf: () => "" });
+  const fakeClock = new FakeClock(T0);
+  const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: gm });
+  ref.engine = sys.engine;
+  return sys;
+}
+
 /** The live system: the configured provider, the real clock and the real ticker. */
 export async function startLiveSystem(o: { scenario: Scenario; sessionId: string; dataDir: string; env: NodeJS.ProcessEnv }): Promise<System> {
   const timeouts = parseNpcTimeouts(o.env);
@@ -71,8 +128,8 @@ export async function startLiveSystem(o: { scenario: Scenario; sessionId: string
   return sys;
 }
 
-async function buildSystem(o: {
-  scenario: Scenario; sessionId: string; dataDir: string; clock: Clock; fakeClock?: FakeClock; npc?: MockModelProvider; gm?: MockModelProvider;
+export async function buildSystem(o: {
+  scenario: Scenario; sessionId: string; dataDir: string; clock: Clock; fakeClock?: FakeClock; npc?: RecordingProvider; gm?: RecordingProvider;
   npcProvider: ModelProvider; gmProvider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; log?: EventLog; heartbeatMs?: number;
 }): Promise<System> {
   const hostLog: string[] = []; const serverLog: string[] = [];

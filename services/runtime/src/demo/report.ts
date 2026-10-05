@@ -1,6 +1,7 @@
 import os from "node:os";
 import { sanitizeText } from "../cli/render.js";
 import { paint } from "./narrator.js";
+import type { ShowcaseReport } from "./showcase-report.js";
 
 export type CheckStatus = "passed" | "failed" | "skipped";
 export type CheckResult = { id: string; title: string; status: CheckStatus; details: string; durationMs: number };
@@ -9,6 +10,8 @@ export type Report = {
   tool: string; version: string; mode: DemoMode; startedAt: string; durationMs: number;
   summary: { passed: number; failed: number; skipped: number };
   results: CheckResult[];
+  /** Present for --showcase runs only. */
+  showcase?: ShowcaseReport;
 };
 
 /** Sanitizes server-influenced text and removes anything that identifies the user's machine or a secret. */
@@ -22,7 +25,15 @@ export function scrubText(text: string, secrets: string[] = []): string {
   return out;
 }
 
-export function buildReport(i: { tool: string; version: string; mode: DemoMode; startedAt: string; durationMs: number; results: CheckResult[]; secrets?: string[] }): Report {
+/** A copy of `value` with every string scrubbed (control characters, secrets, temp and home paths). */
+export function scrubDeep<T>(value: T, secrets: string[] = []): T {
+  if (typeof value === "string") return scrubText(value, secrets) as T;
+  if (Array.isArray(value)) return value.map((v) => scrubDeep(v, secrets)) as T;
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, scrubDeep(v, secrets)])) as T;
+  return value;
+}
+
+export function buildReport(i: { tool: string; version: string; mode: DemoMode; startedAt: string; durationMs: number; results: CheckResult[]; secrets?: string[]; showcase?: ShowcaseReport }): Report {
   const results = i.results.map((r) => ({
     id: scrubText(r.id), title: scrubText(r.title, i.secrets), status: r.status, details: scrubText(r.details, i.secrets), durationMs: Math.round(r.durationMs),
   }));
@@ -31,6 +42,7 @@ export function buildReport(i: { tool: string; version: string; mode: DemoMode; 
     tool: i.tool, version: i.version, mode: i.mode, startedAt: i.startedAt, durationMs: Math.round(i.durationMs),
     summary: { passed: count("passed"), failed: count("failed"), skipped: count("skipped") },
     results,
+    ...(i.showcase ? { showcase: scrubDeep(i.showcase, i.secrets) } : {}),
   };
 }
 

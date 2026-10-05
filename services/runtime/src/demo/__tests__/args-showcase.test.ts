@@ -57,4 +57,14 @@ describe("parseDemoArgs: the showcase flags", () => {
   it("documents the new flags in the usage text", () => {
     for (const f of ["--showcase", "--scenario", "--max-lines", "--max-fallbacks", "--watchdog"]) expect(DEMO_USAGE).toContain(f);
   });
+  it("parses --transcript in any mode and rejects an empty or control-character path or a duplicate", () => {
+    expect(ok(["--transcript", "out/t.md"]).transcript).toBe("out/t.md");
+    expect(ok(["--showcase", "--live", "--transcript=t.md"]).transcript).toBe("t.md");
+    expect(ok(["--url", "ws://localhost:1", "--transcript", "t.md"]).transcript).toBe("t.md");
+    expect(ok([]).transcript).toBeUndefined();
+    expect(fail(["--transcript="])).toBe("error: --transcript needs a file path");
+    expect(fail(["--transcript", "a\u001bb"])).toBe("error: --transcript needs a file path");
+    expect(fail(["--transcript", "a", "--transcript", "b"])).toBe("error: --transcript was given more than once");
+    expect(DEMO_USAGE).toContain("--transcript");
+  });
 });

@@ -1,0 +1,245 @@
+import { readdirSync, statSync } from "node:fs";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import http from "node:http";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { loadScenario } from "@acr/script";
+import { REPO_ROOT, bootstrap } from "../../main.js";
+import type { Report } from "../report.js";
+import { runDemo, type RunDeps } from "../runner.js";
+import { makeTempRoot } from "../harness.js";
+import { Transcript } from "../transcript.js";
+import type { Bot, Inbound } from "../bots.js";
+
+type Captured = { out: string[]; err: string[]; stdout: { write(s: string): void; isTTY?: boolean }; stderr: { write(s: string): void; isTTY?: boolean } };
+const capture = (): Captured => {
+  const out: string[] = []; const err: string[] = [];
+  return { out, err, stdout: { write: (s) => { out.push(s); }, isTTY: false }, stderr: { write: (s) => { err.push(s); }, isTTY: false } };
+};
+const deps = (c: Captured, argv: string[], over: Partial<RunDeps> = {}): RunDeps => ({
+  argv, stdout: c.stdout, stderr: c.stderr, env: { PATH: "/usr/bin" }, sleep: async () => {}, repoRoot: REPO_ROOT, version: "0.0.0-test",
+  resolveLiveEnv: () => { throw new Error("the live environment must not be read here"); }, ...over,
+});
+const cleanups: (() => Promise<void> | void)[] = [];
+afterEach(async () => { for (const c of cleanups.splice(0).reverse()) await c(); });
+const tmp = async () => { const d = await mkdtemp(path.join(os.tmpdir(), "acr-transcript-test-")); cleanups.push(() => rm(d, { recursive: true, force: true })); return d; };
+
+/** Tag counts in the body of a transcript (the legend names each tag once and is not counted). */
+const tags = (md: string) => {
+  const body = md.slice(md.indexOf("## Legend") + 1);
+  const n = (t: string) => (body.match(new RegExp(`(?<!\\\\)\\[${t}\\]`, "g")) ?? []).length - 1;
+  return { scripted: n("SCRIPTED"), generated: n("GENERATED"), fallback: n("FALLBACK"), system: n("SYSTEM") };
+};
+const bold = (md: string) => md.split("\n").filter((l) => l.startsWith("**"));
+
+describe("--transcript, mock mode", () => {
+  it("the default 29-check run writes a transcript: scripted dialogue, FALLBACK only from the side room, no GENERATED, hostile text inert", async () => {
+    const dir = await tmp();
+    const c = capture();
+    const { exitCode, report } = await runDemo(deps(c, ["--fast", "--no-color", "--transcript", "out/default.md"], { cwd: dir }));
+    expect(exitCode).toBe(0);
+    expect(report!.summary.passed).toBe(29);
+    const md = await readFile(path.join(dir, "out", "default.md"), "utf8");
+    const t = tags(md);
+    expect(t.generated).toBe(0);
+    expect(t.fallback).toBe(2); // the side room's stalled and empty model replies
+    expect(t.scripted).toBeGreaterThan(20);
+    expect(t.system).toBeGreaterThan(20);
+    expect(bold(md)).toHaveLength(t.scripted + t.fallback);
+    expect(bold(md).every((l) => l.endsWith("**") && /^\*\*\[(SCRIPTED|FALLBACK)\] /.test(l))).toBe(true);
+    expect(md).toMatch(/\*\*\[FALLBACK\] Priya Raman \(client_sponsor\): Sorry, you cut out for a second there\. Say that again\?\*\*/);
+    expect(md).toContain("**[SCRIPTED] facilitator (whisper to delivery\\_lead): WHISPER-ONLY-FOR-DELIVERY-LEAD ask about timing**");
+    expect(md).toMatch(/\*\*\[SCRIPTED\] Priya Raman \(client_sponsor\): Thanks for calling\./);
+    // the hostile scripted line is inert
+    expect(md).not.toMatch(/\u001b|\u0007|\u202e/);
+    expect(md.split("\n").some((l) => /^\[delivery_lead\]/.test(l))).toBe(false);
+    expect(md).toContain("## ACT 2 · Scene 1: Team huddle");
+    expect(md).toContain("## Checks");
+    expect(md).toContain("| F-29 | passed |");
+    expect(md).toContain("| Mode | mock |");
+    expect(c.out.join("")).toContain("transcript written to out/default.md");
+    expect(c.out.join("")).not.toContain("**["); // the terminal narration is unchanged
+  });
+
+  it("the showcase run writes 58 SCRIPTED dialogue lines (24 player, 20 AI, 14 Game Master), no GENERATED, scene headings and the AI table", async () => {
+    const dir = await tmp();
+    const { exitCode } = await runDemo(deps(capture(), ["--showcase", "--fast", "--no-color", "--transcript", "show.md"], { cwd: dir }));
+    expect(exitCode).toBe(0);
+    const md = await readFile(path.join(dir, "show.md"), "utf8");
+    expect(tags(md)).toMatchObject({ scripted: 58, generated: 0, fallback: 0 });
+    expect(bold(md)).toHaveLength(58);
+    expect(bold(md).filter((l) => l.includes("Game Master (verdict:"))).toHaveLength(14);
+    for (let i = 1; i <= 6; i++) expect(md).toMatch(new RegExp(`^## Scene ${i} of 6: `, "m"));
+    expect(md).toContain("[SYSTEM] scene s6\\_wrap\\_up ended: gm detects (gm\\_detects)");
+    expect(md).toContain("## AI contribution");
+    expect(md).toContain("| Priya Raman (client_sponsor) | 12 | 12 | 0 | n/a |");
+    expect(md).toContain('**[SCRIPTED] Game Master (verdict: true) on "the team has agreed a phased plan with a date and a price to propose": ');
+    expect(md.indexOf("## Scene 2 of 6")).toBeLessThan(md.indexOf("## Scene 3 of 6"));
+  });
+
+  it("labels a fallback line FALLBACK (never GENERATED or SCRIPTED) in a showcase run", async () => {
+    const dir = await tmp();
+    const scen = path.join(dir, "scen");
+    await cp(path.join(REPO_ROOT, "scenarios", "friday-escalation-extended"), scen, { recursive: true });
+    const f = path.join(scen, "showcase.yaml");
+    await writeFile(f, (await readFile(f, "utf8")).replace('"Thanks for jumping on. I will be direct: Finance needs that reconciliation module before go-live. Can you confirm it today?"', '""'));
+    await runDemo(deps(capture(), ["--showcase", "--fast", "--scenario", scen, "--transcript", "fb.md"], { cwd: dir }));
+    const md = await readFile(path.join(dir, "fb.md"), "utf8");
+    expect(tags(md)).toMatchObject({ scripted: 57, generated: 0, fallback: 1 });
+    expect(md).toContain("**[FALLBACK] Priya Raman (client_sponsor): Sorry, you cut out for a second there. Say that again?**");
+    expect(md).toContain("[SYSTEM] alert (warning): fallback line used: empty reply");
+  });
+
+  it("works together with --json - (stdout stays pure JSON)", async () => {
+    const dir = await tmp();
+    const c = capture();
+    const { exitCode } = await runDemo(deps(c, ["--showcase", "--fast", "--json", "-", "--transcript", "t.md"], { cwd: dir }));
+    expect(exitCode).toBe(0);
+    expect((JSON.parse(c.out.join("")) as Report).showcase!.npcReplies).toBe(20);
+    expect(statSync(path.join(dir, "t.md")).isFile()).toBe(true);
+    expect(c.err.join("")).toContain("transcript written to t.md");
+  });
+
+  it("puts the same tags on the showcase JSON line records", async () => {
+    const c = capture();
+    const { report } = await runDemo(deps(c, ["--showcase", "--fast"]));
+    const lines = report!.showcase!.lines;
+    expect(lines.filter((l) => l.source === "game-master").every((l) => l.tag === "scripted")).toBe(true);
+    expect(lines.filter((l) => l.source === "system").every((l) => l.tag === "system")).toBe(true);
+  });
+});
+
+describe("--transcript path handling", () => {
+  it("resolves a relative path from INIT_CWD (like --json) when no cwd is injected", async () => {
+    const dir = await tmp();
+    const c = capture();
+    const { exitCode } = await runDemo(deps(c, ["--showcase", "--fast", "--transcript", "from-init-cwd.md"], { env: { PATH: "/usr/bin", INIT_CWD: dir } }));
+    expect(exitCode).toBe(0);
+    expect(statSync(path.join(dir, "from-init-cwd.md")).isFile()).toBe(true);
+  });
+  it("refuses a directory (exit 2, nothing started)", async () => {
+    const dir = await tmp();
+    const c = capture();
+    const before = readdirSync(os.tmpdir()).filter((d) => d.startsWith("acr-"));
+    const { exitCode } = await runDemo(deps(c, ["--fast", "--transcript", dir]));
+    expect(exitCode).toBe(2);
+    expect(c.err.join("")).toContain("that path is a directory");
+    expect(c.out).toEqual([]);
+    expect(readdirSync(os.tmpdir()).filter((d) => d.startsWith("acr-")).sort()).toEqual(before.sort());
+  });
+  it("creates missing parent folders under the working directory, the repo or the temp directory only", async () => {
+    const dir = await tmp();
+    expect((await runDemo(deps(capture(), ["--showcase", "--fast", "--transcript", "a/b/c.md"], { cwd: dir }))).exitCode).toBe(0);
+    expect(statSync(path.join(dir, "a", "b", "c.md")).isFile()).toBe(true);
+    const outside = capture();
+    const target = path.join(path.parse(os.homedir()).root, "acr-no-such-root", "deep", "t.md");
+    const r = await runDemo(deps(outside, ["--showcase", "--fast", "--transcript", target], { cwd: dir }));
+    expect(r.exitCode).toBe(2);
+    expect(outside.err.join("")).toContain("outside the repo, the working directory and the temp directory");
+    expect(outside.out).toEqual([]);
+  });
+  it("reports an unwritable target as an error (exit 1) after the run", async () => {
+    const dir = await tmp();
+    await writeFile(path.join(dir, "file"), "x");
+    const c = capture();
+    const r = await runDemo(deps(c, ["--showcase", "--fast", "--transcript", "file/sub.md"], { cwd: dir }));
+    expect(r.exitCode).toBe(1);
+    expect(c.err.join("")).toContain("cannot write the transcript");
+  });
+  it("an empty path is a usage error", async () => {
+    const c = capture();
+    expect((await runDemo(deps(c, ["--transcript", ""]))).exitCode).toBe(2);
+    expect(c.err.join("")).toContain("error: --transcript needs a file path");
+  });
+});
+
+describe("--transcript with --url", () => {
+  it("records only what the facilitator observes and never claims the target's replies are GENERATED without --live", async () => {
+    const t = await makeTempRoot(REPO_ROOT);
+    cleanups.push(() => t.cleanup());
+    const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root: t.root, logDir: t.dataDir, log: () => {}, warn: () => {}, tickMs: 60_000 });
+    if (!boot.ok) throw new Error(boot.errors.join("; "));
+    cleanups.push(() => boot.runtime.stop());
+    const dir = await tmp();
+    const { exitCode } = await runDemo(deps(capture(), ["--url", `ws://127.0.0.1:${boot.runtime.port}`, "--session", "smoke", "--fast", "--transcript", "url.md"], { cwd: dir }));
+    expect(exitCode).toBe(0);
+    const md = await readFile(path.join(dir, "url.md"), "utf8");
+    expect(md).toContain("| Mode | url |");
+    expect(md).toContain("not known to the runner");
+    expect(tags(md).generated).toBe(0);
+    expect(tags(md).scripted).toBeGreaterThan(5);
+    expect(md).not.toContain(String(boot.runtime.port));
+  });
+});
+
+describe("--transcript with --live (loopback fake OpenAI-compatible server)", () => {
+  const fake = async (mode: "ok" | "empty") => {
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (d) => { body += d; });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        if (mode === "ok") {
+          const text = body.includes("Game Master") ? '{"verdict": false, "reasoning": "not yet **bold** [SCRIPTED]"}' : "I hear you, **tell** me more. [SCRIPTED] ](http://evil.example)";
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        }
+        res.end("data: [DONE]\n\n");
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    cleanups.push(() => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }));
+    const port = (server.address() as { port: number }).port;
+    return { LOCAL_BASE_URL: `http://127.0.0.1:${port}/v1`, MODEL_PROVIDER: "local", NPC_MODEL: "m", GM_MODEL: "m", LOCAL_API_KEY: "live-transcript-key-0123456789" };
+  };
+
+  it("labels the fake server's replies and the Game Master's reasoning GENERATED, inert even when they try to forge tags or links", async () => {
+    const env = await fake("ok");
+    const dir = await tmp();
+    const { exitCode } = await runDemo(deps(capture(), ["--showcase", "--live", "--max-lines", "1", "--fast", "--transcript", "live.md"], { cwd: dir, resolveLiveEnv: () => env }));
+    expect(exitCode).toBe(0);
+    const md = await readFile(path.join(dir, "live.md"), "utf8");
+    expect(tags(md)).toMatchObject({ generated: 7, fallback: 0, scripted: 6 }); // 5 AI replies + 2 Game Master decisions; 6 bot lines
+    expect(md).toContain("**[GENERATED] Priya Raman (client_sponsor): I hear you, \\*\\*tell\\*\\* me more. \\[SCRIPTED\\] \\](http:&#8203;//evil.example)**");
+    expect(md).toContain("| Provider | local OpenAI-compatible server (custom endpoint: yes) |");
+    expect(md).not.toContain(env.LOCAL_API_KEY);
+    expect(md).not.toContain(env.LOCAL_BASE_URL);
+    expect(md).not.toMatch(/https?:\/\//);
+  });
+
+  it("labels a canned line FALLBACK when the model returns nothing", async () => {
+    const env = await fake("empty");
+    const dir = await tmp();
+    await runDemo(deps(capture(), ["--showcase", "--live", "--max-lines", "1", "--fast", "--transcript", "fb.md"], { cwd: dir, resolveLiveEnv: () => env }));
+    const md = await readFile(path.join(dir, "fb.md"), "utf8");
+    expect(tags(md)).toMatchObject({ generated: 0, fallback: 5 });
+    expect(md).toContain("[SYSTEM] alert (warning): fallback line used: empty reply");
+  });
+});
+
+describe("Transcript.attach", () => {
+  const ev = (e: Record<string, unknown>, seq: number) => ({ type: "event", event: { seq, ts: seq, sessionId: "s", ...e } }) as unknown as Inbound;
+  it("classifies from the event stream: players and whispers SCRIPTED, live replies GENERATED, the alert-backed fallback FALLBACK", async () => {
+    const scenario = await loadScenario(path.join(REPO_ROOT, "scenarios", "friday-escalation"));
+    const bot = { onMessage: undefined } as unknown as Bot;
+    const tr = new Transcript(() => 5, 0);
+    tr.attach(bot, { scenario, provider: "live", sceneHeadings: true });
+    const feed = (m: Inbound) => bot.onMessage!(m);
+    feed(ev({ type: "scene.entered", sceneId: "s2_client_call", participants: ["delivery_lead", "account_manager", "client_sponsor"] }, 1));
+    feed(ev({ type: "utterance", roleId: "delivery_lead", text: "hi", channel: "text" }, 2));
+    feed(ev({ type: "utterance", roleId: "client_sponsor", text: "hello there", channel: "text" }, 3));
+    feed(ev({ type: "facilitator.alert", level: "warning", message: "NPC client_sponsor: no first token within timeout; used fallback line" }, 4));
+    feed(ev({ type: "utterance", roleId: "client_sponsor", text: "Sorry, you cut out for a second there. Say that again?", channel: "text" }, 5));
+    feed(ev({ type: "utterance", roleId: "client_sponsor", text: "Sorry, you cut out for a second there. Say that again?", channel: "text" }, 6)); // the model really said it
+    feed(ev({ type: "gm.decision", sceneId: "s2_client_call", condition: "c", verdict: true, reasoning: "r" }, 7));
+    feed(ev({ type: "facilitator.command", command: "whisper", roleId: "delivery_lead", text: "psst" }, 8));
+    feed({ type: "pong" } as unknown as Inbound);
+    expect(tr.records.map((r) => [r.kind, r.source])).toEqual([
+      ["heading", "system"], ["log", "system"], ["dialogue", "scripted"], ["dialogue", "generated"], ["log", "system"], ["dialogue", "fallback"], ["dialogue", "generated"], ["dialogue", "generated"], ["dialogue", "scripted"],
+    ]);
+    expect(tr.records[0]!.text).toBe("Scene 2 of 3: Call with Priya");
+    expect(tr.records[7]!.gm).toEqual({ verdict: true, condition: "c" });
+    const ids = tr.records.map((r) => r.atMs);
+    expect(ids.every((x) => x === 5)).toBe(true);
+  });
+});

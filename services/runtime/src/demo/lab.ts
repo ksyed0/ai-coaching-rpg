@@ -22,6 +22,7 @@ export async function playLab(ctx: Ctx, st: Story): Promise<void> {
     await n.step(`a second server starts with a ${LAB_HEARTBEAT_MS} ms heartbeat, a ${LAB_FIRST_TOKEN_MS} ms NPC first-token timeout and a misbehaving NPC model`);
 
     const fac = await connectBot(ctx, "lab facilitator", { url });
+    ctx.tr?.attach(fac, { scenario: ctx.scenario, provider: "mock", sceneHeadings: false });
     await fac.call({ type: "join_facilitator", sessionId: "lab" }, isJoinedMsg);
     const join = async (bot: Bot, role: string, who: string): Promise<Inbound> => bot.call({ type: "join", sessionId: "lab", roleId: role, participantId: who }, isJoinedMsg, { what: `${role} to join` });
     const dl = await connectBot(ctx, "lab delivery_lead", { url });

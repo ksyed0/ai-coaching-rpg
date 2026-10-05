@@ -1,24 +1,33 @@
 import { readFileSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
 import { describeModelProvider, selectModelProvider } from "@acr/adapters";
-import { loadScenario, validateScenario } from "@acr/script";
+import { loadScenario, validateScenario, type Scenario } from "@acr/script";
 import { REPO_ROOT } from "../main.js";
 import { DEMO_USAGE, parseDemoArgs } from "./args.js";
 import { playAudit } from "./audit.js";
-import { Recorder, buildMarkers, type RunKind } from "./checks.js";
+import { CHECKS, Recorder, buildMarkers, type RunKind } from "./checks.js";
 import { newStory, type Ctx } from "./ctx.js";
-import { FAKE_KEY, makeTempRoot, startLiveSystem, startMockSystem, type System } from "./harness.js";
+import { FAKE_KEY, makeTempDataDir, makeTempRoot, startLiveSystem, startMockSystem, startShowcaseMockSystem, type System } from "./harness.js";
 import { playLab } from "./lab.js";
 import { createNarrator, shouldColor } from "./narrator.js";
 import { buildReport, exitCodeFor, formatChecklist, scrubText, type CheckResult, type DemoMode, type Report } from "./report.js";
+import { SHOWCASE_CHECKS, expectedModelCalls, playShowcase, showcaseMarkers, type ShowcaseHolder } from "./showcase.js";
+import { loadShowcaseScript, type ShowcaseScript } from "./showcase-script.js";
 import { playStory } from "./story.js";
+import { Transcript } from "./transcript.js";
+import { renderTranscript } from "./transcript-md.js";
+import { parseNpcTimeouts, DEFAULT_REPLY_TIMEOUT_MS } from "../agents/timeouts.js";
 
 export const TOOL = "acr-demo";
 export const DEFAULT_WATCHDOG_MS = 120_000;
 export const LIVE_WATCHDOG_MS = 600_000;
+export const DEFAULT_SHOWCASE_SCENARIO = "scenarios/friday-escalation-extended";
+export const SHOWCASE_WATCHDOG_MINUTES = 3;
+export const SHOWCASE_LIVE_WATCHDOG_MINUTES = 30;
 
 export type Out = { write(chunk: string): unknown; isTTY?: boolean };
 export type RunDeps = {
@@ -84,6 +93,40 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const mode: DemoMode = opts.url ? (opts.live ? "url+live" : "url") : opts.live ? "live" : "mock";
   const sessionId = opts.session ?? (opts.url ? "local" : "demo");
 
+  // --transcript: validate the target before anything starts (a directory is refused; missing parents are created only in safe places).
+  let transcriptPath: string | undefined;
+  if (opts.transcript !== undefined) {
+    const base = deps.cwd ?? deps.env.INIT_CWD ?? process.cwd();
+    const target = path.resolve(base, opts.transcript);
+    const inside = (root: string) => { const rel = path.relative(root, target); return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel); };
+    const problem = await (async (): Promise<string | null> => {
+      const st = await stat(target).catch(() => null);
+      if (st?.isDirectory()) return "that path is a directory";
+      if (!(await stat(path.dirname(target)).catch(() => null))?.isDirectory() && ![repoRoot, base, os.tmpdir()].some(inside)) {
+        return "its folder does not exist and is outside the repo, the working directory and the temp directory";
+      }
+      return null;
+    })();
+    if (problem) { deps.stderr.write(`error: --transcript cannot use ${scrubText(opts.transcript)}: ${problem}\n`); return { exitCode: 2 }; }
+    transcriptPath = target;
+  }
+
+  // --showcase: the scenario and its showcase script must load before anything starts (and before any .env is read).
+  let showcase: { scenario: Scenario; script: ShowcaseScript } | undefined;
+  if (opts.showcase) {
+    const dir = path.resolve(repoRoot, opts.scenario ?? DEFAULT_SHOWCASE_SCENARIO);
+    try {
+      if (!(await stat(dir).catch(() => null))?.isDirectory()) throw new Error("the scenario directory does not exist");
+      const scenario = await loadScenario(dir);
+      const { errors } = validateScenario(scenario);
+      if (errors.length) throw new Error(`the scenario is invalid: ${errors.join("; ")}`);
+      showcase = { scenario, script: await loadShowcaseScript(dir, scenario, { mode: opts.live ? "live" : "mock", maxLines: opts.maxLines }) };
+    } catch (err) {
+      deps.stderr.write(`error: --showcase cannot use that scenario: ${scrubText(err instanceof Error ? err.message : String(err))}\n`);
+      return { exitCode: 2 };
+    }
+  }
+
   // --live without --url: resolve the provider BEFORE starting anything, and refuse mock.
   let liveEnv: NodeJS.ProcessEnv | undefined;
   let providerLabel = "";
@@ -108,13 +151,18 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const tap: string[] = [];
   const write = (line: string) => { tap.push(line); sink.write(`${line}\n`); };
   const ac = new AbortController();
-  const n = createNarrator({ write, color, speed: opts.speed, fast: opts.fast, sleep: deps.sleep ?? realSleep, signal: ac.signal });
+  const providerKind = opts.live ? "live" : "mock";
+  const startedForTranscript = now();
+  const tr = transcriptPath ? new Transcript(now, startedForTranscript) : undefined;
+  const n = createNarrator({ write, color, speed: opts.speed, fast: opts.fast, sleep: deps.sleep ?? realSleep, signal: ac.signal, record: tr ? (r) => tr.add(r) : undefined });
+  let scenarioTitle = "Friday Escalation";
   const secretValues = [FAKE_KEY, ...Object.entries(deps.env).filter(([k, v]) => SECRETISH.test(k) && typeof v === "string" && v.length >= 8).map(([, v]) => v as string)];
   if (liveEnv) for (const [k, v] of Object.entries(liveEnv)) if (SECRETISH.test(k) && typeof v === "string" && v.length >= 8) secretValues.push(v);
 
   const startedMs = now();
+  const holder: ShowcaseHolder = {};
   const rec = new Recorder({
-    kind, now, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
+    kind, now, defs: showcase ? SHOWCASE_CHECKS : CHECKS, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
     onResult: (r) => { if (r.status === "passed") n.ok(`${r.id} ${r.details}`); else if (r.status === "failed") n.fail(`${r.id} ${r.details}`); },
   });
   const cleanups: (() => Promise<void> | void)[] = [];
@@ -124,7 +172,42 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   let unexpected = false;
   const bots: Ctx["bots"] = [];
 
+  const watchdogMinutes = opts.watchdog ?? (kind === "live" ? SHOWCASE_LIVE_WATCHDOG_MINUTES : SHOWCASE_WATCHDOG_MINUTES);
+  const limit = deps.watchdogMs ?? (opts.watchdog !== undefined || showcase ? watchdogMinutes * 60_000 : kind === "live" ? LIVE_WATCHDOG_MS : DEFAULT_WATCHDOG_MS);
+
+  const executeShowcase = async (sc: { scenario: Scenario; script: ShowcaseScript }): Promise<void> => {
+    const pacing = opts.fast ? ", fast" : opts.speed !== 1 ? `, speed ${opts.speed}` : "";
+    scenarioTitle = sc.scenario.meta.title;
+    n.line(`${sc.scenario.meta.title}: AI showcase (${mode} mode${pacing})`);
+    const calls = expectedModelCalls(sc.scenario, sc.script, opts.maxLines ?? null);
+    if (opts.live) {
+      n.styled(`NOTICE: --live sends the AI characters' personas and goals and the scripted conversation to the configured model provider (${providerLabel}) and may cost money. Expect up to about ${calls.npc} AI character replies and ${calls.gm} Game Master calls.`, "yellow");
+      n.line("The AI characters and the Game Master answer for real; how long it takes depends on the model.");
+    } else n.line("Mock mode: the AI characters and the Game Master are scripted (offline and deterministic); nothing leaves this machine.");
+    const markers = showcaseMarkers(sc.scenario);
+    const ctx: Ctx = {
+      kind, tr, provider: providerKind, n, rec, signal: ac.signal, scenario: sc.scenario, markers, sessionId, wsUrl: "", repoRoot, npcWaitMs: deps.npcWaitMs ?? (kind === "mock" ? 5_000 : 40_000),
+      outputTap: tap, labLogs: [], labHostLog: [], bots, secretValues, beforeAct: deps.beforeAct, register, now,
+    };
+    register(() => { for (const b of bots) b.terminate(); });
+    const t = await makeTempDataDir();
+    register(() => t.cleanup());
+    const base = { scenario: sc.scenario, sessionId, dataDir: t.dataDir };
+    const sys = kind === "live"
+      ? await startLiveSystem({ ...base, env: liveEnv! })
+      : await startShowcaseMockSystem({ ...base, scenes: sc.script.scenes });
+    register(() => sys.stop());
+    ctx.sys = sys; ctx.tmp = { root: t.root, dataDir: t.dataDir, scenarioDir: "", cleanup: t.cleanup }; ctx.wsUrl = `ws://127.0.0.1:${sys.port}`;
+    const timeouts = liveEnv ? parseNpcTimeouts(liveEnv) : undefined;
+    await playShowcase(ctx, newStory(), {
+      script: sc.script, mode: kind === "live" ? "live" : "mock", maxLines: opts.maxLines ?? null, maxFallbacks: opts.maxFallbacks ?? null,
+      watchdogMinutes, watchdogMs: limit, provider: kind === "live" ? providerLabel : undefined,
+      replyTimeoutMs: timeouts?.ok ? timeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS, startedMs, holder,
+    });
+  };
+
   const execute = async (): Promise<void> => {
+    if (showcase) return executeShowcase(showcase);
     n.line(`The Friday Escalation demo (${mode} mode${opts.fast ? ", fast" : opts.speed !== 1 ? `, speed ${opts.speed}` : ""})`);
     if (opts.live) {
       n.styled(opts.url
@@ -147,8 +230,9 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     const { errors } = validateScenario(scenario);
     if (errors.length) throw new Error(`the scenario is invalid: ${errors.join("; ")}`);
     const markers = buildMarkers(scenario);
+    scenarioTitle = scenario.meta.title;
     const ctx: Ctx = {
-      kind, n, rec, signal: ac.signal, scenario, markers, sessionId, wsUrl: opts.url ?? "", repoRoot, npcWaitMs: deps.npcWaitMs ?? (kind === "mock" ? 5_000 : 40_000),
+      kind, tr, provider: providerKind, n, rec, signal: ac.signal, scenario, markers, sessionId, wsUrl: opts.url ?? "", repoRoot, npcWaitMs: deps.npcWaitMs ?? (kind === "mock" ? 5_000 : 40_000),
       outputTap: tap, labLogs: [], labHostLog: [], bots, secretValues, beforeAct: deps.beforeAct, register, now,
     };
     register(() => { for (const b of bots) b.terminate(); });
@@ -170,7 +254,6 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   };
 
   // Global watchdog: a real-time limit, so a hung server or step can never hang the process.
-  const limit = deps.watchdogMs ?? (kind === "live" ? LIVE_WATCHDOG_MS : DEFAULT_WATCHDOG_MS);
   let timer: NodeJS.Timeout | undefined;
   const watchdog = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), limit); });
   let interrupted: "SIGINT" | "SIGTERM" | null = null;
@@ -198,6 +281,8 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   }
   if (outcome === "timeout" || outcome === "interrupt") void body.then(() => undefined);
 
+  const showcaseReport = holder.report ?? (() => { try { return holder.snapshot?.(); } catch { return undefined; } })();
+
   // Close everything, newest first, whatever happened. Later registrations (from a run that is still unwinding) clean up at once.
   closed = true;
   ac.abort();
@@ -206,7 +291,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   rec.finish(finishReason);
   const report = buildReport({
     tool: TOOL, version: deps.version ?? readVersion(), mode, startedAt: new Date(startedMs).toISOString(), durationMs: now() - startedMs,
-    results: [...rec.ordered(), ...extra], secrets: secretValues,
+    results: [...rec.ordered(), ...extra], secrets: secretValues, showcase: showcaseReport,
   });
   const code = interrupted ? (interrupted === "SIGINT" ? 130 : 143) : exitCodeFor(report, unexpected || extra.length > 0);
   for (const line of ["", ...formatChecklist(report, color)]) sink.write(`${line}\n`);
@@ -220,6 +305,22 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       try { await writeFile(target, text, "utf8"); sink.write(`report written to ${scrubText(opts.json)}\n`); }
       catch (err) { deps.stderr.write(`error: cannot write the report to ${scrubText(opts.json)}: ${(err as NodeJS.ErrnoException).code ?? "failed"}\n`); return { exitCode: 1, report }; }
     }
+  }
+  if (tr && transcriptPath) {
+    const providerText = opts.url ? "the target server's own provider (not known to the runner)" : opts.live ? providerLabel : "scripted mock providers";
+    const text = renderTranscript({
+      title: `${scenarioTitle}${showcase ? " AI showcase" : " demo"} transcript`,
+      meta: {
+        mode, provider: providerText, scenario: scenarioTitle, date: report.startedAt, version: report.version,
+        summary: `${report.summary.passed} passed, ${report.summary.failed} failed, ${report.summary.skipped} skipped (exit ${code})`,
+      },
+      records: tr.records, results: report.results, showcase: report.showcase, secrets: secretValues,
+    });
+    try {
+      await mkdir(path.dirname(transcriptPath), { recursive: true });
+      await writeFile(transcriptPath, text, "utf8");
+      sink.write(`transcript written to ${scrubText(opts.transcript!)}\n`);
+    } catch (err) { deps.stderr.write(`error: cannot write the transcript to ${scrubText(opts.transcript!)}: ${(err as NodeJS.ErrnoException).code ?? "failed"}\n`); return { exitCode: 1, report }; }
   }
   return { exitCode: code, report };
 }

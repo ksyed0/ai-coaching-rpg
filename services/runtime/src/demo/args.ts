@@ -8,12 +8,13 @@ export const MAX_FALLBACKS = 1000;
 export const MAX_WATCHDOG_MINUTES = 180;
 
 export const DEMO_USAGE = [
-  "usage: pnpm demo [--fast] [--speed <x>] [--json <path|->] [--live] [--url <ws://host:port>] [--session <id>] [--no-color] [--help]",
+  "usage: pnpm demo [--fast] [--speed <x>] [--json <path|->] [--live] [--url <ws://host:port>] [--session <id>] [--transcript <path.md>] [--no-color] [--help]",
   "       pnpm demo --showcase [--scenario <dir>] [--max-lines <n>] [--max-fallbacks <n>] [--watchdog <minutes>] [--live] [--fast] [--json <path|->]",
   `  --fast            no pacing delays (instant narration)`,
   `  --speed <x>       scale the pacing, ${MIN_SPEED} to ${MAX_SPEED} (default 1; 2 is twice as fast)`,
   "  --json <path|->   write a machine-readable report to a file, or to stdout with - (narration then goes to stderr;",
   "                    run `pnpm -s demo ...` so pnpm's own banner stays out of stdout)",
+  "  --transcript <path.md>  also write a Markdown transcript (dialogue in bold, tagged SCRIPTED / GENERATED / FALLBACK; works in every mode)",
   "  --live            use the real configured model provider (sends text to it, may cost money)",
   "  --url <ws://...>  smoke-test an already running server instead of starting one",
   "  --session <id>    session id (default: demo, or local with --url)",
@@ -32,12 +33,12 @@ export type DemoOptions = {
   fast: boolean; speed: number; json: string | undefined; live: boolean; url: string | undefined;
   session: string | undefined; noColor: boolean; help: boolean;
   /** Showcase options stay undefined unless given, so a default run's options are exactly what they always were. */
-  showcase?: true; scenario?: string; maxLines?: number; maxFallbacks?: number; watchdog?: number;
+  showcase?: true; scenario?: string; maxLines?: number; maxFallbacks?: number; watchdog?: number; transcript?: string;
 };
 export type DemoArgsResult = { ok: true; opts: DemoOptions } | { ok: false; error: string; usage: string };
 
 const fail = (error: string): DemoArgsResult => ({ ok: false, error, usage: DEMO_USAGE });
-const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog"];
+const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript"];
 const hasControl = (v: string) => new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]").test(v);
 
 /** Validates a --url value. The error never echoes the value (it may carry credentials). */
@@ -59,14 +60,14 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
     const n = argv.filter((a) => a === `--${f}` || a.startsWith(`--${f}=`)).length;
     if (n > 1) return fail(`error: --${f} was given more than once`);
   }
-  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string };
+  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string; transcript?: string };
   try {
     ({ values } = nodeParseArgs({
       args: argv, allowPositionals: false, strict: true,
       options: {
         fast: { type: "boolean" }, speed: { type: "string" }, json: { type: "string" }, live: { type: "boolean" },
         url: { type: "string" }, session: { type: "string" }, "no-color": { type: "boolean" }, help: { type: "boolean" },
-        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" },
+        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" }, transcript: { type: "string" },
       },
     }));
   } catch (err) { return fail(`error: ${(err as Error).message.split("\n")[0]}`); }
@@ -81,6 +82,7 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
     if (!Number.isFinite(speed) || speed < MIN_SPEED || speed > MAX_SPEED) return fail(range);
   }
   if (values.json !== undefined && (values.json === "" || hasControl(values.json))) return fail("error: --json needs a file path, or - for stdout");
+  if (values.transcript !== undefined && (values.transcript === "" || hasControl(values.transcript))) return fail("error: --transcript needs a file path");
   if (values.url !== undefined) { const bad = checkWsUrl(values.url); if (bad) return fail(bad); }
   if (values.session !== undefined && !isValidSessionId(values.session)) return fail("error: --session must be 1 to 64 letters, digits, '_' or '-'");
 
@@ -107,7 +109,7 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
     opts: {
       fast: values.fast === true, speed, json: values.json, live: values.live === true, url: values.url,
       session: values.session, noColor: values["no-color"] === true, help: values.help === true,
-      showcase: values.showcase === true ? true : undefined, scenario: values.scenario, maxLines, maxFallbacks, watchdog,
+      showcase: values.showcase === true ? true : undefined, scenario: values.scenario, maxLines, maxFallbacks, watchdog, transcript: values.transcript,
     },
   };
 }
