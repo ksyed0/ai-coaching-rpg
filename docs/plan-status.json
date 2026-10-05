@@ -770,7 +770,7 @@
       "title": "As an evaluator, I want a longer demo scenario and a showcase mode, so that a live demo shows the AI characters and the Game Master doing substantial real work.",
       "priority": "High",
       "estimate": "L",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0006-US-0024-showcase-demo",
       "acs": [
         {
@@ -785,8 +785,8 @@
         },
         {
           "id": "AC-0078",
-          "text": "`pnpm demo --showcase --live` uses the configured provider for the AI characters and for the Game Master, scene exits are decided by the real Game Master, and the facilitator advance is only a recorded safety net (verified so far only against an in-process fake OpenAI-compatible server; to be ticked after a recorded real live run)",
-          "done": false
+          "text": "`pnpm demo --showcase --live` uses the configured provider for the AI characters and for the Game Master, scene exits are decided by the real Game Master, and the facilitator advance is only a recorded safety net (verified in a recorded real run on 2026-10-05 with OpenRouter nvidia/nemotron-3-ultra-550b-a55b:free: 4 real Game Master evaluations, 1 scene exited by the Game Master, 5 scenes ended by the recorded facilitator safety net, 12 of 20 AI replies generated and 8 canned fallbacks; the Game Master exit rate was low with this model, see US-0025)",
+          "done": true
         },
         {
           "id": "AC-0079",
@@ -806,6 +806,36 @@
       ],
       "dependencies": [
         "US-0021"
+      ]
+    },
+    {
+      "id": "US-0025",
+      "epicId": "EPIC-0006",
+      "title": "As a facilitator, I want the Game Master to give a usable verdict reliably with real models, so that scenes end on the Game Master's judgement instead of needing a facilitator advance.",
+      "priority": "High",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
+      "acs": [
+        {
+          "id": "AC-0082",
+          "text": "a Game Master reply that is not strict JSON (prose around the JSON, a code fence, a verdict only in the model's reasoning, an empty reply) is handled by a tolerant, tested parser or one bounded re-ask, so 'no usable verdict' becomes rare",
+          "done": false
+        },
+        {
+          "id": "AC-0083",
+          "text": "the Game Master prompt and exit conditions are tuned so that, in a recorded live showcase on a real model, the Game Master ends more than half of the scenes whose scripted lines satisfy their condition",
+          "done": false
+        },
+        {
+          "id": "AC-0084",
+          "text": "a Game Master call has its own configurable timeout and transient-error retry (shared with US-0022), and a failed evaluation is shown in the narration with its reason",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0008",
+        "US-0024"
       ]
     }
   ],
@@ -1049,6 +1079,16 @@
       "status": "Done",
       "branch": "feature/EPIC-0006-US-0024-showcase-demo",
       "notes": "Requested by the user (R40, R41) after a live demo showed only one real model line. Code in services/runtime/src/demo/ (showcase, showcase-script, showcase-report, provenance, transcript, transcript-md). Overlaps AC-0075 of US-0023, which asked for --max-fallbacks; US-0023 still owns the live fallback evidence for the 29-check run."
+    },
+    {
+      "id": "TASK-0025",
+      "storyId": "US-0025",
+      "title": "Make Game Master verdict parsing tolerant, tune the prompt and conditions, add a timeout and retry",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
+      "notes": "Found in the first real live showcase (OpenRouter free Nemotron): 4 Game Master evaluations, 3 verdicts false, 1 true, and several 'GM: no usable verdict' alerts; 5 of 6 scenes ended on the facilitator safety net."
     }
   ],
   "testCases": [],
@@ -1093,145 +1133,151 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 0.256962,
+      "costUsd": 0.246684,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0025": {
+      "projectedUsd": 800,
+      "costUsd": 0.246684,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -1440,6 +1486,13 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": true
+    },
+    "US-0025": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -1482,9 +1535,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-05T15:07:33.766Z",
-  "commitSha": "40d0533",
-  "buildNumber": "67",
+  "generatedAt": "2026-10-05T15:30:20.958Z",
+  "commitSha": "5a89d0a",
+  "buildNumber": "69",
   "branch": "feature/EPIC-0006-US-0024-showcase-demo",
   "sessionTimeline": [
     {
@@ -1583,13 +1636,13 @@
     }
   },
   "budget": {
-    "totalBudget": 16406.1671,
+    "totalBudget": 17206.1671,
     "totalSpent": 6.1671,
-    "totalProjected": 20000,
+    "totalProjected": 20800,
     "percentUsed": 0,
     "burnRate": 0.08294999999999986,
-    "daysRemaining": 197709,
-    "projectedExhaustion": 197709,
+    "daysRemaining": 207353,
+    "projectedExhaustion": 207353,
     "thresholds": [
       50,
       75,
@@ -1601,25 +1654,25 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10403.597468,
-        "spent": 3.5974680000000014,
+        "budget": 10403.453576,
+        "spent": 3.4535760000000004,
         "remaining": 10400,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.256962,
-        "spent": 0.256962,
+        "budget": 800.246684,
+        "spent": 0.246684,
         "remaining": 800,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 5202.312658,
-        "spent": 2.3126580000000008,
-        "remaining": 5200,
+        "budget": 6002.46684,
+        "spent": 2.46684,
+        "remaining": 6000,
         "percentUsed": 0
       },
       {
@@ -1658,9 +1711,11 @@
       "2026-10-03T00:39:42.837Z",
       "2026-10-03T16:49:27.780Z",
       "2026-10-05T14:07:31.101Z",
-      "2026-10-05T15:07:33.830Z"
+      "2026-10-05T15:07:33.830Z",
+      "2026-10-05T15:30:21.018Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -1676,7 +1731,8 @@
       15,
       21,
       23,
-      24
+      24,
+      25
     ],
     "aiCosts": [
       5.8353,
@@ -1685,9 +1741,11 @@
       6.1671,
       6.1671,
       6.1671,
+      6.1671,
       6.1671
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -1703,6 +1761,7 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "openBugs": [
@@ -1712,9 +1771,11 @@
       0,
       2,
       3,
+      3,
       3
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -1730,10 +1791,12 @@
       522440,
       522440,
       522440,
+      522440,
       522440
     ],
     "outputTokens": [
       64947,
+      69480,
       69480,
       69480,
       69480,
@@ -1748,7 +1811,8 @@
       1.0999999999999999,
       1.1285714285714288,
       1.139130434782609,
-      1.1500000000000001
+      1.1500000000000001,
+      1.1360000000000003
     ],
     "velocityByWeek": {
       "labels": [

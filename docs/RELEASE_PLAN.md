@@ -570,13 +570,13 @@ Notes: In three live runs 2 of 6 main-story replies were canned fallback lines, 
 US-0024 (EPIC-0006): As an evaluator, I want a longer demo scenario and a showcase mode, so that a live demo shows the AI characters and the Game Master doing substantial real work.
 Priority: High
 Estimate: L
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0006-US-0024-showcase-demo
 Dependencies: US-0021
 Acceptance Criteria:
   - [x] AC-0076: `scenarios/friday-escalation-extended` (6 scenes, 3 players, 2 AI characters including a new CFO, time boxes, gm_detects exit conditions, timed and private injects) loads and validates with zero errors and zero warnings, and a validated `showcase.yaml` script drives the bot players
   - [x] AC-0077: `pnpm demo --showcase --fast` runs offline in mock mode and passes its own checks (S-01 to S-12), and CI runs it as a step of the Demo Run job
-  - [ ] AC-0078: `pnpm demo --showcase --live` uses the configured provider for the AI characters and for the Game Master, scene exits are decided by the real Game Master, and the facilitator advance is only a recorded safety net (verified so far only against an in-process fake OpenAI-compatible server; to be ticked after a recorded real live run)
+  - [x] AC-0078: `pnpm demo --showcase --live` uses the configured provider for the AI characters and for the Game Master, scene exits are decided by the real Game Master, and the facilitator advance is only a recorded safety net (verified in a recorded real run on 2026-10-05 with OpenRouter nvidia/nemotron-3-ultra-550b-a55b:free: 4 real Game Master evaluations, 1 scene exited by the Game Master, 5 scenes ended by the recorded facilitator safety net, 12 of 20 AI replies generated and 8 canned fallbacks; the Game Master exit rate was low with this model, see US-0025)
   - [x] AC-0079: the run ends with an AI contribution report (replies per character split into real model output and canned fallback lines, latency, Game Master evaluations and exits, advances, alerts, wall time), also in the JSON report, with `--max-fallbacks` and `--watchdog` limits
   - [x] AC-0080: the flags, the run-time guidance, the privacy and cost notice and a real output excerpt are documented in the README and CHANGELOG
   - [x] AC-0081: `--transcript <path.md>` writes a Markdown transcript in every demo mode with bold dialogue lines tagged [SCRIPTED], [GENERATED] or [FALLBACK], plain [SYSTEM] logging, and Markdown-safe escaping that lets no model or server text forge a tag, heading, table or link
@@ -589,4 +589,26 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0006-US-0024-showcase-demo
 Notes: Requested by the user (R40, R41) after a live demo showed only one real model line. Code in services/runtime/src/demo/ (showcase, showcase-script, showcase-report, provenance, transcript, transcript-md). Overlaps AC-0075 of US-0023, which asked for --max-fallbacks; US-0023 still owns the live fallback evidence for the 29-check run.
+```
+
+```
+US-0025 (EPIC-0006): As a facilitator, I want the Game Master to give a usable verdict reliably with real models, so that scenes end on the Game Master's judgement instead of needing a facilitator advance.
+Priority: High
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0006-US-0025-game-master-reliability
+Dependencies: US-0008, US-0024
+Acceptance Criteria:
+  - [ ] AC-0082: a Game Master reply that is not strict JSON (prose around the JSON, a code fence, a verdict only in the model's reasoning, an empty reply) is handled by a tolerant, tested parser or one bounded re-ask, so 'no usable verdict' becomes rare
+  - [ ] AC-0083: the Game Master prompt and exit conditions are tuned so that, in a recorded live showcase on a real model, the Game Master ends more than half of the scenes whose scripted lines satisfy their condition
+  - [ ] AC-0084: a Game Master call has its own configurable timeout and transient-error retry (shared with US-0022), and a failed evaluation is shown in the narration with its reason
+```
+
+```
+TASK-0025 (US-0025): Make Game Master verdict parsing tolerant, tune the prompt and conditions, add a timeout and retry
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0025-game-master-reliability
+Notes: Found in the first real live showcase (OpenRouter free Nemotron): 4 Game Master evaluations, 3 verdicts false, 1 true, and several 'GM: no usable verdict' alerts; 5 of 6 scenes ended on the facilitator safety net.
 ```
