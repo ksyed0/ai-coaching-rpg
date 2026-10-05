@@ -4,7 +4,8 @@ import type { AddressInfo } from "node:net";
 export type Mode =
   | { kind: "stream" } // OpenAI-style SSE; long reply (500 numbers, slow) when max_tokens >= 1000, else "OK"
   | { kind: "json"; content: string; contentType?: string }
-  | { kind: "error"; status: number; body: string; contentType?: string }
+  | { kind: "error"; status: number; body: string; contentType?: string; headers?: Record<string, string> }
+  | { kind: "reset" } // destroy the socket without answering (connection reset)
   | { kind: "raw"; chunks: (string | Buffer)[]; contentType?: string; delayMs?: number; end?: boolean } // exact bytes, fragment by fragment
   | { kind: "redirect"; location: string }
   | { kind: "hang" }; // headers + one chunk, then silence until the client leaves
@@ -18,6 +19,8 @@ export type FakeServer = {
   host: string; // 127.0.0.1:<port>
   requests: Seen[];
   mode: Mode;
+  /** Modes consumed first, one per request (then `mode` applies): script "fail twice, then succeed". */
+  queue: Mode[];
   closedConnections(): number;
   waitForClose(timeoutMs?: number): Promise<void>;
   close(): Promise<void>;
@@ -30,7 +33,7 @@ export async function startFakeServer(initial: Mode = { kind: "stream" }): Promi
   let closed = 0;
   const waiters: (() => void)[] = [];
   const srv: FakeServer = {
-    url: "", host: "", requests, mode: initial,
+    url: "", host: "", requests, mode: initial, queue: [],
     closedConnections: () => closed,
     waitForClose: (timeoutMs = 2_000) => new Promise((resolve, reject) => {
       if (closed > 0) return resolve();
@@ -47,11 +50,13 @@ export async function startFakeServer(initial: Mode = { kind: "stream" }): Promi
     res.on("close", () => { if (!res.writableFinished) { closed++; for (const w of waiters.splice(0)) w(); } });
     async function respond(body: string): Promise<void> {
       requests.push({ method: req.method ?? "", url: req.url ?? "", headers: req.headers, body });
-      const m = srv.mode;
+      const m = srv.queue.shift() ?? srv.mode;
       const alive = () => !res.destroyed && !res.writableEnded;
       switch (m.kind) {
         case "error":
-          res.writeHead(m.status, { "Content-Type": m.contentType ?? "application/json" }); res.end(m.body); return;
+          res.writeHead(m.status, { "Content-Type": m.contentType ?? "application/json", ...m.headers }); res.end(m.body); return;
+        case "reset":
+          req.socket.destroy(); return;
         case "json":
           res.writeHead(200, { "Content-Type": m.contentType ?? "application/json" }); res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: m.content } }] })); return;
         case "redirect":

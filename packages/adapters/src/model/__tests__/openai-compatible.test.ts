@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAICompatibleModelProvider, sanitizeSnippet } from "../openai-compatible.js";
+import { ModelProviderError } from "../errors.js";
 import { modelProviderContract } from "../contract.js";
 import type { ChatRequest } from "../types.js";
 import { delta, startFakeServer, type FakeServer } from "./fake-openai-server.js";
@@ -9,7 +10,7 @@ const REQ: ChatRequest = { system: "sys", messages: [{ role: "user", content: "h
 // Top-level await: the contract suite below builds its provider while tests are collected.
 const srv: FakeServer = await startFakeServer();
 afterAll(async () => { await srv.close(); });
-afterEach(() => { srv.mode = { kind: "stream" }; srv.requests.length = 0; });
+afterEach(() => { srv.mode = { kind: "stream" }; srv.queue.length = 0; srv.requests.length = 0; });
 
 const make = (over: Partial<ConstructorParameters<typeof OpenAICompatibleModelProvider>[0]> = {}) =>
   new OpenAICompatibleModelProvider({ name: "local", baseUrl: srv.url, model: "m1", ...over });
@@ -18,8 +19,8 @@ async function collect(p: OpenAICompatibleModelProvider, req = REQ, signal?: Abo
   for await (const c of p.stream(req, signal)) out.push(c);
   return out;
 }
-async function failure(p: OpenAICompatibleModelProvider): Promise<Error> {
-  try { await collect(p); } catch (e) { return e as Error; }
+async function failure(p: OpenAICompatibleModelProvider, req = REQ, signal?: AbortSignal): Promise<Error> {
+  try { await collect(p, req, signal); } catch (e) { return e as Error; }
   throw new Error("expected the stream to fail");
 }
 
@@ -258,5 +259,136 @@ describe("sanitizeSnippet", () => {
   it("strips control characters, collapses whitespace and truncates", () => {
     expect(sanitizeSnippet("a\u0000b\n\n c\u2028d")).toBe("a b c d");
     expect(sanitizeSnippet("x".repeat(500))).toHaveLength(303);
+  });
+});
+
+describe("error classification", () => {
+  const raw = (chunks: (string | Buffer)[]) => { srv.mode = { kind: "raw", chunks }; };
+  const typed = async (p = make({ apiKey: KEY })): Promise<ModelProviderError> => {
+    const e = await failure(p);
+    expect(e).toBeInstanceOf(ModelProviderError);
+    return e as ModelProviderError;
+  };
+  const err = (status: number, extra: { headers?: Record<string, string>; body?: string } = {}) => {
+    srv.mode = { kind: "error", status, body: extra.body ?? "", headers: extra.headers };
+  };
+  const expectClean = (e: Error) => {
+    expect(e.message).not.toContain(KEY);
+    expect(e.message).not.toMatch(/https?:\/\/|127\.0\.0\.1|\?|Bearer/);
+    // eslint-disable-next-line no-control-regex
+    expect(e.message).not.toMatch(/[\u0000-\u001f\u007f]/);
+  };
+
+  it.each([
+    [429, "rate_limited", true], [503, "overloaded", true], [529, "overloaded", true], [500, "server_error", true], [502, "server_error", true],
+    [504, "server_error", true], [408, "timeout", true], [401, "auth", false], [403, "auth", false], [404, "not_found", false],
+    [400, "bad_request", false], [422, "bad_request", false], [418, "unknown", false],
+  ] as const)("HTTP %i -> %s (transient %s) with the existing message text", async (status, kind, transient) => {
+    err(status, { body: `nope ${KEY}` });
+    const e = await typed();
+    expect(e).toMatchObject({ kind, transient, status });
+    expect(e.retryAfterMs).toBeUndefined();
+    expect(e.message).toMatch(new RegExp(`^local request failed with HTTP ${status}: nope \\[redacted\\]$`));
+    expectClean(e);
+  });
+  it("429 with Retry-After seconds", async () => {
+    err(429, { headers: { "Retry-After": "2" }, body: "slow down" });
+    expect(await typed()).toMatchObject({ kind: "rate_limited", transient: true, status: 429, retryAfterMs: 2000 });
+  });
+  it("503 with Retry-After as an HTTP date (relative to the clock)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.parse("2026-10-01T12:00:00Z") });
+    try {
+      err(503, { headers: { "Retry-After": "Thu, 01 Oct 2026 12:00:07 GMT" } });
+      expect(await typed()).toMatchObject({ kind: "overloaded", transient: true, retryAfterMs: 7000 });
+    } finally { vi.useRealTimers(); }
+  });
+  it("caps an absurd Retry-After and ignores a garbage one", async () => {
+    err(429, { headers: { "Retry-After": "86400" } });
+    expect((await typed()).retryAfterMs).toBe(10_000);
+    err(429, { headers: { "Retry-After": "later" } });
+    expect((await typed()).retryAfterMs).toBeUndefined();
+  });
+  it("does not retry-hint a permanent error", async () => {
+    err(401, { headers: { "Retry-After": "5" } });
+    expect(await typed()).toMatchObject({ kind: "auth", transient: false });
+  });
+
+  it("in-band error event with a 429 or 503 code is transient", async () => {
+    for (const [code, kind] of [[429, "rate_limited"], [503, "overloaded"]] as const) {
+      raw([`data: ${JSON.stringify({ error: { code, message: `try later ${KEY}` } })}\n\n`]);
+      const e = await typed();
+      expect(e).toMatchObject({ kind, transient: true, status: code });
+      expect(e.message).toMatch(/^local reported an error: try later \[redacted\]$/);
+    }
+  });
+  it("in-band text-only overloaded error (no code) is transient, also in the JSON fallback body", async () => {
+    raw([`data: ${JSON.stringify({ error: { message: "Upstream error from Nvidia: Service temporarily overloaded" } })}\n\n`]);
+    expect(await typed()).toMatchObject({ kind: "overloaded", transient: true });
+    srv.mode = { kind: "error", status: 200, body: JSON.stringify({ error: "rate limit exceeded" }) };
+    expect(await typed()).toMatchObject({ kind: "rate_limited", transient: true });
+  });
+  it("other in-band errors are permanent 'unknown' (or by their code)", async () => {
+    srv.mode = { kind: "error", status: 200, body: JSON.stringify({ error: { message: "model not loaded" } }) };
+    expect(await typed()).toMatchObject({ kind: "unknown", transient: false });
+    raw([`data: ${JSON.stringify({ error: { code: 400, message: "bad" } })}\n\n`]);
+    expect(await typed()).toMatchObject({ kind: "bad_request", transient: false, status: 400 });
+  });
+  it("an in-band error after content was streamed is still classified (the wrapper decides about retrying)", async () => {
+    raw([delta("a"), `data: ${JSON.stringify({ error: { code: 503, message: "x" } })}\n\n`]);
+    const seen: string[] = [];
+    let thrown: unknown;
+    try { for await (const c of make().stream(REQ)) seen.push(c); } catch (e) { thrown = e; }
+    expect(seen).toEqual(["a"]);
+    expect(thrown).toMatchObject({ kind: "overloaded", transient: true });
+  });
+
+  it("a connection reset is a transient network error without URL or key", async () => {
+    srv.mode = { kind: "reset" };
+    const e = await typed();
+    expect(e).toMatchObject({ kind: "network", transient: true });
+    expect(e.message).toMatch(/^local request failed: /);
+    expectClean(e);
+  });
+  it("a refused connection is a transient network error", async () => {
+    const dead = await startFakeServer();
+    const url = dead.url;
+    await dead.close();
+    expect(await typed(make({ baseUrl: url, apiKey: KEY }))).toMatchObject({ kind: "network", transient: true });
+  });
+  it("a refused redirect is a permanent network error", async () => {
+    srv.mode = { kind: "redirect", location: "http://127.0.0.1:1/x" };
+    expect(await typed()).toMatchObject({ kind: "network", transient: false });
+  });
+  it("a stream cut mid-body (socket reset after the first chunk) is a transient network error", async () => {
+    vi.stubGlobal("fetch", async () => new Response(new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(new TextEncoder().encode(delta("a"))); },
+      pull() { throw Object.assign(new TypeError("terminated"), { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) }); },
+    }), { status: 200, headers: { "content-type": "text/event-stream" } }));
+    try {
+      const seen: string[] = [];
+      let thrown: unknown;
+      try { for await (const c of make().stream(REQ)) seen.push(c); } catch (e) { thrown = e; }
+      expect(seen).toEqual(["a"]);
+      expect(thrown).toMatchObject({ name: "ModelProviderError", kind: "network", transient: true });
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it("an aborted request is NOT classified: the abort error passes through untouched", async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const e = await failure(make(), REQ, ac.signal).catch((x) => x);
+    expect(e).not.toBeInstanceOf(ModelProviderError);
+    srv.mode = { kind: "hang" };
+    const ac2 = new AbortController();
+    const it = make().stream(REQ, ac2.signal)[Symbol.asyncIterator]();
+    await it.next();
+    const pending = it.next();
+    ac2.abort();
+    await expect(pending).rejects.not.toBeInstanceOf(ModelProviderError);
+    await srv.waitForClose();
+  });
+  it("a server that answers the second request normally proves each call is independent", async () => {
+    srv.queue = [{ kind: "error", status: 503, body: "busy" }];
+    await typed();
+    expect((await collect(make())).join("")).toBe("OK");
   });
 });
