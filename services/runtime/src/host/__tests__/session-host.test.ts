@@ -297,3 +297,14 @@ describe("SessionHost NPC timeouts", () => {
     for (const a of npcAgents(h)) expect(a.timeouts).toEqual({ firstTokenMs: 1234, replyMs: 5678 });
   });
 });
+
+describe("the utterance fallback marker (R44)", () => {
+  it("reaches players unchanged and carries nothing else (a boolean flag, no reason, no prompt)", async () => {
+    host.join("host", "p1");
+    await host.start();
+    const ev = await engine.say("guest", "canned line", "text", { fallback: true });
+    const seen = host.viewFor("host", ev) as Extract<SessionEvent, { type: "utterance" }>;
+    expect(seen).toEqual({ type: "utterance", seq: ev.seq, ts: ev.ts, sessionId: ev.sessionId, roleId: "guest", text: "canned line", channel: "text", fallback: true });
+    expect(host.snapshotFor("host").transcript.at(-1)).toEqual(expect.not.objectContaining({ fallback: true }));
+  });
+});

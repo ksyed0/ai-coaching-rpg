@@ -76,7 +76,7 @@ export class NpcAgent {
     try {
       if (failure) {
         await this.engine.alert(`NPC ${this.role.id}: ${failure}; used fallback line`, "warning", { expectSceneId });
-        return await this.engine.say(this.role.id, this.role.fallback_line, "text", { expectSceneId });
+        return await this.engine.say(this.role.id, this.role.fallback_line, "text", { expectSceneId, fallback: true });
       }
       return await this.engine.say(this.role.id, text.trim(), "text", { expectSceneId });
     } catch (err) {

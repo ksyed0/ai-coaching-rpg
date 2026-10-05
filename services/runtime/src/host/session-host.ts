@@ -79,9 +79,9 @@ export class SessionHost {
    * Records the line and returns. The NPC round and GM tick are scheduled in the background (one NPC turn at
    * a time via the queue), so a caller, and its connection's next message, never waits behind a model call.
    */
-  async onPlayerUtterance(roleId: string, text: string): Promise<void> {
+  async onPlayerUtterance(roleId: string, text: string, opts: { expectSceneId?: string } = {}): Promise<void> {
     if (!this.started) throw new HostError("not_started");
-    await this.engine.say(roleId, text); // throws EngineError (paused, ended, ...) before any NPC turn can start
+    await this.engine.say(roleId, text, "text", opts); // throws EngineError (paused, ended, ...) before any NPC turn can start
     // R25: at most one round waits behind the running one; it reads the then-current transcript anyway.
     if (this.roundQueued) return;
     this.roundQueued = true;
@@ -98,9 +98,18 @@ export class SessionHost {
     });
   }
 
-  async command(cmd: Parameters<SessionEngine["command"]>[0]): Promise<void> {
-    await this.engine.command(cmd);
+  async command(cmd: Parameters<SessionEngine["command"]>[0], opts: { expectSceneId?: string } = {}): Promise<void> {
+    await this.engine.command(cmd, opts);
     this.schedule("gm tick", () => this.gm.tick());
+  }
+
+  /**
+   * Waits for one final Game Master evaluation of the current scene (see GameMaster.finalEvaluation), serialised with the
+   * NPC rounds. A live run's 1 s ticker can judge while a player's line is being recorded, before the characters' replies.
+   */
+  evaluateFinal(): Promise<boolean> {
+    let ran = false;
+    return this.enqueue(async () => { ran = await this.gm.finalEvaluation(); }).then(() => ran);
   }
 
   startTicker(ms: number): void {

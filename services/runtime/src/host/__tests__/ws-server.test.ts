@@ -381,3 +381,36 @@ describe("ws-server", () => {
     });
   });
 });
+
+describe("ws-server: expectSceneId (R43)", () => {
+  it("accepts an optional expectSceneId on say and command, refuses a stale one with stale_scene and appends nothing, and keeps working without it", async () => {
+    const { port, engine } = await setup();
+    const fac = await joinFac(port);
+    const { p } = await joinPlayer(port);
+    fac.send({ type: "start" });
+    await p.next((m) => m.type === "event" && m.event.type === "scene.entered");
+    p.send({ type: "say", text: "in scene one", expectSceneId: "s1_open" });
+    await p.next((m) => m.type === "event" && m.event.type === "utterance" && m.event.text === "in scene one");
+    fac.send({ type: "command", command: { command: "advance" }, expectSceneId: "s1_open" });
+    await fac.next((m) => m.type === "event" && m.event.type === "scene.entered" && m.event.sceneId === "s2_close");
+    const before = engine.state.lastSeq;
+    p.send({ type: "say", text: "too late", expectSceneId: "s1_open" });
+    expect((await p.next((m) => m.type === "error")).code).toBe("stale_scene");
+    fac.send({ type: "command", command: { command: "advance" }, expectSceneId: "s1_open" });
+    expect((await fac.next((m) => m.type === "error")).code).toBe("stale_scene");
+    expect(engine.state.lastSeq).toBe(before);
+    expect(engine.state.currentScene?.id).toBe("s2_close");
+    // old clients (no field) behave as before
+    p.send({ type: "say", text: "no field" });
+    await p.next((m) => m.type === "event" && m.event.type === "utterance" && m.event.text === "no field");
+  });
+  it("rejects a malformed expectSceneId as bad_message", async () => {
+    const { port } = await setup();
+    const fac = await joinFac(port);
+    const { p } = await joinPlayer(port);
+    fac.send({ type: "start" });
+    await p.next((m) => m.type === "event" && m.event.type === "scene.entered");
+    p.send({ type: "say", text: "x", expectSceneId: 5 });
+    expect((await p.next((m) => m.type === "error")).code).toBe("bad_message");
+  });
+});

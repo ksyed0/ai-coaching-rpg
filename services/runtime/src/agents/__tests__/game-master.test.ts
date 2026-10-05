@@ -341,3 +341,34 @@ describe("GameMaster recovery and error surfacing", () => {
     spy.mockRestore();
   });
 });
+
+describe("GameMaster.finalEvaluation (the tick can judge before the last reply)", () => {
+  const COND = "both parties have said hello";
+  const verdict = (v: boolean) => `{"verdict": ${v}, "reasoning": "r"}`;
+  it("does nothing before any evaluation of the scene (a scene with too few lines gets none)", async () => {
+    const p = new MockModelProvider([verdict(true)]);
+    const gm = new GameMaster({ engine, provider: p });
+    await engine.say("host", "a"); await engine.say("guest", "b");
+    expect(await gm.finalEvaluation()).toBe(false);
+    expect(p.calls).toHaveLength(0);
+  });
+  it("evaluates once more after an evaluation that missed later utterances, and not when nothing is new", async () => {
+    const p = new MockModelProvider([verdict(false), verdict(true)]);
+    const gm = new GameMaster({ engine, provider: p });
+    await engine.say("host", "a"); await engine.say("guest", "b"); await engine.say("host", "c");
+    await gm.tick(); // evaluates at 3 utterances
+    expect(p.calls).toHaveLength(1);
+    expect(await gm.finalEvaluation()).toBe(false); // nothing new
+    await engine.say("guest", "the last reply"); // 4 < 3 + 3: a normal tick would not look again
+    await gm.tick();
+    expect(p.calls).toHaveLength(1);
+    expect(await gm.finalEvaluation()).toBe(true);
+    expect(p.calls).toHaveLength(2);
+    expect(p.calls[1]!.messages[0]!.content).toContain("the last reply");
+    expect(engine.state.currentScene?.id).toBe("s2_close"); // the true verdict ended the scene
+  });
+  it("exports the default evaluation interval from one place", async () => {
+    const { GM_EVERY_N_UTTERANCES } = await import("../game-master.js");
+    expect(GM_EVERY_N_UTTERANCES).toBe(3);
+  });
+});
