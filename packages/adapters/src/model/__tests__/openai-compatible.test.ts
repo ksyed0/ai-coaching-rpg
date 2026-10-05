@@ -310,6 +310,18 @@ describe("error classification", () => {
     err(429, { headers: { "Retry-After": "later" } });
     expect((await typed()).retryAfterMs).toBeUndefined();
   });
+  it("HTTP 429 for an exhausted quota or billing limit is permanent (retrying cannot help)", async () => {
+    for (const body of [JSON.stringify({ error: { message: "You exceeded your current quota", type: "insufficient_quota", code: "insufficient_quota" } }), "billing_hard_limit_reached"]) {
+      err(429, { headers: { "Retry-After": "2" }, body });
+      const e = await typed();
+      expect(e).toMatchObject({ kind: "rate_limited", transient: false, status: 429 });
+      expect(e.retryAfterMs).toBeUndefined();
+    }
+  });
+  it("an in-band insufficient_quota error is permanent", async () => {
+    raw([`data: ${JSON.stringify({ error: { code: 429, type: "insufficient_quota", message: "Rate limit" } })}\n\n`]);
+    expect(await typed()).toMatchObject({ kind: "rate_limited", transient: false });
+  });
   it("does not retry-hint a permanent error", async () => {
     err(401, { headers: { "Retry-After": "5" } });
     expect(await typed()).toMatchObject({ kind: "auth", transient: false });

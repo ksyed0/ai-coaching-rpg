@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { MockModelProvider } from "../mock.js";
 import { ModelProviderError } from "../errors.js";
-import { DEFAULT_MODEL_MAX_RETRIES, DEFAULT_MODEL_RETRY_BASE_MS, DEFAULT_MODEL_RETRY_CAP_MS, RetryingModelProvider, withRetry } from "../retry.js";
+import { getRetryProgress, DEFAULT_MODEL_MAX_RETRIES, DEFAULT_MODEL_RETRY_BASE_MS, DEFAULT_MODEL_RETRY_CAP_MS, RetryingModelProvider, withRetry } from "../retry.js";
 import type { ChatRequest, ModelProvider } from "../types.js";
 import { modelProviderContract } from "../contract.js";
 
@@ -212,6 +212,25 @@ describe("RetryingModelProvider", () => {
       const err = transient();
       const inner: ModelProvider = { name: "x", async *stream() { ac.abort(); throw err; } };
       expect(await failure(new RetryingModelProvider(inner, { sleep: async () => {} }), ac.signal)).toBe(err);
+    });
+  });
+
+  describe("getRetryProgress (what the caller can report when its own deadline cuts a retry short)", () => {
+    it("is undefined for a signal that never saw a retry, and when no signal is passed", async () => {
+      expect(getRetryProgress(new AbortController().signal)).toBeUndefined();
+      expect(getRetryProgress(undefined)).toBeUndefined();
+      const ac = new AbortController();
+      await collect(new RetryingModelProvider(new MockModelProvider(["ok"]), { sleep: async () => {} }), ac.signal);
+      expect(getRetryProgress(ac.signal)).toEqual({ attempts: 1 });
+    });
+    it("records the attempts made and the last transient error when the abort lands during the backoff", async () => {
+      const ac = new AbortController();
+      const w = new RetryingModelProvider(new MockModelProvider([transient(), transient({ kind: "rate_limited", status: 429 }), "never"]), { sleep: (ms) => (ms < 800 ? Promise.resolve() : new Promise(() => {})), random: midpoint });
+      const pending = failure(w, ac.signal);
+      await vi.waitFor(() => expect(getRetryProgress(ac.signal)).toEqual({ attempts: 2, lastError: { kind: "rate_limited", status: 429 } }));
+      ac.abort();
+      expect(await pending).toBe(ac.signal.reason);
+      expect(getRetryProgress(ac.signal)).toEqual({ attempts: 2, lastError: { kind: "rate_limited", status: 429 } });
     });
   });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_RETRY_AFTER_MS, ModelProviderError, classifyHttpStatus, classifyInBandError, classifyNetworkError, isTransientModelError, parseRetryAfter,
+  MAX_RETRY_AFTER_MS, isPermanentQuotaText, ModelProviderError, classifyHttpStatus, classifyInBandError, classifyNetworkError, isTransientModelError, parseRetryAfter,
 } from "../errors.js";
 
 describe("ModelProviderError", () => {
@@ -45,6 +45,9 @@ describe("classifyInBandError", () => {
     [{ code: 400, message: "bad input" }, "bad_request", false],
     [{ code: 401, message: "no" }, "auth", false],
     [{}, "unknown", false],
+    [{ code: 429, message: "You exceeded your current quota, please check your plan and billing details" }, "rate_limited", false],
+    [{ code: "insufficient_quota", type: "insufficient_quota", message: "x" }, "rate_limited", false],
+    [{ code: 429, type: "insufficient_quota", message: "Rate limit" }, "rate_limited", false],
   ] as const)("%j -> %s (transient %s)", (err, kind, transient) => {
     expect(classifyInBandError(err)).toMatchObject({ kind, transient });
   });
@@ -53,6 +56,11 @@ describe("classifyInBandError", () => {
     expect(classifyInBandError({ code: 503, message: "x" }).status).toBe(503);
     expect(classifyInBandError({ message: "overloaded" }).status).toBeUndefined();
   });
+});
+
+describe("isPermanentQuotaText", () => {
+  it.each(["insufficient_quota", "You exceeded your current quota", "billing_hard_limit_reached", "Insufficient credits", "quota_exceeded", "payment required"])("%s", (t) => expect(isPermanentQuotaText(t)).toBe(true));
+  it.each(["Rate limit exceeded, retry later", "overloaded", ""])("%j is not a quota problem", (t) => expect(isPermanentQuotaText(t)).toBe(false));
 });
 
 describe("classifyNetworkError", () => {

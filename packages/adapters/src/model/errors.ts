@@ -53,6 +53,11 @@ export function classifyHttpStatus(status: number): { kind: ModelErrorKind; tran
   return { kind: "unknown", transient: false };
 }
 
+const QUOTA_TEXT = /insufficient_quota|exceeded your current quota|billing|insufficient.credits|quota.exceeded|payment.required/i;
+
+/** An exhausted quota, credit balance or billing limit: a 429 that waiting cannot fix, so it is permanent. */
+export function isPermanentQuotaText(text: string): boolean { return QUOTA_TEXT.test(text); }
+
 const TRANSIENT_TEXT = /overload|rate.?limit|capacity|temporar|try again|unavailable/i;
 
 /**
@@ -60,13 +65,14 @@ const TRANSIENT_TEXT = /overload|rate.?limit|capacity|temporar|try again|unavail
  * Transient when its numeric code is 429 or 5xx or its text suggests a capacity blip; otherwise permanent.
  */
 export function classifyInBandError(err: unknown): Classification {
-  const obj = (typeof err === "object" && err !== null ? err : {}) as { code?: unknown; message?: unknown };
+  const obj = (typeof err === "object" && err !== null ? err : {}) as { code?: unknown; message?: unknown; type?: unknown };
   const message = typeof err === "string" ? err : typeof obj.message === "string" ? obj.message : "";
   const rawCode = obj.code;
   const status = typeof rawCode === "number" && Number.isInteger(rawCode) ? rawCode
     : typeof rawCode === "string" && /^\d{3}$/.test(rawCode.trim()) ? Number(rawCode.trim()) : undefined;
-  const text = `${message} ${typeof rawCode === "string" ? rawCode : ""}`;
+  const text = `${message} ${typeof rawCode === "string" ? rawCode : ""} ${typeof obj.type === "string" ? obj.type : ""}`;
   const withStatus = (c: { kind: ModelErrorKind; transient: boolean }): Classification => (status === undefined ? c : { ...c, status });
+  if (isPermanentQuotaText(text)) return withStatus({ kind: "rate_limited", transient: false });
   if (status !== undefined) {
     const byStatus = classifyHttpStatus(status);
     if (byStatus.transient) return withStatus(byStatus);

@@ -26,6 +26,18 @@ export type RetryOptions = {
   onRetry?: (info: RetryInfo) => void;
 };
 
+export type RetryProgress = { attempts: number; lastError?: { kind: ModelErrorKind; status?: number } };
+const progressBySignal = new WeakMap<AbortSignal, RetryProgress>();
+
+/**
+ * What the wrapper has done for the call that uses `signal`: attempts started so far and the last transient error it
+ * retried after. Lets a caller whose own deadline aborted the signal during a backoff say how many attempts were made and
+ * why they failed (the abort error itself carries none of that). Per signal: do not share one signal between calls.
+ */
+export function getRetryProgress(signal: AbortSignal | undefined): RetryProgress | undefined {
+  return signal ? progressBySignal.get(signal) : undefined;
+}
+
 function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(signal.reason);
@@ -103,6 +115,11 @@ export class RetryingModelProvider implements ModelProvider {
     const started = this.now();
     for (let attempt = 1; ; attempt++) {
       signal?.throwIfAborted();
+      let progress: RetryProgress | undefined;
+      if (signal) {
+        progress = { attempts: attempt, ...(progressBySignal.get(signal)?.lastError ? { lastError: progressBySignal.get(signal)!.lastError } : {}) };
+        progressBySignal.set(signal, progress);
+      }
       let yielded = false;
       try {
         for await (const chunk of this.inner.stream(req, signal)) { yielded = true; yield chunk; }
@@ -115,6 +132,7 @@ export class RetryingModelProvider implements ModelProvider {
             kind: err.kind, transient: err.transient, status: err.status, retryAfterMs: err.retryAfterMs, attempts: attempt, elapsedMs: this.now() - started,
           });
         }
+        if (progress) progress.lastError = { kind: err.kind, ...(err.status !== undefined ? { status: err.status } : {}) };
         const delayMs = this.delayFor(attempt, err);
         if (attempt === 1) {
           try { this.onRetry?.({ attempt, kind: err.kind, ...(err.status !== undefined ? { status: err.status } : {}), delayMs }); } catch { /* logging must never break a call */ }

@@ -1,5 +1,5 @@
 import { parseBaseUrl, type EndpointPolicy } from "./endpoint.js";
-import { ModelProviderError, classifyHttpStatus, classifyInBandError, classifyNetworkError, parseRetryAfter } from "./errors.js";
+import { ModelProviderError, classifyHttpStatus, isPermanentQuotaText, classifyInBandError, classifyNetworkError, parseRetryAfter } from "./errors.js";
 import type { ChatRequest, ModelProvider } from "./types.js";
 
 /** Any OpenAI-style `POST {base}/chat/completions` server: OpenRouter, Ollama, LM Studio, vLLM, llama.cpp. */
@@ -74,7 +74,8 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
 
     if (!res.ok) {
       const text = await this.readCapped(res, MAX_ERROR_BODY_BYTES, false).catch(() => "");
-      const c = classifyHttpStatus(res.status);
+      // A 429 that says the quota or billing limit is used up is permanent: waiting cannot fix it.
+      const c = res.status === 429 && isPermanentQuotaText(text) ? { kind: "rate_limited" as const, transient: false } : classifyHttpStatus(res.status);
       throw new ModelProviderError(`${this.name} request failed with HTTP ${res.status}${text ? `: ${this.snippet(text)}` : ""}`, {
         ...c, status: res.status, retryAfterMs: c.transient ? parseRetryAfter(res.headers.get("retry-after")) : undefined,
       });
