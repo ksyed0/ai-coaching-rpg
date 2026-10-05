@@ -25,7 +25,9 @@ async function failure(p: OpenAICompatibleModelProvider, req = REQ, signal?: Abo
 }
 
 // The shared contract, including the abort contract, against the in-process server.
-modelProviderContract(() => make());
+modelProviderContract(() => make(), {
+  make: () => { srv.queue = [{ kind: "error", status: 503, body: "busy\u0007" }]; return make(); }, kind: "overloaded", transient: true,
+});
 
 describe("request shape", () => {
   it("POSTs {base}/chat/completions with the documented headers and body", async () => {

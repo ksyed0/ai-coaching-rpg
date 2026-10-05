@@ -4,7 +4,9 @@ import { modelProviderContract } from "../contract.js";
 import { ModelProviderError } from "../errors.js";
 
 const LONG = Array.from({ length: 500 }, (_, i) => String(i + 1)).join(" ");
-modelProviderContract(() => new MockModelProvider([(req) => (req.maxTokens >= 1000 ? LONG : "OK")]));
+modelProviderContract(() => new MockModelProvider([(req) => (req.maxTokens >= 1000 ? LONG : "OK")]), {
+  make: () => new MockModelProvider([new ModelProviderError("mock overloaded", { kind: "overloaded", transient: true, status: 503 })]), kind: "overloaded", transient: true,
+});
 
 describe("MockModelProvider", () => {
   it("replays scripted replies in order, then the default", async () => {
