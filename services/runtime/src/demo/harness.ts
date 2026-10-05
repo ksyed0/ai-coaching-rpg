@@ -8,6 +8,7 @@ import { JsonlEventLog, MemoryEventLog, type EventLog } from "../engine/event-lo
 import { SessionEngine } from "../engine/session-engine.js";
 import { SessionHost } from "../host/session-host.js";
 import { startServer } from "../host/ws-server.js";
+import { npcIntro } from "../agents/npc-prompt.js";
 import { parseNpcTimeouts } from "../agents/timeouts.js";
 
 /** A distinctive fake key set in the runner's own env object. It is never used to call anything; the audit proves it never leaks. */
@@ -27,7 +28,7 @@ export async function makeTempRoot(repoRoot: string): Promise<TempRoot> {
 }
 
 /** A model provider that keeps every request it received (the mock providers do), for the prompt audit. */
-export type RecordingProvider = ModelProvider & { readonly calls: ChatRequest[] };
+export type RecordingProvider = ModelProvider & { readonly calls: ChatRequest[]; /** Scripted queues that ran dry (`<scene>|<role>`), for the scripted providers. */ readonly exhausted?: string[] };
 
 export type System = {
   port: number; host: SessionHost; engine: SessionEngine; clock: Clock; fakeClock?: FakeClock;
@@ -63,8 +64,8 @@ export async function startMockSystem(o: { scenario: Scenario; sessionId: string
 }
 
 /** A private temp dir for a run's data (the session log). Removed by cleanup(). */
-export async function makeTempDataDir(): Promise<{ root: string; dataDir: string; cleanup(): Promise<void> }> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "acr-showcase-run-"));
+export async function makeTempDataDir(parent: string = os.tmpdir()): Promise<{ root: string; dataDir: string; cleanup(): Promise<void> }> {
+  const root = await mkdtemp(path.join(parent, "acr-showcase-run-"));
   return { root, dataDir: path.join(root, "data"), cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
@@ -78,6 +79,7 @@ export type MockScenePlan = { npc: Record<string, string[]>; gm: string[] };
 export class SceneRoutedMock implements RecordingProvider {
   readonly name = "demo-scripted";
   readonly calls: ChatRequest[] = [];
+  readonly exhausted: string[] = [];
   private readonly queues = new Map<string, string[]>();
   constructor(private readonly o: { sceneId: () => string | undefined; keyOf: (req: ChatRequest) => string | undefined; plan: Record<string, string[]>; exhausted: string }) {
     for (const [k, v] of Object.entries(o.plan)) this.queues.set(k, [...v]);
@@ -87,6 +89,7 @@ export class SceneRoutedMock implements RecordingProvider {
     const who = this.o.keyOf(req);
     const key = `${this.o.sceneId() ?? ""}|${who ?? ""}`;
     const next = this.queues.get(key)?.shift();
+    if (next === undefined) this.exhausted.push(key);
     const words = (next ?? this.o.exhausted).split(" ");
     for (let i = 0; i < words.length; i++) {
       if (signal?.aborted) return;
@@ -108,7 +111,7 @@ export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId
     for (const [role, replies] of Object.entries(mock.npc)) npcPlan[`${scene}|${role}`] = replies;
     gmPlan[`${scene}|`] = mock.gm;
   }
-  const npc = new SceneRoutedMock({ sceneId, plan: npcPlan, exhausted: "[mock reply]", keyOf: (req) => npcRoles.find((r) => req.system.includes(`You are playing ${r.name}`))?.id });
+  const npc = new SceneRoutedMock({ sceneId, plan: npcPlan, exhausted: "[mock reply]", keyOf: (req) => npcRoles.find((r) => req.system.includes(npcIntro(r)))?.id });
   const gm = new SceneRoutedMock({ sceneId, plan: gmPlan, exhausted: '{"verdict": false, "reasoning": "no scripted verdict left"}', keyOf: () => "" });
   const fakeClock = new FakeClock(T0);
   const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: gm });

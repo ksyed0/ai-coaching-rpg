@@ -136,3 +136,11 @@ describe("buildNpcRequest", () => {
     expect(req.messages[2].content).toBe("[delivery_lead]: c\n[delivery_lead]: d");
   });
 });
+
+describe("the persona sentence the demo's scripted mock routes on", () => {
+  it("is the exported npcIntro(role) and starts the system prompt, so changing the wording changes the router with it", async () => {
+    const { npcIntro } = await import("../npc-prompt.js");
+    expect(npcIntro(role)).toBe("You are playing Priya Raman");
+    expect(buildNpcRequest({ role, scene, state: stateWith(["delivery_lead", "hi"]) }).system.startsWith(npcIntro(role))).toBe(true);
+  });
+});

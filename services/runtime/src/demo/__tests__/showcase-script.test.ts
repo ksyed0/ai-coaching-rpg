@@ -123,3 +123,11 @@ describe("loadShowcaseScript", () => {
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });
+
+describe("showcase.yaml size cap", () => {
+  it("refuses a file larger than 256 KiB with a clear one-line error", () => {
+    const huge = `${valid}\n# ${"x".repeat(256 * 1024)}\n`;
+    expect(err(huge)).toBe(`${SHOWCASE_FILE}: the file is larger than 256 KiB`);
+    expect(parseShowcaseScript(valid, scenario, mock)).toBeDefined();
+  });
+});

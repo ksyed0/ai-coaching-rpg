@@ -308,3 +308,13 @@ describe("the utterance fallback marker (R44)", () => {
     expect(host.snapshotFor("host").transcript.at(-1)).toEqual(expect.not.objectContaining({ fallback: true }));
   });
 });
+
+describe("SessionHost.evaluateFinal", () => {
+  it("resolves false when the Game Master has not evaluated the scene yet, and never throws", async () => {
+    host.join("host", "p1");
+    await host.start();
+    await host.onPlayerUtterance("host", "Hello Sam");
+    await host.idle();
+    await expect(host.evaluateFinal()).resolves.toBe(false);
+  });
+});

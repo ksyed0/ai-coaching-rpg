@@ -7,8 +7,8 @@ import { UNSAFE_CHARS, buildMarkers, ensure, findInjectLeaks, findMarkers, logSh
 import {
   PARTICIPANT_NAMES, ROLE_PLAYERS, connectBot, errCode, isJoinedMsg, settle, withTimeout, type Ctx, type PlayerId, type Story,
 } from "./ctx.js";
-import { MIN } from "./harness.js";
-import { fallbackReason } from "./provenance.js";
+import { MIN, type System } from "./harness.js";
+import { fallbackReason, isFallbackReply } from "./provenance.js";
 import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from "./showcase-report.js";
 import { expectedGmEvaluations, type ShowcaseScript } from "./showcase-script.js";
 
@@ -26,6 +26,8 @@ export const SHOWCASE_CHECKS: readonly CheckDef[] = [
   { id: "S-10", title: "No API key or environment value reached the log, any client or the output", kind: "any" },
   { id: "S-11", title: "No background failure was swallowed", kind: "any" },
   { id: "S-12", title: "The whole run finished within the watchdog", kind: "any" },
+  { id: "S-13", title: "No scene was skipped: each had a scripted line, or ended by time box or Game Master before its first", kind: "any" },
+  { id: "S-14", title: "The mock scripts were never exhausted and no scene needed the facilitator advance (unless --max-lines)", kind: "scripted" },
 ] as const;
 
 export type ShowcaseHolder = {
@@ -46,6 +48,12 @@ export type ShowcaseOptions = {
   replyTimeoutMs: number;
   startedMs: number;
   holder: ShowcaseHolder;
+  /** Test hooks: run just before a scripted line is sent, and just before the safety-net advance (to force races). */
+  hooks?: ShowcaseHooks;
+};
+export type ShowcaseHooks = {
+  beforeLine?: (a: { sceneId: string; index: number; sys?: System }) => Promise<void>;
+  beforeAdvance?: (a: { sceneId: string; index: number; sys?: System }) => Promise<void>;
 };
 
 const EXIT_LABEL: Record<string, string> = {
@@ -89,6 +97,16 @@ export function showcaseMarkers(scenario: Scenario): Markers {
   };
 }
 
+/** The scene an event with sequence number `seq` happened in (null between scenes), from a complete stream. */
+export function sceneAt(events: SessionEvent[], seq: number): string | null {
+  let cur: string | null = null;
+  for (const e of events) {
+    if (e.seq > seq) break;
+    if (e.type === "scene.entered") cur = e.sceneId; else if (e.type === "scene.exited") cur = null;
+  }
+  return cur;
+}
+
 const NARRATION_CHARS = 600;
 const SGR = new RegExp("\\u001b\\[[0-9;]*m", "g");
 
@@ -109,8 +127,9 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
 
   // ---- narration: events are printed in order, as they arrive, labelled by who produced them ----------------
   let chain: Promise<void> = Promise.resolve();
-  let fallbackNext = false;
+  let previous: SessionEvent | undefined;
   const narrateEvent = async (e: SessionEvent): Promise<void> => {
+    const prev = previous; previous = e;
     switch (e.type) {
       case "session.started": await n.tagged("system", "dim", "", "session started"); break;
       case "scene.entered": {
@@ -128,7 +147,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
       case "utterance": {
         const role = scenario.roles[e.roleId];
         if (role?.type === "npc") {
-          const canned = fallbackNext; fallbackNext = false;
+          const canned = isFallbackReply(role, e, prev, { legacy: false });
           await n.tagged("AI character", "cyan", `${role.name} (${role.id}${canned ? ", canned fallback line" : ""})`, clip(e.text, NARRATION_CHARS));
         } else await n.tagged("player bot", "green", e.roleId, clip(e.text, NARRATION_CHARS));
         break;
@@ -138,7 +157,6 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         break;
       case "facilitator.alert": {
         const why = fallbackReason(e.message);
-        if (why !== null) fallbackNext = true;
         await n.tagged("alert", e.level === "warning" ? "red" : "yellow", "", why !== null ? `${e.message.split(":")[0]!.replace(/^NPC /, "AI character ")} fell back to its canned line: ${why}` : clip(e.message, 300));
         break;
       }
@@ -176,6 +194,9 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
     await flush();
   };
   const exited = (sceneId: string) => fac.events().some((e) => e.type === "scene.exited" && e.sceneId === sceneId);
+  /** The scene the session is in right now (from the facilitator's complete stream), or null between scenes and after the end. */
+  const currentScene = (): string | null => sceneAt(fac.events(), Infinity);
+  const exitReasonOf = (sceneId: string) => (fac.events().find((e) => e.type === "scene.exited" && e.sceneId === sceneId) as Extract<SessionEvent, { type: "scene.exited" }> | undefined)?.reason;
 
   fac.send({ type: "start" });
   await fac.waitFor(isEvent("session.started"), { what: "session.started" });
@@ -195,6 +216,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
     const gmConditions = scene.exit_when.any_of.filter((c) => typeof c === "object").length;
     const timedAt = Math.max(0, ...(scene.injects ?? []).filter((i) => i.at_minute !== undefined && i.at_minute < scene.time_box_minutes).map((i) => i.at_minute!));
     const lines = linesFor(o.script, scene.id, o.maxLines);
+    let spoken = 0;
 
     for (const [i, line] of lines.entries()) {
       if (exited(scene.id)) break; // the Game Master (or the time box) ended the scene early: the rest of its lines stay unspoken
@@ -203,26 +225,51 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         const delta = entered.ts + timedAt * MIN - sys.clock.now();
         if (delta > 0) { sys.fakeClock.advance(delta); await n.note(`the fake clock moves to minute ${timedAt} of the scene, so its timed injects fire`); }
       }
+      await o.hooks?.beforeLine?.({ sceneId: scene.id, index: i, sys });
       const bot = st.players[line.role as PlayerId]!;
       const from = bot.mark();
-      bot.send({ type: "say", text: line.text });
+      const lastSeqBefore = fac.events().at(-1)?.seq ?? 0;
+      // Every scripted line names the scene it belongs to: if the scene ended in between (a time box, the Game Master), the server refuses it.
+      bot.send({ type: "say", text: line.text, expectSceneId: scene.id });
       const r = await bot.waitFor((m) => m.type === "error" || isEvent("utterance", (e) => e.roleId === line.role && e.text === line.text)(m), { from, timeoutMs: 15_000, what: `${line.role}'s line to be accepted` });
       if (r.type === "error") {
-        if (r.code === "not_in_scene" || r.code === "stale_scene") { observations.push(`${line.role}'s line was refused (${r.code}): scene ${scene.id} had already ended`); break; }
+        if (r.code === "stale_scene" || r.code === "not_in_scene") {
+          observations.push(`scene changed under us: ${line.role}'s line ${i + 1} of ${scene.id} was refused (${r.code}); the session is now ${currentScene() ? `in ${currentScene()}` : "between scenes or ended"}`);
+          break;
+        }
         throw new Error(`${line.role}'s line was refused: ${errCode(r)}`);
       }
+      spoken++;
       await waitSettled(npcCount, gmConditions);
+      const echo = fac.events().find((e) => e.type === "utterance" && e.roleId === line.role && e.text === line.text && e.seq > lastSeqBefore);
+      ensure(!echo || sceneAt(fac.events(), echo.seq) === scene.id, `${line.role}'s line ${i + 1} landed in a different scene than ${scene.id}`);
+    }
+    if (spoken < lines.length && exited(scene.id)) {
+      const reason = exitReasonOf(scene.id) ?? "an exit";
+      observations.push(`${scene.id} ended by ${reason} after ${spoken} of ${lines.length} scripted lines; ${lines.length - spoken} line(s) left unspoken`);
+    }
+
+    // A live run's ticker can judge while a line is being recorded, before the characters answer; judge once more on the full turn.
+    if (!mock && !exited(scene.id) && sys) {
+      const bound = (npcCount + 1) * o.replyTimeoutMs + gmConditions * Math.max(o.replyTimeoutMs, 60_000);
+      if (await withTimeout(sys.host.evaluateFinal(), bound, "the final Game Master evaluation")) await n.note("the Game Master judges the scene once more after the last reply");
+      await flush();
     }
 
     if (!exited(scene.id)) {
       // The safety net: the scripted lines are used up and the scene is still open.
-      observations.push(`GM did not exit; facilitator advanced (${scene.id})`);
-      await n.note("the scripted lines are used up and the Game Master has not ended the scene: the facilitator advances");
+      await o.hooks?.beforeAdvance?.({ sceneId: scene.id, index: lines.length, sys });
       const from = fac.mark();
-      fac.send({ type: "command", command: { command: "advance" } });
+      fac.send({ type: "command", command: { command: "advance" }, expectSceneId: scene.id });
       const r = await fac.waitFor((m) => m.type === "error" || isEvent("facilitator.command", (e) => e.command === "advance")(m), { from, timeoutMs: 15_000, what: "advance to be accepted" });
-      ensure(r.type === "event", `facilitator advance was refused: ${errCode(r)}`);
-      await waitSettled(npcCount, gmConditions);
+      if (r.type === "error" && r.code === "stale_scene") {
+        observations.push(`scene changed under us: the facilitator advance for ${scene.id} was refused (stale_scene): it had already ended (${exitReasonOf(scene.id) ?? "unknown"}); nothing was skipped`);
+      } else {
+        ensure(r.type === "event", `facilitator advance was refused: ${errCode(r)}`);
+        observations.push(`GM did not exit; facilitator advanced (${scene.id})`);
+        await n.note("the scripted lines are used up and the Game Master has not ended the scene: the facilitator advanced");
+        await waitSettled(npcCount, gmConditions);
+      }
     }
   }
   await fac.waitFor(isEvent("session.ended"), { timeoutMs: 15_000, what: "the session to end" });
@@ -237,11 +284,12 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
   n.styled(title!, "bold");
   for (const l of rest) n.line(l, false);
   o.holder.report = summary;
-  await playShowcaseAudit(ctx, st, o, summary);
+  await playShowcaseAudit(ctx, st, o, summary, observations);
+  o.holder.report = snapshot(); // the audit may add observations
 }
 
 /** The showcase's checks, run after the story: they need the whole run to be over. */
-async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summary: ShowcaseReport): Promise<void> {
+async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summary: ShowcaseReport, observations: string[]): Promise<void> {
   const { rec, sys, scenario } = ctx;
   const mock = o.mode === "mock";
   const fac = st.fac!;
@@ -390,6 +438,28 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
     ensure(bad.length === 0, `the server logged: ${bad.slice(0, 2).join(" | ")}`);
     return `the host reported no background failure and the server logged no handler, send or internal error (${sys!.serverLog.length} routine lines)`;
   });
+
+  await rec.run("S-13", () => {
+    const notes: string[] = [];
+    for (const sc of summary.scenes) {
+      if (sc.playerLines > 0) continue;
+      ensure(sc.exitReason === "gm_detects" || sc.exitReason === "time_box_elapsed", `scene ${sc.id} was entered and left by ${sc.exitReason ?? "nothing"} without a single scripted line (it was skipped)`);
+      const note = `${sc.id} ended by ${sc.exitReason} before its first scripted line`;
+      observations.push(note); notes.push(note);
+    }
+    ensure(summary.scenes.length === scenario.script.scenes.length, `only ${summary.scenes.length} of ${scenario.script.scenes.length} scenes were played`);
+    return notes.length ? `no scene was skipped; ${notes.join("; ")}` : `all ${summary.scenes.length} scenes had at least one scripted line spoken in them`;
+  }, ["S-01"]);
+
+  await rec.run("S-14", () => {
+    const dry = [...(sys!.npc!.exhausted ?? []), ...(sys!.gm!.exhausted ?? [])];
+    ensure(dry.length === 0, `a scripted queue ran dry (${dry.slice(0, 3).join(", ")}): the default reply was served`);
+    if (o.maxLines === null) {
+      const advanced = summary.scenes.filter((s) => s.exitReason === "facilitator_advance").map((s) => s.id);
+      ensure(advanced.length === 0, `scene(s) ${advanced.join(", ")} ended by facilitator advance (the mock script should end each by verdict or time box; --max-lines allows it)`);
+    }
+    return "every scripted reply and verdict came from the script and no scene needed the facilitator advance";
+  }, ["S-01"]);
 
   await rec.run("S-12", () => {
     const took = ctx.now() - o.startedMs;

@@ -1,6 +1,6 @@
 id: tech_lead
 type: player
-brief: >
+brief: >-
   You own the architecture. A reconciliation module touches the ingestion
   layer that is still being hardened for go-live.
 private_facts:

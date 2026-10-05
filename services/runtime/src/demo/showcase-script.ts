@@ -3,12 +3,13 @@ import path from "node:path";
 import type { Scene, Scenario } from "@acr/script";
 import { parse } from "yaml";
 import { ZodError, z } from "zod";
+import { GM_EVERY_N_UTTERANCES } from "../agents/game-master.js";
 
 export const SHOWCASE_FILE = "showcase.yaml";
 /** The server refuses a `say` longer than this (see the protocol), so a longer scripted line could never be spoken. */
 export const MAX_LINE_CHARS = 2_000;
-/** The Game Master evaluates a scene's gm_detects conditions after this many NEW utterances (see agents/game-master.ts). */
-export const GM_EVERY_N_UTTERANCES = 3;
+/** A showcase script is a few KiB; refuse anything absurd before parsing it (YAML aliases can expand). */
+export const MAX_SHOWCASE_BYTES = 256 * 1024;
 
 const LineSchema = z.object({
   role: z.string().min(1),
@@ -55,6 +56,7 @@ export function expectedGmEvaluations(scene: Scene, lineCount: number, npcCount:
 export function parseShowcaseScript(text: string, scenario: Scenario, o: ShowcaseLoadOptions): ShowcaseScript {
   const file = o.file ?? SHOWCASE_FILE;
   const bad = (msg: string): never => { throw new ShowcaseScriptError(`${file}: ${msg}`); };
+  if (Buffer.byteLength(text, "utf8") > MAX_SHOWCASE_BYTES) bad(`the file is larger than ${MAX_SHOWCASE_BYTES / 1024} KiB`);
   let raw: unknown;
   try { raw = parse(text); }
   catch (err) { return bad(`not valid YAML: ${(err as Error).message.split("\n")[0]}`); }

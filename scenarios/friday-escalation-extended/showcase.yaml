@@ -36,7 +36,7 @@ scenes:
   - scene: s3_internal_huddle
     lines:
       - { role: delivery_lead, text: "Priya was reasonable, but she is taking this to her CFO, so we need numbers that stand up. Tech lead, what is the honest effort for a phased module?" }
-      - { role: tech_lead, text: "About three weeks of build after go-live with two engineers, and I want a risk review before we touch ingestion. Call it ready three weeks after launch." }
+      - { role: tech_lead, text: "About three person-weeks of build, so two engineers for a week and a half after go-live, and I want a risk review before we touch ingestion. Call it ready three weeks after launch." }
       - { role: account_manager, text: "Then I propose a fixed fee of 48 thousand for the phased module, delivered three weeks after go-live. I will present it to the CFO and the delivery lead owns the timeline. Are we all happy with that plan?" }
     mock:
       gm:
@@ -46,7 +46,7 @@ scenes:
     lines:
       - { role: delivery_lead, text: "Thanks both. To recap: we propose a phased reconciliation module, delivered three weeks after go-live, so the launch date stays safe." }
       - { role: account_manager, text: "It is a fixed fee of 48 thousand, separate from the programme fee, delivered three weeks after go-live." }
-      - { role: tech_lead, text: "It was removed to protect the launch date. Building it now would take about three weeks of two engineers, and doing that inside the launch window could put go-live at risk, which would cost you far more." }
+      - { role: tech_lead, text: "It was removed to protect the launch date. Building it now would take about three person-weeks, and doing that inside the launch window could put go-live at risk, which would cost you far more." }
       - { role: delivery_lead, text: "Scope is daily tie-out of every load against the source, an exceptions report and a sign-off test with Finance. If we miss three weeks after go-live, we credit the fee proportionally." }
     mock:
       npc:
@@ -94,7 +94,7 @@ scenes:
     lines:
       - { role: delivery_lead, text: "That went better than I feared. Let us capture it: the change request goes out Monday, with the terms Helena repeated back to us." }
       - { role: account_manager, text: "I will draft and send the change request on Monday morning and call Priya to confirm. I will also tell our account lead the conversation ended in a good place." }
-      - { role: tech_lead, text: "I will book the risk review for ingestion and plan the three weeks of build, and I will send the plan to the delivery lead by Wednesday." }
+      - { role: tech_lead, text: "I will book the risk review for ingestion and plan the build, and I will send the plan to the delivery lead by Wednesday." }
     mock:
       gm:
         - '{"verdict": true, "reasoning": "Owners and next actions were named for the change request, the risk review and the build plan."}'

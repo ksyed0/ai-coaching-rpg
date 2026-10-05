@@ -19,6 +19,7 @@ const scenario: Scenario = {
 type Body = { [K in SessionEvent["type"]]: Omit<Extract<SessionEvent, { type: K }>, "seq" | "ts" | "sessionId"> }[SessionEvent["type"]];
 const stream = (items: [number, Body][]): SessionEvent[] => items.map(([ts, b], i) => ({ seq: i + 1, ts, sessionId: "s", ...b }) as SessionEvent);
 const u = (roleId: string, text: string): Body => ({ type: "utterance", roleId, text, channel: "text" });
+const fb = (roleId: string, text: string): Body => ({ type: "utterance", roleId, text, channel: "text", fallback: true });
 
 const events = stream([
   [1000, { type: "session.started", scenarioId: "m", version: "1", roles: {} }],
@@ -27,10 +28,10 @@ const events = stream([
   [2400, u("bot", "hi, tell me more")],
   [3000, u("pa", "ok")],
   [3500, { type: "facilitator.alert", level: "warning", message: "NPC bot: no first token within timeout; used fallback line" }],
-  [3500, u("bot", "Say that again?")],
+  [3500, fb("bot", "Say that again?")],
   [4000, u("pa", "so")],
   [4900, { type: "facilitator.alert", level: "warning", message: "NPC bot: model error: boom; used fallback line" }],
-  [4900, u("bot", "Say that again?")],
+  [4900, fb("bot", "Say that again?")],
   [5000, { type: "gm.decision", sceneId: "one", condition: "agreed", verdict: false, reasoning: "not yet\u001b[31m" }],
   [5100, { type: "gm.decision", sceneId: "one", condition: "agreed", verdict: true, reasoning: "yes" }],
   [5100, { type: "scene.exited", sceneId: "one", reason: "gm_detects" }],
@@ -52,9 +53,10 @@ describe("buildShowcaseReport", () => {
     expect(r.playerLines).toBe(4);
     expect(r.npcReplies).toBe(3);
   });
-  it("does not call a reply a fallback just because it repeats the fallback text without the alert", () => {
-    const noAlert = events.filter((e) => e.type !== "facilitator.alert");
-    expect(build({ events: noAlert }).fallbackLines).toBe(0);
+  it("does not call a reply a fallback just because it repeats the fallback text (no marker), even right after an alert", () => {
+    const unmarked = events.map((e) => (e.type === "utterance" ? ({ ...e, fallback: undefined } as SessionEvent) : e));
+    expect(build({ events: unmarked }).fallbackLines).toBe(0);
+    expect(build({ events: unmarked }).lines.filter((l) => l.source === "ai-character").every((l) => l.tag === "generated")).toBe(true);
   });
   it("derives latency from the previous line in the stream, and reports none without real timing", () => {
     expect(build().npcs[0]!.latencyMs).toEqual({ median: 500, max: 900 });

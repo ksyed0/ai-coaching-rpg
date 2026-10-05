@@ -1,9 +1,9 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { loadScenario } from "@acr/script";
 import { REPO_ROOT } from "../../main.js";
 import { FAKE_KEY } from "../harness.js";
@@ -23,7 +23,10 @@ const deps = (c: Captured, argv: string[], over: Partial<RunDeps> = {}): RunDeps
   resolveLiveEnv: () => { throw new Error("the live environment must not be read here"); }, ...over,
 });
 const tcpHandles = () => process.getActiveResourcesInfo().filter((r) => r === "TCPServerWrap" || r === "TCPSocketWrap").length;
-const demoTempDirs = () => readdirSync(os.tmpdir()).filter((d) => d.startsWith("acr-showcase-run-"));
+// Every run in this file makes its temp dir under this file's own parent, so other test files running in parallel can never be counted here.
+const PARENT = mkdtempSync(path.join(os.tmpdir(), "acr-showcase-parent-"));
+afterAll(() => rmSync(PARENT, { recursive: true, force: true }));
+const demoTempDirs = () => readdirSync(PARENT).filter((d) => d.startsWith("acr-showcase-run-"));
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => { for (const c of cleanups.splice(0).reverse()) await c(); });
 
@@ -42,7 +45,7 @@ const S1_TRUE = '{"verdict": true, "reasoning": "All three converged on a phased
 
 const run = async (argv: string[], over: Partial<RunDeps> = {}) => {
   const c = capture();
-  const r = await runDemo(deps(c, argv, over));
+  const r = await runDemo(deps(c, argv, { tempParent: PARENT, ...over }));
   return { ...r, c, stdout: c.out.join(""), stderr: c.err.join(""), showcase: r.report?.showcase as ShowcaseReport };
 };
 
@@ -137,8 +140,11 @@ describe("pnpm demo --showcase (mock mode, in-process)", () => {
 
   it("records the safety net when the Game Master does not exit a scene whose lines are used up", async () => {
     const dir = await variant((y) => y.replace(S1_TRUE, '{"verdict": false, "reasoning": "still not agreed"}'));
-    const { exitCode, showcase } = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
-    expect(exitCode).toBe(0);
+    const { exitCode, showcase, report } = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
+    // Without --max-lines a mock scene that needs the advance is a failure of the mock script (S-14), though the advance itself is recorded.
+    expect(exitCode).toBe(1);
+    expect(report!.results.filter((r) => r.status === "failed").map((r) => r.id)).toEqual(["S-14"]);
+    expect(report!.results.find((r) => r.id === "S-14")!.details).toContain("s1_huddle ended by facilitator advance");
     expect(showcase.scenes[0]).toMatchObject({ id: "s1_huddle", exitReason: "facilitator_advance" });
     expect(showcase.scenes[1]!.exitReason).toBe("gm_detects");
     expect(showcase.facilitatorAdvances).toBe(1);
@@ -284,7 +290,7 @@ describe("--showcase --live (an in-process OpenAI-compatible fake on loopback)",
     expect(report!.results.filter((r) => r.status === "failed")).toEqual([]);
     expect(exitCode).toBe(0);
     expect(report!.mode).toBe("live");
-    expect(report!.results.filter((r) => r.status === "skipped")).toEqual([expect.objectContaining({ id: "S-06", details: "skipped (live mode)" })]);
+    expect(report!.results.filter((r) => r.status === "skipped")).toEqual([expect.objectContaining({ id: "S-06", details: "skipped (live mode)" }), expect.objectContaining({ id: "S-14", details: "skipped (live mode)" })]);
     const ai = showcase.lines.filter((l) => l.source === "ai-character");
     expect(ai).toHaveLength(5); // s2: 1 reply, s4: 2, s5: 2
     expect(ai.every((l) => l.text === "I hear you, tell me more." && !l.fallback)).toBe(true);
@@ -343,5 +349,149 @@ describe("helpers", () => {
     expect(m.secretsByRole.tech_lead!.every((x) => x.length > 30)).toBe(true);
     expect(m.rubric).toContain("individual_delivery_v2");
     expect(m.hidden.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("scene guards: no scene is ever skipped (R43)", () => {
+  type Hook = NonNullable<RunDeps["showcaseHooks"]>["beforeLine"];
+  /** Moves the fake clock past a scene's time box and lets the engine notice (as the live ticker would). */
+  const pastTimeBox = (minutes: number, tick: boolean): NonNullable<Hook> => async ({ sys }) => {
+    sys!.fakeClock!.advance(minutes * 60_000);
+    if (tick) await sys!.engine.tick();
+  };
+  const s = (r: ShowcaseReport, id: string) => r.scenes.find((x) => x.id === id)!;
+
+  it("a time box that elapses during a scene ends it end to end (exit reason time_box_elapsed) and the later lines stay unspoken, recorded", async () => {
+    const { exitCode, showcase, report } = await run(["--showcase", "--fast", "--no-color"], {
+      showcaseHooks: { beforeLine: async (a) => { if (a.sceneId === "s3_internal_huddle" && a.index === 1) await pastTimeBox(7, false)(a); } },
+    });
+    expect(report!.results.filter((r) => r.status === "failed")).toEqual([]);
+    expect(exitCode).toBe(0);
+    expect(s(showcase, "s3_internal_huddle")).toMatchObject({ exitReason: "time_box_elapsed", playerLines: 2 });
+    expect(showcase.observations).toContain("s3_internal_huddle ended by time_box_elapsed after 2 of 3 scripted lines; 1 line(s) left unspoken");
+    expect(showcase.scenes.map((x) => x.playerLines).slice(3)).toEqual([4, 4, 3]);
+  });
+
+  it("forced race: the time box ends the scene between the exited() check and the line: the line is refused (stale_scene), the next scene is untouched", async () => {
+    const { exitCode, showcase, report, stdout } = await run(["--showcase", "--fast", "--no-color"], {
+      showcaseHooks: { beforeLine: async (a) => { if (a.sceneId === "s3_internal_huddle" && a.index === 2) await pastTimeBox(7, true)(a); } },
+    });
+    expect(report!.results.filter((r) => r.status === "failed")).toEqual([]);
+    expect(exitCode).toBe(0);
+    expect(s(showcase, "s3_internal_huddle")).toMatchObject({ exitReason: "time_box_elapsed", playerLines: 2 });
+    expect(showcase.observations.some((o) => o.startsWith("scene changed under us: account_manager's line 3 of s3_internal_huddle was refused (stale_scene)"))).toBe(true);
+    // The line was NOT accepted into the next scene.
+    expect(showcase.lines.filter((l) => l.source === "player-bot" && l.sceneId === "s4_escalation_call").map((l) => l.text)[0]).toMatch(/^Thanks both/);
+    expect(showcase.scenes.map((x) => x.playerLines)).toEqual([6, 4, 2, 4, 4, 3]);
+    expect(stdout).toContain("scene changed under us");
+  });
+
+  it("forced race: the safety-net advance is guarded too: a scene that ended by time box meanwhile is not followed by an advance that skips the next one", async () => {
+    const { exitCode, showcase } = await run(["--showcase", "--fast", "--no-color", "--max-lines", "1"], {
+      showcaseHooks: { beforeAdvance: async (a) => { if (a.sceneId === "s1_huddle") await pastTimeBox(9, true)(a); } },
+    });
+    expect(exitCode).toBe(0);
+    expect(s(showcase, "s1_huddle").exitReason).toBe("time_box_elapsed");
+    expect(s(showcase, "s2_priya_call").playerLines).toBe(1); // not skipped
+    expect(showcase.observations.some((o) => o.startsWith("scene changed under us: the facilitator advance for s1_huddle was refused (stale_scene)"))).toBe(true);
+    expect(showcase.facilitatorAdvances).toBe(5); // s2..s6 only
+  });
+
+  it("a scene that ended by time box BEFORE its first line is an observation, not a failure (S-13 says which)", async () => {
+    const { exitCode, showcase, report } = await run(["--showcase", "--fast", "--no-color"], {
+      showcaseHooks: { beforeLine: async (a) => { if (a.sceneId === "s3_internal_huddle" && a.index === 0) await pastTimeBox(7, true)(a); } },
+    });
+    expect(exitCode).toBe(0);
+    expect(s(showcase, "s3_internal_huddle")).toMatchObject({ exitReason: "time_box_elapsed", playerLines: 0 });
+    expect(report!.results.find((r) => r.id === "S-13")).toMatchObject({ status: "passed", details: expect.stringContaining("s3_internal_huddle ended by time_box_elapsed before its first scripted line") });
+    expect(showcase.observations).toContain("s3_internal_huddle ended by time_box_elapsed before its first scripted line");
+  });
+
+  it("FAILS the run when a scene was entered and left without any scripted line and not by a time box or the Game Master (a skipped scene)", async () => {
+    const { exitCode, report } = await run(["--showcase", "--fast", "--no-color"], {
+      showcaseHooks: { beforeLine: async ({ sceneId, index, sys }) => { if (sceneId === "s2_priya_call" && index === 0) { await sys!.engine.command({ command: "advance" }); await sys!.engine.tick(); } } },
+    });
+    expect(exitCode).toBe(1);
+    expect(report!.results.find((r) => r.id === "S-13")).toMatchObject({ status: "failed", details: expect.stringContaining("s2_priya_call was entered and left by facilitator_advance without a single scripted line") });
+  });
+
+  it("records the scripted lines left unspoken after an early Game Master exit", async () => {
+    const dir = await variant((y) => y.replace('"verdict": false, "reasoning": "The team has aired concerns but has not settled on one position yet."', '"verdict": true, "reasoning": "Settled already."'));
+    const { exitCode, showcase } = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
+    expect(exitCode).toBe(0);
+    expect(showcase.observations).toContain("s1_huddle ended by gm_detects after 3 of 6 scripted lines; 3 line(s) left unspoken");
+  });
+
+  it("fails the mock run when a scripted queue runs dry (the default reply would have been served)", async () => {
+    const dir = await variant((y) => y.replace('"verdict": true, "reasoning": "The CFO said the price', '"verdict": false, "reasoning": "The CFO said the price'));
+    const { exitCode, report } = await run(["--showcase", "--fast", "--no-color", "--scenario", dir], {
+      showcaseHooks: { beforeLine: async ({ sceneId, index, sys }) => {
+        if (sceneId !== "s4_escalation_call" || index !== 3) return;
+        for (let i = 0; i < 3; i++) await sys!.engine.say("delivery_lead", `an extra line ${i}`);
+        await sys!.host.command({ command: "resume" }); // schedules a Game Master tick: one evaluation more than the script has
+        await sys!.host.idle();
+      } },
+    });
+    expect(exitCode).toBe(1);
+    const s14 = report!.results.find((r) => r.id === "S-14")!;
+    expect(s14.status).toBe("failed");
+    expect(s14.details).toContain("a scripted queue ran dry (s4_escalation_call|)");
+  });
+});
+
+describe("--showcase --live: the real Game Master decides (loopback fake server)", () => {
+  /** Answers the AI characters with a fixed line and the Game Master by `verdictFor(prompt)`. */
+  const fakeWith = async (verdictFor: (body: string) => boolean) => {
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (d) => { body += d; });
+      req.on("end", () => {
+        const isGm = body.includes("Game Master");
+        const text = isGm ? `{"verdict": ${verdictFor(body)}, "reasoning": "judged"}` : "Understood, go on.";
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.end("data: [DONE]\n\n");
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    cleanups.push(() => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }));
+    const port = (server.address() as { port: number }).port;
+    return { MODEL_PROVIDER: "local", LOCAL_BASE_URL: `http://127.0.0.1:${port}/v1`, NPC_MODEL: "m", GM_MODEL: "m" };
+  };
+
+  it("a true verdict ends a scene by gm_detects with the remaining scripted lines unspoken and recorded; the others end by the facilitator safety net", async () => {
+    const env = await fakeWith((b) => b.includes("Scene: Call with Priya"));
+    const { exitCode, showcase, report } = await run(["--showcase", "--live", "--fast", "--no-color"], { resolveLiveEnv: () => env });
+    expect(report!.results.filter((r) => r.status === "failed")).toEqual([]);
+    expect(exitCode).toBe(0);
+    const s2 = showcase.scenes.find((x) => x.id === "s2_priya_call")!;
+    expect(s2).toMatchObject({ exitReason: "gm_detects", playerLines: 2 });
+    expect(showcase.gm.exitedScenes).toEqual(["s2_priya_call"]);
+    expect(showcase.observations).toContain("s2_priya_call ended by gm_detects after 2 of 4 scripted lines; 2 line(s) left unspoken");
+    expect(showcase.facilitatorAdvances).toBe(5);
+    expect(showcase.scenes.filter((x) => x.id !== "s2_priya_call").every((x) => x.exitReason === "facilitator_advance")).toBe(true);
+    expect(showcase.scenes.every((x) => x.playerLines >= 1)).toBe(true);
+  });
+
+  it("--max-lines 2: scenes with fewer than 3 utterances get no Game Master evaluation and end by the recorded facilitator advance", async () => {
+    const env = await fakeWith(() => false);
+    const { exitCode, showcase } = await run(["--showcase", "--live", "--max-lines", "2", "--fast", "--no-color"], { resolveLiveEnv: () => env });
+    expect(exitCode).toBe(0);
+    const by = Object.fromEntries(showcase.scenes.map((x) => [x.id, x.gmDecisions]));
+    expect(by).toEqual({ s1_huddle: 0, s2_priya_call: 1, s3_internal_huddle: 0, s4_escalation_call: 2, s5_final_terms: 2, s6_wrap_up: 0 });
+    expect(showcase.scenes.every((x) => x.exitReason === "facilitator_advance")).toBe(true);
+    expect(showcase.observations.filter((o) => o.startsWith("GM did not exit; facilitator advanced"))).toHaveLength(6);
+    expect(showcase.playerLines).toBe(12);
+  });
+
+  it("judges once more after the last reply when the earlier evaluation missed it (the final evaluation)", async () => {
+    // s2 with 3 lines: the tick evaluates after line 2 (4 utterances); line 3 adds 2 more, which a normal tick would not look at.
+    const env = await fakeWith((b) => b.includes("Scene: Call with Priya") && b.includes("Adding new code to ingestion"));
+    const { exitCode, showcase, stdout } = await run(["--showcase", "--live", "--max-lines", "3", "--fast", "--no-color"], { resolveLiveEnv: () => env });
+    expect(exitCode).toBe(0);
+    const s2 = showcase.scenes.find((x) => x.id === "s2_priya_call")!;
+    expect(s2).toMatchObject({ exitReason: "gm_detects", playerLines: 3, gmDecisions: 2 });
+    expect(stdout).toContain("the Game Master judges the scene once more after the last reply");
+    expect(showcase.observations.some((o) => o.includes("s2_priya_call") && o.startsWith("GM did not exit"))).toBe(false);
   });
 });

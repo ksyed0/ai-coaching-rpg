@@ -15,7 +15,7 @@ import { FAKE_KEY, makeTempDataDir, makeTempRoot, startLiveSystem, startMockSyst
 import { playLab } from "./lab.js";
 import { createNarrator, shouldColor } from "./narrator.js";
 import { buildReport, exitCodeFor, formatChecklist, scrubText, type CheckResult, type DemoMode, type Report } from "./report.js";
-import { SHOWCASE_CHECKS, expectedModelCalls, playShowcase, showcaseMarkers, type ShowcaseHolder } from "./showcase.js";
+import { SHOWCASE_CHECKS, expectedModelCalls, playShowcase, showcaseMarkers, type ShowcaseHolder, type ShowcaseHooks } from "./showcase.js";
 import { loadShowcaseScript, type ShowcaseScript } from "./showcase-script.js";
 import { playStory } from "./story.js";
 import type { ProviderKind } from "./provenance.js";
@@ -57,6 +57,10 @@ export type RunDeps = {
   cwd?: string;
   /** How long to wait for an NPC reply when the model is real or remote. */
   npcWaitMs?: number;
+  /** Where the showcase makes its temp directory (default: the OS temp dir). Tests give each file its own, so parallel files never see each other's. */
+  tempParent?: string;
+  /** Test hooks that run inside the showcase story (to force scene races). */
+  showcaseHooks?: ShowcaseHooks;
 };
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -193,7 +197,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       outputTap: tap, labLogs: [], labHostLog: [], bots, secretValues, beforeAct: deps.beforeAct, register, now,
     };
     register(() => { for (const b of bots) b.terminate(); });
-    const t = await makeTempDataDir();
+    const t = await makeTempDataDir(deps.tempParent);
     register(() => t.cleanup());
     const base = { scenario: sc.scenario, sessionId, dataDir: t.dataDir };
     const sys = kind === "live"
@@ -205,7 +209,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     await playShowcase(ctx, newStory(), {
       script: sc.script, mode: kind === "live" ? "live" : "mock", maxLines: opts.maxLines ?? null, maxFallbacks: opts.maxFallbacks ?? null,
       watchdogMinutes, watchdogMs: limit, provider: kind === "live" ? providerLabel : undefined,
-      replyTimeoutMs: timeouts?.ok ? timeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS, startedMs, holder,
+      replyTimeoutMs: timeouts?.ok ? timeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS, startedMs, holder, hooks: deps.showcaseHooks,
     });
   };
 

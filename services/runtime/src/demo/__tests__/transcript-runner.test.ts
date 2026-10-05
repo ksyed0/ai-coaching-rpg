@@ -1,9 +1,9 @@
-import { statSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { loadScenario } from "@acr/script";
 import { REPO_ROOT, bootstrap } from "../../main.js";
 import type { Report } from "../report.js";
@@ -18,8 +18,10 @@ const capture = (): Captured => {
 };
 const deps = (c: Captured, argv: string[], over: Partial<RunDeps> = {}): RunDeps => ({
   argv, stdout: c.stdout, stderr: c.stderr, env: { PATH: "/usr/bin" }, sleep: async () => {}, repoRoot: REPO_ROOT, version: "0.0.0-test",
-  resolveLiveEnv: () => { throw new Error("the live environment must not be read here"); }, ...over,
+  resolveLiveEnv: () => { throw new Error("the live environment must not be read here"); }, tempParent: PARENT, ...over,
 });
+const PARENT = mkdtempSync(path.join(os.tmpdir(), "acr-transcript-parent-"));
+afterAll(() => rmSync(PARENT, { recursive: true, force: true }));
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => { for (const c of cleanups.splice(0).reverse()) await c(); });
 const tmp = async () => { const d = await mkdtemp(path.join(os.tmpdir(), "acr-transcript-test-")); cleanups.push(() => rm(d, { recursive: true, force: true })); return d; };

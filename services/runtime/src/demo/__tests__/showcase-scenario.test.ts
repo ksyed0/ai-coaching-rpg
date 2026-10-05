@@ -104,3 +104,24 @@ describe("scenarios/friday-escalation-extended", () => {
 function walk(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
 }
+
+describe("scenario polish (review fixes)", () => {
+  it("has no folded scalar that leaves a trailing newline (a stray ' ⏎ ' in inject text)", async () => {
+    const s = await load();
+    const strings: string[] = [];
+    const walkValue = (v: unknown): void => {
+      if (typeof v === "string") strings.push(v); else if (Array.isArray(v)) v.forEach(walkValue); else if (v && typeof v === "object") Object.values(v).forEach(walkValue);
+    };
+    walkValue(s);
+    expect(strings.filter((x) => /\s$/.test(x))).toEqual([]);
+    for (const f of walk(DIR)) expect(readFileSync(f, "utf8"), f).not.toMatch(/: >\s*$/m);
+  });
+  it("keeps the effort numbers consistent: the module is 6 person-weeks, the phased half is 3, and the scripted tech lead says so", async () => {
+    const s = await load();
+    expect((s.roles.delivery_lead as PlayerRole).private_facts.join(" ")).toContain("6 person-weeks");
+    expect((s.roles.tech_lead as PlayerRole).private_facts.join(" ")).toContain("half the effort");
+    const yaml = readFileSync(path.join(DIR, "showcase.yaml"), "utf8");
+    expect(yaml).toContain("about three person-weeks");
+    expect(yaml).not.toMatch(/three weeks of (build|two engineers)/);
+  });
+});

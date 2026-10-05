@@ -4,7 +4,7 @@ version: "1.0"
 audience: Delivery leads and project managers
 duration_minutes: 50
 players: { min: 3, max: 3 }
-context: >
+context: >-
   A fixed-fee data platform programme is six weeks from go-live. The client
   sponsor has emailed asking for a "small" additional reconciliation module
   before launch and expects an answer by end of day Friday. Her CFO is watching
@@ -24,7 +24,7 @@ learning_objectives:
     statement: Defend a price and its terms to a cost-focused finance executive
     rubric_criteria: [commercial_judgement, stakeholder_management]
 rubrics: [individual_delivery_v2, group_collaboration_v1]
-facilitator_notes: >
+facilitator_notes: >-
   Watch whether the team prices the phased module before the CFO asks for a
   number. The debrief should compare the first price offered with the final
   terms and ask what moved the CFO.
