@@ -16,6 +16,8 @@ export function mdEscape(text: string): string {
     .replace(/@/g, "@&#8203;");
 }
 
+/** Unicode format characters (Cf), default-ignorable fillers and variation selectors. */
+const INVISIBLE_MD = /[\p{Cf}\u034f\u115f\u1160\u17b4\u17b5\u180b-\u180f\u3164\uffa0\ufe00-\ufe0f]/gu;
 const DIALOGUE_CHARS = 1_500;
 const REASONING_CHARS = 400;
 const CELL_CHARS = 300;
@@ -23,9 +25,13 @@ const CELL_CHARS = 300;
 /** The one safe path for any text that goes into the file: scrub secrets and paths, sanitize, truncate, then escape Markdown. */
 export function safeMd(text: string, max: number, secrets: string[] = []): string {
   // Sanitizing turns newlines into a visible marker; trim those and whitespace at both ends so a bold span always closes.
-  const clean = scrubText(String(text ?? ""), secrets).replace(/^(?:\s|⏎)+|(?:\s|⏎)+$/gu, "");
+  const scrubbed = scrubText(String(text ?? ""), secrets);
+  // Invisible characters (every Unicode format character, default-ignorable fillers, variation selectors, tag characters) could hide
+  // inside a tag-shaped token; remove them, then fold look-alikes (fullwidth letters and brackets) with NFKC.
+  const folded = scrubbed.replace(INVISIBLE_MD, "").normalize("NFKC");
+  const clean = folded.replace(/^(?:\s|⏎)+|(?:\s|⏎)+$/gu, "");
   // A tag-shaped token inside dialogue must never read as a tag: [SCRIPTED] becomes (SCRIPTED).
-  const inert = clean.replace(/\[\s*(SCRIPTED|GENERATED|FALLBACK|UNVERIFIED|SYSTEM)\s*\]/gi, "($1)");
+  const inert = clean.replace(/[[［【〔〖]\s*(SCRIPTED|GENERATED|FALLBACK|UNVERIFIED|SYSTEM)\s*[\]］】〕〗]/gi, "($1)");
   const points = Array.from(inert); // truncate by code points: never inside a surrogate pair
   return mdEscape(points.length > max ? `${points.slice(0, max - 1).join("")}…` : inert);
 }
@@ -59,7 +65,7 @@ export function renderTranscript(i: TranscriptInput): string {
     `${TAGS.scripted} text authored in advance: bot player lines, facilitator whispers and every reply of the scripted mock providers.`, "",
     `${TAGS.generated} produced by a live model at run time: live AI character replies and the Game Master's reasoning.`, "",
     `${TAGS.fallback} the character's canned fallback line, used in place of a missing model reply (scripted text, never generated).`, "",
-    `${TAGS.unverified} an AI character or Game Master line seen through \`--url\`: the runner cannot tell whether the remote server used a real model or a script.`, "",
+    `${TAGS.unverified} an AI character or Game Master line seen through \`--url\`: the runner cannot tell whether the remote server used a real model or a script. Under \`--url\` the fallback marker is asserted by the remote server: a hostile server can set it, but it can never make a line generated.`, "",
     `${TAGS.system} technical logging, not dialogue.`, "",
     "Dialogue lines are **bold**. Text is escaped, so nothing in a line can forge a tag, a heading, a table or a link.", "");
 

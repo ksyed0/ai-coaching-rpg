@@ -107,9 +107,9 @@ export class SessionHost {
    * Waits for one final Game Master evaluation of the current scene (see GameMaster.finalEvaluation), serialised with the
    * NPC rounds. A live run's 1 s ticker can judge while a player's line is being recorded, before the characters' replies.
    */
-  evaluateFinal(): Promise<boolean> {
+  evaluateFinal(expectSceneId?: string): Promise<boolean> {
     let ran = false;
-    return this.enqueue(async () => { ran = await this.gm.finalEvaluation(); }).then(() => ran);
+    return this.enqueue(async () => { ran = await this.gm.finalEvaluation(expectSceneId); }).then(() => ran);
   }
 
   startTicker(ms: number): void {

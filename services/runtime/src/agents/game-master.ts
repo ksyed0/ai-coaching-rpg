@@ -62,11 +62,12 @@ export class GameMaster {
    * when the scene was already evaluated (so a scene with too few lines still gets none) and utterances have arrived since,
    * and it counts them as evaluated. Returns whether it evaluated.
    */
-  async finalEvaluation(): Promise<boolean> {
+  async finalEvaluation(expectSceneId?: string): Promise<boolean> {
     await this.engine.tick();
     if (this.evaluating) return false;
     const scene = this.engine.currentScene();
     if (!scene || this.engine.state.paused || this.engine.state.status !== "running") return false;
+    if (expectSceneId !== undefined && scene.id !== expectSceneId) return false; // the scene changed since the caller looked
     if (scene.id !== this.lastSceneId || this.evaluatedCount === 0) return false;
     const count = this.engine.state.transcript.filter((u) => u.sceneId === scene.id).length;
     if (count <= this.evaluatedCount) return false;

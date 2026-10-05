@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync, statSync } from "node:fs";
-import { cp, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -251,5 +251,22 @@ describe("Transcript.attach", () => {
     expect(tr.records[7]!.gm).toEqual({ verdict: true, condition: "c" });
     const ids = tr.records.map((r) => r.atMs);
     expect(ids.every((x) => x === 5)).toBe(true);
+  });
+});
+
+describe("--transcript path races (R45)", () => {
+  it("refuses a symlinked parent folder and a hard link to the --json file (exit 2)", async () => {
+    const dir = await tmp();
+    await mkdir(path.join(dir, "real"));
+    await symlink(path.join(dir, "real"), path.join(dir, "alias"));
+    const c1 = capture();
+    expect((await runDemo(deps(c1, ["--showcase", "--fast", "--transcript", "alias/t.md"], { cwd: dir }))).exitCode).toBe(2);
+    expect(c1.err.join("")).toContain("a folder on that path is a symbolic link");
+    await writeFile(path.join(dir, "r.json"), "{}");
+    await link(path.join(dir, "r.json"), path.join(dir, "hard.md"));
+    const c2 = capture();
+    expect((await runDemo(deps(c2, ["--showcase", "--fast", "--json", "r.json", "--transcript", "hard.md"], { cwd: dir }))).exitCode).toBe(2);
+    expect(c2.err.join("")).toContain("that is the same file as --json");
+    expect(c2.out).toEqual([]);
   });
 });

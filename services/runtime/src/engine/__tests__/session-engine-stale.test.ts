@@ -110,3 +110,23 @@ describe("fallback flag on say (R44)", () => {
     expect(engine.state.transcript.map((t) => Object.keys(t).sort().join())).toEqual(Array(2).fill("channel,roleId,sceneId,seq,text,ts"));
   });
 });
+
+describe("the scene-id guard cannot be probed by a role outside the scene (R45)", () => {
+  it("a player outside the current scene gets not_in_scene for a correct AND an incorrect guard", async () => {
+    const scenario = await loadScenario(fixture);
+    scenario.script.scenes[1]!.participants = ["guest"]; // the host is not in scene two
+    const eng = new SessionEngine({ scenario, log: new MemoryEventLog("probe"), clock: new FakeClock(0) });
+    await eng.start({ host: "p1" });
+    await eng.command({ command: "advance" }); await eng.tick();
+    expect(eng.state.currentScene?.id).toBe("s2_close");
+    const before = eng.state.lastSeq;
+    for (const guess of ["s2_close", "s1_open", "nonsense"]) {
+      await expect(eng.say("host", "hi", "text", { expectSceneId: guess })).rejects.toMatchObject({ code: "not_in_scene" });
+    }
+    expect(eng.state.lastSeq).toBe(before);
+  });
+  it("a role that IS in the scene still gets stale_scene for a wrong guard", async () => {
+    await engine.command({ command: "advance" }); await engine.tick();
+    await expect(engine.say("host", "hi", "text", { expectSceneId: "s1_open" })).rejects.toMatchObject({ code: "stale_scene" });
+  });
+});

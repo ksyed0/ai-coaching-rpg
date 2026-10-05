@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { lstat, mkdir, stat, writeFile } from "node:fs/promises";
+import { stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseEnv } from "node:util";
@@ -20,6 +20,7 @@ import { loadShowcaseScript, type ShowcaseScript } from "./showcase-script.js";
 import { playStory } from "./story.js";
 import type { ProviderKind } from "./provenance.js";
 import { Transcript } from "./transcript.js";
+import { checkTranscriptTarget, writeTranscriptFile } from "./transcript-path.js";
 import { renderTranscript } from "./transcript-md.js";
 import { parseNpcTimeouts, DEFAULT_REPLY_TIMEOUT_MS } from "../agents/timeouts.js";
 
@@ -103,17 +104,8 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   if (opts.transcript !== undefined) {
     const base = deps.cwd ?? deps.env.INIT_CWD ?? process.cwd();
     const target = path.resolve(base, opts.transcript);
-    const inside = (root: string) => { const rel = path.relative(root, target); return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel); };
-    const problem = await (async (): Promise<string | null> => {
-      if ((await lstat(target).catch(() => null))?.isSymbolicLink()) return "that path is a symbolic link";
-      if (opts.json !== undefined && opts.json !== "-" && path.resolve(base, opts.json) === target) return "that is the same file as --json";
-      const st = await stat(target).catch(() => null);
-      if (st?.isDirectory()) return "that path is a directory";
-      if (!(await stat(path.dirname(target)).catch(() => null))?.isDirectory() && ![repoRoot, base, os.tmpdir()].some(inside)) {
-        return "its folder does not exist and is outside the repo, the working directory and the temp directory";
-      }
-      return null;
-    })();
+    const jsonPath = opts.json !== undefined && opts.json !== "-" ? path.resolve(base, opts.json) : undefined;
+    const problem = await checkTranscriptTarget(target, { base, repoRoot, jsonPath });
     if (problem) { deps.stderr.write(`error: --transcript cannot use ${scrubText(opts.transcript)}: ${problem}\n`); return { exitCode: 2 }; }
     transcriptPath = target;
   }
@@ -324,8 +316,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       records: tr.records, results: report.results, showcase: report.showcase, secrets: secretValues,
     });
     try {
-      await mkdir(path.dirname(transcriptPath), { recursive: true });
-      await writeFile(transcriptPath, text, "utf8");
+      await writeTranscriptFile(transcriptPath, text, { anchors: [deps.cwd ?? deps.env.INIT_CWD ?? process.cwd(), repoRoot, os.tmpdir()] });
       sink.write(`transcript written to ${scrubText(opts.transcript!)}\n`);
     } catch (err) { deps.stderr.write(`error: cannot write the transcript to ${scrubText(opts.transcript!)}: ${(err as NodeJS.ErrnoException).code ?? "failed"}\n`); return { exitCode: 1, report }; }
   }

@@ -252,7 +252,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
     // A live run's ticker can judge while a line is being recorded, before the characters answer; judge once more on the full turn.
     if (!mock && !exited(scene.id) && sys) {
       const bound = (npcCount + 1) * o.replyTimeoutMs + gmConditions * Math.max(o.replyTimeoutMs, 60_000);
-      if (await withTimeout(sys.host.evaluateFinal(), bound, "the final Game Master evaluation")) await n.note("the Game Master judges the scene once more after the last reply");
+      if (await withTimeout(sys.host.evaluateFinal(scene.id), bound, "the final Game Master evaluation")) await n.note("the Game Master judges the scene once more after the last reply");
       await flush();
     }
 

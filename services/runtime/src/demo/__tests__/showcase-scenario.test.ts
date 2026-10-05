@@ -121,7 +121,10 @@ describe("scenario polish (review fixes)", () => {
     expect((s.roles.delivery_lead as PlayerRole).private_facts.join(" ")).toContain("6 person-weeks");
     expect((s.roles.tech_lead as PlayerRole).private_facts.join(" ")).toContain("half the effort");
     const yaml = readFileSync(path.join(DIR, "showcase.yaml"), "utf8");
-    expect(yaml).toContain("about three person-weeks");
-    expect(yaml).not.toMatch(/three weeks of (build|two engineers)/);
+    // phased = half of the full module (3 of 6 person-weeks), in person-weeks and in calendar time (two engineers: a week and a half)
+    expect(yaml).toContain("phased version is about three person-weeks");
+    expect(yaml).toContain("full module would be about six");
+    expect(yaml).toContain("Building the full module now would take about six person-weeks");
+    expect(yaml).not.toMatch(/three weeks of (build|two engineers)|Building it now would take about three/);
   });
 });

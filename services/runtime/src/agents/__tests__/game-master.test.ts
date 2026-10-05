@@ -372,3 +372,23 @@ describe("GameMaster.finalEvaluation (the tick can judge before the last reply)"
     expect(GM_EVERY_N_UTTERANCES).toBe(3);
   });
 });
+
+describe("GameMaster.finalEvaluation expectSceneId (R45)", () => {
+  const verdict = `{"verdict": true, "reasoning": "r"}`;
+  it("judges only the intended scene: another scene id (the scene changed in between) makes it a no-op", async () => {
+    const p = new MockModelProvider([`{"verdict": false, "reasoning": "r"}`, `{"verdict": false, "reasoning": "r"}`]);
+    const gm = new GameMaster({ engine, provider: p });
+    await engine.say("host", "a"); await engine.say("guest", "b"); await engine.say("host", "c");
+    await gm.tick(); await engine.say("guest", "d");
+    expect(await gm.finalEvaluation("s2_close")).toBe(false);
+    expect(p.calls).toHaveLength(1);
+    expect(await gm.finalEvaluation("s1_open")).toBe(true);
+  });
+  it("evaluates when the scene id matches", async () => {
+    const p = new MockModelProvider([`{"verdict": false, "reasoning": "r"}`, `{"verdict": false, "reasoning": "r"}`]);
+    const gm = new GameMaster({ engine, provider: p });
+    await engine.say("host", "a"); await engine.say("guest", "b"); await engine.say("host", "c");
+    await gm.tick(); await engine.say("guest", "d");
+    expect(await gm.finalEvaluation("s1_open")).toBe(true);
+  });
+});

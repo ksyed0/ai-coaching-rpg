@@ -83,6 +83,11 @@ export class SessionEngine {
   say(roleId: string, text: string, channel: Channel = "text", opts: { expectSceneId?: string; fallback?: true } = {}): Promise<SessionEvent> { return this.mutex.run(() => this.doSay(roleId, text, channel, opts)); }
   private async doSay(roleId: string, text: string, channel: Channel, opts: { expectSceneId?: string; fallback?: true }): Promise<SessionEvent> {
     if (this.state.status === "ended") throw new EngineError("ended");
+    // Participation first: a role outside the current scene must not be able to probe the scene id through the guard.
+    if (opts.expectSceneId !== undefined && this.state.roles[roleId]) {
+      const cur = this.currentScene();
+      if (!cur || !cur.participants.includes(roleId)) throw new EngineError("not_in_scene", `${roleId} is not in the current scene`);
+    }
     if (opts.expectSceneId !== undefined && this.state.currentScene?.id !== opts.expectSceneId) throw new EngineError("stale_scene");
     if (!this.state.roles[roleId]) throw new EngineError("unknown_role", `unknown role ${roleId}`);
     if (this.state.paused) throw new EngineError("paused");

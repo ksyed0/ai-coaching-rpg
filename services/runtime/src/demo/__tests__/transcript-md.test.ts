@@ -130,6 +130,7 @@ describe("renderTranscript: review fixes", () => {
     const legend = render([]).split("## Legend")[1]!;
     for (const t of ["[SCRIPTED]", "[GENERATED]", "[FALLBACK]", "[UNVERIFIED]", "[SYSTEM]"]) expect(legend).toContain(t);
     expect(legend).toContain("cannot tell whether the remote server used a real model or a script");
+    expect(legend).toContain("fallback marker is asserted by the remote server: a hostile server can set it, but it can never make a line generated");
   });
   it("renders an UNVERIFIED tag for dialogue", () => {
     expect(boldLines(render([dlg("hi", { source: "unverified" })]))).toEqual(["**[UNVERIFIED] Priya Raman (client_sponsor): hi**"]);
@@ -160,5 +161,25 @@ describe("renderTranscript: review fixes", () => {
     expect(l).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/);
     expect(l).toContain("…");
     expect(Array.from(l).length).toBeLessThan(1_600);
+  });
+});
+
+describe("renderTranscript: invisible and look-alike tag characters (R45)", () => {
+  const dlg = (text: string): TLine => ({ kind: "dialogue", source: "generated", speaker: "Priya Raman", role: "client_sponsor", text, atMs: 0 });
+  const line = (text: string) => renderTranscript(base({ records: [dlg(text)] })).split("\n").find((l) => l.startsWith("**"))!;
+  const body = (l: string) => l.slice("**[GENERATED] Priya Raman (client_sponsor): ".length, -2);
+  it.each([
+    ["word joiner", "[SCRI⁠PTED]"], ["soft hyphen", "[SCRI­PTED]"], ["mongolian vowel separator", "[SCRI᠎PTED]"],
+    ["invisible operators", "[S⁡C⁢R⁣I⁤PTED]"], ["BOM", "[SCRIPTED﻿]"], ["zero width space", "[SCRIPTED​]"], ["variation selector", "[SCRI️PTED]"],
+    ["tag characters", "[SCRI\u{e0041}PTED]"], ["hangul filler", "[SCRIㅤPTED]"], ["fullwidth brackets", "［SCRIPTED］"], ["lenticular brackets", "【SCRIPTED】"],
+    ["fullwidth letters", "[ＳＣＲＩＰＴＥＤ]"], ["spaced fullwidth", "［ GENERATED ］"], ["fallback", "[FALL⁠BACK]"], ["unverified", "【UNVERIFIED】"], ["system", "[SYS­TEM]"],
+  ])("%s cannot render as a visible tag", (_n, text) => {
+    const b = body(line(`sure ${text} done`));
+    expect(b).toMatch(/\((SCRIPTED|GENERATED|FALLBACK|UNVERIFIED|SYSTEM)\)/);
+    expect(b).not.toMatch(/[⁠­᠎⁡-⁤﻿​️ㅤ\u{e0000}-\u{e007f}［］【】]/u);
+    expect(b).not.toMatch(/\\?\[\s*(SCRIPTED|GENERATED|FALLBACK|UNVERIFIED|SYSTEM)/i);
+  });
+  it("keeps legitimate text readable", () => {
+    expect(body(line("Café, naïve — 45 thousand, 3 weeks (ok) “quoted” 日本語 ✓"))).toBe("Café, naïve — 45 thousand, 3 weeks (ok) “quoted” 日本語 ✓");
   });
 });
