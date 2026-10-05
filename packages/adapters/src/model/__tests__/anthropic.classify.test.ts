@@ -23,6 +23,14 @@ describe("classifyAnthropicError with the installed SDK's error classes", () => 
     expect(c).toMatchObject({ kind, transient });
     expect(c?.retryAfterMs).toBe(retryAfterMs);
   });
+  it("an SSE `event: error` raised by the installed SDK's parser (APIError.generate with no status)", () => {
+    const body = JSON.stringify({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } });
+    const err = APIError.generate(undefined, `SSE Error: ${body}`, body, {} as never);
+    expect(err).toBeInstanceOf(APIConnectionError); // what the real SDK builds
+    expect(classifyAnthropicError(err)).toMatchObject({ kind: "overloaded", transient: true, message: "anthropic reported an error: Overloaded" });
+    const bad = JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "max_tokens too big" } });
+    expect(classifyAnthropicError(APIError.generate(undefined, `SSE Error: ${bad}`, bad, {} as never))).toMatchObject({ kind: "bad_request", transient: false });
+  });
   it("never classifies the SDK's abort error", () => {
     expect(classifyAnthropicError(new APIUserAbortError())).toBeNull();
   });

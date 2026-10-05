@@ -57,15 +57,33 @@ describe("AnthropicModelProvider error classification", () => {
     failWith(new APIConnectionError(new Error("request to the custom Anthropic endpoint failed (redirects are refused)")));
     expect((await run()).error).toMatchObject({ kind: "network", transient: false });
   });
-  it("an in-stream error event without a status is classified by its type", async () => {
-    for (const [type, kind, transient] of [["overloaded_error", "overloaded", true], ["rate_limit_error", "rate_limited", true], ["api_error", "server_error", true], ["invalid_request_error", "bad_request", false], ["authentication_error", "auth", false]] as const) {
-      failWith(new APIError(undefined, { type: "error", error: { type, message: "Overloaded" } }, "x"));
-      expect((await run()).error).toMatchObject({ kind, transient, message: "anthropic reported an error: Overloaded" });
+  it("an in-stream error event, shaped EXACTLY as the SDK raises it (APIConnectionError, cause 'SSE Error: <json>', no status), is classified by its type", async () => {
+    const sse = (type: string, message: string) => new APIConnectionError(new Error(`SSE Error: ${JSON.stringify({ type: "error", error: { type, message } })}`));
+    for (const [type, kind, transient] of [["overloaded_error", "overloaded", true], ["rate_limit_error", "rate_limited", true], ["api_error", "server_error", true], ["timeout_error", "timeout", true], ["invalid_request_error", "bad_request", false], ["authentication_error", "auth", false], ["permission_error", "auth", false], ["not_found_error", "not_found", false]] as const) {
+      failWith(sse(type, `Overloaded ${KEY}\nline`));
+      expect((await run()).error).toMatchObject({ kind, transient, message: "anthropic reported an error: Overloaded [redacted] line" });
     }
-    failWith(new APIError(undefined, { type: "error", error: { type: "mystery", message: "try again later" } }, "x"));
+    failWith(sse("mystery", "try again later"));
     expect((await run()).error).toMatchObject({ kind: "overloaded", transient: true });
-    failWith(new APIError(undefined, { type: "error", error: { type: "mystery", message: "weird" } }, "x"));
+    failWith(sse("mystery", "weird"));
     expect((await run()).error).toMatchObject({ kind: "unknown", transient: false });
+  });
+  it("an SSE error with an unparseable body is classified by its text, never crashes", async () => {
+    failWith(new APIConnectionError(new Error("SSE Error: {not json overloaded")));
+    expect((await run()).error).toMatchObject({ kind: "overloaded", transient: true });
+    failWith(new APIConnectionError(new Error("SSE Error: ")));
+    expect((await run()).error).toMatchObject({ kind: "unknown", transient: false });
+  });
+  it("a DNS-not-found connection error is permanent", async () => {
+    failWith(new APIConnectionError(Object.assign(new Error("getaddrinfo ENOTFOUND h"), { code: "ENOTFOUND" })));
+    expect((await run()).error).toMatchObject({ kind: "network", transient: false });
+  });
+  it("passes the SDK a per-request maxRetries of 0 only when sdkRetries is false (the retry wrapper then owns retrying)", async () => {
+    streamMock.mockImplementation(async function* () { yield { type: "content_block_delta", delta: { type: "text_delta", text: "x" } }; });
+    for await (const _ of new AnthropicModelProvider({ apiKey: KEY, model: "m", sdkRetries: false }).stream(REQ)) void _;
+    expect(streamMock.mock.calls[0]![1]).toMatchObject({ maxRetries: 0 });
+    for await (const _ of new AnthropicModelProvider({ apiKey: KEY, model: "m" }).stream(REQ)) void _;
+    expect(streamMock.mock.calls[1]![1]).not.toHaveProperty("maxRetries");
   });
   it("an error after text was yielded is still classified (the retry wrapper decides)", async () => {
     failWith(new APIError(529, undefined, "529"), ["Hel"]);
