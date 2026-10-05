@@ -28,3 +28,7 @@
 - Review fix round 1 (R42-R44): UNVERIFIED tag for `--url`, scene guards (`expectSceneId`, `stale_scene`), exact fallback marker, final GM evaluation, S-13/S-14, safer Markdown. AC-0078 is unticked until a real live run is recorded.
 - Next: the controller runs the real live showcase; then US-0022 / US-0023 (note AC-0075 is now partly delivered by `--max-fallbacks` for the showcase).
 - First real live showcase recorded (extended scenario, OpenRouter nvidia/nemotron-3-ultra-550b-a55b:free, 2026-10-05): exit 0 in 279 s, 12 of 20 AI replies generated, 8 canned fallbacks (first-token timeouts), 4 real Game Master evaluations, 1 scene exited by the Game Master and 5 by the recorded facilitator safety net. US-0024 closed; US-0025 (Game Master reliability with real models) filed.
+
+## Session 4 — 2026-10-05
+
+- US-0022 built on `feature/EPIC-0006-US-0022-retry-transient-model-errors`: typed `ModelProviderError` classification in the OpenAI-compatible and Anthropic adapters (mock can script typed errors), `RetryingModelProvider` (bounded, backoff with jitter, Retry-After, abortable so retries never outlive the NPC deadlines, never retries after the first chunk), `MODEL_MAX_RETRIES` / `MODEL_RETRY_BASE_MS` read in `bootstrap()` and the live demo paths, alerts that state attempts and kind (`used fallback line` kept). Verified with fakes only; the controller measures the real-provider fallback rate afterwards. Known: the Game Master call still has no deadline of its own; the Anthropic SDK keeps its own two retries underneath.

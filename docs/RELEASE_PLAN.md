@@ -525,23 +525,23 @@ Notes: Requested by the user as an automated runner that can test the features u
 US-0022 (EPIC-0006): As an operator, I want transient model errors retried within the first-token budget, so that a brief capacity blip or an overloaded free-tier model does not turn into a canned fallback line.
 Priority: Medium
 Estimate: M
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0006-US-0022-retry-transient-model-errors
 Dependencies: US-0014, US-0015
 Acceptance Criteria:
-  - [ ] AC-0069: a transient upstream failure (an in-band overloaded or rate-limit error, HTTP 429 or 5xx, or a connection reset before any token) is retried a bounded number of times with backoff, inside the configured first-token and reply deadlines
-  - [ ] AC-0070: non-transient errors (401, 403, 404 unknown model, 400 bad request) are not retried and surface immediately as the fallback line plus a facilitator alert
-  - [ ] AC-0071: a retry never produces a duplicate or partial utterance, never outlives the deadlines, and the facilitator alert and log state how many attempts were made and why the last one failed (sanitized, no keys or URLs)
-  - [ ] AC-0072: the model adapters classify failures as transient or permanent through a typed error, and the shared adapter contract tests cover the classification for the mock, Anthropic and OpenAI-compatible providers
+  - [x] AC-0069: a transient upstream failure (an in-band overloaded or rate-limit error, HTTP 429 or 5xx, or a connection reset before any token) is retried a bounded number of times with backoff, inside the configured first-token and reply deadlines (verified with fakes: loopback servers and the mock provider; the real-provider effect on the fallback rate is measured by the controller afterwards)
+  - [x] AC-0070: non-transient errors (401, 403, 404 unknown model, 400 bad request) are not retried and surface immediately as the fallback line plus a facilitator alert
+  - [x] AC-0071: a retry never produces a duplicate or partial utterance, never outlives the deadlines, and the facilitator alert and log state how many attempts were made and why the last one failed (sanitized, no keys or URLs)
+  - [x] AC-0072: the model adapters classify failures as transient or permanent through a typed error, and the shared adapter contract tests cover the classification for the mock, Anthropic and OpenAI-compatible providers
 ```
 
 ```
 TASK-0022 (US-0022): Add a typed transient/permanent error classification to the adapters and a bounded retry in the NPC agent and Game Master
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0022-retry-transient-model-errors
-Notes: Found in a live demo run: about 4 of 10 calls to a free OpenRouter model failed within 0.4 s with 'Upstream error from Nvidia: Service temporarily overloaded' and each became the canned fallback line.
+Notes: Found in a live demo run: about 4 of 10 calls to a free OpenRouter model failed within 0.4 s with 'Upstream error from Nvidia: Service temporarily overloaded' and each became the canned fallback line. Delivered as ModelProviderError classification in the adapters, RetryingModelProvider, MODEL_MAX_RETRIES / MODEL_RETRY_BASE_MS, and attempt count plus kind in the NPC and GM alerts. The Game Master call has no deadline of its own (unchanged); its retries are bounded by the retry cap (about 1.5 s of waiting with the defaults).
 ```
 
 ```

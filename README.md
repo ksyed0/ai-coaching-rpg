@@ -152,12 +152,25 @@ All settings are environment variables (read from `.env` at the repository root;
 | `RUNTIME_PORT` | `8080` | Port the server listens on |
 | `NPC_FIRST_TOKEN_TIMEOUT_MS` | `10000` | Milliseconds an NPC waits for the model's first token before speaking its scripted fallback line and alerting the facilitator. Whole number, `500` to `600000` |
 | `NPC_REPLY_TIMEOUT_MS` | `20000` | Milliseconds allowed for a whole NPC reply (stalls after the first token included). Whole number, `500` to `600000`, and **must be at least `NPC_FIRST_TOKEN_TIMEOUT_MS`** |
+| `MODEL_MAX_RETRIES` | `2` | How many times a transient model error is retried (so up to 3 attempts) before the NPC speaks its fallback line. Whole number, `0` to `5`; `0` turns retrying off |
+| `MODEL_RETRY_BASE_MS` | `500` | First retry delay in milliseconds; it doubles per retry (capped at 4 s) with +/-25% jitter. Whole number, `100` to `10000` |
 | `SCENARIO_DIR` | `scenarios/friday-escalation` | Scenario folder (relative paths resolve from the repository root) |
 | `SESSION_ID` | `local` | Session id clients join (`--session`) |
 | `DEPLOYMENT_STAGE` | `local` | Present in `.env.example` but not read by the code yet |
 | `RUN_LIVE_MODEL_TESTS` | unset | Set to `1` (with a key) to run the live-API contract tests. Costs money; off by default |
 
 **When to raise the NPC timeouts.** The defaults suit fast chat models. Raise `NPC_FIRST_TOKEN_TIMEOUT_MS` (and `NPC_REPLY_TIMEOUT_MS` with it, since the reply deadline must be at least as long) for reasoning models that think before the first token, free-tier OpenRouter models that queue requests, and slow local models (for example a large model on CPU with Ollama). If NPCs keep answering with their canned fallback line and the facilitator sees "no first token" alerts, the timeout is too short for your model. Values must be plain whole numbers of milliseconds (`15000`, not `15s` or `1.5e4`); an invalid value stops startup with an error naming the variable.
+
+### Retries
+
+A brief capacity blip should not turn into a canned line, so live model calls (the AI characters and the Game Master) are retried when the failure is **transient** and **nothing has been said yet**:
+
+- **Retried:** HTTP 429 (rate limit; a `Retry-After` header is honored, up to 10 s), 500, 502, 503, 504, 529 and 408, an in-band error that says overloaded, rate limit, capacity, "try again" or unavailable (some providers send these inside a 200 response), and a connection failure such as a reset, refusal or timeout.
+- **Not retried:** 401 and 403 (bad key), 404 (unknown model), 400 and 422 (bad request), any other error, an error after the first piece of text has arrived (a partial reply is never repeated or spliced), and a stop caused by the NPC deadline or by shutting down.
+- **Settings:** `MODEL_MAX_RETRIES` (default 2, so at most 3 attempts) and `MODEL_RETRY_BASE_MS` (default 500: waits of about 0.5 s then 1 s). Set `MODEL_MAX_RETRIES=0` to disable retrying. Invalid values stop startup with an error naming the variable.
+- **Timeouts still rule.** The retries happen inside `NPC_FIRST_TOKEN_TIMEOUT_MS` and `NPC_REPLY_TIMEOUT_MS`: when the first-token timeout fires during a backoff wait the retrying stops at once and the character speaks its fallback line, so retries never make a reply later than the deadline you configured. With the 10 s default two retries fit easily; if you shorten the timeout, expect fewer retries to fit.
+- **What you see:** a successful retry looks like a normal reply (the host's log has one line such as `NPC model call: overloaded (HTTP 503), retrying in 480 ms`, with no message text, URL or key). When the attempts run out, the facilitator alert says how many were made and why the last failed, for example `NPC cfo: model error after 3 attempts (overloaded): ...; used fallback line`, and for the Game Master `GM: model error after 3 attempts (overloaded) for "<condition>": ...`.
+- The Anthropic SDK also retries 429 and 5xx on its own (twice, by default); this adds to it. The scripted mock provider used by the offline demo and the tests is never retried.
 
 ## Demo and test runner
 
