@@ -1,5 +1,5 @@
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import http from "node:http";
 import os from "node:os";
@@ -390,4 +390,42 @@ describe("loadLiveEnv", () => {
     mkdirSync(path.join(dir, ".env")); // a directory: EISDIR
     expect(() => loadLiveEnv(dir, {})).toThrow();
   });
+});
+
+// Kept in this file on purpose: the default run's temp directories (acr-demo-*) are counted by the tests above, so no other test file may run the default story in parallel.
+describe("--transcript with the default 29-check run", () => {
+  const tags = (md: string) => {
+    const body = md.slice(md.indexOf("## Legend") + 1);
+    const n = (t: string) => (body.match(new RegExp(`(?<!\\\\)\\[${t}\\]`, "g")) ?? []).length - 1; // the legend names each tag once
+    return { scripted: n("SCRIPTED"), generated: n("GENERATED"), fallback: n("FALLBACK"), system: n("SYSTEM") };
+  };
+  const bold = (md: string) => md.split("\n").filter((l) => l.startsWith("**"));
+  it("the default 29-check run writes a transcript: scripted dialogue, FALLBACK only from the side room, no GENERATED, hostile text inert", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "acr-transcript-test-")); cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    const c = capture();
+    const { exitCode, report } = await runDemo(deps(c, ["--fast", "--no-color", "--transcript", "out/default.md"], { cwd: dir }));
+    expect(exitCode).toBe(0);
+    expect(report!.summary.passed).toBe(29);
+    const md = await readFile(path.join(dir, "out", "default.md"), "utf8");
+    const t = tags(md);
+    expect(t.generated).toBe(0);
+    expect(t.fallback).toBe(2); // the side room's stalled and empty model replies
+    expect(t.scripted).toBeGreaterThan(20);
+    expect(t.system).toBeGreaterThan(20);
+    expect(bold(md)).toHaveLength(t.scripted + t.fallback);
+    expect(bold(md).every((l) => l.endsWith("**") && /^\*\*\[(SCRIPTED|FALLBACK)\] /.test(l))).toBe(true);
+    expect(md).toMatch(/\*\*\[FALLBACK\] Priya Raman \(client_sponsor\): Sorry, you cut out for a second there\. Say that again\?\*\*/);
+    expect(md).toContain("**[SCRIPTED] facilitator (whisper to delivery\\_lead): WHISPER-ONLY-FOR-DELIVERY-LEAD ask about timing**");
+    expect(md).toMatch(/\*\*\[SCRIPTED\] Priya Raman \(client_sponsor\): Thanks for calling\./);
+    // the hostile scripted line is inert
+    expect(md).not.toMatch(/\u001b|\u0007|\u202e/);
+    expect(md.split("\n").some((l) => /^\[delivery_lead\]/.test(l))).toBe(false);
+    expect(md).toContain("## ACT 2 · Scene 1: Team huddle");
+    expect(md).toContain("## Checks");
+    expect(md).toContain("| F-29 | passed |");
+    expect(md).toContain("| Mode | mock |");
+    expect(c.out.join("")).toContain("transcript written to out/default.md");
+    expect(c.out.join("")).not.toContain("**["); // the terminal narration is unchanged
+  });
+
 });

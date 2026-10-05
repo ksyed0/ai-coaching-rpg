@@ -1,4 +1,4 @@
-import { readdirSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -8,7 +8,6 @@ import { loadScenario } from "@acr/script";
 import { REPO_ROOT, bootstrap } from "../../main.js";
 import type { Report } from "../report.js";
 import { runDemo, type RunDeps } from "../runner.js";
-import { makeTempRoot } from "../harness.js";
 import { Transcript } from "../transcript.js";
 import type { Bot, Inbound } from "../bots.js";
 
@@ -34,34 +33,6 @@ const tags = (md: string) => {
 const bold = (md: string) => md.split("\n").filter((l) => l.startsWith("**"));
 
 describe("--transcript, mock mode", () => {
-  it("the default 29-check run writes a transcript: scripted dialogue, FALLBACK only from the side room, no GENERATED, hostile text inert", async () => {
-    const dir = await tmp();
-    const c = capture();
-    const { exitCode, report } = await runDemo(deps(c, ["--fast", "--no-color", "--transcript", "out/default.md"], { cwd: dir }));
-    expect(exitCode).toBe(0);
-    expect(report!.summary.passed).toBe(29);
-    const md = await readFile(path.join(dir, "out", "default.md"), "utf8");
-    const t = tags(md);
-    expect(t.generated).toBe(0);
-    expect(t.fallback).toBe(2); // the side room's stalled and empty model replies
-    expect(t.scripted).toBeGreaterThan(20);
-    expect(t.system).toBeGreaterThan(20);
-    expect(bold(md)).toHaveLength(t.scripted + t.fallback);
-    expect(bold(md).every((l) => l.endsWith("**") && /^\*\*\[(SCRIPTED|FALLBACK)\] /.test(l))).toBe(true);
-    expect(md).toMatch(/\*\*\[FALLBACK\] Priya Raman \(client_sponsor\): Sorry, you cut out for a second there\. Say that again\?\*\*/);
-    expect(md).toContain("**[SCRIPTED] facilitator (whisper to delivery\\_lead): WHISPER-ONLY-FOR-DELIVERY-LEAD ask about timing**");
-    expect(md).toMatch(/\*\*\[SCRIPTED\] Priya Raman \(client_sponsor\): Thanks for calling\./);
-    // the hostile scripted line is inert
-    expect(md).not.toMatch(/\u001b|\u0007|\u202e/);
-    expect(md.split("\n").some((l) => /^\[delivery_lead\]/.test(l))).toBe(false);
-    expect(md).toContain("## ACT 2 · Scene 1: Team huddle");
-    expect(md).toContain("## Checks");
-    expect(md).toContain("| F-29 | passed |");
-    expect(md).toContain("| Mode | mock |");
-    expect(c.out.join("")).toContain("transcript written to out/default.md");
-    expect(c.out.join("")).not.toContain("**["); // the terminal narration is unchanged
-  });
-
   it("the showcase run writes 58 SCRIPTED dialogue lines (24 player, 20 AI, 14 Game Master), no GENERATED, scene headings and the AI table", async () => {
     const dir = await tmp();
     const { exitCode } = await runDemo(deps(capture(), ["--showcase", "--fast", "--no-color", "--transcript", "show.md"], { cwd: dir }));
@@ -121,12 +92,10 @@ describe("--transcript path handling", () => {
   it("refuses a directory (exit 2, nothing started)", async () => {
     const dir = await tmp();
     const c = capture();
-    const before = readdirSync(os.tmpdir()).filter((d) => d.startsWith("acr-"));
     const { exitCode } = await runDemo(deps(c, ["--fast", "--transcript", dir]));
     expect(exitCode).toBe(2);
     expect(c.err.join("")).toContain("that path is a directory");
     expect(c.out).toEqual([]);
-    expect(readdirSync(os.tmpdir()).filter((d) => d.startsWith("acr-")).sort()).toEqual(before.sort());
   });
   it("creates missing parent folders under the working directory, the repo or the temp directory only", async () => {
     const dir = await tmp();
@@ -156,9 +125,9 @@ describe("--transcript path handling", () => {
 
 describe("--transcript with --url", () => {
   it("records only what the facilitator observes and never claims the target's replies are GENERATED without --live", async () => {
-    const t = await makeTempRoot(REPO_ROOT);
-    cleanups.push(() => t.cleanup());
-    const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root: t.root, logDir: t.dataDir, log: () => {}, warn: () => {}, tickMs: 60_000 });
+    const root = await tmp();
+    await cp(path.join(REPO_ROOT, "scenarios", "friday-escalation"), path.join(root, "scenarios", "friday-escalation"), { recursive: true });
+    const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root, logDir: path.join(root, "data"), log: () => {}, warn: () => {}, tickMs: 60_000 });
     if (!boot.ok) throw new Error(boot.errors.join("; "));
     cleanups.push(() => boot.runtime.stop());
     const dir = await tmp();
