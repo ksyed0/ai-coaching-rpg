@@ -246,6 +246,53 @@ describe("--live", () => {
     return (server.address() as { port: number }).port;
   };
 
+  // A model that is "briefly overloaded": the FIRST time it sees a request it answers 503, an identical retry succeeds.
+  const startFlakyModel = async () => {
+    const seenBodies = new Set<string>(); const stats = { requests: 0, failed: 0 };
+    const server = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (d) => { body += d; });
+      req.on("end", () => {
+        stats.requests++;
+        if (!seenBodies.has(body)) { seenBodies.add(body); stats.failed++; res.writeHead(503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: { message: "Service temporarily overloaded" } })); return; }
+        const text = body.includes("Game Master") ? '{"verdict": false, "reasoning": "not yet"}' : "I hear you, tell me more.";
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.end("data: [DONE]\n\n");
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    cleanups.push(() => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }));
+    return { port: (server.address() as { port: number }).port, stats };
+  };
+
+  it("retries transient 503s on the live path: the transcript shows [GENERATED] and no [FALLBACK] outside the side room", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "acr-live-retry-")); cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    const { port, stats } = await startFlakyModel();
+    const c = capture();
+    const { exitCode, report } = await runDemo(deps(c, ["--live", "--fast", "--no-color", "--transcript", "live.md"], {
+      cwd: dir, resolveLiveEnv: () => ({ MODEL_PROVIDER: "local", LOCAL_BASE_URL: `http://127.0.0.1:${port}/v1`, NPC_MODEL: "m", GM_MODEL: "m", MODEL_RETRY_BASE_MS: "100" }),
+    }));
+    expect(report!.results.filter((r) => r.status === "failed")).toEqual([]);
+    expect(exitCode).toBe(0);
+    expect(stats.failed).toBeGreaterThan(0); // the 503s really happened
+    const md = await readFile(path.join(dir, "live.md"), "utf8");
+    const count = (tag: string) => (md.match(new RegExp(`^\\*\\*\\[${tag}\\] `, "gm")) ?? []).length;
+    expect(count("GENERATED")).toBeGreaterThan(0);
+    // The only fallbacks are the side room's two deliberately misbehaving (scripted) model replies, as in the mock run.
+    expect(count("FALLBACK")).toBe(2);
+    expect(md).toMatch(/\*\*\[GENERATED\] [^\n]*I hear you, tell me more\.\*\*/);
+  });
+  it("refuses a bad MODEL_MAX_RETRIES / MODEL_RETRY_BASE_MS before starting anything (exit 2, variable named)", async () => {
+    for (const [name, value] of [["MODEL_MAX_RETRIES", "9"], ["MODEL_RETRY_BASE_MS", "5"]] as const) {
+      const c = capture();
+      const { exitCode } = await runDemo(deps(c, ["--live", "--fast"], { resolveLiveEnv: () => ({ MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://127.0.0.1:9/v1", NPC_MODEL: "m", GM_MODEL: "m", [name]: value }) }));
+      expect(exitCode).toBe(2);
+      expect(c.err.join("")).toContain(name);
+      expect(c.out).toEqual([]);
+    }
+  });
+
   it("runs against a configured provider, skips the scripted checks, passes the rest and never prints the key or endpoint", async () => {
     const tcpBefore = tcpHandles(); const dirsBefore = demoTempDirs();
     const port = await startFakeModel();

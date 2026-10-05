@@ -23,6 +23,7 @@ import { Transcript } from "./transcript.js";
 import { checkTranscriptTarget, writeTranscriptFile } from "./transcript-path.js";
 import { renderTranscript } from "./transcript-md.js";
 import { parseNpcTimeouts, DEFAULT_REPLY_TIMEOUT_MS } from "../agents/timeouts.js";
+import { parseModelRetry } from "../agents/retry-config.js";
 
 export const TOOL = "acr-demo";
 export const DEFAULT_WATCHDOG_MS = 120_000;
@@ -134,6 +135,8 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       liveEnv = (deps.resolveLiveEnv ?? (() => loadLiveEnv(repoRoot, process.env)))();
       providerLabel = describeModelProvider(liveEnv);
       selectModelProvider(liveEnv, "npc"); selectModelProvider(liveEnv, "gm"); // fails now, with a message that names variables, not values
+      const retryConfig = parseModelRetry(liveEnv);
+      if (!retryConfig.ok) throw new Error(retryConfig.errors.join("; "));
     } catch (err) {
       deps.stderr.write(`error: --live cannot use the configured model provider: ${scrubText(err instanceof Error ? err.message : String(err))}\n`);
       return { exitCode: 2 };

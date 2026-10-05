@@ -7,7 +7,7 @@ export const MAX_TIMEOUT_MS = 600_000;
 export type TimeoutParse = { ok: true; value: number } | { ok: false; error: string };
 
 /** Quote an untrusted value for an error message: truncated, with control characters escaped (JSON.stringify). */
-function show(raw: string): string { return JSON.stringify(raw.slice(0, 40)); }
+export function show(raw: string): string { return JSON.stringify(raw.slice(0, 40)); }
 
 /**
  * Parses one timeout environment variable: a base-10 positive integer number of milliseconds (no sign, exponent,

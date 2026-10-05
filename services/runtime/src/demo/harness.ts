@@ -10,6 +10,7 @@ import { SessionHost } from "../host/session-host.js";
 import { startServer } from "../host/ws-server.js";
 import { npcIntro } from "../agents/npc-prompt.js";
 import { parseNpcTimeouts } from "../agents/timeouts.js";
+import { parseModelRetry, withModelRetry } from "../agents/retry-config.js";
 
 /** A distinctive fake key set in the runner's own env object. It is never used to call anything; the audit proves it never leaks. */
 export const FAKE_KEY = "sk-ant-demo-FAKE-DO-NOT-USE-0123456789abcdefghijklmnop";
@@ -123,8 +124,12 @@ export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId
 export async function startLiveSystem(o: { scenario: Scenario; sessionId: string; dataDir: string; env: NodeJS.ProcessEnv }): Promise<System> {
   const timeouts = parseNpcTimeouts(o.env);
   if (!timeouts.ok) throw new Error(timeouts.errors.join("; "));
+  const retry = parseModelRetry(o.env);
+  if (!retry.ok) throw new Error(retry.errors.join("; "));
+  // Live providers retry transient model errors like the real runtime does (no log line: the demo's host log means "background failure").
   const sys = await buildSystem({
-    ...o, clock: new SystemClock(), npcProvider: selectModelProvider(o.env, "npc"), gmProvider: selectModelProvider(o.env, "gm"),
+    ...o, clock: new SystemClock(),
+    npcProvider: withModelRetry(selectModelProvider(o.env, "npc"), retry, "NPC"), gmProvider: withModelRetry(selectModelProvider(o.env, "gm"), retry, "GM"),
     firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs,
   });
   sys.host.startTicker(1_000);
