@@ -57,6 +57,18 @@
       "dependencies": [
         "EPIC-0003"
       ]
+    },
+    {
+      "id": "EPIC-0006",
+      "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
+      "description": "Work deliberately deferred while delivering Slice 1: releasing NPC hidden facts, protecting facilitator access and limiting abuse, resuming a session after a restart, lowering model cost, keeping identifier rules in one place, and an unattended demo and test runner.",
+      "releaseTarget": "MVP",
+      "status": "Planned",
+      "startDate": null,
+      "doneDate": null,
+      "dependencies": [
+        "EPIC-0001"
+      ]
     }
   ],
   "stories": [
@@ -507,6 +519,191 @@
       "dependencies": [
         "US-0012"
       ]
+    },
+    {
+      "id": "US-0016",
+      "epicId": "EPIC-0006",
+      "title": "As a facilitator, I want to release an NPC's hidden fact during a session, so that hidden information can surface when a participant earns it.",
+      "priority": "High",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0016-release-hidden-facts",
+      "acs": [
+        {
+          "id": "AC-0049",
+          "text": "a facilitator `release_hidden` command (role and fact index) is recorded as an event and the NPC's next prompt contains that fact",
+          "done": false
+        },
+        {
+          "id": "AC-0050",
+          "text": "players never receive the event or the fact text, and unreleased facts stay out of every prompt",
+          "done": false
+        },
+        {
+          "id": "AC-0051",
+          "text": "the terminal client offers `/release <role> <n>` and shows the facilitator which hidden facts a role has",
+          "done": false
+        },
+        {
+          "id": "AC-0052",
+          "text": "the README and CHANGELOG limitation about unreleased hidden facts is removed",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0011"
+      ]
+    },
+    {
+      "id": "US-0017",
+      "epicId": "EPIC-0006",
+      "title": "As an operator, I want facilitator access protected by a token and connections and message rates limited, so that the server can be run outside a fully trusted network.",
+      "priority": "High",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
+      "acs": [
+        {
+          "id": "AC-0053",
+          "text": "when `FACILITATOR_TOKEN` is set, `join_facilitator` without the matching token is refused (constant-time comparison) and the token is never logged or echoed",
+          "done": false
+        },
+        {
+          "id": "AC-0054",
+          "text": "a configurable cap on concurrent connections and a per-connection message rate limit close or throttle abusers without affecting other clients",
+          "done": false
+        },
+        {
+          "id": "AC-0055",
+          "text": "the threat model is documented, and the README limitation states exactly what the token does and does not protect (claiming an unclaimed player role is covered separately)",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0009"
+      ]
+    },
+    {
+      "id": "US-0018",
+      "epicId": "EPIC-0006",
+      "title": "As a facilitator, I want a session to resume from its event log after a server restart, so that a crash does not lose a session in progress.",
+      "priority": "Medium",
+      "estimate": "L",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0018-resume-after-restart",
+      "acs": [
+        {
+          "id": "AC-0056",
+          "text": "starting the server with an existing session log replays it into the engine state instead of rotating it aside",
+          "done": false
+        },
+        {
+          "id": "AC-0057",
+          "text": "clients that rejoin receive their visible history (builds on the replay-from-seq protocol in US-0013)",
+          "done": false
+        },
+        {
+          "id": "AC-0058",
+          "text": "starting a fresh session over an old log stays possible through an explicit option, with the old log rotated aside",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0006",
+        "US-0013"
+      ]
+    },
+    {
+      "id": "US-0019",
+      "epicId": "EPIC-0006",
+      "title": "As an operator, I want model calls to cost less per session, so that sessions stay affordable as they get longer.",
+      "priority": "Low",
+      "estimate": "S",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0019-model-cost",
+      "acs": [
+        {
+          "id": "AC-0059",
+          "text": "the Game Master prompt uses a bounded transcript window instead of the whole scene transcript",
+          "done": false
+        },
+        {
+          "id": "AC-0060",
+          "text": "the Game Master stops evaluating the remaining conditions of a scene after a condition is judged true",
+          "done": false
+        },
+        {
+          "id": "AC-0061",
+          "text": "the NPC persona prompt puts stable content before changing goals and knowledge so the cached prefix survives NPC updates",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0008"
+      ]
+    },
+    {
+      "id": "US-0020",
+      "epicId": "EPIC-0006",
+      "title": "As a developer, I want one shared definition of identifier rules and accurate plan text, so that scenario ids, protocol ids, session ids and the docs cannot drift apart.",
+      "priority": "Low",
+      "estimate": "S",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0020-shared-id-rules",
+      "acs": [
+        {
+          "id": "AC-0062",
+          "text": "scenario, protocol, terminal client and session-id validation use one exported set of identifier rules",
+          "done": false
+        },
+        {
+          "id": "AC-0063",
+          "text": "the Slice 1 plan's self-review text is corrected (`SessionEngine.alert()` replaced the planned public `emit`) and records where later rulings changed the plan",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0012"
+      ]
+    },
+    {
+      "id": "US-0021",
+      "epicId": "EPIC-0006",
+      "title": "As a developer or evaluator, I want an unattended demo and test runner that plays the whole scenario and checks every feature, so that I can verify or show the system without anyone at the keyboard.",
+      "priority": "High",
+      "estimate": "M",
+      "status": "Complete",
+      "branch": "feature/EPIC-0006-followups-and-demo-runner",
+      "acs": [
+        {
+          "id": "AC-0064",
+          "text": "`pnpm demo` starts an in-process server and scripted bot participants (a facilitator and three players) over real WebSocket connections and plays Friday Escalation to the end without any input",
+          "done": true
+        },
+        {
+          "id": "AC-0065",
+          "text": "the run prints a narrated, paced transcript (adjustable speed, instant with `--fast`) and ends with a pass/fail checklist of the features it verified and a non-zero exit code on any failure",
+          "done": true
+        },
+        {
+          "id": "AC-0066",
+          "text": "it uses the mock provider by default and a `--live` mode with the configured provider, where checks are limited to what a real model cannot make flaky",
+          "done": true
+        },
+        {
+          "id": "AC-0067",
+          "text": "it can target an already running server (`--url`), for example the Docker container, as a smoke test",
+          "done": true
+        },
+        {
+          "id": "AC-0068",
+          "text": "it can write a machine-readable report (`--json`) for CI",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0012"
+      ]
     }
   ],
   "tasks": [
@@ -659,98 +856,219 @@
       "status": "To Do",
       "branch": "feature/EPIC-0002-US-0013-reconnect",
       "notes": "See the implementation plan task of the same number. Deferred to slice 2."
+    },
+    {
+      "id": "TASK-0016",
+      "storyId": "US-0016",
+      "title": "Add the release_hidden facilitator command, engine and reducer support, and the client command",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0016-release-hidden-facts",
+      "notes": "Plan gap found in the Slice 1 final review: `SessionEngine.updateNpc(..., {released})` is only called by tests, so `hidden` facts can never surface at runtime. Architecture section 4 expects a release path."
+    },
+    {
+      "id": "TASK-0017",
+      "storyId": "US-0017",
+      "title": "Add facilitator token check, connection cap and per-connection rate limiting to the WebSocket server",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
+      "notes": "Known limitation of Slice 1: anyone who can reach the port can join as facilitator or claim an unclaimed player role. The server binds all interfaces."
+    },
+    {
+      "id": "TASK-0018",
+      "storyId": "US-0018",
+      "title": "Rebuild engine and host state from the JSONL log on startup and add an explicit fresh-session option",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0018-resume-after-restart",
+      "notes": "Slice 1 rotates a stale log aside (US-0009 rotation) and never resumes. NPC agent, Game Master and ticker state must be reconstructed from events only."
+    },
+    {
+      "id": "TASK-0019",
+      "storyId": "US-0019",
+      "title": "Bound the Game Master transcript, short-circuit after a true verdict, reorder the NPC prompt prefix",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0019-model-cost",
+      "notes": "Deferred minor findings from Tasks 7 and 8 and the final review. Behavior must stay covered by the existing leak and guardrail tests."
+    },
+    {
+      "id": "TASK-0020",
+      "storyId": "US-0020",
+      "title": "Extract shared identifier rules and correct the Slice 1 plan text",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0020-shared-id-rules",
+      "notes": "Three id rules currently live in schema.ts, protocol.ts, commands.ts and event-log.ts. Mismatches are harmless today but easy to drift."
+    },
+    {
+      "id": "TASK-0021",
+      "storyId": "US-0021",
+      "title": "Build the demo runner: bot participants, narration, feature checklist, report and CLI",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-followups-and-demo-runner",
+      "notes": "Requested by the user as an automated runner that can test the features unattended in a demo-like mode. Code in services/runtime/src/demo/ (args, narrator, bots, checks, harness, story, lab, audit, report, runner, run); CI job Demo Run."
     }
   ],
   "testCases": [],
-  "bugs": [],
+  "bugs": [
+    {
+      "id": "BUG-0001",
+      "title": "Heartbeat tests use 30 ms periods and can fail on a loaded CI runner; heartbeatMs of 0 or less is not guarded",
+      "severity": "Low",
+      "relatedStory": "US-0009",
+      "relatedTask": "TASK-0009",
+      "status": "Open",
+      "fixBranch": "bugfix/BUG-0001-heartbeat-test-timing",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0002",
+      "title": "Connection failures on a custom Anthropic endpoint are reported as \"redirects are refused\"",
+      "severity": "Low",
+      "relatedStory": "US-0014",
+      "relatedTask": "TASK-0014",
+      "status": "Open",
+      "fixBranch": "bugfix/BUG-0002-anthropic-endpoint-errors",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    }
+  ],
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0.41114,
+      "costUsd": 0.293671,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0016": {
+      "projectedUsd": 800,
+      "costUsd": 0.293671,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0017": {
+      "projectedUsd": 800,
+      "costUsd": 0.293671,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0018": {
+      "projectedUsd": 1600,
+      "costUsd": 0.293671,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0019": {
+      "projectedUsd": 400,
+      "costUsd": 0.293671,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0020": {
+      "projectedUsd": 400,
+      "costUsd": 0.293671,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0021": {
+      "projectedUsd": 800,
+      "costUsd": 0.293671,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -760,6 +1078,22 @@
       "outputTokens": 69480
     },
     "_bugs": {
+      "BUG-0001": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0002": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
       "_totals": {
         "costUsd": 0,
         "inputTokens": 0,
@@ -872,6 +1206,48 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": true
+    },
+    "US-0016": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0017": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0018": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0019": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0020": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0021": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -892,6 +1268,11 @@
       "sessionNum": 1,
       "date": "2026-10-01",
       "summary": ""
+    },
+    {
+      "sessionNum": 2,
+      "date": "2026-10-02",
+      "summary": ""
     }
   ],
   "lessons": [
@@ -904,10 +1285,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-03T00:39:42.768Z",
-  "commitSha": "81b1728",
-  "buildNumber": "43",
-  "branch": "feature/EPIC-0001-US-0001-monorepo",
+  "generatedAt": "2026-10-03T16:49:27.693Z",
+  "commitSha": "d02cf54",
+  "buildNumber": "46",
+  "branch": "feature/EPIC-0006-followups-and-demo-runner",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -1005,13 +1386,13 @@
     }
   },
   "budget": {
-    "totalBudget": 11206.1671,
+    "totalBudget": 15206.1671,
     "totalSpent": 6.1671,
-    "totalProjected": 12400,
+    "totalProjected": 17200,
     "percentUsed": 0,
     "burnRate": 0.16589999999999971,
-    "daysRemaining": 67510,
-    "projectedExhaustion": 67510,
+    "daysRemaining": 91621,
+    "projectedExhaustion": 91621,
     "thresholds": [
       50,
       75,
@@ -1023,17 +1404,25 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10405.75596,
-        "spent": 5.755959999999998,
+        "budget": 10404.111394,
+        "spent": 4.111393999999999,
         "remaining": 10400,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.41114,
-        "spent": 0.41114,
+        "budget": 800.293671,
+        "spent": 0.293671,
         "remaining": 800,
+        "percentUsed": 0
+      },
+      {
+        "id": "EPIC-0006",
+        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
+        "budget": 4001.762026,
+        "spent": 1.762026,
+        "remaining": 4000,
         "percentUsed": 0
       },
       {
@@ -1069,9 +1458,11 @@
       "2026-10-01T21:28:42.754Z",
       "2026-10-02T23:21:24.502Z",
       "2026-10-02T23:52:35.725Z",
-      "2026-10-03T00:39:42.837Z"
+      "2026-10-03T00:39:42.837Z",
+      "2026-10-03T16:49:27.780Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -1081,15 +1472,18 @@
       13,
       13,
       14,
-      15
+      15,
+      21
     ],
     "aiCosts": [
       5.8353,
       6.1671,
       6.1671,
+      6.1671,
       6.1671
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -1099,15 +1493,18 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "openBugs": [
       0,
       0,
       0,
-      0
+      0,
+      2
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -1117,10 +1514,12 @@
       519419,
       522440,
       522440,
+      522440,
       522440
     ],
     "outputTokens": [
       64947,
+      69480,
       69480,
       69480,
       69480
@@ -1129,7 +1528,8 @@
       1.0999999999999999,
       1.0999999999999999,
       1.0999999999999999,
-      1.0999999999999999
+      1.0999999999999999,
+      1.1285714285714288
     ],
     "velocityByWeek": {
       "labels": [

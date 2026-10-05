@@ -44,6 +44,14 @@ Status: Planned
 Dependencies: EPIC-0003
 ```
 
+```
+EPIC-0006: Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling
+Description: Work deliberately deferred while delivering Slice 1: releasing NPC hidden facts, protecting facilitator access and limiting abuse, resuming a session after a restart, lowering model cost, keeping identifier rules in one place, and an unattended demo and test runner.
+Release Target: MVP
+Status: Planned
+Dependencies: EPIC-0001
+```
+
 ## User stories and tasks
 
 ```
@@ -377,4 +385,138 @@ Assignee: Agent
 Status: To Do
 Branch: feature/EPIC-0002-US-0013-reconnect
 Notes: See the implementation plan task of the same number. Deferred to slice 2.
+```
+
+```
+US-0016 (EPIC-0006): As a facilitator, I want to release an NPC's hidden fact during a session, so that hidden information can surface when a participant earns it.
+Priority: High
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0006-US-0016-release-hidden-facts
+Dependencies: US-0011
+Acceptance Criteria:
+  - [ ] AC-0049: a facilitator `release_hidden` command (role and fact index) is recorded as an event and the NPC's next prompt contains that fact
+  - [ ] AC-0050: players never receive the event or the fact text, and unreleased facts stay out of every prompt
+  - [ ] AC-0051: the terminal client offers `/release <role> <n>` and shows the facilitator which hidden facts a role has
+  - [ ] AC-0052: the README and CHANGELOG limitation about unreleased hidden facts is removed
+```
+
+```
+TASK-0016 (US-0016): Add the release_hidden facilitator command, engine and reducer support, and the client command
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0016-release-hidden-facts
+Notes: Plan gap found in the Slice 1 final review: `SessionEngine.updateNpc(..., {released})` is only called by tests, so `hidden` facts can never surface at runtime. Architecture section 4 expects a release path.
+```
+
+```
+US-0017 (EPIC-0006): As an operator, I want facilitator access protected by a token and connections and message rates limited, so that the server can be run outside a fully trusted network.
+Priority: High
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
+Dependencies: US-0009
+Acceptance Criteria:
+  - [ ] AC-0053: when `FACILITATOR_TOKEN` is set, `join_facilitator` without the matching token is refused (constant-time comparison) and the token is never logged or echoed
+  - [ ] AC-0054: a configurable cap on concurrent connections and a per-connection message rate limit close or throttle abusers without affecting other clients
+  - [ ] AC-0055: the threat model is documented, and the README limitation states exactly what the token does and does not protect (claiming an unclaimed player role is covered separately)
+```
+
+```
+TASK-0017 (US-0017): Add facilitator token check, connection cap and per-connection rate limiting to the WebSocket server
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
+Notes: Known limitation of Slice 1: anyone who can reach the port can join as facilitator or claim an unclaimed player role. The server binds all interfaces.
+```
+
+```
+US-0018 (EPIC-0006): As a facilitator, I want a session to resume from its event log after a server restart, so that a crash does not lose a session in progress.
+Priority: Medium
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0006-US-0018-resume-after-restart
+Dependencies: US-0006, US-0013
+Acceptance Criteria:
+  - [ ] AC-0056: starting the server with an existing session log replays it into the engine state instead of rotating it aside
+  - [ ] AC-0057: clients that rejoin receive their visible history (builds on the replay-from-seq protocol in US-0013)
+  - [ ] AC-0058: starting a fresh session over an old log stays possible through an explicit option, with the old log rotated aside
+```
+
+```
+TASK-0018 (US-0018): Rebuild engine and host state from the JSONL log on startup and add an explicit fresh-session option
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0018-resume-after-restart
+Notes: Slice 1 rotates a stale log aside (US-0009 rotation) and never resumes. NPC agent, Game Master and ticker state must be reconstructed from events only.
+```
+
+```
+US-0019 (EPIC-0006): As an operator, I want model calls to cost less per session, so that sessions stay affordable as they get longer.
+Priority: Low
+Estimate: S
+Status: Planned
+Branch: feature/EPIC-0006-US-0019-model-cost
+Dependencies: US-0008
+Acceptance Criteria:
+  - [ ] AC-0059: the Game Master prompt uses a bounded transcript window instead of the whole scene transcript
+  - [ ] AC-0060: the Game Master stops evaluating the remaining conditions of a scene after a condition is judged true
+  - [ ] AC-0061: the NPC persona prompt puts stable content before changing goals and knowledge so the cached prefix survives NPC updates
+```
+
+```
+TASK-0019 (US-0019): Bound the Game Master transcript, short-circuit after a true verdict, reorder the NPC prompt prefix
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0019-model-cost
+Notes: Deferred minor findings from Tasks 7 and 8 and the final review. Behavior must stay covered by the existing leak and guardrail tests.
+```
+
+```
+US-0020 (EPIC-0006): As a developer, I want one shared definition of identifier rules and accurate plan text, so that scenario ids, protocol ids, session ids and the docs cannot drift apart.
+Priority: Low
+Estimate: S
+Status: Planned
+Branch: feature/EPIC-0006-US-0020-shared-id-rules
+Dependencies: US-0012
+Acceptance Criteria:
+  - [ ] AC-0062: scenario, protocol, terminal client and session-id validation use one exported set of identifier rules
+  - [ ] AC-0063: the Slice 1 plan's self-review text is corrected (`SessionEngine.alert()` replaced the planned public `emit`) and records where later rulings changed the plan
+```
+
+```
+TASK-0020 (US-0020): Extract shared identifier rules and correct the Slice 1 plan text
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0020-shared-id-rules
+Notes: Three id rules currently live in schema.ts, protocol.ts, commands.ts and event-log.ts. Mismatches are harmless today but easy to drift.
+```
+
+```
+US-0021 (EPIC-0006): As a developer or evaluator, I want an unattended demo and test runner that plays the whole scenario and checks every feature, so that I can verify or show the system without anyone at the keyboard.
+Priority: High
+Estimate: M
+Status: Complete
+Branch: feature/EPIC-0006-followups-and-demo-runner
+Dependencies: US-0012
+Acceptance Criteria:
+  - [x] AC-0064: `pnpm demo` starts an in-process server and scripted bot participants (a facilitator and three players) over real WebSocket connections and plays Friday Escalation to the end without any input
+  - [x] AC-0065: the run prints a narrated, paced transcript (adjustable speed, instant with `--fast`) and ends with a pass/fail checklist of the features it verified and a non-zero exit code on any failure
+  - [x] AC-0066: it uses the mock provider by default and a `--live` mode with the configured provider, where checks are limited to what a real model cannot make flaky
+  - [x] AC-0067: it can target an already running server (`--url`), for example the Docker container, as a smoke test
+  - [x] AC-0068: it can write a machine-readable report (`--json`) for CI
+```
+
+```
+TASK-0021 (US-0021): Build the demo runner: bot participants, narration, feature checklist, report and CLI
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-followups-and-demo-runner
+Notes: Requested by the user as an automated runner that can test the features unattended in a demo-like mode. Code in services/runtime/src/demo/ (args, narrator, bots, checks, harness, story, lab, audit, report, runner, run); CI job Demo Run.
 ```

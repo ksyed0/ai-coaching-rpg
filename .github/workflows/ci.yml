@@ -3,7 +3,7 @@ name: CI
 # Required checks for every PR into main/develop (see AGENTS.md "CI Pipeline").
 # The npm-based jobs above the "pnpm workspace" divider guard the PlanVisualizer tooling and are
 # required branch-protection checks: never rename them. The jobs below the divider cover the
-# TypeScript workspace (US-0012); they are intentionally NOT required checks yet.
+# TypeScript workspace (US-0012) and the demo run (US-0021); they are intentionally NOT required checks yet.
 on:
   pull_request:
     branches: [main, develop]
@@ -181,3 +181,25 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       # Build only (no push): proves the runtime image builds from a clean checkout.
       - run: docker build -f deploy/compose/Dockerfile.runtime -t acr-runtime:ci .
+
+  demo-run:
+    name: Demo Run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # US-0021: plays the whole scenario with scripted bots and the mock model (offline, no secrets) and checks every feature.
+      - run: pnpm demo --fast --json demo-report.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: demo-report
+          path: demo-report.json
+          if-no-files-found: warn
