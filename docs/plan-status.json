@@ -768,6 +768,50 @@
       "dependencies": [
         "US-0021"
       ]
+    },
+    {
+      "id": "US-0024",
+      "epicId": "EPIC-0006",
+      "title": "As an evaluator, I want a longer demo scenario and a showcase mode, so that a live demo shows the AI characters and the Game Master doing substantial real work.",
+      "priority": "High",
+      "estimate": "L",
+      "status": "Complete",
+      "branch": "feature/EPIC-0006-US-0024-showcase-demo",
+      "acs": [
+        {
+          "id": "AC-0076",
+          "text": "`scenarios/friday-escalation-extended` (6 scenes, 3 players, 2 AI characters including a new CFO, time boxes, gm_detects exit conditions, timed and private injects) loads and validates with zero errors and zero warnings, and a validated `showcase.yaml` script drives the bot players",
+          "done": true
+        },
+        {
+          "id": "AC-0077",
+          "text": "`pnpm demo --showcase --fast` runs offline in mock mode and passes its own checks (S-01 to S-12), and CI runs it as a step of the Demo Run job",
+          "done": true
+        },
+        {
+          "id": "AC-0078",
+          "text": "`pnpm demo --showcase --live` uses the configured provider for the AI characters and for the Game Master, scene exits are decided by the real Game Master, and the facilitator advance is only a recorded safety net",
+          "done": true
+        },
+        {
+          "id": "AC-0079",
+          "text": "the run ends with an AI contribution report (replies per character split into real model output and canned fallback lines, latency, Game Master evaluations and exits, advances, alerts, wall time), also in the JSON report, with `--max-fallbacks` and `--watchdog` limits",
+          "done": true
+        },
+        {
+          "id": "AC-0080",
+          "text": "the flags, the run-time guidance, the privacy and cost notice and a real output excerpt are documented in the README and CHANGELOG",
+          "done": true
+        },
+        {
+          "id": "AC-0081",
+          "text": "`--transcript <path.md>` writes a Markdown transcript in every demo mode with bold dialogue lines tagged [SCRIPTED], [GENERATED] or [FALLBACK], plain [SYSTEM] logging, and Markdown-safe escaping that lets no model or server text forge a tag, heading, table or link",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0021"
+      ]
     }
   ],
   "tasks": [
@@ -1000,6 +1044,16 @@
       "status": "To Do",
       "branch": "feature/EPIC-0006-US-0023-demo-live-evidence",
       "notes": "In three live runs 2 of 6 main-story replies were canned fallback lines, yet check F-08 passed because a fallback line is non-empty."
+    },
+    {
+      "id": "TASK-0024",
+      "storyId": "US-0024",
+      "title": "Build the extended scenario, the showcase script and loader, the showcase story, report and transcript",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0024-showcase-demo",
+      "notes": "Requested by the user (R40, R41) after a live demo showed only one real model line. Code in services/runtime/src/demo/ (showcase, showcase-script, showcase-report, provenance, transcript, transcript-md). Overlaps AC-0075 of US-0023, which asked for --max-fallbacks; US-0023 still owns the live fallback evidence for the 29-check run."
     }
   ],
   "testCases": [],
@@ -1044,139 +1098,145 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 0.268135,
+      "costUsd": 0.256962,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0024": {
+      "projectedUsd": 1600,
+      "costUsd": 0.256962,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -1378,6 +1438,13 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": true
+    },
+    "US-0024": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -1403,6 +1470,11 @@
       "sessionNum": 2,
       "date": "2026-10-02",
       "summary": ""
+    },
+    {
+      "sessionNum": 3,
+      "date": "2026-10-05",
+      "summary": ""
     }
   ],
   "lessons": [
@@ -1415,10 +1487,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-05T14:07:31.025Z",
-  "commitSha": "d7e2ba2",
-  "buildNumber": "56",
-  "branch": "feature/EPIC-0006-backlog-refinements",
+  "generatedAt": "2026-10-05T14:39:25.120Z",
+  "commitSha": "1c24f89",
+  "buildNumber": "62",
+  "branch": "feature/EPIC-0006-US-0024-showcase-demo",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -1518,7 +1590,7 @@
   "budget": {
     "totalBudget": 16406.1671,
     "totalSpent": 6.1671,
-    "totalProjected": 18400,
+    "totalProjected": 20000,
     "percentUsed": 0,
     "burnRate": 0.08294999999999986,
     "daysRemaining": 197709,
@@ -1534,24 +1606,24 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10403.75389,
-        "spent": 3.75389,
+        "budget": 10403.597468,
+        "spent": 3.5974680000000014,
         "remaining": 10400,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.268135,
-        "spent": 0.268135,
+        "budget": 800.256962,
+        "spent": 0.256962,
         "remaining": 800,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 5202.14508,
-        "spent": 2.14508,
+        "budget": 5202.312658,
+        "spent": 2.3126580000000008,
         "remaining": 5200,
         "percentUsed": 0
       },
@@ -1590,9 +1662,11 @@
       "2026-10-02T23:52:35.725Z",
       "2026-10-03T00:39:42.837Z",
       "2026-10-03T16:49:27.780Z",
-      "2026-10-05T14:07:31.101Z"
+      "2026-10-05T14:07:31.101Z",
+      "2026-10-05T14:39:25.204Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -1606,7 +1680,8 @@
       14,
       15,
       21,
-      23
+      23,
+      24
     ],
     "aiCosts": [
       5.8353,
@@ -1614,9 +1689,11 @@
       6.1671,
       6.1671,
       6.1671,
+      6.1671,
       6.1671
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -1630,6 +1707,7 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "openBugs": [
@@ -1638,9 +1716,11 @@
       0,
       0,
       2,
+      3,
       3
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -1654,10 +1734,12 @@
       522440,
       522440,
       522440,
+      522440,
       522440
     ],
     "outputTokens": [
       64947,
+      69480,
       69480,
       69480,
       69480,
@@ -1670,7 +1752,8 @@
       1.0999999999999999,
       1.0999999999999999,
       1.1285714285714288,
-      1.139130434782609
+      1.139130434782609,
+      1.1375000000000004
     ],
     "velocityByWeek": {
       "labels": [

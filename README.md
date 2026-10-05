@@ -171,10 +171,12 @@ pnpm -s demo --fast --json -   # JSON report on stdout, narration on stderr (-s 
 pnpm demo --fast --json out.json   # JSON report to a file (a relative path is relative to where you ran pnpm)
 pnpm demo --live               # use the real configured model provider (see the warning below)
 pnpm demo --url ws://localhost:8080 --fast   # smoke-test a server that is already running
+pnpm demo --showcase --fast    # the longer scenario: AI characters and the Game Master do substantial work (see Showcase below)
+pnpm demo --fast --transcript demo.md   # also write a Markdown transcript (every mode; see Markdown transcript below)
 pnpm demo --help
 ```
 
-Other flags: `--session <id>` (default `demo`, or `local` with `--url`) and `--no-color`. Colour is used only on a terminal, with `NO_COLOR` unset and no `--no-color`. Everything a server, participant or model wrote goes through the same sanitiser as the terminal client, so hostile text cannot put control characters on your screen.
+Other flags: `--session <id>` (default `demo`, or `local` with `--url`), `--watchdog <minutes>` (real-time limit, 1 to 180; the default run keeps 2 minutes in mock mode and 10 with `--live`) and `--no-color`. Colour is used only on a terminal, with `NO_COLOR` unset and no `--no-color`. Everything a server, participant or model wrote goes through the same sanitiser as the terminal client, so hostile text cannot put control characters on your screen.
 
 **Exit codes.** `0` when every check that ran passed (checks skipped because of the mode, `--live` or `--url`, do not count against it); `1` when a check failed, the run hit an unexpected error or the real-time watchdog fired (2 minutes in mock mode, 10 minutes with `--live`); `2` for a usage error; `130` / `143` when interrupted with Ctrl-C (SIGINT) / SIGTERM (the run aborts, closes its servers and sockets and removes its temp directory first). In every mode a check that did not run, other than the intended mode skips (`--live`, `--url`), counts as a failure, never as a quiet skip. Against a server that floods the client (more than 5,000 frames) or sends a frame above 1 MiB, the run fails cleanly instead of consuming memory.
 
@@ -188,7 +190,7 @@ A Docker smoke test: start the container, run the demo against it, restart it be
 
 ### Reading the checklist
 
-Each feature has an id (`F-01` to `F-29`), a title and one line of evidence. `✓` passed, `✗` failed (the evidence says why), `–` skipped (the evidence says why: `live mode`, `needs in-process server` or `prerequisite failed`). A failed check does not hide the others; checks that depend on it are skipped, not faked. The JSON report has the same content: `{ tool, version, mode, startedAt, durationMs, summary: { passed, failed, skipped }, results: [{ id, title, status, details, durationMs }] }`. It contains no secrets, no environment values and no paths from your home or temp directories. CI runs `pnpm demo --fast --json demo-report.json` as the (non-required) "Demo Run" job and uploads the report.
+Each feature has an id (`F-01` to `F-29`), a title and one line of evidence. `✓` passed, `✗` failed (the evidence says why), `–` skipped (the evidence says why: `live mode`, `needs in-process server` or `prerequisite failed`). A failed check does not hide the others; checks that depend on it are skipped, not faked. The JSON report has the same content: `{ tool, version, mode, startedAt, durationMs, summary: { passed, failed, skipped }, results: [{ id, title, status, details, durationMs }] }`. It contains no secrets, no environment values and no paths from your home or temp directories. CI runs `pnpm demo --fast --json demo-report.json` and then `pnpm demo --showcase --fast --json demo-showcase-report.json --transcript demo-transcript.md` as the (non-required) "Demo Run" job and uploads the reports and the transcript.
 
 An excerpt of a real run (`pnpm demo --fast --no-color`); `...` marks lines left out:
 
@@ -216,6 +218,78 @@ Checklist
   ...
 Summary: 29 passed, 0 failed, 0 skipped (mock mode, 0.9 s)
 ```
+
+### Showcase: a longer scenario so the AI does real work
+
+The default run plays one short AI scene, so a live run shows only a couple of model replies. `pnpm demo --showcase` plays **`scenarios/friday-escalation-extended`** instead: six scenes (about 50 minutes of scenario time), three players and **two** AI characters, Priya Raman (`client_sponsor`) and a new CFO, Helena Brandt (`cfo`), a numbers-first finance executive. Players-only huddles frame a call with Priya (scene 2) and an escalation call and a negotiation of the final terms with Priya and the CFO (scenes 4 and 5). The bots speak 24 scripted lines (`showcase.yaml` in the scenario folder), which produce about 20 AI replies and 14 Game Master evaluations in a full run. Each scene has a `gm_detects` exit condition, a time box and a facilitator-advance backstop, plus timed and private injects (two aimed at the AI characters).
+
+```bash
+pnpm demo --showcase --fast                       # mock: scripted AI characters and Game Master, offline, deterministic, about a second
+pnpm demo --showcase --live                       # the REAL provider for the AI characters AND the Game Master
+pnpm demo --showcase --live --max-lines 2         # a shorter run for a slow model
+pnpm demo --showcase --live --max-fallbacks 0     # fail the run if any AI reply was a canned fallback line
+pnpm demo --showcase --scenario scenarios/my-scenario --fast   # your own package (needs its own showcase.yaml)
+pnpm -s demo --showcase --fast --json -           # JSON report on stdout (with a `showcase` section)
+```
+
+Flags: `--scenario <dir>` (default `scenarios/friday-escalation-extended`, relative to the repo root; must load and have a `showcase.yaml`), `--max-lines <n>` (1 to 20 scripted lines per scene), `--max-fallbacks <n>` (0 to 1000: more fallback lines than this fail the run; without it they are only a warning) and `--watchdog <minutes>` (default 3, or 30 with `--live`). `--url` is not supported (exit 2). Invalid scenario or showcase files exit 2 with one line naming the file and the problem.
+
+**In live mode the real Game Master ends the scenes** (every third utterance it judges each `gm_detects` condition); the facilitator's `advance` is only a safety net after a scene's scripted lines run out, recorded as the observation `GM did not exit; facilitator advanced (<scene>)`, never a failure. Every wait is bounded by the configured NPC timeouts. **Run time:** mock about a second. Live depends on the model: an OpenRouter free-tier model takes minutes (and may answer some replies with the fallback line when it is overloaded); a slow local model can take about a minute per reply, so use `--max-lines 2`. `--live` sends the AI characters' personas and goals and the scripted conversation to your provider and may cost money (the run prints how many calls to expect); it prints only the provider's label, never keys or URLs, and refuses a `mock` provider with exit 2.
+
+The narration labels every line by its source: `[player bot]`, `[AI character]`, `[Game Master]` (condition, verdict and its sanitized reasoning), `[system]` and `[alert]` (for example a fallback line with its reason), notes each scene's exit reason, and ends with an **AI contribution** summary: per character the replies, how many were real model output and how many canned fallback lines, the median and maximum reply latency (derived from event timestamps, from the previous line to the reply; `n/a` in mock mode, where the clock is fake), the Game Master's evaluations with verdict counts and the scenes it ended, facilitator advances, alerts and total wall time. The same data is in the JSON report under `showcase` (per-character stats, every Game Master decision, scene exit reasons, and a per-line record with `source` `player-bot`, `ai-character`, `game-master` or `system` plus the transcript `tag`). The showcase has its own checks, `S-01` to `S-12` (session completed, every character spoke in its scenes and never where absent, the Game Master decided, fallback count within the limit, the prompt-leak audit (mock only, `skipped (live mode)` live), per-player isolation, no control characters, the on-disk log, no secrets, no swallowed failure, and the watchdog).
+
+An excerpt of a real mock run (`pnpm demo --showcase --fast --no-color`):
+
+```text
+SCENE 4 of 6: Escalation call with Priya and the CFO
+  goal: Present the phased proposal and learn what the CFO needs in order to accept it
+  in the room: delivery_lead, tech_lead, account_manager; AI characters: Priya Raman, Helena Brandt
+  [player bot] delivery_lead: Thanks both. To recap: we propose a phased reconciliation module, delivered three weeks after go-live, so the launch date stays safe.
+  [AI character] Priya Raman (client_sponsor): Helena, this is the phased option I mentioned. It gets Finance the module, just not on day one.
+  [AI character] Helena Brandt (cfo): I have one question before adjectives: what does it cost in total, and is that a fixed price or an estimate?
+  [Game Master] FALSE for "the CFO has heard the priced phased proposal and has said what she needs in order to accept it": The CFO asked about cost but has not said what she needs in order to accept.
+  ...
+  [system] scene ended: the Game Master judged the exit condition true (gm_detects)
+
+AI contribution
+  Priya Raman (client_sponsor): 12 replies, 12 scripted (mock) output, 0 fallback lines; latency n/a
+  Helena Brandt (cfo): 8 replies, 8 scripted (mock) output, 0 fallback lines; latency n/a
+  Game Master: 14 evaluations (6 true, 8 false); exited: s1_huddle, s2_priya_call, s3_internal_huddle, s4_escalation_call, s5_final_terms, s6_wrap_up
+  Scenes played: 6 (ended by Game Master 6, time box 0, facilitator advance 0)
+  Player-bot lines: 24; AI character replies: 20 (0 canned fallback)
+  Facilitator advances: 0
+  Alerts: 0
+  Total wall time: 0.0 s
+```
+
+### Markdown transcript
+
+`--transcript <path.md>` writes a Markdown transcript of the run in **every** mode (default, `--showcase`, mock, `--live`, `--url`; with `--url` only what the facilitator observes). It is a file only: the terminal narration is unchanged, and it can be combined with `--json`. A relative path is relative to where you ran pnpm (like `--json`); a directory is refused (exit 2), and missing parent folders are created only under the repo, the working directory or the temp directory (otherwise exit 2). The file is built from structured line records the stories emit, not by parsing the narration.
+
+Every dialogue line is **bold in full** and starts with a tag:
+
+| Tag | Meaning |
+| --- | --- |
+| `[SCRIPTED]` | authored in advance: bot player lines, facilitator whisper text and every reply of the scripted mock providers (mock mode) |
+| `[GENERATED]` | produced by a live model at run time: live AI character replies and the Game Master's reasoning |
+| `[FALLBACK]` | the character's canned fallback line standing in for a missing model reply (the persona's fallback text AND the engine's fallback alert); never labelled generated, in any mode, including the mock side room |
+| `[SYSTEM]` | technical logging, not dialogue (plain, not bold) |
+
+With `--url` the runner cannot know the target's provider: its replies are `[SCRIPTED]` unless you also pass `--live`. The file has a title, a metadata table (mode, provider label only, scenario, date, tool version, summary), the legend, one `##` heading per act or scene (the scene's exit reason is a `[SYSTEM]` line), the AI contribution table for a showcase, and the checks as a table. Text from a model or a server is scrubbed (secrets, home and temp paths), sanitized, truncated and **escaped for Markdown** (backslash, `*`, `_`, backtick, brackets, `<`, `>`, `|`, `~`, `!`, `#`, `&`; URLs, `www.` hosts and addresses are broken so nothing becomes a link), so a reply cannot forge a tag, end the bold span, add a heading, a table row or a link. An excerpt of `pnpm demo --showcase --fast --transcript t.md`:
+
+```markdown
+## Scene 4 of 6: Escalation call with Priya and the CFO
+
+[SYSTEM] goal: Present the phased proposal and learn what the CFO needs in order to accept it; AI characters in the room: Priya Raman, Helena Brandt
+
+**[SCRIPTED] delivery_lead: Thanks both. To recap: we propose a phased reconciliation module, delivered three weeks after go-live, so the launch date stays safe.**
+
+**[SCRIPTED] Priya Raman (client_sponsor): Helena, this is the phased option I mentioned. It gets Finance the module, just not on day one.**
+
+**[SCRIPTED] Game Master (verdict: false) on "the CFO has heard the priced phased proposal and has said what she needs in order to accept it": The CFO asked about cost but has not said what she needs in order to accept.**
+```
+
+In a live run the AI character and Game Master lines read `**[GENERATED] ...**`, and a canned line reads `**[FALLBACK] Priya Raman (client_sponsor): Sorry, you cut out for a second there. Say that again?**`.
 
 ## Update
 
@@ -246,7 +320,7 @@ packages/events     session event types and the state reducer
 packages/script     scenario schema, loader, validator, scene state machine
 packages/adapters   model provider adapters (mock, Anthropic, OpenAI-compatible)
 services/runtime    session engine, NPC agents, Game Master, WebSocket server, terminal client, demo runner (src/demo)
-scenarios/          playable scenarios (YAML)
+scenarios/          playable scenarios (YAML): friday-escalation (3 scenes, 1 AI character) and friday-escalation-extended (6 scenes, 2 AI characters, plus the showcase.yaml script for `pnpm demo --showcase`)
 docs/               architecture, release plan, plans and the generated plan dashboard
 ```
 

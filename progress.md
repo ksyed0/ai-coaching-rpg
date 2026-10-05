@@ -21,3 +21,8 @@
 - Real demo runs captured (mock x2, paced x1, live x3 against OpenRouter nvidia/nemotron-3-ultra-550b-a55b:free): all exit 0. Live runs showed 2 of 6 main-story NPC replies were the canned fallback line (free-tier "Service temporarily overloaded" on about 4 of 10 direct calls).
 - Local model configured for the runtime: osaurus at http://127.0.0.1:1337/v1, model qwen3.8-27b-mxfp8. First token takes 32-95 s on this machine, so `NPC_FIRST_TOKEN_TIMEOUT_MS=120000` and `NPC_REPLY_TIMEOUT_MS=180000` are set in the git-ignored `.env`.
 - Filed: US-0022 (retry transient model errors), US-0023 (demo live-mode fallback evidence), BUG-0003 (demo check F-23 weak evidence).
+
+## Session 3 — 2026-10-05
+
+- US-0024 built on `feature/EPIC-0006-US-0024-showcase-demo` (stacked on PR #6): `scenarios/friday-escalation-extended` (6 scenes, 2 AI characters incl. a new CFO, showcase.yaml), `pnpm demo --showcase` (mock for CI, `--live` with the real Game Master) with `--scenario`, `--max-lines`, `--max-fallbacks`, `--watchdog`, checks S-01 to S-12, an AI contribution summary and a `showcase` JSON section; `--transcript <path.md>` (all modes) writes a Markdown transcript tagged SCRIPTED / GENERATED / FALLBACK. CI Demo Run job gained the showcase step.
+- Next: the controller runs the real live showcase; then US-0022 / US-0023 (note AC-0075 is now partly delivered by `--max-fallbacks` for the showcase).
