@@ -89,6 +89,22 @@ describe("NpcAgent", () => {
     expect(alerts[1]).toMatch(/empty reply/);
   });
 
+  it("treats a reply with no letter or digit as empty", async () => {
+    const alerts = alertsOf();
+    await new NpcAgent({ role: guest, engine, provider: new MockModelProvider(["..."]) }).respond();
+    expect(engine.state.transcript.at(-1)?.text).toBe(guest.fallback_line);
+    expect(alerts[0]).toMatch(/guest.*empty reply/);
+  });
+
+  it("cuts at the scenario's other roles by display name", async () => {
+    const alerts = alertsOf();
+    const names = engine.speakerNames().filter((n) => n.id !== "guest");
+    expect(names.length).toBeGreaterThan(0);
+    await new NpcAgent({ role: guest, engine, provider: new MockModelProvider([`Fine.\n${names[0]!.id}: invented`]) }).respond();
+    expect(engine.state.transcript.at(-1)?.text).toBe("Fine.");
+    expect(alerts).toHaveLength(1);
+  });
+
   it("treats a whitespace-only reply as empty", async () => {
     const agent = new NpcAgent({ role: guest, engine, provider: new MockModelProvider(["   \n"]) });
     await agent.respond();

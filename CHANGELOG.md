@@ -62,6 +62,9 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 ### Fixed
 
 - An AI character no longer speaks for the other participants: the prompt forbids it, and a reply is stripped of its own `[role]:` prefix and cut at the first line or sentence that starts with another speaker's `[role_id]:` tag, with one facilitator alert (BUG-0004, US-0026).
+- Inline `<think>...</think>` text at the start of an AI character's reply is removed instead of being shown as dialogue; speaker labels are also recognised by the scenario's role ids and character names, and a reply with no letters or digits falls back (BUG-0004).
+- A reasoning-only reply is a budget error only when the server stopped on length (or gave no reason); after a normal stop it is reported as "the model returned only reasoning and no answer", and an empty reply cut off by length counts as a budget problem (US-0026).
+- The README and `.env.example` now say that a larger `NPC_MAX_TOKENS` needs a longer `NPC_FIRST_TOKEN_TIMEOUT_MS` and `NPC_REPLY_TIMEOUT_MS` (US-0026).
 - The Markdown demo transcript shows a multi-line reply as separate lines instead of a literal ⏎ marker (the terminal keeps the marker) (BUG-0004).
 - Session-log rotation falls back to an exclusive file copy (never overwriting) when the filesystem refuses hard links (EPERM, ENOTSUP, EXDEV, EOPNOTSUPP), so a Docker restart works on such bind mounts; a failed removal after the copy is reported explicitly (US-0009).
 - `./run.sh` no longer starts the container as root when run as root or with sudo; it falls back to 1000:1000 unless `HOST_UID`/`HOST_GID` are set (US-0012).

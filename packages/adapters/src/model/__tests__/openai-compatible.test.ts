@@ -422,6 +422,7 @@ describe("reasoning models (US-0026 / AC-0085)", () => {
     expect(m.message).toMatch(/token budget/);
     expect(m.message).toMatch(/NPC_MAX_TOKENS/);
     expect(m.message).toMatch(/GM_MAX_TOKENS/);
+    expect(m.message).toMatch(/NPC_FIRST_TOKEN_TIMEOUT_MS/);
     expect(m.message).not.toContain("SECRET");
   });
 
@@ -475,9 +476,32 @@ describe("reasoning models (US-0026 / AC-0085)", () => {
     expect(await collect(make())).toEqual(["Answer"]);
   });
 
-  it("JSON body with empty content and no reasoning stays a plain empty reply", async () => {
-    raw([jsonBody({ content: "" })], "application/json");
+  it("JSON body with empty content, no reasoning and a normal stop stays a plain empty reply", async () => {
+    raw([jsonBody({ content: "" }, "stop")], "application/json");
     expect(await collect(make())).toEqual([]);
+  });
+
+  it("empty content with finish_reason length and no reasoning field is a reasoning_budget error (JSON and stream)", async () => {
+    raw([jsonBody({ content: "" }, "length")], "application/json");
+    expect(((await failure(make())) as ModelProviderError).kind).toBe("reasoning_budget");
+    raw([delta(undefined), `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length" }] })}\n\n`, "data: [DONE]\n\n"]);
+    expect(((await failure(make())) as ModelProviderError).kind).toBe("reasoning_budget");
+  });
+
+  it("reasoning only after a normal stop is a non-transient unknown error without budget advice (JSON and stream)", async () => {
+    raw([jsonBody({ content: "", reasoning_content: SECRET }, "stop")], "application/json");
+    for (let i = 0; i < 2; i++) {
+      const e = (await failure(make())) as ModelProviderError;
+      expect([e.kind, e.transient]).toEqual(["unknown", false]);
+      expect(e.message).toMatch(/the model returned only reasoning and no answer/);
+      expect(e.message).not.toMatch(/MAX_TOKENS|SECRET/);
+      raw([reasoningDelta(SECRET, "reasoning_content", "stop"), "data: [DONE]\n\n"]);
+    }
+  });
+
+  it("uses the last non-null finish_reason (a null one after length does not hide it)", async () => {
+    raw([reasoningDelta("t", "reasoning_content", "length"), `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: null }] })}\n\n`, "data: [DONE]\n\n"]);
+    expect(((await failure(make())) as ModelProviderError).kind).toBe("reasoning_budget");
   });
 
   it("the retry layer retries it (transient) and a later answer wins", async () => {

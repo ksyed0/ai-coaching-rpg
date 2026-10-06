@@ -83,10 +83,10 @@ export class NpcAgent {
     // The reply is assembled in full before it is cleaned or recorded: nothing is forwarded to players chunk by chunk, so cut text never leaks.
     let removedOtherSpeakers = false;
     if (!failure) {
-      const cleaned = cleanNpcReply(text, this.role);
+      const cleaned = cleanNpcReply(text, this.role, this.engine.speakerNames().filter((n) => n.id !== this.role.id));
       text = cleaned.text; removedOtherSpeakers = cleaned.cut;
     }
-    if (!failure && text.trim().length === 0) failure = "empty reply";
+    if (!failure && !/[\p{L}\p{N}]/u.test(text)) failure = "empty reply"; // nothing but punctuation (e.g. "...") is not a reply
     try {
       if (removedOtherSpeakers) await this.engine.alert(`NPC ${this.role.id}: the reply included lines for other speakers; they were removed`, "warning", { expectSceneId });
       if (failure) {

@@ -213,6 +213,12 @@ describe("renderTranscript: invisible and look-alike tag characters (R45)", () =
       expect(b).not.toMatch(/\[x\]\(/);
       expect(b).toContain("(SCRIPTED)");
     });
+    it("stops cleaning once the character budget is used (a huge many-line reply is cheap)", () => {
+      const t = Date.now();
+      const b = body(entry(Array.from({ length: 300_000 }, (_, i) => `line ${i}`).join("\n")));
+      expect(b).toContain("…");
+      expect(Date.now() - t).toBeLessThan(1_500);
+    });
     it("truncates by code point across all lines and removes invisible characters inside each line", () => {
       const b = body(renderTranscript(base({ records: [d("generated", "P", `${"😀".repeat(1000)}\n${"😀".repeat(1000)}`, "p")] })));
       expect(b).toContain("…");

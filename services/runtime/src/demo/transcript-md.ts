@@ -47,11 +47,20 @@ const MD_NEWLINE = new RegExp(`\\r\\n|[\\n\\r${String.fromCharCode(0x2028)}${Str
  * every non-blank line gets the full safeMd treatment, and the total is truncated by code points. Returns the escaped lines.
  */
 export function safeMdLines(text: string, max: number, secrets: string[] = []): string[] {
-  const lines = String(text ?? "").split(MD_NEWLINE).map((l) => Array.from(cleanMd(l, secrets))).filter((p) => p.length > 0);
   const out: string[] = [];
   let left = max;
-  for (const points of lines) {
-    if (points.length >= left && left < Infinity) {
+  // Lazy: lines are cleaned one at a time and the scan stops as soon as the budget is used up, so a huge reply is not cleaned in full.
+  let start = 0;
+  const raw = String(text ?? "");
+  const re = new RegExp(MD_NEWLINE.source, "g");
+  while (start <= raw.length && left > 0) {
+    re.lastIndex = start;
+    const m = re.exec(raw);
+    const end = m ? m.index : raw.length;
+    const points = Array.from(cleanMd(raw.slice(start, end), secrets));
+    start = m ? end + m[0].length : raw.length + 1;
+    if (points.length === 0) continue;
+    if (points.length >= left) {
       // This line reaches the limit: it is cut here and nothing after it is shown.
       out.push(mdEscape(points.length > left ? `${points.slice(0, Math.max(left - 1, 0)).join("")}…` : points.join("")));
       break;

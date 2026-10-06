@@ -1175,7 +1175,7 @@
       "severity": "Medium",
       "relatedStory": "US-0026",
       "relatedTask": "TASK-0026",
-      "status": "Fixed (2546513 on feature/EPIC-0006-US-0026-reasoning-model-empty-replies)",
+      "status": "Fixed (2546513 and the follow-up fix commit on feature/EPIC-0006-US-0026-reasoning-model-empty-replies)",
       "fixBranch": "feature/EPIC-0006-US-0026-reasoning-model-empty-replies",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -1613,9 +1613,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T14:00:43.177Z",
-  "commitSha": "2546513",
-  "buildNumber": "86",
+  "generatedAt": "2026-10-06T14:08:46.175Z",
+  "commitSha": "9b65c1a",
+  "buildNumber": "87",
   "branch": "feature/EPIC-0006-US-0026-reasoning-model-empty-replies",
   "sessionTimeline": [
     {
@@ -1813,7 +1813,7 @@
       "2026-10-03T13:44:38.199Z",
       "2026-10-04T13:44:38.199Z",
       "2026-10-05T13:44:38.199Z",
-      "2026-10-06T14:00:43.298Z"
+      "2026-10-06T14:08:46.240Z"
     ],
     "doneCounts": [
       0,

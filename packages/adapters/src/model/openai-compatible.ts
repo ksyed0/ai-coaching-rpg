@@ -107,9 +107,19 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
    */
   private reasoningBudgetError(): ModelProviderError {
     return new ModelProviderError(
-      `${this.name}: the model used its whole token budget thinking and gave no answer; raise NPC_MAX_TOKENS (AI characters) or GM_MAX_TOKENS (Game Master)`,
+      `${this.name}: the model used its whole token budget thinking and gave no answer; raise NPC_MAX_TOKENS (AI characters) or GM_MAX_TOKENS (Game Master), and raise NPC_FIRST_TOKEN_TIMEOUT_MS and NPC_REPLY_TIMEOUT_MS with it`,
       { kind: "reasoning_budget", transient: true },
     );
+  }
+
+  /**
+   * The error for a reply with no answer text, or null when it is a plain empty reply. Reasoning only (or an empty answer cut off by
+   * finish_reason "length") is a budget problem; reasoning only after a normal stop is not, so no budget advice is given for it.
+   */
+  private noAnswerError(sawReasoning: boolean, finish: string | undefined): ModelProviderError | null {
+    if (finish === undefined || finish === "length") return sawReasoning || finish === "length" ? this.reasoningBudgetError() : null;
+    if (sawReasoning) return new ModelProviderError(`${this.name}: the model returned only reasoning and no answer`, { kind: "unknown", transient: false });
+    return null;
   }
 
   /** One body read; a failure that is not the caller's own abort is a (usually transient) network error, with a sanitized message. */
@@ -153,10 +163,12 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     try { obj = JSON.parse(text); }
     catch { throw new Error(`${this.name} returned malformed JSON`); }
     this.throwIfErrorObject(obj);
-    const message = (obj as { choices?: { message?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown } }[] } | null)?.choices?.[0]?.message;
+    const choice = (obj as { choices?: { message?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown }; finish_reason?: unknown }[] } | null)?.choices?.[0];
+    const message = choice?.message;
     const content = message?.content;
     if (typeof content === "string" && content.length > 0) return content;
-    if (hasReasoning(message)) throw this.reasoningBudgetError();
+    const err = this.noAnswerError(hasReasoning(message), typeof choice?.finish_reason === "string" ? choice.finish_reason : undefined);
+    if (err) throw err;
     return "";
   }
 
@@ -180,6 +192,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     let buffer = "";
     let sawReasoning = false; // a boolean only: the thinking text is dropped as it arrives (bounded memory)
     let sawContent = false;
+    let finish: string | undefined; // the last non-null finish_reason
     const handle = (line: string): { done: boolean; text?: string } => {
       if (line === "" || line.startsWith(":")) return { done: false }; // blank separator or comment/keepalive
       if (!line.startsWith("data:")) return { done: false }; // event:, id:, retry: carry nothing we need
@@ -190,7 +203,9 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       catch { throw new Error(`${this.name} sent a malformed stream event`); }
       this.throwIfErrorObject(obj);
       const choices = (obj as { choices?: unknown })?.choices;
-      const delta = Array.isArray(choices) ? (choices[0] as { delta?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown } } | undefined)?.delta : undefined;
+      const first = Array.isArray(choices) ? (choices[0] as { delta?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown }; finish_reason?: unknown } | undefined) : undefined;
+      const delta = first?.delta;
+      if (typeof first?.finish_reason === "string") finish = first.finish_reason;
       if (hasReasoning(delta)) sawReasoning = true;
       const content = delta?.content;
       if (typeof content === "string" && content.length > 0) { sawContent = true; return { done: false, text: content }; }
@@ -214,7 +229,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
         if (buffer.length > MAX_LINE_CHARS) throw new Error(`${this.name} sent an oversized stream line`);
         for (const line of lines) {
           const r = handle(line);
-          if (r.done) { if (sawReasoning && !sawContent) throw this.reasoningBudgetError(); return; }
+          if (r.done) { if (!sawContent) { const e = this.noAnswerError(sawReasoning, finish); if (e) throw e; } return; }
           if (r.text !== undefined) {
             yield r.text;
             if (signal?.aborted) return;
@@ -227,7 +242,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
         const r = handle(buffer);
         if (r.text !== undefined) yield r.text;
       }
-      if (sawReasoning && !sawContent) throw this.reasoningBudgetError();
+      if (!sawContent) { const e = this.noAnswerError(sawReasoning, finish); if (e) throw e; }
     } finally {
       // Cancelling the reader closes the connection, so the server stops generating.
       await reader.cancel().catch(() => {});
