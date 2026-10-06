@@ -1,0 +1,221 @@
+# Individual rubric (BARS: Behaviourally Anchored Rating Scale) for the Friday Escalation scenarios.
+# Each criterion has four levels with a written behavioural anchor. The scale has no midpoint:
+#   1 Not yet demonstrated, 2 Developing, 3 Proficient, 4 Advanced. A criterion with no evidence either way is "Not observed".
+# Anchors describe what a delivery lead or project manager facing scope creep is seen to say or do in the transcript.
+id: individual_delivery_v2
+name: Individual delivery performance under scope pressure
+scope: individual
+version: "2"
+description: >-
+  Scored once per player role from what that person said. Evidence is only what the person said themselves; what others
+  said to them, or what they were told in an inject, is context, not evidence.
+criteria:
+  - id: discovery
+    name: Discovery
+    description: Finds out what the client actually needs and why, instead of answering only the request as it was worded.
+    what_to_look_for:
+      - Asks open questions about the purpose, the deadline or the consequence of not having the module before go-live
+      - Separates the stated request (a module before launch) from the underlying need (Finance can tie out the daily loads)
+      - Reflects the need back to the client and checks it is right before proposing anything
+      - Asks about decision makers and constraints (who else must agree, what the CFO is watching)
+    levels:
+      1:
+        anchor: >-
+          Responds to the request exactly as worded (accepts, refuses or defers it) without asking the client anything about
+          the need, the reason for the deadline or the impact on Finance.
+      2:
+        anchor: >-
+          Asks at least one clarifying question, but it is closed or about logistics (date, size) rather than the reason behind
+          the request, and does not use the answer to change the proposal.
+        examples:
+          - "Is Friday a hard deadline for you?"
+          - "How big do you think the module needs to be?"
+      3:
+        anchor: >-
+          Asks about the purpose or the consequence (what Finance does today, what breaks without it) and reflects the
+          underlying need back in their own words before responding.
+      4:
+        anchor: >-
+          Reframes the conversation around the underlying need, tests that reframing with the client, and uses what was learned
+          (for example the tie-out need and the CFO's interest) to shape a different option than the one requested.
+        examples:
+          - "So what you really need is for Finance to tie out the daily loads. If I have that right, there may be a faster way to give you that than the full module."
+          - "Before I answer, help me understand what happens in Finance on day one if the module is not there?"
+  - id: listening
+    name: Listening
+    description: Takes in what others say, in the team and with the client, and builds on it rather than talking past it.
+    what_to_look_for:
+      - Paraphrases or summarises a teammate's or the client's point before responding to it
+      - Checks understanding ("have I got that right?") rather than assuming it
+      - Picks up a concern or a number someone else raised and uses it later in the conversation
+      - Does not repeat a point that was already answered, or ignore a direct question
+    levels:
+      1:
+        anchor: >-
+          Ignores or talks over key points: answers a different question, repeats a position that was already addressed, or
+          leaves a direct question from a teammate or the client unanswered.
+      2:
+        anchor: >-
+          Acknowledges what was said ("I hear you", "fair point") but moves on without showing what was understood or using it.
+        examples:
+          - "I hear you, but we still need to talk about the date."
+          - "Yes, noted. Anyway, on the plan."
+      3:
+        anchor: >-
+          Summarises the other person's point accurately and checks it, and the next statement visibly responds to it.
+      4:
+        anchor: >-
+          Builds on the other party's own words to move the conversation forward: uses their phrase, concern or number to
+          connect it to the team's position, and brings a quiet or overlooked point back in.
+        examples:
+          - "You said the CFO is watching the budget. That is why I would rather show you the exact price of the phased module than a range."
+          - "Tech lead, you flagged the ingestion risk earlier. That is exactly what we should tell Priya, in your words."
+  - id: negotiation
+    name: Negotiation
+    description: Protects scope, margin and the relationship together by offering options with their trade-offs, not by conceding or refusing outright.
+    what_to_look_for:
+      - Offers more than one option (phase the module, trade scope, move the date) and states what each costs or risks
+      - Avoids a flat yes or flat no and explains the reasoning behind the position
+      - Links concessions to something in return (a written change request, a date, a credit clause, a sign-off)
+      - Closes with agreed next steps that both sides can repeat
+    levels:
+      1:
+        anchor: >-
+          Concedes the whole request or refuses it flatly with no alternative and no condition attached.
+      2:
+        anchor: >-
+          Offers one alternative (for example do it after go-live) without saying what it costs, what it risks, or what is wanted
+          in return.
+        examples:
+          - "We could do it after go-live."
+          - "We cannot do that before launch."
+      3:
+        anchor: >-
+          Offers options with the trade-offs made explicit (scope, date, price, risk to go-live) and ties any concession to a
+          condition such as a change request or an agreed date.
+      4:
+        anchor: >-
+          Lands an option that protects scope and the relationship, holds firm on the conditions, and closes with next steps that
+          are agreed out loud by the other side (who sends what by when).
+        examples:
+          - "Option A is the full module before launch, which puts the date at risk. Option B is a phased module three weeks after go-live at a fixed fee. I would recommend B, and I can send the change request on Monday."
+          - "If you want the date to be firm, we need the sign-off on scope by Friday."
+  - id: commercial_judgement
+    name: Commercial judgement
+    description: Treats cost, margin and contract terms as part of the answer, and can defend a price to a finance executive.
+    what_to_look_for:
+      - Mentions effort, cost, price or margin with concrete numbers (person-weeks, a fixed fee)
+      - Names the mechanism for the extra work (change request, separate fee, phasing) rather than absorbing it
+      - States what happens if the date is missed (credit, proportional refund) and what is in and out of scope
+      - Explains the price in terms of value or risk to the client, not only the team's cost
+    levels:
+      1:
+        anchor: >-
+          Does not mention cost, price, margin or the contract; the extra work is treated as free or as a favour.
+      2:
+        anchor: >-
+          Mentions cost, effort or the contract in passing ("it will cost something", "we would need a change request") without a
+          number or a mechanism.
+        examples:
+          - "It would have a cost, we would need to look at that."
+          - "We would probably have to charge for it."
+      3:
+        anchor: >-
+          Quantifies the impact (effort in person-weeks or a price) and names the mechanism (a separate fixed fee, a change request,
+          phasing), including what is in scope.
+      4:
+        anchor: >-
+          Positions the commercial path as a benefit to the client (protecting the launch, a firm date, a credit if missed), holds
+          the price under challenge without discounting for free, and states the terms in one place (scope, price, date, remedy).
+        examples:
+          - "The fixed fee is 48 thousand, separate from the programme fee, for the phased module three weeks after go-live. If we miss that date we credit the fee proportionally."
+          - "Doing the full module now would put the launch at risk, and a late launch costs you far more than this fee."
+  - id: stakeholder_management
+    name: Stakeholder management
+    description: Handles the client sponsor and a cost-focused finance executive with respect, directness and an eye on what each of them needs.
+    what_to_look_for:
+      - Adapts tone and content to the audience (outcome and risk for the CFO, detail for the sponsor)
+      - Addresses a challenge or objection directly instead of deflecting it
+      - Keeps the sponsor informed and prepared for the conversation she has to have upstairs
+      - Stays composed and constructive when the price or the date is pushed back on
+    levels:
+      1:
+        anchor: >-
+          Dismisses or avoids the stakeholder's concern, gets defensive or evasive when challenged, or uses language that does not
+          fit the audience (internal detail for the CFO, no reasoning for the sponsor).
+      2:
+        anchor: >-
+          Responds politely and answers the question, but does not tailor the message to what this stakeholder cares about or
+          does not prepare them for their own next conversation.
+        examples:
+          - "Thanks for raising that. We think the plan is fine."
+          - "The ingestion layer is complicated, as I said."
+      3:
+        anchor: >-
+          Answers challenges directly and tailors the message to the audience, for example putting the risk and the cost in the
+          CFO's terms, and says what the stakeholder can take away.
+      4:
+        anchor: >-
+          Anticipates what the stakeholder needs (the number before it is asked for, a document the sponsor can forward), invites
+          and handles the objection openly, and leaves the stakeholder able to carry the position to others.
+        examples:
+          - "Helena, you will want the number first: it is 48 thousand fixed, and I will send Priya a one-page summary she can forward to you today."
+          - "That is a fair challenge on price. Here is what is in it and what you get back if we are late."
+  - id: team_alignment
+    name: Team alignment
+    description: Gets the team to one position before engaging the client, and keeps to it in front of the client.
+    what_to_look_for:
+      - Proposes or asks for a single team position and checks that everyone agrees to it
+      - Draws out the views of quieter teammates and resolves a disagreement before the client call
+      - Restates the agreed position at the end of the huddle
+      - In the client call, does not contradict or surprise a teammate
+    levels:
+      1:
+        anchor: >-
+          Pushes a personal position without checking the team, or contradicts a teammate in front of the client.
+      2:
+        anchor: >-
+          Shares a view and listens to others, but the huddle ends without an explicitly agreed team position.
+        examples:
+          - "That is my take, what do you think?"
+          - "Let's see how the call goes."
+      3:
+        anchor: >-
+          Asks for the other views, proposes one position and checks that each teammate agrees to it before the client is engaged.
+      4:
+        anchor: >-
+          Resolves differences actively (asks the sceptic what would make it acceptable), restates the agreed position and the
+          fallbacks, and keeps to them in the client call, supporting teammates when they speak.
+        examples:
+          - "So we agree: phase two after go-live, priced as a change request, and the date risk spelled out. Anyone not comfortable with that?"
+          - "Before we call her, tech lead, what would you need to be comfortable saying yes to the phased option?"
+  - id: role_clarity
+    name: Role clarity
+    description: States who owns what and respects the ownership of others.
+    what_to_look_for:
+      - Names who will present, who owns the timeline and who owns the price
+      - Takes ownership of own area and defers to a teammate on theirs
+      - Does not speak for a teammate on a topic they own
+      - Confirms owners and next actions at the end of the conversation
+    levels:
+      1:
+        anchor: >-
+          Gives no owner for anything, or takes over a teammate's area (answering a technical or commercial question that belongs
+          to someone else without checking).
+      2:
+        anchor: >-
+          Takes ownership of own area when asked, but does not set or check who owns the other topics.
+        examples:
+          - "I can look after the timeline."
+          - "Someone should send the change request."
+      3:
+        anchor: >-
+          States clear owners for key items (presenter, timeline, price) and leaves technical or commercial questions to the
+          teammate who owns them.
+      4:
+        anchor: >-
+          Assigns and confirms ownership with names and dates, invites the owner to speak at the right moment, and recovers
+          smoothly when ownership blurs.
+        examples:
+          - "I will present the price, the delivery lead owns the timeline, and the tech lead will answer any question on effort."
+          - "That is a technical question, tech lead, can you take it?"

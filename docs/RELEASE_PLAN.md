@@ -669,10 +669,10 @@ Status: In Progress
 Branch: feature/EPIC-0005-evaluator-feedback
 Dependencies: US-0003
 Acceptance Criteria:
-  - [ ] AC-0094: a rubric file (YAML) has an id, a name and criteria; each criterion has an id, name, description, observable `what_to_look_for` indicators and levels 1 to 4, each with a written behavioural anchor, plus example phrases at levels 2 and 4; the zod schema lives in `packages/script/src/rubric.ts`
-  - [ ] AC-0095: `loadRubrics(dir, scenario)` resolves the scenario's `rubrics:` ids from `<dir>/rubrics/<id>.yaml` and reports an error for a missing file, a missing level, a duplicate criterion id or a learning objective whose `rubric_criteria` id matches no loaded criterion
-  - [ ] AC-0096: rubric files obey the same size and alias limits as the showcase YAML loader (size cap, no alias expansion bombs); a scenario whose `rubrics:` is empty or absent loads as 'no rubrics' with a warning, not an error
-  - [ ] AC-0097: `scenarios/friday-escalation-extended/rubrics/individual_delivery_v2.yaml` and `group_collaboration_v1.yaml` hold real content for a delivery lead facing scope creep, and `scenarios/friday-escalation` carries copies so both scenarios validate
+  - [x] AC-0094: a rubric file (YAML) has an id, a name and criteria; each criterion has an id, name, description, observable `what_to_look_for` indicators and levels 1 to 4, each with a written behavioural anchor, plus example phrases at levels 2 and 4; the zod schema lives in `packages/script/src/rubric.ts`
+  - [x] AC-0095: `loadRubrics(dir, scenario)` resolves the scenario's `rubrics:` ids from `<dir>/rubrics/<id>.yaml` and reports an error for a missing file, a missing level, a duplicate criterion id or a learning objective whose `rubric_criteria` id matches no loaded criterion
+  - [x] AC-0096: rubric files obey the same size and alias limits as the showcase YAML loader (size cap, no alias expansion bombs); a scenario whose `rubrics:` is empty or absent loads as 'no rubrics' with a warning, not an error
+  - [x] AC-0097: `scenarios/friday-escalation-extended/rubrics/individual_delivery_v2.yaml` and `group_collaboration_v1.yaml` hold real content for a delivery lead facing scope creep, and `scenarios/friday-escalation` carries copies so both scenarios validate
 ```
 
 ```

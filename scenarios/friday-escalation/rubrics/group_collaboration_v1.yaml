@@ -1,0 +1,123 @@
+# Group rubric (BARS) for the Friday Escalation scenarios: scored once for the whole team from the whole session.
+# Scale: 1 Not yet demonstrated, 2 Developing, 3 Proficient, 4 Advanced; "Not observed" when there is no evidence either way.
+id: group_collaboration_v1
+name: Team collaboration across the escalation
+scope: group
+version: "1"
+description: >-
+  Team-level criteria (ASM-02). Scored once from the whole transcript; the evidence is quotes from any team member.
+criteria:
+  - id: shared_understanding
+    name: Shared understanding
+    description: The team builds the same picture of the request, the underlying need, the risks and the numbers before acting on it.
+    what_to_look_for:
+      - Team members restate the request and the need in the same terms
+      - Facts (effort, budget state, risks) are shared out loud and agreed on before the client call
+      - Misunderstandings are caught and corrected within the conversation
+      - Later statements to the client use what the team agreed earlier
+    levels:
+      1:
+        anchor: >-
+          Team members work from different pictures (different effort, date or scope in different mouths) and never notice or
+          resolve the difference.
+      2:
+        anchor: >-
+          Most facts are shared, but some stay with one person, or the team notices a gap only when the client points to it.
+        examples:
+          - "Oh, I did not know the contingency was that low."
+          - "I thought we were saying six weeks."
+      3:
+        anchor: >-
+          The team shares the key facts before engaging the client and speaks about the request, the risk and the numbers consistently.
+      4:
+        anchor: >-
+          The team checks understanding between themselves, surfaces and corrects differences quickly, and the client hears one
+          consistent story with the same numbers from different people.
+        examples:
+          - "Let me check we all have the same numbers: phased is three person-weeks, full is six."
+          - "Good catch, that is the figure we agreed in the huddle."
+  - id: decision_quality
+    name: Decision quality
+    description: The team weighs options with the information it has and commits to a decision it can justify, with a price and a date.
+    what_to_look_for:
+      - More than one option is considered and compared before choosing
+      - The decision is explicit (what, price, date, conditions) and someone owns it
+      - The team prices the phased module before the CFO asks for a number
+      - The decision is revised when new information arrives (an inject, a challenge) rather than ignored
+    levels:
+      1:
+        anchor: >-
+          No clear decision is reached, or a decision is made without comparing options or stating a price or a date.
+      2:
+        anchor: >-
+          A decision is made, but on one option only, or without a price or date, or without anyone owning it.
+        examples:
+          - "OK, let's just do it after go-live."
+          - "We will work out the price later."
+      3:
+        anchor: >-
+          Options are compared and the team commits to a specific plan with a date and a price before the client or CFO has to ask.
+      4:
+        anchor: >-
+          The team commits to a justified plan with price, date, conditions and fallback, owns it, and adjusts it sensibly when
+          challenged (for example a credit clause) without abandoning the core position.
+        examples:
+          - "We priced it at 48 thousand before Helena asked, and we offered a proportional credit when she pushed on the date."
+          - "If the CFO insists on a lower price, the fallback is to reduce scope, not the fee."
+  - id: role_clarity_group
+    name: Role clarity (team)
+    description: The team uses its members' roles well; people speak to their expertise and the load is shared.
+    what_to_look_for:
+      - Technical questions go to the tech lead, commercial and relationship questions to the account manager, the plan to the delivery lead
+      - Nobody is left without a part to play in a client conversation
+      - Hand-offs between team members are explicit
+      - Talk time and interruptions are context only and not a criterion on their own
+    levels:
+      1:
+        anchor: >-
+          Roles are not used: one person answers everything, or a team member has no part in the conversation, and nobody notices.
+      2:
+        anchor: >-
+          Roles are partly used; questions are sometimes answered by the wrong person and hand-offs are implicit.
+        examples:
+          - "I will cover it, it is easier."
+          - "(a technical question is answered by the account manager)"
+      3:
+        anchor: >-
+          Questions generally reach the member who owns them, and each member contributes in their area.
+      4:
+        anchor: >-
+          The team deliberately assigns who speaks to what, hands off explicitly, and each member's expertise visibly strengthens
+          the position presented to the client.
+        examples:
+          - "That is a question for our tech lead, over to you."
+          - "I will take the price, and the delivery lead will cover the timeline."
+  - id: escalation_discipline
+    name: Escalation discipline
+    description: The team keeps decisions within what it can commit to, flags risks early and escalates what it should not decide alone.
+    what_to_look_for:
+      - The team distinguishes what it can commit to (a phased fixed-fee change request) from what needs approval (discounts, credits, contractual terms)
+      - Risks to go-live are named to the client early rather than hidden
+      - Commitments are written down (a change request) rather than agreed verbally only
+      - The team does not make promises under pressure that the evidence does not support
+    levels:
+      1:
+        anchor: >-
+          The team promises under pressure (a date, a price, a credit) with no basis or no authority, or hides a known risk.
+      2:
+        anchor: >-
+          The team states risks but commits to something without checking its basis or authority, or leaves it verbal.
+        examples:
+          - "We can probably do that."
+          - "Don't worry, we will make it work."
+      3:
+        anchor: >-
+          The team states the risk to the client, commits only to what its evidence supports, and puts the commitment in writing
+          or in a change request.
+      4:
+        anchor: >-
+          The team separates what it can commit to from what needs approval, flags the risk early, names the escalation path for
+          anything beyond its authority, and confirms the written follow-up with dates.
+        examples:
+          - "That discount is beyond what I can agree on this call; I will take it to our leadership and come back by Monday."
+          - "We will send the change request on Monday for both sides to sign before work starts."
