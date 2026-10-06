@@ -60,6 +60,24 @@ describe("reduce", () => {
     expect(activeElapsedMs(s, 99_999)).toBe(0);
   });
 
+  it("a resume stamped earlier than its pause never makes pausedMs negative", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1", participants: [] });
+    s = reduce(s, { seq: 3, ts: 5_000, sessionId: "s1", type: "facilitator.command", command: "pause" });
+    s = reduce(s, { seq: 4, ts: 4_000, sessionId: "s1", type: "facilitator.command", command: "resume" });
+    expect(s.currentScene?.pausedMs).toBe(0);
+    expect(s.paused).toBe(false);
+  });
+
+  it("activeElapsedMs is 0 for a non-finite result (corrupt timestamps)", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1", participants: [] });
+    expect(activeElapsedMs(s, Number.NaN)).toBe(0);
+    expect(activeElapsedMs(s, Number.POSITIVE_INFINITY)).toBe(0);
+    s = reduce(s, { seq: 3, ts: Number.NaN, sessionId: "s1", type: "facilitator.command", command: "pause" });
+    expect(activeElapsedMs(s, 9_000)).toBe(0);
+  });
+
   it("tracks pause and resume", () => {
     let s = reduce(initialState(), started);
     s = reduce(s, { ...env(2), type: "facilitator.command", command: "pause" });

@@ -1579,7 +1579,7 @@
       "severity": "Medium",
       "relatedStory": "US-0004",
       "relatedTask": "TASK-0004",
-      "status": "Fixed (499ba98 on chore/BUG-0005-pause-freezes-scene-clock)",
+      "status": "Fixed (see git log for BUG-0005)",
       "fixBranch": "chore/BUG-0005-pause-freezes-scene-clock",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -2134,9 +2134,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T21:52:38.978Z",
-  "commitSha": "499ba98",
-  "buildNumber": "132",
+  "generatedAt": "2026-10-06T21:58:24.146Z",
+  "commitSha": "2e77514",
+  "buildNumber": "133",
   "branch": "chore/BUG-0005-pause-freezes-scene-clock",
   "sessionTimeline": [
     {
@@ -2239,9 +2239,9 @@
     "totalSpent": 6.1671,
     "totalProjected": 28400,
     "percentUsed": 0,
-    "burnRate": 0.19871766666666665,
-    "daysRemaining": 38245,
-    "projectedExhaustion": 38245,
+    "burnRate": 0.19186533333333333,
+    "daysRemaining": 39611,
+    "projectedExhaustion": 39611,
     "thresholds": [
       50,
       75,
@@ -2334,7 +2334,7 @@
       "2026-10-03T21:52:39.043Z",
       "2026-10-04T21:52:39.043Z",
       "2026-10-05T21:52:39.043Z",
-      "2026-10-06T21:52:39.042Z"
+      "2026-10-06T21:58:24.223Z"
     ],
     "doneCounts": [
       0,

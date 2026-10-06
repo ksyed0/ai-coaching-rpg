@@ -380,104 +380,110 @@ describe("JsonlEventLog hardening", () => {
     await expect(jl.append(body, 4)).rejects.toThrow(/tr\.jsonl at line 2/);
     await expect(jl.all()).rejects.toThrow(/tr\.jsonl at line 2/);
   });
+});
 
-  describe("BUG-0005: pause freezes the scene clock", () => {
-    const minute = 60_000;
-    it("a pause with a pending inject and a running time box: nothing fires, resume keeps the remaining time exactly", async () => {
-      clock.advance(30_000);
-      await engine.command({ command: "pause" });
-      clock.advance(10 * minute);
-      await engine.tick();
-      expect(engine.state.injectsFired).toEqual([]);
-      expect(engine.state.currentScene?.id).toBe("s1_open");
-      expect(activeElapsedMs(engine.state, clock.now())).toBe(30_000);
-      await engine.command({ command: "resume" });
-      expect(activeElapsedMs(engine.state, clock.now())).toBe(30_000);
-      await engine.tick();
-      expect(engine.state.injectsFired).toEqual([]); // the inject is due at 1:00 of active time, 30 s remain
-      clock.advance(29_999); await engine.tick();
-      expect(engine.state.injectsFired).toEqual([]);
-      clock.advance(1); await engine.tick();
-      expect(engine.state.injectsFired).toEqual(["late_inject"]);
-      clock.advance(minute - 1); await engine.tick();
-      expect(engine.state.currentScene?.id).toBe("s1_open");
-      clock.advance(1); await engine.tick(); // 2:00 active: time box ends
-      expect(engine.state.currentScene?.id).toBe("s2_close");
-    });
+describe("BUG-0005: pause freezes the scene clock", () => {
+  const minute = 60_000;
+  it("a pause with a pending inject and a running time box: nothing fires, resume keeps the remaining time exactly", async () => {
+    clock.advance(30_000);
+    await engine.command({ command: "pause" });
+    clock.advance(10 * minute);
+    await engine.tick();
+    expect(engine.state.injectsFired).toEqual([]);
+    expect(engine.state.currentScene?.id).toBe("s1_open");
+    expect(activeElapsedMs(engine.state, clock.now())).toBe(30_000);
+    await engine.command({ command: "resume" });
+    expect(activeElapsedMs(engine.state, clock.now())).toBe(30_000);
+    await engine.tick();
+    expect(engine.state.injectsFired).toEqual([]); // the inject is due at 1:00 of active time, 30 s remain
+    clock.advance(29_999); await engine.tick();
+    expect(engine.state.injectsFired).toEqual([]);
+    clock.advance(1); await engine.tick();
+    expect(engine.state.injectsFired).toEqual(["late_inject"]);
+    clock.advance(minute - 1); await engine.tick();
+    expect(engine.state.currentScene?.id).toBe("s1_open");
+    clock.advance(1); await engine.tick(); // 2:00 active: time box ends
+    expect(engine.state.currentScene?.id).toBe("s2_close");
+  });
 
-    it("does not fire every overdue inject at once nor end the scene on /resume", async () => {
-      await engine.command({ command: "pause" });
-      clock.advance(10 * minute);
-      await engine.command({ command: "resume" });
-      await engine.tick();
-      expect(engine.state.injectsFired).toEqual([]);
-      expect(engine.state.currentScene?.id).toBe("s1_open");
-    });
+  it("does not fire every overdue inject at once nor end the scene on /resume", async () => {
+    await engine.command({ command: "pause" });
+    clock.advance(10 * minute);
+    await engine.command({ command: "resume" });
+    await engine.tick();
+    expect(engine.state.injectsFired).toEqual([]);
+    expect(engine.state.currentScene?.id).toBe("s1_open");
+  });
 
-    it("repeated pause/resume accumulates paused time; a double pause or double resume changes nothing", async () => {
-      clock.advance(10_000);
-      await engine.command({ command: "pause" });
-      clock.advance(5 * minute);
-      await engine.command({ command: "pause" }); // already paused: pause time is still measured from the first pause
-      clock.advance(minute);
-      await engine.command({ command: "resume" });
-      clock.advance(10_000);
-      await engine.command({ command: "resume" }); // not paused: no effect
-      clock.advance(10_000);
-      await engine.command({ command: "pause" });
-      clock.advance(2 * minute);
-      await engine.command({ command: "resume" });
-      expect(activeElapsedMs(engine.state, clock.now())).toBe(30_000);
-      clock.advance(30_000); await engine.tick();
-      expect(engine.state.injectsFired).toEqual(["late_inject"]);
-    });
+  it("repeated pause/resume accumulates paused time; a double pause or double resume changes nothing", async () => {
+    clock.advance(10_000);
+    await engine.command({ command: "pause" });
+    clock.advance(5 * minute);
+    await engine.command({ command: "pause" }); // already paused: pause time is still measured from the first pause
+    clock.advance(minute);
+    await engine.command({ command: "resume" });
+    clock.advance(10_000);
+    await engine.command({ command: "resume" }); // not paused: no effect
+    clock.advance(10_000);
+    await engine.command({ command: "pause" });
+    clock.advance(2 * minute);
+    await engine.command({ command: "resume" });
+    expect(activeElapsedMs(engine.state, clock.now())).toBe(30_000);
+    clock.advance(30_000); await engine.tick();
+    expect(engine.state.injectsFired).toEqual(["late_inject"]);
+  });
 
-    it("pause before the first inject, immediately after the scene starts", async () => {
-      await engine.command({ command: "pause" });
-      clock.advance(minute);
-      await engine.command({ command: "resume" });
-      clock.advance(59_999); await engine.tick();
-      expect(engine.state.injectsFired).toEqual([]);
-      clock.advance(1); await engine.tick();
-      expect(engine.state.injectsFired).toEqual(["late_inject"]);
-    });
+  it("pause before the first inject, immediately after the scene starts", async () => {
+    await engine.command({ command: "pause" });
+    clock.advance(minute);
+    await engine.command({ command: "resume" });
+    clock.advance(59_999); await engine.tick();
+    expect(engine.state.injectsFired).toEqual([]);
+    clock.advance(1); await engine.tick();
+    expect(engine.state.injectsFired).toEqual(["late_inject"]);
+  });
 
-    it("a pending facilitator advance waits for resume, then takes effect", async () => {
-      await engine.command({ command: "advance" });
-      await engine.command({ command: "pause" });
-      clock.advance(minute); await engine.tick();
-      expect(engine.state.currentScene?.id).toBe("s1_open");
-      await engine.command({ command: "resume" });
-      await engine.tick();
-      expect(engine.state.currentScene?.id).toBe("s2_close");
-    });
+  it("a pending facilitator advance waits for resume, then takes effect", async () => {
+    await engine.command({ command: "advance" });
+    await engine.command({ command: "pause" });
+    clock.advance(minute); await engine.tick();
+    expect(engine.state.currentScene?.id).toBe("s1_open");
+    await engine.command({ command: "resume" });
+    await engine.tick();
+    expect(engine.state.currentScene?.id).toBe("s2_close");
+  });
 
-    it("the new scene after an advance starts with a fresh clock", async () => {
-      await engine.command({ command: "pause" });
-      clock.advance(minute);
-      await engine.command({ command: "resume" });
-      await engine.command({ command: "advance" });
-      clock.advance(5_000);
-      await engine.tick();
-      expect(engine.state.currentScene?.id).toBe("s2_close");
-      expect(engine.state.currentScene?.pausedMs).toBe(0);
-      expect(activeElapsedMs(engine.state, clock.now())).toBe(0);
-      clock.advance(59_999); await engine.tick();
-      expect(engine.state.currentScene?.id).toBe("s2_close");
-      clock.advance(1); await engine.tick();
-      expect(engine.state.status).toBe("ended");
-    });
+  it("the new scene after an advance starts with a fresh clock", async () => {
+    await engine.command({ command: "pause" });
+    clock.advance(minute);
+    await engine.command({ command: "resume" });
+    await engine.command({ command: "advance" });
+    clock.advance(5_000);
+    await engine.tick();
+    expect(engine.state.currentScene?.id).toBe("s2_close");
+    expect(engine.state.currentScene?.pausedMs).toBe(0);
+    expect(activeElapsedMs(engine.state, clock.now())).toBe(0);
+    clock.advance(59_999); await engine.tick();
+    expect(engine.state.currentScene?.id).toBe("s2_close");
+    clock.advance(1); await engine.tick();
+    expect(engine.state.status).toBe("ended");
+  });
 
-    it("the remaining time is derivable from the recorded events alone (replay)", async () => {
+  it("the remaining time is derivable from the LOGGED events alone (replay from a JsonlEventLog file)", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "acr-bug5-"));
+    try {
+      const jl = new JsonlEventLog("s-replay", dir);
+      const eng = new SessionEngine({ scenario, log: jl, clock });
+      await eng.start({ host: "participant-1" });
       clock.advance(20_000);
-      await engine.command({ command: "pause" });
+      await eng.command({ command: "pause" });
       clock.advance(3 * minute);
-      await engine.command({ command: "resume" });
+      await eng.command({ command: "resume" });
       clock.advance(5_000);
       let replay = initialState();
-      for (const e of await log.all()) replay = reduce(replay, e);
+      for (const e of await new JsonlEventLog("s-replay", dir).all()) replay = reduce(replay, e);
       expect(activeElapsedMs(replay, clock.now())).toBe(25_000);
-      expect(activeElapsedMs(replay, clock.now())).toBe(activeElapsedMs(engine.state, clock.now()));
-    });
+      expect(activeElapsedMs(replay, clock.now())).toBe(activeElapsedMs(eng.state, clock.now()));
+    } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });

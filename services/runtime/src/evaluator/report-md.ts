@@ -28,7 +28,7 @@ function criteriaTable(cs: JsonCriterion[], sec: string[]): string[] {
 }
 
 function evidenceSection(cs: JsonCriterion[], sec: string[], showRole: boolean): string[] {
-  const out = ["## Evidence", "", "Every quote below was checked by the program against the recorded session; times are measured from the start of the session.", ""];
+  const out = ["## Evidence", "", "Every quote below was checked by the program against the recorded session; times are wall-clock time since the start of the session (pauses included), not active scene time.", ""];
   for (const c of cs) {
     out.push(`### ${safeMd(c.name, 120, sec)} (${id(c.id, sec)})`, "");
     if (c.evidence.length === 0) out.push("No verified quote.", "");

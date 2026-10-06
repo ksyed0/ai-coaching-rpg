@@ -80,7 +80,8 @@ export function activeElapsedMs(state: SessionState, now: number): number {
   const sc = state.currentScene;
   if (!sc) return 0;
   const open = state.paused && state.pausedSince !== null ? Math.max(0, now - state.pausedSince) : 0;
-  return Math.max(0, now - sc.enteredAt - sc.pausedMs - open);
+  const v = now - sc.enteredAt - sc.pausedMs - open;
+  return Number.isFinite(v) ? Math.max(0, v) : 0; // a corrupt log (NaN/Infinity ts) must not poison the schedule
 }
 
 export function visibleTranscript(state: SessionState, roleId: string): Utterance[] {
