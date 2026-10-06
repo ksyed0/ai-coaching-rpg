@@ -16,8 +16,9 @@ services:
     # Run as the invoking host user (run.sh exports HOST_UID/HOST_GID) so the bind-mounted
     # ./data is writable on Linux; the default 1000 matches the image's non-root `node` user.
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
-    # Intentionally published on ALL interfaces so teammates on the LAN can join (there is no
-    # authentication yet: use a trusted network only). HOST_PORT changes the host-side port.
+    # Intentionally published on ALL interfaces so teammates on the LAN can join. Set FACILITATOR_TOKEN in .env
+    # (run.sh does it for a new .env): without it anyone who can reach the port is a facilitator. No TLS: see
+    # docs/THREAT_MODEL.md. HOST_PORT changes the host-side port.
     ports: ["${HOST_PORT:-8080}:8080"]
     volumes:
       - ../../data:/app/data
