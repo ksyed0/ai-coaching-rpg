@@ -5,7 +5,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { ClientMessageSchema, type ServerMessage } from "./protocol.js";
 import { HostError, type SessionHost } from "./session-host.js";
 import { EngineError } from "../engine/session-engine.js";
-import { AuthThrottle, DEFAULT_LIMITS, TokenBucket, WindowCounter, clientIp, normalizeOrigin, secretsMatch, type Limits } from "./security.js";
+import { AuthThrottle, DEFAULT_LIMITS, OPEN_SERVER_NOTICE, TokenBucket, WindowCounter, clientIp, ipKey, isValidToken, normalizeOrigin, secretsMatch, type Limits } from "./security.js";
 
 /** A 2,000 character utterance is at most about 8 KiB of JSON, so 16 KiB leaves room and bounds what one frame can cost. */
 export const MAX_PAYLOAD_BYTES = 16 * 1024;
@@ -42,16 +42,28 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
   const now = opts.now ?? Date.now;
   const bindHost = opts.host ?? "0.0.0.0";
   const token = opts.facilitatorToken;
+  if (token !== undefined && !isValidToken(token)) throw new Error("facilitatorToken is not a valid token (16 to 256 printable ASCII characters, no spaces)"); // the value is never shown
   const allowedOrigins = new Set((opts.allowedOrigins ?? []).map((o) => normalizeOrigin(o)).filter((o): o is string => o !== null));
   const trustProxy = opts.trustProxy === true;
   const authThrottle = new AuthThrottle({ max: limits.maxAuthFailures, windowMs: limits.authWindowMs, blockMs: limits.authBlockMs, now });
-  const perIp = new Map<string, number>();
+  const perIp = new Map<string, number>(); // keyed by ipKey(ip)
 
   // The HTTP server only exists to run the upgrade checks (limits, Origin) before a WebSocket is allocated.
-  const httpServer = http.createServer((_req, res) => { res.writeHead(426, { "Content-Type": "text/plain", Connection: "close" }).end("Upgrade Required"); });
+  const httpServer = http.createServer({ connectionsCheckingInterval: 1_000 }, (_req, res) => { res.writeHead(426, { "Content-Type": "text/plain", Connection: "close" }).end("Upgrade Required"); });
   httpServer.maxConnections = limits.maxConnections * 2 + 16; // raw sockets that never finish the handshake are bounded too
-  httpServer.headersTimeout = Math.min(limits.joinTimeoutMs, 60_000);
-  httpServer.requestTimeout = Math.min(limits.joinTimeoutMs, 60_000);
+  httpServer.headersTimeout = Math.min(limits.joinTimeoutMs, 10_000); // an upgrade request is tiny: a client that has not finished it by now is dropped
+  httpServer.requestTimeout = Math.min(limits.joinTimeoutMs, 10_000);
+  // Raw sockets per address (idle or half-open ones included). Not applied behind a trusted proxy, where every client shares the proxy's address.
+  const rawPerIp = new Map<string, number>();
+  const rawCap = limits.maxConnectionsPerIp * 2;
+  httpServer.on("connection", (sock) => {
+    if (trustProxy) return;
+    const key = ipKey(sock.remoteAddress ?? "unknown");
+    const n = (rawPerIp.get(key) ?? 0) + 1;
+    if (n > rawCap) { sock.destroy(); return; }
+    rawPerIp.set(key, n);
+    sock.once("close", () => { const left = (rawPerIp.get(key) ?? 1) - 1; if (left <= 0) rawPerIp.delete(key); else rawPerIp.set(key, left); });
+  });
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
   const refuse = (socket: Duplex, status: number, reason: string, extra: Record<string, string> = {}) => {
     const lines = [`HTTP/1.1 ${status} ${reason}`, "Connection: close", "Content-Type: text/plain", "Content-Length: 0", ...Object.entries(extra).map(([k, v]) => `${k}: ${v}`)];
@@ -60,14 +72,15 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
   httpServer.on("upgrade", (req, socket, head) => {
     socket.on("error", () => {});
     const ip = clientIp(req, trustProxy);
+    const ipk = ipKey(ip);
     const blocked = authThrottle.blockedForMs(ip);
     if (blocked > 0) return refuse(socket, 429, "Too Many Requests", { "Retry-After": String(Math.ceil(blocked / 1000)) });
     const origin = req.headers.origin;
     if (origin !== undefined && !allowedOrigins.has(normalizeOrigin(origin) ?? "\u0000")) return refuse(socket, 403, "Forbidden");
-    if (wss.clients.size >= limits.maxConnections || (perIp.get(ip) ?? 0) >= limits.maxConnectionsPerIp) return refuse(socket, 503, "Service Unavailable");
+    if (wss.clients.size >= limits.maxConnections || (perIp.get(ipk) ?? 0) >= limits.maxConnectionsPerIp) return refuse(socket, 503, "Service Unavailable");
     wss.handleUpgrade(req, socket, head, (ws) => {
-      perIp.set(ip, (perIp.get(ip) ?? 0) + 1);
-      ws.once("close", () => { const n = (perIp.get(ip) ?? 1) - 1; if (n <= 0) perIp.delete(ip); else perIp.set(ip, n); });
+      perIp.set(ipk, (perIp.get(ipk) ?? 0) + 1);
+      ws.once("close", () => { const n = (perIp.get(ipk) ?? 1) - 1; if (n <= 0) perIp.delete(ipk); else perIp.set(ipk, n); });
       wss.emit("connection", ws, req);
     });
   });
@@ -107,8 +120,22 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
     const bucket = new TokenBucket(limits.msgRate, limits.msgBurst, now);
     const drops = new WindowCounter(limits.dropWindowMs, now);
     let queued = 0;
+    let isFacilitator = false;
+    // Once a connection is being closed (refused token, rate limit, queue cap) nothing already queued or still arriving may run.
+    let closing = false;
+    let authFailed = false;
+    let killTimer: NodeJS.Timeout | null = null;
+    const shut = (code: number, reason: string) => {
+      if (closing) return;
+      closing = true;
+      ws.close(code, reason);
+      killTimer = setTimeout(() => ws.terminate(), 250); // a CLOSING socket would otherwise keep emitting frames
+      killTimer.unref();
+    };
+    /** A frame that arrives (or was queued) after a refusal: dropped, but a refused-token connection still counts each one against its address. */
+    const dropAfterClose = (raw?: string) => { if (authFailed || (token !== undefined && raw !== undefined && raw.includes("join_facilitator"))) authThrottle.fail(ip); };
     // Slowloris and idle sockets: a connection that has not joined in time is closed.
-    const joinTimer = setTimeout(() => { if (!host) ws.close(CLOSE_POLICY, "join timeout"); }, limits.joinTimeoutMs);
+    const joinTimer = setTimeout(() => { if (!host) shut(CLOSE_POLICY, "join timeout"); }, limits.joinTimeoutMs);
     joinTimer.unref();
 
     const send = (m: ServerMessage) => {
@@ -121,6 +148,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
     const fail = (code: string, message: string) => send({ type: "error", code, message });
 
     async function handle(raw: string): Promise<void> {
+      if (closing || ws.readyState !== ws.OPEN) return dropAfterClose(raw);
       let json: unknown;
       try { json = JSON.parse(raw); } catch { return fail("bad_json", "message is not valid JSON"); }
       const parsed = ClientMessageSchema.safeParse(json);
@@ -136,16 +164,18 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             // One attempt per connection. The answer is generic (it does not say whether the token or the session was wrong) and
             // the token is compared as two SHA-256 digests in constant time. It is never logged or echoed.
             if (!secretsMatch(m.token ?? "", token)) {
+              authFailed = true;
               authThrottle.fail(ip);
               log("facilitator join refused: unauthorized");
               fail("unauthorized", "unauthorized");
-              ws.close(CLOSE_POLICY, "unauthorized");
+              shut(CLOSE_POLICY, "unauthorized");
               return;
             }
           }
           const h = opts.hosts.get(m.sessionId);
           if (!h) return fail("unknown_session", "no such session");
           if (m.type === "join") {
+            if (m.roleId === "facilitator") return fail("unknown_role", "unknown_role"); // reserved: never a player role
             const key = `${m.sessionId}:${m.roleId}`;
             const prev = holders.get(key);
             const prevLive = !!prev && prev.ws !== ws && prev.ws.readyState === prev.ws.OPEN;
@@ -160,8 +190,9 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
           } else {
             // With FACILITATOR_TOKEN set the token was checked above. Without it this branch is open to anyone who can reach
             // the port (bootstrap prints a warning at startup); see docs/THREAT_MODEL.md. Player roles are not token-protected.
-            who = "facilitator";
-            send({ type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator") });
+            who = "facilitator"; isFacilitator = true;
+            // Facilitator-only reminder when the server is open (never sent to players).
+            send({ type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator"), ...(token === undefined ? { notice: OPEN_SERVER_NOTICE } : {}) });
           }
           host = h;
           const viewer = who;
@@ -170,13 +201,13 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
         }
         if (!host || !who) return fail("not_joined", "join first");
         if (m.type === "start") {
-          if (who !== "facilitator") return fail("forbidden", "only the facilitator may start the session");
+          if (!isFacilitator) return fail("forbidden", "only the facilitator may start the session");
           await host.start();
         } else if (m.type === "say") {
-          if (who === "facilitator") return fail("forbidden", "the facilitator cannot speak as a role");
+          if (isFacilitator) return fail("forbidden", "the facilitator cannot speak as a role");
           await host.onPlayerUtterance(who, m.text, { expectSceneId: m.expectSceneId });
         } else if (m.type === "command") {
-          if (who !== "facilitator") return fail("forbidden", "only the facilitator may send commands");
+          if (!isFacilitator) return fail("forbidden", "only the facilitator may send commands");
           if (host.engine.state.status === "idle") await host.start();
           await host.command(m.command, { expectSceneId: m.expectSceneId });
         }
@@ -190,12 +221,13 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
     // Messages from one connection are handled in order.
     let chain: Promise<void> = Promise.resolve();
     ws.on("message", (raw) => {
+      if (closing || ws.readyState !== ws.OPEN) return dropAfterClose(raw.toString());
       if (!bucket.take()) {
         // Over the rate: drop the message. A client that keeps doing it is closed; other connections have their own buckets.
-        if (drops.hit() >= limits.maxDrops) { fail("rate_limited", "too many messages: closing"); ws.close(CLOSE_POLICY, "rate limit"); return; }
+        if (drops.hit() >= limits.maxDrops) { fail("rate_limited", "too many messages: closing"); shut(CLOSE_POLICY, "rate limit"); return; }
         return fail("rate_limited", "too many messages: slow down");
       }
-      if (queued >= limits.maxQueue) { ws.close(CLOSE_POLICY, "too many queued messages"); return; }
+      if (queued >= limits.maxQueue) { shut(CLOSE_POLICY, "too many queued messages"); return; }
       queued++;
       const text = raw.toString();
       chain = chain.then(() => handle(text)).catch((err) => log(`handler failed: ${(err as Error).message}`)).finally(() => { queued--; });
@@ -203,10 +235,12 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
     ws.on("error", (err) => log(`socket error: ${err.message}`)); // e.g. oversize frame; the ws library then closes it
     ws.on("close", () => {
       clearTimeout(joinTimer);
+      if (killTimer) clearTimeout(killTimer);
+      closing = true;
       unsubscribe?.();
       if (holderKey && holders.get(holderKey)?.ws === ws) {
         holders.delete(holderKey);
-        if (host && who && who !== "facilitator" && participantId) { host.release(who, participantId); log(`released ${who}`); }
+        if (host && who && !isFacilitator && participantId) { host.release(who, participantId); log(`released ${who}`); }
       }
     });
   });

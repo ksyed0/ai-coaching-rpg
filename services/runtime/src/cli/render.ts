@@ -55,6 +55,7 @@ export function renderEvent(e: SessionEvent, me: string): string | null {
 
 export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>): string[] {
   const lines = [`joined as ${s(m.roleId)}`]; // never the reconnect token
+  if (m.notice) lines.push(`warning: ${s(m.notice)}`);
   if (m.brief) {
     lines.push("", `Your brief: ${s(m.brief)}`);
     for (const f of m.privateFacts ?? []) lines.push(`  - ${s(f)}`);

@@ -123,6 +123,9 @@ export function parseSecurityConfig(env: NodeJS.ProcessEnv): SecurityParse {
 export const OPEN_SERVER_WARNING =
   "WARNING: FACILITATOR_TOKEN is not set, so the server is OPEN: anyone who can reach it can join as facilitator and read every private fact (see docs/THREAT_MODEL.md)";
 
+/** Shown to a facilitator once, in `joined`, when the server runs without a token. */
+export const OPEN_SERVER_NOTICE = "This server has no FACILITATOR_TOKEN: anyone who can reach it can join as facilitator. Set one (see docs/THREAT_MODEL.md).";
+
 /** Token bucket: `burst` tokens at most, refilled at `ratePerSec`. Time is injected for tests. */
 export class TokenBucket {
   private tokens: number;
@@ -158,29 +161,53 @@ export class WindowCounter {
   }
 }
 
+/** The key per-address limits use: IPv4 as is, IPv4-mapped IPv6 as the IPv4 address, other IPv6 by its /64 (one household or host owns a whole /64). */
+export function ipKey(ip: string): string {
+  const v4 = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);
+  if (v4) return v4[1]!;
+  if (!ip.includes(":") || net.isIP(ip) !== 6) return ip;
+  const [head, tail = ""] = ip.split("::");
+  const a = head ? head.split(":") : [];
+  const b = ip.includes("::") && tail ? tail.split(":") : [];
+  const groups = ip.includes("::") ? [...a, ...Array(Math.max(0, 8 - a.length - b.length)).fill("0"), ...b] : a;
+  return groups.slice(0, 4).map((g) => parseInt(g || "0", 16).toString(16)).join(":") + "::/64";
+}
+
+export const MAX_TRACKED_ADDRESSES = 10_000;
+
 /** Failed facilitator joins per IP: more than `max` inside the window blocks that IP for `blockMs`. The map is pruned as it is used. */
 export class AuthThrottle {
   private readonly fails = new Map<string, WindowCounter>();
   private readonly blockedUntil = new Map<string, number>();
-  constructor(private readonly o: { max: number; windowMs: number; blockMs: number; now: () => number }) {}
+  constructor(private readonly o: { max: number; windowMs: number; blockMs: number; now: () => number; maxEntries?: number }) {}
   fail(ip: string): void {
-    let c = this.fails.get(ip);
-    if (!c) { c = new WindowCounter(this.o.windowMs, this.o.now); this.fails.set(ip, c); }
-    if (c.hit() > this.o.max) { this.blockedUntil.set(ip, this.o.now() + this.o.blockMs); this.fails.delete(ip); }
+    const key = ipKey(ip);
+    let c = this.fails.get(key);
+    if (!c) { c = new WindowCounter(this.o.windowMs, this.o.now); this.fails.set(key, c); }
+    if (c.hit() > this.o.max) { this.blockedUntil.set(key, this.o.now() + this.o.blockMs); this.fails.delete(key); }
     this.prune();
   }
   /** Milliseconds until the IP may connect again, or 0. */
   blockedForMs(ip: string): number {
-    const until = this.blockedUntil.get(ip);
+    const key = ipKey(ip);
+    const until = this.blockedUntil.get(key);
     if (until === undefined) return 0;
     const left = until - this.o.now();
-    if (left <= 0) { this.blockedUntil.delete(ip); return 0; }
+    if (left <= 0) { this.blockedUntil.delete(key); return 0; }
     return left;
   }
+  /** Entries tracked (for tests and monitoring). */
+  size(): number { return this.fails.size + this.blockedUntil.size; }
+  /** Drops expired entries from BOTH maps once either is large, then evicts the oldest so memory stays bounded even under spoofed addresses. */
   private prune(): void {
-    if (this.fails.size < 1_000) return;
-    for (const [ip, c] of this.fails) if (c.count() === 0) this.fails.delete(ip);
-    for (const ip of [...this.blockedUntil.keys()]) this.blockedForMs(ip);
+    const cap = this.o.maxEntries ?? MAX_TRACKED_ADDRESSES;
+    if (this.fails.size < cap / 10 && this.blockedUntil.size < cap / 10) return;
+    for (const [k, c] of this.fails) if (c.count() === 0) this.fails.delete(k);
+    const t = this.o.now();
+    for (const [k, until] of this.blockedUntil) if (until <= t) this.blockedUntil.delete(k);
+    for (const m of [this.fails, this.blockedUntil] as Map<string, unknown>[]) {
+      while (m.size > cap) { const oldest = m.keys().next().value as string | undefined; if (oldest === undefined) break; m.delete(oldest); }
+    }
   }
 }
 

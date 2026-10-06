@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AuthThrottle, DEFAULT_LIMITS, TokenBucket, WindowCounter, clientIp, isValidToken, normalizeOrigin, parseSecurityConfig, secretsMatch } from "../security.js";
+import { AuthThrottle, ipKey, DEFAULT_LIMITS, TokenBucket, WindowCounter, clientIp, isValidToken, normalizeOrigin, parseSecurityConfig, secretsMatch } from "../security.js";
 
 const TOKEN = "0123456789abcdef0123456789abcdef";
 
@@ -123,5 +123,41 @@ describe("clientIp", () => {
     expect(clientIp(req("9.9.9.9, 1.2.3.4"), true)).toBe("1.2.3.4");
     expect(clientIp(req(), true)).toBe("10.0.0.9");
     expect(clientIp(req("x".repeat(200)), true)).toBe("10.0.0.9");
+  });
+});
+
+describe("ipKey (US-0017 review M2)", () => {
+  it("keys IPv6 by /64 and maps IPv4-mapped addresses to IPv4", () => {
+    expect(ipKey("203.0.113.9")).toBe("203.0.113.9");
+    expect(ipKey("::ffff:203.0.113.9")).toBe("203.0.113.9");
+    expect(ipKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd")).toBe(ipKey("2001:db8:1:2::1"));
+    expect(ipKey("2001:db8:1:2::1")).not.toBe(ipKey("2001:db8:1:3::1"));
+    expect(ipKey("::1")).toBe("0:0:0:0::/64");
+    expect(ipKey("not an ip")).toBe("not an ip");
+  });
+  it("one /64 shares one failure budget", () => {
+    let t = 0;
+    const th = new AuthThrottle({ max: 2, windowMs: 60_000, blockMs: 60_000, now: () => t });
+    th.fail("2001:db8::1"); th.fail("2001:db8::2"); th.fail("2001:db8::3");
+    expect(th.blockedForMs("2001:db8::ffff")).toBeGreaterThan(0);
+  });
+});
+
+describe("AuthThrottle memory (US-0017 review M2)", () => {
+  it("stays bounded under many distinct (spoofed) addresses, in both maps, evicting the oldest", () => {
+    let t = 0;
+    const th = new AuthThrottle({ max: 1, windowMs: 60_000, blockMs: 600_000, now: () => t, maxEntries: 100 });
+    for (let i = 0; i < 5_000; i++) { th.fail(`10.${i >> 8}.${i & 255}.1`); th.fail(`10.${i >> 8}.${i & 255}.1`); t += 1; }
+    expect(th.size()).toBeLessThanOrEqual(200);
+    expect(th.blockedForMs("10.0.0.1")).toBe(0); // evicted long ago
+    expect(th.blockedForMs(`10.${4_999 >> 8}.${4_999 & 255}.1`)).toBeGreaterThan(0); // the newest is kept
+  });
+  it("prunes expired entries from the block list too", () => {
+    let t = 0;
+    const th = new AuthThrottle({ max: 0, windowMs: 1_000, blockMs: 1_000, now: () => t, maxEntries: 10 });
+    for (let i = 0; i < 5; i++) th.fail(`192.0.2.${i}`);
+    t += 10_000;
+    for (let i = 0; i < 5; i++) th.fail(`198.51.100.${i}`);
+    expect(th.size()).toBeLessThanOrEqual(5);
   });
 });

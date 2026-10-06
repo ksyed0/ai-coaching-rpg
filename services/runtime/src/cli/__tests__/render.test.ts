@@ -160,3 +160,11 @@ describe("renderError for the token and rate limits (US-0017)", () => {
     expect(renderError("rate_limited", "whatever")).toMatch(/slow down/);
   });
 });
+
+describe("renderJoined notice (US-0017)", () => {
+  it("shows the server's open-server note to the facilitator, sanitized", () => {
+    const lines = renderJoined({ type: "joined", roleId: "facilitator", state: { transcript: [] } as never, notice: "no token\x1b[2J" });
+    expect(lines[1]).toMatch(/^warning: no token/);
+    expect(lines.join("")).not.toContain("\x1b");
+  });
+});

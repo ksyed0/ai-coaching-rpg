@@ -8,6 +8,9 @@ import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
 import { SessionHost } from "../session-host.js";
+import net from "node:net";
+import os from "node:os";
+import { readFileSync } from "node:fs";
 import { startServer, MAX_PAYLOAD_BYTES } from "../ws-server.js";
 import type { Limits } from "../security.js";
 
@@ -50,6 +53,7 @@ function handshake(port: number, headers: Record<string, string> = {}): Promise<
     ws.on("error", () => {});
     ws.on("unexpected-response", (_req, res) => { resolve({ status: res.statusCode ?? 0 }); res.resume(); });
     ws.on("open", () => resolve({ status: 101, ws }));
+    ws.on("close", () => resolve({ status: 0 })); // the server dropped the socket before answering
   });
 }
 
@@ -58,7 +62,7 @@ async function setup(o: { token?: string; limits?: Partial<Limits>; allowedOrigi
   const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock: new FakeClock(0) });
   const host = o.host ?? new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(["Hi!"]), gmProvider: new MockModelProvider(), clock: new FakeClock(0) });
   server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: (m) => logs.push(m), facilitatorToken: o.token, limits: o.limits, allowedOrigins: o.allowedOrigins, trustProxy: o.trustProxy, now: o.now });
-  return { port: server.port, host };
+  return { port: server.port, host, engine };
 }
 
 describe("facilitator token (AC-0053)", () => {
@@ -302,5 +306,119 @@ describe("bind address", () => {
     const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(), gmProvider: new MockModelProvider(), clock: new FakeClock(0) });
     server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: (m) => logs.push(m), host: "127.0.0.1" });
     expect(logs.join("\n")).toContain("ws://127.0.0.1:");
+  });
+});
+
+describe("a refused connection stops processing (review I1)", () => {
+  it("frames pipelined after a wrong token never run: [wrong, right, start] leaves the session idle with one refusal logged", async () => {
+    const { port, engine } = await setup({ token: TOKEN });
+    const c = open(port); await opened(c);
+    c.ws.send(JSON.stringify({ type: "join_facilitator", sessionId: "local", token: "wrong-wrong-wrong-wrong" }));
+    c.ws.send(JSON.stringify({ type: "join_facilitator", sessionId: "local", token: TOKEN }));
+    c.ws.send(JSON.stringify({ type: "start" }));
+    await c.closed;
+    await new Promise((r) => setTimeout(r, 100));
+    expect(engine.state.status).toBe("idle");
+    expect(c.inbox.some((m) => m.type === "joined" || m.type === "event")).toBe(false);
+    expect(logs.filter((l) => /join refused/.test(l)).length).toBe(1);
+  });
+
+  it("10 wrong frames then the right one then start: still idle", async () => {
+    const { port, engine } = await setup({ token: TOKEN });
+    const c = open(port); await opened(c);
+    for (let i = 0; i < 10; i++) c.ws.send(JSON.stringify({ type: "join_facilitator", sessionId: "local", token: `wrong-guess-number-${i}-xxxx` }));
+    c.ws.send(JSON.stringify({ type: "join_facilitator", sessionId: "local", token: TOKEN }));
+    c.ws.send(JSON.stringify({ type: "start" }));
+    await c.closed;
+    expect(engine.state.status).toBe("idle");
+    expect(c.inbox.filter((m) => m.code === "unauthorized").length).toBe(1);
+  });
+
+  it("100 pipelined wrong guesses: at most one is answered, and every one counts against the address", async () => {
+    const { port } = await setup({ token: TOKEN, trustProxy: true });
+    const hdr = { "x-forwarded-for": "203.0.113.77" };
+    const c = open(port, hdr); await opened(c);
+    for (let i = 0; i < 100; i++) c.ws.send(JSON.stringify({ type: "join_facilitator", sessionId: "local", token: `guess-${i}-0123456789abcdef` }));
+    await c.closed;
+    expect(c.inbox.filter((m) => m.code === "unauthorized").length).toBeLessThanOrEqual(1);
+    expect((await handshake(port, hdr)).status).toBe(429);
+  });
+
+  it("a rate-limit close also drops frames still queued (the connection is terminated shortly after)", async () => {
+    const { port } = await setup({ limits: { msgRate: 1, msgBurst: 2, maxDrops: 1 } });
+    const c = open(port); await opened(c);
+    for (let i = 0; i < 50; i++) c.ws.send(JSON.stringify({ type: "say", text: "x" }));
+    expect(await c.closed).toBeTypeOf("number");
+    expect(c.inbox.filter((m) => m.code === "rate_limited").length).toBeLessThanOrEqual(2);
+  });
+});
+
+describe("raw socket limits (review M1)", () => {
+  it("idle TCP sockets from one address are capped at twice the per-address limit and do not block the rest", async () => {
+    const { port } = await setup({ limits: { maxConnectionsPerIp: 2, joinTimeoutMs: 30_000 } });
+    const other = Object.values(os.networkInterfaces()).flat().find((i) => i && i.family === "IPv4" && !i.internal)?.address;
+    const fromOther = async () => {
+      const ws = new WebSocket(`ws://${other}:${port}`, { localAddress: other } as never);
+      sockets.push(ws);
+      return new Promise<number>((resolve) => { ws.on("error", () => resolve(0)); ws.on("open", () => { resolve(101); ws.close(); }); });
+    };
+    const otherOk = other !== undefined && (await fromOther()) === 101;
+    const socks = await Promise.all(Array.from({ length: 25 }, () => new Promise<net.Socket>((resolve) => { const s = net.connect(port, "127.0.0.1", () => resolve(s)); s.on("error", () => resolve(s)); s.on("close", () => resolve(s)); })));
+    await new Promise((r) => setTimeout(r, 200));
+    const alive = socks.filter((s) => !s.destroyed).length;
+    expect(alive).toBeLessThanOrEqual(4);
+    // the same address is fairly refused while it hogs its sockets
+    expect((await handshake(port)).status).not.toBe(101);
+    // another address is unaffected (checked only where this machine has a second local address that can reach the server at all)
+    if (otherOk) expect(await fromOther()).toBe(101);
+    for (const s of socks) s.destroy();
+  });
+});
+
+describe("misc hardening", () => {
+  it("startServer refuses an invalid token (empty included) without showing it", async () => {
+    const scenario = await loadScenario(fixture);
+    const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock: new FakeClock(0) });
+    const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(), gmProvider: new MockModelProvider(), clock: new FakeClock(0) });
+    for (const bad of ["", "short", "has a space in it 0123456789"]) {
+      await expect(startServer({ port: 0, hosts: new Map([["local", host]]), facilitatorToken: bad })).rejects.toThrow(/not a valid token/);
+      await expect(startServer({ port: 0, hosts: new Map([["local", host]]), facilitatorToken: bad })).rejects.not.toThrow(bad || "zzz-never");
+    }
+  });
+
+  it("a player cannot join as the role id 'facilitator'", async () => {
+    const { port } = await setup();
+    const c = open(port); await opened(c);
+    c.send({ type: "join", sessionId: "local", roleId: "facilitator", participantId: "x" });
+    expect((await c.next((m) => m.type === "error")).code).toBe("unknown_role");
+    c.send({ type: "start" });
+    expect((await c.next((m) => m.code === "not_joined")).code).toBe("not_joined");
+  });
+
+  it("an open server tells the facilitator once, in joined, and never a player; a token server adds no note", async () => {
+    const { port } = await setup();
+    const f = open(port); await opened(f);
+    f.send({ type: "join_facilitator", sessionId: "local" });
+    expect((await f.next((m) => m.type === "joined")).notice).toMatch(/no FACILITATOR_TOKEN/);
+    const p = open(port); await opened(p);
+    p.send({ type: "join", sessionId: "local", roleId: "host", participantId: "p" });
+    expect((await p.next((m) => m.type === "joined")).notice).toBeUndefined();
+    await server?.close(); server = null;
+    const { port: port2 } = await setup({ token: TOKEN });
+    const g = open(port2); await opened(g);
+    g.send({ type: "join_facilitator", sessionId: "local", token: TOKEN });
+    expect((await g.next((m) => m.type === "joined")).notice).toBeUndefined();
+  });
+
+  it("the token comparison goes through the shared constant-time helper (structural; timing itself cannot be tested)", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const src = readFileSync(path.join(here, "../ws-server.ts"), "utf8");
+    expect(src).toMatch(/secretsMatch\(m\.token \?\? "", token\)/);
+    expect(src).not.toMatch(/m\.token\s*[!=]==/);
+    expect(src).not.toMatch(/token\s*[!=]==\s*m\.token/);
+    expect(src).not.toContain("timingSafeEqual");
+    const sec = readFileSync(path.join(here, "../security.ts"), "utf8");
+    expect(sec).toMatch(/timingSafeEqual\(x, y\)/);
+    expect(sec).toMatch(/createHash\("sha256"\)/);
   });
 });
