@@ -55,20 +55,24 @@ describe("viewFromEvents and buildPlayerRequest", () => {
     expect(viewFromEvents({ roleId: "x", joined: {}, scene: sc, events }).brief).toBe("");
   });
 
-  it("the system prompt has the role, brief, private facts, scene and injects; the intent joins the last user turn; roles are ids", () => {
+  it("the system prompt has the role, brief, private facts, scene and injects; the intent is a private system section, not a dialogue turn; roles are ids", () => {
     const v = viewFromEvents({ roleId: "delivery_lead", joined: { brief: "You run the programme", privateFacts: ["Contingency is thin"] }, scene: sc, events });
     const req = buildPlayerRequest({ view: v, intent: "INTENT TEXT", maxTokens: 321 });
     expect(req.system).toContain("You are playing the delivery lead (role id delivery_lead) as a human trainee");
     for (const t of ["You run the programme", "- Contingency is thin", "Huddle: Agree a position", "- Priya's email is in.", "no [role] tags", "never write a line for anyone else", "Never mention that you are an AI"]) expect(req.system).toContain(t);
     expect(req.system).not.toContain("TECH ONLY");
-    expect(req.system).not.toContain("INTENT TEXT"); // the intent is a turn, not part of the system prefix
+    expect(req.system).toContain("## Your intent for this turn (private; do not mention it)");
+    expect(req.system).toMatch(/not part of the dialogue: INTENT TEXT/);
+    expect(req.system).toContain("Output ONLY the words you say aloud: one to three sentences. No explanations, no notes about your intent, no headings, no separators, no asterisks, no lists");
+    expect(JSON.stringify(req.messages)).not.toContain("INTENT TEXT");
+    expect(JSON.stringify(req.messages)).not.toContain("[note");
     expect(req.maxTokens).toBe(321);
     expect(req.cacheSystem).toBe(false);
     expect(req.messages[0]).toEqual({ role: "user", content: "[scene]: The scene has started. Speak first if it is natural for you to." });
     expect(req.messages[1]).toEqual({ role: "assistant", content: "First reactions?" });
     const last = req.messages.at(-1)!;
     expect(last.role).toBe("user");
-    expect(last.content).toMatch(/^\[tech_lead\]: Ingestion worries me\.\n\n\[note to you only, not spoken\]: .*INTENT TEXT$/s);
+    expect(last.content).toBe("[tech_lead]: Ingestion worries me.");
   });
 
   it("obeys the Messages API turn rules (first turn user, last turn user) for empty, own-last and windowed conversations", () => {
@@ -79,7 +83,7 @@ describe("viewFromEvents and buildPlayerRequest", () => {
     expect(empty[0]!.content).toMatch(/^\[scene\]: The scene has started\./);
     const ownLast = mk([{ roleId: "x", text: "a" }, { roleId: "me", text: "b" }]);
     expect(ownLast.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
-    expect(ownLast.at(-1)!.content).toContain("[scene]: Continue the conversation in character.");
+    expect(ownLast.at(-1)!.content).toBe("[scene]: Continue the conversation in character.");
     const cut = mk([{ roleId: "x", text: "a" }, { roleId: "me", text: "b" }, { roleId: "x", text: "c" }], 2);
     expect(cut[0]).toEqual({ role: "user", content: "[scene]: Earlier lines of the conversation are omitted." });
     expect(cut[0]!.role).toBe("user");
@@ -113,7 +117,8 @@ describe("PlayerBotGenerator", () => {
     expect(g.calls).toHaveLength(1);
     expect(g.callRoles).toEqual(["delivery_lead"]);
     expect(g.calls[0]!.system).toContain("BRIEF of the role");
-    expect(p.calls[0]!.messages.at(-1)!.content).toContain("We offer a phased module after go-live.");
+    expect(p.calls[0]!.system).toContain("We offer a phased module after go-live.");
+    expect(p.calls[0]!.messages.at(-1)!.content).not.toContain("We offer a phased module");
   });
 
   it("flags a verbatim repeat of the scripted line (ignoring case and spacing)", async () => {
@@ -243,5 +248,34 @@ describe("PlayerBotGenerator: echoed note and control characters", () => {
     expect(r.text).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/);
     expect(r.text).toBe("Hi[31m there evil x y next tab");
     expect(r.source).toBe("generated");
+  });
+});
+
+describe("PlayerBotGenerator: the model explaining its intent (observed with a real model)", () => {
+  const OBSERVED = [
+    ["What if we propose this as a phase two deliverable, properly scoped and priced? *** I want to suggest a compromise where the module is moved to a second phase and priced separately.", "What if we propose this as a phase two deliverable, properly scoped and priced?"],
+    ["Okay, I hear you.\n\n---\nMy intent is to calm things down.", "Okay, I hear you."],
+    ["We can do 45k. ___ Intent: close the price.", "We can do 45k."],
+    ["Fine by me. === done", "Fine by me."],
+    ["Fine by me.\n(Note: this restates the intent)", "Fine by me."],
+    ["Fine by me.\nIntent: agree", "Fine by me."],
+    ["Fine by me.\n[Note to self: agree]", "Fine by me."],
+    ["Fine by me.\n\nMy intent was to agree.", "Fine by me."],
+    ["Fine by me.\n(Intent - agree)", "Fine by me."],
+  ] as const;
+  it.each(OBSERVED)("cuts %j down to the spoken words", async (raw, spoken) => {
+    const r = await speak(await gen(provider(raw)));
+    expect(r).toMatchObject({ text: spoken, source: "generated", verbatim: false });
+    expect(r.text).not.toMatch(/intent|\*\*\*|---|___|===|note/i);
+  });
+  it("keeps legitimate text: a dash, an em dash, **bold**, -- and 5*3", async () => {
+    const t = "Two-week plan \u2014 not **ten**; ok -- but 5*3 is 15 - fine, a note: yes";
+    expect((await speak(await gen(provider(t)))).text).toBe(t);
+  });
+  it("falls back to the scripted line when only a separator or commentary remains, and a cut line equal to the script still counts as a verbatim repeat", async () => {
+    expect(await speak(await gen(provider("*** my own explanation")))).toMatchObject({ source: "scripted", reason: "empty reply" });
+    expect(await speak(await gen(provider("(Note: nothing else)")))).toMatchObject({ source: "scripted" });
+    const r = await speak(await gen(provider("We offer a phased module after go-live. *** I wanted to say the same.")));
+    expect(r).toMatchObject({ source: "generated", verbatim: true, text: "We offer a phased module after go-live." });
   });
 });

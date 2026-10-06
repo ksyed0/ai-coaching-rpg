@@ -92,3 +92,18 @@ describe("cleanNpcReply", () => {
     expect(clean("Answer <think>keep</think> text").text).toBe("Answer <think>keep</think> text");
   });
 });
+
+describe("separator before commentary", () => {
+  const role = { id: "cfo", name: "Helena Brandt" };
+  it("cuts at a standalone 3+ asterisk or dash separator that is followed by text, without flagging other speakers", () => {
+    expect(cleanNpcReply("Give me the number. *** I am asking for the total price.", role)).toEqual({ text: "Give me the number.", cut: false });
+    expect(cleanNpcReply("Give me the number.\n----\nExplanation of my intent", role)).toEqual({ text: "Give me the number.", cut: false });
+    expect(cleanNpcReply("Fixed fee? ***** And more", role).text).toBe("Fixed fee?");
+  });
+  it("keeps single and double dashes, em dashes, **bold**, numbers like 5*3 and a trailing separator with nothing after it", () => {
+    for (const t of ["Six weeks - not seven", "Six weeks \u2014 not seven", "That is **firm**, not soft.", "Use -- the number", "5*3 is 15, 48-45 is 3", "I want x*** that", "Done. ***", "a --- b"]) {
+      if (t === "a --- b") { expect(cleanNpcReply(t, role).text).toBe("a"); continue; }
+      expect(cleanNpcReply(t, role).text).toBe(t);
+    }
+  });
+});

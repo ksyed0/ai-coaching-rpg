@@ -65,8 +65,16 @@ function stripThink(text: string): string {
   return close ? rest.slice(close.index + close[0].length) : "";
 }
 
+/** A run of 3+ asterisks or dashes standing alone (start of text or after whitespace) and followed by more text: a separator before a model's own commentary. */
+const SEPARATOR = /(?:^|\s)(?:\*{3,}|-{3,})(?=\s+\S)/;
+/** Cuts the reply at such a separator, keeping only the text before it. A single dash, an em dash, `**bold**`, `--` and `5*3` are not separators. */
+export function cutAtSeparator(text: string): string {
+  const m = SEPARATOR.exec(text);
+  return m ? text.slice(0, m.index) : text;
+}
+
 export function cleanNpcReply(raw: string, role: SpeakerName, others: SpeakerName[] = []): CleanedReply {
-  let text = stripThink(raw).trim();
+  let text = cutAtSeparator(stripThink(raw)).trim();
   // 1. A prefix naming the character itself (its own id or name exactly): "[cfo]:", "[ Helena Brandt ]:", "cfo:", "Helena Brandt:".
   const self = `(?:${nameRe(role.id)}|${nameRe(role.name)})`;
   const selfPrefix = new RegExp(`^(?:\\[\\s*${self}\\s*\\]|${self})\\s*:\\s*`, "i");

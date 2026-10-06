@@ -356,3 +356,25 @@ describe("generated players: models and temperatures", () => {
     expect(r.stdout).toContain("one per line slot and more with retries");
   });
 });
+
+describe("generated players: a model that explains its intent after a separator", () => {
+  const SPOKEN = "What if we propose this as a phase two deliverable, properly scoped and priced?";
+  const LEAK = "I want to suggest a compromise where the module is moved to a second phase and priced separately.";
+  it("only the spoken sentence is said, recorded, reported and transcribed; a reply that is only commentary falls back and is counted", async () => {
+    const { env } = await fakeModel((n, role) => (n === 1 ? { text: `${SPOKEN} *** ${LEAK}` } : n === 2 ? { text: `*** ${LEAK}` } : GEN(n, role)));
+    const dir = await tmp();
+    const { exitCode, showcase, stdout, report } = await run([...ARGV, "--transcript", "i.md"], env, { cwd: dir });
+    expect(exitCode).toBe(0);
+    const spoken = showcase.lines.filter((l) => l.source === "player-bot");
+    expect(spoken[0]).toMatchObject({ tag: "generated", text: SPOKEN });
+    expect(spoken[1]).toMatchObject({ tag: "scripted", role: "tech_lead" });
+    expect(showcase.players).toMatchObject({ generated: 11, scriptedFallbacks: 1, verbatimRepeats: 0 });
+    const md = await readFile(path.join(dir, "i.md"), "utf8");
+    for (const where of [stdout, JSON.stringify(report), md]) {
+      expect(where).not.toContain("compromise where the module");
+      expect(where).not.toContain("\\*\\*\\*");
+    }
+    expect(md).toContain(`**[GENERATED] delivery_lead: ${SPOKEN}**`);
+    expect(stdout).toContain("player tech_lead: generation failed (empty reply); used the scripted line");
+  });
+});
