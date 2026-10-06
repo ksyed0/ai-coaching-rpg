@@ -759,7 +759,7 @@ Notes: Live runs of the evaluator are done by the controller, not in this task. 
 US-0032 (EPIC-0006): As a facilitator running a scene with two AI characters, I want each character to respond with its own kind of contribution and to stay silent when it has nothing of its own to add, so that a senior executive gives a decision, a condition or a number instead of echoing the sponsor.
 Priority: High
 Estimate: M
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0006-ai-character-voices
 Dependencies: US-0027
 Acceptance Criteria:
@@ -770,14 +770,14 @@ Acceptance Criteria:
   - [x] AC-0116: the showcase report, narration summary and `--json` `showcase` section count near-duplicate replies of two different AI characters to the same player line (echoes out of eligible pairs) (token-set Jaccard similarity of at least 0.6, a pure tested function) and the silent turns per character, as observations and never as failures
   - [x] AC-0117: the scripted mock providers and shipped showcase scripts keep working (`demo --fast` 29/29, `--showcase --fast` 14/14, `--evaluate` 15/15), and a loopback fake-model showcase run in generated-players mode proves a silent turn and a spoken turn by the CFO end to end
   - [x] AC-0118: README documents the new role fields, and the changelog and dashboard are updated
-  - [ ] AC-0119: a recorded live comparison on a real model shows the CFO's replies are distinct from the sponsor's (echo count compared with the run before this story)
+  - [x] AC-0119: a recorded live comparison on a real model shows the CFO's replies are distinct from the sponsor's (echo count compared with the run before this story) (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4 with generated players: 0 of 5 comparable AI reply pairs were near-duplicates, Priya stayed silent once, 0 alerts, 22 of 22 player lines generated, 13 checks passed, 673 s; the CFO now opens with a decision, a number or an ultimatum (for example 'I require a daily credit of two thousand dollars, or I will not sign the change request') and the sponsor relays and defers to her; sample is one run with 5 comparable pairs)
 ```
 
 ```
 TASK-0032 (US-0032): Add voice fields to the schema, the roster and response sections to the NPC prompt, silence, seniority turn order and the echo metric
 Type: Dev
 Assignee: Agent
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0006-ai-character-voices
 Notes: Observed 2026-10-06 in real Gemma runs of `pnpm demo --showcase --live --players generated`: both AI characters answered every player line and the CFO's reply rephrased the sponsor's point. Live comparison is recorded by the controller, not in this task. Fix round 2026-10-06 after an independent review: forced last speaker, silence forms folded before cleaning, roster tags, generic prompt wording, echo metric restricted to different roles answering the same player line, validator warnings, ordered silent-turn note, bounded silence memory, cross-character prompt audit in S-06.
 ```

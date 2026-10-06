@@ -1068,7 +1068,7 @@
       "title": "As a facilitator running a scene with two AI characters, I want each character to respond with its own kind of contribution and to stay silent when it has nothing of its own to add, so that a senior executive gives a decision, a condition or a number instead of echoing the sponsor.",
       "priority": "High",
       "estimate": "M",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0006-ai-character-voices",
       "acs": [
         {
@@ -1108,8 +1108,8 @@
         },
         {
           "id": "AC-0119",
-          "text": "a recorded live comparison on a real model shows the CFO's replies are distinct from the sponsor's (echo count compared with the run before this story)",
-          "done": false
+          "text": "a recorded live comparison on a real model shows the CFO's replies are distinct from the sponsor's (echo count compared with the run before this story) (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4 with generated players: 0 of 5 comparable AI reply pairs were near-duplicates, Priya stayed silent once, 0 alerts, 22 of 22 player lines generated, 13 checks passed, 673 s; the CFO now opens with a decision, a number or an ultimatum (for example 'I require a daily credit of two thousand dollars, or I will not sign the change request') and the sponsor relays and defers to her; sample is one run with 5 comparable pairs)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -1434,7 +1434,7 @@
       "title": "Add voice fields to the schema, the roster and response sections to the NPC prompt, silence, seniority turn order and the echo metric",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0006-ai-character-voices",
       "notes": "Observed 2026-10-06 in real Gemma runs of `pnpm demo --showcase --live --players generated`: both AI characters answered every player line and the CFO's reply rephrased the sponsor's point. Live comparison is recorded by the controller, not in this task. Fix round 2026-10-06 after an independent review: forced last speaker, silence forms folded before cleaning, roster tags, generic prompt wording, echo metric restricted to different roles answering the same player line, validator warnings, ordered silent-turn note, bounded silence memory, cross-character prompt audit in S-06."
     }
@@ -1951,7 +1951,7 @@
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     }
   },
   "risk": {
@@ -2004,9 +2004,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T19:39:32.572Z",
-  "commitSha": "ac9acc2",
-  "buildNumber": "117",
+  "generatedAt": "2026-10-06T19:52:20.383Z",
+  "commitSha": "8a86f24",
+  "buildNumber": "119",
   "branch": "feature/EPIC-0006-ai-character-voices",
   "sessionTimeline": [
     {
@@ -2171,7 +2171,14 @@
     ],
     "hasBudget": true
   },
-  "completion": null,
+  "completion": {
+    "likelyDate": "Nov 30",
+    "rangeStart": "Sep 7",
+    "rangeEnd": "Feb 22",
+    "velocityWeeks": 4,
+    "storiesPerWeek": 0.5,
+    "pointsPerWeek": 1.4
+  },
   "trends": {
     "dates": [
       "2026-09-06T19:20:14.805Z",
@@ -2204,7 +2211,8 @@
       "2026-10-03T19:20:14.805Z",
       "2026-10-04T19:20:14.805Z",
       "2026-10-05T19:20:14.805Z",
-      "2026-10-06T19:39:32.650Z"
+      "2026-10-06T19:39:32.650Z",
+      "2026-10-06T19:52:20.471Z"
     ],
     "doneCounts": [
       0,
@@ -2237,7 +2245,8 @@
       1,
       1,
       1,
-      1
+      1,
+      2
     ],
     "totalStories": [
       31,
@@ -2270,6 +2279,7 @@
       31,
       31,
       31,
+      32,
       32
     ],
     "aiCosts": [
@@ -2302,6 +2312,7 @@
       5.55039,
       5.75596,
       5.96153,
+      6.1671,
       6.1671,
       6.1671
     ],
@@ -2336,6 +2347,7 @@
       0,
       0,
       0,
+      null,
       null
     ],
     "velocity": [
@@ -2369,9 +2381,11 @@
       3,
       3,
       3,
-      3
+      3,
+      6
     ],
     "openBugs": [
+      3,
       3,
       3,
       3,
@@ -2435,6 +2449,7 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "inputTokens": [
@@ -2468,6 +2483,7 @@
       46667,
       48333,
       50000,
+      522440,
       522440
     ],
     "outputTokens": [
@@ -2501,6 +2517,7 @@
       14000,
       14500,
       15000,
+      69480,
       69480
     ],
     "avgRisk": [
@@ -2534,7 +2551,8 @@
       1.2000000000000002,
       1.2100000000000004,
       1.2100000000000004,
-      1.17741935483871
+      1.17741935483871,
+      1.1700000000000004
     ],
     "velocityByWeek": {
       "labels": [
@@ -2551,7 +2569,7 @@
         3,
         0,
         0,
-        0
+        3
       ],
       "rollingAvg": [
         0,
@@ -2559,7 +2577,7 @@
         1,
         0.8,
         0.8,
-        0.8
+        1.5
       ]
     }
   }
