@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialState, reduce, visibleTranscript, type SessionEvent } from "../index.js";
+import { initialState, reduce, visibleTranscript, activeElapsedMs, type SessionEvent } from "../index.js";
 
 const env = (seq: number) => ({ seq, ts: 1_000 + seq, sessionId: "s1" });
 
@@ -28,6 +28,36 @@ describe("reduce", () => {
     s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1_huddle", participants: ["delivery_lead"] });
     s = reduce(s, { ...env(3), type: "utterance", roleId: "delivery_lead", text: "Hi all", channel: "text" });
     expect(s.transcript).toEqual([{ seq: 3, ts: 1_003, sceneId: "s1_huddle", roleId: "delivery_lead", text: "Hi all", channel: "text" }]);
+  });
+
+  it("activeElapsedMs excludes closed and open pauses and is 0 without a scene", () => {
+    let s = reduce(initialState(), started);
+    expect(activeElapsedMs(s, 9_999)).toBe(0);
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1", participants: ["delivery_lead"] }); // ts 1002
+    s = reduce(s, { seq: 3, ts: 1_102, sessionId: "s1", type: "facilitator.command", command: "pause" });
+    expect(activeElapsedMs(s, 5_000)).toBe(100);
+    s = reduce(s, { seq: 4, ts: 2_102, sessionId: "s1", type: "facilitator.command", command: "resume" });
+    expect(s.currentScene?.pausedMs).toBe(1_000);
+    expect(activeElapsedMs(s, 2_202)).toBe(200);
+    expect(activeElapsedMs(s, 0)).toBe(0);
+  });
+
+  it("a scene entered while paused is frozen from its entry", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { seq: 2, ts: 1_100, sessionId: "s1", type: "facilitator.command", command: "pause" });
+    s = reduce(s, { seq: 3, ts: 1_200, sessionId: "s1", type: "scene.entered", sceneId: "s1", participants: [] });
+    expect(activeElapsedMs(s, 9_000)).toBe(0);
+    s = reduce(s, { seq: 4, ts: 9_000, sessionId: "s1", type: "facilitator.command", command: "resume" });
+    expect(activeElapsedMs(s, 9_050)).toBe(50);
+  });
+
+  it("a session that ends while paused has no active time and stays ended", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1", participants: [] });
+    s = reduce(s, { ...env(3), type: "facilitator.command", command: "pause" });
+    s = reduce(s, { ...env(4), type: "session.ended", reason: "facilitator_end" });
+    expect(s.status).toBe("ended");
+    expect(activeElapsedMs(s, 99_999)).toBe(0);
   });
 
   it("tracks pause and resume", () => {
