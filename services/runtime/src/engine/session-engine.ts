@@ -1,4 +1,4 @@
-import { initialState, reduce, type Channel, type EventBody, type FacilitatorCommand, type SessionEvent, type SessionState } from "@acr/events";
+import { activeElapsedMs, initialState, reduce, type Channel, type EventBody, type FacilitatorCommand, type SessionEvent, type SessionState } from "@acr/events";
 import { dueInjects, evaluateExit, nextSceneId, type Inject, type Scenario, type Scene } from "@acr/script";
 import type { Clock } from "./clock.js";
 import type { EventLog } from "./event-log.js";
@@ -152,7 +152,8 @@ export class SessionEngine {
   private async doTick(): Promise<void> {
     const scene = this.currentScene();
     if (!scene || this.state.paused || this.state.status !== "running") return;
-    const elapsedMs = this.clock.now() - this.state.currentScene!.enteredAt;
+    // Pause freezes the scene clock (BUG-0005): elapsed time is active time, excluding paused intervals.
+    const elapsedMs = activeElapsedMs(this.state, this.clock.now());
     // R14: only the current scene's injects fire, and never one scheduled past the time box.
     // An inject at exactly the time-box minute still fires, before the exit below.
     const timeBoxMinutes = scene.time_box_minutes;

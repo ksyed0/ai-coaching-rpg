@@ -9,9 +9,12 @@ export type SessionState = {
   scenarioId: string | null;
   version: string | null;
   roles: Record<string, { kind: RoleKind; participantId?: string }>;
-  currentScene: { id: string; enteredAt: number; participants: string[] } | null;
+  /** `pausedMs`: total ms the CURRENT scene spent paused so far (closed pause intervals only). */
+  currentScene: { id: string; enteredAt: number; participants: string[]; pausedMs: number } | null;
   sceneHistory: { id: string; participants: string[] }[];
   paused: boolean;
+  /** ts of the pause event that began the current pause; null when not paused. A scene entered while paused is frozen from its entry ts. */
+  pausedSince: number | null;
   transcript: Utterance[];
   injectsFired: string[];
   npcs: Record<string, NpcState>;
@@ -24,7 +27,7 @@ export type SessionState = {
 export function initialState(): SessionState {
   return {
     status: "idle", lastSeq: 0, scenarioId: null, version: null, roles: {},
-    currentScene: null, sceneHistory: [], paused: false, transcript: [], injectsFired: [], npcs: {},
+    currentScene: null, sceneHistory: [], paused: false, pausedSince: null, transcript: [], injectsFired: [], npcs: {},
     advanceRequested: false, gmVerdicts: {},
   };
 }
@@ -36,7 +39,8 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
     case "session.started":
       return { ...s, status: "running", scenarioId: e.scenarioId, version: e.version, roles: e.roles };
     case "scene.entered":
-      return { ...s, advanceRequested: false, gmVerdicts: {}, currentScene: { id: e.sceneId, enteredAt: e.ts, participants: e.participants },
+      return { ...s, advanceRequested: false, gmVerdicts: {}, currentScene: { id: e.sceneId, enteredAt: e.ts, participants: e.participants, pausedMs: 0 },
+        pausedSince: s.paused ? e.ts : null,
         sceneHistory: [...s.sceneHistory, { id: e.sceneId, participants: e.participants }] };
     case "scene.exited":
       return { ...s, currentScene: null, gmVerdicts: {} };
@@ -49,8 +53,12 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
       return { ...s, npcs: { ...s.npcs, [e.roleId]: { goals: e.goals, knowledge: e.knowledge, released: e.released ?? prev.released } } };
     }
     case "facilitator.command":
-      if (e.command === "pause") return { ...s, paused: true };
-      if (e.command === "resume") return { ...s, paused: false };
+      if (e.command === "pause") return s.paused ? s : { ...s, paused: true, pausedSince: e.ts };
+      if (e.command === "resume") {
+        if (!s.paused) return s;
+        const sc = s.currentScene && s.pausedSince !== null ? { ...s.currentScene, pausedMs: s.currentScene.pausedMs + Math.max(0, e.ts - s.pausedSince) } : s.currentScene;
+        return { ...s, paused: false, pausedSince: null, currentScene: sc };
+      }
       if (e.command === "advance") return { ...s, advanceRequested: true };
       return s;
     case "gm.decision":
@@ -61,6 +69,19 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
     case "session.ended":
       return { ...s, status: "ended", currentScene: null };
   }
+}
+
+/**
+ * Active (unpaused) time in the current scene at `now`: now - enteredAt - pausedMs - the open pause, if any.
+ * Representation: paused_ms accumulated per scene from the recorded pause/resume events, so replaying the log
+ * (US-0018) gives the same value. 0 with no current scene; never negative.
+ */
+export function activeElapsedMs(state: SessionState, now: number): number {
+  const sc = state.currentScene;
+  if (!sc) return 0;
+  const open = state.paused && state.pausedSince !== null ? Math.max(0, now - state.pausedSince) : 0;
+  const v = now - sc.enteredAt - sc.pausedMs - open;
+  return Number.isFinite(v) ? Math.max(0, v) : 0; // a corrupt log (NaN/Infinity ts) must not poison the schedule
 }
 
 export function visibleTranscript(state: SessionState, roleId: string): Utterance[] {

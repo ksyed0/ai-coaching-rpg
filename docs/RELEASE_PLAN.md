@@ -781,3 +781,48 @@ Status: Done
 Branch: feature/EPIC-0006-ai-character-voices
 Notes: Observed 2026-10-06 in real Gemma runs of `pnpm demo --showcase --live --players generated`: both AI characters answered every player line and the CFO's reply rephrased the sponsor's point. Live comparison is recorded by the controller, not in this task. Fix round 2026-10-06 after an independent review: forced last speaker, silence forms folded before cleaning, roster tags, generic prompt wording, echo metric restricted to different roles answering the same player line, validator warnings, ordered silent-turn note, bounded silence memory, cross-character prompt audit in S-06.
 ```
+
+```
+US-0033 (EPIC-0006): As an operator, I want each player role to have its own join code, so that a person cannot claim a role that was meant for someone else.
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0006-US-0033-player-join-codes
+Dependencies: US-0017
+Acceptance Criteria:
+  - [ ] AC-0120: when the server starts a session it creates one random join code per player role (stored only as a hash, never written to the event log), the operator can see the codes once at start, and a `join` for a player role must present that role's code
+  - [ ] AC-0121: a `join` with a missing or wrong code is refused with one generic error that does not say whether the role exists or is taken, and the refusals count towards the existing connection and rate limits
+  - [ ] AC-0122: the facilitator token (US-0017) remains separate, a rejoining player keeps using the reconnect token for a live session, and the README documents how to hand the codes out
+```
+
+```
+TASK-0033 (US-0033): Generate and verify per-role join codes, add the code to the join message and the terminal client, document it
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0033-player-join-codes
+Notes: Closes the gap US-0017 leaves open: with only a facilitator token, any connection can still claim an unclaimed player role. Also needed so that US-0018 (resume after restart) can keep roles protected across a restart (hashed codes only).
+```
+
+```
+US-0034 (EPIC-0006): As a facilitator, I want the Game Master to suggest releasing a hidden fact when a scenario `earned_when` condition is met (suggest-only, never auto-release by default), so that I do not have to watch for the moment a participant has earned it.
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release
+Dependencies: US-0016, US-0025
+Acceptance Criteria:
+  - [ ] AC-0123: a scenario may give a hidden fact an optional `earned_when` condition (plain text, validated like a scene exit condition), and a scenario without it behaves exactly as before
+  - [ ] AC-0124: when the Game Master judges an `earned_when` condition true for a fact that is not yet released, the facilitator (only) receives one alert that names the role and the fact index and says how to release it (`/release <role> <n>`); the fact text never reaches players, and the same suggestion is not repeated
+  - [ ] AC-0125: nothing is released without the facilitator's `release_hidden` command, unless the operator explicitly sets an opt-in `GM_AUTO_RELEASE` option, which is off by default and records the release as a Game Master action
+  - [ ] AC-0126: the scripted mock provider covers the suggestion and the no-suggestion cases, the demo checks stay stable, and the README and CHANGELOG describe the feature
+```
+
+```
+TASK-0034 (US-0034): Add earned_when to the schema, have the Game Master evaluate it and alert the facilitator, add the opt-in auto release
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release
+Notes: Follow-up to the design notes for US-0016 and US-0025. US-0016 gives the facilitator the manual release command; this story only suggests it.
+```
