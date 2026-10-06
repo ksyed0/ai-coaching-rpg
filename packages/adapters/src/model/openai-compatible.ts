@@ -22,6 +22,10 @@ export function sanitizeSnippet(text: string, max = ERROR_SNIPPET_CHARS): string
   return clean.length > max ? `${clean.slice(0, max)}...` : clean;
 }
 
+const isText = (v: unknown): boolean => typeof v === "string" && v.length > 0;
+/** True when a delta/message carries thinking text. Only the fact is kept: the text itself is never stored, yielded or put in an error. */
+const hasReasoning = (o: { reasoning_content?: unknown; reasoning?: unknown } | undefined): boolean => isText(o?.reasoning_content) || isText(o?.reasoning);
+
 export class OpenAICompatibleModelProvider implements ModelProvider {
   readonly name: OpenAICompatibleName;
   private readonly endpoint: string;
@@ -96,6 +100,18 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     yield* this.parseSse(res.body, signal);
   }
 
+  /**
+   * A reasoning model (Qwen3, DeepSeek-R1, gpt-oss ...) that spends its whole max_tokens thinking returns the thinking in
+   * `reasoning_content` or `reasoning`, no `content`, and usually finish_reason "length". That is a budget problem, not an
+   * empty answer: report it as its own transient kind. The thinking text is never part of the message.
+   */
+  private reasoningBudgetError(): ModelProviderError {
+    return new ModelProviderError(
+      `${this.name}: the model used its whole token budget thinking and gave no answer; raise NPC_MAX_TOKENS (AI characters) or GM_MAX_TOKENS (Game Master)`,
+      { kind: "reasoning_budget", transient: true },
+    );
+  }
+
   /** One body read; a failure that is not the caller's own abort is a (usually transient) network error, with a sanitized message. */
   private async readChunk(reader: ReadableStreamDefaultReader<Uint8Array>, signal?: AbortSignal): Promise<ReadableStreamReadResult<Uint8Array>> {
     try { return await reader.read(); }
@@ -137,8 +153,11 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     try { obj = JSON.parse(text); }
     catch { throw new Error(`${this.name} returned malformed JSON`); }
     this.throwIfErrorObject(obj);
-    const content = (obj as { choices?: { message?: { content?: unknown } }[] } | null)?.choices?.[0]?.message?.content;
-    return typeof content === "string" ? content : "";
+    const message = (obj as { choices?: { message?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown } }[] } | null)?.choices?.[0]?.message;
+    const content = message?.content;
+    if (typeof content === "string" && content.length > 0) return content;
+    if (hasReasoning(message)) throw this.reasoningBudgetError();
+    return "";
   }
 
   private throwIfErrorObject(obj: unknown): void {
@@ -159,6 +178,8 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
     const reader = body.getReader();
     const decoder = new TextDecoder("utf-8");
     let buffer = "";
+    let sawReasoning = false; // a boolean only: the thinking text is dropped as it arrives (bounded memory)
+    let sawContent = false;
     const handle = (line: string): { done: boolean; text?: string } => {
       if (line === "" || line.startsWith(":")) return { done: false }; // blank separator or comment/keepalive
       if (!line.startsWith("data:")) return { done: false }; // event:, id:, retry: carry nothing we need
@@ -169,8 +190,11 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       catch { throw new Error(`${this.name} sent a malformed stream event`); }
       this.throwIfErrorObject(obj);
       const choices = (obj as { choices?: unknown })?.choices;
-      const content = Array.isArray(choices) ? (choices[0] as { delta?: { content?: unknown } } | undefined)?.delta?.content : undefined;
-      return { done: false, text: typeof content === "string" && content.length > 0 ? content : undefined };
+      const delta = Array.isArray(choices) ? (choices[0] as { delta?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown } } | undefined)?.delta : undefined;
+      if (hasReasoning(delta)) sawReasoning = true;
+      const content = delta?.content;
+      if (typeof content === "string" && content.length > 0) { sawContent = true; return { done: false, text: content }; }
+      return { done: false };
     };
     try {
       for (;;) {
@@ -190,7 +214,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
         if (buffer.length > MAX_LINE_CHARS) throw new Error(`${this.name} sent an oversized stream line`);
         for (const line of lines) {
           const r = handle(line);
-          if (r.done) return;
+          if (r.done) { if (sawReasoning && !sawContent) throw this.reasoningBudgetError(); return; }
           if (r.text !== undefined) {
             yield r.text;
             if (signal?.aborted) return;
@@ -203,6 +227,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
         const r = handle(buffer);
         if (r.text !== undefined) yield r.text;
       }
+      if (sawReasoning && !sawContent) throw this.reasoningBudgetError();
     } finally {
       // Cancelling the reader closes the connection, so the server stops generating.
       await reader.cancel().catch(() => {});

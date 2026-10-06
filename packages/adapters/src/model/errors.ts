@@ -5,7 +5,7 @@
  *
  * The caller's own abort (AbortError) is NEVER classified: providers rethrow it untouched.
  */
-export type ModelErrorKind = "overloaded" | "rate_limited" | "server_error" | "network" | "timeout" | "auth" | "not_found" | "bad_request" | "unknown";
+export type ModelErrorKind = "overloaded" | "rate_limited" | "server_error" | "network" | "timeout" | "reasoning_budget" | "auth" | "not_found" | "bad_request" | "unknown";
 
 export type ModelProviderErrorInit = { kind: ModelErrorKind; transient: boolean; status?: number; retryAfterMs?: number; attempts?: number; elapsedMs?: number };
 
