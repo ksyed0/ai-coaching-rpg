@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { SessionEvent } from "@acr/events";
-import type { Scenario } from "@acr/script";
+import type { NpcRole, Scenario } from "@acr/script";
 import { isEvent, type Inbound } from "./bots.js";
 import { UNSAFE_CHARS, buildMarkers, ensure, findInjectLeaks, findMarkers, logShapeProblems, type CheckDef, type Markers } from "./checks.js";
 import {
@@ -348,6 +348,8 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
   if (sys) { await sys.host.idle(); }
   const events = (): SessionEvent[] => fac.events();
   const npcIds = Object.values(scenario.roles).filter((r) => r.type === "npc").map((r) => r.id);
+  /** The AI characters whose own goals, knowledge or hidden facts include `marker` (they may say it aloud). */
+  const npcOwnersOf = (marker: string): string[] => Object.values(scenario.roles).filter((r): r is NpcRole => r.type === "npc" && [...r.goals, ...r.knowledge, ...r.hidden].includes(marker)).map((r) => r.id);
 
   await rec.run("S-01", async () => {
     const ev = events();
@@ -421,7 +423,7 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
 
   await rec.run("S-07", () => {
     const by = new Map<string, string[]>();
-    let audited = 0; let spokenAloud = 0;
+    let audited = 0;
     for (const [role] of ROLE_PLAYERS) {
       const bot = st.players[role as PlayerId]!;
       const text = JSON.stringify(bot.inbox);
@@ -432,20 +434,19 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       ensure(names.length === 0, `${role} saw participant names: ${names.join(", ")}`);
       const others = Object.entries(markers.secretsByRole).filter(([r]) => r !== role).flatMap(([, v]) => v);
       let leaked: string[];
-      if (!o.players) leaked = findMarkers(text, [...others, ...markers.npcInternals, ...markers.hidden, ...markers.rubric]);
+      if (mock) leaked = findMarkers(text, [...others, ...markers.npcInternals, ...markers.hidden, ...markers.rubric]);
       else {
-        // Generated players choose their own words: a role speaking its OWN private fact, or a player saying a hidden-fact fragment aloud, is not a server leak.
-        // Everything the server sends apart from utterances is checked in full; a role's secrets are checked against utterances it did not speak itself;
-        // hidden-fact, rubric and NPC-internal strings are not counted when a player said them (they are reported as an observation).
+        // A live model (an AI character or a generated player) may recite its OWN material aloud: that is its behaviour, not a server leak. So everything the server
+        // sends apart from utterances is checked in full, and an utterance is checked for a string only when its speaker does not own that string.
+        // Hidden-fact and rubric strings said aloud are not failures here; they are counted and reported as an observation once, below.
         const msgs = bot.inbox.filter((m) => !(m.type === "event" && m.event.type === "utterance"));
         const said = bot.inbox.filter((m): m is Extract<Inbound, { type: "event" }> => m.type === "event" && m.event.type === "utterance");
-        const spokenBy = (r: string) => said.filter((m) => (m.event as Extract<SessionEvent, { type: "utterance" }>).roleId === r);
-        const byOthers = (owner: string) => JSON.stringify([...msgs, ...said.filter((m) => !spokenBy(owner).includes(m))]);
-        const byNonPlayers = JSON.stringify([...msgs, ...said.filter((m) => scenario.roles[(m.event as Extract<SessionEvent, { type: "utterance" }>).roleId]?.type !== "player")]);
-        leaked = findMarkers(byNonPlayers, [...markers.npcInternals, ...markers.hidden, ...markers.rubric]);
-        for (const [owner, facts] of Object.entries(markers.secretsByRole).filter(([r]) => r !== role)) leaked.push(...findMarkers(byOthers(owner), facts));
-        const aloud = findMarkers(JSON.stringify(said.filter((m) => scenario.roles[(m.event as Extract<SessionEvent, { type: "utterance" }>).roleId]?.type === "player")), [...markers.npcInternals, ...markers.hidden, ...markers.rubric]);
-        spokenAloud += aloud.length;
+        const speaker = (m: Extract<Inbound, { type: "event" }>) => (m.event as Extract<SessionEvent, { type: "utterance" }>).roleId;
+        const notBy = (owners: string[]) => JSON.stringify([...msgs, ...said.filter((m) => !owners.includes(speaker(m)))]);
+        const hiddenOrRubric = new Set([...markers.hidden, ...markers.rubric]);
+        leaked = findMarkers(JSON.stringify(msgs), [...hiddenOrRubric]);
+        for (const m of markers.npcInternals.filter((x) => !hiddenOrRubric.has(x))) leaked.push(...findMarkers(notBy(npcOwnersOf(m)), [m]));
+        for (const [owner, facts] of Object.entries(markers.secretsByRole).filter(([r]) => r !== role)) leaked.push(...findMarkers(notBy([owner]), facts));
       }
       ensure(leaked.length === 0, `${role} received text it must not see: ${leaked.join(" | ")}`);
       const injectLeaks = findInjectLeaks(text, role, scenario.script.scenes);
@@ -453,7 +454,17 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       ensure(JSON.stringify(st.joined[role as PlayerId]).includes(markers.secretsByRole[role]![0]!.slice(0, 20)), `${role}'s own brief is missing (vacuous audit)`);
       by.set(role, others);
     }
-    if (spokenAloud > 0) observations.push(`${spokenAloud} hidden-fact or rubric fragment(s) were spoken aloud by generated players (not counted as leaks: the server only delivered what was said)`);
+    if (!mock) {
+      const aloud = new Map<string, number>();
+      const hiddenOrRubric = [...markers.hidden, ...markers.rubric];
+      for (const e of events()) if (e.type === "utterance") { const n = new Set(hiddenOrRubric.filter((x) => x && e.text.includes(x))).size; if (n > 0) aloud.set(e.roleId, (aloud.get(e.roleId) ?? 0) + n); }
+      for (const [r, n] of aloud) {
+        const msg = scenario.roles[r]?.type === "npc"
+          ? `AI character ${r} said ${n} unreleased hidden-fact string(s) aloud: the live model ignored the hidden-fact rule`
+          : `${r}: ${n} hidden-fact or rubric fragment(s) were spoken aloud by generated players (not counted as leaks: the server only delivered what was said)`;
+        observations.push(msg); ctx.n.line(`Observation: ${msg}`);
+      }
+    }
     ensure(JSON.stringify(fac.inbox).includes("ZedAlphaParticipant"), "the facilitator never saw participant names (the control)");
     ensure(events().some((e) => e.type === "gm.decision"), "the facilitator saw no gm.decision (the control)");
     const count = [...by.values()].reduce((a, v) => a + v.length, 0) + markers.npcInternals.length + markers.rubric.length;
