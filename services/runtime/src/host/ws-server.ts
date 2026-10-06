@@ -29,6 +29,8 @@ export type ServerOptions = {
   trustProxy?: boolean;
   /** Clock for the limiters (tests). */
   now?: () => number;
+  /** The failed-login throttle (tests inject one to observe its counters). */
+  authThrottle?: AuthThrottle;
 };
 
 export async function startServer(opts: ServerOptions): Promise<{ port: number; close(): Promise<void> }> {
@@ -45,7 +47,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
   if (token !== undefined && !isValidToken(token)) throw new Error("facilitatorToken is not a valid token (16 to 256 printable ASCII characters, no spaces)"); // the value is never shown
   const allowedOrigins = new Set((opts.allowedOrigins ?? []).map((o) => normalizeOrigin(o)).filter((o): o is string => o !== null));
   const trustProxy = opts.trustProxy === true;
-  const authThrottle = new AuthThrottle({ max: limits.maxAuthFailures, windowMs: limits.authWindowMs, blockMs: limits.authBlockMs, now });
+  const authThrottle = opts.authThrottle ?? new AuthThrottle({ max: limits.maxAuthFailures, windowMs: limits.authWindowMs, blockMs: limits.authBlockMs, now });
   const perIp = new Map<string, number>(); // keyed by ipKey(ip)
 
   // The HTTP server only exists to run the upgrade checks (limits, Origin) before a WebSocket is allocated.
@@ -95,7 +97,9 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
   });
   httpServer.on("error", (err) => log(`server error: ${err.message}`));
   const port = (httpServer.address() as { port: number }).port;
-  log(`runtime listening on ws://${bindHost}:${port}`);
+  // Never log the configured host string (it comes from the environment): only the port and a word derived by comparison.
+  const reach = /^(127(\.\d{1,3}){3}|::1|localhost)$/i.test(bindHost) ? "loopback only" : /^(0\.0\.0\.0|::)$/.test(bindHost) ? "all interfaces" : "one specific address";
+  log(`runtime listening on port ${port} (bound to ${reach})`);
 
   // Liveness: ping every connection each period; one that never answered the previous ping is terminated, which
   // fires its close handler and frees its role (a laptop that slept would otherwise hold the role for minutes).

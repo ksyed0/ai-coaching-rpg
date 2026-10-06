@@ -99,7 +99,7 @@ export function parseSecurityConfig(env: NodeJS.ProcessEnv): SecurityParse {
   const hostText = (env.RUNTIME_HOST ?? "").trim();
   const host = hostText === "" ? "0.0.0.0" : hostText;
   if (hostText !== "" && !net.isIP(hostText) && !/^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$/.test(hostText)) {
-    errors.push(`RUNTIME_HOST ${quote(hostText)} is invalid: use an IP address or a host name (default 0.0.0.0; 127.0.0.1 behind a reverse proxy)`);
+    errors.push(`RUNTIME_HOST is invalid (the value is not shown): use an IP address or a host name (default 0.0.0.0; 127.0.0.1 behind a reverse proxy)`);
   }
 
   const allowedOrigins: string[] = [];
@@ -108,7 +108,7 @@ export function parseSecurityConfig(env: NodeJS.ProcessEnv): SecurityParse {
     for (const part of originsText.split(",").map((s) => s.trim()).filter(Boolean)) {
       const o = normalizeOrigin(part);
       if (o) allowedOrigins.push(o);
-      else errors.push(`ALLOWED_ORIGINS entry ${quote(part)} is invalid: use comma separated origins such as https://play.example.com (scheme, host and optional port; no path)`);
+      else errors.push(`ALLOWED_ORIGINS has an invalid entry (not shown): use comma separated origins such as https://play.example.com (scheme, host and optional port; no path)`);
     }
   }
 

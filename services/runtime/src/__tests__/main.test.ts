@@ -118,7 +118,7 @@ describe("bootstrap: facilitator token and limits (US-0017)", () => {
     const r = await bootstrap({ env: base({ RUNTIME_HOST: "127.0.0.1" }), root: tmp, logDir: tmp, tickMs: 50, log: (m) => logs.push(m), warn: () => {} });
     if (!r.ok) throw new Error(r.errors.join("; "));
     runtime = r.runtime;
-    expect(logs.join("\n")).toContain("ws://127.0.0.1:");
+    expect(logs.join("\n")).toContain("bound to loopback only");
   });
 });
 

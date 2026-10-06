@@ -12,7 +12,13 @@ import net from "node:net";
 import os from "node:os";
 import { readFileSync } from "node:fs";
 import { startServer, MAX_PAYLOAD_BYTES } from "../ws-server.js";
-import type { Limits } from "../security.js";
+import { AuthThrottle, type Limits } from "../security.js";
+
+/** A throttle that records how many failures were charged, so tests do not depend on how the OS splits TCP reads. */
+class CountingThrottle extends AuthThrottle {
+  calls = 0;
+  override fail(ip: string): void { this.calls++; super.fail(ip); }
+}
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
 const TOKEN = "correct-horse-battery-staple-0123456789";
@@ -57,11 +63,11 @@ function handshake(port: number, headers: Record<string, string> = {}): Promise<
   });
 }
 
-async function setup(o: { token?: string; limits?: Partial<Limits>; allowedOrigins?: string[]; trustProxy?: boolean; now?: () => number; host?: SessionHost } = {}) {
+async function setup(o: { token?: string; limits?: Partial<Limits>; allowedOrigins?: string[]; trustProxy?: boolean; now?: () => number; host?: SessionHost; authThrottle?: AuthThrottle } = {}) {
   const scenario = await loadScenario(fixture);
   const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock: new FakeClock(0) });
   const host = o.host ?? new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(["Hi!"]), gmProvider: new MockModelProvider(), clock: new FakeClock(0) });
-  server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: (m) => logs.push(m), facilitatorToken: o.token, limits: o.limits, allowedOrigins: o.allowedOrigins, trustProxy: o.trustProxy, now: o.now });
+  server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: (m) => logs.push(m), facilitatorToken: o.token, limits: o.limits, allowedOrigins: o.allowedOrigins, trustProxy: o.trustProxy, now: o.now, authThrottle: o.authThrottle });
   return { port: server.port, host, engine };
 }
 
@@ -305,7 +311,7 @@ describe("bind address", () => {
     const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock: new FakeClock(0) });
     const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(), gmProvider: new MockModelProvider(), clock: new FakeClock(0) });
     server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: (m) => logs.push(m), host: "127.0.0.1" });
-    expect(logs.join("\n")).toContain("ws://127.0.0.1:");
+    expect(logs.join("\n")).toContain("bound to loopback only");
   });
 });
 
@@ -334,19 +340,30 @@ describe("a refused connection stops processing (review I1)", () => {
     expect(c.inbox.filter((m) => m.code === "unauthorized").length).toBe(1);
   });
 
-  it("pipelined wrong guesses on one connection count as at most two failures: one answered, one for the dropped rest", async () => {
-    const { port } = await setup({ token: TOKEN, trustProxy: true });
-    const hdr = { "x-forwarded-for": "203.0.113.77" };
-    const attack = async () => {
-      const c = open(port, hdr); await opened(c);
-      for (let i = 0; i < 3_000; i++) c.ws.send(JSON.stringify({ type: "join_facilitator", sessionId: "local", token: `guess-${i}-0123456789abcdef` }));
+  it("pipelined wrong guesses on one connection are charged at most twice (the refusal plus one for the dropped rest), however the reads split", async () => {
+    const throttle = new CountingThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: Date.now });
+    const { port } = await setup({ token: TOKEN, trustProxy: true, authThrottle: throttle });
+    const ip = "203.0.113.77";
+    const c = open(port, { "x-forwarded-for": ip }); await opened(c);
+    for (let i = 0; i < 3_000; i++) c.ws.send(JSON.stringify({ type: "join_facilitator", sessionId: "local", token: `guess-${i}-0123456789abcdef` }));
+    await c.closed;
+    expect(throttle.calls).toBeGreaterThanOrEqual(1);
+    expect(throttle.calls).toBeLessThanOrEqual(2);
+    expect(c.inbox.filter((m) => m.code === "unauthorized").length).toBeLessThanOrEqual(1);
+    expect(throttle.blockedForMs(ip)).toBe(0); // one flood never blocks an address by itself
+  });
+
+  it("repeated refusals do block the address (through the throttle's own counters)", async () => {
+    const throttle = new CountingThrottle({ max: 2, windowMs: 60_000, blockMs: 60_000, now: Date.now });
+    const { port } = await setup({ token: TOKEN, trustProxy: true, authThrottle: throttle });
+    const ip = "203.0.113.78";
+    for (let i = 0; i < 3; i++) {
+      const c = open(port, { "x-forwarded-for": ip }); await opened(c);
+      c.send({ type: "join_facilitator", sessionId: "local", token: "wrong-wrong-wrong-wrong" });
       await c.closed;
-      expect(c.inbox.filter((m) => m.code === "unauthorized").length).toBeLessThanOrEqual(1);
-    };
-    await attack(); await attack();
-    expect((await handshake(port, hdr)).status).toBe(101); // 2 connections are at most 4 failures, under the limit of 5
-    for (let i = 0; i < 4; i++) await attack(); // 6 connections in all: at least 6 and at most 12 failures
-    expect((await handshake(port, hdr)).status).toBe(429);
+    }
+    expect(throttle.blockedForMs(ip)).toBeGreaterThan(0);
+    expect((await handshake(port, { "x-forwarded-for": ip })).status).toBe(429);
   });
 
   it("frames that merely contain the words join_facilitator are not login attempts", async () => {
