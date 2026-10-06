@@ -1,4 +1,4 @@
-import { activeElapsedMs, initialState, reduce, type Channel, type EventBody, type FacilitatorCommand, type SessionEvent, type SessionState } from "@acr/events";
+import { activeElapsedMs, initialState, reduce, type Channel, type EventBody, type FacilitatorCommand, type GmNoVerdictReason, type GmVia, type SessionEvent, type SessionState } from "@acr/events";
 import { dueInjects, evaluateExit, nextSceneId, type Inject, type Scenario, type Scene } from "@acr/script";
 import type { Clock } from "./clock.js";
 import type { EventLog } from "./event-log.js";
@@ -137,15 +137,26 @@ export class SessionEngine {
    * when there is no current scene, the session has ended, or `expectSceneId` no longer matches the current scene
    * (the verdict was computed against an earlier scene). The check runs inside the mutex, so it is atomic with the append.
    */
-  recordGmVerdict(condition: string, verdict: boolean, reasoning: string, opts: { expectSceneId?: string } = {}): Promise<boolean> {
+  recordGmVerdict(condition: string, verdict: boolean, reasoning: string, opts: { expectSceneId?: string; via?: GmVia } = {}): Promise<boolean> {
     return this.mutex.run(() => this.doGmVerdict(condition, verdict, reasoning, opts));
   }
-  private async doGmVerdict(condition: string, verdict: boolean, reasoning: string, opts: { expectSceneId?: string }): Promise<boolean> {
+  private async doGmVerdict(condition: string, verdict: boolean, reasoning: string, opts: { expectSceneId?: string; via?: GmVia }): Promise<boolean> {
     const scene = this.currentScene();
     if (!scene || this.state.status !== "running") return false;
     if (opts.expectSceneId !== undefined && scene.id !== opts.expectSceneId) return false;
-    await this.emit({ type: "gm.decision", sceneId: scene.id, condition, verdict, reasoning });
+    await this.emit({ type: "gm.decision", sceneId: scene.id, condition, verdict, reasoning, ...(opts.via ? { via: opts.via } : {}) });
     return true;
+  }
+
+  /** Appends a facilitator-only gm.no_verdict for the current scene (same guards as recordGmVerdict). Returns true when recorded. */
+  recordGmNoVerdict(condition: string, reason: GmNoVerdictReason, attempts: number, opts: { expectSceneId?: string } = {}): Promise<boolean> {
+    return this.mutex.run(async () => {
+      const scene = this.currentScene();
+      if (!scene || this.state.status !== "running") return false;
+      if (opts.expectSceneId !== undefined && scene.id !== opts.expectSceneId) return false;
+      await this.emit({ type: "gm.no_verdict", sceneId: scene.id, condition, reason, attempts });
+      return true;
+    });
   }
 
   tick(): Promise<void> { return this.mutex.run(() => this.doTick()); }

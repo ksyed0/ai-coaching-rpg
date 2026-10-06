@@ -11,10 +11,16 @@ scenes:
       - { role: delivery_lead, text: "So not a flat yes and not a flat no. What if we offer it as a phase two after go-live, scoped and priced?" }
       - { role: tech_lead, text: "I can live with that. A phased version is roughly half the work and keeps the go-live date safe." }
       - { role: account_manager, text: "Agreed. Position for the call: phase two after go-live, priced as a change request, with the risk to the date spelled out for her." }
+    # The mock Game Master replies are in the order of its model CALLS (not of its evaluations). `kind` declares what a reply is: `tolerant` is valid only
+    # through the tolerant parser (here a code fence); `malformed` has no verdict, so the Game Master asks once more and the next reply answers that re-ask.
+    # Scripted replies carry no nonce: the mock stamps the evaluation's id into every verdict object it serves, like a model that follows the prompt.
     mock:
       gm:
-        - '{"verdict": false, "reasoning": "The team has aired concerns but has not settled on one position yet."}'
-        - '{"verdict": true, "reasoning": "All three converged on a phased, priced module after go-live and the account manager restated it as the position."}'
+        - kind: tolerant
+          reply: "Here is my judgement:\n```json\n{\"reasoning\": \"The team has aired concerns but has not settled on one position yet.\", \"verdict\": false}\n```"
+        - kind: malformed
+          reply: 'The team seems to be getting close to a position, though I would need to think about it.'
+        - '{"reasoning": "All three converged on a phased, priced module after go-live and the account manager restated it as the position.", "verdict": true}'
 
   - scene: s2_priya_call
     lines:
@@ -38,9 +44,14 @@ scenes:
       - { role: delivery_lead, text: "Priya was reasonable, but she is taking this to her CFO, so we need numbers that stand up. Tech lead, what is the honest effort for a phased module?" }
       - { role: tech_lead, text: "The phased version is about three person-weeks of build, so two engineers for a week and a half after go-live. The full module would be about six. I also want a risk review before we touch ingestion, so call it ready three weeks after launch." }
       - { role: account_manager, text: "Then I propose a fixed fee of 48 thousand for the phased module, delivered three weeks after go-live. I will present it to the CFO and the delivery lead owns the timeline. Are we all happy with that plan?" }
+      - { role: delivery_lead, text: "Yes, I am happy with that. I will own the timeline, so three weeks after go-live is a commitment from me." }
+      - { role: tech_lead, text: "I agree. Three weeks after go-live leaves room for the risk review, and 48 thousand fixed covers the build." }
+      - { role: account_manager, text: "Good, then it is agreed: the phased module, 48 thousand fixed, three weeks after go-live, and I present it to the CFO." }
+    # Judged after line 3 (a proposal that nobody has answered yet: false) and after line 6 (everyone has agreed: true).
     mock:
       gm:
-        - '{"verdict": true, "reasoning": "The team agreed a phased plan: three weeks after go-live at a fixed 48 thousand, with the account manager presenting."}'
+        - '{"reasoning": "The account manager proposed a plan with a date and a price, but nobody has agreed to it yet.", "verdict": false}'
+        - '{"reasoning": "The delivery lead and the tech lead agreed and the account manager confirmed: phased module, 48 thousand, three weeks after go-live.", "verdict": true}'
 
   - scene: s4_escalation_call
     lines:
@@ -94,7 +105,12 @@ scenes:
     lines:
       - { role: delivery_lead, text: "That went better than I feared. Let us capture it: the change request goes out Monday, with the terms Helena repeated back to us." }
       - { role: account_manager, text: "I will draft and send the change request on Monday morning and call Priya to confirm. I will also tell our account lead the conversation ended in a good place." }
+      - { role: tech_lead, text: "There is also the ingestion risk review and the build plan. Someone needs to book the review and send the plan to the delivery lead." }
+      - { role: delivery_lead, text: "Tech lead, please own both: book the risk review and send me the build plan." }
       - { role: tech_lead, text: "I will book the risk review for ingestion and plan the build, and I will send the plan to the delivery lead by Wednesday." }
+      - { role: delivery_lead, text: "Then we are set: the account manager owns the change request and the call to Priya, the tech lead owns the review and the plan, and I will check both on Thursday." }
+    # Judged after line 3 (the build plan and the risk review still have no owner: false) and after line 6 (every follow-up has an owner: true).
     mock:
       gm:
+        - '{"verdict": false, "reasoning": "The change request has an owner but the risk review and the build plan do not yet."}'
         - '{"verdict": true, "reasoning": "Owners and next actions were named for the change request, the risk review and the build plan."}'

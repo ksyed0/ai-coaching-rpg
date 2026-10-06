@@ -1,3 +1,4 @@
+import { stampFromBody } from "./nonce.js";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -41,7 +42,7 @@ async function variant(edit: (yaml: string) => string): Promise<string> {
   return dir;
 }
 const PRIYA_FIRST = "Thanks for jumping on. I will be direct: Finance needs that reconciliation module before go-live. Can you confirm it today?";
-const S1_TRUE = '{"verdict": true, "reasoning": "All three converged on a phased, priced module after go-live and the account manager restated it as the position."}';
+const S1_TRUE = '{"reasoning": "All three converged on a phased, priced module after go-live and the account manager restated it as the position.", "verdict": true}';
 
 const run = async (argv: string[], over: Partial<RunDeps> = {}) => {
   const c = capture();
@@ -50,7 +51,7 @@ const run = async (argv: string[], over: Partial<RunDeps> = {}) => {
 };
 
 describe("pnpm demo --showcase (mock mode, in-process)", () => {
-  it("plays all six scenes, passes every showcase check and shows the AI work (24 player lines, 20 AI replies, 14 Game Master decisions)", async () => {
+  it("plays all six scenes, passes every showcase check and shows the AI work (30 player lines, 20 AI replies, 16 Game Master decisions)", async () => {
     const dirsBefore = demoTempDirs(); const tcpBefore = tcpHandles();
     const { exitCode, report, stdout, stderr, showcase } = await run(["--showcase", "--fast", "--no-color"]);
     expect(report!.results.filter((r) => r.status !== "passed")).toEqual([]);
@@ -58,14 +59,14 @@ describe("pnpm demo --showcase (mock mode, in-process)", () => {
     expect(report!.mode).toBe("mock");
     expect(report!.results.map((r) => r.id)).toEqual(SHOWCASE_CHECKS.map((c) => c.id));
     expect(report!.summary).toEqual({ passed: SHOWCASE_CHECKS.length, failed: 0, skipped: 0 });
-    expect(showcase.playerLines).toBe(24);
+    expect(showcase.playerLines).toBe(30);
     expect(showcase.npcReplies).toBe(20);
     expect(showcase.npcs.map((n) => [n.roleId, n.replies, n.modelReplies, n.fallbackReplies, n.latencyMs])).toEqual([["client_sponsor", 12, 12, 0, null], ["cfo", 8, 8, 0, null]]);
     expect(showcase.fallbackLines).toBe(0);
-    expect(showcase.gm).toMatchObject({ evaluations: 14, verdictsTrue: 6, verdictsFalse: 8 });
+    expect(showcase.gm).toMatchObject({ evaluations: 16, verdictsTrue: 6, verdictsFalse: 10 });
     expect(showcase.gm.exitedScenes).toEqual(["s1_huddle", "s2_priya_call", "s3_internal_huddle", "s4_escalation_call", "s5_final_terms", "s6_wrap_up"]);
     expect(showcase.scenes.map((s) => s.exitReason)).toEqual(Array(6).fill("gm_detects"));
-    expect(showcase.scenes.map((s) => [s.playerLines, s.npcReplies, s.gmDecisions])).toEqual([[6, 0, 2], [4, 4, 2], [3, 0, 1], [4, 8, 4], [4, 8, 4], [3, 0, 1]]);
+    expect(showcase.scenes.map((s) => [s.playerLines, s.npcReplies, s.gmDecisions])).toEqual([[6, 0, 2], [4, 4, 2], [6, 0, 2], [4, 8, 4], [4, 8, 4], [6, 0, 2]]);
     expect(showcase.facilitatorAdvances).toBe(0);
     expect(showcase.observations).toEqual([]);
     expect(showcase.warnings).toEqual([]);
@@ -78,7 +79,7 @@ describe("pnpm demo --showcase (mock mode, in-process)", () => {
     expect(stdout).toContain("scene ended: the Game Master judged the exit condition true (gm_detects)");
     expect(stdout).toContain("AI contribution");
     expect(stdout).toContain("Priya Raman (client_sponsor): 12 replies, 12 scripted (mock) output, 0 fallback lines; latency n/a");
-    expect(stdout).toContain("Game Master: 14 evaluations (6 true, 8 false)");
+    expect(stdout).toContain("Game Master: 16 evaluations (6 true, 10 false)");
     expect(stdout).toContain(`Summary: ${SHOWCASE_CHECKS.length} passed, 0 failed, 0 skipped (mock mode`);
     expect(stdout).not.toContain("\u001b");
     expect(stdout).not.toContain(FAKE_KEY);
@@ -88,7 +89,7 @@ describe("pnpm demo --showcase (mock mode, in-process)", () => {
     const sources = new Set(showcase.lines.map((l) => l.source));
     expect([...sources].sort()).toEqual(["ai-character", "game-master", "player-bot", "system"]);
     expect(showcase.lines.filter((l) => l.source === "ai-character")).toHaveLength(20);
-    expect(showcase.lines.filter((l) => l.source === "player-bot")).toHaveLength(24);
+    expect(showcase.lines.filter((l) => l.source === "player-bot")).toHaveLength(30);
     // Nothing left behind.
     expect(tcpHandles()).toBe(tcpBefore);
     expect(demoTempDirs()).toEqual(dirsBefore);
@@ -108,7 +109,7 @@ describe("pnpm demo --showcase (mock mode, in-process)", () => {
     expect(Object.keys(parsed.showcase!).sort()).toEqual([
       "alerts", "facilitatorAdvances", "fallbackLines", "gm", "lines", "maxFallbacks", "maxLines", "mode", "npcReplies", "npcs", "observations", "playerLines", "scenario", "scenes", "voices", "wallTimeMs", "warnings", "watchdogMinutes",
     ]);
-    expect(parsed.showcase!.gm.decisions).toHaveLength(14);
+    expect(parsed.showcase!.gm.decisions).toHaveLength(16);
     expect(parsed.showcase!.gm.decisions[0]).toEqual(expect.objectContaining({ sceneId: "s1_huddle", verdict: false, reasoning: expect.any(String) }));
     expect(stderr).toContain("AI contribution");
     expect(stderr).toContain("[AI character]");
@@ -271,7 +272,7 @@ describe("--showcase --live (an in-process OpenAI-compatible fake on loopback)",
         if (isGm) seen.gm++; else seen.npc++;
         const text = isGm ? '{"verdict": false, "reasoning": "not yet"}' : "I hear you, tell me more.";
         res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         res.end("data: [DONE]\n\n");
       });
     });
@@ -323,7 +324,7 @@ describe("--showcase --live (an in-process OpenAI-compatible fake on loopback)",
         if (!seenBodies.has(body)) { seenBodies.add(body); failed++; res.writeHead(503, { "Content-Type": "application/json" }); res.end("{}"); return; }
         const text = body.includes("Game Master") ? '{"verdict": false, "reasoning": "not yet"}' : "I hear you, tell me more.";
         res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         res.end("data: [DONE]\n\n");
       });
     });
@@ -363,7 +364,7 @@ describe("helpers", () => {
   it("counts the model calls a run can make and the lines a --max-lines cap leaves", async () => {
     const sc = await loadScenario(EXTENDED);
     const script = await loadShowcaseScript(EXTENDED, sc, { mode: "mock" });
-    expect(expectedModelCalls(sc, script, null)).toEqual({ npc: 20, gm: 14, player: 24 });
+    expect(expectedModelCalls(sc, script, null)).toEqual({ npc: 20, gm: 16, player: 30 });
     expect(expectedModelCalls(sc, script, 1)).toEqual({ npc: 5, gm: 2, player: 6 });
     expect(linesFor(script, "s1_huddle", 2)).toHaveLength(2);
     expect(linesFor(script, "s1_huddle", null)).toHaveLength(6);
@@ -394,8 +395,8 @@ describe("scene guards: no scene is ever skipped (R43)", () => {
     expect(report!.results.filter((r) => r.status === "failed")).toEqual([]);
     expect(exitCode).toBe(0);
     expect(s(showcase, "s3_internal_huddle")).toMatchObject({ exitReason: "time_box_elapsed", playerLines: 2 });
-    expect(showcase.observations).toContain("s3_internal_huddle ended by time_box_elapsed after 2 of 3 scripted lines; 1 line(s) left unspoken");
-    expect(showcase.scenes.map((x) => x.playerLines).slice(3)).toEqual([4, 4, 3]);
+    expect(showcase.observations).toContain("s3_internal_huddle ended by time_box_elapsed after 2 of 6 scripted lines; 4 line(s) left unspoken");
+    expect(showcase.scenes.map((x) => x.playerLines).slice(3)).toEqual([4, 4, 6]);
   });
 
   it("forced race: the time box ends the scene between the exited() check and the line: the line is refused (stale_scene), the next scene is untouched", async () => {
@@ -408,7 +409,7 @@ describe("scene guards: no scene is ever skipped (R43)", () => {
     expect(showcase.observations.some((o) => o.startsWith("scene changed under us: account_manager's line 3 of s3_internal_huddle was refused (stale_scene)"))).toBe(true);
     // The line was NOT accepted into the next scene.
     expect(showcase.lines.filter((l) => l.source === "player-bot" && l.sceneId === "s4_escalation_call").map((l) => l.text)[0]).toMatch(/^Thanks both/);
-    expect(showcase.scenes.map((x) => x.playerLines)).toEqual([6, 4, 2, 4, 4, 3]);
+    expect(showcase.scenes.map((x) => x.playerLines)).toEqual([6, 4, 2, 4, 4, 6]);
     expect(stdout).toContain("scene changed under us");
   });
 
@@ -442,7 +443,7 @@ describe("scene guards: no scene is ever skipped (R43)", () => {
   });
 
   it("records the scripted lines left unspoken after an early Game Master exit", async () => {
-    const dir = await variant((y) => y.replace('"verdict": false, "reasoning": "The team has aired concerns but has not settled on one position yet."', '"verdict": true, "reasoning": "Settled already."'));
+    const dir = await variant((y) => y.replace(/ {8}- kind: tolerant\n {10}reply: "Here is my judgement:[^\n]*\n/, `        - '{"verdict": true, "reasoning": "Settled already."}'\n`));
     const { exitCode, showcase } = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
     expect(exitCode).toBe(0);
     expect(showcase.observations).toContain("s1_huddle ended by gm_detects after 3 of 6 scripted lines; 3 line(s) left unspoken");
@@ -475,7 +476,7 @@ describe("--showcase --live: the real Game Master decides (loopback fake server)
         const isGm = body.includes("Game Master");
         const text = isGm ? `{"verdict": ${verdictFor(body)}, "reasoning": "judged"}` : "Understood, go on.";
         res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         res.end("data: [DONE]\n\n");
       });
     });

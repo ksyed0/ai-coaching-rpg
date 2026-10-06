@@ -12,7 +12,7 @@ import {
 import { FAKE_KEY } from "./harness.js";
 
 const WHISPER_MARK = "WHISPER-ONLY-FOR-DELIVERY-LEAD";
-const FACILITATOR_ONLY = ["npc.updated", "gm.decision", "facilitator.alert"];
+const FACILITATOR_ONLY = ["npc.updated", "gm.decision", "gm.no_verdict", "facilitator.alert"];
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
 /** The final act: everything that needs the whole run to be over. */
@@ -107,7 +107,7 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
 
     await rec.run("F-19", () => {
       const calls = [...sys!.npc!.calls, ...sys!.gm!.calls];
-      ensure(calls.length === 9, `expected 4 NPC and 5 Game Master model calls, saw ${calls.length}`);
+      ensure(calls.length === 10, `expected 4 NPC and 6 Game Master model calls (one of them the re-ask), saw ${calls.length}`);
       const banned = [...ctx.markers.rubric, ...ctx.markers.hidden, ...Object.values(ctx.markers.secretsByRole).flat(), ...PARTICIPANT_NAMES, WHISPER_MARK];
       for (const req of calls) {
         const found = findMarkers(`${req.system}\n${JSON.stringify(req.messages)}`, banned);

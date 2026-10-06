@@ -631,22 +631,59 @@ Notes: Requested by the user (R40, R41) after a live demo showed only one real m
 US-0025 (EPIC-0006): As a facilitator, I want the Game Master to give a usable verdict reliably with real models, so that scenes end on the Game Master's judgement instead of needing a facilitator advance.
 Priority: High
 Estimate: M
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0006-US-0025-game-master-reliability
 Dependencies: US-0008, US-0024
 Acceptance Criteria:
-  - [ ] AC-0082: a Game Master reply that is not strict JSON (prose around the JSON, a code fence, a verdict only in the model's reasoning, an empty reply) is handled by a tolerant, tested parser or one bounded re-ask, so 'no usable verdict' becomes rare
-  - [ ] AC-0083: the Game Master prompt and exit conditions are tuned so that, in a recorded live showcase on a real model, the Game Master ends more than half of the scenes whose scripted lines satisfy their condition
-  - [ ] AC-0084: a Game Master call has its own configurable timeout and transient-error retry (shared with US-0022), and a failed evaluation is shown in the narration with its reason
+  - [x] AC-0082: a Game Master reply that is not strict JSON (prose around the JSON, a code fence, a verdict only in the model's reasoning, an empty reply) is handled by a tolerant, tested parser or one bounded re-ask, so 'no usable verdict' becomes rare
+  - [x] AC-0083: the Game Master prompt and exit conditions are tuned so that, in a recorded live showcase on a real model, the Game Master ends more than half of the scenes whose scripted lines satisfy their condition (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4 only; Raptor was dropped from testing for its lower quality; final code after two review rounds: showcase 4 of 6 scenes ended by the Game Master (s2 and s5 by facilitator advance; baseline before this story 61% of scenes), 13 usable verdicts all read strictly with the 16-hex nonce (0 re-asks, 0 no-verdict, 0 no_nonce), 1 early exit (s4 after 2 lines, in a scene with AI characters, may be legitimate); gm-eval live x3: 100% usable verdicts, agreement with labels 95%, precision 100%, recall 89% (positives answered true 16 of 18 runs, the misses are s4 full), 0 of 24 false exits on the 8 negative controls; trace replay under the stored nonce reads 13 of 13; an earlier round's s6 cut-2 label was found indefensible in review and replaced by a hard negative; caveats: single model, one showcase run, labels are the implementer's)
+  - [x] AC-0084: a Game Master call has its own configurable timeout and transient-error retry (shared with US-0022), and a failed evaluation is shown in the narration with its reason
+  - [x] AC-0130: the Game Master verdict parser is a pure, total function (it never throws, whatever the reply) that drops `<think>` blocks and code fences, reads a reply that is exactly one JSON object as strict, otherwise takes the last brace-balanced JSON object with a usable `verdict` (a boolean or exactly "true"/"false", never 1, "yes" or null), then `verdict: true` as plain text, then a bare true/false, and names why it failed (`empty`, `no_json`, `bad_verdict`, `truncated`, `reasoning_only`, `conflict`, `no_nonce`); a verdict must carry the per-evaluation nonce id from the system prompt, disagreeing, truncated, quoted, duplicate-key and array-wrapped verdicts are never accepted; covered by table-driven, injection and fuzz tests
+  - [x] AC-0131: a reply with no usable verdict is asked again at most once inside the same deadline (a model error, the deadline and a stale scene are not re-asked; a reasoning-budget error counts as a parse failure), and the result is the facilitator-only event `gm.no_verdict {sceneId, condition, reason, attempts}` that players never receive (the re-ask runs on its own fresh abort signal and a deadline in it keeps the first reply's reason); `gm.decision` carries an optional `via` (strict, tolerant, reask)
+  - [x] AC-0132: `GM_TIMEOUT_MS` (500 to 600000, default max(NPC_REPLY_TIMEOUT_MS, 60 s)), `GM_REASK` (0 or 1, default 1) and `GM_EVERY_N_UTTERANCES` (1 to 20, default 3) are validated at start-up, in the server and in the demo, with errors that name the variable
+  - [x] AC-0133: the Game Master prompt judges only the condition (the scene goal is labelled background), asks for the reasoning before the verdict and treats an unopposed proposal as not agreed (product-owner decision): true needs the condition stated and agreed or confirmed
+  - [x] AC-0134: the extended showcase scene 3 has an assent after "Are we all happy with that plan?", the mock Game Master script holds one fenced reply and one malformed-then-valid reply, and check S-04 proves the tolerant and the re-ask paths whenever the mock served them
+  - [x] AC-0135: a failed evaluation is visible: the narration prints the no-verdict reason ("after the re-ask"), the summary has a Game Master reliability line, and the JSON `showcase.gm` has `noVerdicts`, `noVerdictByReason`, `reasks` and `via`; the 29-check F-13 expects the re-ask then gm.no_verdict
+  - [x] AC-0136: `pnpm gm-eval` runs offline with labelled cases (`tests/gm-cases/`: each scene in full is met, a cut before the agreement is a negative control), a parser corpus and a check that the cases are in step with `showcase.yaml`, and with `--live [--runs n]` measures usable-verdict rate, agreement, precision, recall, false exits, attempts and latency of a real model
+  - [x] AC-0137: `--gm-trace <file>` (demo) and `GM_TRACE_FILE` (server) record every raw Game Master reply and its parse in an owner-only (0600) file, off by default and never in the session log; `pnpm gm-eval --trace <file>` replays it offline and reports parse rate by reason and drift
+  - [x] AC-0138: a live showcase run has check S-18 (scenes the Game Master ended of the total, early exits (before the scripted agreement), no-verdict rate by reason) that fails only with `--min-gm-exits <n>` (below it) or an explicit `--max-false-exits <n>` (early exits in scenes without AI characters)
+  - [x] AC-0139: the S-07 observation no longer calls a matched phrase a hidden-fact recital: it counts apart the phrases shared with the scenario's hidden-fact or rubric text and the whole hidden facts word for word, and says a match is an echo or shared wording (an unreleased hidden fact never enters a prompt)
 ```
 
 ```
 TASK-0025 (US-0025): Make Game Master verdict parsing tolerant, tune the prompt and conditions, add a timeout and retry
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: In Progress
 Branch: feature/EPIC-0006-US-0025-game-master-reliability
 Notes: Found in the first real live showcase (OpenRouter free Nemotron): 4 Game Master evaluations, 3 verdicts false, 1 true, and several 'GM: no usable verdict' alerts; 5 of 6 scenes ended on the facilitator safety net.
+```
+
+```
+TASK-0040 (US-0025): Tolerant Game Master parser, one bounded re-ask, the gm.no_verdict event and the GM_* settings
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0025-game-master-reliability
+Notes: gm-parse.ts, gm-evaluate.ts (the one production evaluation path, also used by gm-eval), gm-config.ts; new event type in packages/events; AC-0082, AC-0084, AC-0130 to AC-0132.
+```
+
+```
+TASK-0041 (US-0025): Reword the Game Master prompt, edit showcase scene 3 and the mock script, show failure reasons, S-04, S-18 and the S-07 label
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0025-game-master-reliability
+Notes: AC-0133 to AC-0135, AC-0138, AC-0139. AC-0083 was recorded on gemma-4-31b-it-qat-mxfp4 only (Raptor dropped): at least 4 of 6 scenes ended by the Game Master, at most 1 false exit on the negative controls, baseline 61%.
+```
+
+```
+TASK-0042 (US-0025): The offline gm-eval harness with labelled cases and the --gm-trace capture
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0025-game-master-reliability
+Notes: services/runtime/src/gm-eval, tests/gm-cases/, GM_TRACE_FILE and --gm-trace; AC-0136, AC-0137.
 ```
 
 ```

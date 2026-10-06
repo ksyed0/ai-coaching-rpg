@@ -1,3 +1,4 @@
+import { stampNonce } from "../demo/harness.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -111,7 +112,7 @@ describe("The Friday Escalation, simulated end to end", () => {
       '{"verdict": true, "reasoning": "a phased plan by Monday was agreed"}',
     ]);
     const logs: string[] = [];
-    const host = new SessionHost({ scenario, engine, npcProvider: npc, gmProvider: gm, clock, log: (m) => logs.push(m) });
+    const host = new SessionHost({ scenario, engine, npcProvider: npc, gmProvider: stampNonce(gm), clock, log: (m) => logs.push(m) });
     server = await startServer({ port: 0, hosts: new Map([["sim", host]]) });
 
     const join = async (roleId: string, participantId: string) => {

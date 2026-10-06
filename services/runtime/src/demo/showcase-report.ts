@@ -1,4 +1,4 @@
-import type { SessionEvent } from "@acr/events";
+import type { GmNoVerdictReason, GmVia, SessionEvent } from "@acr/events";
 import type { NpcRole, Scenario } from "@acr/script";
 import { sanitizeText } from "../cli/render.js";
 import { ECHO_THRESHOLD, findEchoes, type EchoPair } from "./echo.js";
@@ -8,7 +8,16 @@ import { classifyGmDecision, classifyNpcReply, isFallbackReply, type Provenance 
 export type LineSource = "player-bot" | "ai-character" | "game-master" | "system";
 export type LineRecord = { seq: number; source: LineSource; /** SCRIPTED / GENERATED / FALLBACK / SYSTEM: the same tags as the Markdown transcript. */ tag: Provenance; sceneId: string | null; role?: string; text: string; fallback?: boolean };
 export type NpcStats = { roleId: string; name: string; /** Turns the character chose to stay silent (`<silent/>`): no utterance, counted in memory only. */ silentTurns: number; replies: number; modelReplies: number; fallbackReplies: number; latencyMs: { median: number; max: number } | null };
-export type GmDecision = { seq: number; sceneId: string; condition: string; verdict: boolean; reasoning: string };
+export type GmDecision = { seq: number; sceneId: string; condition: string; verdict: boolean; reasoning: string; /** How the verdict was read (absent in logs from before US-0025). */ via?: GmVia };
+/** A Game Master evaluation that ended without a usable verdict (the facilitator-only gm.no_verdict event). */
+export type GmNoVerdict = { seq: number; sceneId: string; condition: string; reason: GmNoVerdictReason; attempts: number };
+/** How the Game Master's replies were read, counted from the events: a recovered re-ask counts as `reask` in `via`. */
+export type GmReliability = {
+  noVerdicts: GmNoVerdict[]; noVerdictByReason: Partial<Record<GmNoVerdictReason, number>>;
+  /** Re-asks made: every gm.no_verdict after 2 attempts, plus every verdict read from a re-ask. */
+  reasks: number;
+  via: { strict: number; tolerant: number; reask: number; unknown: number };
+};
 export type SceneStats = { id: string; title: string; exitReason: string | null; playerLines: number; npcReplies: number; gmDecisions: number };
 export type PlayerStats = {
   mode: "generated";
@@ -45,7 +54,7 @@ export type ShowcaseReport = {
   watchdogMinutes: number;
   scenes: SceneStats[];
   npcs: NpcStats[];
-  gm: { evaluations: number; verdictsTrue: number; verdictsFalse: number; exitedScenes: string[]; decisions: GmDecision[] };
+  gm: { evaluations: number; verdictsTrue: number; verdictsFalse: number; exitedScenes: string[]; decisions: GmDecision[] } & GmReliability;
   playerLines: number;
   /** Only with `--players generated`: how the player lines were produced. Counted from the lines the server actually recorded. */
   players?: PlayerStats;
@@ -105,6 +114,7 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
   const stats = new Map<string, { replies: number; fallback: number; latencies: number[] }>(npcRoles.map((r) => [r.id, { replies: 0, fallback: 0, latencies: [] }]));
   const lines: LineRecord[] = [];
   const decisions: GmDecision[] = [];
+  const noVerdicts: GmNoVerdict[] = [];
   const alerts: ShowcaseReport["alerts"] = [];
   const exited: string[] = [];
   let advances = 0; let playerLines = 0; let npcReplies = 0; let fallbackLines = 0;
@@ -154,11 +164,15 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
         break;
       }
       case "gm.decision": {
-        const d: GmDecision = { seq: e.seq, sceneId: e.sceneId, condition: clip(e.condition, 300), verdict: e.verdict, reasoning: clip(e.reasoning, REASONING_CHARS) };
+        const d: GmDecision = { seq: e.seq, sceneId: e.sceneId, condition: clip(e.condition, 300), verdict: e.verdict, reasoning: clip(e.reasoning, REASONING_CHARS), ...(e.via ? { via: e.via } : {}) };
         decisions.push(d); sceneStat(e.sceneId).gmDecisions++;
         lines.push({ seq: e.seq, source: "game-master", tag: classifyGmDecision(i.mode), sceneId: e.sceneId, text: `${e.verdict ? "TRUE" : "FALSE"}: ${d.reasoning}` });
         break;
       }
+      case "gm.no_verdict":
+        noVerdicts.push({ seq: e.seq, sceneId: e.sceneId, condition: clip(e.condition, 300), reason: e.reason, attempts: e.attempts });
+        lines.push({ seq: e.seq, source: "system", tag: "system", sceneId: e.sceneId, text: `Game Master gave no verdict (${e.reason}${e.attempts > 1 ? " after the re-ask" : ""})` });
+        break;
       case "facilitator.alert":
         alerts.push({ seq: e.seq, level: e.level, message: clip(e.message, 300) });
         lines.push({ seq: e.seq, source: "system", tag: "system", sceneId: current, text: `alert (${e.level}): ${clip(e.message, 300)}` });
@@ -214,6 +228,9 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
     gm: {
       evaluations: decisions.length, verdictsTrue: decisions.filter((d) => d.verdict).length, verdictsFalse: decisions.filter((d) => !d.verdict).length,
       exitedScenes: exited, decisions,
+      noVerdicts, noVerdictByReason: noVerdicts.reduce<Partial<Record<GmNoVerdictReason, number>>>((a, x) => ({ ...a, [x.reason]: (a[x.reason] ?? 0) + 1 }), {}),
+      reasks: noVerdicts.filter((x) => x.attempts > 1).length + decisions.filter((d) => d.via === "reask").length,
+      via: { strict: decisions.filter((d) => d.via === "strict").length, tolerant: decisions.filter((d) => d.via === "tolerant").length, reask: decisions.filter((d) => d.via === "reask").length, unknown: decisions.filter((d) => d.via === undefined).length },
     },
     playerLines, ...(i.players ? { players: ps } : {}), voices, npcReplies, fallbackLines, facilitatorAdvances: advances, observations: i.observations.map((o) => clip(o, 300)), warnings, alerts, lines,
     wallTimeMs: Math.round(i.wallTimeMs),
@@ -230,8 +247,11 @@ export function formatAiSummary(r: ShowcaseReport): string[] {
     const latency = n.latencyMs ? `latency median ${seconds(n.latencyMs.median)}, max ${seconds(n.latencyMs.max)}` : "latency n/a";
     out.push(`  ${n.name} (${n.roleId}): ${n.replies} replies, ${n.modelReplies} ${modelWord}, ${n.fallbackReplies} fallback lines; ${latency}`);
   }
+  const gmx = r.gm;
+  const reasons = Object.entries(gmx.noVerdictByReason).map(([k, v]) => `${k} ${v}`).join(", ");
   const exits = (id: string) => r.scenes.filter((s) => s.exitReason === id).length;
   out.push(`  Game Master: ${r.gm.evaluations} evaluations (${r.gm.verdictsTrue} true, ${r.gm.verdictsFalse} false); exited: ${r.gm.exitedScenes.join(", ") || "none"}`);
+  out.push(`  Game Master reliability: no usable verdict ${gmx.noVerdicts.length}${reasons ? ` (${reasons})` : ""}; re-asks ${gmx.reasks}; verdicts read strictly ${gmx.via.strict}, tolerantly ${gmx.via.tolerant}, after a re-ask ${gmx.via.reask}`);
   out.push(`  Scenes played: ${r.scenes.length} (ended by Game Master ${exits("gm_detects")}, time box ${exits("time_box_elapsed")}, facilitator advance ${exits("facilitator_advance")})`);
   out.push(`  Player-bot lines: ${r.playerLines}; AI character replies: ${r.npcReplies} (${r.fallbackLines} canned fallback)`);
   if (r.players) {

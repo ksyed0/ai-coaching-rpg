@@ -44,6 +44,7 @@ export function renderEvent(e: SessionEvent, me: string): string | null {
     case "scene.exited": return `--- scene ${s(e.sceneId)} ended (${s(e.reason)}) ---`;
     case "inject.fired": return `[inject] ${s(e.content)}`;
     case "gm.decision": return isFacilitator ? `[gm] ${s(e.condition)} => ${s(String(e.verdict))} (${s(e.reasoning)})` : null;
+    case "gm.no_verdict": return isFacilitator ? `[gm] no verdict for ${JSON.stringify(s(e.condition))} (${s(e.reason)}${e.attempts > 1 ? " after re-ask" : ""})` : null;
     case "facilitator.alert": return isFacilitator ? `[alert] ${s(e.message)}` : null;
     case "facilitator.command": return e.command === "whisper" ? `[whisper] ${s(e.text)}` : `[facilitator] ${s(e.command)}`;
     case "session.started": return `session started: ${s(e.scenarioId)} v${s(e.version)}`;

@@ -7,6 +7,7 @@ import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
 import { GameMaster } from "../game-master.js";
+import { stampNonce } from "../../demo/harness.js";
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
 let engine: SessionEngine; let log: MemoryEventLog;
@@ -31,7 +32,7 @@ async function tickAfter(gm: GameMaster, ms: number) {
 describe("GameMaster with retried model errors", () => {
   it("transient errors then a verdict: the verdict is recorded once and there is no alert", async () => {
     const inner = new MockModelProvider([overloaded(), overloaded(), VERDICT]);
-    const gm = new GameMaster({ engine, provider: withRetry(inner, { random: () => 0.5 }), everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(withRetry(inner, { random: () => 0.5 })), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await tickAfter(gm, 1_500);
     expect(inner.calls).toHaveLength(3);
@@ -41,7 +42,7 @@ describe("GameMaster with retried model errors", () => {
 
   it("exhausted retries: no verdict and one warning alert with the attempt count, kind and condition", async () => {
     const inner = new MockModelProvider([overloaded(), overloaded(), overloaded(), VERDICT]);
-    const gm = new GameMaster({ engine, provider: withRetry(inner, { random: () => 0.5 }), everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(withRetry(inner, { random: () => 0.5 })), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await tickAfter(gm, 1_500);
     expect(inner.calls).toHaveLength(3);
@@ -53,7 +54,7 @@ describe("GameMaster with retried model errors", () => {
 
   it("a permanent error is not retried (attempts 1)", async () => {
     const inner = new MockModelProvider([new ModelProviderError("HTTP 401", { kind: "auth", transient: false, status: 401 }), VERDICT]);
-    const gm = new GameMaster({ engine, provider: withRetry(inner, { random: () => 0.5 }), everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(withRetry(inner, { random: () => 0.5 })), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await tickAfter(gm, 0);
     expect(inner.calls).toHaveLength(1);
@@ -61,7 +62,7 @@ describe("GameMaster with retried model errors", () => {
   });
 
   it("an untyped error keeps the old wording", async () => {
-    const gm = new GameMaster({ engine, provider: new MockModelProvider([new Error("boom")]), everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(new MockModelProvider([new Error("boom")])), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await tickAfter(gm, 0);
     expect((await events("facilitator.alert"))[0]).toMatchObject({ message: expect.stringMatching(/^GM: model error for ".+": boom$/) });
@@ -69,7 +70,7 @@ describe("GameMaster with retried model errors", () => {
 
   it("the wait is bounded: at most 1 + maxRetries attempts and no timer left behind once the evaluation is over", async () => {
     const inner = new MockModelProvider(Array.from({ length: 10 }, overloaded));
-    const gm = new GameMaster({ engine, provider: withRetry(inner, { maxRetries: 2, baseMs: 500, capMs: 4_000, random: () => 1 }), everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(withRetry(inner, { maxRetries: 2, baseMs: 500, capMs: 4_000, random: () => 1 })), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await tickAfter(gm, 1_875 + 625); // worst case (+25% jitter): 625 + 1250
     expect(inner.calls).toHaveLength(3);
@@ -83,7 +84,7 @@ describe("GameMaster with retried model errors", () => {
       await engine.command({ command: "advance" }); await engine.tick();
       yield VERDICT;
     } };
-    const gm = new GameMaster({ engine, provider: withRetry(provider, { random: () => 0.5 }), everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(withRetry(provider, { random: () => 0.5 })), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await tickAfter(gm, 500);
     expect(await events("gm.decision")).toHaveLength(0);
@@ -99,7 +100,7 @@ describe("GameMaster with retried model errors", () => {
         if (calls === 1) { await new Promise<void>((r) => signal?.addEventListener("abort", () => { sawAbort = true; r(); })); return; }
         yield VERDICT;
       } };
-      const gm = new GameMaster({ engine, provider, everyNUtterances: 1, evaluationTimeoutMs: 1_000 });
+      const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1, evaluationTimeoutMs: 1_000 });
       await engine.say("host", "hello");
       const t = gm.tick();
       await vi.advanceTimersByTimeAsync(999);
@@ -117,7 +118,7 @@ describe("GameMaster with retried model errors", () => {
     });
     it("also ends when the provider ignores the abort and never answers", async () => {
       const never: ModelProvider = { name: "never", async *stream() { await new Promise<void>(() => {}); } };
-      const gm = new GameMaster({ engine, provider: never, everyNUtterances: 1, evaluationTimeoutMs: 1_000 });
+      const gm = new GameMaster({ engine, provider: stampNonce(never), everyNUtterances: 1, evaluationTimeoutMs: 1_000 });
       await engine.say("host", "hello");
       await tickAfter(gm, 1_000);
       expect((await events("facilitator.alert"))[0]).toMatchObject({ message: expect.stringMatching(deadlineAlert) });
@@ -125,7 +126,7 @@ describe("GameMaster with retried model errors", () => {
     });
     it("retries stop at the deadline (no extra attempt) and the alert names the attempts and the last error", async () => {
       const inner = new MockModelProvider([overloaded(), overloaded(), overloaded(), VERDICT]);
-      const gm = new GameMaster({ engine, provider: withRetry(inner, { random: () => 0.5 }), everyNUtterances: 1, evaluationTimeoutMs: 800 });
+      const gm = new GameMaster({ engine, provider: stampNonce(withRetry(inner, { random: () => 0.5 })), everyNUtterances: 1, evaluationTimeoutMs: 800 });
       await engine.say("host", "hello");
       await tickAfter(gm, 800);
       expect(inner.calls).toHaveLength(2);
@@ -135,7 +136,7 @@ describe("GameMaster with retried model errors", () => {
       expect(vi.getTimerCount()).toBe(0);
     });
     it("a verdict inside the deadline clears its timer", async () => {
-      const gm = new GameMaster({ engine, provider: new MockModelProvider([VERDICT]), everyNUtterances: 1, evaluationTimeoutMs: 1_000 });
+      const gm = new GameMaster({ engine, provider: stampNonce(new MockModelProvider([VERDICT])), everyNUtterances: 1, evaluationTimeoutMs: 1_000 });
       await engine.say("host", "hello");
       await tickAfter(gm, 0);
       expect(await events("gm.decision")).toHaveLength(1);

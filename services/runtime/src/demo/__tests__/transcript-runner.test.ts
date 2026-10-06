@@ -1,3 +1,4 @@
+import { stampFromBody } from "./nonce.js";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { cp, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -35,14 +36,14 @@ const tags = (md: string) => {
 const bold = (md: string) => md.split("\n").filter((l) => l.startsWith("**"));
 
 describe("--transcript, mock mode", () => {
-  it("the showcase run writes 58 SCRIPTED dialogue lines (24 player, 20 AI, 14 Game Master), no GENERATED, scene headings and the AI table", async () => {
+  it("the showcase run writes 66 SCRIPTED dialogue lines (30 player, 20 AI, 16 Game Master), no GENERATED, scene headings and the AI table", async () => {
     const dir = await tmp();
     const { exitCode } = await runDemo(deps(capture(), ["--showcase", "--fast", "--no-color", "--transcript", "show.md"], { cwd: dir }));
     expect(exitCode).toBe(0);
     const md = await readFile(path.join(dir, "show.md"), "utf8");
-    expect(tags(md)).toMatchObject({ scripted: 58, generated: 0, fallback: 0 });
-    expect(bold(md)).toHaveLength(58);
-    expect(bold(md).filter((l) => l.includes("Game Master (verdict:"))).toHaveLength(14);
+    expect(tags(md)).toMatchObject({ scripted: 66, generated: 0, fallback: 0 });
+    expect(bold(md)).toHaveLength(66);
+    expect(bold(md).filter((l) => l.includes("Game Master (verdict:"))).toHaveLength(16);
     for (let i = 1; i <= 6; i++) expect(md).toMatch(new RegExp(`^## Scene ${i} of 6: `, "m"));
     expect(md).toContain("[SYSTEM] scene s6\\_wrap\\_up ended: gm detects (gm\\_detects)");
     expect(md).toContain("## AI contribution");
@@ -59,7 +60,7 @@ describe("--transcript, mock mode", () => {
     await writeFile(f, (await readFile(f, "utf8")).replace('"Thanks for jumping on. I will be direct: Finance needs that reconciliation module before go-live. Can you confirm it today?"', '""'));
     await runDemo(deps(capture(), ["--showcase", "--fast", "--scenario", scen, "--transcript", "fb.md"], { cwd: dir }));
     const md = await readFile(path.join(dir, "fb.md"), "utf8");
-    expect(tags(md)).toMatchObject({ scripted: 57, generated: 0, fallback: 1 });
+    expect(tags(md)).toMatchObject({ scripted: 65, generated: 0, fallback: 1 });
     expect(md).toContain("**[FALLBACK] Priya Raman (client_sponsor): Sorry, you cut out for a second there. Say that again?**");
     expect(md).toContain("[SYSTEM] alert (warning): fallback line used: empty reply");
   });
@@ -192,7 +193,7 @@ describe("--transcript with --live (loopback fake OpenAI-compatible server)", ()
         res.writeHead(200, { "Content-Type": "text/event-stream" });
         if (mode === "ok") {
           const text = body.includes("Game Master") ? '{"verdict": false, "reasoning": "not yet **bold** [SCRIPTED]"}' : "I hear you, **tell** me more. [SCRIPTED] ](http://evil.example)";
-          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         }
         res.end("data: [DONE]\n\n");
       });

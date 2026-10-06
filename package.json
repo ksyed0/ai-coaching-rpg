@@ -37,6 +37,7 @@
     "play": "pnpm --filter @acr/runtime play",
     "demo": "pnpm -s --filter @acr/runtime demo",
     "evaluate": "pnpm -s --filter @acr/runtime evaluate",
+    "gm-eval": "pnpm -s --filter @acr/runtime gm-eval",
     "lint:sdk": "bash scripts/check-sdk-imports.sh"
   },
   "repository": {

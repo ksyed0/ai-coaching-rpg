@@ -854,23 +854,73 @@
       "title": "As a facilitator, I want the Game Master to give a usable verdict reliably with real models, so that scenes end on the Game Master's judgement instead of needing a facilitator advance.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
       "acs": [
         {
           "id": "AC-0082",
           "text": "a Game Master reply that is not strict JSON (prose around the JSON, a code fence, a verdict only in the model's reasoning, an empty reply) is handled by a tolerant, tested parser or one bounded re-ask, so 'no usable verdict' becomes rare",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0083",
-          "text": "the Game Master prompt and exit conditions are tuned so that, in a recorded live showcase on a real model, the Game Master ends more than half of the scenes whose scripted lines satisfy their condition",
-          "done": false
+          "text": "the Game Master prompt and exit conditions are tuned so that, in a recorded live showcase on a real model, the Game Master ends more than half of the scenes whose scripted lines satisfy their condition (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4 only; Raptor was dropped from testing for its lower quality; final code after two review rounds: showcase 4 of 6 scenes ended by the Game Master (s2 and s5 by facilitator advance; baseline before this story 61% of scenes), 13 usable verdicts all read strictly with the 16-hex nonce (0 re-asks, 0 no-verdict, 0 no_nonce), 1 early exit (s4 after 2 lines, in a scene with AI characters, may be legitimate); gm-eval live x3: 100% usable verdicts, agreement with labels 95%, precision 100%, recall 89% (positives answered true 16 of 18 runs, the misses are s4 full), 0 of 24 false exits on the 8 negative controls; trace replay under the stored nonce reads 13 of 13; an earlier round's s6 cut-2 label was found indefensible in review and replaced by a hard negative; caveats: single model, one showcase run, labels are the implementer's)",
+          "done": true
         },
         {
           "id": "AC-0084",
           "text": "a Game Master call has its own configurable timeout and transient-error retry (shared with US-0022), and a failed evaluation is shown in the narration with its reason",
-          "done": false
+          "done": true
+        },
+        {
+          "id": "AC-0130",
+          "text": "the Game Master verdict parser is a pure, total function (it never throws, whatever the reply) that drops `<think>` blocks and code fences, reads a reply that is exactly one JSON object as strict, otherwise takes the last brace-balanced JSON object with a usable `verdict` (a boolean or exactly \"true\"/\"false\", never 1, \"yes\" or null), then `verdict: true` as plain text, then a bare true/false, and names why it failed (`empty`, `no_json`, `bad_verdict`, `truncated`, `reasoning_only`, `conflict`, `no_nonce`); a verdict must carry the per-evaluation nonce id from the system prompt, disagreeing, truncated, quoted, duplicate-key and array-wrapped verdicts are never accepted; covered by table-driven, injection and fuzz tests",
+          "done": true
+        },
+        {
+          "id": "AC-0131",
+          "text": "a reply with no usable verdict is asked again at most once inside the same deadline (a model error, the deadline and a stale scene are not re-asked; a reasoning-budget error counts as a parse failure), and the result is the facilitator-only event `gm.no_verdict {sceneId, condition, reason, attempts}` that players never receive (the re-ask runs on its own fresh abort signal and a deadline in it keeps the first reply's reason); `gm.decision` carries an optional `via` (strict, tolerant, reask)",
+          "done": true
+        },
+        {
+          "id": "AC-0132",
+          "text": "`GM_TIMEOUT_MS` (500 to 600000, default max(NPC_REPLY_TIMEOUT_MS, 60 s)), `GM_REASK` (0 or 1, default 1) and `GM_EVERY_N_UTTERANCES` (1 to 20, default 3) are validated at start-up, in the server and in the demo, with errors that name the variable",
+          "done": true
+        },
+        {
+          "id": "AC-0133",
+          "text": "the Game Master prompt judges only the condition (the scene goal is labelled background), asks for the reasoning before the verdict and treats an unopposed proposal as not agreed (product-owner decision): true needs the condition stated and agreed or confirmed",
+          "done": true
+        },
+        {
+          "id": "AC-0134",
+          "text": "the extended showcase scene 3 has an assent after \"Are we all happy with that plan?\", the mock Game Master script holds one fenced reply and one malformed-then-valid reply, and check S-04 proves the tolerant and the re-ask paths whenever the mock served them",
+          "done": true
+        },
+        {
+          "id": "AC-0135",
+          "text": "a failed evaluation is visible: the narration prints the no-verdict reason (\"after the re-ask\"), the summary has a Game Master reliability line, and the JSON `showcase.gm` has `noVerdicts`, `noVerdictByReason`, `reasks` and `via`; the 29-check F-13 expects the re-ask then gm.no_verdict",
+          "done": true
+        },
+        {
+          "id": "AC-0136",
+          "text": "`pnpm gm-eval` runs offline with labelled cases (`tests/gm-cases/`: each scene in full is met, a cut before the agreement is a negative control), a parser corpus and a check that the cases are in step with `showcase.yaml`, and with `--live [--runs n]` measures usable-verdict rate, agreement, precision, recall, false exits, attempts and latency of a real model",
+          "done": true
+        },
+        {
+          "id": "AC-0137",
+          "text": "`--gm-trace <file>` (demo) and `GM_TRACE_FILE` (server) record every raw Game Master reply and its parse in an owner-only (0600) file, off by default and never in the session log; `pnpm gm-eval --trace <file>` replays it offline and reports parse rate by reason and drift",
+          "done": true
+        },
+        {
+          "id": "AC-0138",
+          "text": "a live showcase run has check S-18 (scenes the Game Master ended of the total, early exits (before the scripted agreement), no-verdict rate by reason) that fails only with `--min-gm-exits <n>` (below it) or an explicit `--max-false-exits <n>` (early exits in scenes without AI characters)",
+          "done": true
+        },
+        {
+          "id": "AC-0139",
+          "text": "the S-07 observation no longer calls a matched phrase a hidden-fact recital: it counts apart the phrases shared with the scenario's hidden-fact or rubric text and the whole hidden facts word for word, and says a match is an echo or shared wording (an unreleased hidden fact never enters a prompt)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -1498,9 +1548,39 @@
       "title": "Make Game Master verdict parsing tolerant, tune the prompt and conditions, add a timeout and retry",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
       "notes": "Found in the first real live showcase (OpenRouter free Nemotron): 4 Game Master evaluations, 3 verdicts false, 1 true, and several 'GM: no usable verdict' alerts; 5 of 6 scenes ended on the facilitator safety net."
+    },
+    {
+      "id": "TASK-0040",
+      "storyId": "US-0025",
+      "title": "Tolerant Game Master parser, one bounded re-ask, the gm.no_verdict event and the GM_* settings",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
+      "notes": "gm-parse.ts, gm-evaluate.ts (the one production evaluation path, also used by gm-eval), gm-config.ts; new event type in packages/events; AC-0082, AC-0084, AC-0130 to AC-0132."
+    },
+    {
+      "id": "TASK-0041",
+      "storyId": "US-0025",
+      "title": "Reword the Game Master prompt, edit showcase scene 3 and the mock script, show failure reasons, S-04, S-18 and the S-07 label",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
+      "notes": "AC-0133 to AC-0135, AC-0138, AC-0139. AC-0083 was recorded on gemma-4-31b-it-qat-mxfp4 only (Raptor dropped): at least 4 of 6 scenes ended by the Game Master, at most 1 false exit on the negative controls, baseline 61%."
+    },
+    {
+      "id": "TASK-0042",
+      "storyId": "US-0025",
+      "title": "The offline gm-eval harness with labelled cases and the --gm-trace capture",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
+      "notes": "services/runtime/src/gm-eval, tests/gm-cases/, GM_TRACE_FILE and --gm-trace; AC-0136, AC-0137."
     },
     {
       "id": "TASK-0026",
@@ -2204,10 +2284,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T23:16:48.899Z",
-  "commitSha": "4165839",
-  "buildNumber": "148",
-  "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
+  "generatedAt": "2026-10-06T23:20:06.231Z",
+  "commitSha": "1ac9aed",
+  "buildNumber": "141",
+  "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2305,13 +2385,13 @@
     }
   },
   "budget": {
-    "totalBudget": 6806.1671,
+    "totalBudget": 6006.1671,
     "totalSpent": 6.1671,
     "totalProjected": 28400,
     "percentUsed": 0,
-    "burnRate": 0.19186533333333333,
-    "daysRemaining": 35441,
-    "projectedExhaustion": 35441,
+    "burnRate": 0.19871766666666665,
+    "daysRemaining": 30193,
+    "projectedExhaustion": 30193,
     "thresholds": [
       50,
       75,
@@ -2347,9 +2427,9 @@
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 6002.720775,
+        "budget": 5202.720775,
         "spent": 2.7207749999999997,
-        "remaining": 6000,
+        "remaining": 5200,
         "percentUsed": 0
       },
       {
@@ -2374,41 +2454,39 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-06T22:02:23.430Z",
-      "2026-09-07T22:02:23.430Z",
-      "2026-09-08T22:02:23.430Z",
-      "2026-09-09T22:02:23.430Z",
-      "2026-09-10T22:02:23.430Z",
-      "2026-09-11T22:02:23.430Z",
-      "2026-09-12T22:02:23.430Z",
-      "2026-09-13T22:02:23.430Z",
-      "2026-09-14T22:02:23.430Z",
-      "2026-09-15T22:02:23.430Z",
-      "2026-09-16T22:02:23.430Z",
-      "2026-09-17T22:02:23.430Z",
-      "2026-09-18T22:02:23.430Z",
-      "2026-09-19T22:02:23.430Z",
-      "2026-09-20T22:02:23.430Z",
-      "2026-09-21T22:02:23.430Z",
-      "2026-09-22T22:02:23.430Z",
-      "2026-09-23T22:02:23.430Z",
-      "2026-09-24T22:02:23.430Z",
-      "2026-09-25T22:02:23.430Z",
-      "2026-09-26T22:02:23.430Z",
-      "2026-09-27T22:02:23.430Z",
-      "2026-09-28T22:02:23.430Z",
-      "2026-09-29T22:02:23.430Z",
-      "2026-09-30T22:02:23.430Z",
-      "2026-10-01T22:02:23.430Z",
-      "2026-10-02T22:02:23.430Z",
-      "2026-10-03T22:02:23.430Z",
-      "2026-10-04T22:02:23.430Z",
-      "2026-10-05T22:02:23.430Z",
-      "2026-10-06T22:02:23.429Z",
-      "2026-10-06T23:16:48.979Z"
+      "2026-09-06T23:20:06.287Z",
+      "2026-09-07T23:20:06.287Z",
+      "2026-09-08T23:20:06.287Z",
+      "2026-09-09T23:20:06.287Z",
+      "2026-09-10T23:20:06.287Z",
+      "2026-09-11T23:20:06.287Z",
+      "2026-09-12T23:20:06.287Z",
+      "2026-09-13T23:20:06.287Z",
+      "2026-09-14T23:20:06.287Z",
+      "2026-09-15T23:20:06.287Z",
+      "2026-09-16T23:20:06.287Z",
+      "2026-09-17T23:20:06.287Z",
+      "2026-09-18T23:20:06.287Z",
+      "2026-09-19T23:20:06.287Z",
+      "2026-09-20T23:20:06.287Z",
+      "2026-09-21T23:20:06.287Z",
+      "2026-09-22T23:20:06.287Z",
+      "2026-09-23T23:20:06.287Z",
+      "2026-09-24T23:20:06.287Z",
+      "2026-09-25T23:20:06.287Z",
+      "2026-09-26T23:20:06.287Z",
+      "2026-09-27T23:20:06.287Z",
+      "2026-09-28T23:20:06.287Z",
+      "2026-09-29T23:20:06.287Z",
+      "2026-09-30T23:20:06.287Z",
+      "2026-10-01T23:20:06.287Z",
+      "2026-10-02T23:20:06.287Z",
+      "2026-10-03T23:20:06.287Z",
+      "2026-10-04T23:20:06.287Z",
+      "2026-10-05T23:20:06.287Z",
+      "2026-10-06T23:20:06.286Z"
     ],
     "doneCounts": [
-      0,
       0,
       0,
       0,
@@ -2442,37 +2520,36 @@
       0
     ],
     "totalStories": [
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
       34
     ],
     "aiCosts": [
@@ -2505,7 +2582,6 @@
       5.55039,
       5.75596,
       5.96153,
-      6.1671,
       6.1671,
       6.1671
     ],
@@ -2540,11 +2616,9 @@
       0,
       0,
       0,
-      null,
       null
     ],
     "velocity": [
-      0,
       0,
       0,
       0,
@@ -2608,11 +2682,9 @@
       0,
       0,
       0,
-      0,
       0
     ],
     "atRisk": [
-      0,
       0,
       0,
       0,
@@ -2676,7 +2748,6 @@
       0,
       0,
       0,
-      522440,
       522440
     ],
     "outputTokens": [
@@ -2710,42 +2781,40 @@
       0,
       0,
       0,
-      69480,
       69480
     ],
     "avgRisk": [
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1093750000000004,
-      1.1187500000000006,
-      1.1187500000000006,
-      1.1187500000000006,
-      1.1187500000000006,
-      1.1187500000000006,
-      1.1187500000000006,
-      1.1187500000000006,
-      1.1187500000000006,
-      1.1187500000000006,
-      1.1187500000000006,
-      1.1187500000000006,
-      1.1187500000000006,
-      1.1093750000000004,
-      1.1088235294117652
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.1176470588235299
     ],
     "velocityByWeek": {
       "labels": [

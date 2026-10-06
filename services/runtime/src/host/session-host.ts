@@ -4,7 +4,7 @@ import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
 import { type SessionEngine } from "../engine/session-engine.js";
 import { NpcAgent, type SilentTurn } from "../agents/npc-agent.js";
-import { GameMaster } from "../agents/game-master.js";
+import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
 
 export class HostError extends Error {
@@ -28,7 +28,7 @@ export class SessionHost {
   private readonly maxSilencesKept: number;
   private readonly silentListeners = new Set<(t: SilentTurn) => void>();
 
-  constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number }) {
+  constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
     this.scenario = opts.scenario; this.engine = opts.engine;
     this.log = opts.log ?? (() => {});
@@ -37,7 +37,7 @@ export class SessionHost {
     for (const role of Object.values(opts.scenario.roles)) {
       if (role.type === "npc") this.npcs.set(role.id, new NpcAgent({ role: role as NpcRole, engine: opts.engine, provider: opts.npcProvider, firstTokenTimeoutMs: opts.firstTokenTimeoutMs, replyTimeoutMs: opts.replyTimeoutMs, maxTokens: opts.npcMaxTokens, temperature: opts.npcTemperature, peers, onSilent: (t) => this.noteSilence(t) }));
     }
-    this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), maxTokens: opts.gmMaxTokens, temperature: opts.gmTemperature, evaluationTimeoutMs: gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS) });
+    this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), maxTokens: opts.gmMaxTokens, temperature: opts.gmTemperature, evaluationTimeoutMs: opts.gmTimeoutMs ?? gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS), reask: opts.gmReask, everyNUtterances: opts.gmEveryN, trace: opts.gmTrace });
   }
 
   private noteSilence(t: SilentTurn): void {
@@ -202,7 +202,7 @@ export class SessionHost {
       case "facilitator.command":
         return e.command === "pause" || e.command === "resume" || (e.command === "whisper" && e.roleId === who) ? e : null;
       // Never for players: NPC goals/knowledge, GM reasoning, facilitator alerts.
-      case "npc.updated": case "gm.decision": case "facilitator.alert": return null;
+      case "npc.updated": case "gm.decision": case "gm.no_verdict": case "facilitator.alert": return null;
       default: {
         const _exhaustive: never = e; // compile time: a new EventBody member must be decided above
         void _exhaustive;

@@ -13,6 +13,8 @@ import { parseNpcTimeouts } from "./agents/timeouts.js";
 import { parseTokenBudgets } from "./agents/token-budgets.js";
 import { parseTemperatures } from "./agents/temperatures.js";
 import { parseModelRetry, withModelRetry } from "./agents/retry-config.js";
+import { parseGmConfig } from "./agents/gm-config.js";
+import { createGmTraceWriter, parseGmTraceEnv } from "./agents/gm-trace.js";
 import { OPEN_SERVER_WARNING, parseSecurityConfig } from "./host/security.js";
 
 /** services/runtime/src/main.ts: the repo root is three levels up from this file's directory. */
@@ -59,6 +61,8 @@ export async function bootstrap(opts: {
   if (!temps.ok) return { ok: false, errors: temps.errors };
   const retry = parseModelRetry(env);
   if (!retry.ok) return { ok: false, errors: retry.errors };
+  const gmCfg = parseGmConfig(env, timeouts.replyTimeoutMs);
+  if (!gmCfg.ok) return { ok: false, errors: gmCfg.errors };
   const security = parseSecurityConfig(env); // its errors never contain the token
   if (!security.ok) return { ok: false, errors: security.errors };
 
@@ -75,8 +79,13 @@ export async function bootstrap(opts: {
     if (rotatedTo) log(`previous session log moved aside: ${rotatedTo}`);
   } catch (err) { return { ok: false, errors: [`cannot rotate the previous session log in ${dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`] }; }
 
+  const traceEnv = parseGmTraceEnv(env.GM_TRACE_FILE, dataDir);
+  if (!traceEnv.ok) return { ok: false, errors: [traceEnv.error] };
   let host: SessionHost;
+  let gmTrace: ReturnType<typeof createGmTraceWriter> | undefined;
   try {
+    // GM_TRACE_FILE (off by default): the raw Game Master replies, for the offline gm-eval. Owner-only file; never logged by name.
+    gmTrace = traceEnv.file ? createGmTraceWriter(traceEnv.file, { forbid: [path.join(dataDir, `${sessionId}.jsonl`)], forbidDir: dataDir }) : undefined;
     const clock = new SystemClock();
     const engine = new SessionEngine({ scenario, log: new JsonlEventLog(sessionId, dataDir), clock });
     // Live providers retry transient errors inside the NPC deadlines; the scripted mock is never wrapped.
@@ -87,8 +96,8 @@ export async function bootstrap(opts: {
     // Never log the provider object, its name, an endpoint or any env-derived value: describeModelProvider returns a
     // fixed label plus a literal yes/no for "custom endpoint".
     log(`model provider: ${describeModelProvider(env)}`);
-    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature });
-  } catch (err) { return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
+    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmTrace });
+  } catch (err) { gmTrace?.close(); return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
 
   host.startTicker(opts.tickMs ?? 1_000);
   let server: Awaited<ReturnType<typeof startServer>>;
@@ -96,14 +105,14 @@ export async function bootstrap(opts: {
       port, hosts: new Map([[sessionId, host]]), log, host: security.config.host, facilitatorToken: security.config.facilitatorToken,
       limits: security.config.limits, allowedOrigins: security.config.allowedOrigins, trustProxy: security.config.trustProxy,
     }); }
-  catch (err) { host.stopTicker(); return { ok: false, errors: [`cannot listen on port ${port}: ${err instanceof Error ? err.message : String(err)}`] }; }
+  catch (err) { host.stopTicker(); gmTrace?.close(); return { ok: false, errors: [`cannot listen on port ${port}: ${err instanceof Error ? err.message : String(err)}`] }; }
   if (security.config.trustProxy && !/^(localhost|::1|127(\.\d{1,3}){3})$/i.test(security.config.host)) {
     warn("WARNING: TRUST_PROXY=1 but RUNTIME_HOST is not a loopback address: a client that reaches the port directly can forge X-Forwarded-For and dodge the per-address limits; bind 127.0.0.1 behind the proxy");
   }
   if (security.config.facilitatorToken === undefined) warn(OPEN_SERVER_WARNING); // one line, no secret
   else log("facilitator token required (FACILITATOR_TOKEN is set)");
   log(`scenario "${scenario.meta.title}" v${scenario.meta.version}; session "${sessionId}"; players: ${Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => r.id).join(", ")}`);
-  return { ok: true, runtime: { port: server.port, host, stop: async () => { host.stopTicker(); await server.close(); } } };
+  return { ok: true, runtime: { port: server.port, host, stop: async () => { host.stopTicker(); await server.close(); gmTrace?.close(); } } };
 }
 
 /** Both paths must stay inside `dir`: defense in depth on top of the session id check. */

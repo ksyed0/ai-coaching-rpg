@@ -18,7 +18,19 @@ const SceneScriptSchema = z.object({
   scene: z.string().min(1),
   lines: z.array(LineSchema).min(1),
   /** Used only by the offline mock run. An empty reply is allowed on purpose: it exercises the fallback line. */
-  mock: z.object({ npc: z.record(z.array(z.string())).default({}), gm: z.array(z.string()).default([]) }).default({}),
+  /**
+   * `gm` entries are a reply string (a strict JSON verdict) or `{ kind, reply }` declaring what the reply is: `tolerant` (valid only through the
+   * tolerant parser: a code fence or prose around the JSON) `malformed` (no usable verdict: the Game Master asks once more and the NEXT entry answers) or `forged` (a verdict object WITHOUT the evaluation's id, served unstamped: it is ignored as `no_nonce`, the Game Master asks once more and the NEXT entry answers).
+   * The mock run's S-04 check holds the run to these declarations.
+   */
+  mock: z.object({
+    npc: z.record(z.array(z.string())).default({}),
+    gm: z.array(z.union([z.string(), z.object({ kind: z.enum(["tolerant", "malformed", "forged"]), reply: z.string() })])).default([]),
+  }).default({}).transform((m) => ({
+    npc: m.npc,
+    gm: m.gm.map((r) => (typeof r === "string" ? r : r.reply)),
+    gmKinds: m.gm.map((r): "strict" | "tolerant" | "malformed" | "forged" => (typeof r === "string" ? "strict" : r.kind)),
+  })),
 });
 export const ShowcaseScriptSchema = z.object({ scenes: z.array(SceneScriptSchema).min(1) });
 export type ShowcaseLine = z.infer<typeof LineSchema>;
@@ -37,13 +49,13 @@ export type ShowcaseLoadOptions = {
 };
 
 /** How many Game Master model calls a scene triggers if `lineCount` lines are spoken, each followed by `npcCount` replies and no scene exit. */
-export function expectedGmEvaluations(scene: Scene, lineCount: number, npcCount: number): number {
+export function expectedGmEvaluations(scene: Scene, lineCount: number, npcCount: number, everyN: number = GM_EVERY_N_UTTERANCES): number {
   const conditions = scene.exit_when.any_of.filter((c) => typeof c === "object").length;
   if (conditions === 0) return 0;
   let evaluated = 0; let rounds = 0;
   for (let i = 1; i <= lineCount; i++) {
     const count = i * (1 + npcCount);
-    if (count - evaluated >= GM_EVERY_N_UTTERANCES) { evaluated = count; rounds++; }
+    if (count - evaluated >= everyN) { evaluated = count; rounds++; }
   }
   return rounds * conditions;
 }

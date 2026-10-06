@@ -130,3 +130,22 @@ describe("the scene-id guard cannot be probed by a role outside the scene (R45)"
     await expect(engine.say("host", "hi", "text", { expectSceneId: "s1_open" })).rejects.toMatchObject({ code: "stale_scene" });
   });
 });
+
+describe("recordGmNoVerdict (US-0025)", () => {
+  const COND = "both parties have said hello";
+  it("appends gm.no_verdict for the current scene, and a decision records its via", async () => {
+    expect(await engine.recordGmNoVerdict(COND, "no_json", 2, { expectSceneId: "s1_open" })).toBe(true);
+    expect(await engine.recordGmVerdict(COND, false, "no", { via: "reask" })).toBe(true);
+    const last = engine.state.lastSeq;
+    expect(last).toBeGreaterThan(0);
+  });
+  it("appends nothing for a stale scene or after the end", async () => {
+    await engine.command({ command: "advance" }); await engine.tick();
+    const before = count();
+    expect(await engine.recordGmNoVerdict(COND, "empty", 1, { expectSceneId: "s1_open" })).toBe(false);
+    expect(count()).toBe(before);
+    await engine.command({ command: "advance" }); await engine.tick();
+    expect(engine.state.status).toBe("ended");
+    expect(await engine.recordGmNoVerdict(COND, "empty", 1)).toBe(false);
+  });
+});
