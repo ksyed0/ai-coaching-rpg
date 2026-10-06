@@ -1,12 +1,14 @@
 import type { SessionEvent } from "@acr/events";
 import type { NpcRole, Scenario } from "@acr/script";
 import type { Bot, Inbound } from "./bots.js";
+import type { PlayerLines } from "./player-lines.js";
+import { playerSource } from "./player-lines.js";
 import { classifyGmDecision, classifyNpcReply, fallbackReason, isFallbackReply, type Provenance, type ProviderKind } from "./provenance.js";
 
 /** One structured line of a run. Produced where the story knows who produced it; the Markdown file is rendered from these, never from narration text. */
 export type TLine = {
   kind: "dialogue" | "log" | "heading";
-  /** Dialogue: scripted | generated | fallback. Logging and headings: system. */
+  /** Dialogue: scripted | generated | fallback (a player line is generated only when the runner's player registry says the model wrote that text). Logging and headings: system. */
   source: Provenance;
   speaker?: string;
   role?: string;
@@ -35,7 +37,8 @@ export class Transcript {
    * Records what a facilitator connection observes. `provider` says whether AI replies come from the scripted mock providers or a
    * live model. `sceneHeadings` turns scene starts into `##` headings (a story that has its own act headings leaves it off).
    */
-  attach(fac: Bot, o: { scenario: Scenario; provider: ProviderKind; sceneHeadings: boolean }): void {
+  attach(fac: Bot, o: { scenario: Scenario; provider: ProviderKind; sceneHeadings: boolean; /** The runner's record of generated player lines (`--players generated`); without it every player line is scripted. */ players?: PlayerLines }): void {
+    const lookup = o.players?.reader();
     const previous = fac.onMessage;
     let last: SessionEvent | undefined;
     let scene: string | null = null;
@@ -63,7 +66,7 @@ export class Transcript {
           if (role?.type === "npc") {
             const npc = role as NpcRole;
             this.add({ kind: "dialogue", source: classifyNpcReply(o.provider, isFallbackReply(npc, e, prev, { legacy: o.provider === "remote" })), speaker: npc.name, role: npc.id, text: e.text, scene });
-          } else this.add({ kind: "dialogue", source: "scripted", speaker: e.roleId, role: e.roleId, text: e.text, scene });
+          } else this.add({ kind: "dialogue", source: playerSource(lookup?.(e.roleId, e.text)), speaker: e.roleId, role: e.roleId, text: e.text, scene });
           break;
         }
         case "gm.decision":

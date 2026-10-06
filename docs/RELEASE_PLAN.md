@@ -634,3 +634,29 @@ Status: In Progress
 Branch: feature/EPIC-0006-US-0026-reasoning-model-empty-replies
 Notes: Found 2026-10-05 in the local showcase. Cause: the provider reads only `content` and ignores `reasoning_content`, and the budgets are fixed at 300 (NPC) and 200 (Game Master); probes with small budgets returned finish_reason length with empty content on both Qwen3.8-27B and raptor-v0.5-8b. The Raptor run was clean (0 fallbacks), so the budget matters mostly for slow or long-thinking models.
 ```
+
+```
+US-0027 (EPIC-0006): As a facilitator running the showcase, I want the player roles to be played by the model too (as humans normally would), so that a run varies between runs and scenes instead of repeating the same stilted scripted lines.
+Priority: High
+Estimate: M
+Status: Done
+Branch: feature/EPIC-0006-US-0027-generated-players
+Dependencies: US-0024, US-0026
+Acceptance Criteria:
+  - [x] AC-0088: `pnpm demo --showcase --live --players generated` (optional `--player-model <id>`, default the NPC model) has the model speak each player role's line slot; `--players` defaults to `scripted`, `generated` needs `--showcase` and `--live` (a one-line usage error otherwise), and the mock and CI runs are unchanged
+  - [x] AC-0089: a player prompt holds only what that role may see (its brief and private facts, the scene, the injects it received, the conversation it can see) plus the scripted line as a private intent; it never holds NPC goals, hidden facts, the rubric, other roles' secrets or participant names
+  - [x] AC-0090: a generated line is cleaned like an NPC reply (it cannot speak for others), bounded by the server's maximum line length and non-empty, and reaches the server only through `say`; on a model failure, an empty or an unusable reply the scripted line is spoken, tagged `[SCRIPTED]`, and the narration says why
+  - [x] AC-0091: a spoken line is tagged `[GENERATED]` only when the model produced the recorded text; the transcript legend and the AI contribution summary count generated player lines apart from AI character replies and Game Master verdicts and report how many generated lines repeated the scripted line verbatim (an observation, not a failure)
+  - [x] AC-0092: the AI character prompt states that the character IS that person (first person, never its own role or title in the third person) and Helena Brandt's persona is consistently she/her; the Game Master prompt format is unchanged
+  - [x] AC-0093: a recorded live showcase with `--players generated` on a real model is run and compared with a scripted-player run (lines per role, fallbacks, repeats) (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4: 21 of 21 player lines generated, 1 verbatim repeat of the script, 0 fallbacks, 0 alerts, 13 checks passed, 520 s; generated players on Raptor-8B echoed each other, so the model matters; a first Gemma run leaked the private intent after a `***` separator in all 21 lines, fixed in this story)
+  - [x] AC-0111: with `--players generated` each player's private intent (the scripted line it was asked to express) is logged as a `[SYSTEM]` entry right before its line in the transcript and narration, listed per slot in the JSON report and counted in the summary; it never reaches the session log, a client or the Game Master, and `--no-intents` hides it
+```
+
+```
+TASK-0027 (US-0027): Add the generated player bots to the showcase, share the model-reply and prompt-turn logic with the AI characters, fix the CFO's third-person speech, record a live comparison
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0027-generated-players
+Notes: Observed 2026-10-05: scripted player lines make every showcase run identical; an 8B model also had the CFO say 'the CFO' in the third person with 'he'.
+```

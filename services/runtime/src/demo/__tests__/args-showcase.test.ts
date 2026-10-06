@@ -68,3 +68,50 @@ describe("parseDemoArgs: the showcase flags", () => {
     expect(DEMO_USAGE).toContain("--transcript");
   });
 });
+
+describe("parseDemoArgs: --players and --player-model (US-0027)", () => {
+  it("leaves players unset by default and for --players scripted", () => {
+    expect(ok(["--showcase"]).players).toBeUndefined();
+    expect(ok(["--showcase", "--players", "scripted"]).players).toBeUndefined();
+    expect(ok(["--showcase", "--players=scripted", "--live"]).players).toBeUndefined();
+  });
+  it("accepts generated with --showcase and --live, and a model id", () => {
+    expect(ok(["--showcase", "--live", "--players", "generated"])).toMatchObject({ players: "generated", playerModel: undefined });
+    for (const id of ["qwen3:8b", "anthropic/claude-sonnet-5.5", "mlx-community/Qwen3.8-27B-MXFP8", "a"]) {
+      expect(ok(["--showcase", "--live", "--players", "generated", "--player-model", id]).playerModel).toBe(id);
+    }
+  });
+  it("rejects generated without --live or without --showcase with one line", () => {
+    expect(fail(["--showcase", "--players", "generated"])).toBe("error: --players generated needs --live (the mock and CI runs stay scripted)");
+    expect(fail(["--live", "--players", "generated"])).toBe("error: --players needs --showcase");
+    expect(fail(["--players", "scripted"])).toBe("error: --players needs --showcase");
+  });
+  it("rejects an unknown mode and repeats", () => {
+    expect(fail(["--showcase", "--players", "ai"])).toBe("error: --players must be scripted or generated");
+    expect(fail(["--showcase", "--players", ""])).toBe("error: --players must be scripted or generated");
+    expect(fail(["--showcase", "--live", "--players", "generated", "--players", "generated"])).toBe("error: --players was given more than once");
+    expect(fail(["--showcase", "--live", "--players", "generated", "--player-model", "a", "--player-model", "b"])).toBe("error: --player-model was given more than once");
+  });
+  it("needs --players generated for --player-model and validates the id without echoing it", () => {
+    expect(fail(["--showcase", "--live", "--player-model", "x"])).toBe("error: --player-model needs --players generated");
+    expect(fail(["--showcase", "--player-model", "x", "--players", "scripted"])).toBe("error: --player-model needs --players generated");
+    for (const bad of ["", "has space", "-lead", "x\u0007y", "a".repeat(201), "key=sk-ant-secret value", "http://u:p@h"]) {
+      const msg = fail(["--showcase", "--live", "--players", "generated", `--player-model=${bad}`]);
+      expect(msg).toMatch(/^error: --player-model must be a model id of 1 to 200 /);
+      if (bad.length > 3 && bad.length < 100) expect(msg).not.toContain(bad);
+    }
+  });
+});
+
+describe("parseDemoArgs: --no-intents", () => {
+  it("is unset by default and accepted with --players generated", () => {
+    expect(ok(["--showcase", "--live", "--players", "generated"]).noIntents).toBeUndefined();
+    expect(ok(["--showcase", "--live", "--players", "generated", "--no-intents"]).noIntents).toBe(true);
+  });
+  it("is refused without --players generated, with one line", () => {
+    expect(fail(["--no-intents"])).toBe("error: --no-intents needs --players generated");
+    expect(fail(["--showcase", "--live", "--no-intents"])).toBe("error: --no-intents needs --players generated");
+    expect(fail(["--showcase", "--players", "scripted", "--no-intents"])).toBe("error: --no-intents needs --players generated");
+    expect(fail(["--showcase", "--live", "--players", "generated", "--no-intents", "--no-intents"])).toBe("error: --no-intents was given more than once");
+  });
+});

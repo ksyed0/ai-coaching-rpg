@@ -123,7 +123,7 @@ describe("SessionHost round coalescing (R25)", () => {
     const provider: ModelProvider = { name: "gated", async *stream(req: ChatRequest) {
       requests.push(req);
       if (requests.length === 1) { started(); await gate; }
-      yield "ok";
+      yield `ok ${requests.length}`; // distinct, so the repetition guard does not re-ask
     } };
     const logs: string[] = [];
     const h = new SessionHost({ scenario, engine, npcProvider: provider, gmProvider: new MockModelProvider(), clock, log: (m) => logs.push(m) });

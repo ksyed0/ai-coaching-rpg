@@ -62,6 +62,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
       // An empty system message is omitted: some local chat templates mishandle it.
       messages: req.system ? [{ role: "system", content: req.system }, ...req.messages] : req.messages,
       max_tokens: req.maxTokens,
+      ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
       stream: true,
     });
 
