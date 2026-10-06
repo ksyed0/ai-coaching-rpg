@@ -1,3 +1,4 @@
+import { stampFromBody } from "./nonce.js";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -100,7 +101,7 @@ describe("--showcase --live: check S-18 reports the Game Master's reliability (l
       req.on("end", () => {
         const text = body.includes("Game Master") ? gmReply : "I hear you, tell me more.";
         res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         res.end("data: [DONE]\n\n");
       });
     });

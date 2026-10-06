@@ -1,3 +1,4 @@
+import { stampFromBody } from "./nonce.js";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -271,7 +272,7 @@ describe("--showcase --live (an in-process OpenAI-compatible fake on loopback)",
         if (isGm) seen.gm++; else seen.npc++;
         const text = isGm ? '{"verdict": false, "reasoning": "not yet"}' : "I hear you, tell me more.";
         res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         res.end("data: [DONE]\n\n");
       });
     });
@@ -323,7 +324,7 @@ describe("--showcase --live (an in-process OpenAI-compatible fake on loopback)",
         if (!seenBodies.has(body)) { seenBodies.add(body); failed++; res.writeHead(503, { "Content-Type": "application/json" }); res.end("{}"); return; }
         const text = body.includes("Game Master") ? '{"verdict": false, "reasoning": "not yet"}' : "I hear you, tell me more.";
         res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         res.end("data: [DONE]\n\n");
       });
     });
@@ -475,7 +476,7 @@ describe("--showcase --live: the real Game Master decides (loopback fake server)
         const isGm = body.includes("Game Master");
         const text = isGm ? `{"verdict": ${verdictFor(body)}, "reasoning": "judged"}` : "Understood, go on.";
         res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         res.end("data: [DONE]\n\n");
       });
     });

@@ -6,7 +6,7 @@ import { initialState } from "@acr/events";
 import { loadScenario, validateScenario, type Scene } from "@acr/script";
 import { buildGmRequest } from "../agents/gm-prompt.js";
 import { parseGmReply } from "../agents/gm-parse.js";
-import { runGmEvaluation } from "../agents/gm-evaluate.js";
+import { newGmNonce, runGmEvaluation } from "../agents/gm-evaluate.js";
 import { parseGmConfig } from "../agents/gm-config.js";
 import { parseNpcTimeouts } from "../agents/timeouts.js";
 import { parseTokenBudgets } from "../agents/token-budgets.js";
@@ -32,7 +32,7 @@ export const GM_EVAL_USAGE = [
   "                      Sends the case dialogues to the provider and may cost money. Run by hand, never in CI.",
   "  --runs <n>          --live only: runs per case, 1 to 20",
   "  --json <path|->     also write the figures as JSON (- = stdout; the text then goes to stderr; run `pnpm -s gm-eval ...`)",
-  "exit codes: 0 all checks passed, 1 a check failed (invalid or stale cases, a parser corpus mismatch, a model failure), 2 usage or input error",
+  "exit codes: 0 all checks passed, 1 a check failed (invalid or stale cases, a parser corpus mismatch, or every --live model call failed), 2 usage or input error",
 ].join("\n");
 
 export type Out = { write(chunk: string): unknown };
@@ -48,7 +48,7 @@ const DEFAULT_SCENARIO = "scenarios/friday-escalation-extended";
 const hasControl = (v: string) => new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]").test(v);
 
 /** The parser corpus: raw replies as real models write them, each with the parse the tolerant parser must give. */
-export type CorpusEntry = { id: string; raw: string; expect: { ok: true; verdict: boolean; via?: "strict" | "tolerant" } | { ok: false; reason: string } };
+export type CorpusEntry = { id: string; raw: string; /** The nonce the reply was asked to carry (omit to read every shape, as the offline rules do). */ nonce?: string; expect: { ok: true; verdict: boolean; via?: "strict" | "tolerant" } | { ok: false; reason: string } };
 
 export async function loadCorpus(file: string): Promise<CorpusEntry[]> {
   let data: unknown;
@@ -63,7 +63,7 @@ export async function loadCorpus(file: string): Promise<CorpusEntry[]> {
 }
 
 /** Minimal scene and state for the production prompt builder, from a case. */
-export function requestFor(c: GmCase, o: { maxTokens?: number; temperature?: number } = {}) {
+export function requestFor(c: GmCase, o: { maxTokens?: number; temperature?: number; nonce?: string } = {}) {
   const scene = { id: c.scene.id, title: c.scene.title, goal: c.scene.goal } as unknown as Scene;
   const state = { ...initialState(), transcript: c.dialogue.map((d, i) => ({ seq: i + 1, ts: 0, sceneId: c.scene.id, roleId: d.role, text: d.text, channel: "text" as const })) };
   return buildGmRequest({ scene, condition: c.condition, state, ...o });
@@ -124,9 +124,10 @@ export async function runGmEval(deps: GmEvalDeps): Promise<{ exitCode: number }>
   for (const c of positives) if (!negatives.some((n) => n.scene.id === c.scene.id && n.condition === c.condition)) problems.push(`scene ${c.scene.id} has no negative control (a case labelled not met)`);
   for (const c of cases) { const req = requestFor(c); if (!req.system.includes(c.condition) || req.messages.length !== 1) problems.push(`case ${c.id}: the production prompt could not be built from it`); }
   const shipped = cases.filter((c) => c.source.startsWith("showcase:"));
-  if (shipped.length > 0) {
+  if (built.length > 0) {
     const fresh = JSON.stringify(built); const have = JSON.stringify(shipped);
-    if (fresh !== have) problems.push("the showcase cases are out of date with the showcase script: run `pnpm gm-eval --build tests/gm-cases` and review the diff (labels are the human judgement in NEGATIVE_KEEP)");
+    if (shipped.length === 0) problems.push("the cases hold no showcase cases (missing or empty showcase.json) although the showcase script has some: run `pnpm gm-eval --build tests/gm-cases`");
+    else if (fresh !== have) problems.push("the showcase cases are out of date with the showcase script: run `pnpm gm-eval --build tests/gm-cases` and review the diff (labels are the human judgement in NEGATIVE_CUTS)");
     else say("the showcase cases are in step with the showcase script");
   }
 
@@ -135,7 +136,7 @@ export async function runGmEval(deps: GmEvalDeps): Promise<{ exitCode: number }>
   catch (e) { problems.push(e instanceof CaseFileError ? e.message : "cannot read the parser corpus"); }
   let corpusBad = 0;
   for (const e of corpus) {
-    const got = parseGmReply(e.raw);
+    const got = parseGmReply(e.raw, { nonce: e.nonce });
     const ok = got.ok === e.expect.ok && (got.ok && e.expect.ok ? got.verdict === e.expect.verdict && (e.expect.via === undefined || got.via === e.expect.via) : !got.ok && !e.expect.ok ? got.reason === e.expect.reason : false);
     if (!ok) { corpusBad++; problems.push(`parser corpus ${e.id}: expected ${JSON.stringify(e.expect)} but the parser gave ${JSON.stringify(got.ok ? { ok: true, verdict: got.verdict, via: got.via } : got)}`); }
   }
@@ -175,7 +176,8 @@ export async function runGmEval(deps: GmEvalDeps): Promise<{ exitCode: number }>
     for (const c of cases) {
       for (let k = 0; k < runs; k++) {
         const t0 = Date.now();
-        const out = await runGmEvaluation({ provider: provider!, request: requestFor(c, { maxTokens, temperature }), condition: c.condition, timeoutMs: gm.timeoutMs, reask: gm.reask });
+        const nonce = newGmNonce();
+        const out = await runGmEvaluation({ provider: provider!, request: requestFor(c, { maxTokens, temperature, nonce }), condition: c.condition, timeoutMs: gm.timeoutMs, reask: gm.reask, nonce });
         const latencyMs = Date.now() - t0;
         if (out.kind === "verdict") results.push({ caseId: c.id, verdict: out.verdict, attempts: out.attempts, latencyMs, via: out.via });
         else if (out.kind === "no_verdict") results.push({ caseId: c.id, verdict: null, attempts: out.attempts, latencyMs, reason: out.reason });
@@ -186,6 +188,7 @@ export async function runGmEval(deps: GmEvalDeps): Promise<{ exitCode: number }>
     say("live results:");
     for (const l of formatMetrics(m)) say(`  ${l}`);
     figures.live = m;
+    if (results.length > 0 && results.every((r) => r.reason === "model_error")) problems.push("every live model call failed (nothing could be measured): check the provider settings and the model server");
   }
 
   say(problems.length === 0 ? "gm-eval: all checks passed" : `gm-eval: ${problems.length} problem(s)`);

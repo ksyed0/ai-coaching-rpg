@@ -61,12 +61,34 @@ export const GM_SCRIPT = [
   '{"verdict": true, "reasoning": "a phased plan by Monday was agreed"}',
 ];
 
+/** The nonce the Game Master prompt asks for (`Your answer must carry this exact id, copied unchanged: "<nonce>"`), or undefined for a prompt that has none. */
+export function nonceOf(req: ChatRequest): string | undefined {
+  return /exact id, copied unchanged: "([0-9a-f]{8,})"/.exec(req.system)?.[1];
+}
+
+/**
+ * Makes a scripted Game Master behave like a model that follows the id instruction: every JSON object that holds a verdict gets `"id": "<nonce>"`
+ * from the prompt it was just given (the scripts stay free of nonces and deterministic). Replies without such an object (fenced prose, malformed
+ * text) are passed through unchanged. The wrapped provider still records its own calls.
+ */
+export function stampNonce(inner: ModelProvider): ModelProvider {
+  return {
+    name: inner.name,
+    async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<string> {
+      const nonce = nonceOf(req);
+      let text = "";
+      for await (const chunk of inner.stream(req, signal)) text += chunk;
+      yield nonce === undefined ? text : text.replace(/\{(\s*)("(?:reasoning|verdict)")/g, `{"id": "${nonce}", $2`);
+    },
+  };
+}
+
 /** The mock system: scripted models, a fake clock, a real JSONL log on disk and a real WebSocket server on port 0. */
 export async function startMockSystem(o: { scenario: Scenario; sessionId: string; dataDir: string }): Promise<System> {
   const fakeClock = new FakeClock(T0);
   const npc = new MockModelProvider(NPC_SCRIPT);
   const gm = new MockModelProvider(GM_SCRIPT);
-  return buildSystem({ ...o, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: gm });
+  return buildSystem({ ...o, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: stampNonce(gm) });
 }
 
 /** A private temp dir for a run's data (the session log). Removed by cleanup(). */
@@ -121,7 +143,7 @@ export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId
   const npc = new SceneRoutedMock({ sceneId, plan: npcPlan, exhausted: "[mock reply]", keyOf: (req) => npcRoles.find((r) => req.system.includes(npcIntro(r)))?.id });
   const gm = new SceneRoutedMock({ sceneId, plan: gmPlan, exhausted: '{"verdict": false, "reasoning": "no scripted verdict left"}', keyOf: () => "" });
   const fakeClock = new FakeClock(T0);
-  const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: gm, gmTrace: o.gmTrace });
+  const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: stampNonce(gm), gmTrace: o.gmTrace });
   ref.engine = sys.engine;
   return sys;
 }

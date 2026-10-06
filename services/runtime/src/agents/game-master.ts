@@ -2,7 +2,7 @@ import type { ModelProvider } from "@acr/adapters";
 import type { SessionEngine } from "../engine/session-engine.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "./timeouts.js";
 import { buildGmRequest } from "./gm-prompt.js";
-import { runGmEvaluation, type GmReplyTrace } from "./gm-evaluate.js";
+import { newGmNonce, runGmEvaluation, type GmReplyTrace } from "./gm-evaluate.js";
 import { DEFAULT_GM_EVERY_N_UTTERANCES } from "./gm-config.js";
 import { DEFAULT_GM_MAX_TOKENS } from "./token-budgets.js";
 
@@ -121,9 +121,10 @@ export class GameMaster {
   private async evaluate(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>, condition: string): Promise<void> {
     const expectSceneId = scene.id;
     const seq = this.engine.state.lastSeq;
-    const base = buildGmRequest({ scene, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature });
+    const nonce = newGmNonce(); // per evaluation, in the system prompt only; never logged
+    const base = buildGmRequest({ scene, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, nonce });
     const out = await runGmEvaluation({
-      provider: this.provider, request: base, condition, timeoutMs: this.evaluationTimeoutMs, reask: this.reask,
+      provider: this.provider, request: base, condition, timeoutMs: this.evaluationTimeoutMs, reask: this.reask, nonce,
       onReply: (r) => this.traceRecord({ seq, sceneId: expectSceneId, condition, ...r }),
     });
     if (out.kind === "alert") await this.engine.alert(out.message, "warning", { expectSceneId });

@@ -1,3 +1,4 @@
+import { stampFromBody } from "./nonce.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile, cp } from "node:fs/promises";
 import http from "node:http";
@@ -56,7 +57,7 @@ async function fakeModel(playerReply: (n: number, role: string) => { status?: nu
         text = r.text ?? "";
       } else { seen.npc++; seen.npcCalls.push({ model: parsed.model, temperature: parsed.temperature }); text = npcReply ? npcReply(seen.npc, system) : "I hear you, tell me more."; }
       res.writeHead(200, { "Content-Type": "text/event-stream" });
-      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
       res.end("data: [DONE]\n\n");
     });
   });

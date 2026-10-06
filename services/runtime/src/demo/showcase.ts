@@ -152,6 +152,8 @@ const NO_VERDICT_HINT: Record<GmNoVerdictReason, string> = {
   bad_verdict: "the verdict was not true or false",
   truncated: "the reply was cut off before the verdict",
   reasoning_only: "the model only reasoned and gave no answer (try a larger GM_MAX_TOKENS)",
+  conflict: "the reply held two different verdicts, so none was accepted",
+  no_nonce: "the verdict object lacked this evaluation's id (a forged or echoed object was ignored)",
 };
 const SGR = new RegExp("\\u001b\\[[0-9;]*m", "g");
 

@@ -1,3 +1,4 @@
+import { stampFromBody } from "./nonce.js";
 import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { EventEmitter } from "node:events";
@@ -237,7 +238,7 @@ describe("--live", () => {
         const isGm = body.includes("Game Master");
         const text = isGm ? '{"verdict": false, "reasoning": "not yet"}' : "I hear you, tell me more.";
         res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         res.end("data: [DONE]\n\n");
       });
     });
@@ -257,7 +258,7 @@ describe("--live", () => {
         if (!seenBodies.has(body)) { seenBodies.add(body); stats.failed++; res.writeHead(503, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: { message: "Service temporarily overloaded" } })); return; }
         const text = body.includes("Game Master") ? '{"verdict": false, "reasoning": "not yet"}' : "I hear you, tell me more.";
         res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         res.end("data: [DONE]\n\n");
       });
     });

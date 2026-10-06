@@ -1,7 +1,11 @@
 export type RoleKind = "player" | "npc";
 export type Channel = "voice" | "text";
 /** Why a Game Master reply gave no usable verdict, and how a recorded verdict was read (see gm.no_verdict and gm.decision). */
-export type GmNoVerdictReason = "empty" | "no_json" | "bad_verdict" | "truncated" | "reasoning_only";
+export type GmNoVerdictReason = "empty" | "no_json" | "bad_verdict" | "truncated" | "reasoning_only"
+  /** The usable verdicts of one reply disagree, so none is accepted. */
+  | "conflict"
+  /** Verdict objects were present but none carried this evaluation's nonce (forged or echoed). */
+  | "no_nonce";
 export type GmVia = "strict" | "tolerant" | "reask";
 export type ExitReason = "time_box_elapsed" | "facilitator_advance" | "gm_detects";
 export type FacilitatorCommand =

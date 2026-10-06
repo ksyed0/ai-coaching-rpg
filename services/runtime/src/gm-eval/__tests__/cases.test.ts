@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { loadScenario } from "@acr/script";
 import { REPO_ROOT } from "../../main.js";
 import { loadShowcaseScript } from "../../demo/showcase-script.js";
-import { CaseFileError, NEGATIVE_KEEP, buildShowcaseCases, loadCases, validateCase } from "../cases.js";
+import { CaseFileError, NEGATIVE_CUTS, buildShowcaseCases, lastNegativeLine, loadCases, validateCase } from "../cases.js";
 
 const EXTENDED = path.join(REPO_ROOT, "scenarios", "friday-escalation-extended");
 const dirs: string[] = [];
@@ -17,7 +17,10 @@ describe("buildShowcaseCases", () => {
   it("builds, per scene, the full dialogue (met) and a negative control cut before the agreement (not met), with the AI characters' replies in", async () => {
     const sc = await loadScenario(EXTENDED);
     const cases = buildShowcaseCases(sc, await loadShowcaseScript(EXTENDED, sc, { mode: "mock" }));
-    expect(cases.map((c) => c.id)).toEqual(sc.script.scenes.flatMap((s) => [`${s.id}:full`, `${s.id}:cut-${NEGATIVE_KEEP[s.id]}`]));
+    expect(cases.map((c) => c.id)).toEqual(sc.script.scenes.flatMap((s) => [`${s.id}:full`, ...NEGATIVE_CUTS[s.id]!.map((k) => `${s.id}:cut-${k}`)]));
+    expect(cases.filter((c) => !c.label)).toHaveLength(8); // two hard negatives: s1 at 4 lines, s6 at 2
+    expect([lastNegativeLine("s1_huddle"), lastNegativeLine("s3_internal_huddle"), lastNegativeLine("nope")]).toEqual([4, 3, 0]);
+    expect(cases.find((c) => c.id === "s1_huddle:cut-4")!.dialogue.at(-1)!.text).toMatch(/phase two after go-live, scoped and priced\?$/);
     expect(cases.filter((c) => c.label)).toHaveLength(6);
     const s3 = cases.find((c) => c.id === "s3_internal_huddle:cut-3")!;
     expect(s3.label).toBe(false);

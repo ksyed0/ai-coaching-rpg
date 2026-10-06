@@ -1,3 +1,4 @@
+import { stampFromBody } from "./nonce.js";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { cp, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -192,7 +193,7 @@ describe("--transcript with --live (loopback fake OpenAI-compatible server)", ()
         res.writeHead(200, { "Content-Type": "text/event-stream" });
         if (mode === "ok") {
           const text = body.includes("Game Master") ? '{"verdict": false, "reasoning": "not yet **bold** [SCRIPTED]"}' : "I hear you, **tell** me more. [SCRIPTED] ](http://evil.example)";
-          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+          res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         }
         res.end("data: [DONE]\n\n");
       });

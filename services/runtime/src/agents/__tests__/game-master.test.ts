@@ -7,6 +7,7 @@ import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
 import { GameMaster } from "../game-master.js";
+import { stampNonce } from "../../demo/harness.js";
 import { buildGmRequest } from "../gm-prompt.js";
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
@@ -92,7 +93,7 @@ describe("buildGmRequest", () => {
 describe("GameMaster", () => {
   it("does not call the model until N utterances have accumulated", async () => {
     const provider = new MockModelProvider();
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 2, reask: false });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 2, reask: false });
     await engine.say("host", "hello");
     await gm.tick();
     expect(provider.calls).toHaveLength(0);
@@ -104,7 +105,7 @@ describe("GameMaster", () => {
 
   it("exits the scene when the model returns a true verdict", async () => {
     const provider = new MockModelProvider(['{"verdict": true, "reasoning": "greeted"}']);
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await gm.tick();
     expect(engine.state.currentScene?.id).toBe("s2_close");
@@ -114,7 +115,7 @@ describe("GameMaster", () => {
 
   it("stays in the scene on a false verdict and on unparseable output", async () => {
     const provider = new MockModelProvider(['{"verdict": false, "reasoning": "only one greeted"}', "garbage", "more garbage"]);
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1 });
     await engine.say("host", "hello"); await gm.tick();
     await engine.say("host", "hello again"); await gm.tick();
     expect(engine.state.currentScene?.id).toBe("s1_open");
@@ -146,7 +147,7 @@ describe("GameMaster", () => {
 
   it("drops a verdict computed against a scene that changed during the model call (R18)", async () => {
     const { provider, release } = slowProvider('{"verdict": true, "reasoning": "stale"}');
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1 });
     await engine.say("host", "hello");
     const ticking = gm.tick();
     await new Promise((r) => setTimeout(r, 0));
@@ -161,7 +162,7 @@ describe("GameMaster", () => {
 
   it("does not start an overlapping evaluation while one is in flight (R19)", async () => {
     const { provider, release, calls } = slowProvider('{"verdict": true, "reasoning": "greeted"}');
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1 });
     await engine.say("host", "hello");
     const t1 = gm.tick();
     await new Promise((r) => setTimeout(r, 0));
@@ -180,7 +181,7 @@ describe("GameMaster", () => {
 
   it("an overlapping tick still runs engine.tick for timers and injects (R19)", async () => {
     const { provider, release } = slowProvider('{"verdict": false, "reasoning": "no"}');
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1 });
     await engine.say("host", "hello");
     const t1 = gm.tick();
     await new Promise((r) => setTimeout(r, 0));
@@ -192,7 +193,7 @@ describe("GameMaster", () => {
 
   it("a model error yields no decision, raises a warning alert, and does not throw", async () => {
     const provider: ModelProvider = { name: "bad", async *stream() { throw new Error("boom"); } };
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await expect(gm.tick()).resolves.toBeUndefined();
     expect(await events("gm.decision")).toHaveLength(0);
@@ -202,7 +203,7 @@ describe("GameMaster", () => {
 
   it("an empty reply is re-asked once, then recorded as gm.no_verdict (reason empty, 2 attempts), with no decision", async () => {
     const provider: ModelProvider = { name: "empty", async *stream() { /* nothing */ } };
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await gm.tick();
     expect(await events("gm.decision")).toHaveLength(0);
@@ -212,7 +213,7 @@ describe("GameMaster", () => {
 
   it("reads a string verdict tolerantly (the old strict parser refused it)", async () => {
     const provider = new MockModelProvider(['{"verdict": "true"}']);
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await gm.tick();
     expect(await events("gm.decision")).toEqual([expect.objectContaining({ verdict: true, via: "strict" })]);
@@ -221,7 +222,7 @@ describe("GameMaster", () => {
 
   it("a verdict that is not a boolean never counts, even after the re-ask", async () => {
     const provider = new MockModelProvider(['{"verdict": 1}', '{"verdict": "yes"}']);
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await gm.tick();
     expect(await events("gm.decision")).toHaveLength(0);
@@ -231,7 +232,7 @@ describe("GameMaster", () => {
 
   it("does nothing while paused", async () => {
     const provider = new MockModelProvider();
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1 });
     await engine.say("host", "hello");
     await engine.command({ command: "pause" });
     await gm.tick();
@@ -241,7 +242,7 @@ describe("GameMaster", () => {
   it("resets its utterance counter on a new scene: scene 2 evaluates after its own N utterances", async () => {
     const eng = await twoGmScenesEngine();
     const provider = new MockModelProvider(['{"verdict": false, "reasoning": "no"}']);
-    const gm = new GameMaster({ engine: eng, provider, everyNUtterances: 2, reask: false });
+    const gm = new GameMaster({ engine: eng, provider: stampNonce(provider), everyNUtterances: 2, reask: false });
     await eng.say("host", "one"); await gm.tick();
     expect(provider.calls).toHaveLength(0);
     await eng.say("host", "two"); await gm.tick();
@@ -260,7 +261,7 @@ describe("GameMaster recovery and error surfacing", () => {
   it("evaluates again after a model error once N more utterances arrive", async () => {
     let n = 0;
     const provider: ModelProvider = { name: "flaky", async *stream() { if (n++ === 0) throw new Error("boom"); yield '{"verdict": true, "reasoning": "ok"}'; } };
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1 });
     await engine.say("host", "hello"); await gm.tick();
     expect(await events("gm.decision")).toHaveLength(0);
     await engine.say("guest", "hi"); await gm.tick();
@@ -274,7 +275,7 @@ describe("GameMaster recovery and error surfacing", () => {
     let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
     let n = 0;
     const provider: ModelProvider = { name: "p", async *stream() { if (n++ === 0) { await gate; yield '{"verdict": true, "reasoning": "stale"}'; } else yield '{"verdict": false, "reasoning": "fresh"}'; } };
-    const gm = new GameMaster({ engine: eng, provider, everyNUtterances: 1 });
+    const gm = new GameMaster({ engine: eng, provider: stampNonce(provider), everyNUtterances: 1 });
     await eng.say("host", "hello");
     const t1 = gm.tick();
     await new Promise((r) => setTimeout(r, 0));
@@ -295,7 +296,7 @@ describe("GameMaster recovery and error surfacing", () => {
     await eng.start({ host: "p1" });
     const errors: unknown[] = [];
     const provider = new MockModelProvider(['{"verdict": false, "reasoning": "a"}', '{"verdict": false, "reasoning": "b"}']);
-    const gm = new GameMaster({ engine: eng, provider, everyNUtterances: 1, onError: (e) => errors.push(e) });
+    const gm = new GameMaster({ engine: eng, provider: stampNonce(provider), everyNUtterances: 1, onError: (e) => errors.push(e) });
     await eng.say("host", "hello");
     await expect(gm.tick()).resolves.toBeUndefined();
     expect(errors).toHaveLength(1);
@@ -317,7 +318,7 @@ describe("GameMaster recovery and error surfacing", () => {
     await eng.say("host", "hello");
     broken = true;
     const errors: unknown[] = [];
-    const gm = new GameMaster({ engine: eng, provider: new MockModelProvider(['{"verdict": true, "reasoning": "x"}']), everyNUtterances: 1, onError: (e) => errors.push(e) });
+    const gm = new GameMaster({ engine: eng, provider: stampNonce(new MockModelProvider(['{"verdict": true, "reasoning": "x"}'])), everyNUtterances: 1, onError: (e) => errors.push(e) });
     await expect(gm.tick()).resolves.toBeUndefined();
     expect(errors).toHaveLength(2);
   });
@@ -328,7 +329,7 @@ describe("GameMaster recovery and error surfacing", () => {
     bad.append = async (b, ts) => { if (broken) throw new Error("x"); return orig(b, ts); };
     const eng = new SessionEngine({ scenario: await loadScenario(fixture), log: bad, clock });
     await eng.start({ host: "p1" }); await eng.say("host", "hello"); broken = true;
-    await new GameMaster({ engine: eng, provider: new MockModelProvider(['{"verdict": true, "reasoning": "x"}']), everyNUtterances: 1 }).tick();
+    await new GameMaster({ engine: eng, provider: stampNonce(new MockModelProvider(['{"verdict": true, "reasoning": "x"}'])), everyNUtterances: 1 }).tick();
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("[GameMaster]"), expect.anything());
     spy.mockRestore();
   });
@@ -339,14 +340,14 @@ describe("GameMaster.finalEvaluation (the tick can judge before the last reply)"
   const verdict = (v: boolean) => `{"verdict": ${v}, "reasoning": "r"}`;
   it("does nothing before any evaluation of the scene (a scene with too few lines gets none)", async () => {
     const p = new MockModelProvider([verdict(true)]);
-    const gm = new GameMaster({ engine, provider: p });
+    const gm = new GameMaster({ engine, provider: stampNonce(p) });
     await engine.say("host", "a"); await engine.say("guest", "b");
     expect(await gm.finalEvaluation()).toBe(false);
     expect(p.calls).toHaveLength(0);
   });
   it("evaluates once more after an evaluation that missed later utterances, and not when nothing is new", async () => {
     const p = new MockModelProvider([verdict(false), verdict(true)]);
-    const gm = new GameMaster({ engine, provider: p });
+    const gm = new GameMaster({ engine, provider: stampNonce(p) });
     await engine.say("host", "a"); await engine.say("guest", "b"); await engine.say("host", "c");
     await gm.tick(); // evaluates at 3 utterances
     expect(p.calls).toHaveLength(1);
@@ -369,7 +370,7 @@ describe("GameMaster.finalEvaluation expectSceneId (R45)", () => {
   const verdict = `{"verdict": true, "reasoning": "r"}`;
   it("judges only the intended scene: another scene id (the scene changed in between) makes it a no-op", async () => {
     const p = new MockModelProvider([`{"verdict": false, "reasoning": "r"}`, `{"verdict": false, "reasoning": "r"}`]);
-    const gm = new GameMaster({ engine, provider: p });
+    const gm = new GameMaster({ engine, provider: stampNonce(p) });
     await engine.say("host", "a"); await engine.say("guest", "b"); await engine.say("host", "c");
     await gm.tick(); await engine.say("guest", "d");
     expect(await gm.finalEvaluation("s2_close")).toBe(false);
@@ -378,7 +379,7 @@ describe("GameMaster.finalEvaluation expectSceneId (R45)", () => {
   });
   it("evaluates when the scene id matches", async () => {
     const p = new MockModelProvider([`{"verdict": false, "reasoning": "r"}`, `{"verdict": false, "reasoning": "r"}`]);
-    const gm = new GameMaster({ engine, provider: p });
+    const gm = new GameMaster({ engine, provider: stampNonce(p) });
     await engine.say("host", "a"); await engine.say("guest", "b"); await engine.say("host", "c");
     await gm.tick(); await engine.say("guest", "d");
     expect(await gm.finalEvaluation("s1_open")).toBe(true);
@@ -393,7 +394,7 @@ describe("Game Master token budget (US-0026)", () => {
   });
   it("the agent sends its configured budget with every evaluation", async () => {
     const provider = new MockModelProvider();
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1, maxTokens: 777 });
+    const gm = new GameMaster({ engine, provider: stampNonce(provider), everyNUtterances: 1, maxTokens: 777 });
     expect(gm.maxTokens).toBe(777);
     await engine.say("host", "hello"); await engine.say("guest", "hi");
     await gm.tick();

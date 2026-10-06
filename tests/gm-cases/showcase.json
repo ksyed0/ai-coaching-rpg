@@ -65,6 +65,35 @@
       "source": "showcase:s1_huddle:cut-3"
     },
     {
+      "id": "s1_huddle:cut-4",
+      "scene": {
+        "id": "s1_huddle",
+        "title": "Team huddle",
+        "goal": "Agree the team's position before replying to the client"
+      },
+      "condition": "the team has stated a single agreed position on the request",
+      "dialogue": [
+        {
+          "role": "delivery_lead",
+          "text": "Okay, Priya's email is in. She wants a reconciliation module before go-live and an answer by end of day Friday. First reactions?"
+        },
+        {
+          "role": "tech_lead",
+          "text": "My worry is the ingestion layer. We are still hardening it, and anything we add now competes with go-live."
+        },
+        {
+          "role": "account_manager",
+          "text": "I would rather not say no outright. The renewal is in play, and a flat refusal will land badly."
+        },
+        {
+          "role": "delivery_lead",
+          "text": "So not a flat yes and not a flat no. What if we offer it as a phase two after go-live, scoped and priced?"
+        }
+      ],
+      "label": false,
+      "source": "showcase:s1_huddle:cut-4"
+    },
+    {
       "id": "s2_priya_call:full",
       "scene": {
         "id": "s2_priya_call",
@@ -449,6 +478,27 @@
       ],
       "label": false,
       "source": "showcase:s6_wrap_up:cut-1"
+    },
+    {
+      "id": "s6_wrap_up:cut-2",
+      "scene": {
+        "id": "s6_wrap_up",
+        "title": "Internal wrap-up",
+        "goal": "Capture decisions, owners and the message to the wider team"
+      },
+      "condition": "the team has assigned an owner and a next action for each follow-up",
+      "dialogue": [
+        {
+          "role": "delivery_lead",
+          "text": "That went better than I feared. Let us capture it: the change request goes out Monday, with the terms Helena repeated back to us."
+        },
+        {
+          "role": "account_manager",
+          "text": "I will draft and send the change request on Monday morning and call Priya to confirm. I will also tell our account lead the conversation ended in a good place."
+        }
+      ],
+      "label": false,
+      "source": "showcase:s6_wrap_up:cut-2"
     }
   ]
 }

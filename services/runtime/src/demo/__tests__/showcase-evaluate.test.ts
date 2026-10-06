@@ -1,3 +1,4 @@
+import { stampFromBody } from "./nonce.js";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, existsSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -135,7 +136,7 @@ describe("pnpm demo --showcase --live --evaluate (a fake OpenAI-compatible serve
         if (isEval) { seen.eval++; seen.bodies.push(body); }
         const text = isEval ? evaluatorReply : isGm ? '{"verdict": false, "reasoning": "not yet"}' : "I hear you, tell me more.";
         res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`);
         res.end("data: [DONE]\n\n");
       });
     });
@@ -189,7 +190,7 @@ describe("the live --evaluate watchdog", () => {
       req.on("end", () => {
         const text = body.includes("learning-and-development assessor") ? JSON.stringify({ criteria: [{ id: "discovery", score: null }, { id: "shared_understanding", score: null }] }) : body.includes("Game Master") ? '{"verdict": false, "reasoning": "x"}' : "ok then";
         res.writeHead(200, { "Content-Type": "text/event-stream" });
-        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`); res.end("data: [DONE]\n\n");
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody(text, body) } }] })}\n\n`); res.end("data: [DONE]\n\n");
       });
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
