@@ -22,8 +22,8 @@ const DIALOGUE_CHARS = 1_500;
 const REASONING_CHARS = 400;
 const CELL_CHARS = 300;
 
-/** The one safe path for any text that goes into the file: scrub secrets and paths, sanitize, truncate, then escape Markdown. */
-export function safeMd(text: string, max: number, secrets: string[] = []): string {
+/** Scrub, sanitize, strip invisible characters, fold look-alikes and neutralize tag-shaped tokens; not yet truncated or escaped. */
+function cleanMd(text: string, secrets: string[]): string {
   // Sanitizing turns newlines into a visible marker; trim those and whitespace at both ends so a bold span always closes.
   const scrubbed = scrubText(String(text ?? ""), secrets);
   // Invisible characters (every Unicode format character, default-ignorable fillers, variation selectors, tag characters) could hide
@@ -31,9 +31,35 @@ export function safeMd(text: string, max: number, secrets: string[] = []): strin
   const folded = scrubbed.replace(INVISIBLE_MD, "").normalize("NFKC");
   const clean = folded.replace(/^(?:\s|⏎)+|(?:\s|⏎)+$/gu, "");
   // A tag-shaped token inside dialogue must never read as a tag: [SCRIPTED] becomes (SCRIPTED).
-  const inert = clean.replace(/[[［【〔〖]\s*(SCRIPTED|GENERATED|FALLBACK|UNVERIFIED|SYSTEM)\s*[\]］】〕〗]/gi, "($1)");
-  const points = Array.from(inert); // truncate by code points: never inside a surrogate pair
-  return mdEscape(points.length > max ? `${points.slice(0, max - 1).join("")}…` : inert);
+  return clean.replace(/[[［【〔〖]\s*(SCRIPTED|GENERATED|FALLBACK|UNVERIFIED|SYSTEM)\s*[\]］】〕〗]/gi, "($1)");
+}
+const truncate = (points: string[], max: number): string => (points.length > max ? `${points.slice(0, max - 1).join("")}…` : points.join(""));
+
+/** The one safe path for any text that goes into the file: scrub secrets and paths, sanitize, truncate, then escape Markdown. */
+export function safeMd(text: string, max: number, secrets: string[] = []): string {
+  return mdEscape(truncate(Array.from(cleanMd(text, secrets)), max)); // truncate by code points: never inside a surrogate pair
+}
+
+const MD_NEWLINE = new RegExp(`\\r\\n|[\\n\\r${String.fromCharCode(0x2028)}${String.fromCharCode(0x2029)}]`);
+
+/**
+ * Like safeMd for a multi-line value: the raw text is split at its newlines BEFORE sanitizing (so no marker is inserted for them),
+ * every non-blank line gets the full safeMd treatment, and the total is truncated by code points. Returns the escaped lines.
+ */
+export function safeMdLines(text: string, max: number, secrets: string[] = []): string[] {
+  const lines = String(text ?? "").split(MD_NEWLINE).map((l) => Array.from(cleanMd(l, secrets))).filter((p) => p.length > 0);
+  const out: string[] = [];
+  let left = max;
+  for (const points of lines) {
+    if (points.length >= left && left < Infinity) {
+      // This line reaches the limit: it is cut here and nothing after it is shown.
+      out.push(mdEscape(points.length > left ? `${points.slice(0, Math.max(left - 1, 0)).join("")}…` : points.join("")));
+      break;
+    }
+    out.push(mdEscape(points.join("")));
+    left -= points.length;
+  }
+  return out;
 }
 const ID = /^[a-z0-9_-]+$/;
 const who = (speaker: string, role: string | undefined, secrets: string[]): string => {
@@ -75,7 +101,9 @@ export function renderTranscript(i: TranscriptInput): string {
     else if (r.gm) {
       out.push(`**${TAGS[r.source]} Game Master (verdict: ${r.gm.verdict ? "true" : "false"}) on "${safeMd(r.gm.condition, 200, sec)}": ${safeMd(r.text, REASONING_CHARS, sec)}**`, "");
     } else {
-      out.push(`**${TAGS[r.source]} ${who(r.speaker ?? "?", r.role, sec)}: ${safeMd(r.text, DIALOGUE_CHARS, sec)}**`, "");
+      // Each line is its own bold span inside the one tagged entry, joined by a Markdown hard break (two spaces) so viewers show separate lines.
+      const body = safeMdLines(r.text, DIALOGUE_CHARS, sec);
+      out.push(`**${TAGS[r.source]} ${who(r.speaker ?? "?", r.role, sec)}: ${body[0] ?? ""}**${body.slice(1).map((l) => `  \n**${l}**`).join("")}`, "");
     }
   }
 

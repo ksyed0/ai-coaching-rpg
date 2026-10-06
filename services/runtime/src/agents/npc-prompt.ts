@@ -21,6 +21,7 @@ export function buildNpcRequest(opts: { role: NpcRole; scene: Scene; state: Sess
     `${npcIntro(role)}${role.title ? `, ${role.title}` : ""} in a live role-play training session.`,
     `Stay in character at all times. Speak only as ${role.name}. Reply in one to four sentences of natural spoken dialogue, no stage directions, no lists.`,
     `Other speakers are shown as [role_id]: text. Never mention role ids; address people the way ${role.name} would.`,
+    `Reply with only ${role.name}'s own words. Never write a line for anyone else, never continue the conversation for the other speakers, and never begin a reply with a [...] speaker tag or with ${role.name}'s own name.`,
     "", "## Persona", role.persona,
     "", "## Your current goals", bullets(npc.goals),
     "", "## What you know", bullets([...npc.knowledge, ...npc.released]),

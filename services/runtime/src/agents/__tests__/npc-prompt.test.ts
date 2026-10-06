@@ -152,4 +152,10 @@ describe("buildNpcRequest token budget (US-0026)", () => {
   it("uses the configured budget", () => {
     expect(buildNpcRequest({ role, scene, state: stateWith(), maxTokens: 1234 }).maxTokens).toBe(1234);
   });
+
+  it("tells the model to speak only for the character and never to write speaker tags", () => {
+    const req = buildNpcRequest({ role, scene, state: stateWith() });
+    expect(req.system).toMatch(/only Priya Raman's own words/);
+    expect(req.system).toMatch(/never begin a reply with a \[\.\.\.\] speaker tag/);
+  });
 });

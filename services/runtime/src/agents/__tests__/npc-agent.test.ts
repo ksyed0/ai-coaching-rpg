@@ -60,6 +60,35 @@ describe("NpcAgent", () => {
     expect(alerts[0]).toMatch(/guest.*empty reply/);
   });
 
+  it("removes lines written for other speakers, records only the character's own words and raises one alert without the removed text", async () => {
+    const alerts = alertsOf();
+    const raw = ["Our fee is fixed. ", "\n[host]: SECRET_OTHER_LINE", "\n[guest]: more"];
+    const agent = new NpcAgent({ role: guest, engine, provider: new MockModelProvider([raw.join("")]) });
+    const e = await agent.respond();
+    expect(e).toMatchObject({ type: "utterance", text: "Our fee is fixed." });
+    expect(engine.state.transcript.at(-1)?.text).toBe("Our fee is fixed.");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]).toMatch(/guest.*other speakers.*removed/);
+    expect(alerts[0]).not.toContain("SECRET_OTHER_LINE");
+    expect(JSON.stringify(engine.state)).not.toContain("SECRET_OTHER_LINE");
+  });
+
+  it("strips its own tag prefix silently", async () => {
+    const alerts = alertsOf();
+    await new NpcAgent({ role: guest, engine, provider: new MockModelProvider([`[guest]: Hello back`]) }).respond();
+    expect(engine.state.transcript.at(-1)?.text).toBe("Hello back");
+    expect(alerts).toHaveLength(0);
+  });
+
+  it("falls back (after the removal alert) when nothing but another speaker's line is left", async () => {
+    const alerts = alertsOf();
+    await new NpcAgent({ role: guest, engine, provider: new MockModelProvider(["[host]: all of it is someone else"]) }).respond();
+    expect(engine.state.transcript.at(-1)?.text).toBe(guest.fallback_line);
+    expect(alerts).toHaveLength(2);
+    expect(alerts[0]).toMatch(/other speakers/);
+    expect(alerts[1]).toMatch(/empty reply/);
+  });
+
   it("treats a whitespace-only reply as empty", async () => {
     const agent = new NpcAgent({ role: guest, engine, provider: new MockModelProvider(["   \n"]) });
     await agent.respond();

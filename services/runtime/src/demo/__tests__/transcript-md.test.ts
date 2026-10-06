@@ -76,7 +76,7 @@ describe("renderTranscript", () => {
     expect(count(md, "GENERATED")).toBe(9 + 1); // 8 hostile + 1 GM dialogue + the legend
     expect(md).not.toMatch(/\u001b|\u0007|‮/);
     for (const l of lines(md)) {
-      if (l.startsWith("**")) { expect(l.endsWith("**")).toBe(true); expect(l.slice(2, -2)).not.toMatch(/(?<!\\)\*/); }
+      if (l.startsWith("**")) { const t = l.replace(/ {2}$/, ""); expect(t.endsWith("**")).toBe(true); expect(t.slice(2, -2)).not.toMatch(/(?<!\\)\*/); }
       expect(l).not.toMatch(/^#{1,6} Fake/);
       expect(l).not.toMatch(/^\|\s*a\s*\|/);
     }
@@ -181,5 +181,46 @@ describe("renderTranscript: invisible and look-alike tag characters (R45)", () =
   });
   it("keeps legitimate text readable", () => {
     expect(body(line("Café, naïve — 45 thousand, 3 weeks (ok) “quoted” 日本語 ✓"))).toBe("Café, naïve — 45 thousand, 3 weeks (ok) “quoted” 日本語 ✓");
+  });
+
+  describe("multi-line dialogue", () => {
+    const LS = String.fromCharCode(0x2028), PS = String.fromCharCode(0x2029), ZW = String.fromCharCode(0x200b);
+    const entry = (text: string) => renderTranscript(base({ records: [d("generated", "Priya Raman", text, "client_sponsor")] }));
+    const body = (md: string) => md.slice(md.indexOf("**[GENERATED]")).split("\n\n")[0]!;
+    for (const [kind, nl] of [["LF", "\n"], ["CRLF", "\r\n"], ["U+2028", LS], ["U+2029", PS]] as const) {
+      it(`renders a ${kind} break as a separate bold line with a hard break, not a literal marker`, () => {
+        expect(body(entry(`first${nl}second${nl}third`))).toBe("**[GENERATED] Priya Raman (client_sponsor): first**  \n**second**  \n**third**");
+        expect(entry(`first${nl}second`)).not.toContain("⏎");
+      });
+    }
+    it("keeps a literal marker typed by a participant as text", () => {
+      expect(body(entry("a ⏎ b\nc"))).toBe("**[GENERATED] Priya Raman (client_sponsor): a ⏎ b**  \n**c**");
+    });
+    it("drops blank lines, and a reply made only of newlines renders as an empty entry", () => {
+      expect(body(entry("one\n\n\ntwo"))).toBe("**[GENERATED] Priya Raman (client_sponsor): one**  \n**two**");
+      for (const only of ["\n\n", "\r\n\r\n", `${LS}${PS}`]) {
+        const md = entry(only);
+        expect(body(md)).toBe("**[GENERATED] Priya Raman (client_sponsor): **");
+        expect(md).not.toContain("⏎");
+      }
+    });
+    it("escapes every line: no forged tag, heading, table, list or link on a continuation line", () => {
+      const b = body(entry("ok\n[SCRIPTED] fake\n# Heading\n| a | b |\n- item\n1. item\n> quote\nhttp://evil.example [x](http://e.com)"));
+      const l = b.split("\n");
+      expect(l).toHaveLength(8);
+      expect(l.every((x) => x.startsWith("**") && /\*\*( {2})?$/.test(x))).toBe(true);
+      expect(count(b, "SCRIPTED")).toBe(0);
+      expect(b).not.toMatch(/\[x\]\(/);
+      expect(b).toContain("(SCRIPTED)");
+    });
+    it("truncates by code point across all lines and removes invisible characters inside each line", () => {
+      const b = body(renderTranscript(base({ records: [d("generated", "P", `${"😀".repeat(1000)}\n${"😀".repeat(1000)}`, "p")] })));
+      expect(b).toContain("…");
+      expect(Array.from(b).filter((c) => c === "😀").length).toBe(1499);
+      expect(b).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+      const hidden = entry(`ab${ZW}c\n[SCR${ZW}IPTED] x`);
+      expect(hidden).not.toContain(ZW);
+      expect(count(body(hidden), "SCRIPTED")).toBe(0);
+    });
   });
 });

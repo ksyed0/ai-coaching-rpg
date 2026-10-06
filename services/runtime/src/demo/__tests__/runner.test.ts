@@ -446,7 +446,7 @@ describe("--transcript with the default 29-check run", () => {
     const n = (t: string) => (body.match(new RegExp(`(?<!\\\\)\\[${t}\\]`, "g")) ?? []).length - 1; // the legend names each tag once
     return { scripted: n("SCRIPTED"), generated: n("GENERATED"), fallback: n("FALLBACK"), system: n("SYSTEM") };
   };
-  const bold = (md: string) => md.split("\n").filter((l) => l.startsWith("**"));
+  const bold = (md: string) => md.split("\n").filter((l) => l.startsWith("**["));
   it("the default 29-check run writes a transcript: scripted dialogue, FALLBACK only from the side room, no GENERATED, hostile text inert", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "acr-transcript-test-")); cleanups.push(() => rm(dir, { recursive: true, force: true }));
     const c = capture();
@@ -460,7 +460,7 @@ describe("--transcript with the default 29-check run", () => {
     expect(t.scripted).toBeGreaterThan(20);
     expect(t.system).toBeGreaterThan(20);
     expect(bold(md)).toHaveLength(t.scripted + t.fallback);
-    expect(bold(md).every((l) => l.endsWith("**") && /^\*\*\[(SCRIPTED|FALLBACK)\] /.test(l))).toBe(true);
+    expect(bold(md).every((l) => /\*\*( {2})?$/.test(l) && /^\*\*\[(SCRIPTED|FALLBACK)\] /.test(l))).toBe(true);
     expect(md).toMatch(/\*\*\[FALLBACK\] Priya Raman \(client_sponsor\): Sorry, you cut out for a second there\. Say that again\?\*\*/);
     expect(md).toContain("**[SCRIPTED] facilitator (whisper to delivery\\_lead): WHISPER-ONLY-FOR-DELIVERY-LEAD ask about timing**");
     expect(md).toMatch(/\*\*\[SCRIPTED\] Priya Raman \(client_sponsor\): Thanks for calling\./);

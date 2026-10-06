@@ -4,6 +4,7 @@ import type { ModelProvider } from "@acr/adapters";
 import { EngineError, type SessionEngine } from "../engine/session-engine.js";
 import { describeModelFailure, describeRetryProgress } from "./model-failure.js";
 import { buildNpcRequest } from "./npc-prompt.js";
+import { cleanNpcReply } from "./npc-reply.js";
 import { DEFAULT_NPC_MAX_TOKENS } from "./token-budgets.js";
 import { DEFAULT_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_REPLY_TIMEOUT_MS } from "./timeouts.js";
 
@@ -79,8 +80,15 @@ export class NpcAgent {
       clearTimeout(timer);
       clearTimeout(replyTimer);
     }
+    // The reply is assembled in full before it is cleaned or recorded: nothing is forwarded to players chunk by chunk, so cut text never leaks.
+    let removedOtherSpeakers = false;
+    if (!failure) {
+      const cleaned = cleanNpcReply(text, this.role);
+      text = cleaned.text; removedOtherSpeakers = cleaned.cut;
+    }
     if (!failure && text.trim().length === 0) failure = "empty reply";
     try {
+      if (removedOtherSpeakers) await this.engine.alert(`NPC ${this.role.id}: the reply included lines for other speakers; they were removed`, "warning", { expectSceneId });
       if (failure) {
         await this.engine.alert(`NPC ${this.role.id}: ${failure}; used fallback line`, "warning", { expectSceneId });
         return await this.engine.say(this.role.id, this.role.fallback_line, "text", { expectSceneId, fallback: true });
