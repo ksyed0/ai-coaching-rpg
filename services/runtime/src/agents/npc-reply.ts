@@ -93,3 +93,18 @@ export function cleanNpcReply(raw: string, role: SpeakerName, others: SpeakerNam
   if (hits.length === 0) return { text, cut: false };
   return { text: text.slice(0, index[Math.min(...hits)]).trim(), cut: true };
 }
+
+/** The silence marker in any case and spacing (`<silent/>`, `<SILENT />`, `<silent>`), wherever it appears: inside a longer reply or inside a quote. */
+const SILENT_RE = /<\s*silent\s*\/?\s*>/gi;
+
+/**
+ * Removes every silence marker from an already cleaned reply. `silent` is true when a marker was present and nothing
+ * that reads as words is left (the character chose not to speak); a marker inside a longer reply is only stripped, the rest is kept.
+ * The marker is never an utterance: callers record `text` only when `silent` is false.
+ */
+export function stripSilentMarker(text: string): { text: string; marker: boolean; silent: boolean } {
+  const marker = new RegExp(SILENT_RE.source, "i").test(text);
+  if (!marker) return { text, marker: false, silent: false };
+  const stripped = text.replace(SILENT_RE, "").replace(/[ \t]{2,}/g, " ").trim();
+  return { text: stripped, marker: true, silent: !/[\p{L}\p{N}]/u.test(stripped) };
+}

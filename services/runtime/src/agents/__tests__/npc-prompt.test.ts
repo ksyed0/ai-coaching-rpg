@@ -229,3 +229,62 @@ describe("repetition guard (prompt)", () => {
     expect("temperature" in buildGmRequest({ scene, condition: "c", state: stateWith() })).toBe(false);
   });
 });
+
+describe("voices: room roster and response style (US-0032)", () => {
+  const helena: NpcRole = { ...role, id: "cfo", name: "Helena Brandt", title: "Chief Financial Officer, client side", goals: ["HELENA_GOAL_MARKER"], knowledge: ["HELENA_KNOWLEDGE_MARKER"], hidden: ["HELENA_HIDDEN_MARKER"], persona: "HELENA_PERSONA_MARKER", seniority: 5, responds_with: ["a ruling on price"], only_you_say: ["total cost and precedent"] };
+  const priya: NpcRole = { ...role, seniority: 3, responds_with: ["the operational need"], only_you_say: ["the daily tie-out"], defer_to: ["cfo"] };
+  const both: Scene = { ...scene, participants: ["delivery_lead", "client_sponsor", "cfo"] };
+  const st = () => stateWith(["delivery_lead", "Forty-five thousand, fixed."]);
+
+  it("lists the other characters with relative seniority, from public data only", () => {
+    const sys = buildNpcRequest({ role: priya, scene: both, state: st(), peers: [priya, helena] }).system;
+    expect(sys).toContain("## Who else is in the room");
+    expect(sys).toContain("- Helena Brandt, Chief Financial Officer, client side (more senior than you)");
+    expect(sys).not.toMatch(/Priya Raman[^\n]*\(your peer\)/); // never lists itself
+    for (const m of ["HELENA_GOAL_MARKER", "HELENA_KNOWLEDGE_MARKER", "HELENA_HIDDEN_MARKER", "HELENA_PERSONA_MARKER", "a ruling on price", "total cost and precedent"]) expect(sys).not.toContain(m);
+    const senior = buildNpcRequest({ role: helena, scene: both, state: st(), peers: [priya, helena] }).system;
+    expect(senior).toContain("- Priya Raman, VP Operations (less senior than you)");
+    const peer = buildNpcRequest({ role: priya, scene: both, state: st(), peers: [{ id: "cfo", name: "Equal Eve", title: "", seniority: 3 }] }).system;
+    expect(peer).toContain("- Equal Eve (your peer)");
+  });
+
+  it("only lists characters that are in this scene, and no section when alone", () => {
+    const alone = buildNpcRequest({ role: priya, scene, state: st(), peers: [priya, helena] }).system; // scene has no cfo
+    expect(alone).not.toContain("## Who else is in the room");
+    expect(alone).not.toContain("<silent/>"); // silence is only offered when another character is present
+    expect(buildNpcRequest({ role: priya, scene, state: st() }).system).not.toContain("Who else is in the room");
+  });
+
+  it("builds 'How you respond' from the role's lists, with the no-echo rules and the silence rule", () => {
+    const sys = buildNpcRequest({ role: helena, scene: both, state: st(), peers: [priya, helena] }).system;
+    expect(sys).toContain("## How you respond");
+    expect(sys).toContain("- a ruling on price");
+    expect(sys).toContain("- total cost and precedent");
+    expect(sys).toContain("Do not restate, paraphrase or agree-and-repeat what the previous speaker");
+    expect(sys).toContain("Open with your own angle");
+    expect(sys).toContain("If a less senior character has just spoken for the client side, do not summarise them: add the decision, condition or number only you would give.");
+    expect(sys).toContain("If you have nothing new that only you would say, reply with exactly <silent/> and nothing else.");
+    const junior = buildNpcRequest({ role: priya, scene: both, state: st(), peers: [priya, helena] }).system;
+    expect(junior).not.toContain("do not summarise them");
+    expect(junior).toContain("When Helena Brandt is in the room you leave the final say on their topics to them");
+  });
+
+  it("allowSilence: false removes the silence rule", () => {
+    expect(buildNpcRequest({ role: helena, scene: both, state: st(), peers: [priya, helena], allowSilence: false }).system).not.toContain("<silent/>");
+  });
+
+  it("is bounded: oversized lists are cut and the prompt stays small", () => {
+    const long = "x".repeat(500);
+    const big: NpcRole = { ...helena, responds_with: Array(9).fill(long), only_you_say: Array(9).fill(long) };
+    const sys = buildNpcRequest({ role: big, scene: both, state: st(), peers: [priya, big] }).system;
+    const base = buildNpcRequest({ role: helena, scene: both, state: st(), peers: [priya, helena] }).system;
+    expect(sys.length - base.length).toBeLessThan(2 * 5 * 161 + 100);
+  });
+
+  it("keeps npcIntro and the identity sentence unchanged", () => {
+    const sys = buildNpcRequest({ role: helena, scene: both, state: st(), peers: [priya, helena] }).system;
+    expect(sys.startsWith("You are playing Helena Brandt, Chief Financial Officer, client side in a live role-play training session.")).toBe(true);
+    expect(npcIntro(helena)).toBe("You are playing Helena Brandt");
+    expect(sys).not.toContain("You are playing Priya Raman");
+  });
+});

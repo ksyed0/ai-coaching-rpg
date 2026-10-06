@@ -8,6 +8,45 @@ const bullets = (items: string[]) => (items.length ? items.map((i) => `- ${i}`).
 /** The sentence that names the character in the system prompt; the demo's scripted mock provider routes on it, so it lives in one place. */
 export const npcIntro = (role: { name: string }): string => `You are playing ${role.name}`;
 
+/** What an AI character may reply, exactly, to stay silent this turn. Never shown to players and never recorded. */
+export const SILENT_MARKER = "<silent/>";
+export const SILENCE_RULE = `If you have nothing new that only you would say, reply with exactly ${SILENT_MARKER} and nothing else.`;
+
+/** What one character may know about another that is in the same scene: what any participant sees (name, title) plus the seniority it is judged by. Never goals, knowledge, hidden or private facts. */
+export type PublicPeer = { id: string; name: string; title?: string; seniority?: number };
+
+const DEFAULT_SENIORITY = 3;
+const ITEM_CHARS = 160;
+const MAX_ITEMS = 5;
+const one = (t: string, max: number): string => { const x = t.replace(/\s+/g, " ").trim(); return x.length > max ? `${x.slice(0, max - 1)}…` : x; };
+const relative = (other: number, mine: number): string => (other > mine ? "more senior than you" : other < mine ? "less senior than you" : "your peer");
+
+/** The "## Who else is in the room" section: the other AI characters of the scene, or [] when there are none. */
+export function roomSection(role: { id: string; seniority?: number }, peers: PublicPeer[]): string[] {
+  const others = peers.filter((p) => p.id !== role.id);
+  if (others.length === 0) return [];
+  const mine = role.seniority ?? DEFAULT_SENIORITY;
+  return ["", "## Who else is in the room", bullets(others.map((p) => `${one(p.name, 80)}${p.title ? `, ${one(p.title, 120)}` : ""} (${relative(p.seniority ?? DEFAULT_SENIORITY, mine)})`))];
+}
+
+/** The "## How you respond" section: this character's own kind of contribution and the rules against echoing. */
+export function respondSection(role: { name: string; seniority?: number; responds_with?: string[]; only_you_say?: string[]; defer_to?: string[] }, peers: PublicPeer[], allowSilence: boolean): string[] {
+  const mine = role.seniority ?? DEFAULT_SENIORITY;
+  const items = (l: string[] | undefined) => (l ?? []).slice(0, MAX_ITEMS).map((x) => one(x, ITEM_CHARS));
+  const own = items(role.responds_with); const only = items(role.only_you_say);
+  const juniors = peers.filter((p) => (p.seniority ?? DEFAULT_SENIORITY) < mine);
+  const deferTo = peers.filter((p) => (role.defer_to ?? []).includes(p.id));
+  return [
+    "", "## How you respond",
+    ...(own.length ? ["The kind of contribution you make:", bullets(own)] : []),
+    ...(only.length ? ["What only you say (topics that are yours):", bullets(only)] : []),
+    ...(deferTo.length ? [`When ${deferTo.map((p) => one(p.name, 80)).join(" or ")} is in the room you leave the final say on their topics to them: say what you need, do not rule on it.`] : []),
+    `Do not restate, paraphrase or agree-and-repeat what the previous speaker (a player or another character) just said. Open with your own angle, in your own kind of contribution.`,
+    ...(juniors.length ? [`If a less senior character has just spoken for the client side, do not summarise them: add the decision, condition or number only you would give.`] : []),
+    ...(allowSilence ? [SILENCE_RULE] : []),
+  ];
+}
+
 export type SpokenLine = { roleId: string; text: string };
 
 /** The rule against repeating, shared by the AI character and the generated player prompts. */
@@ -54,10 +93,18 @@ export function toChatTurns(allLines: SpokenLine[], selfId: string, window = 30)
  * The rubric, other roles' brief/private_facts, unreleased hidden facts and participant display
  * names are never read here; speakers are identified by role id only.
  */
-export function buildNpcRequest(opts: { role: NpcRole; scene: Scene; state: SessionState; window?: number; maxTokens?: number; temperature?: number }): ChatRequest {
+export function buildNpcRequest(opts: {
+  role: NpcRole; scene: Scene; state: SessionState; window?: number; maxTokens?: number; temperature?: number;
+  /** The other AI characters of the scene, as every participant sees them (public data only: the type has no room for goals or secrets). */
+  peers?: PublicPeer[];
+  /** Offer the `<silent/>` reply (default: only when another AI character is in the room). */
+  allowSilence?: boolean;
+}): ChatRequest {
   const { role, scene, state } = opts;
   const npc = state.npcs[role.id] ?? { goals: role.goals, knowledge: role.knowledge, released: [] };
   const allLines = visibleTranscript(state, role.id);
+  const peers = (opts.peers ?? []).filter((p) => p.id !== role.id && scene.participants.includes(p.id)).map((p): PublicPeer => ({ id: p.id, name: p.name, title: p.title, seniority: p.seniority }));
+  const allowSilence = opts.allowSilence ?? peers.length > 0;
   const system = [
     `${npcIntro(role)}${role.title ? `, ${role.title}` : ""} in a live role-play training session.`,
     `You ARE ${role.name}${role.title ? `, ${role.title}` : ""}: a real person on this call, not a narrator. Speak in the first person ("I", "my team"). Never refer to yourself in the third person, neither by name nor by your own role or title${role.title ? ` (not "the ${role.title.split(",")[0]!.trim()}")` : ""}. Every other speaker is another person you are talking to.`,
@@ -71,6 +118,8 @@ export function buildNpcRequest(opts: { role: NpcRole; scene: Scene; state: Sess
     "", "## Rules you must follow", bullets(role.guardrails),
     "", "## Current scene", `${scene.title}: ${scene.goal}`,
     "", `## Voice`, `Style: ${role.voice.style}. Pace: ${role.voice.pace}.`,
+    ...roomSection(role, peers),
+    ...respondSection(role, peers, allowSilence),
     ...lastLinesSection(allLines, role.id),
   ].join("\n");
 
