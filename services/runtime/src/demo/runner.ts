@@ -17,11 +17,13 @@ import { PlayerLines } from "./player-lines.js";
 import { playLab } from "./lab.js";
 import { createNarrator, shouldColor } from "./narrator.js";
 import { buildReport, exitCodeFor, formatChecklist, scrubText, type CheckResult, type DemoMode, type Report } from "./report.js";
-import { SHOWCASE_CHECKS, SHOWCASE_EVAL_CHECKS, SHOWCASE_PLAYER_CHECKS, expectedModelCalls, playShowcase, showcaseMarkers, type ShowcaseEvaluate, type ShowcaseHolder, type ShowcaseHooks } from "./showcase.js";
+import { SHOWCASE_CHECKS, SHOWCASE_EVAL_CHECKS, SHOWCASE_LIVE_CHECKS, SHOWCASE_PLAYER_CHECKS, expectedModelCalls, playShowcase, showcaseMarkers, type ShowcaseEvaluate, type ShowcaseHolder, type ShowcaseHooks } from "./showcase.js";
 import { loadShowcaseScript, type ShowcaseScript } from "./showcase-script.js";
 import { playStory } from "./story.js";
 import type { ProviderKind } from "./provenance.js";
 import { Transcript } from "./transcript.js";
+import { createGmTraceWriter } from "../agents/gm-trace.js";
+import { parseGmConfig } from "../agents/gm-config.js";
 import { checkTranscriptTarget, writeTranscriptFile } from "./transcript-path.js";
 import { renderTranscript } from "./transcript-md.js";
 import { parseNpcTimeouts, DEFAULT_REPLY_TIMEOUT_MS } from "../agents/timeouts.js";
@@ -151,6 +153,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   // --live without --url: resolve the provider BEFORE starting anything, and refuse mock.
   let liveEnv: NodeJS.ProcessEnv | undefined;
   let providerLabel = "";
+  let gmEveryN: number | undefined;
   if (opts.live && !opts.url) {
     try {
       liveEnv = (deps.resolveLiveEnv ?? (() => loadLiveEnv(repoRoot, process.env)))();
@@ -160,6 +163,10 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       if (!retryConfig.ok) throw new Error(retryConfig.errors.join("; "));
       const temperatures = parseTemperatures(liveEnv);
       if (!temperatures.ok) throw new Error(temperatures.errors.join("; "));
+      const npcTimeouts = parseNpcTimeouts(liveEnv);
+      const gmConfig = parseGmConfig(liveEnv, npcTimeouts.ok ? npcTimeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS);
+      if (!gmConfig.ok) throw new Error(gmConfig.errors.join("; "));
+      gmEveryN = gmConfig.everyNUtterances;
       if (opts.players === "generated") startPlayerProvider(liveEnv, opts.playerModel); // fails now, naming variables, not values
       if (opts.evaluate) {
         const ec = parseEvalConfig(liveEnv);
@@ -174,6 +181,13 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       deps.stderr.write("error: --live needs a real model provider, but MODEL_PROVIDER resolves to mock. Set MODEL_PROVIDER (and its key) in your environment or .env, or drop --live.\n");
       return { exitCode: 2 };
     }
+  }
+
+  // --gm-trace: every raw Game Master reply, in an owner-only file (it holds judgements about the whole conversation). Created now, so a bad path is a usage error before anything starts.
+  let gmTrace: ReturnType<typeof createGmTraceWriter> | undefined;
+  if (opts.gmTrace !== undefined) {
+    try { gmTrace = createGmTraceWriter(path.resolve(deps.cwd ?? deps.env.INIT_CWD ?? process.cwd(), opts.gmTrace)); }
+    catch (err) { deps.stderr.write(`error: --gm-trace cannot use ${scrubText(opts.gmTrace)}: ${(err as NodeJS.ErrnoException).code ?? "failed"}\n`); return { exitCode: 2 }; }
   }
 
   const toStderr = opts.json === "-";
@@ -193,7 +207,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const startedMs = now();
   const holder: ShowcaseHolder = {};
   const rec = new Recorder({
-    kind, now, defs: showcase ? [...SHOWCASE_CHECKS, ...(opts.players === "generated" ? SHOWCASE_PLAYER_CHECKS : []), ...(opts.evaluate ? SHOWCASE_EVAL_CHECKS : [])] : CHECKS, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
+    kind, now, defs: showcase ? [...SHOWCASE_CHECKS, ...(opts.players === "generated" ? SHOWCASE_PLAYER_CHECKS : []), ...(opts.evaluate ? SHOWCASE_EVAL_CHECKS : []), ...(opts.live ? SHOWCASE_LIVE_CHECKS : [])] : CHECKS, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
     onResult: (r) => { if (r.status === "passed") n.ok(`${r.id} ${r.details}`); else if (r.status === "failed") n.fail(`${r.id} ${r.details}`); },
   });
   const cleanups: (() => Promise<void> | void)[] = [];
@@ -215,7 +229,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     const pacing = opts.fast ? ", fast" : opts.speed !== 1 ? `, speed ${opts.speed}` : "";
     scenarioTitle = sc.scenario.meta.title;
     n.line(`${sc.scenario.meta.title}: AI showcase (${mode} mode${opts.players === "generated" ? ", generated players" : ""}${pacing})`);
-    const calls = expectedModelCalls(sc.scenario, sc.script, opts.maxLines ?? null);
+    const calls = expectedModelCalls(sc.scenario, sc.script, opts.maxLines ?? null, gmEveryN);
     if (opts.live) {
       n.styled(`NOTICE: --live sends the AI characters' personas and goals and ${opts.players === "generated" ? "the conversation so far" : "the scripted conversation"} to the configured model provider (${providerLabel}) and may cost money. Expect up to about ${calls.npc} AI character replies and ${calls.gm} Game Master calls.`, "yellow");
       if (opts.players === "generated") n.styled(`NOTICE: --players generated also sends each player role's brief and private facts, the scene title and goal, the injects addressed to that role and the conversation it has seen to the model provider to write the player lines (up to about ${calls.player} more calls, one per line slot and more with retries${opts.playerModel ? `, model ${opts.playerModel}` : ", the NPC model"}). A failed generation falls back to the scripted line.`, "yellow");
@@ -230,9 +244,10 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     const t = await makeTempDataDir(deps.tempParent);
     register(() => t.cleanup());
     const base = { scenario: sc.scenario, sessionId, dataDir: t.dataDir };
+    if (opts.gmTrace !== undefined) n.line(`The raw Game Master replies are written to ${scrubText(opts.gmTrace)} (owner-only file; it holds judgements about the whole conversation).`);
     const sys = kind === "live"
-      ? await startLiveSystem({ ...base, env: liveEnv! })
-      : await startShowcaseMockSystem({ ...base, scenes: sc.script.scenes });
+      ? await startLiveSystem({ ...base, env: liveEnv!, gmTrace })
+      : await startShowcaseMockSystem({ ...base, scenes: sc.script.scenes, gmTrace });
     register(() => sys.stop());
     ctx.sys = sys; ctx.tmp = { root: t.root, dataDir: t.dataDir, scenarioDir: "", cleanup: t.cleanup }; ctx.wsUrl = `ws://127.0.0.1:${sys.port}`;
     const timeouts = liveEnv ? parseNpcTimeouts(liveEnv) : undefined;
@@ -275,7 +290,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     await playShowcase(ctx, newStory(), {
       script: sc.script, mode: kind === "live" ? "live" : "mock", maxLines: opts.maxLines ?? null, maxFallbacks: opts.maxFallbacks ?? null,
       watchdogMinutes, watchdogMs: limit, provider: kind === "live" ? providerLabel : undefined,
-      replyTimeoutMs: timeouts?.ok ? timeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS, startedMs, holder, hooks: deps.showcaseHooks, players, evaluate,
+      replyTimeoutMs: timeouts?.ok ? timeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS, startedMs, holder, minGmExits: opts.minGmExits ?? null, hooks: deps.showcaseHooks, players, evaluate,
     });
   };
 

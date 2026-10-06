@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { REPO_ROOT } from "../../main.js";
 import { runDemo, type RunDeps } from "../runner.js";
-import { SHOWCASE_CHECKS, SHOWCASE_PLAYER_CHECKS } from "../showcase.js";
+import { SHOWCASE_CHECKS, SHOWCASE_LIVE_CHECKS, SHOWCASE_PLAYER_CHECKS } from "../showcase.js";
 import type { ShowcaseReport } from "../showcase-report.js";
 
 type Captured = { out: string[]; err: string[]; stdout: { write(s: string): void; isTTY?: boolean }; stderr: { write(s: string): void; isTTY?: boolean } };
@@ -85,7 +85,7 @@ describe("--showcase --live --players generated (loopback fake model)", () => {
     const { exitCode, report, showcase, stdout, stderr } = await run([...ARGV, "--player-model", "player-m", "--transcript", "t.md"], env, { cwd: dir });
     expect(report!.results.filter((r) => r.status === "failed")).toEqual([]);
     expect(exitCode).toBe(0);
-    expect(report!.results.map((r) => r.id)).toEqual([...SHOWCASE_CHECKS, ...SHOWCASE_PLAYER_CHECKS].map((c) => c.id));
+    expect(report!.results.map((r) => r.id)).toEqual([...SHOWCASE_CHECKS, ...SHOWCASE_PLAYER_CHECKS, ...SHOWCASE_LIVE_CHECKS].map((c) => c.id));
     expect(report!.results.filter((r) => r.status === "skipped").map((r) => r.id)).toEqual(["S-06", "S-14"]);
     expect(report!.results.find((r) => r.id === "S-15")).toMatchObject({ status: "passed" });
     expect(seen.player).toHaveLength(12); // 6 scenes x 2 slots (--max-lines keeps meaning: line SLOTS per scene)
@@ -192,7 +192,7 @@ describe("--players generated: configuration errors", () => {
     expect(exitCode).toBe(0);
     expect(seen.player).toHaveLength(0);
     expect(showcase.players).toBeUndefined();
-    expect(report!.results.map((r) => r.id)).toEqual(SHOWCASE_CHECKS.map((c) => c.id));
+    expect(report!.results.map((r) => r.id)).toEqual([...SHOWCASE_CHECKS, ...SHOWCASE_LIVE_CHECKS].map((c) => c.id));
     expect(showcase.lines.filter((l) => l.source === "player-bot").every((l) => l.tag === "scripted")).toBe(true);
   });
   it("refuses an unusable player provider configuration before starting", async () => {
@@ -214,7 +214,7 @@ describe("S-07 with generated players", () => {
     expect(s7(r).status).toBe("passed");
     expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
     expect(r.exitCode).toBe(0);
-    expect(r.showcase.observations.some((o) => /hidden-fact or rubric fragment\(s\) were spoken aloud by generated players/.test(o))).toBe(true);
+    expect(r.showcase.observations.some((o) => /account_manager: (\d+ phrase\(s\) shared with the scenario's hidden-fact or rubric text and )?\d+ whole hidden fact\(s\) word for word appear in its lines \(a generated player or a scripted line; not counted as a leak/.test(o))).toBe(true);
   });
 
   it("still fails when the SERVER leaks: another role's secret in a non-utterance message, or in an utterance its owner did not speak", async () => {
@@ -476,7 +476,7 @@ describe("generated players: logging the private intents (US-0027)", () => {
     const r = await run([...ARGV, "--scenario", dir, ...(noIntents ? ["--no-intents"] : []), "--evaluate", "--eval-out", path.join(out, "rep"), "--transcript", "e.md"], env, { cwd: out });
     expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
     expect(r.exitCode).toBe(0);
-    expect(r.report!.results.map((x) => x.id)).toEqual([...SHOWCASE_CHECKS.map((c) => c.id), "S-15", "S-16"]);
+    expect(r.report!.results.map((x) => x.id)).toEqual([...SHOWCASE_CHECKS.map((c) => c.id), "S-15", "S-16", "S-18"]);
     expect(seen.evalBodies.length).toBeGreaterThan(0);
     for (const s of sentinels) expect(seen.evalBodies.join("\n")).not.toContain(s);
     expect(seen.evalBodies.join("\n")).toContain("Take 1 as"); // the evaluator saw what was actually said
@@ -543,9 +543,20 @@ describe("S-07 when a live AI character recites its own material", () => {
     const r = await run(ARGV, env);
     expect(s7(r).status).toBe("passed");
     expect(r.exitCode).toBe(0);
-    const msg = /AI character client_sponsor said \d+ unreleased hidden-fact string\(s\) aloud: the live model ignored the hidden-fact rule/;
+    const msg = /AI character client_sponsor: (\d+ phrase\(s\) shared with the scenario's hidden-fact or rubric text and )?\d+ whole hidden fact\(s\) word for word appear in its lines \(an echo of an earlier line or common wording, not a recital: an unreleased hidden fact is never in a prompt\)/;
     expect(r.showcase.observations.some((o) => msg.test(o))).toBe(true);
     expect(r.stdout).toMatch(msg);
+  });
+
+  it("US-0025: a line that only shares a PHRASE with hidden-fact text is reported as an echo with a precise count, never as a recital of a hidden fact", async () => {
+    const { env } = await fakeModel(GEN, priya("I could live with phased delivery after go-live if the risk is covered, yes."));
+    const r = await run(ARGV, env);
+    expect(s7(r).status).toBe("passed");
+    const obs = r.showcase.observations.filter((o) => o.startsWith("AI character client_sponsor:"));
+    expect(obs).toHaveLength(1);
+    expect(obs[0]).toMatch(/^AI character client_sponsor: \d+ phrase\(s\) shared with the scenario's hidden-fact or rubric text appear in its lines \(an echo of an earlier line or common wording, not a recital/);
+    expect(obs[0]).not.toMatch(/whole hidden fact/);
+    expect(r.showcase.observations.join("\n")).not.toMatch(/said \d+ unreleased hidden-fact/);
   });
 
   it("a hidden-fact string in a NON-utterance message still fails", async () => {

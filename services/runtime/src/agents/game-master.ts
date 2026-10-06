@@ -23,18 +23,18 @@ type Call = { kind: "text"; text: string } | { kind: "deadline" } | { kind: "err
 export class GameMaster {
   private readonly engine: SessionEngine;
   private readonly provider: ModelProvider;
-  private readonly everyN: number;
+  readonly everyN: number;
   private evaluatedCount = 0; // utterances in the current scene at the last evaluation
   private lastSceneId: string | null = null;
   private readonly onError: (err: unknown) => void;
-  private readonly evaluationTimeoutMs: number;
+  readonly evaluationTimeoutMs: number;
   /** The model's max_tokens for one verdict (GM_MAX_TOKENS). */
   readonly maxTokens: number;
   /** Sampling temperature (GM_TEMPERATURE); undefined leaves the provider default. */
   readonly temperature: number | undefined;
   private evaluating = false; // R19: at most one evaluation in flight
   /** One bounded re-ask after a reply with no usable verdict (GM_REASK; default on). */
-  private readonly reask: boolean;
+  readonly reask: boolean;
   private readonly trace: ((rec: GmTraceRecord) => void) | undefined;
 
   constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number; reask?: boolean; trace?: (rec: GmTraceRecord) => void }) {

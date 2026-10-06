@@ -11,10 +11,13 @@ scenes:
       - { role: delivery_lead, text: "So not a flat yes and not a flat no. What if we offer it as a phase two after go-live, scoped and priced?" }
       - { role: tech_lead, text: "I can live with that. A phased version is roughly half the work and keeps the go-live date safe." }
       - { role: account_manager, text: "Agreed. Position for the call: phase two after go-live, priced as a change request, with the risk to the date spelled out for her." }
+    # The mock Game Master replies are in the order of its model CALLS (not of its evaluations). The first reply is wrapped in a code fence (read
+    # tolerantly); the second is not JSON, so the Game Master asks once more and the third reply answers that re-ask.
     mock:
       gm:
-        - '{"verdict": false, "reasoning": "The team has aired concerns but has not settled on one position yet."}'
-        - '{"verdict": true, "reasoning": "All three converged on a phased, priced module after go-live and the account manager restated it as the position."}'
+        - "Here is my judgement:\n```json\n{\"reasoning\": \"The team has aired concerns but has not settled on one position yet.\", \"verdict\": false}\n```"
+        - 'The team seems to be getting close to a position, though I would need to think about it.'
+        - '{"reasoning": "All three converged on a phased, priced module after go-live and the account manager restated it as the position.", "verdict": true}'
 
   - scene: s2_priya_call
     lines:
@@ -38,9 +41,14 @@ scenes:
       - { role: delivery_lead, text: "Priya was reasonable, but she is taking this to her CFO, so we need numbers that stand up. Tech lead, what is the honest effort for a phased module?" }
       - { role: tech_lead, text: "The phased version is about three person-weeks of build, so two engineers for a week and a half after go-live. The full module would be about six. I also want a risk review before we touch ingestion, so call it ready three weeks after launch." }
       - { role: account_manager, text: "Then I propose a fixed fee of 48 thousand for the phased module, delivered three weeks after go-live. I will present it to the CFO and the delivery lead owns the timeline. Are we all happy with that plan?" }
+      - { role: delivery_lead, text: "Yes, I am happy with that. I will own the timeline, so three weeks after go-live is a commitment from me." }
+      - { role: tech_lead, text: "I agree. Three weeks after go-live leaves room for the risk review, and 48 thousand fixed covers the build." }
+      - { role: account_manager, text: "Good, then it is agreed: the phased module, 48 thousand fixed, three weeks after go-live, and I present it to the CFO." }
+    # Judged after line 3 (a proposal that nobody has answered yet: false) and after line 6 (everyone has agreed: true).
     mock:
       gm:
-        - '{"verdict": true, "reasoning": "The team agreed a phased plan: three weeks after go-live at a fixed 48 thousand, with the account manager presenting."}'
+        - '{"reasoning": "The account manager proposed a plan with a date and a price, but nobody has agreed to it yet.", "verdict": false}'
+        - '{"reasoning": "The delivery lead and the tech lead agreed and the account manager confirmed: phased module, 48 thousand, three weeks after go-live.", "verdict": true}'
 
   - scene: s4_escalation_call
     lines:

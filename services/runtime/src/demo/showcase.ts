@@ -1,6 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import type { SessionEvent } from "@acr/events";
+import type { GmNoVerdictReason, SessionEvent } from "@acr/events";
 import type { NpcRole, Scenario } from "@acr/script";
 import { isEvent, type Inbound } from "./bots.js";
 import { UNSAFE_CHARS, buildMarkers, ensure, findInjectLeaks, findMarkers, logShapeProblems, type CheckDef, type Markers } from "./checks.js";
@@ -17,6 +17,7 @@ import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from 
 import type { PlayerBotGenerator } from "./player-bot.js";
 import { playerSource, type PlayerLineRecord, type PlayerLines } from "./player-lines.js";
 import { expectedGmEvaluations, type ShowcaseScript } from "./showcase-script.js";
+import { parseGmReply } from "../agents/gm-parse.js";
 import type { EvaluationResult } from "../evaluator/evaluate.js";
 import { readSessionLog } from "../evaluator/log-reader.js";
 import { summaryLines } from "../evaluator/summary.js";
@@ -51,6 +52,11 @@ export const SHOWCASE_EVAL_CHECKS: readonly CheckDef[] = [
   { id: "S-16", title: "The evaluator wrote a report for every player: each quote is a verbatim line of the session, the method is stated, scores are 1 to 4 or Not observed", kind: "any" },
 ] as const;
 
+/** Only in a `--live` run: S-18 reports how reliably the real Game Master ended the scenes (it fails only below `--min-gm-exits`). */
+export const SHOWCASE_LIVE_CHECKS: readonly CheckDef[] = [
+  { id: "S-18", title: "The Game Master's reliability is reported: scenes it ended and its no-verdict rate by reason (fails only below --min-gm-exits)", kind: "any" },
+] as const;
+
 /** What `--evaluate` hands the showcase: runs the evaluator on the run's own session log (scripted offline in a mock run). */
 export type ShowcaseEvaluate = { mock: boolean; run: (logFile: string, signal: AbortSignal) => Promise<{ result: EvaluationResult; written: WrittenReports }> };
 
@@ -67,6 +73,8 @@ export type ShowcaseOptions = {
   mode: "mock" | "live";
   maxLines: number | null;
   maxFallbacks: number | null;
+  /** `--min-gm-exits <n>` (live only): S-18 fails when the Game Master ended fewer scenes than this. */
+  minGmExits?: number | null;
   watchdogMinutes: number;
   watchdogMs: number;
   provider?: string;
@@ -100,13 +108,13 @@ export function linesFor(script: ShowcaseScript, sceneId: string, maxLines: numb
 }
 
 /** An upper bound of the model calls a run makes: one reply per AI character per line, plus the Game Master's evaluations (`player`: the calls for the player lines, made only with --players generated). */
-export function expectedModelCalls(scenario: Scenario, script: ShowcaseScript, maxLines: number | null): { npc: number; gm: number; player: number } {
+export function expectedModelCalls(scenario: Scenario, script: ShowcaseScript, maxLines: number | null, everyN?: number): { npc: number; gm: number; player: number } {
   let npc = 0; let gm = 0; let player = 0;
   for (const scene of scenario.script.scenes) {
     const n = scene.participants.filter((p) => scenario.roles[p]?.type === "npc").length;
     const lines = linesFor(script, scene.id, maxLines).length;
     npc += n * lines; player += lines;
-    gm += expectedGmEvaluations(scene, lines, n);
+    gm += expectedGmEvaluations(scene, lines, n, everyN);
   }
   return { npc, gm, player };
 }
@@ -138,6 +146,13 @@ export function sceneAt(events: SessionEvent[], seq: number): string | null {
 }
 
 const NARRATION_CHARS = 600;
+const NO_VERDICT_HINT: Record<GmNoVerdictReason, string> = {
+  empty: "the model returned nothing",
+  no_json: "the reply held no JSON verdict",
+  bad_verdict: "the verdict was not true or false",
+  truncated: "the reply was cut off before the verdict",
+  reasoning_only: "the model only reasoned and gave no answer (try a larger GM_MAX_TOKENS)",
+};
 const SGR = new RegExp("\\u001b\\[[0-9;]*m", "g");
 
 /** Plays the showcase story through the facilitator's and the three players' real WebSocket connections. */
@@ -189,7 +204,10 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         break;
       }
       case "gm.decision":
-        await n.tagged("Game Master", "yellow", `${e.verdict ? "TRUE" : "FALSE"} for "${clip(e.condition, 160)}"`, clip(e.reasoning, 300));
+        await n.tagged("Game Master", "yellow", `${e.verdict ? "TRUE" : "FALSE"} for "${clip(e.condition, 160)}"${e.via === "tolerant" ? " (reply read tolerantly)" : e.via === "reask" ? " (after a re-ask)" : ""}`, clip(e.reasoning, 300));
+        break;
+      case "gm.no_verdict":
+        await n.tagged("Game Master", "red", `no verdict for "${clip(e.condition, 160)}"`, `${e.reason}${e.attempts > 1 ? " after the re-ask" : ""}: ${NO_VERDICT_HINT[e.reason]}`);
         break;
       case "facilitator.alert": {
         const why = fallbackReason(e.message);
@@ -440,7 +458,18 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
     ensure(summary.gm.evaluations > 0, "the Game Master recorded no gm.decision (it never evaluated, or every reply was unusable)");
     const ids = new Set(scenario.script.scenes.map((s) => s.id));
     for (const d of summary.gm.decisions) ensure(ids.has(d.sceneId), `a gm.decision names an unknown scene ${d.sceneId}`);
-    return `${summary.gm.evaluations} gm.decision events (${summary.gm.verdictsTrue} true, ${summary.gm.verdictsFalse} false); the Game Master ended ${summary.gm.exitedScenes.length} scene(s)`;
+    const g = summary.gm;
+    for (const v of g.noVerdicts) ensure(ids.has(v.sceneId), `a gm.no_verdict names an unknown scene ${v.sceneId}`);
+    if (mock) {
+      // The mock script holds a fenced reply (read tolerantly) and a malformed-then-valid reply (the re-ask). Whatever the script served must show up in the events:
+      // a --max-lines cap or an early exit may stop short of them, and then nothing is demanded.
+      const served = (sys!.gm!.served ?? []).map((r) => parseGmReply(r));
+      if (served.some((p) => p.ok && p.via === "tolerant")) ensure(g.via.tolerant >= 1, "the scripted fenced reply was served but no verdict was recorded as read tolerantly");
+      if (served.some((p) => !p.ok)) ensure(g.reasks >= 1 && g.via.reask + g.noVerdicts.length >= 1, "a scripted malformed reply was served but the Game Master did not ask again");
+      ensure(g.noVerdicts.length === 0, `the mock Game Master gave no usable verdict ${g.noVerdicts.length} time(s): ${g.noVerdicts.slice(0, 2).map((v) => `${v.sceneId} ${v.reason}`).join(", ")}`);
+    }
+    const reasons = Object.entries(g.noVerdictByReason).map(([k, v]) => `${k} ${v}`).join(", ");
+    return `${g.evaluations} gm.decision events (${g.verdictsTrue} true, ${g.verdictsFalse} false; read strictly ${g.via.strict}, tolerantly ${g.via.tolerant}, after a re-ask ${g.via.reask}); no usable verdict ${g.noVerdicts.length}${reasons ? ` (${reasons})` : ""}; the Game Master ended ${g.exitedScenes.length} scene(s)`;
   }, ["S-01"]);
 
   await rec.run("S-05", () => {
@@ -516,13 +545,28 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       by.set(role, others);
     }
     if (!mock) {
-      const aloud = new Map<string, number>();
-      const hiddenOrRubric = [...markers.hidden, ...markers.rubric];
-      for (const e of events()) if (e.type === "utterance") { const n = new Set(hiddenOrRubric.filter((x) => x && e.text.includes(x))).size; if (n > 0) aloud.set(e.roleId, (aloud.get(e.roleId) ?? 0) + n); }
-      for (const [r, n] of aloud) {
+      // Observation only. A match is NOT a recital: an unreleased hidden fact never enters any prompt (the character's prompt holds only its released facts), so a line that
+      // matches scenario text is an echo of what a player said earlier, or common wording. Whole hidden facts and the shorter phrases (rubric text and the fragment the
+      // player script itself uses) are counted apart, so the count says exactly what matched.
+      const wholeFacts = new Set(Object.values(scenario.roles).filter((r): r is NpcRole => r.type === "npc").flatMap((r) => r.hidden));
+      const phrases = [...markers.hidden, ...markers.rubric].filter((x) => x && !wholeFacts.has(x));
+      const matched = new Map<string, { facts: number; phrases: number }>();
+      for (const e of events()) {
+        if (e.type !== "utterance") continue;
+        const facts = [...wholeFacts].filter((x) => x && e.text.includes(x)).length;
+        const shared = new Set(phrases.filter((x) => e.text.includes(x))).size;
+        if (facts + shared === 0) continue;
+        const cur = matched.get(e.roleId) ?? { facts: 0, phrases: 0 };
+        matched.set(e.roleId, { facts: cur.facts + facts, phrases: cur.phrases + shared });
+      }
+      for (const [r, c] of matched) {
+        const parts = [
+          ...(c.phrases > 0 ? [`${c.phrases} phrase(s) shared with the scenario's hidden-fact or rubric text`] : []),
+          ...(c.facts > 0 ? [`${c.facts} whole hidden fact(s) word for word`] : []),
+        ].join(" and ");
         const msg = scenario.roles[r]?.type === "npc"
-          ? `AI character ${r} said ${n} unreleased hidden-fact string(s) aloud: the live model ignored the hidden-fact rule`
-          : `${r}: ${n} hidden-fact or rubric fragment(s) were spoken aloud by generated players (not counted as leaks: the server only delivered what was said)`;
+          ? `AI character ${r}: ${parts} appear in its lines (an echo of an earlier line or common wording, not a recital: an unreleased hidden fact is never in a prompt)`
+          : `${r}: ${parts} appear in its lines (a generated player or a scripted line; not counted as a leak, the server only delivered what was said)`;
         observations.push(msg); ctx.n.line(`Observation: ${msg}`);
       }
     }
@@ -647,6 +691,20 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       ensure(v.problems.length === 0, `the report files have problems: ${v.problems.slice(0, 3).join("; ")}`);
       const dropped = outcome.result.participants.reduce((a, p) => a + p.criteria.reduce((b, c) => b + c.droppedQuotes, 0), 0);
       return `${ok} of ${players} players evaluated; ${v.reports} reports (${players} players and the group) in ${outcome.written.files.length} files: ${v.quotes} quotes are verbatim lines of the session, ${v.scores} scores are 1 to 4 or Not observed, the method and the visibility line are in every report; ${dropped} unverifiable quote(s) were dropped; ${outcome.result.modelCalls} model call(s)`;
+    }, ["S-01"]);
+  }
+
+  if (!mock) {
+    await rec.run("S-18", () => {
+      const g = summary.gm;
+      const total = summary.scenes.length;
+      const asked = g.evaluations + g.noVerdicts.length;
+      const reasons = Object.entries(g.noVerdictByReason).map(([k, v]) => `${k} ${v}`).join(", ");
+      const evidence = `the Game Master ended ${g.exitedScenes.length} of ${total} scenes (${g.exitedScenes.length === total ? "all" : `the others: ${summary.scenes.filter((s) => s.exitReason !== "gm_detects").map((s) => `${s.id} by ${s.exitReason ?? "nothing"}`).join(", ")}`}); `
+        + `${g.evaluations} usable verdicts (${g.verdictsTrue} true, ${g.verdictsFalse} false; read strictly ${g.via.strict}, tolerantly ${g.via.tolerant}, after a re-ask ${g.via.reask}); `
+        + `no usable verdict ${g.noVerdicts.length} of ${asked} evaluations${reasons ? ` (${reasons})` : ""}; ${g.reasks} re-ask(s)`;
+      if (o.minGmExits != null) ensure(g.exitedScenes.length >= o.minGmExits, `${evidence}; --min-gm-exits ${o.minGmExits} needs at least ${o.minGmExits}`);
+      return evidence;
     }, ["S-01"]);
   }
 

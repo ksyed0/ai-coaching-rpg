@@ -13,6 +13,8 @@ import { parseNpcTimeouts } from "./agents/timeouts.js";
 import { parseTokenBudgets } from "./agents/token-budgets.js";
 import { parseTemperatures } from "./agents/temperatures.js";
 import { parseModelRetry, withModelRetry } from "./agents/retry-config.js";
+import { parseGmConfig } from "./agents/gm-config.js";
+import { createGmTraceWriter, parseGmTraceEnv } from "./agents/gm-trace.js";
 
 /** services/runtime/src/main.ts: the repo root is three levels up from this file's directory. */
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -55,6 +57,8 @@ export async function bootstrap(opts: {
   if (!temps.ok) return { ok: false, errors: temps.errors };
   const retry = parseModelRetry(env);
   if (!retry.ok) return { ok: false, errors: retry.errors };
+  const gmCfg = parseGmConfig(env, timeouts.replyTimeoutMs);
+  if (!gmCfg.ok) return { ok: false, errors: gmCfg.errors };
 
   let scenario;
   try { scenario = await loadScenario(scenarioDir); }
@@ -69,8 +73,12 @@ export async function bootstrap(opts: {
     if (rotatedTo) log(`previous session log moved aside: ${rotatedTo}`);
   } catch (err) { return { ok: false, errors: [`cannot rotate the previous session log in ${dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`] }; }
 
+  const traceEnv = parseGmTraceEnv(env.GM_TRACE_FILE, dataDir);
+  if (!traceEnv.ok) return { ok: false, errors: [traceEnv.error] };
   let host: SessionHost;
   try {
+    // GM_TRACE_FILE (off by default): the raw Game Master replies, for the offline gm-eval. Owner-only file; never logged by name.
+    const gmTrace = traceEnv.file ? createGmTraceWriter(traceEnv.file) : undefined;
     const clock = new SystemClock();
     const engine = new SessionEngine({ scenario, log: new JsonlEventLog(sessionId, dataDir), clock });
     // Live providers retry transient errors inside the NPC deadlines; the scripted mock is never wrapped.
@@ -81,7 +89,7 @@ export async function bootstrap(opts: {
     // Never log the provider object, its name, an endpoint or any env-derived value: describeModelProvider returns a
     // fixed label plus a literal yes/no for "custom endpoint".
     log(`model provider: ${describeModelProvider(env)}`);
-    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature });
+    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmTrace });
   } catch (err) { return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
 
   host.startTicker(opts.tickMs ?? 1_000);

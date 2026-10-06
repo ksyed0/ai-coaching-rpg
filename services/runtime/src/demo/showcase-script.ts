@@ -37,13 +37,13 @@ export type ShowcaseLoadOptions = {
 };
 
 /** How many Game Master model calls a scene triggers if `lineCount` lines are spoken, each followed by `npcCount` replies and no scene exit. */
-export function expectedGmEvaluations(scene: Scene, lineCount: number, npcCount: number): number {
+export function expectedGmEvaluations(scene: Scene, lineCount: number, npcCount: number, everyN: number = GM_EVERY_N_UTTERANCES): number {
   const conditions = scene.exit_when.any_of.filter((c) => typeof c === "object").length;
   if (conditions === 0) return 0;
   let evaluated = 0; let rounds = 0;
   for (let i = 1; i <= lineCount; i++) {
     const count = i * (1 + npcCount);
-    if (count - evaluated >= GM_EVERY_N_UTTERANCES) { evaluated = count; rounds++; }
+    if (count - evaluated >= everyN) { evaluated = count; rounds++; }
   }
   return rounds * conditions;
 }

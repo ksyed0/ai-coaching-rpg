@@ -13,6 +13,8 @@ import { parseNpcTimeouts } from "../agents/timeouts.js";
 import { parseTokenBudgets } from "../agents/token-budgets.js";
 import { parseTemperatures } from "../agents/temperatures.js";
 import { parseModelRetry, withModelRetry } from "../agents/retry-config.js";
+import { parseGmConfig, type GmConfig } from "../agents/gm-config.js";
+import type { GmTraceRecord } from "../agents/game-master.js";
 
 /** A distinctive fake key set in the runner's own env object. It is never used to call anything; the audit proves it never leaks. */
 export const FAKE_KEY = "sk-ant-demo-FAKE-DO-NOT-USE-0123456789abcdefghijklmnop";
@@ -31,7 +33,7 @@ export async function makeTempRoot(repoRoot: string): Promise<TempRoot> {
 }
 
 /** A model provider that keeps every request it received (the mock providers do), for the prompt audit. */
-export type RecordingProvider = ModelProvider & { readonly calls: ChatRequest[]; /** Scripted queues that ran dry (`<scene>|<role>`), for the scripted providers. */ readonly exhausted?: string[] };
+export type RecordingProvider = ModelProvider & { readonly calls: ChatRequest[]; /** Scripted queues that ran dry (`<scene>|<role>`), for the scripted providers. */ readonly exhausted?: string[]; /** The scripted replies actually served, in order (the showcase mock). */ readonly served?: string[] };
 
 export type System = {
   port: number; host: SessionHost; engine: SessionEngine; clock: Clock; fakeClock?: FakeClock;
@@ -84,6 +86,7 @@ export class SceneRoutedMock implements RecordingProvider {
   readonly name = "demo-scripted";
   readonly calls: ChatRequest[] = [];
   readonly exhausted: string[] = [];
+  readonly served: string[] = [];
   private readonly queues = new Map<string, string[]>();
   constructor(private readonly o: { sceneId: () => string | undefined; keyOf: (req: ChatRequest) => string | undefined; plan: Record<string, string[]>; exhausted: string }) {
     for (const [k, v] of Object.entries(o.plan)) this.queues.set(k, [...v]);
@@ -93,7 +96,7 @@ export class SceneRoutedMock implements RecordingProvider {
     const who = this.o.keyOf(req);
     const key = `${this.o.sceneId() ?? ""}|${who ?? ""}`;
     const next = this.queues.get(key)?.shift();
-    if (next === undefined) this.exhausted.push(key);
+    if (next === undefined) this.exhausted.push(key); else this.served.push(next);
     const words = (next ?? this.o.exhausted).split(" ");
     for (let i = 0; i < words.length; i++) {
       if (signal?.aborted) return;
@@ -106,7 +109,7 @@ export class SceneRoutedMock implements RecordingProvider {
  * The showcase's mock system: scripted AI characters and Game Master (per scene), a fake clock, a real JSONL log on disk and
  * a real WebSocket server on port 0.
  */
-export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId: string; dataDir: string; scenes: { scene: string; mock: MockScenePlan }[] }): Promise<System> {
+export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId: string; dataDir: string; scenes: { scene: string; mock: MockScenePlan }[]; gmTrace?: (rec: GmTraceRecord) => void }): Promise<System> {
   const ref: { engine?: SessionEngine } = {};
   const sceneId = () => ref.engine?.currentScene()?.id;
   const npcRoles = Object.values(o.scenario.roles).filter((r): r is NpcRole => r.type === "npc");
@@ -118,13 +121,13 @@ export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId
   const npc = new SceneRoutedMock({ sceneId, plan: npcPlan, exhausted: "[mock reply]", keyOf: (req) => npcRoles.find((r) => req.system.includes(npcIntro(r)))?.id });
   const gm = new SceneRoutedMock({ sceneId, plan: gmPlan, exhausted: '{"verdict": false, "reasoning": "no scripted verdict left"}', keyOf: () => "" });
   const fakeClock = new FakeClock(T0);
-  const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: gm });
+  const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: gm, gmTrace: o.gmTrace });
   ref.engine = sys.engine;
   return sys;
 }
 
 /** The live system: the configured provider, the real clock and the real ticker. */
-export async function startLiveSystem(o: { scenario: Scenario; sessionId: string; dataDir: string; env: NodeJS.ProcessEnv }): Promise<System> {
+export async function startLiveSystem(o: { scenario: Scenario; sessionId: string; dataDir: string; env: NodeJS.ProcessEnv; gmTrace?: (rec: GmTraceRecord) => void }): Promise<System> {
   const timeouts = parseNpcTimeouts(o.env);
   if (!timeouts.ok) throw new Error(timeouts.errors.join("; "));
   const budgets = parseTokenBudgets(o.env);
@@ -133,9 +136,13 @@ export async function startLiveSystem(o: { scenario: Scenario; sessionId: string
   if (!temps.ok) throw new Error(temps.errors.join("; "));
   const retry = parseModelRetry(o.env);
   if (!retry.ok) throw new Error(retry.errors.join("; "));
+  const gmCfg = parseGmConfig(o.env, timeouts.replyTimeoutMs);
+  if (!gmCfg.ok) throw new Error(gmCfg.errors.join("; "));
   // Live providers retry transient model errors like the real runtime does (no log line: the demo's host log means "background failure").
+  const { env: _env, gmTrace, ...base } = o;
+  void _env;
   const sys = await buildSystem({
-    ...o, clock: new SystemClock(),
+    ...base, clock: new SystemClock(), gmConfig: gmCfg, gmTrace,
     npcProvider: withModelRetry(selectModelProvider(o.env, "npc", { sdkRetries: false }), retry, "NPC"), gmProvider: withModelRetry(selectModelProvider(o.env, "gm", { sdkRetries: false }), retry, "GM"),
     firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs,
     npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature,
@@ -158,6 +165,8 @@ export function startPlayerProvider(env: NodeJS.ProcessEnv, model?: string): Mod
 export async function buildSystem(o: {
   scenario: Scenario; sessionId: string; dataDir: string; clock: Clock; fakeClock?: FakeClock; npc?: RecordingProvider; gm?: RecordingProvider;
   npcProvider: ModelProvider; gmProvider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; log?: EventLog; heartbeatMs?: number;
+  /** The Game Master settings (GM_TIMEOUT_MS, GM_REASK, GM_EVERY_N_UTTERANCES) and its raw-reply trace; defaults when absent. */
+  gmConfig?: GmConfig; gmTrace?: (rec: GmTraceRecord) => void;
 }): Promise<System> {
   const hostLog: string[] = []; const serverLog: string[] = [];
   const log = o.log ?? new JsonlEventLog(o.sessionId, o.dataDir);
@@ -166,6 +175,7 @@ export async function buildSystem(o: {
     scenario: o.scenario, engine, npcProvider: o.npcProvider, gmProvider: o.gmProvider, clock: o.clock,
     log: (m) => hostLog.push(m), firstTokenTimeoutMs: o.firstTokenTimeoutMs, replyTimeoutMs: o.replyTimeoutMs,
     npcMaxTokens: o.npcMaxTokens, gmMaxTokens: o.gmMaxTokens, npcTemperature: o.npcTemperature, gmTemperature: o.gmTemperature,
+    gmTimeoutMs: o.gmConfig?.timeoutMs, gmReask: o.gmConfig?.reask, gmEveryN: o.gmConfig?.everyNUtterances, gmTrace: o.gmTrace,
   });
   const server = await startServer({ port: 0, hosts: new Map([[o.sessionId, host]]), log: (m) => serverLog.push(m), heartbeatMs: o.heartbeatMs });
   return {
