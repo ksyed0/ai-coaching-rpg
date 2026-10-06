@@ -3,6 +3,7 @@ import type { SessionEngine } from "../engine/session-engine.js";
 import { describeModelFailure, describeRetryProgress } from "./model-failure.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "./timeouts.js";
 import { buildGmRequest, parseGmVerdict } from "./gm-prompt.js";
+import { DEFAULT_GM_MAX_TOKENS } from "./token-budgets.js";
 
 /** The Game Master judges each gm_detects condition after this many NEW utterances in a scene. */
 export const GM_EVERY_N_UTTERANCES = 3;
@@ -15,10 +16,13 @@ export class GameMaster {
   private lastSceneId: string | null = null;
   private readonly onError: (err: unknown) => void;
   private readonly evaluationTimeoutMs: number;
+  /** The model's max_tokens for one verdict (GM_MAX_TOKENS). */
+  readonly maxTokens: number;
   private evaluating = false; // R19: at most one evaluation in flight
 
-  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number }) {
+  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number }) {
     this.engine = opts.engine; this.provider = opts.provider; this.everyN = opts.everyNUtterances ?? GM_EVERY_N_UTTERANCES;
+    this.maxTokens = opts.maxTokens ?? DEFAULT_GM_MAX_TOKENS;
     this.evaluationTimeoutMs = opts.evaluationTimeoutMs ?? gmDeadlineMs(DEFAULT_REPLY_TIMEOUT_MS);
     this.onError = opts.onError ?? ((err) => console.error("[GameMaster] evaluation failed:", err));
   }
@@ -105,7 +109,7 @@ export class GameMaster {
     let expired = false;
     const deadline = new Promise<"deadline">((r) => { timer = setTimeout(() => r("deadline"), this.evaluationTimeoutMs); });
     try {
-      const it = this.provider.stream(buildGmRequest({ scene, condition, state: this.engine.state }), ac.signal)[Symbol.asyncIterator]();
+      const it = this.provider.stream(buildGmRequest({ scene, condition, state: this.engine.state, maxTokens: this.maxTokens }), ac.signal)[Symbol.asyncIterator]();
       for (;;) {
         const nextP = it.next();
         nextP.catch(() => undefined); // if the deadline wins, a later rejection must not go unhandled

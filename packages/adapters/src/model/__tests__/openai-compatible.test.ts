@@ -483,7 +483,9 @@ describe("reasoning models (US-0026 / AC-0085)", () => {
   it("the retry layer retries it (transient) and a later answer wins", async () => {
     srv.queue = [{ kind: "raw", chunks: [reasoningDelta("thinking"), "data: [DONE]\n\n"] }];
     const p = withRetry(make(), { maxRetries: 1, sleep: async () => {} });
-    expect((await collect(p as OpenAICompatibleModelProvider)).join("")).toBe("OK");
+    const out: string[] = [];
+    for await (const c of p.stream(REQ)) out.push(c);
+    expect(out.join("")).toBe("OK");
     expect(srv.requests).toHaveLength(2);
   });
 });

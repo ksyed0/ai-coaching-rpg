@@ -1,6 +1,7 @@
 import { visibleTranscript, type SessionState } from "@acr/events";
 import type { NpcRole, Scene } from "@acr/script";
 import type { ChatMessage, ChatRequest } from "@acr/adapters";
+import { DEFAULT_NPC_MAX_TOKENS } from "./token-budgets.js";
 
 const bullets = (items: string[]) => (items.length ? items.map((i) => `- ${i}`).join("\n") : "- (none)");
 
@@ -13,7 +14,7 @@ export const npcIntro = (role: { name: string }): string => `You are playing ${r
  * The rubric, other roles' brief/private_facts, unreleased hidden facts and participant display
  * names are never read here; speakers are identified by role id only.
  */
-export function buildNpcRequest(opts: { role: NpcRole; scene: Scene; state: SessionState; window?: number }): ChatRequest {
+export function buildNpcRequest(opts: { role: NpcRole; scene: Scene; state: SessionState; window?: number; maxTokens?: number }): ChatRequest {
   const { role, scene, state } = opts;
   const npc = state.npcs[role.id] ?? { goals: role.goals, knowledge: role.knowledge, released: [] };
   const system = [
@@ -47,5 +48,5 @@ export function buildNpcRequest(opts: { role: NpcRole; scene: Scene; state: Sess
   if (messages.at(-1)!.role === "assistant") {
     messages.push({ role: "user", content: "[scene]: Continue the conversation in character." });
   }
-  return { system, messages, maxTokens: 300, cacheSystem: true };
+  return { system, messages, maxTokens: opts.maxTokens ?? DEFAULT_NPC_MAX_TOKENS, cacheSystem: true };
 }

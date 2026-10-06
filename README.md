@@ -152,6 +152,8 @@ All settings are environment variables (read from `.env` at the repository root;
 | `RUNTIME_PORT` | `8080` | Port the server listens on |
 | `NPC_FIRST_TOKEN_TIMEOUT_MS` | `10000` | Milliseconds an NPC waits for the model's first token before speaking its scripted fallback line and alerting the facilitator. Whole number, `500` to `600000` |
 | `NPC_REPLY_TIMEOUT_MS` | `20000` | Milliseconds allowed for a whole NPC reply (stalls after the first token included). Whole number, `500` to `600000`, and **must be at least `NPC_FIRST_TOKEN_TIMEOUT_MS`** |
+| `NPC_MAX_TOKENS` | `600` | Token budget (`max_tokens`) for one AI character reply. Reasoning models spend part of it thinking before they answer. Whole number, `50` to `4000` |
+| `GM_MAX_TOKENS` | `400` | Token budget for one Game Master verdict. Whole number, `50` to `4000` |
 | `MODEL_MAX_RETRIES` | `2` | How many times a transient model error is retried (so up to 3 attempts) before the NPC speaks its fallback line. Whole number, `0` to `5`; `0` turns retrying off |
 | `MODEL_RETRY_BASE_MS` | `500` | First retry delay in milliseconds; it doubles per retry (capped at 4 s) with +/-25% jitter. Whole number, `100` to `10000` |
 | `SCENARIO_DIR` | `scenarios/friday-escalation` | Scenario folder (relative paths resolve from the repository root) |
@@ -160,6 +162,8 @@ All settings are environment variables (read from `.env` at the repository root;
 | `RUN_LIVE_MODEL_TESTS` | unset | Set to `1` (with a key) to run the live-API contract tests. Costs money; off by default |
 
 **When to raise the NPC timeouts.** The defaults suit fast chat models. Raise `NPC_FIRST_TOKEN_TIMEOUT_MS` (and `NPC_REPLY_TIMEOUT_MS` with it, since the reply deadline must be at least as long) for reasoning models that think before the first token, free-tier OpenRouter models that queue requests, and slow local models (for example a large model on CPU with Ollama). If NPCs keep answering with their canned fallback line and the facilitator sees "no first token" alerts, the timeout is too short for your model. Values must be plain whole numbers of milliseconds (`15000`, not `15s` or `1.5e4`); an invalid value stops startup with an error naming the variable.
+
+**Reasoning models and empty replies.** A reasoning model (for example Qwen3 on a local server) writes its thinking first and only then the answer. If `NPC_MAX_TOKENS` / `GM_MAX_TOKENS` is too small the model runs out of tokens while still thinking and returns no answer. The runtime recognises this (the server sends the thinking as `reasoning_content` or `reasoning`), retries it like any transient error, and if it still fails the facilitator sees an alert reading "empty reply: reasoning budget exhausted ... raise NPC_MAX_TOKENS / GM_MAX_TOKENS" instead of an unexplained empty reply. The thinking text itself is never shown to players. Raise the budget (for example `NPC_MAX_TOKENS=1500`) for long-thinking models.
 
 ### Retries
 

@@ -35,6 +35,11 @@ describe("the retry-era alert wording (US-0022) is still recognised", () => {
     expect(isFallbackReply(bot, { text: FB }, alert(retried.replace("NPC bot", "NPC other")), { legacy: true })).toBe(false);
     expect(isFallbackReply(bot, { text: FB }, alert(retried), { legacy: false })).toBe(false);
   });
+  it("fallbackReason carries an exhausted reasoning budget through to the narration", () => {
+    expect(fallbackReason("NPC guest: empty reply: reasoning budget exhausted after 3 attempts (reasoning_budget): local: raise NPC_MAX_TOKENS; used fallback line"))
+      .toBe("empty reply: reasoning budget exhausted after 3 attempts (reasoning_budget): local: raise NPC_MAX_TOKENS");
+  });
+
   it("fallbackReason returns the whole reason, attempt count and kind included", () => {
     expect(fallbackReason(retried)).toBe("model error after 3 attempts (overloaded): Upstream error from Nvidia: Service temporarily overloaded");
     expect(fallbackReason(retried, "bot")).toBe(fallbackReason(retried));

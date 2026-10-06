@@ -4,6 +4,7 @@ import type { ModelProvider } from "@acr/adapters";
 import { EngineError, type SessionEngine } from "../engine/session-engine.js";
 import { describeModelFailure, describeRetryProgress } from "./model-failure.js";
 import { buildNpcRequest } from "./npc-prompt.js";
+import { DEFAULT_NPC_MAX_TOKENS } from "./token-budgets.js";
 import { DEFAULT_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_REPLY_TIMEOUT_MS } from "./timeouts.js";
 
 /** Engine refusals that mean "this reply is no longer wanted": drop it rather than crash. */
@@ -15,11 +16,14 @@ export class NpcAgent {
   private readonly provider: ModelProvider;
   private readonly firstTokenTimeoutMs: number;
   private readonly replyTimeoutMs: number;
+  /** The model's max_tokens for one reply (NPC_MAX_TOKENS). */
+  readonly maxTokens: number;
 
-  constructor(opts: { role: NpcRole; engine: SessionEngine; provider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number }) {
+  constructor(opts: { role: NpcRole; engine: SessionEngine; provider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; maxTokens?: number }) {
     this.role = opts.role; this.engine = opts.engine; this.provider = opts.provider;
     this.firstTokenTimeoutMs = opts.firstTokenTimeoutMs ?? DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
     this.replyTimeoutMs = opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS;
+    this.maxTokens = opts.maxTokens ?? DEFAULT_NPC_MAX_TOKENS;
   }
 
   /** The effective timeouts (defaults applied), for diagnostics and tests. */
@@ -37,7 +41,7 @@ export class NpcAgent {
   async respond(): Promise<SessionEvent | null> {
     const scene = this.engine.currentScene();
     if (!scene || !scene.participants.includes(this.role.id) || this.engine.state.paused || this.engine.state.status !== "running") return null;
-    const req = buildNpcRequest({ role: this.role, scene, state: this.engine.state });
+    const req = buildNpcRequest({ role: this.role, scene, state: this.engine.state, maxTokens: this.maxTokens });
     const expectSceneId = scene.id;
     const ac = new AbortController();
     let text = "";

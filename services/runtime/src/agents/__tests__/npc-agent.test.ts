@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, vi } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadScenario, type NpcRole } from "@acr/script";
-import { MockModelProvider, type ChatRequest, type ModelProvider } from "@acr/adapters";
+import { ModelProviderError, MockModelProvider, type ChatRequest, type ModelProvider } from "@acr/adapters";
 import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
@@ -181,5 +181,25 @@ describe("NpcAgent fallback marker (R44)", () => {
     engine.subscribe((e) => { if (e.type === "utterance" && e.roleId === "guest") seen.push(e); });
     await new NpcAgent({ role: guest, engine, provider: new MockModelProvider([guest.fallback_line]) }).respond();
     expect(seen[0]).not.toHaveProperty("fallback");
+  });
+});
+
+describe("NpcAgent token budget (US-0026)", () => {
+  it("defaults to 600 and sends the configured budget with the request", async () => {
+    expect(new NpcAgent({ role: guest, engine, provider: new MockModelProvider() }).maxTokens).toBe(600);
+    const provider = new MockModelProvider(["Hello"]);
+    const agent = new NpcAgent({ role: guest, engine, provider, maxTokens: 321 });
+    expect(agent.maxTokens).toBe(321);
+    await agent.respond();
+    expect(provider.calls[0]!.maxTokens).toBe(321);
+  });
+  it("an exhausted reasoning budget is named in the alert and the fallback line is spoken", async () => {
+    const alerts = alertsOf();
+    const starved: ModelProvider = { name: "starved", async *stream() { throw new ModelProviderError("local: the model used its whole token budget thinking and gave no answer; raise NPC_MAX_TOKENS (AI characters) or GM_MAX_TOKENS (Game Master)", { kind: "reasoning_budget", transient: true }); } };
+    await new NpcAgent({ role: guest, engine, provider: starved }).respond();
+    expect(engine.state.transcript.at(-1)?.text).toBe(guest.fallback_line);
+    expect(alerts[0]).toMatch(/empty reply: reasoning budget exhausted/);
+    expect(alerts[0]).toContain("NPC_MAX_TOKENS");
+    expect(alerts[0]).toMatch(/used fallback line$/);
   });
 });
