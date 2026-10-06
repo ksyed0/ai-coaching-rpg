@@ -39,6 +39,13 @@ export const CHECKS: readonly CheckDef[] = [
   { id: "F-29", title: "No background failure was swallowed", kind: "inproc" },
 ] as const;
 
+/** Opt-in (`pnpm demo --security`): the in-process security room for US-0017. The default run keeps its 29 checks. */
+export const SECURITY_CHECKS: readonly CheckDef[] = [
+  { id: "F-31", title: "With a facilitator token set, a missing, empty, wrong or over-long token is refused and closed; the right one joins; the token is never echoed", kind: "inproc" },
+  { id: "F-32", title: "A client that floods the server is throttled and closed while another client carries on unchanged", kind: "inproc" },
+  { id: "F-33", title: "Connection caps (total and per address), the Origin check and the join timeout refuse abusers at the handshake", kind: "inproc" },
+] as const;
+
 export const CHECK_IDS: readonly string[] = CHECKS.map((c) => c.id);
 export const def = (id: string): CheckDef => {
   const d = CHECKS.find((c) => c.id === id);
@@ -82,6 +89,8 @@ export class Recorder {
     if (!d) throw new Error(`unknown check ${id}`);
     return d;
   }
+  /** Whether this run defines the check at all (opt-in checks exist only when asked for). */
+  has(id: string): boolean { return this.defs.some((c) => c.id === id); }
   applicable(id: string): boolean { return skipReason(this.defOf(id), this.o.kind) === null; }
 
   /** Runs one check. `fn` returns the one-line evidence; throwing marks it failed. Returns whether it passed. */

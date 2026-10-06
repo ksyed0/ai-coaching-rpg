@@ -45,6 +45,8 @@ export type Ctx = {
   labLogs: string[];
   labHostLog: string[];
   bots: Bot[];
+  /** A facilitator token for the --url target (from FACILITATOR_TOKEN); undefined for in-process runs, which are open. Never printed. */
+  facilitatorToken?: string;
   /** Values that must never appear in the log, any client or the output. */
   secretValues: string[];
   beforeAct?: (name: string) => Promise<void>;
@@ -106,8 +108,12 @@ export function got<T>(a: Attempt | undefined, what: string): T {
   return a.value as T;
 }
 
-export async function connectBot(ctx: Ctx, label: string, o: { url?: string; autoPong?: boolean; inbox?: Inbound[] } = {}): Promise<Bot> {
-  const bot = await Bot.connect(o.url ?? ctx.wsUrl, label, { signal: ctx.signal, autoPong: o.autoPong, inbox: o.inbox });
+/** The facilitator's first message: carries the token only when the --url target needs one. */
+export const facilitatorJoin = (ctx: Ctx): { type: "join_facilitator"; sessionId: string; token?: string } =>
+  ({ type: "join_facilitator", sessionId: ctx.sessionId, ...(ctx.facilitatorToken !== undefined ? { token: ctx.facilitatorToken } : {}) });
+
+export async function connectBot(ctx: Ctx, label: string, o: { url?: string; autoPong?: boolean; inbox?: Inbound[]; headers?: Record<string, string> } = {}): Promise<Bot> {
+  const bot = await Bot.connect(o.url ?? ctx.wsUrl, label, { signal: ctx.signal, autoPong: o.autoPong, inbox: o.inbox, headers: o.headers });
   ctx.bots.push(bot);
   return bot;
 }

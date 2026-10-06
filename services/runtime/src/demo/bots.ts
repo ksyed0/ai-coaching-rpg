@@ -48,9 +48,9 @@ export class Bot {
     ws.on("error", () => { /* surfaced through close / waitFor timeouts; never an unhandled error event */ });
   }
 
-  static async connect(url: string, label: string, opts: { signal?: AbortSignal; autoPong?: boolean; inbox?: Inbound[]; timeoutMs?: number } = {}): Promise<Bot> {
+  static async connect(url: string, label: string, opts: { signal?: AbortSignal; autoPong?: boolean; inbox?: Inbound[]; timeoutMs?: number; headers?: Record<string, string> } = {}): Promise<Bot> {
     if (opts.signal?.aborted) throw new Error("run aborted");
-    const ws = new WebSocket(url, { autoPong: opts.autoPong ?? true, handshakeTimeout: opts.timeoutMs ?? DEFAULT_WAIT_MS, maxPayload: MAX_FRAME_BYTES });
+    const ws = new WebSocket(url, { autoPong: opts.autoPong ?? true, handshakeTimeout: opts.timeoutMs ?? DEFAULT_WAIT_MS, maxPayload: MAX_FRAME_BYTES, headers: opts.headers });
     const bot = new Bot(label, ws, opts.inbox ?? [], opts.signal);
     await new Promise<void>((resolve, reject) => {
       const onAbort = () => { ws.terminate(); reject(new Error("run aborted")); };
