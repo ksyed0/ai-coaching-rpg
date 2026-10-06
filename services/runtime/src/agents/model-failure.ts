@@ -10,6 +10,8 @@ export function describeModelFailure(err: unknown, suffix = ""): string {
   if (err instanceof ModelProviderError) {
     const n = err.attempts;
     const attempts = n === undefined ? "" : ` after ${n} ${n === 1 ? "attempt" : "attempts"}`;
+    // An exhausted reasoning budget surfaces to the player-facing narration as an empty reply with its real cause.
+    if (err.kind === "reasoning_budget") return `empty reply: reasoning budget exhausted${attempts} (${err.kind})${suffix}: ${err.message}`;
     return `model error${attempts} (${err.kind})${suffix}: ${err.message}`;
   }
   return `model error${suffix}: ${err instanceof Error ? err.message : String(err)}`;

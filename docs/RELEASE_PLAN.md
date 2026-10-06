@@ -612,3 +612,25 @@ Status: To Do
 Branch: feature/EPIC-0006-US-0025-game-master-reliability
 Notes: Found in the first real live showcase (OpenRouter free Nemotron): 4 Game Master evaluations, 3 verdicts false, 1 true, and several 'GM: no usable verdict' alerts; 5 of 6 scenes ended on the facilitator safety net.
 ```
+
+```
+US-0026 (EPIC-0006): As a facilitator running a local reasoning model, I want AI character and Game Master replies to survive a model that thinks before it answers, so that a slow or reasoning model does not turn into canned fallback lines.
+Priority: Medium
+Estimate: S
+Status: Planned
+Branch: feature/EPIC-0006-US-0026-reasoning-model-empty-replies
+Dependencies: US-0014, US-0022
+Acceptance Criteria:
+  - [x] AC-0085: when an OpenAI-compatible server streams or returns a reasoning field (`reasoning_content` or `reasoning`) and an empty answer because the token budget ran out, the provider reports a distinct, retryable 'reasoning used the whole token budget' error instead of a silent empty reply, and the reasoning text is never shown to players as dialogue
+  - [x] AC-0086: the NPC and Game Master token budgets are configurable (`NPC_MAX_TOKENS`, `GM_MAX_TOKENS`, validated range, documented), and the demo narration says an empty reply was caused by an exhausted budget
+  - [ ] AC-0087: a recorded local showcase on Qwen3.8-27B-MXFP8 (2026-10-05: 5 empty replies and 3 first-token timeouts out of 17 AI lines) is rerun with the larger budget and the empty-reply count is reported
+```
+
+```
+TASK-0026 (US-0026): Detect reasoning-only replies in the OpenAI-compatible provider, make the token budgets configurable, rerun the local showcase
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0006-US-0026-reasoning-model-empty-replies
+Notes: Found 2026-10-05 in the local showcase. Cause: the provider reads only `content` and ignores `reasoning_content`, and the budgets are fixed at 300 (NPC) and 200 (Game Master); probes with small budgets returned finish_reason length with empty content on both Qwen3.8-27B and raptor-v0.5-8b. The Raptor run was clean (0 fallbacks), so the budget matters mostly for slow or long-thinking models.
+```

@@ -1,9 +1,10 @@
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { OpenAICompatibleModelProvider, sanitizeSnippet } from "../openai-compatible.js";
 import { ModelProviderError } from "../errors.js";
+import { withRetry } from "../retry.js";
 import { modelProviderContract } from "../contract.js";
 import type { ChatRequest } from "../types.js";
-import { delta, startFakeServer, type FakeServer } from "./fake-openai-server.js";
+import { delta, reasoningDelta, startFakeServer, type FakeServer } from "./fake-openai-server.js";
 
 const KEY = "sk-TEST-NEVER-LOG-12345";
 const REQ: ChatRequest = { system: "sys", messages: [{ role: "user", content: "hi" }], maxTokens: 64 };
@@ -404,5 +405,111 @@ describe("error classification", () => {
     srv.queue = [{ kind: "error", status: 503, body: "busy" }];
     await typed();
     expect((await collect(make())).join("")).toBe("OK");
+  });
+});
+
+describe("reasoning models (US-0026 / AC-0085)", () => {
+  const SECRET = "SECRET-THINKING-do-not-show";
+  const raw = (chunks: (string | Buffer)[], contentType?: string) => { srv.mode = { kind: "raw", chunks, contentType }; };
+  const jsonBody = (message: Record<string, unknown>, finish = "length") => JSON.stringify({ choices: [{ message: { role: "assistant", ...message }, finish_reason: finish }] });
+
+  it.each(["reasoning_content", "reasoning"] as const)("streamed %s with no answer is a transient reasoning_budget error", async (field) => {
+    raw([reasoningDelta(`${SECRET} one `, field), reasoningDelta("two", field, "length"), "data: [DONE]\n\n"]);
+    const e = await failure(make());
+    expect(e).toBeInstanceOf(ModelProviderError);
+    const m = e as ModelProviderError;
+    expect([m.kind, m.transient]).toEqual(["reasoning_budget", true]);
+    expect(m.message).toMatch(/token budget/);
+    expect(m.message).toMatch(/NPC_MAX_TOKENS/);
+    expect(m.message).toMatch(/GM_MAX_TOKENS/);
+    expect(m.message).toMatch(/NPC_FIRST_TOKEN_TIMEOUT_MS/);
+    expect(m.message).not.toContain("SECRET");
+  });
+
+  it("detects it when the stream ends without [DONE] and with an unterminated final line", async () => {
+    raw([reasoningDelta("thinking"), `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: "more" }, finish_reason: "length" }] })}`]);
+    expect(((await failure(make())) as ModelProviderError).kind).toBe("reasoning_budget");
+  });
+
+  it("mixed: thinking first, then the answer, yields only the answer", async () => {
+    raw([reasoningDelta(SECRET), reasoningDelta(SECRET), delta("Hello"), delta(" there"), "data: [DONE]\n\n"]);
+    const out = await collect(make());
+    expect(out).toEqual(["Hello", " there"]);
+    expect(out.join("")).not.toContain("SECRET");
+  });
+
+  it("mixed in one delta (content and reasoning together) yields the content", async () => {
+    raw([`data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: SECRET, content: "Hi" } }] })}\n\n`, "data: [DONE]\n\n"]);
+    expect(await collect(make())).toEqual(["Hi"]);
+  });
+
+  it("a stream with neither reasoning nor content stays a plain empty reply (no error)", async () => {
+    raw([delta(undefined), "data: [DONE]\n\n"]);
+    expect(await collect(make())).toEqual([]);
+  });
+
+  it("empty-string reasoning does not count as reasoning", async () => {
+    raw([reasoningDelta(""), "data: [DONE]\n\n"]);
+    expect(await collect(make())).toEqual([]);
+  });
+
+  it("does not accumulate the reasoning text (large reasoning streams in bounded memory and is still detected)", async () => {
+    const big = "x".repeat(200_000);
+    raw([...Array.from({ length: 20 }, () => reasoningDelta(big)), "data: [DONE]\n\n"]);
+    expect(((await failure(make())) as ModelProviderError).kind).toBe("reasoning_budget");
+  });
+
+  it.each(["reasoning_content", "reasoning"] as const)("JSON body with %s and empty content is a reasoning_budget error", async (field) => {
+    raw([jsonBody({ content: "", [field]: `${SECRET} chain` })], "application/json");
+    const e = (await failure(make())) as ModelProviderError;
+    expect([e.kind, e.transient]).toEqual(["reasoning_budget", true]);
+    expect(e.message).not.toContain("SECRET");
+  });
+
+  it("JSON body with null content and reasoning is the same error", async () => {
+    raw([jsonBody({ content: null, reasoning_content: "thinking" })], "application/json");
+    expect(((await failure(make())) as ModelProviderError).kind).toBe("reasoning_budget");
+  });
+
+  it("JSON body with reasoning AND an answer yields only the answer", async () => {
+    raw([jsonBody({ content: "Answer", reasoning_content: SECRET }, "stop")], "application/json");
+    expect(await collect(make())).toEqual(["Answer"]);
+  });
+
+  it("JSON body with empty content, no reasoning and a normal stop stays a plain empty reply", async () => {
+    raw([jsonBody({ content: "" }, "stop")], "application/json");
+    expect(await collect(make())).toEqual([]);
+  });
+
+  it("empty content with finish_reason length and no reasoning field is a reasoning_budget error (JSON and stream)", async () => {
+    raw([jsonBody({ content: "" }, "length")], "application/json");
+    expect(((await failure(make())) as ModelProviderError).kind).toBe("reasoning_budget");
+    raw([delta(undefined), `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "length" }] })}\n\n`, "data: [DONE]\n\n"]);
+    expect(((await failure(make())) as ModelProviderError).kind).toBe("reasoning_budget");
+  });
+
+  it("reasoning only after a normal stop is a non-transient unknown error without budget advice (JSON and stream)", async () => {
+    raw([jsonBody({ content: "", reasoning_content: SECRET }, "stop")], "application/json");
+    for (let i = 0; i < 2; i++) {
+      const e = (await failure(make())) as ModelProviderError;
+      expect([e.kind, e.transient]).toEqual(["unknown", false]);
+      expect(e.message).toMatch(/the model returned only reasoning and no answer/);
+      expect(e.message).not.toMatch(/MAX_TOKENS|SECRET/);
+      raw([reasoningDelta(SECRET, "reasoning_content", "stop"), "data: [DONE]\n\n"]);
+    }
+  });
+
+  it("uses the last non-null finish_reason (a null one after length does not hide it)", async () => {
+    raw([reasoningDelta("t", "reasoning_content", "length"), `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: null }] })}\n\n`, "data: [DONE]\n\n"]);
+    expect(((await failure(make())) as ModelProviderError).kind).toBe("reasoning_budget");
+  });
+
+  it("the retry layer retries it (transient) and a later answer wins", async () => {
+    srv.queue = [{ kind: "raw", chunks: [reasoningDelta("thinking"), "data: [DONE]\n\n"] }];
+    const p = withRetry(make(), { maxRetries: 1, sleep: async () => {} });
+    const out: string[] = [];
+    for await (const c of p.stream(REQ)) out.push(c);
+    expect(out.join("")).toBe("OK");
+    expect(srv.requests).toHaveLength(2);
   });
 });

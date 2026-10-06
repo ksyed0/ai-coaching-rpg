@@ -14,6 +14,10 @@ export type Seen = { method: string; url: string; headers: http.IncomingHttpHead
 
 export const delta = (content: string | null | undefined) => `data: ${JSON.stringify({ choices: [{ index: 0, delta: content === undefined ? {} : { content } }] })}\n\n`;
 
+/** An SSE delta from a reasoning model: the thinking arrives in `reasoning_content` (or `reasoning`), the answer in `content`. */
+export const reasoningDelta = (text: string, field: "reasoning_content" | "reasoning" = "reasoning_content", finish?: string) =>
+  `data: ${JSON.stringify({ choices: [{ index: 0, delta: { [field]: text }, ...(finish ? { finish_reason: finish } : {}) }] })}\n\n`;
+
 export type FakeServer = {
   url: string; // http://127.0.0.1:<port>/v1
   host: string; // 127.0.0.1:<port>

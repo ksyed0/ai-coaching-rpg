@@ -141,3 +141,37 @@ describe("bootstrap NPC timeouts", () => {
     if (!r.ok) { expect(r.errors[0]!.length).toBeLessThan(250); expect(r.errors[0]).not.toContain("\u001b"); }
   });
 });
+
+describe("bootstrap token budgets (US-0026)", () => {
+  type H = { npcs: Map<string, { maxTokens: number }>; gm: { maxTokens: number } };
+  const budgetsOf = (rt: Runtime) => { const h = rt.host as unknown as H; return { npc: [...h.npcs.values()].map((a) => a.maxTokens), gm: h.gm.maxTokens }; };
+
+  it("defaults to NPC 600 and GM 400", async () => {
+    const { r } = await boot({});
+    expect(r.ok).toBe(true);
+    const b = budgetsOf(runtime!);
+    expect(b.npc.length).toBeGreaterThan(0);
+    expect(new Set(b.npc)).toEqual(new Set([600])); expect(b.gm).toBe(400);
+  });
+  it("applies the environment values to every NPC and the Game Master", async () => {
+    const { r } = await boot({ NPC_MAX_TOKENS: " 1200 ", GM_MAX_TOKENS: "900" });
+    expect(r.ok).toBe(true);
+    const b = budgetsOf(runtime!);
+    expect(new Set(b.npc)).toEqual(new Set([1200])); expect(b.gm).toBe(900);
+  });
+  it("real environment wins over <root>/.env", async () => {
+    await writeFile(path.join(tmp, ".env"), "NPC_MAX_TOKENS=700\nGM_MAX_TOKENS=500\n");
+    const { r } = await boot({ NPC_MAX_TOKENS: "800" });
+    expect(r.ok).toBe(true);
+    const b = budgetsOf(runtime!);
+    expect(new Set(b.npc)).toEqual(new Set([800])); expect(b.gm).toBe(500);
+  });
+  it.each([["NPC_MAX_TOKENS", "49"], ["NPC_MAX_TOKENS", "4001"], ["GM_MAX_TOKENS", "1e3"], ["GM_MAX_TOKENS", "300 tokens"]])("refuses to start on %s=%s and names the variable", async (name, value) => {
+    const { r, all } = await boot({ [name]: value, MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: KEY });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.join("\n")).toContain(name);
+    expect(r.errors.join("\n")).toMatch(/50 to 4000/);
+    expect(all()).not.toContain(KEY);
+  });
+});

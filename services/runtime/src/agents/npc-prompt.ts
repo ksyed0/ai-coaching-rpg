@@ -1,6 +1,7 @@
 import { visibleTranscript, type SessionState } from "@acr/events";
 import type { NpcRole, Scene } from "@acr/script";
 import type { ChatMessage, ChatRequest } from "@acr/adapters";
+import { DEFAULT_NPC_MAX_TOKENS } from "./token-budgets.js";
 
 const bullets = (items: string[]) => (items.length ? items.map((i) => `- ${i}`).join("\n") : "- (none)");
 
@@ -13,13 +14,14 @@ export const npcIntro = (role: { name: string }): string => `You are playing ${r
  * The rubric, other roles' brief/private_facts, unreleased hidden facts and participant display
  * names are never read here; speakers are identified by role id only.
  */
-export function buildNpcRequest(opts: { role: NpcRole; scene: Scene; state: SessionState; window?: number }): ChatRequest {
+export function buildNpcRequest(opts: { role: NpcRole; scene: Scene; state: SessionState; window?: number; maxTokens?: number }): ChatRequest {
   const { role, scene, state } = opts;
   const npc = state.npcs[role.id] ?? { goals: role.goals, knowledge: role.knowledge, released: [] };
   const system = [
     `${npcIntro(role)}${role.title ? `, ${role.title}` : ""} in a live role-play training session.`,
     `Stay in character at all times. Speak only as ${role.name}. Reply in one to four sentences of natural spoken dialogue, no stage directions, no lists.`,
     `Other speakers are shown as [role_id]: text. Never mention role ids; address people the way ${role.name} would.`,
+    `Reply with only ${role.name}'s own words. Never write a line for anyone else, never continue the conversation for the other speakers, and never begin a reply with a [...] speaker tag or with ${role.name}'s own name.`,
     "", "## Persona", role.persona,
     "", "## Your current goals", bullets(npc.goals),
     "", "## What you know", bullets([...npc.knowledge, ...npc.released]),
@@ -47,5 +49,5 @@ export function buildNpcRequest(opts: { role: NpcRole; scene: Scene; state: Sess
   if (messages.at(-1)!.role === "assistant") {
     messages.push({ role: "user", content: "[scene]: Continue the conversation in character." });
   }
-  return { system, messages, maxTokens: 300, cacheSystem: true };
+  return { system, messages, maxTokens: opts.maxTokens ?? DEFAULT_NPC_MAX_TOKENS, cacheSystem: true };
 }

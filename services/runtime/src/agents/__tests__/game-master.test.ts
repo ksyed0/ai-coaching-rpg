@@ -392,3 +392,20 @@ describe("GameMaster.finalEvaluation expectSceneId (R45)", () => {
     expect(await gm.finalEvaluation("s1_open")).toBe(true);
   });
 });
+
+describe("Game Master token budget (US-0026)", () => {
+  const sceneCond = () => ({ scene: engine.currentScene()!, condition: "c", state: engine.state });
+  it("buildGmRequest defaults to 400 tokens and takes a configured budget", () => {
+    expect(buildGmRequest(sceneCond()).maxTokens).toBe(400);
+    expect(buildGmRequest({ ...sceneCond(), maxTokens: 900 }).maxTokens).toBe(900);
+  });
+  it("the agent sends its configured budget with every evaluation", async () => {
+    const provider = new MockModelProvider();
+    const gm = new GameMaster({ engine, provider, everyNUtterances: 1, maxTokens: 777 });
+    expect(gm.maxTokens).toBe(777);
+    await engine.say("host", "hello"); await engine.say("guest", "hi");
+    await gm.tick();
+    expect(provider.calls[0]!.maxTokens).toBe(777);
+  });
+  it("defaults to 400", () => { expect(new GameMaster({ engine, provider: new MockModelProvider() }).maxTokens).toBe(400); });
+});

@@ -23,6 +23,11 @@ export class SessionEngine {
 
   subscribe(fn: (e: SessionEvent) => void): () => void { this.listeners.add(fn); return () => this.listeners.delete(fn); }
 
+  /** Every role's id and display name (an NPC's character name; a player role has only its id), for recognising speaker labels in model text. */
+  speakerNames(): { id: string; name: string }[] {
+    return Object.values(this.scenario.roles).map((r) => ({ id: r.id, name: r.type === "npc" ? r.name : r.id }));
+  }
+
   currentScene(): Scene | null {
     const id = this.state.currentScene?.id;
     return id ? this.scenario.script.scenes.find((s) => s.id === id) ?? null : null;

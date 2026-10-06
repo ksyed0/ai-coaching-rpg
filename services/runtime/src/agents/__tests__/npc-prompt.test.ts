@@ -144,3 +144,18 @@ describe("the persona sentence the demo's scripted mock routes on", () => {
     expect(buildNpcRequest({ role, scene, state: stateWith(["delivery_lead", "hi"]) }).system.startsWith(npcIntro(role))).toBe(true);
   });
 });
+
+describe("buildNpcRequest token budget (US-0026)", () => {
+  it("defaults to 600 tokens (room for a reasoning model to think and answer)", () => {
+    expect(buildNpcRequest({ role, scene, state: stateWith() }).maxTokens).toBe(600);
+  });
+  it("uses the configured budget", () => {
+    expect(buildNpcRequest({ role, scene, state: stateWith(), maxTokens: 1234 }).maxTokens).toBe(1234);
+  });
+
+  it("tells the model to speak only for the character and never to write speaker tags", () => {
+    const req = buildNpcRequest({ role, scene, state: stateWith() });
+    expect(req.system).toMatch(/only Priya Raman's own words/);
+    expect(req.system).toMatch(/never begin a reply with a \[\.\.\.\] speaker tag/);
+  });
+});
