@@ -51,7 +51,7 @@
       "title": "Slice 5 — evaluator and reports",
       "description": "Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility.",
       "releaseTarget": "MVP",
-      "status": "Planned",
+      "status": "In Progress",
       "startDate": null,
       "doneDate": null,
       "dependencies": [
@@ -874,7 +874,7 @@
       "title": "As a facilitator running the showcase, I want the player roles to be played by the model too (as humans normally would), so that a run varies between runs and scenes instead of repeating the same stilted scripted lines.",
       "priority": "High",
       "estimate": "M",
-      "status": "Done",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0027-generated-players",
       "acs": [
         {
@@ -904,13 +904,157 @@
         },
         {
           "id": "AC-0093",
-          "text": "a recorded live showcase with `--players generated` on a real model is run and compared with a scripted-player run (lines per role, fallbacks, repeats) (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4: 21 of 21 player lines generated, 1 verbatim repeat of the script, 0 fallbacks, 0 alerts, 13 checks passed, 520 s; generated players on Raptor-8B echoed each other, so the model matters; a first Gemma run leaked the private intent after a `***` separator in all 21 lines, fixed in this story)",
-          "done": true
+          "text": "a recorded live showcase with `--players generated` on a real model is run and compared with a scripted-player run (lines per role, fallbacks, repeats)",
+          "done": false
         }
       ],
       "dependencies": [
         "US-0024",
         "US-0026"
+      ]
+    },
+    {
+      "id": "US-0028",
+      "epicId": "EPIC-0005",
+      "title": "As a scenario author, I want to write rubrics as YAML files with a behavioural anchor for every level of every criterion, so that scoring is judged against observable behaviour and each scenario can bring its own rubric.",
+      "priority": "High",
+      "estimate": "M",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0005-evaluator-feedback",
+      "acs": [
+        {
+          "id": "AC-0094",
+          "text": "a rubric file (YAML) has an id, a name and criteria; each criterion has an id, name, description, observable `what_to_look_for` indicators and levels 1 to 4, each with a written behavioural anchor, plus example phrases at levels 2 and 4; the zod schema lives in `packages/script/src/rubric.ts`",
+          "done": false
+        },
+        {
+          "id": "AC-0095",
+          "text": "`loadRubrics(dir, scenario)` resolves the scenario's `rubrics:` ids from `<dir>/rubrics/<id>.yaml` and reports an error for a missing file, a missing level, a duplicate criterion id or a learning objective whose `rubric_criteria` id matches no loaded criterion",
+          "done": false
+        },
+        {
+          "id": "AC-0096",
+          "text": "rubric files obey the same size and alias limits as the showcase YAML loader (size cap, no alias expansion bombs); a scenario whose `rubrics:` is empty or absent loads as 'no rubrics' with a warning, not an error",
+          "done": false
+        },
+        {
+          "id": "AC-0097",
+          "text": "`scenarios/friday-escalation-extended/rubrics/individual_delivery_v2.yaml` and `group_collaboration_v1.yaml` hold real content for a delivery lead facing scope creep, and `scenarios/friday-escalation` carries copies so both scenarios validate",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0003"
+      ]
+    },
+    {
+      "id": "US-0029",
+      "epicId": "EPIC-0005",
+      "title": "As a facilitator, I want each player and the group scored per criterion from the recorded session log, with verified quoted evidence, a confidence level and a roll-up to the learning objectives, so that feedback rests on what people actually said.",
+      "priority": "High",
+      "estimate": "L",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0005-evaluator-feedback",
+      "acs": [
+        {
+          "id": "AC-0098",
+          "text": "from a session JSONL log and the scenario the evaluator builds a transcript of all utterances (players and AI characters), injects, scene boundaries and Game Master verdicts, makes ONE model call per player role and ONE for the group, and treats the transcript as data (delimited, with an instruction to ignore anything inside it)",
+          "done": false
+        },
+        {
+          "id": "AC-0099",
+          "text": "every score needs a verbatim, timestamped quote from that participant, verified programmatically as a substring (after whitespace normalisation) of the recorded utterance of that role at that seq; unverifiable quotes are dropped, a score of 3 or 4 with no verified quote is capped at 2 and flagged, unknown criterion ids are ignored, missing ones become Not observed, and scores outside 1 to 4 or non-integers are rejected",
+          "done": false
+        },
+        {
+          "id": "AC-0100",
+          "text": "aggregation is pure and property-tested: a learning-objective score is the mean of its observed criteria rounded to one decimal, labelled by the thresholds 1.5, 2.5 and 3.5; confidence is High, Medium or Low from the number of verified quotes and the model-stated confidence; no single overall grade is computed",
+          "done": false
+        },
+        {
+          "id": "AC-0101",
+          "text": "`EVAL_MODEL` (default the NPC model), `EVAL_MAX_TOKENS` (3000, 200 to 8000), `EVAL_TEMPERATURE` (0.2) and `EVAL_TIMEOUT_MS` (180000, never below the NPC reply timeout) are validated; replies are parsed tolerantly (code fences, prose) with one bounded re-ask; a failed participant is reported as 'evaluation failed: <reason>' without stopping the others; a participant with fewer than 2 utterances gets 'insufficient evidence' with no model call; the transcript sent is capped by a character budget and the report says when it was trimmed",
+          "done": false
+        },
+        {
+          "id": "AC-0102",
+          "text": "in mock mode the evaluator runs on scripted replies built by the demo harness, including one deliberately bad quote and one malformed-JSON-then-valid re-ask, and the number of model calls is reported",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0028",
+        "US-0002"
+      ]
+    },
+    {
+      "id": "US-0030",
+      "epicId": "EPIC-0005",
+      "title": "As a participant and a facilitator, I want a draft personal report and a group report written from the scores, so that people get strengths, development points and next actions and the facilitator gets talking points.",
+      "priority": "High",
+      "estimate": "M",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0005-evaluator-feedback",
+      "acs": [
+        {
+          "id": "AC-0103",
+          "text": "each player gets a Markdown report and a JSON twin (`schema: 'acr.report/1'`) with a header, a DRAFT banner, the visibility line, a summary of 2 to 3 strengths, 2 to 3 development points and 2 to 3 next actions each tied to an LO id, a learning-objectives table, a criteria table, the evidence quotes with scene, seq and relative time, and the 'How this was scored' section",
+          "done": false
+        },
+        {
+          "id": "AC-0104",
+          "text": "the group report holds the group criteria table, LO coverage across the team (players x LOs), the scenario's facilitator notes together with the model's talking points, notable moments with quotes and the method section",
+          "done": false
+        },
+        {
+          "id": "AC-0105",
+          "text": "all model and participant text goes through the demo's Markdown escaping and secret and path scrubbing; role ids are validated as safe file names; reports are written under `<out>/<session-id>/` in a fresh directory with exclusive create, never outside it",
+          "done": false
+        },
+        {
+          "id": "AC-0106",
+          "text": "`index.md` links every report and shows the per-LO table for all players, `method.md` holds the scale and method text, and every report and JSON carries the line 'Visibility: all participants (prototype setting; per-participant isolation is planned)'",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0029"
+      ]
+    },
+    {
+      "id": "US-0031",
+      "epicId": "EPIC-0005",
+      "title": "As a facilitator or developer, I want to run the evaluator on a session log and to have the showcase produce the reports at the end, so that feedback can be generated after any session and verified in the demo.",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0005-evaluator-feedback",
+      "acs": [
+        {
+          "id": "AC-0107",
+          "text": "`pnpm evaluate <session.jsonl> [--scenario <dir>] [--out <dir>] [--json -]` works with usage and `--help`, exit codes 0 (ok), 1 (an evaluation failed) and 2 (usage), and prints a one-line notice that the transcript is sent to the model provider",
+          "done": false
+        },
+        {
+          "id": "AC-0108",
+          "text": "`pnpm demo --showcase [--live] [--evaluate] [--eval-out <dir>]` runs the evaluator on the log of that run after the checks (always scripted and deterministic in mock mode), prints a short summary and adds check S-16 only with `--evaluate`: a report file per player, every quote a verbatim substring of its utterance, the method section present, scores 1 to 4 or Not observed; without `--evaluate` the run still has S-01 to S-14",
+          "done": false
+        },
+        {
+          "id": "AC-0109",
+          "text": "the `--json` report lists the report paths and the transcript Markdown stays unchanged",
+          "done": false
+        },
+        {
+          "id": "AC-0110",
+          "text": "README has a 'Scoring and feedback' section, `docs/EVALUATOR.md` describes the method, data flow, limits, rubric authoring and how to read a report, and the changelog and dashboard are updated",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0029",
+        "US-0030",
+        "US-0024"
       ]
     }
   ],
@@ -1181,9 +1325,49 @@
       "title": "Add the generated player bots to the showcase, share the model-reply and prompt-turn logic with the AI characters, fix the CFO's third-person speech, record a live comparison",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "Done",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0027-generated-players",
       "notes": "Observed 2026-10-05: scripted player lines make every showcase run identical; an 8B model also had the CFO say 'the CFO' in the third person with 'he'."
+    },
+    {
+      "id": "TASK-0028",
+      "storyId": "US-0028",
+      "title": "Define the rubric schema, loader and validator and author the two rubrics",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0005-evaluator-feedback",
+      "notes": "Criteria: discovery, listening, negotiation, commercial_judgement, stakeholder_management, team_alignment and role_clarity (individual behaviours); shared_understanding, decision_quality, role_clarity_group and escalation_discipline (group, ASM-02)."
+    },
+    {
+      "id": "TASK-0029",
+      "storyId": "US-0029",
+      "title": "Build the evaluator engine in services/runtime/src/evaluator",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0005-evaluator-feedback",
+      "notes": "Prompt-injection hardening and programmatic quote verification are the core of the design; see docs/EVALUATOR.md."
+    },
+    {
+      "id": "TASK-0030",
+      "storyId": "US-0030",
+      "title": "Render participant and group reports, the index and the method page",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0005-evaluator-feedback",
+      "notes": "The method text is defined once (rubric scale, evidence rule, confidence rule, aggregation, limitations) and printed in every report."
+    },
+    {
+      "id": "TASK-0031",
+      "storyId": "US-0031",
+      "title": "Add the evaluate script and wire --evaluate into the showcase",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0005-evaluator-feedback",
+      "notes": "Live runs of the evaluator are done by the controller, not in this task."
     }
   ],
   "testCases": [],
@@ -1239,164 +1423,188 @@
   ],
   "costs": {
     "US-0001": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 400,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 400,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 1600,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 1600,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 1600,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 400,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 400,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 400,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 1600,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 400,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 400,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 400,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 1600,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
-      "projectedUsd": 0.9,
-      "costUsd": 0.228411,
+      "projectedUsd": 400,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 0.228411,
+      "costUsd": 0.198939,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0028": {
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0029": {
+      "projectedUsd": 1600,
+      "costUsd": 0.198939,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0030": {
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0031": {
+      "projectedUsd": 800,
+      "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -1633,7 +1841,35 @@
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": false
+      "isAtRisk": true
+    },
+    "US-0028": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0029": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0030": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0031": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -1681,10 +1917,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T15:52:09.785Z",
-  "commitSha": "e0066b1",
-  "buildNumber": "96",
-  "branch": "feature/EPIC-0006-US-0027-generated-players",
+  "generatedAt": "2026-10-06T15:38:31.974Z",
+  "commitSha": "3d2ba26",
+  "buildNumber": "95",
+  "branch": "feature/EPIC-0005-evaluator-feedback",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -1782,13 +2018,13 @@
     }
   },
   "budget": {
-    "totalBudget": 25.067099999999996,
+    "totalBudget": 16806.1671,
     "totalSpent": 6.1671,
-    "totalProjected": 823.4,
-    "percentUsed": 25,
-    "burnRate": 0.19186533333333333,
-    "daysRemaining": 98,
-    "projectedExhaustion": 98,
+    "totalProjected": 26000,
+    "percentUsed": 0,
+    "burnRate": 0.19871766666666665,
+    "daysRemaining": 84542,
+    "projectedExhaustion": 84542,
     "thresholds": [
       50,
       75,
@@ -1798,28 +2034,36 @@
     "crossedThresholds": [],
     "epicBudgets": [
       {
-        "id": "EPIC-0006",
-        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 9.940932,
-        "spent": 2.7409319999999995,
-        "remaining": 7.200000000000001,
-        "percentUsed": 28
+        "id": "EPIC-0005",
+        "title": "Slice 5 — evaluator and reports",
+        "budget": 0.795756,
+        "spent": 0.795756,
+        "remaining": 0,
+        "percentUsed": 100
       },
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 13.997754000000002,
-        "spent": 3.1977539999999993,
-        "remaining": 10.800000000000002,
-        "percentUsed": 23
+        "budget": 10402.785146,
+        "spent": 2.7851460000000006,
+        "remaining": 10400,
+        "percentUsed": 0
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 1.128411,
-        "spent": 0.228411,
-        "remaining": 0.9,
-        "percentUsed": 20
+        "budget": 800.198939,
+        "spent": 0.198939,
+        "remaining": 800,
+        "percentUsed": 0
+      },
+      {
+        "id": "EPIC-0006",
+        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
+        "budget": 5602.387268,
+        "spent": 2.387268,
+        "remaining": 5600,
+        "percentUsed": 0
       },
       {
         "id": "EPIC-0003",
@@ -1836,14 +2080,6 @@
         "spent": 0,
         "remaining": 0,
         "percentUsed": null
-      },
-      {
-        "id": "EPIC-0005",
-        "title": "Slice 5 — evaluator and reports",
-        "budget": 0,
-        "spent": 0,
-        "remaining": 0,
-        "percentUsed": null
       }
     ],
     "hasBudget": true
@@ -1851,38 +2087,37 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-06T14:23:23.807Z",
-      "2026-09-07T14:23:23.807Z",
-      "2026-09-08T14:23:23.807Z",
-      "2026-09-09T14:23:23.807Z",
-      "2026-09-10T14:23:23.807Z",
-      "2026-09-11T14:23:23.807Z",
-      "2026-09-12T14:23:23.807Z",
-      "2026-09-13T14:23:23.807Z",
-      "2026-09-14T14:23:23.807Z",
-      "2026-09-15T14:23:23.807Z",
-      "2026-09-16T14:23:23.807Z",
-      "2026-09-17T14:23:23.807Z",
-      "2026-09-18T14:23:23.807Z",
-      "2026-09-19T14:23:23.807Z",
-      "2026-09-20T14:23:23.807Z",
-      "2026-09-21T14:23:23.807Z",
-      "2026-09-22T14:23:23.807Z",
-      "2026-09-23T14:23:23.807Z",
-      "2026-09-24T14:23:23.807Z",
-      "2026-09-25T14:23:23.807Z",
-      "2026-09-26T14:23:23.807Z",
-      "2026-09-27T14:23:23.807Z",
-      "2026-09-28T14:23:23.807Z",
-      "2026-09-29T14:23:23.807Z",
-      "2026-09-30T14:23:23.807Z",
-      "2026-10-01T14:23:23.807Z",
-      "2026-10-02T14:23:23.807Z",
-      "2026-10-03T14:23:23.807Z",
-      "2026-10-04T14:23:23.807Z",
-      "2026-10-05T14:23:23.807Z",
-      "2026-10-06T14:23:23.805Z",
-      "2026-10-06T15:52:09.849Z"
+      "2026-09-06T15:38:32.058Z",
+      "2026-09-07T15:38:32.058Z",
+      "2026-09-08T15:38:32.058Z",
+      "2026-09-09T15:38:32.058Z",
+      "2026-09-10T15:38:32.058Z",
+      "2026-09-11T15:38:32.058Z",
+      "2026-09-12T15:38:32.058Z",
+      "2026-09-13T15:38:32.058Z",
+      "2026-09-14T15:38:32.058Z",
+      "2026-09-15T15:38:32.058Z",
+      "2026-09-16T15:38:32.058Z",
+      "2026-09-17T15:38:32.058Z",
+      "2026-09-18T15:38:32.058Z",
+      "2026-09-19T15:38:32.058Z",
+      "2026-09-20T15:38:32.058Z",
+      "2026-09-21T15:38:32.058Z",
+      "2026-09-22T15:38:32.058Z",
+      "2026-09-23T15:38:32.058Z",
+      "2026-09-24T15:38:32.058Z",
+      "2026-09-25T15:38:32.058Z",
+      "2026-09-26T15:38:32.058Z",
+      "2026-09-27T15:38:32.058Z",
+      "2026-09-28T15:38:32.058Z",
+      "2026-09-29T15:38:32.058Z",
+      "2026-09-30T15:38:32.058Z",
+      "2026-10-01T15:38:32.058Z",
+      "2026-10-02T15:38:32.058Z",
+      "2026-10-03T15:38:32.058Z",
+      "2026-10-04T15:38:32.058Z",
+      "2026-10-05T15:38:32.058Z",
+      "2026-10-06T15:38:32.057Z"
     ],
     "doneCounts": [
       0,
@@ -1915,42 +2150,40 @@
       0,
       0,
       0,
-      0,
-      1
+      0
     ],
     "totalStories": [
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
-      26,
       27,
-      27
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      27,
+      31
     ],
     "aiCosts": [
       0.20556999999999997,
@@ -1982,7 +2215,6 @@
       5.55039,
       5.75596,
       5.96153,
-      6.1671,
       6.1671,
       6.1671
     ],
@@ -2017,7 +2249,6 @@
       0,
       0,
       0,
-      null,
       null
     ],
     "velocity": [
@@ -2051,11 +2282,9 @@
       0,
       0,
       0,
-      0,
-      3
+      0
     ],
     "openBugs": [
-      3,
       3,
       3,
       3,
@@ -2119,7 +2348,6 @@
       0,
       0,
       0,
-      0,
       0
     ],
     "inputTokens": [
@@ -2153,7 +2381,6 @@
       0,
       0,
       0,
-      522440,
       522440
     ],
     "outputTokens": [
@@ -2187,42 +2414,40 @@
       0,
       0,
       0,
-      69480,
       69480
     ],
     "avgRisk": [
-      1.134615384615385,
-      1.134615384615385,
-      1.134615384615385,
-      1.134615384615385,
-      1.134615384615385,
-      1.134615384615385,
-      1.134615384615385,
-      1.1461538461538467,
-      1.1461538461538467,
-      1.1461538461538467,
-      1.1461538461538467,
-      1.1461538461538467,
-      1.1461538461538467,
-      1.1461538461538467,
-      1.1576923076923082,
-      1.1576923076923082,
-      1.1576923076923082,
-      1.1576923076923082,
-      1.1576923076923082,
-      1.1576923076923082,
-      1.1576923076923082,
-      1.1692307692307697,
-      1.1692307692307697,
-      1.1692307692307697,
-      1.1692307692307697,
-      1.1692307692307697,
-      1.1692307692307697,
-      1.1692307692307697,
-      1.1807692307692312,
-      1.1807692307692312,
       1.1444444444444448,
-      1.134615384615385
+      1.1444444444444448,
+      1.1444444444444448,
+      1.1444444444444448,
+      1.1444444444444448,
+      1.1444444444444448,
+      1.1444444444444448,
+      1.1555555555555561,
+      1.1555555555555561,
+      1.1555555555555561,
+      1.1555555555555561,
+      1.1555555555555561,
+      1.1555555555555561,
+      1.1555555555555561,
+      1.166666666666667,
+      1.166666666666667,
+      1.166666666666667,
+      1.166666666666667,
+      1.166666666666667,
+      1.166666666666667,
+      1.166666666666667,
+      1.1777777777777783,
+      1.1777777777777783,
+      1.1777777777777783,
+      1.1777777777777783,
+      1.1777777777777783,
+      1.1777777777777783,
+      1.1777777777777783,
+      1.1888888888888896,
+      1.1888888888888896,
+      1.17741935483871
     ],
     "velocityByWeek": {
       "labels": [
@@ -2239,7 +2464,7 @@
         0,
         0,
         0,
-        3
+        0
       ],
       "rollingAvg": [
         0,
@@ -2247,7 +2472,7 @@
         0,
         0,
         0,
-        0.8
+        0
       ]
     }
   }

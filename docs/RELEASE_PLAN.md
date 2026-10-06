@@ -40,8 +40,9 @@ Dependencies: EPIC-0002
 EPIC-0005: Slice 5 — evaluator and reports
 Description: Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility.
 Release Target: MVP
-Status: Planned
+Status: In Progress
 Dependencies: EPIC-0003
+Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed; per-participant isolation and ASM-09 are planned); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups, not yet filed as stories: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), calibration (ASM-08), and isolation and access control (ASM-09).
 ```
 
 ```
@@ -658,4 +659,97 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0006-US-0027-generated-players
 Notes: Observed 2026-10-05: scripted player lines make every showcase run identical; an 8B model also had the CFO say 'the CFO' in the third person with 'he'.
+```
+
+```
+US-0028 (EPIC-0005): As a scenario author, I want to write rubrics as YAML files with a behavioural anchor for every level of every criterion, so that scoring is judged against observable behaviour and each scenario can bring its own rubric.
+Priority: High
+Estimate: M
+Status: In Progress
+Branch: feature/EPIC-0005-evaluator-feedback
+Dependencies: US-0003
+Acceptance Criteria:
+  - [ ] AC-0094: a rubric file (YAML) has an id, a name and criteria; each criterion has an id, name, description, observable `what_to_look_for` indicators and levels 1 to 4, each with a written behavioural anchor, plus example phrases at levels 2 and 4; the zod schema lives in `packages/script/src/rubric.ts`
+  - [ ] AC-0095: `loadRubrics(dir, scenario)` resolves the scenario's `rubrics:` ids from `<dir>/rubrics/<id>.yaml` and reports an error for a missing file, a missing level, a duplicate criterion id or a learning objective whose `rubric_criteria` id matches no loaded criterion
+  - [ ] AC-0096: rubric files obey the same size and alias limits as the showcase YAML loader (size cap, no alias expansion bombs); a scenario whose `rubrics:` is empty or absent loads as 'no rubrics' with a warning, not an error
+  - [ ] AC-0097: `scenarios/friday-escalation-extended/rubrics/individual_delivery_v2.yaml` and `group_collaboration_v1.yaml` hold real content for a delivery lead facing scope creep, and `scenarios/friday-escalation` carries copies so both scenarios validate
+```
+
+```
+TASK-0028 (US-0028): Define the rubric schema, loader and validator and author the two rubrics
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0005-evaluator-feedback
+Notes: Criteria: discovery, listening, negotiation, commercial_judgement, stakeholder_management, team_alignment and role_clarity (individual behaviours); shared_understanding, decision_quality, role_clarity_group and escalation_discipline (group, ASM-02).
+```
+
+```
+US-0029 (EPIC-0005): As a facilitator, I want each player and the group scored per criterion from the recorded session log, with verified quoted evidence, a confidence level and a roll-up to the learning objectives, so that feedback rests on what people actually said.
+Priority: High
+Estimate: L
+Status: In Progress
+Branch: feature/EPIC-0005-evaluator-feedback
+Dependencies: US-0028, US-0002
+Acceptance Criteria:
+  - [ ] AC-0098: from a session JSONL log and the scenario the evaluator builds a transcript of all utterances (players and AI characters), injects, scene boundaries and Game Master verdicts, makes ONE model call per player role and ONE for the group, and treats the transcript as data (delimited, with an instruction to ignore anything inside it)
+  - [ ] AC-0099: every score needs a verbatim, timestamped quote from that participant, verified programmatically as a substring (after whitespace normalisation) of the recorded utterance of that role at that seq; unverifiable quotes are dropped, a score of 3 or 4 with no verified quote is capped at 2 and flagged, unknown criterion ids are ignored, missing ones become Not observed, and scores outside 1 to 4 or non-integers are rejected
+  - [ ] AC-0100: aggregation is pure and property-tested: a learning-objective score is the mean of its observed criteria rounded to one decimal, labelled by the thresholds 1.5, 2.5 and 3.5; confidence is High, Medium or Low from the number of verified quotes and the model-stated confidence; no single overall grade is computed
+  - [ ] AC-0101: `EVAL_MODEL` (default the NPC model), `EVAL_MAX_TOKENS` (3000, 200 to 8000), `EVAL_TEMPERATURE` (0.2) and `EVAL_TIMEOUT_MS` (180000, never below the NPC reply timeout) are validated; replies are parsed tolerantly (code fences, prose) with one bounded re-ask; a failed participant is reported as 'evaluation failed: <reason>' without stopping the others; a participant with fewer than 2 utterances gets 'insufficient evidence' with no model call; the transcript sent is capped by a character budget and the report says when it was trimmed
+  - [ ] AC-0102: in mock mode the evaluator runs on scripted replies built by the demo harness, including one deliberately bad quote and one malformed-JSON-then-valid re-ask, and the number of model calls is reported
+```
+
+```
+TASK-0029 (US-0029): Build the evaluator engine in services/runtime/src/evaluator
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0005-evaluator-feedback
+Notes: Prompt-injection hardening and programmatic quote verification are the core of the design; see docs/EVALUATOR.md.
+```
+
+```
+US-0030 (EPIC-0005): As a participant and a facilitator, I want a draft personal report and a group report written from the scores, so that people get strengths, development points and next actions and the facilitator gets talking points.
+Priority: High
+Estimate: M
+Status: In Progress
+Branch: feature/EPIC-0005-evaluator-feedback
+Dependencies: US-0029
+Acceptance Criteria:
+  - [ ] AC-0103: each player gets a Markdown report and a JSON twin (`schema: 'acr.report/1'`) with a header, a DRAFT banner, the visibility line, a summary of 2 to 3 strengths, 2 to 3 development points and 2 to 3 next actions each tied to an LO id, a learning-objectives table, a criteria table, the evidence quotes with scene, seq and relative time, and the 'How this was scored' section
+  - [ ] AC-0104: the group report holds the group criteria table, LO coverage across the team (players x LOs), the scenario's facilitator notes together with the model's talking points, notable moments with quotes and the method section
+  - [ ] AC-0105: all model and participant text goes through the demo's Markdown escaping and secret and path scrubbing; role ids are validated as safe file names; reports are written under `<out>/<session-id>/` in a fresh directory with exclusive create, never outside it
+  - [ ] AC-0106: `index.md` links every report and shows the per-LO table for all players, `method.md` holds the scale and method text, and every report and JSON carries the line 'Visibility: all participants (prototype setting; per-participant isolation is planned)'
+```
+
+```
+TASK-0030 (US-0030): Render participant and group reports, the index and the method page
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0005-evaluator-feedback
+Notes: The method text is defined once (rubric scale, evidence rule, confidence rule, aggregation, limitations) and printed in every report.
+```
+
+```
+US-0031 (EPIC-0005): As a facilitator or developer, I want to run the evaluator on a session log and to have the showcase produce the reports at the end, so that feedback can be generated after any session and verified in the demo.
+Priority: Medium
+Estimate: M
+Status: In Progress
+Branch: feature/EPIC-0005-evaluator-feedback
+Dependencies: US-0029, US-0030, US-0024
+Acceptance Criteria:
+  - [ ] AC-0107: `pnpm evaluate <session.jsonl> [--scenario <dir>] [--out <dir>] [--json -]` works with usage and `--help`, exit codes 0 (ok), 1 (an evaluation failed) and 2 (usage), and prints a one-line notice that the transcript is sent to the model provider
+  - [ ] AC-0108: `pnpm demo --showcase [--live] [--evaluate] [--eval-out <dir>]` runs the evaluator on the log of that run after the checks (always scripted and deterministic in mock mode), prints a short summary and adds check S-16 only with `--evaluate`: a report file per player, every quote a verbatim substring of its utterance, the method section present, scores 1 to 4 or Not observed; without `--evaluate` the run still has S-01 to S-14
+  - [ ] AC-0109: the `--json` report lists the report paths and the transcript Markdown stays unchanged
+  - [ ] AC-0110: README has a 'Scoring and feedback' section, `docs/EVALUATOR.md` describes the method, data flow, limits, rubric authoring and how to read a report, and the changelog and dashboard are updated
+```
+
+```
+TASK-0031 (US-0031): Add the evaluate script and wire --evaluate into the showcase
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0005-evaluator-feedback
+Notes: Live runs of the evaluator are done by the controller, not in this task.
 ```
