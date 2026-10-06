@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node tools/capture-cost.js"
+            "command": "node \"${CLAUDE_PROJECT_DIR:-.}/tools/capture-cost.js\""
           }
         ]
       }
