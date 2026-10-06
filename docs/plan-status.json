@@ -874,7 +874,7 @@
       "title": "As a facilitator running the showcase, I want the player roles to be played by the model too (as humans normally would), so that a run varies between runs and scenes instead of repeating the same stilted scripted lines.",
       "priority": "High",
       "estimate": "M",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0027-generated-players",
       "acs": [
         {
@@ -904,8 +904,8 @@
         },
         {
           "id": "AC-0093",
-          "text": "a recorded live showcase with `--players generated` on a real model is run and compared with a scripted-player run (lines per role, fallbacks, repeats)",
-          "done": false
+          "text": "a recorded live showcase with `--players generated` on a real model is run and compared with a scripted-player run (lines per role, fallbacks, repeats) (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4: 21 of 21 player lines generated, 1 verbatim repeat of the script, 0 fallbacks, 0 alerts, 13 checks passed, 520 s; generated players on Raptor-8B echoed each other, so the model matters; a first Gemma run leaked the private intent after a `***` separator in all 21 lines, fixed in this story)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -1181,7 +1181,7 @@
       "title": "Add the generated player bots to the showcase, share the model-reply and prompt-turn logic with the AI characters, fix the CFO's third-person speech, record a live comparison",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0027-generated-players",
       "notes": "Observed 2026-10-05: scripted player lines make every showcase run identical; an 8B model also had the CFO say 'the CFO' in the third person with 'he'."
     }
@@ -1239,157 +1239,157 @@
   ],
   "costs": {
     "US-0001": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.228411,
       "inputTokens": 0,
       "outputTokens": 0
@@ -1633,7 +1633,7 @@
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     }
   },
   "risk": {
@@ -1681,9 +1681,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T15:29:01.437Z",
-  "commitSha": "bbfe2b5",
-  "buildNumber": "94",
+  "generatedAt": "2026-10-06T15:52:09.785Z",
+  "commitSha": "e0066b1",
+  "buildNumber": "96",
   "branch": "feature/EPIC-0006-US-0027-generated-players",
   "sessionTimeline": [
     {
@@ -1782,13 +1782,13 @@
     }
   },
   "budget": {
-    "totalBudget": 16806.1671,
+    "totalBudget": 25.067099999999996,
     "totalSpent": 6.1671,
-    "totalProjected": 22000,
-    "percentUsed": 0,
+    "totalProjected": 823.4,
+    "percentUsed": 25,
     "burnRate": 0.19186533333333333,
-    "daysRemaining": 87561,
-    "projectedExhaustion": 87561,
+    "daysRemaining": 98,
+    "projectedExhaustion": 98,
     "thresholds": [
       50,
       75,
@@ -1798,28 +1798,28 @@
     "crossedThresholds": [],
     "epicBudgets": [
       {
+        "id": "EPIC-0006",
+        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
+        "budget": 9.940932,
+        "spent": 2.7409319999999995,
+        "remaining": 7.200000000000001,
+        "percentUsed": 28
+      },
+      {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10403.197754,
+        "budget": 13.997754000000002,
         "spent": 3.1977539999999993,
-        "remaining": 10400,
-        "percentUsed": 0
+        "remaining": 10.800000000000002,
+        "percentUsed": 23
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.228411,
+        "budget": 1.128411,
         "spent": 0.228411,
-        "remaining": 800,
-        "percentUsed": 0
-      },
-      {
-        "id": "EPIC-0006",
-        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 5602.740932,
-        "spent": 2.7409319999999995,
-        "remaining": 5600,
-        "percentUsed": 0
+        "remaining": 0.9,
+        "percentUsed": 20
       },
       {
         "id": "EPIC-0003",
@@ -1882,7 +1882,7 @@
       "2026-10-04T14:23:23.807Z",
       "2026-10-05T14:23:23.807Z",
       "2026-10-06T14:23:23.805Z",
-      "2026-10-06T15:29:01.493Z"
+      "2026-10-06T15:52:09.849Z"
     ],
     "doneCounts": [
       0,
@@ -1916,7 +1916,7 @@
       0,
       0,
       0,
-      0
+      1
     ],
     "totalStories": [
       26,
@@ -2052,7 +2052,7 @@
       0,
       0,
       0,
-      0
+      3
     ],
     "openBugs": [
       3,
@@ -2222,7 +2222,7 @@
       1.1807692307692312,
       1.1807692307692312,
       1.1444444444444448,
-      1.1444444444444448
+      1.134615384615385
     ],
     "velocityByWeek": {
       "labels": [

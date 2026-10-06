@@ -639,7 +639,7 @@ Notes: Found 2026-10-05 in the local showcase. Cause: the provider reads only `c
 US-0027 (EPIC-0006): As a facilitator running the showcase, I want the player roles to be played by the model too (as humans normally would), so that a run varies between runs and scenes instead of repeating the same stilted scripted lines.
 Priority: High
 Estimate: M
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0006-US-0027-generated-players
 Dependencies: US-0024, US-0026
 Acceptance Criteria:
@@ -648,14 +648,14 @@ Acceptance Criteria:
   - [x] AC-0090: a generated line is cleaned like an NPC reply (it cannot speak for others), bounded by the server's maximum line length and non-empty, and reaches the server only through `say`; on a model failure, an empty or an unusable reply the scripted line is spoken, tagged `[SCRIPTED]`, and the narration says why
   - [x] AC-0091: a spoken line is tagged `[GENERATED]` only when the model produced the recorded text; the transcript legend and the AI contribution summary count generated player lines apart from AI character replies and Game Master verdicts and report how many generated lines repeated the scripted line verbatim (an observation, not a failure)
   - [x] AC-0092: the AI character prompt states that the character IS that person (first person, never its own role or title in the third person) and Helena Brandt's persona is consistently she/her; the Game Master prompt format is unchanged
-  - [ ] AC-0093: a recorded live showcase with `--players generated` on a real model is run and compared with a scripted-player run (lines per role, fallbacks, repeats)
+  - [x] AC-0093: a recorded live showcase with `--players generated` on a real model is run and compared with a scripted-player run (lines per role, fallbacks, repeats) (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4: 21 of 21 player lines generated, 1 verbatim repeat of the script, 0 fallbacks, 0 alerts, 13 checks passed, 520 s; generated players on Raptor-8B echoed each other, so the model matters; a first Gemma run leaked the private intent after a `***` separator in all 21 lines, fixed in this story)
 ```
 
 ```
 TASK-0027 (US-0027): Add the generated player bots to the showcase, share the model-reply and prompt-turn logic with the AI characters, fix the CFO's third-person speech, record a live comparison
 Type: Dev
 Assignee: Agent
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0006-US-0027-generated-players
 Notes: Observed 2026-10-05: scripted player lines make every showcase run identical; an 8B model also had the CFO say 'the CFO' in the third person with 'he'.
 ```
