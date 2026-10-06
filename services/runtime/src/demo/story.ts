@@ -3,7 +3,7 @@ import { renderEvent, renderJoined } from "../cli/render.js";
 import { isEvent, type Inbound } from "./bots.js";
 import { UNSAFE_CHARS, ensure, findMarkers } from "./checks.js";
 import {
-  ROLE_PLAYERS, act, advanceTo, attempt, awaitNpc, command, connectBot, errCode, got, isJoinedMsg,
+  ROLE_PLAYERS, act, advanceTo, attempt, awaitNpc, command, connectBot, errCode, facilitatorJoin, got, isJoinedMsg,
   npcRole, playerRole, sceneIds, say, settle, utterancesByScene, withTimeout, type Ctx, type PlayerId, type Story,
 } from "./ctx.js";
 import { MIN } from "./harness.js";
@@ -46,7 +46,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
     await rec.run("F-01", async () => {
       st.fac = await connectBot(ctx, "facilitator");
       ctx.tr?.attach(st.fac, { scenario: ctx.scenario, provider: ctx.provider ?? "mock", sceneHeadings: false });
-      const fj = await st.fac.call({ type: "join_facilitator", sessionId: ctx.sessionId }, isJoinedMsg, { what: "the facilitator to join" });
+      const fj = await st.fac.call(facilitatorJoin(ctx), isJoinedMsg, { what: "the facilitator to join" });
       ensure(isJoinedMsg(fj), `the facilitator could not join: ${errCode(fj)}`);
       ensure(fj.state.status === "idle", "the server's session has already started: restart the server so the demo gets a fresh session");
       st.facJoined = fj;
@@ -356,7 +356,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       ensure(code === 1009, `an oversized frame closed the socket with ${code}, expected 1009`);
       await n.step("a 70 kB frame is refused at the socket (close code 1009)");
       const after = await connectBot(ctx, "probe");
-      const r = await after.call({ type: "join_facilitator", sessionId: ctx.sessionId }, isJoinedMsg, { what: "a fresh connection" });
+      const r = await after.call(facilitatorJoin(ctx), isJoinedMsg, { what: "a fresh connection" });
       ensure(isJoinedMsg(r), "the server did not accept a new connection after the hostile frames");
       ensure(fac.isOpen, "the facilitator's connection was affected");
       spare.close(); after.close();

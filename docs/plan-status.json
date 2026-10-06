@@ -560,23 +560,63 @@
       "title": "As an operator, I want facilitator access protected by a token and connections and message rates limited, so that the server can be run outside a fully trusted network.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
       "acs": [
         {
           "id": "AC-0053",
           "text": "when `FACILITATOR_TOKEN` is set, `join_facilitator` without the matching token is refused (constant-time comparison) and the token is never logged or echoed",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0054",
           "text": "a configurable cap on concurrent connections and a per-connection message rate limit close or throttle abusers without affecting other clients",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0055",
           "text": "the threat model is documented, and the README limitation states exactly what the token does and does not protect (claiming an unclaimed player role is covered separately)",
-          "done": false
+          "done": true
+        },
+        {
+          "id": "AC-0140",
+          "text": "with `FACILITATOR_TOKEN` unset the server stays open and prints one loud startup warning that contains no secret; `run.sh` writes a random token only into a new `.env` and never overwrites an existing `.env` or token (failing closed is a later release; per-role join codes are US-0033)",
+          "done": true
+        },
+        {
+          "id": "AC-0141",
+          "text": "a missing, empty, wrong or over-long token is refused with a generic `unauthorized` and the connection is closed after one failed attempt; more than 5 failures per address per minute block that address; the token never appears in a log, alert, event or any client's inbox",
+          "done": true
+        },
+        {
+          "id": "AC-0142",
+          "text": "connection caps (total and per address) and the Origin check (`ALLOWED_ORIGINS`) refuse a handshake before a WebSocket exists; a connection that does not join within `WS_JOIN_TIMEOUT_MS` is closed",
+          "done": true
+        },
+        {
+          "id": "AC-0143",
+          "text": "each connection has its own token bucket (`WS_MSG_RATE`, `WS_MSG_BURST`) and a queue cap; repeated drops or a full queue close that connection with 1008 and never affect another client; frames are capped at 16 KiB",
+          "done": true
+        },
+        {
+          "id": "AC-0144",
+          "text": "`FACILITATOR_TOKEN`, `RUNTIME_HOST`, `ALLOWED_ORIGINS`, `TRUST_PROXY` and the `WS_*` variables are validated at startup like the other settings, with errors that name the variable and its range and never show the token; ranges are documented in the README and `.env.example`",
+          "done": true
+        },
+        {
+          "id": "AC-0145",
+          "text": "the terminal client takes the token from `FACILITATOR_TOKEN`, `--token-file` or a hidden prompt and never from argv (`--token` is refused); the token is never printed",
+          "done": true
+        },
+        {
+          "id": "AC-0146",
+          "text": "`docs/THREAT_MODEL.md` states what the token protects and does not (no TLS with a reverse-proxy recommendation, unclaimed player roles, a role freed on disconnect, logs at rest, the model provider, denial of service beyond the caps)",
+          "done": true
+        },
+        {
+          "id": "AC-0147",
+          "text": "`pnpm demo --security` adds offline, deterministic checks F-31 to F-33 (token, flood isolation, caps, Origin, join timeout) while the default run keeps its 29 checks, and `pnpm demo --url` passes `FACILITATOR_TOKEN` to a protected server",
+          "done": true
         }
       ],
       "dependencies": [
@@ -814,23 +854,73 @@
       "title": "As a facilitator, I want the Game Master to give a usable verdict reliably with real models, so that scenes end on the Game Master's judgement instead of needing a facilitator advance.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
       "acs": [
         {
           "id": "AC-0082",
           "text": "a Game Master reply that is not strict JSON (prose around the JSON, a code fence, a verdict only in the model's reasoning, an empty reply) is handled by a tolerant, tested parser or one bounded re-ask, so 'no usable verdict' becomes rare",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0083",
-          "text": "the Game Master prompt and exit conditions are tuned so that, in a recorded live showcase on a real model, the Game Master ends more than half of the scenes whose scripted lines satisfy their condition",
-          "done": false
+          "text": "the Game Master prompt and exit conditions are tuned so that, in a recorded live showcase on a real model, the Game Master ends more than half of the scenes whose scripted lines satisfy their condition (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4 only; Raptor was dropped from testing for its lower quality; final code after two review rounds: showcase 4 of 6 scenes ended by the Game Master (s2 and s5 by facilitator advance; baseline before this story 61% of scenes), 13 usable verdicts all read strictly with the 16-hex nonce (0 re-asks, 0 no-verdict, 0 no_nonce), 1 early exit (s4 after 2 lines, in a scene with AI characters, may be legitimate); gm-eval live x3: 100% usable verdicts, agreement with labels 95%, precision 100%, recall 89% (positives answered true 16 of 18 runs, the misses are s4 full), 0 of 24 false exits on the 8 negative controls; trace replay under the stored nonce reads 13 of 13; an earlier round's s6 cut-2 label was found indefensible in review and replaced by a hard negative; caveats: single model, one showcase run, labels are the implementer's)",
+          "done": true
         },
         {
           "id": "AC-0084",
           "text": "a Game Master call has its own configurable timeout and transient-error retry (shared with US-0022), and a failed evaluation is shown in the narration with its reason",
-          "done": false
+          "done": true
+        },
+        {
+          "id": "AC-0130",
+          "text": "the Game Master verdict parser is a pure, total function (it never throws, whatever the reply) that drops `<think>` blocks and code fences, reads a reply that is exactly one JSON object as strict, otherwise takes the last brace-balanced JSON object with a usable `verdict` (a boolean or exactly \"true\"/\"false\", never 1, \"yes\" or null), then `verdict: true` as plain text, then a bare true/false, and names why it failed (`empty`, `no_json`, `bad_verdict`, `truncated`, `reasoning_only`, `conflict`, `no_nonce`); a verdict must carry the per-evaluation nonce id from the system prompt, disagreeing, truncated, quoted, duplicate-key and array-wrapped verdicts are never accepted; covered by table-driven, injection and fuzz tests",
+          "done": true
+        },
+        {
+          "id": "AC-0131",
+          "text": "a reply with no usable verdict is asked again at most once inside the same deadline (a model error, the deadline and a stale scene are not re-asked; a reasoning-budget error counts as a parse failure), and the result is the facilitator-only event `gm.no_verdict {sceneId, condition, reason, attempts}` that players never receive (the re-ask runs on its own fresh abort signal and a deadline in it keeps the first reply's reason); `gm.decision` carries an optional `via` (strict, tolerant, reask)",
+          "done": true
+        },
+        {
+          "id": "AC-0132",
+          "text": "`GM_TIMEOUT_MS` (500 to 600000, default max(NPC_REPLY_TIMEOUT_MS, 60 s)), `GM_REASK` (0 or 1, default 1) and `GM_EVERY_N_UTTERANCES` (1 to 20, default 3) are validated at start-up, in the server and in the demo, with errors that name the variable",
+          "done": true
+        },
+        {
+          "id": "AC-0133",
+          "text": "the Game Master prompt judges only the condition (the scene goal is labelled background), asks for the reasoning before the verdict and treats an unopposed proposal as not agreed (product-owner decision): true needs the condition stated and agreed or confirmed",
+          "done": true
+        },
+        {
+          "id": "AC-0134",
+          "text": "the extended showcase scene 3 has an assent after \"Are we all happy with that plan?\", the mock Game Master script holds one fenced reply and one malformed-then-valid reply, and check S-04 proves the tolerant and the re-ask paths whenever the mock served them",
+          "done": true
+        },
+        {
+          "id": "AC-0135",
+          "text": "a failed evaluation is visible: the narration prints the no-verdict reason (\"after the re-ask\"), the summary has a Game Master reliability line, and the JSON `showcase.gm` has `noVerdicts`, `noVerdictByReason`, `reasks` and `via`; the 29-check F-13 expects the re-ask then gm.no_verdict",
+          "done": true
+        },
+        {
+          "id": "AC-0136",
+          "text": "`pnpm gm-eval` runs offline with labelled cases (`tests/gm-cases/`: each scene in full is met, a cut before the agreement is a negative control), a parser corpus and a check that the cases are in step with `showcase.yaml`, and with `--live [--runs n]` measures usable-verdict rate, agreement, precision, recall, false exits, attempts and latency of a real model",
+          "done": true
+        },
+        {
+          "id": "AC-0137",
+          "text": "`--gm-trace <file>` (demo) and `GM_TRACE_FILE` (server) record every raw Game Master reply and its parse in an owner-only (0600) file, off by default and never in the session log; `pnpm gm-eval --trace <file>` replays it offline and reports parse rate by reason and drift",
+          "done": true
+        },
+        {
+          "id": "AC-0138",
+          "text": "a live showcase run has check S-18 (scenes the Game Master ended of the total, early exits (before the scripted agreement), no-verdict rate by reason) that fails only with `--min-gm-exits <n>` (below it) or an explicit `--max-false-exits <n>` (early exits in scenes without AI characters)",
+          "done": true
+        },
+        {
+          "id": "AC-0139",
+          "text": "the S-07 observation no longer calls a matched phrase a hidden-fact recital: it counts apart the phrases shared with the scenario's hidden-fact or rubric text and the whole hidden facts word for word, and says a match is an echo or shared wording (an unreleased hidden fact never enters a prompt)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -1115,6 +1205,70 @@
       "dependencies": [
         "US-0027"
       ]
+    },
+    {
+      "id": "US-0033",
+      "epicId": "EPIC-0006",
+      "title": "As an operator, I want each player role to have its own join code, so that a person cannot claim a role that was meant for someone else.",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0033-player-join-codes",
+      "acs": [
+        {
+          "id": "AC-0120",
+          "text": "when the server starts a session it creates one random join code per player role (stored only as a hash, never written to the event log), the operator can see the codes once at start, and a `join` for a player role must present that role's code",
+          "done": false
+        },
+        {
+          "id": "AC-0121",
+          "text": "a `join` with a missing or wrong code is refused with one generic error that does not say whether the role exists or is taken, and the refusals count towards the existing connection and rate limits",
+          "done": false
+        },
+        {
+          "id": "AC-0122",
+          "text": "the facilitator token (US-0017) remains separate, a rejoining player keeps using the reconnect token for a live session, and the README documents how to hand the codes out",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0017"
+      ]
+    },
+    {
+      "id": "US-0034",
+      "epicId": "EPIC-0006",
+      "title": "As a facilitator, I want the Game Master to suggest releasing a hidden fact when a scenario `earned_when` condition is met (suggest-only, never auto-release by default), so that I do not have to watch for the moment a participant has earned it.",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release",
+      "acs": [
+        {
+          "id": "AC-0123",
+          "text": "a scenario may give a hidden fact an optional `earned_when` condition (plain text, validated like a scene exit condition), and a scenario without it behaves exactly as before",
+          "done": false
+        },
+        {
+          "id": "AC-0124",
+          "text": "when the Game Master judges an `earned_when` condition true for a fact that is not yet released, the facilitator (only) receives one alert that names the role and the fact index and says how to release it (`/release <role> <n>`); the fact text never reaches players, and the same suggestion is not repeated",
+          "done": false
+        },
+        {
+          "id": "AC-0125",
+          "text": "nothing is released without the facilitator's `release_hidden` command, unless the operator explicitly sets an opt-in `GM_AUTO_RELEASE` option, which is off by default and records the release as a Game Master action",
+          "done": false
+        },
+        {
+          "id": "AC-0126",
+          "text": "the scripted mock provider covers the suggestion and the no-suggestion cases, the demo checks stay stable, and the README and CHANGELOG describe the feature",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0016",
+        "US-0025"
+      ]
     }
   ],
   "tasks": [
@@ -1284,9 +1438,39 @@
       "title": "Add facilitator token check, connection cap and per-connection rate limiting to the WebSocket server",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
       "notes": "Known limitation of Slice 1: anyone who can reach the port can join as facilitator or claim an unclaimed player role. The server binds all interfaces."
+    },
+    {
+      "id": "TASK-0043",
+      "storyId": "US-0017",
+      "title": "Token check, throttle, caps, Origin check, rate limit, queue cap, join timeout and env validation in the runtime",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
+      "notes": "services/runtime/src/host/security.ts (helpers and env parsing), ws-server.ts, main.ts. Unit and abuse-case tests in host/__tests__."
+    },
+    {
+      "id": "TASK-0044",
+      "storyId": "US-0017",
+      "title": "Terminal client token delivery, run.sh token generation, .env.example and compose notes",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
+      "notes": "cli/token.ts, cli/play.ts, run.sh with scripts/run-sh-token.test.sh."
+    },
+    {
+      "id": "TASK-0045",
+      "storyId": "US-0017",
+      "title": "Demo security room (F-31 to F-33), --url token, THREAT_MODEL.md, README and CHANGELOG",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
+      "notes": "demo/security.ts behind `pnpm demo --security`; the default 29-check run is unchanged."
     },
     {
       "id": "TASK-0018",
@@ -1364,9 +1548,39 @@
       "title": "Make Game Master verdict parsing tolerant, tune the prompt and conditions, add a timeout and retry",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
       "notes": "Found in the first real live showcase (OpenRouter free Nemotron): 4 Game Master evaluations, 3 verdicts false, 1 true, and several 'GM: no usable verdict' alerts; 5 of 6 scenes ended on the facilitator safety net."
+    },
+    {
+      "id": "TASK-0040",
+      "storyId": "US-0025",
+      "title": "Tolerant Game Master parser, one bounded re-ask, the gm.no_verdict event and the GM_* settings",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
+      "notes": "gm-parse.ts, gm-evaluate.ts (the one production evaluation path, also used by gm-eval), gm-config.ts; new event type in packages/events; AC-0082, AC-0084, AC-0130 to AC-0132."
+    },
+    {
+      "id": "TASK-0041",
+      "storyId": "US-0025",
+      "title": "Reword the Game Master prompt, edit showcase scene 3 and the mock script, show failure reasons, S-04, S-18 and the S-07 label",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
+      "notes": "AC-0133 to AC-0135, AC-0138, AC-0139. AC-0083 was recorded on gemma-4-31b-it-qat-mxfp4 only (Raptor dropped): at least 4 of 6 scenes ended by the Game Master, at most 1 false exit on the negative controls, baseline 61%."
+    },
+    {
+      "id": "TASK-0042",
+      "storyId": "US-0025",
+      "title": "The offline gm-eval harness with labelled cases and the --gm-trace capture",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
+      "notes": "services/runtime/src/gm-eval, tests/gm-cases/, GM_TRACE_FILE and --gm-trace; AC-0136, AC-0137."
     },
     {
       "id": "TASK-0026",
@@ -1437,6 +1651,26 @@
       "status": "Done",
       "branch": "feature/EPIC-0006-ai-character-voices",
       "notes": "Observed 2026-10-06 in real Gemma runs of `pnpm demo --showcase --live --players generated`: both AI characters answered every player line and the CFO's reply rephrased the sponsor's point. Live comparison is recorded by the controller, not in this task. Fix round 2026-10-06 after an independent review: forced last speaker, silence forms folded before cleaning, roster tags, generic prompt wording, echo metric restricted to different roles answering the same player line, validator warnings, ordered silent-turn note, bounded silence memory, cross-character prompt audit in S-06."
+    },
+    {
+      "id": "TASK-0033",
+      "storyId": "US-0033",
+      "title": "Generate and verify per-role join codes, add the code to the join message and the terminal client, document it",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0033-player-join-codes",
+      "notes": "Closes the gap US-0017 leaves open: with only a facilitator token, any connection can still claim an unclaimed player role. Also needed so that US-0018 (resume after restart) can keep roles protected across a restart (hashed codes only)."
+    },
+    {
+      "id": "TASK-0034",
+      "storyId": "US-0034",
+      "title": "Add earned_when to the schema, have the Game Master evaluate it and alert the facilitator, add the opt-in auto release",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release",
+      "notes": "Follow-up to the design notes for US-0016 and US-0025. US-0016 gives the facilitator the manual release command; this story only suggests it."
     }
   ],
   "testCases": [],
@@ -1488,198 +1722,222 @@
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0005",
+      "title": "Pausing a session does not stop the scene clock: on /resume every overdue timed inject fires at once and the time box can end the scene immediately",
+      "severity": "Medium",
+      "relatedStory": "US-0004",
+      "relatedTask": "TASK-0004",
+      "status": "Fixed (see git log for BUG-0005)",
+      "fixBranch": "chore/BUG-0005-pause-freezes-scene-clock",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
     }
   ],
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0033": {
+      "projectedUsd": 800,
+      "costUsd": 0.181385,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0034": {
+      "projectedUsd": 800,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -1714,6 +1972,14 @@
         "projectedUsd": 400
       },
       "BUG-0004": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0005": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -1952,6 +2218,20 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": true
+    },
+    "US-0033": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0034": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -2004,10 +2284,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T21:41:51.055Z",
-  "commitSha": "5428a92",
-  "buildNumber": "129",
-  "branch": "chore/housekeeping-plan-status-and-bugs",
+  "generatedAt": "2026-10-06T23:20:06.231Z",
+  "commitSha": "1ac9aed",
+  "buildNumber": "141",
+  "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2107,11 +2387,11 @@
   "budget": {
     "totalBudget": 6006.1671,
     "totalSpent": 6.1671,
-    "totalProjected": 26800,
+    "totalProjected": 28400,
     "percentUsed": 0,
-    "burnRate": 0.19186533333333333,
-    "daysRemaining": 31271,
-    "projectedExhaustion": 31271,
+    "burnRate": 0.19871766666666665,
+    "daysRemaining": 30193,
+    "projectedExhaustion": 30193,
     "thresholds": [
       50,
       75,
@@ -2123,32 +2403,32 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 2.698108,
-        "spent": 2.698108,
+        "budget": 2.5393899999999996,
+        "spent": 2.5393899999999996,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 0.770888,
-        "spent": 0.770888,
+        "budget": 0.72554,
+        "spent": 0.72554,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.192722,
-        "spent": 0.192722,
+        "budget": 800.181385,
+        "spent": 0.181385,
         "remaining": 800,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 5202.505386,
-        "spent": 2.505386,
+        "budget": 5202.720775,
+        "spent": 2.7207749999999997,
         "remaining": 5200,
         "percentUsed": 0
       },
@@ -2174,37 +2454,37 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-06T21:37:26.999Z",
-      "2026-09-07T21:37:26.999Z",
-      "2026-09-08T21:37:26.999Z",
-      "2026-09-09T21:37:26.999Z",
-      "2026-09-10T21:37:26.999Z",
-      "2026-09-11T21:37:26.999Z",
-      "2026-09-12T21:37:26.999Z",
-      "2026-09-13T21:37:26.999Z",
-      "2026-09-14T21:37:26.999Z",
-      "2026-09-15T21:37:26.999Z",
-      "2026-09-16T21:37:26.999Z",
-      "2026-09-17T21:37:26.999Z",
-      "2026-09-18T21:37:26.999Z",
-      "2026-09-19T21:37:26.999Z",
-      "2026-09-20T21:37:26.999Z",
-      "2026-09-21T21:37:26.999Z",
-      "2026-09-22T21:37:26.999Z",
-      "2026-09-23T21:37:26.999Z",
-      "2026-09-24T21:37:26.999Z",
-      "2026-09-25T21:37:26.999Z",
-      "2026-09-26T21:37:26.999Z",
-      "2026-09-27T21:37:26.999Z",
-      "2026-09-28T21:37:26.999Z",
-      "2026-09-29T21:37:26.999Z",
-      "2026-09-30T21:37:26.999Z",
-      "2026-10-01T21:37:26.999Z",
-      "2026-10-02T21:37:26.999Z",
-      "2026-10-03T21:37:26.999Z",
-      "2026-10-04T21:37:26.999Z",
-      "2026-10-05T21:37:26.999Z",
-      "2026-10-06T21:41:51.140Z"
+      "2026-09-06T23:20:06.287Z",
+      "2026-09-07T23:20:06.287Z",
+      "2026-09-08T23:20:06.287Z",
+      "2026-09-09T23:20:06.287Z",
+      "2026-09-10T23:20:06.287Z",
+      "2026-09-11T23:20:06.287Z",
+      "2026-09-12T23:20:06.287Z",
+      "2026-09-13T23:20:06.287Z",
+      "2026-09-14T23:20:06.287Z",
+      "2026-09-15T23:20:06.287Z",
+      "2026-09-16T23:20:06.287Z",
+      "2026-09-17T23:20:06.287Z",
+      "2026-09-18T23:20:06.287Z",
+      "2026-09-19T23:20:06.287Z",
+      "2026-09-20T23:20:06.287Z",
+      "2026-09-21T23:20:06.287Z",
+      "2026-09-22T23:20:06.287Z",
+      "2026-09-23T23:20:06.287Z",
+      "2026-09-24T23:20:06.287Z",
+      "2026-09-25T23:20:06.287Z",
+      "2026-09-26T23:20:06.287Z",
+      "2026-09-27T23:20:06.287Z",
+      "2026-09-28T23:20:06.287Z",
+      "2026-09-29T23:20:06.287Z",
+      "2026-09-30T23:20:06.287Z",
+      "2026-10-01T23:20:06.287Z",
+      "2026-10-02T23:20:06.287Z",
+      "2026-10-03T23:20:06.287Z",
+      "2026-10-04T23:20:06.287Z",
+      "2026-10-05T23:20:06.287Z",
+      "2026-10-06T23:20:06.286Z"
     ],
     "doneCounts": [
       0,
@@ -2214,63 +2494,63 @@
       0,
       0,
       0,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      2,
-      2,
-      2,
-      2,
-      2,
-      2,
-      2,
-      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0
     ],
     "totalStories": [
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32,
-      32
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34,
+      34
     ],
     "aiCosts": [
       0.20556999999999997,
@@ -2346,62 +2626,62 @@
       0,
       0,
       0,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0
     ],
     "openBugs": [
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0
     ],
     "atRisk": [
@@ -2445,29 +2725,29 @@
       0,
       0,
       0,
-      26667,
-      30000,
-      33333,
-      36667,
-      40000,
-      43333,
-      46667,
-      50000,
-      50000,
-      50000,
-      50000,
-      50000,
-      50000,
-      50000,
-      50000,
-      88333,
-      90000,
-      91667,
-      93333,
-      95000,
-      96667,
-      98333,
-      100000,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       522440
     ],
     "outputTokens": [
@@ -2478,63 +2758,63 @@
       0,
       0,
       0,
-      8000,
-      9000,
-      10000,
-      11000,
-      12000,
-      13000,
-      14000,
-      15000,
-      15000,
-      15000,
-      15000,
-      15000,
-      15000,
-      15000,
-      15000,
-      26500,
-      27000,
-      27500,
-      28000,
-      28500,
-      29000,
-      29500,
-      30000,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       69480
     ],
     "avgRisk": [
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1967741935483873,
-      1.2000000000000002,
-      1.2000000000000002,
-      1.2000000000000002,
-      1.2000000000000002,
-      1.2000000000000002,
-      1.2000000000000002,
-      1.2100000000000004,
-      1.2100000000000004,
-      1.1093750000000004
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.1088235294117652,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.11764705882353,
+      1.1176470588235299
     ],
     "velocityByWeek": {
       "labels": [
@@ -2547,19 +2827,19 @@
       ],
       "points": [
         0,
-        3,
         0,
         0,
-        3,
+        0,
+        0,
         0
       ],
       "rollingAvg": [
         0,
-        1.5,
-        1,
-        0.8,
-        1.5,
-        0.8
+        0,
+        0,
+        0,
+        0,
+        0
       ]
     }
   }

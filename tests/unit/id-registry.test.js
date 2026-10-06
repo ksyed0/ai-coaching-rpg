@@ -1,6 +1,6 @@
 'use strict';
 // docs/ID_REGISTRY.md must stay in step with the ids used in the tracked plan files:
-// the "Next Available" id is above every id in use, and "Last Assigned" is the highest one.
+// the "Next Available" id is above every id in use (or reserved in the registry's 'Reserved blocks' note), and "Last Assigned" is the highest one.
 const fs = require('fs');
 const path = require('path');
 
@@ -27,7 +27,9 @@ function highestUsed(prefix, text) {
 
 describe('docs/ID_REGISTRY.md', () => {
   const registry = parseRegistry(read('ID_REGISTRY.md'));
-  const all = PLAN_FILES.map(read).join('\n');
+  // Ids reserved for parallel work (the 'Reserved blocks' note under the registry table) count as in use.
+  const reserved = read('ID_REGISTRY.md').split('\n').filter((l) => l.startsWith('Reserved blocks')).join('\n');
+  const all = [...PLAN_FILES.map(read), reserved].join('\n');
 
   it('lists every id sequence', () => {
     for (const p of ['EPIC', 'US', 'TASK', 'AC', 'TC', 'BUG']) expect(registry[p]).toBeDefined();

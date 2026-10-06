@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +9,7 @@ import { JsonlEventLog, MemoryEventLog, type EventLog } from "../engine/event-lo
 import { SessionEngine } from "../engine/session-engine.js";
 import { SessionHost } from "../host/session-host.js";
 import { startServer } from "../host/ws-server.js";
+import type { Limits } from "../host/security.js";
 import { npcIntro } from "../agents/npc-prompt.js";
 import { parseNpcTimeouts } from "../agents/timeouts.js";
 import { parseTokenBudgets } from "../agents/token-budgets.js";
@@ -21,6 +23,12 @@ export const FAKE_KEY = "sk-ant-demo-FAKE-DO-NOT-USE-0123456789abcdefghijklmnop"
 export const MIN = 60_000;
 /** Scenario time zero for the fake clock. */
 export const T0 = 1_800_000_000_000;
+
+/**
+ * The demo's ordinary systems run with limits far above anything the story does, so the checks measure the story and not the
+ * defaults. The security room (F-31 to F-33) is the one place that runs tight limits on purpose.
+ */
+export const DEMO_LIMITS: Partial<Limits> = { maxConnections: 500, maxConnectionsPerIp: 500, msgRate: 1_000, msgBurst: 5_000, joinTimeoutMs: 120_000, maxQueue: 5_000 };
 
 export type TempRoot = { root: string; dataDir: string; scenarioDir: string; cleanup(): Promise<void> };
 
@@ -197,6 +205,7 @@ export async function buildSystem(o: {
   npcProvider: ModelProvider; gmProvider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; log?: EventLog; heartbeatMs?: number;
   /** The Game Master settings (GM_TIMEOUT_MS, GM_REASK, GM_EVERY_N_UTTERANCES) and its raw-reply trace; defaults when absent. */
   gmConfig?: GmConfig; gmTrace?: (rec: GmTraceRecord) => void;
+  facilitatorToken?: string; limits?: Partial<Limits>; allowedOrigins?: string[]; trustProxy?: boolean;
 }): Promise<System> {
   const hostLog: string[] = []; const serverLog: string[] = [];
   const log = o.log ?? new JsonlEventLog(o.sessionId, o.dataDir);
@@ -207,7 +216,10 @@ export async function buildSystem(o: {
     npcMaxTokens: o.npcMaxTokens, gmMaxTokens: o.gmMaxTokens, npcTemperature: o.npcTemperature, gmTemperature: o.gmTemperature,
     gmTimeoutMs: o.gmConfig?.timeoutMs, gmReask: o.gmConfig?.reask, gmEveryN: o.gmConfig?.everyNUtterances, gmTrace: o.gmTrace,
   });
-  const server = await startServer({ port: 0, hosts: new Map([[o.sessionId, host]]), log: (m) => serverLog.push(m), heartbeatMs: o.heartbeatMs });
+  const server = await startServer({
+    port: 0, hosts: new Map([[o.sessionId, host]]), log: (m) => serverLog.push(m), heartbeatMs: o.heartbeatMs, host: "127.0.0.1",
+    facilitatorToken: o.facilitatorToken, limits: { ...DEMO_LIMITS, ...o.limits }, allowedOrigins: o.allowedOrigins, trustProxy: o.trustProxy,
+  });
   return {
     port: server.port, host, engine, clock: o.clock, fakeClock: o.fakeClock, npc: o.npc, gm: o.gm, hostLog, serverLog,
     logFile: path.join(o.dataDir, `${o.sessionId}.jsonl`),
@@ -250,4 +262,18 @@ export async function startLabSystem(o: { scenario: Scenario; sessionId: string 
     npcProvider, gmProvider: new MockModelProvider(), firstTokenTimeoutMs: LAB_FIRST_TOKEN_MS, replyTimeoutMs: LAB_REPLY_MS, heartbeatMs: LAB_HEARTBEAT_MS,
   });
   return Object.assign(sys, { npcProvider });
+}
+
+
+/** A fresh random token for each run's security room (48 hex characters). The outcomes do not depend on its value; F-28 and the report check prove it never leaks. */
+export const newSecurityToken = (): string => randomBytes(24).toString("hex");
+
+/** The security room: a token, deliberately tight limits and a trusted proxy header (so one machine can play many addresses), on its own port. */
+export async function startSecuritySystem(o: { scenario: Scenario; sessionId: string; token: string; limits: Partial<Limits>; allowedOrigins?: string[] }): Promise<System> {
+  const clock = new FakeClock(T0);
+  return buildSystem({
+    scenario: o.scenario, sessionId: o.sessionId, dataDir: "", clock, fakeClock: clock, log: new MemoryEventLog(o.sessionId),
+    npcProvider: new MockModelProvider(), gmProvider: new MockModelProvider(),
+    facilitatorToken: o.token, limits: o.limits, allowedOrigins: o.allowedOrigins, trustProxy: true,
+  });
 }

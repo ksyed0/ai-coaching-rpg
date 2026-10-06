@@ -6,6 +6,7 @@ export function validateScenario(s: Scenario): { errors: string[]; warnings: str
   const roleIds = new Set(Object.keys(s.roles));
   const sceneIds = new Set<string>();
   const injectIds = new Map<string, number>();
+  if (roleIds.has("facilitator")) errors.push("role id 'facilitator' is reserved for the facilitator connection");
 
   for (const scene of s.script.scenes) {
     if (sceneIds.has(scene.id)) errors.push(`scene id '${scene.id}' is used more than once`);

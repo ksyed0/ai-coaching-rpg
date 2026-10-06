@@ -9,12 +9,14 @@ import { loadRubrics, loadScenario, validateScenario, type Rubric, type Scenario
 import { REPO_ROOT } from "../main.js";
 import { DEMO_USAGE, parseDemoArgs } from "./args.js";
 import { playAudit } from "./audit.js";
-import { CHECKS, Recorder, buildMarkers, type RunKind } from "./checks.js";
+import { CHECKS, SECURITY_CHECKS, Recorder, buildMarkers, type RunKind } from "./checks.js";
 import { newStory, type Ctx } from "./ctx.js";
 import { FAKE_KEY, makeTempDataDir, makeTempRoot, startLiveSystem, startMockSystem, startPlayerProvider, startShowcaseMockSystem, type System } from "./harness.js";
 import { PlayerBotGenerator } from "./player-bot.js";
 import { PlayerLines } from "./player-lines.js";
 import { playLab } from "./lab.js";
+import { playSecurityRoom } from "./security.js";
+import { TOKEN_RULE, isValidToken } from "../host/security.js";
 import { createNarrator, shouldColor } from "./narrator.js";
 import { buildReport, exitCodeFor, formatChecklist, scrubText, type CheckResult, type DemoMode, type Report } from "./report.js";
 import { SHOWCASE_CHECKS, SHOWCASE_EVAL_CHECKS, SHOWCASE_LIVE_CHECKS, SHOWCASE_PLAYER_CHECKS, expectedModelCalls, playShowcase, showcaseMarkers, type ShowcaseEvaluate, type ShowcaseHolder, type ShowcaseHooks } from "./showcase.js";
@@ -207,7 +209,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const startedMs = now();
   const holder: ShowcaseHolder = {};
   const rec = new Recorder({
-    kind, now, defs: showcase ? [...SHOWCASE_CHECKS, ...(opts.players === "generated" ? SHOWCASE_PLAYER_CHECKS : []), ...(opts.evaluate ? SHOWCASE_EVAL_CHECKS : []), ...(opts.live ? SHOWCASE_LIVE_CHECKS : [])] : CHECKS, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
+    kind, now, defs: showcase ? [...SHOWCASE_CHECKS, ...(opts.players === "generated" ? SHOWCASE_PLAYER_CHECKS : []), ...(opts.evaluate ? SHOWCASE_EVAL_CHECKS : []), ...(opts.live ? SHOWCASE_LIVE_CHECKS : [])] : opts.security ? [...CHECKS, ...SECURITY_CHECKS] : CHECKS, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
     onResult: (r) => { if (r.status === "passed") n.ok(`${r.id} ${r.details}`); else if (r.status === "failed") n.fail(`${r.id} ${r.details}`); },
   });
   const cleanups: (() => Promise<void> | void)[] = [];
@@ -295,6 +297,15 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     });
   };
 
+  // --url against a token-protected server: the same variable the terminal client reads. The value is never printed (it is also in secretValues).
+  const rawUrlToken = opts.url ? deps.env.FACILITATOR_TOKEN : undefined;
+  const urlToken = rawUrlToken !== undefined && rawUrlToken !== "" ? rawUrlToken : undefined;
+  if (urlToken !== undefined && !isValidToken(urlToken)) {
+    deps.stderr.write(`error: FACILITATOR_TOKEN is not a valid token (${TOKEN_RULE}); the value is not shown\n`);
+    return { exitCode: 2 };
+  }
+  if (urlToken !== undefined && !secretValues.includes(urlToken)) secretValues.push(urlToken);
+
   const execute = async (): Promise<void> => {
     if (showcase) return executeShowcase(showcase);
     n.line(`The Friday Escalation demo (${mode} mode${opts.fast ? ", fast" : opts.speed !== 1 ? `, speed ${opts.speed}` : ""})`);
@@ -312,7 +323,9 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       n.line("  - role-claim attempts (a taken, an NPC and an unknown role), forged-token takeover attempts and a rejoin with the real token;");
       n.line("  - player-issued start and pause, speech before the start, a facilitator say, speech from a role that is absent from the scene, speech and a resume command after the session ends, speech before joining, and a whisper to the NPC role (all expected to be refused);");
       n.line("  - malformed frames (bad JSON, an unknown type, an over-long line, an empty id) and one oversized (~70 kB) frame.");
-      n.line("The server must allow facilitator joins (Slice 1 has no authentication). Structure is checked, not model content.");
+      n.line(urlToken !== undefined
+        ? "The facilitator joins with the token from the FACILITATOR_TOKEN environment variable (never printed). Structure is checked, not model content."
+        : "The server must allow facilitator joins: it is open (no authentication), or export FACILITATOR_TOKEN with its token. Structure is checked, not model content.");
     }
 
     const scenario = await loadScenario(path.join(repoRoot, "scenarios", "friday-escalation"));
@@ -321,7 +334,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     const markers = buildMarkers(scenario);
     scenarioTitle = scenario.meta.title;
     const ctx: Ctx = {
-      kind, tr, provider: providerKind, n, rec, signal: ac.signal, scenario, markers, sessionId, wsUrl: opts.url ?? "", repoRoot, npcWaitMs: deps.npcWaitMs ?? (kind === "mock" ? 5_000 : 40_000),
+      kind, tr, provider: providerKind, n, rec, signal: ac.signal, scenario, markers, sessionId, wsUrl: opts.url ?? "", facilitatorToken: urlToken, repoRoot, npcWaitMs: deps.npcWaitMs ?? (kind === "mock" ? 5_000 : 40_000),
       outputTap: tap, labLogs: [], labHostLog: [], bots, secretValues, beforeAct: deps.beforeAct, register, now,
     };
     register(() => { for (const b of bots) b.terminate(); });
@@ -338,6 +351,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     const st = newStory();
     await playStory(ctx, st);
     await playLab(ctx, st);
+    await playSecurityRoom(ctx, st);
     await playAudit(ctx, st);
     if (st.broken) { rec.finish("prerequisite failed"); extra.push({ id: "STORY", title: "The story ran to its end", status: "failed", details: st.broken, durationMs: 0 }); }
   };

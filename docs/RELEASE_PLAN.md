@@ -415,22 +415,57 @@ Notes: Plan gap found in the Slice 1 final review: `SessionEngine.updateNpc(...,
 US-0017 (EPIC-0006): As an operator, I want facilitator access protected by a token and connections and message rates limited, so that the server can be run outside a fully trusted network.
 Priority: High
 Estimate: M
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
 Dependencies: US-0009
 Acceptance Criteria:
-  - [ ] AC-0053: when `FACILITATOR_TOKEN` is set, `join_facilitator` without the matching token is refused (constant-time comparison) and the token is never logged or echoed
-  - [ ] AC-0054: a configurable cap on concurrent connections and a per-connection message rate limit close or throttle abusers without affecting other clients
-  - [ ] AC-0055: the threat model is documented, and the README limitation states exactly what the token does and does not protect (claiming an unclaimed player role is covered separately)
+  - [x] AC-0053: when `FACILITATOR_TOKEN` is set, `join_facilitator` without the matching token is refused (constant-time comparison) and the token is never logged or echoed
+  - [x] AC-0054: a configurable cap on concurrent connections and a per-connection message rate limit close or throttle abusers without affecting other clients
+  - [x] AC-0055: the threat model is documented, and the README limitation states exactly what the token does and does not protect (claiming an unclaimed player role is covered separately)
+  - [x] AC-0140: with `FACILITATOR_TOKEN` unset the server stays open and prints one loud startup warning that contains no secret; `run.sh` writes a random token only into a new `.env` and never overwrites an existing `.env` or token (failing closed is a later release; per-role join codes are US-0033)
+  - [x] AC-0141: a missing, empty, wrong or over-long token is refused with a generic `unauthorized` and the connection is closed after one failed attempt; more than 5 failures per address per minute block that address; the token never appears in a log, alert, event or any client's inbox
+  - [x] AC-0142: connection caps (total and per address) and the Origin check (`ALLOWED_ORIGINS`) refuse a handshake before a WebSocket exists; a connection that does not join within `WS_JOIN_TIMEOUT_MS` is closed
+  - [x] AC-0143: each connection has its own token bucket (`WS_MSG_RATE`, `WS_MSG_BURST`) and a queue cap; repeated drops or a full queue close that connection with 1008 and never affect another client; frames are capped at 16 KiB
+  - [x] AC-0144: `FACILITATOR_TOKEN`, `RUNTIME_HOST`, `ALLOWED_ORIGINS`, `TRUST_PROXY` and the `WS_*` variables are validated at startup like the other settings, with errors that name the variable and its range and never show the token; ranges are documented in the README and `.env.example`
+  - [x] AC-0145: the terminal client takes the token from `FACILITATOR_TOKEN`, `--token-file` or a hidden prompt and never from argv (`--token` is refused); the token is never printed
+  - [x] AC-0146: `docs/THREAT_MODEL.md` states what the token protects and does not (no TLS with a reverse-proxy recommendation, unclaimed player roles, a role freed on disconnect, logs at rest, the model provider, denial of service beyond the caps)
+  - [x] AC-0147: `pnpm demo --security` adds offline, deterministic checks F-31 to F-33 (token, flood isolation, caps, Origin, join timeout) while the default run keeps its 29 checks, and `pnpm demo --url` passes `FACILITATOR_TOKEN` to a protected server
 ```
 
 ```
 TASK-0017 (US-0017): Add facilitator token check, connection cap and per-connection rate limiting to the WebSocket server
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
 Notes: Known limitation of Slice 1: anyone who can reach the port can join as facilitator or claim an unclaimed player role. The server binds all interfaces.
+```
+
+```
+TASK-0043 (US-0017): Token check, throttle, caps, Origin check, rate limit, queue cap, join timeout and env validation in the runtime
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
+Notes: services/runtime/src/host/security.ts (helpers and env parsing), ws-server.ts, main.ts. Unit and abuse-case tests in host/__tests__.
+```
+
+```
+TASK-0044 (US-0017): Terminal client token delivery, run.sh token generation, .env.example and compose notes
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
+Notes: cli/token.ts, cli/play.ts, run.sh with scripts/run-sh-token.test.sh.
+```
+
+```
+TASK-0045 (US-0017): Demo security room (F-31 to F-33), --url token, THREAT_MODEL.md, README and CHANGELOG
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
+Notes: demo/security.ts behind `pnpm demo --security`; the default 29-check run is unchanged.
 ```
 
 ```
@@ -817,4 +852,49 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0006-ai-character-voices
 Notes: Observed 2026-10-06 in real Gemma runs of `pnpm demo --showcase --live --players generated`: both AI characters answered every player line and the CFO's reply rephrased the sponsor's point. Live comparison is recorded by the controller, not in this task. Fix round 2026-10-06 after an independent review: forced last speaker, silence forms folded before cleaning, roster tags, generic prompt wording, echo metric restricted to different roles answering the same player line, validator warnings, ordered silent-turn note, bounded silence memory, cross-character prompt audit in S-06.
+```
+
+```
+US-0033 (EPIC-0006): As an operator, I want each player role to have its own join code, so that a person cannot claim a role that was meant for someone else.
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0006-US-0033-player-join-codes
+Dependencies: US-0017
+Acceptance Criteria:
+  - [ ] AC-0120: when the server starts a session it creates one random join code per player role (stored only as a hash, never written to the event log), the operator can see the codes once at start, and a `join` for a player role must present that role's code
+  - [ ] AC-0121: a `join` with a missing or wrong code is refused with one generic error that does not say whether the role exists or is taken, and the refusals count towards the existing connection and rate limits
+  - [ ] AC-0122: the facilitator token (US-0017) remains separate, a rejoining player keeps using the reconnect token for a live session, and the README documents how to hand the codes out
+```
+
+```
+TASK-0033 (US-0033): Generate and verify per-role join codes, add the code to the join message and the terminal client, document it
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0033-player-join-codes
+Notes: Closes the gap US-0017 leaves open: with only a facilitator token, any connection can still claim an unclaimed player role. Also needed so that US-0018 (resume after restart) can keep roles protected across a restart (hashed codes only).
+```
+
+```
+US-0034 (EPIC-0006): As a facilitator, I want the Game Master to suggest releasing a hidden fact when a scenario `earned_when` condition is met (suggest-only, never auto-release by default), so that I do not have to watch for the moment a participant has earned it.
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release
+Dependencies: US-0016, US-0025
+Acceptance Criteria:
+  - [ ] AC-0123: a scenario may give a hidden fact an optional `earned_when` condition (plain text, validated like a scene exit condition), and a scenario without it behaves exactly as before
+  - [ ] AC-0124: when the Game Master judges an `earned_when` condition true for a fact that is not yet released, the facilitator (only) receives one alert that names the role and the fact index and says how to release it (`/release <role> <n>`); the fact text never reaches players, and the same suggestion is not repeated
+  - [ ] AC-0125: nothing is released without the facilitator's `release_hidden` command, unless the operator explicitly sets an opt-in `GM_AUTO_RELEASE` option, which is off by default and records the release as a Game Master action
+  - [ ] AC-0126: the scripted mock provider covers the suggestion and the no-suggestion cases, the demo checks stay stable, and the README and CHANGELOG describe the feature
+```
+
+```
+TASK-0034 (US-0034): Add earned_when to the schema, have the Game Master evaluate it and alert the facilitator, add the opt-in auto release
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release
+Notes: Follow-up to the design notes for US-0016 and US-0025. US-0016 gives the facilitator the manual release command; this story only suggests it.
 ```

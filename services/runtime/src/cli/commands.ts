@@ -2,36 +2,42 @@ import { parseArgs as nodeParseArgs } from "node:util";
 import type { ClientMessage, ServerMessage } from "../host/protocol.js";
 import { MAX_UTTERANCE_CHARS } from "../host/protocol.js";
 
-export const USAGE = "usage: pnpm play --role <roleId> --name <you> [--url ws://host:8080] [--session local]\n       pnpm play --facilitator [--url ws://host:8080] [--session local]";
+export const USAGE = "usage: pnpm play --role <roleId> --name <you> [--url ws://host:8080] [--session local]\n       pnpm play --facilitator [--url ws://host:8080] [--session local] [--token-file <path>]\n       (a server that sets FACILITATOR_TOKEN needs it: set the same variable, use --token-file, or type it at the hidden prompt)";
+export const TOKEN_ARGV_REFUSED = "error: --token is not supported: a value on the command line is visible to other users (ps) and stays in shell history. Set FACILITATOR_TOKEN, use --token-file <path>, or type it at the prompt";
 export const PLAYER_HELP = "type to speak to the room; /quit to leave";
 export const FACILITATOR_HELP = "commands: /start /pause /resume /advance /inject <id> /whisper <role> <text> /quit";
 const MAX_NAME_CHARS = 64;
 const MAX_ID_CHARS = 128;
 
-export type Options = { facilitator: boolean; role?: string; name?: string; url: string; session: string };
+export type Options = { facilitator: boolean; role?: string; name?: string; url: string; session: string; /** Where to read the facilitator token from (never the token itself on the command line). */ tokenFile?: string; /** The resolved facilitator token; set by the launcher, never printed. */ token?: string };
 export type ArgsResult = { ok: true; opts: Options } | { ok: false; error: string; usage: string };
 
 const fail = (error: string): ArgsResult => ({ ok: false, error, usage: USAGE });
-const FLAGS = ["role", "name", "url", "session", "facilitator"];
+const FLAGS = ["role", "name", "url", "session", "facilitator", "token-file"];
 const hasControl = (v: string) => new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]").test(v);
 
 /** Pure argv parser (argv excludes node and the script). Callers print `error` and exit with code 2. */
 export function parseArgs(argv: string[]): ArgsResult {
+  if (argv.some((a) => a === "--token" || a.startsWith("--token="))) return fail(TOKEN_ARGV_REFUSED);
   for (const f of FLAGS) {
     const n = argv.filter((a) => a === `--${f}` || a.startsWith(`--${f}=`)).length;
     if (n > 1) return fail(`error: --${f} was given more than once`);
   }
-  let values: { role?: string; name?: string; url?: string; session?: string; facilitator?: boolean };
+  let values: { role?: string; name?: string; url?: string; session?: string; facilitator?: boolean; "token-file"?: string };
   try {
     ({ values } = nodeParseArgs({
       args: argv, allowPositionals: false, strict: true,
-      options: { role: { type: "string" }, name: { type: "string" }, url: { type: "string" }, session: { type: "string" }, facilitator: { type: "boolean" } },
+      options: { role: { type: "string" }, name: { type: "string" }, url: { type: "string" }, session: { type: "string" }, facilitator: { type: "boolean" }, "token-file": { type: "string" } },
     }));
   } catch (err) { return fail(`error: ${(err as Error).message.split("\n")[0]}`); }
 
   const facilitator = values.facilitator === true;
   if (facilitator && (values.role !== undefined || values.name !== undefined)) return fail("error: --facilitator cannot be combined with --role or --name");
   if (!facilitator && (values.role === undefined || values.name === undefined)) return fail("error: a player needs --role and --name (or use --facilitator)");
+
+  const tokenFile = values["token-file"];
+  if (tokenFile !== undefined && !facilitator) return fail("error: --token-file only applies to --facilitator");
+  if (tokenFile !== undefined && (tokenFile === "" || hasControl(tokenFile))) return fail("error: --token-file must be a file path");
 
   const url = values.url ?? "ws://localhost:8080";
   let protocol = "";
@@ -41,7 +47,7 @@ export function parseArgs(argv: string[]): ArgsResult {
   const session = values.session ?? "local";
   if (!session || session.length > MAX_ID_CHARS || hasControl(session)) return fail("error: --session must be 1-128 printable characters");
 
-  if (facilitator) return { ok: true, opts: { facilitator, role: undefined, name: undefined, url, session } };
+  if (facilitator) return { ok: true, opts: { facilitator, role: undefined, name: undefined, url, session, ...(tokenFile !== undefined ? { tokenFile } : {}) } };
   const role = values.role!;
   const name = values.name!.trim();
   if (!role || role.length > MAX_ID_CHARS || hasControl(role)) return fail("error: --role must be 1-128 printable characters");
@@ -51,7 +57,7 @@ export function parseArgs(argv: string[]): ArgsResult {
 
 export function joinMessage(o: Options): ClientMessage {
   return o.facilitator
-    ? { type: "join_facilitator", sessionId: o.session }
+    ? { type: "join_facilitator", sessionId: o.session, ...(o.token !== undefined && o.token !== "" ? { token: o.token } : {}) }
     : { type: "join", sessionId: o.session, roleId: o.role!, participantId: o.name! };
 }
 
