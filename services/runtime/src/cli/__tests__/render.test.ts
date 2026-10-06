@@ -152,3 +152,19 @@ describe("renderJoined transcript (M3)", () => {
     expect(joinedWith([])).not.toContain("--- history ---");
   });
 });
+
+describe("renderError for the token and rate limits (US-0017)", () => {
+  it("explains unauthorized and rate_limited without echoing anything from the server", () => {
+    expect(renderError("unauthorized", "x\x1b[2Jsecret")).toMatch(/needs the facilitator token/);
+    expect(renderError("unauthorized", "x\x1b[2Jsecret")).not.toContain("secret");
+    expect(renderError("rate_limited", "whatever")).toMatch(/slow down/);
+  });
+});
+
+describe("renderJoined notice (US-0017)", () => {
+  it("shows the server's open-server note to the facilitator, sanitized", () => {
+    const lines = renderJoined({ type: "joined", roleId: "facilitator", state: { transcript: [] } as never, notice: "no token\x1b[2J" });
+    expect(lines[1]).toMatch(/^warning: no token/);
+    expect(lines.join("")).not.toContain("\x1b");
+  });
+});

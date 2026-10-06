@@ -1,6 +1,8 @@
+import { statSync } from "node:fs";
 import readline from "node:readline";
 import WebSocket from "ws";
 import { parseArgs } from "./commands.js";
+import { plainTokenWarning, readTokenFile, resolveFacilitatorToken } from "./token.js";
 import { createClient, DEFAULT_IDLE_MS } from "./client.js";
 import { sanitizeText } from "./render.js";
 
@@ -9,6 +11,40 @@ const CONNECT_TIMEOUT_MS = 10_000;
 const parsed = parseArgs(process.argv.slice(2));
 if (!parsed.ok) { console.error(`${parsed.error}\n${parsed.usage}`); process.exit(2); }
 const opts = parsed.opts;
+
+/** Reads one line from the terminal without echoing it (raw mode). Ctrl-C quits. */
+function promptHidden(question: string): Promise<string> {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    process.stderr.write(question);
+    stdin.setRawMode?.(true);
+    stdin.resume();
+    stdin.setEncoding("utf8");
+    let buf = "";
+    const onData = (chunk: string) => {
+      for (const ch of chunk) {
+        if (ch === "\r" || ch === "\n") { stdin.off("data", onData); stdin.setRawMode?.(false); stdin.pause(); process.stderr.write("\n"); return resolve(buf); }
+        if (ch === "\u0003") { stdin.setRawMode?.(false); process.stderr.write("\n"); process.exit(130); }
+        if (ch === "\u007f" || ch === "\b") buf = buf.slice(0, -1);
+        else if (ch >= " ") buf += ch;
+      }
+    };
+    stdin.on("data", onData);
+  });
+}
+
+if (opts.facilitator) {
+  const t = await resolveFacilitatorToken({
+    env: process.env, tokenFile: opts.tokenFile,
+    readFile: readTokenFile, fileMode: (f) => { try { return statSync(f).mode & 0o777; } catch { return undefined; } },
+    isTTY: process.stdin.isTTY === true && process.stdout.isTTY === true, promptHidden,
+  });
+  if (!t.ok) { console.error(t.error); process.exit(2); }
+  for (const w of t.warnings) console.error(w);
+  if (t.token !== undefined) opts.token = t.token;
+  const plain = plainTokenWarning(opts.url, t.token !== undefined);
+  if (plain) console.error(plain);
+}
 const me = opts.facilitator ? "facilitator" : opts.role!;
 const tty = process.stdout.isTTY === true;
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: tty ? `${sanitizeText(me)}> ` : "" });

@@ -415,22 +415,57 @@ Notes: Plan gap found in the Slice 1 final review: `SessionEngine.updateNpc(...,
 US-0017 (EPIC-0006): As an operator, I want facilitator access protected by a token and connections and message rates limited, so that the server can be run outside a fully trusted network.
 Priority: High
 Estimate: M
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
 Dependencies: US-0009
 Acceptance Criteria:
-  - [ ] AC-0053: when `FACILITATOR_TOKEN` is set, `join_facilitator` without the matching token is refused (constant-time comparison) and the token is never logged or echoed
-  - [ ] AC-0054: a configurable cap on concurrent connections and a per-connection message rate limit close or throttle abusers without affecting other clients
-  - [ ] AC-0055: the threat model is documented, and the README limitation states exactly what the token does and does not protect (claiming an unclaimed player role is covered separately)
+  - [x] AC-0053: when `FACILITATOR_TOKEN` is set, `join_facilitator` without the matching token is refused (constant-time comparison) and the token is never logged or echoed
+  - [x] AC-0054: a configurable cap on concurrent connections and a per-connection message rate limit close or throttle abusers without affecting other clients
+  - [x] AC-0055: the threat model is documented, and the README limitation states exactly what the token does and does not protect (claiming an unclaimed player role is covered separately)
+  - [x] AC-0140: with `FACILITATOR_TOKEN` unset the server stays open and prints one loud startup warning that contains no secret; `run.sh` writes a random token only into a new `.env` and never overwrites an existing `.env` or token (failing closed is a later release; per-role join codes are US-0033)
+  - [x] AC-0141: a missing, empty, wrong or over-long token is refused with a generic `unauthorized` and the connection is closed after one failed attempt; more than 5 failures per address per minute block that address; the token never appears in a log, alert, event or any client's inbox
+  - [x] AC-0142: connection caps (total and per address) and the Origin check (`ALLOWED_ORIGINS`) refuse a handshake before a WebSocket exists; a connection that does not join within `WS_JOIN_TIMEOUT_MS` is closed
+  - [x] AC-0143: each connection has its own token bucket (`WS_MSG_RATE`, `WS_MSG_BURST`) and a queue cap; repeated drops or a full queue close that connection with 1008 and never affect another client; frames are capped at 16 KiB
+  - [x] AC-0144: `FACILITATOR_TOKEN`, `RUNTIME_HOST`, `ALLOWED_ORIGINS`, `TRUST_PROXY` and the `WS_*` variables are validated at startup like the other settings, with errors that name the variable and its range and never show the token; ranges are documented in the README and `.env.example`
+  - [x] AC-0145: the terminal client takes the token from `FACILITATOR_TOKEN`, `--token-file` or a hidden prompt and never from argv (`--token` is refused); the token is never printed
+  - [x] AC-0146: `docs/THREAT_MODEL.md` states what the token protects and does not (no TLS with a reverse-proxy recommendation, unclaimed player roles, a role freed on disconnect, logs at rest, the model provider, denial of service beyond the caps)
+  - [x] AC-0147: `pnpm demo --security` adds offline, deterministic checks F-31 to F-33 (token, flood isolation, caps, Origin, join timeout) while the default run keeps its 29 checks, and `pnpm demo --url` passes `FACILITATOR_TOKEN` to a protected server
 ```
 
 ```
 TASK-0017 (US-0017): Add facilitator token check, connection cap and per-connection rate limiting to the WebSocket server
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
 Notes: Known limitation of Slice 1: anyone who can reach the port can join as facilitator or claim an unclaimed player role. The server binds all interfaces.
+```
+
+```
+TASK-0043 (US-0017): Token check, throttle, caps, Origin check, rate limit, queue cap, join timeout and env validation in the runtime
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
+Notes: services/runtime/src/host/security.ts (helpers and env parsing), ws-server.ts, main.ts. Unit and abuse-case tests in host/__tests__.
+```
+
+```
+TASK-0044 (US-0017): Terminal client token delivery, run.sh token generation, .env.example and compose notes
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
+Notes: cli/token.ts, cli/play.ts, run.sh with scripts/run-sh-token.test.sh.
+```
+
+```
+TASK-0045 (US-0017): Demo security room (F-31 to F-33), --url token, THREAT_MODEL.md, README and CHANGELOG
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0017-facilitator-token-and-limits
+Notes: demo/security.ts behind `pnpm demo --security`; the default 29-check run is unchanged.
 ```
 
 ```

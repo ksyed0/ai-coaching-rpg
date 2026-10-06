@@ -17,6 +17,13 @@ describe("validateScenario", () => {
     expect(validateScenario(s).errors).toContain("scene s1_open: participant 'ghost' is not a role");
   });
 
+  it("errors on the reserved role id 'facilitator'", async () => {
+    const s = await loadScenario(path.join(fixtures, "minimal"));
+    const first = Object.values(s.roles)[0]!;
+    s.roles["facilitator"] = { ...first, id: "facilitator" };
+    expect(validateScenario(s).errors).toContain("role id 'facilitator' is reserved for the facilitator connection");
+  });
+
   it("errors on duplicate inject ids across scenes", async () => {
     const s = await loadScenario(path.join(fixtures, "minimal"));
     s.script.scenes[1].injects = [{ ...s.script.scenes[0].injects![0] }];
