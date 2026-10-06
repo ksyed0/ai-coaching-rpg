@@ -5,7 +5,7 @@ import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
 import { describeModelProvider, selectModelProvider } from "@acr/adapters";
-import { loadScenario, validateScenario, type Scenario } from "@acr/script";
+import { loadRubrics, loadScenario, validateScenario, type Rubric, type Scenario } from "@acr/script";
 import { REPO_ROOT } from "../main.js";
 import { DEMO_USAGE, parseDemoArgs } from "./args.js";
 import { playAudit } from "./audit.js";
@@ -17,7 +17,7 @@ import { PlayerLines } from "./player-lines.js";
 import { playLab } from "./lab.js";
 import { createNarrator, shouldColor } from "./narrator.js";
 import { buildReport, exitCodeFor, formatChecklist, scrubText, type CheckResult, type DemoMode, type Report } from "./report.js";
-import { SHOWCASE_CHECKS, SHOWCASE_PLAYER_CHECKS, expectedModelCalls, playShowcase, showcaseMarkers, type ShowcaseHolder, type ShowcaseHooks } from "./showcase.js";
+import { SHOWCASE_CHECKS, SHOWCASE_EVAL_CHECKS, SHOWCASE_PLAYER_CHECKS, expectedModelCalls, playShowcase, showcaseMarkers, type ShowcaseEvaluate, type ShowcaseHolder, type ShowcaseHooks } from "./showcase.js";
 import { loadShowcaseScript, type ShowcaseScript } from "./showcase-script.js";
 import { playStory } from "./story.js";
 import type { ProviderKind } from "./provenance.js";
@@ -28,6 +28,12 @@ import { parseNpcTimeouts, DEFAULT_REPLY_TIMEOUT_MS } from "../agents/timeouts.j
 import { parseModelRetry } from "../agents/retry-config.js";
 import { parseTokenBudgets } from "../agents/token-budgets.js";
 import { parseTemperatures } from "../agents/temperatures.js";
+import { parseEvalConfig, type EvalConfig } from "../evaluator/config.js";
+import { evaluateSession } from "../evaluator/evaluate.js";
+import { readSessionLog } from "../evaluator/log-reader.js";
+import { evaluatorInfo, startEvaluatorProvider } from "../evaluator/provider.js";
+import { writeReports } from "../evaluator/report-write.js";
+import { createScriptedEvaluator } from "./eval-mock.js";
 
 export const TOOL = "acr-demo";
 export const DEFAULT_WATCHDOG_MS = 120_000;
@@ -35,6 +41,8 @@ export const LIVE_WATCHDOG_MS = 600_000;
 export const DEFAULT_SHOWCASE_SCENARIO = "scenarios/friday-escalation-extended";
 export const SHOWCASE_WATCHDOG_MINUTES = 3;
 export const SHOWCASE_LIVE_WATCHDOG_MINUTES = 30;
+/** With `--evaluate --live` the default watchdog grows by this much: the evaluator makes one slow call per player plus one for the group. */
+export const EVALUATE_EXTRA_WATCHDOG_MINUTES = 10;
 
 export type Out = { write(chunk: string): unknown; isTTY?: boolean };
 export type RunDeps = {
@@ -116,7 +124,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   }
 
   // --showcase: the scenario and its showcase script must load before anything starts (and before any .env is read).
-  let showcase: { scenario: Scenario; script: ShowcaseScript } | undefined;
+  let showcase: { scenario: Scenario; script: ShowcaseScript; rubrics: Rubric[] } | undefined;
   if (opts.showcase) {
     const dir = path.resolve(repoRoot, opts.scenario ?? DEFAULT_SHOWCASE_SCENARIO);
     try {
@@ -124,7 +132,14 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       const scenario = await loadScenario(dir);
       const { errors } = validateScenario(scenario);
       if (errors.length) throw new Error(`the scenario is invalid: ${errors.join("; ")}`);
-      showcase = { scenario, script: await loadShowcaseScript(dir, scenario, { mode: opts.live ? "live" : "mock", maxLines: opts.maxLines }) };
+      let rubrics: Rubric[] = [];
+      if (opts.evaluate) {
+        const loaded = await loadRubrics(dir, scenario);
+        if (loaded.errors.length) throw new Error(`the rubrics are invalid: ${loaded.errors.join("; ")}`);
+        if (loaded.rubrics.length === 0) throw new Error("--evaluate needs rubrics, but the scenario names none");
+        rubrics = loaded.rubrics;
+      }
+      showcase = { scenario, script: await loadShowcaseScript(dir, scenario, { mode: opts.live ? "live" : "mock", maxLines: opts.maxLines }), rubrics };
     } catch (err) {
       deps.stderr.write(`error: --showcase cannot use that scenario: ${scrubText(err instanceof Error ? err.message : String(err))}\n`);
       return { exitCode: 2 };
@@ -144,6 +159,11 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       const temperatures = parseTemperatures(liveEnv);
       if (!temperatures.ok) throw new Error(temperatures.errors.join("; "));
       if (opts.players === "generated") startPlayerProvider(liveEnv, opts.playerModel); // fails now, naming variables, not values
+      if (opts.evaluate) {
+        const ec = parseEvalConfig(liveEnv);
+        if (!ec.ok) throw new Error(ec.errors.join("; "));
+        startEvaluatorProvider(liveEnv, ec); // fails now, naming variables, not values
+      }
     } catch (err) {
       deps.stderr.write(`error: --live cannot use the configured model provider: ${scrubText(err instanceof Error ? err.message : String(err))}\n`);
       return { exitCode: 2 };
@@ -171,7 +191,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const startedMs = now();
   const holder: ShowcaseHolder = {};
   const rec = new Recorder({
-    kind, now, defs: showcase ? (opts.players === "generated" ? [...SHOWCASE_CHECKS, ...SHOWCASE_PLAYER_CHECKS] : SHOWCASE_CHECKS) : CHECKS, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
+    kind, now, defs: showcase ? [...SHOWCASE_CHECKS, ...(opts.players === "generated" ? SHOWCASE_PLAYER_CHECKS : []), ...(opts.evaluate ? SHOWCASE_EVAL_CHECKS : [])] : CHECKS, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
     onResult: (r) => { if (r.status === "passed") n.ok(`${r.id} ${r.details}`); else if (r.status === "failed") n.fail(`${r.id} ${r.details}`); },
   });
   const cleanups: (() => Promise<void> | void)[] = [];
@@ -181,10 +201,10 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   let unexpected = false;
   const bots: Ctx["bots"] = [];
 
-  const watchdogMinutes = opts.watchdog ?? (kind === "live" ? SHOWCASE_LIVE_WATCHDOG_MINUTES : SHOWCASE_WATCHDOG_MINUTES);
+  const watchdogMinutes = opts.watchdog ?? (kind === "live" ? SHOWCASE_LIVE_WATCHDOG_MINUTES + (opts.evaluate ? EVALUATE_EXTRA_WATCHDOG_MINUTES : 0) : SHOWCASE_WATCHDOG_MINUTES);
   const limit = deps.watchdogMs ?? (opts.watchdog !== undefined || showcase ? watchdogMinutes * 60_000 : kind === "live" ? LIVE_WATCHDOG_MS : DEFAULT_WATCHDOG_MS);
 
-  const executeShowcase = async (sc: { scenario: Scenario; script: ShowcaseScript }): Promise<void> => {
+  const executeShowcase = async (sc: { scenario: Scenario; script: ShowcaseScript; rubrics: Rubric[] }): Promise<void> => {
     const pacing = opts.fast ? ", fast" : opts.speed !== 1 ? `, speed ${opts.speed}` : "";
     scenarioTitle = sc.scenario.meta.title;
     n.line(`${sc.scenario.meta.title}: AI showcase (${mode} mode${opts.players === "generated" ? ", generated players" : ""}${pacing})`);
@@ -225,10 +245,29 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
         }),
       };
     }
+    let evaluate: ShowcaseEvaluate | undefined;
+    if (opts.evaluate) {
+      const outDir = path.resolve(deps.cwd ?? deps.env.INIT_CWD ?? process.cwd(), opts.evalOut ?? "data/reports");
+      const mockRun = kind !== "live";
+      let config: EvalConfig;
+      if (mockRun) { const d = parseEvalConfig({}); if (!d.ok) throw new Error(d.errors.join("; ")); config = d; } // a mock run never reads provider settings from the environment
+      else { const c = parseEvalConfig(liveEnv!); if (!c.ok) throw new Error(c.errors.join("; ")); config = c; }
+      evaluate = {
+        mock: mockRun,
+        run: async (logFile, signal) => {
+          const events = await readSessionLog(logFile);
+          const provider = mockRun ? createScriptedEvaluator(events, sc.scenario, sc.rubrics) : startEvaluatorProvider(liveEnv!, config);
+          const result = await evaluateSession({ events, scenario: sc.scenario, rubrics: sc.rubrics, provider, config, signal });
+          const written = await writeReports(result, { outDir, evaluator: evaluatorInfo(mockRun ? {} : liveEnv!, config, { scripted: mockRun }), secrets: secretValues });
+          return { result, written };
+        },
+      };
+      n.line(mockRun ? "Evaluation: after the checks the scripted offline evaluator writes feedback reports (demo data, deterministic)." : `NOTICE: --evaluate sends the whole session transcript (what every participant and AI character said) to the configured model provider (${providerLabel}) at the end, up to ${sc.scenario.script.scenes.length > 0 ? Object.values(sc.scenario.roles).filter((r) => r.type === "player").length * 2 + 2 : 0} calls, and may cost money.`, false);
+    }
     await playShowcase(ctx, newStory(), {
       script: sc.script, mode: kind === "live" ? "live" : "mock", maxLines: opts.maxLines ?? null, maxFallbacks: opts.maxFallbacks ?? null,
       watchdogMinutes, watchdogMs: limit, provider: kind === "live" ? providerLabel : undefined,
-      replyTimeoutMs: timeouts?.ok ? timeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS, startedMs, holder, hooks: deps.showcaseHooks, players,
+      replyTimeoutMs: timeouts?.ok ? timeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS, startedMs, holder, hooks: deps.showcaseHooks, players, evaluate,
     });
   };
 
@@ -318,6 +357,10 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const report = buildReport({
     tool: TOOL, version: deps.version ?? readVersion(), mode, startedAt: new Date(startedMs).toISOString(), durationMs: now() - startedMs,
     results: [...rec.ordered(), ...extra], secrets: secretValues, showcase: showcaseReport,
+    evaluation: holder.evaluation ? {
+      dir: holder.evaluation.written.dir, files: holder.evaluation.written.files.map((f) => path.relative(holder.evaluation!.written.dir, f)), modelCalls: holder.evaluation.result.modelCalls,
+      participants: holder.evaluation.result.participants.map((p) => ({ role: p.roleId, status: p.status })), group: { status: holder.evaluation.result.group.status }, failures: holder.evaluation.result.failures,
+    } : undefined,
   });
   const code = interrupted ? (interrupted === "SIGINT" ? 130 : 143) : exitCodeFor(report, unexpected || extra.length > 0);
   for (const line of ["", ...formatChecklist(report, color)]) sink.write(`${line}\n`);

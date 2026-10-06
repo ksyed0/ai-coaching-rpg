@@ -77,9 +77,11 @@ export function renderGroupMarkdown(r: GroupReport, secrets: string[] = []): str
   out.push(...criteriaTable(r.criteria, sec), "");
   out.push("## Learning-objective coverage across the team", "");
   const players = r.lo_coverage.players;
-  out.push(`| Learning objective | ${players.map((p) => id(p, sec)).join(" | ")} | Team (group criteria) |`, `| --- | ${players.map(() => "---").join(" | ")} | --- |`);
+  // The team column appears only when a learning objective maps to a group criterion (otherwise it would be all Not observed).
+  const team = r.lo_coverage.objectives.some((o) => o.team.score !== null);
+  out.push(`| Learning objective | ${players.map((p) => id(p, sec)).join(" | ")}${team ? " | Team (group criteria)" : ""} |`, `| --- | ${players.map(() => "---").join(" | ")}${team ? " | ---" : ""} |`);
   for (const o of r.lo_coverage.objectives) {
-    out.push(`| ${id(o.id, sec)}: ${safeMd(o.statement, 160, sec)} | ${players.map((p) => loScoreText(o.by_role[p]!.score, o.by_role[p]!.label)).join(" | ")} | ${loScoreText(o.team.score, o.team.label)} |`);
+    out.push(`| ${id(o.id, sec)}: ${safeMd(o.statement, 160, sec)} | ${players.map((p) => loScoreText(o.by_role[p]!.score, o.by_role[p]!.label)).join(" | ")}${team ? ` | ${loScoreText(o.team.score, o.team.label)}` : ""} |`);
   }
   out.push("");
   out.push("## Talking points for the facilitator", "");

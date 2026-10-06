@@ -104,6 +104,17 @@ describe("group report", () => {
   });
 });
 
+describe("the team column", () => {
+  it("is left out when no learning objective maps to a group criterion", async () => {
+    const scenario = sampleScenario();
+    scenario.meta.learning_objectives[1]!.rubric_criteria = ["negotiation"];
+    const result = await evaluateSession({ events: sampleEvents(), scenario, rubrics: sampleRubrics(), provider: provider(), config: cfg });
+    const { files } = renderReports(result, EVALUATOR);
+    expect(files.get("group.md")).toMatch(/\| Learning objective \| `alice` \| `bob` \|\n/);
+    expect(files.get("index.md")).not.toContain("| Team");
+  });
+});
+
 describe("index and method pages", () => {
   it("index links everything and shows the per-LO table for everyone", async () => {
     const { files } = renderReports(await evaluate(), EVALUATOR);

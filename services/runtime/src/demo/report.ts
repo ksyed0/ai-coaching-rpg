@@ -12,6 +12,18 @@ export type Report = {
   results: CheckResult[];
   /** Present for --showcase runs only. */
   showcase?: ShowcaseReport;
+  /** Present for `--showcase --evaluate` runs only: where the feedback reports went and how the evaluation ended. */
+  evaluation?: EvaluationSummary;
+};
+export type EvaluationSummary = {
+  /** The report directory (home and temp directories are replaced by ~ and <tmp>). */
+  dir: string;
+  /** Every file written, relative to `dir`. */
+  files: string[];
+  modelCalls: number;
+  participants: { role: string; status: string }[];
+  group: { status: string };
+  failures: string[];
 };
 
 /** Sanitizes server-influenced text and removes anything that identifies the user's machine or a secret. */
@@ -33,7 +45,7 @@ export function scrubDeep<T>(value: T, secrets: string[] = []): T {
   return value;
 }
 
-export function buildReport(i: { tool: string; version: string; mode: DemoMode; startedAt: string; durationMs: number; results: CheckResult[]; secrets?: string[]; showcase?: ShowcaseReport }): Report {
+export function buildReport(i: { tool: string; version: string; mode: DemoMode; startedAt: string; durationMs: number; results: CheckResult[]; secrets?: string[]; showcase?: ShowcaseReport; evaluation?: EvaluationSummary }): Report {
   const results = i.results.map((r) => ({
     id: scrubText(r.id), title: scrubText(r.title, i.secrets), status: r.status, details: scrubText(r.details, i.secrets), durationMs: Math.round(r.durationMs),
   }));
@@ -43,6 +55,7 @@ export function buildReport(i: { tool: string; version: string; mode: DemoMode; 
     summary: { passed: count("passed"), failed: count("failed"), skipped: count("skipped") },
     results,
     ...(i.showcase ? { showcase: scrubDeep(i.showcase, i.secrets) } : {}),
+    ...(i.evaluation ? { evaluation: scrubDeep(i.evaluation, i.secrets) } : {}),
   };
 }
 

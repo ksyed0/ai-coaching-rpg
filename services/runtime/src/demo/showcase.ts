@@ -10,10 +10,16 @@ import {
 import { MIN, type System } from "./harness.js";
 import { gmDeadlineMs } from "../agents/timeouts.js";
 import { fallbackReason, isFallbackReply } from "./provenance.js";
+import { scrubText } from "./report.js";
 import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from "./showcase-report.js";
 import type { PlayerBotGenerator } from "./player-bot.js";
 import { playerSource, type PlayerLineRecord, type PlayerLines } from "./player-lines.js";
 import { expectedGmEvaluations, type ShowcaseScript } from "./showcase-script.js";
+import type { EvaluationResult } from "../evaluator/evaluate.js";
+import { readSessionLog } from "../evaluator/log-reader.js";
+import { summaryLines } from "../evaluator/summary.js";
+import type { WrittenReports } from "../evaluator/report-write.js";
+import { verifyReportFiles } from "../evaluator/verify.js";
 
 /** The showcase's own checks (ids S-01..). `scripted` ones need the scripted models and are an intended skip in a live run. */
 export const SHOWCASE_CHECKS: readonly CheckDef[] = [
@@ -38,7 +44,17 @@ export const SHOWCASE_PLAYER_CHECKS: readonly CheckDef[] = [
   { id: "S-15", title: "Generated player prompts held only what that role may see, and every player line is tagged by what produced it", kind: "any" },
 ] as const;
 
+/** Only with `--evaluate`: S-16 (the default run keeps exactly S-01 to S-14). */
+export const SHOWCASE_EVAL_CHECKS: readonly CheckDef[] = [
+  { id: "S-16", title: "The evaluator wrote a report for every player: each quote is a verbatim line of the session, the method is stated, scores are 1 to 4 or Not observed", kind: "any" },
+] as const;
+
+/** What `--evaluate` hands the showcase: runs the evaluator on the run's own session log (scripted offline in a mock run). */
+export type ShowcaseEvaluate = { mock: boolean; run: (logFile: string, signal: AbortSignal) => Promise<{ result: EvaluationResult; written: WrittenReports }> };
+
 export type ShowcaseHolder = {
+  /** Set once the evaluator has run (`--evaluate`): what the --json report lists. */
+  evaluation?: { result: EvaluationResult; written: WrittenReports };
   /** Builds the report from what the facilitator has seen so far (also usable after a failure or an abort). */
   snapshot?: () => ShowcaseReport;
   report?: ShowcaseReport;
@@ -58,6 +74,8 @@ export type ShowcaseOptions = {
   holder: ShowcaseHolder;
   /** `--players generated`: the model that speaks the player roles, and the record of how each line was produced. */
   players?: { generator: PlayerBotGenerator; lines: PlayerLines };
+  /** `--evaluate`: run the post-session evaluator after the checks and add check S-16. */
+  evaluate?: ShowcaseEvaluate;
   /** Test hooks: run just before a scripted line is sent, and just before the safety-net advance (to force races). */
   hooks?: ShowcaseHooks;
 };
@@ -547,6 +565,28 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       ensure(generated === claimed, `${generated} lines are tagged generated but the runner recorded ${claimed} generated lines`);
       ensure(spoken.every((l) => l.tag === "generated" || l.tag === "scripted"), "a player line has a tag other than generated or scripted");
       return `${generator.calls.length} player prompts checked against ${base.length} shared strings and each role's other-role secrets: none appeared; ${generated} generated and ${spoken.length - generated} scripted player lines are tagged as recorded`;
+    }, ["S-01"]);
+  }
+
+  if (o.evaluate) {
+    const ev = o.evaluate;
+    await ctx.n.heading("EVALUATION: feedback reports for the session", { record: false });
+    await rec.run("S-16", async () => {
+      ctx.n.line(ev.mock ? "The evaluator is scripted in a mock run (offline, deterministic): the scores are demo data, not a real assessment." : "The evaluator sends the session transcript to the configured model provider.", false);
+      const outcome = await ev.run(sys!.logFile, ctx.signal);
+      o.holder.evaluation = outcome;
+      for (const l of summaryLines(outcome.result)) ctx.n.line(l, false);
+      ctx.n.line(`reports written to ${scrubText(outcome.written.dir)} (index.md links them all)`, false);
+      for (const f of outcome.result.failures) observations.push(`evaluation failed: ${f}`);
+      const players = Object.values(scenario.roles).filter((r) => r.type === "player").length;
+      ensure(outcome.written.participants.length === players, `${outcome.written.participants.length} personal reports for ${players} players`);
+      const ok = outcome.result.participants.filter((p) => p.status === "ok").length;
+      ensure(ok > 0, "no participant could be evaluated (every report says evaluation failed or insufficient evidence)");
+      if (ev.mock) ensure(outcome.result.failures.length === 0, `the scripted evaluator failed: ${outcome.result.failures.join(" | ")}`);
+      const v = await verifyReportFiles(outcome.written.dir, await readSessionLog(sys!.logFile), scenario);
+      ensure(v.problems.length === 0, `the report files have problems: ${v.problems.slice(0, 3).join("; ")}`);
+      const dropped = outcome.result.participants.reduce((a, p) => a + p.criteria.reduce((b, c) => b + c.droppedQuotes, 0), 0);
+      return `${v.reports} reports (${players} players and the group) in ${outcome.written.files.length} files: ${v.quotes} quotes are verbatim lines of the session, ${v.scores} scores are 1 to 4 or Not observed, the method and the visibility line are in every report; ${dropped} unverifiable quote(s) were dropped; ${outcome.result.modelCalls} model call(s)`;
     }, ["S-01"]);
   }
 

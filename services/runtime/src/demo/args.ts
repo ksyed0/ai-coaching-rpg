@@ -12,7 +12,7 @@ const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+-]*$/;
 
 export const DEMO_USAGE = [
   "usage: pnpm demo [--fast] [--speed <x>] [--json <path|->] [--live] [--url <ws://host:port>] [--session <id>] [--transcript <path.md>] [--no-color] [--help]",
-  "       pnpm demo --showcase [--scenario <dir>] [--max-lines <n>] [--max-fallbacks <n>] [--watchdog <minutes>] [--players scripted|generated] [--player-model <id>] [--live] [--fast] [--json <path|->]",
+  "       pnpm demo --showcase [--scenario <dir>] [--max-lines <n>] [--max-fallbacks <n>] [--watchdog <minutes>] [--players scripted|generated] [--player-model <id>] [--evaluate] [--eval-out <dir>] [--live] [--fast] [--json <path|->]",
   `  --fast            no pacing delays (instant narration)`,
   `  --speed <x>       scale the pacing, ${MIN_SPEED} to ${MAX_SPEED} (default 1; 2 is twice as fast)`,
   "  --json <path|->   write a machine-readable report to a file, or to stdout with - (narration then goes to stderr;",
@@ -29,6 +29,9 @@ export const DEMO_USAGE = [
   "  --players <mode>  --showcase only: who speaks the player roles: scripted (default, the lines in showcase.yaml) or generated (the model plays",
   "                    them too, using each scripted line as its private intent; needs --live; a failed generation falls back to the scripted line)",
   "  --player-model <id> --players generated only: the model id for the player bots (default: the NPC model, NPC_MODEL)",
+  "  --evaluate        --showcase only: after the checks, run the post-session evaluator on this run's log and write the feedback reports (adds check S-16;",
+  "                    mock runs use a scripted offline evaluator, --live sends the transcript to the model provider and may cost money)",
+  "  --eval-out <dir>  --evaluate only: where the reports go, into <dir>/<session-id>/ (default data/reports, relative to where you ran pnpm)",
   `  --max-fallbacks <n> --showcase only: fail the run when more than n AI replies were canned fallback lines, 0 to ${MAX_FALLBACKS}`,
   "                    (without it the count is only a warning)",
   `  --watchdog <min>  real-time limit for the whole run, 1 to ${MAX_WATCHDOG_MINUTES} minutes (--showcase default: 3, or 30 with --live;`,
@@ -42,11 +45,13 @@ export type DemoOptions = {
   showcase?: true; scenario?: string; maxLines?: number; maxFallbacks?: number; watchdog?: number; transcript?: string;
   /** Only set for `--players generated` (scripted is the default and leaves it undefined). */
   players?: "generated"; playerModel?: string;
+  /** Only set with `--evaluate` (and `--eval-out`). */
+  evaluate?: true; evalOut?: string;
 };
 export type DemoArgsResult = { ok: true; opts: DemoOptions } | { ok: false; error: string; usage: string };
 
 const fail = (error: string): DemoArgsResult => ({ ok: false, error, usage: DEMO_USAGE });
-const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript", "players", "player-model"];
+const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript", "players", "player-model", "evaluate", "eval-out"];
 const hasControl = (v: string) => new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]").test(v);
 
 /** Validates a --url value. The error never echoes the value (it may carry credentials). */
@@ -68,14 +73,14 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
     const n = argv.filter((a) => a === `--${f}` || a.startsWith(`--${f}=`)).length;
     if (n > 1) return fail(`error: --${f} was given more than once`);
   }
-  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string; transcript?: string; players?: string; "player-model"?: string };
+  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string; transcript?: string; players?: string; "player-model"?: string; evaluate?: boolean; "eval-out"?: string };
   try {
     ({ values } = nodeParseArgs({
       args: argv, allowPositionals: false, strict: true,
       options: {
         fast: { type: "boolean" }, speed: { type: "string" }, json: { type: "string" }, live: { type: "boolean" },
         url: { type: "string" }, session: { type: "string" }, "no-color": { type: "boolean" }, help: { type: "boolean" },
-        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" }, transcript: { type: "string" }, players: { type: "string" }, "player-model": { type: "string" },
+        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" }, transcript: { type: "string" }, players: { type: "string" }, "player-model": { type: "string" }, evaluate: { type: "boolean" }, "eval-out": { type: "string" },
       },
     }));
   } catch (err) { return fail(`error: ${(err as Error).message.split("\n")[0]}`); }
@@ -123,6 +128,12 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
     if (id.length > MAX_MODEL_ID_CHARS || !MODEL_ID.test(id) || id.includes("://")) return fail(`error: --player-model must be a model id of 1 to ${MAX_MODEL_ID_CHARS} letters, digits and . _ : / + - (no spaces, no URL)`);
   }
 
+  if (values.evaluate && !values.showcase) return fail("error: --evaluate needs --showcase");
+  if (values["eval-out"] !== undefined) {
+    if (!values.evaluate) return fail("error: --eval-out needs --evaluate");
+    if (values["eval-out"] === "" || hasControl(values["eval-out"])) return fail("error: --eval-out needs a directory path");
+  }
+
   return {
     ok: true,
     opts: {
@@ -130,6 +141,7 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
       session: values.session, noColor: values["no-color"] === true, help: values.help === true,
       showcase: values.showcase === true ? true : undefined, scenario: values.scenario, maxLines, maxFallbacks, watchdog, transcript: values.transcript,
       players: values.players === "generated" ? "generated" : undefined, playerModel: values["player-model"],
+      evaluate: values.evaluate === true ? true : undefined, evalOut: values["eval-out"],
     },
   };
 }

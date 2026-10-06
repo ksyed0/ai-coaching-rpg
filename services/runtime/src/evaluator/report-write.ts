@@ -44,9 +44,10 @@ function renderIndex(result: EvaluationResult, participants: ParticipantReport[]
     `Session \`${result.sessionId}\`, ${safeMd(result.startedAtIso, 40, sec)}. Model calls: ${result.modelCalls}.`, "", "## Reports", ""];
   for (const r of roles) out.push(`- [${r}](${r}.md) ([JSON](${r}.json))`);
   out.push("- [Group report](group.md) ([JSON](group.json))", "- [How scores are produced](method.md)", "", "## Learning-objective results for everyone", "");
-  out.push(`| Learning objective | ${roles.map((r) => `\`${r}\``).join(" | ")} | Team |`, `| --- | ${roles.map(() => "---").join(" | ")} | --- |`);
+  const team = group.lo_coverage.objectives.some((o) => o.team.score !== null);
+  out.push(`| Learning objective | ${roles.map((r) => `\`${r}\``).join(" | ")}${team ? " | Team" : ""} |`, `| --- | ${roles.map(() => "---").join(" | ")}${team ? " | ---" : ""} |`);
   for (const o of group.lo_coverage.objectives) {
-    out.push(`| \`${o.id}\`: ${safeMd(o.statement, 160, sec)} | ${roles.map((r) => loScoreText(o.by_role[r]!.score, o.by_role[r]!.label)).join(" | ")} | ${loScoreText(o.team.score, o.team.label)} |`);
+    out.push(`| \`${o.id}\`: ${safeMd(o.statement, 160, sec)} | ${roles.map((r) => loScoreText(o.by_role[r]!.score, o.by_role[r]!.label)).join(" | ")}${team ? ` | ${loScoreText(o.team.score, o.team.label)}` : ""} |`);
   }
   out.push("", "There is no overall grade: the picture is the list of learning-objective results. Not observed (N/O) means there was no evidence either way.", "");
   const bad = [...participants.filter((p) => p.evaluation.status !== "ok").map((p) => `${p.participant.role}: ${p.evaluation.reason ?? p.evaluation.status}`), ...(group.evaluation.status !== "ok" ? [`group: ${group.evaluation.reason ?? group.evaluation.status}`] : [])];

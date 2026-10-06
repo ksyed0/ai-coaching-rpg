@@ -96,8 +96,9 @@ describe("scenarios/friday-escalation-extended", () => {
     }
   });
 
-  it("does not touch the original Friday Escalation scenario package", () => {
-    expect(readdirSync(path.join(REPO_ROOT, "scenarios", "friday-escalation")).sort()).toEqual(["roles", "scenario.yaml", "script.yaml"]);
+  it("the original Friday Escalation package only gained the rubric files its scenario.yaml names (US-0028)", () => {
+    expect(readdirSync(path.join(REPO_ROOT, "scenarios", "friday-escalation")).sort()).toEqual(["roles", "rubrics", "scenario.yaml", "script.yaml"]);
+    expect(readdirSync(path.join(REPO_ROOT, "scenarios", "friday-escalation", "rubrics")).sort()).toEqual(["group_collaboration_v1.yaml", "individual_delivery_v2.yaml"]);
   });
 });
 

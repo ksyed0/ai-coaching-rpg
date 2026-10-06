@@ -696,7 +696,7 @@ Acceptance Criteria:
   - [x] AC-0099: every score needs a verbatim, timestamped quote from that participant, verified programmatically as a substring (after whitespace normalisation) of the recorded utterance of that role at that seq; unverifiable quotes are dropped, a score of 3 or 4 with no verified quote is capped at 2 and flagged, unknown criterion ids are ignored, missing ones become Not observed, and scores outside 1 to 4 or non-integers are rejected
   - [x] AC-0100: aggregation is pure and property-tested: a learning-objective score is the mean of its observed criteria rounded to one decimal, labelled by the thresholds 1.5, 2.5 and 3.5; confidence is High, Medium or Low from the number of verified quotes and the model-stated confidence; no single overall grade is computed
   - [x] AC-0101: `EVAL_MODEL` (default the NPC model), `EVAL_MAX_TOKENS` (3000, 200 to 8000), `EVAL_TEMPERATURE` (0.2) and `EVAL_TIMEOUT_MS` (180000, never below the NPC reply timeout) are validated; replies are parsed tolerantly (code fences, prose) with one bounded re-ask; a failed participant is reported as 'evaluation failed: <reason>' without stopping the others; a participant with fewer than 2 utterances gets 'insufficient evidence' with no model call; the transcript sent is capped by a character budget and the report says when it was trimmed
-  - [ ] AC-0102: in mock mode the evaluator runs on scripted replies built by the demo harness, including one deliberately bad quote and one malformed-JSON-then-valid re-ask, and the number of model calls is reported
+  - [x] AC-0102: in mock mode the evaluator runs on scripted replies built by the demo harness, including one deliberately bad quote and one malformed-JSON-then-valid re-ask, and the number of model calls is reported
 ```
 
 ```
@@ -739,10 +739,10 @@ Status: In Progress
 Branch: feature/EPIC-0005-evaluator-feedback
 Dependencies: US-0029, US-0030, US-0024
 Acceptance Criteria:
-  - [ ] AC-0107: `pnpm evaluate <session.jsonl> [--scenario <dir>] [--out <dir>] [--json -]` works with usage and `--help`, exit codes 0 (ok), 1 (an evaluation failed) and 2 (usage), and prints a one-line notice that the transcript is sent to the model provider
-  - [ ] AC-0108: `pnpm demo --showcase [--live] [--evaluate] [--eval-out <dir>]` runs the evaluator on the log of that run after the checks (always scripted and deterministic in mock mode), prints a short summary and adds check S-16 only with `--evaluate`: a report file per player, every quote a verbatim substring of its utterance, the method section present, scores 1 to 4 or Not observed; without `--evaluate` the run still has S-01 to S-14
-  - [ ] AC-0109: the `--json` report lists the report paths and the transcript Markdown stays unchanged
-  - [ ] AC-0110: README has a 'Scoring and feedback' section, `docs/EVALUATOR.md` describes the method, data flow, limits, rubric authoring and how to read a report, and the changelog and dashboard are updated
+  - [x] AC-0107: `pnpm evaluate <session.jsonl> [--scenario <dir>] [--out <dir>] [--json -]` works with usage and `--help`, exit codes 0 (ok), 1 (an evaluation failed) and 2 (usage), and prints a one-line notice that the transcript is sent to the model provider
+  - [x] AC-0108: `pnpm demo --showcase [--live] [--evaluate] [--eval-out <dir>]` runs the evaluator on the log of that run after the checks (always scripted and deterministic in mock mode), prints a short summary and adds check S-16 only with `--evaluate`: a report file per player, every quote a verbatim substring of its utterance, the method section present, scores 1 to 4 or Not observed; without `--evaluate` the run still has S-01 to S-14
+  - [x] AC-0109: the `--json` report lists the report paths and the transcript Markdown stays unchanged
+  - [x] AC-0110: README has a 'Scoring and feedback' section, `docs/EVALUATOR.md` describes the method, data flow, limits, rubric authoring and how to read a report, and the changelog and dashboard are updated
 ```
 
 ```
