@@ -101,3 +101,23 @@ describe("parseServerMessage / isFatalError / joinMessage", () => {
     expect(joinMessage({ facilitator: false, role: "r", name: "n", url: "ws://x", session: "s" })).toEqual({ type: "join", sessionId: "s", roleId: "r", participantId: "n" });
   });
 });
+
+describe("facilitator token options (US-0017)", () => {
+  it("--token on the command line is refused with a message that does not repeat the value", () => {
+    for (const argv of [["--facilitator", "--token", "supersecret-supersecret"], ["--facilitator", "--token=supersecret-supersecret"]]) {
+      const r = parseArgs(argv);
+      expect(r.ok).toBe(false);
+      if (!r.ok) { expect(r.error).toContain("FACILITATOR_TOKEN"); expect(r.error).toContain("--token-file"); expect(JSON.stringify(r)).not.toContain("supersecret"); }
+    }
+  });
+  it("--token-file is accepted for a facilitator only", () => {
+    expect(parseArgs(["--facilitator", "--token-file", "/tmp/t"])).toMatchObject({ ok: true, opts: { facilitator: true, tokenFile: "/tmp/t" } });
+    expect(parseArgs(["--role", "a", "--name", "b", "--token-file", "/tmp/t"])).toMatchObject({ ok: false, error: "error: --token-file only applies to --facilitator" });
+    expect(parseArgs(["--facilitator", "--token-file", ""])).toMatchObject({ ok: false });
+  });
+  it("joinMessage carries the token only when one was resolved", () => {
+    expect(joinMessage({ facilitator: true, url: "ws://x", session: "s" })).toEqual({ type: "join_facilitator", sessionId: "s" });
+    expect(joinMessage({ facilitator: true, url: "ws://x", session: "s", token: "abcdefghijklmnop" })).toEqual({ type: "join_facilitator", sessionId: "s", token: "abcdefghijklmnop" });
+    expect(joinMessage({ facilitator: false, role: "r", name: "n", url: "ws://x", session: "s", token: "abcdefghijklmnop" })).toEqual({ type: "join", sessionId: "s", roleId: "r", participantId: "n" });
+  });
+});
