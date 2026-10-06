@@ -57,6 +57,7 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
       if (s.currentScene?.id !== e.sceneId) return s;
       return { ...s, gmVerdicts: { ...s.gmVerdicts, [e.condition]: e.verdict } };
     case "facilitator.alert":
+    case "gm.no_verdict":
       return s;
     case "session.ended":
       return { ...s, status: "ended", currentScene: null };

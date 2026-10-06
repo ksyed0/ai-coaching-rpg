@@ -72,6 +72,7 @@ export class Transcript {
         case "gm.decision":
           this.add({ kind: "dialogue", source: classifyGmDecision(o.provider), speaker: "Game Master", text: e.reasoning, scene: e.sceneId, gm: { verdict: e.verdict, condition: e.condition } });
           break;
+        case "gm.no_verdict": this.add({ kind: "log", source: "system", text: `Game Master gave no verdict for "${e.condition}": ${e.reason}${e.attempts > 1 ? " after the re-ask" : ""}`, scene: e.sceneId }); break;
         case "facilitator.alert": {
           const why = fallbackReason(e.message);
           this.add({ kind: "log", source: "system", text: why !== null ? `alert (${e.level}): fallback line used: ${why}` : `alert (${e.level}): ${e.message}`, scene });

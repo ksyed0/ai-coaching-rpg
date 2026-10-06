@@ -489,7 +489,7 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       const bot = st.players[role as PlayerId]!;
       const text = JSON.stringify(bot.inbox);
       audited += bot.inbox.length;
-      for (const e of bot.events()) ensure(!["npc.updated", "gm.decision", "facilitator.alert"].includes(e.type), `${role} received a ${e.type} event`);
+      for (const e of bot.events()) ensure(!["npc.updated", "gm.decision", "gm.no_verdict", "facilitator.alert"].includes(e.type), `${role} received a ${e.type} event`);
       ensure(!text.includes("participantId"), `${role} received a participantId`);
       const names = findMarkers(text, PARTICIPANT_NAMES);
       ensure(names.length === 0, `${role} saw participant names: ${names.join(", ")}`);

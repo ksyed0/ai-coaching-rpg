@@ -7,7 +7,7 @@ import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
 import { GameMaster } from "../game-master.js";
-import { buildGmRequest, parseGmVerdict } from "../gm-prompt.js";
+import { buildGmRequest } from "../gm-prompt.js";
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
 let engine: SessionEngine; let clock: FakeClock; let log: MemoryEventLog;
@@ -41,24 +41,6 @@ function slowProvider(reply: string) {
   };
   return { provider, release, calls };
 }
-
-describe("parseGmVerdict", () => {
-  it("reads a JSON object even when wrapped in prose or fences", () => {
-    expect(parseGmVerdict('Sure:\n```json\n{"verdict": true, "reasoning": "both said hi"}\n```')).toEqual({ verdict: true, reasoning: "both said hi" });
-    expect(parseGmVerdict("not json")).toBeNull();
-  });
-
-  it("rejects malformed replies and never returns a truthy verdict from them", () => {
-    for (const bad of ["", "{}", '{"reasoning": "x"}', '{"verdict": "true"}', '{"verdict": 1}', '{"verdict": null}', '{"verdict": true', "[true]", "true", '{"verdict": true} and {"verdict": false}']) {
-      expect(parseGmVerdict(bad)).toBeNull();
-    }
-  });
-
-  it("defaults reasoning to an empty string when missing or not a string", () => {
-    expect(parseGmVerdict('{"verdict": false}')).toEqual({ verdict: false, reasoning: "" });
-    expect(parseGmVerdict('{"verdict": false, "reasoning": 5}')).toEqual({ verdict: false, reasoning: "" });
-  });
-});
 
 describe("buildGmRequest", () => {
   it("contains scene data, the condition and role ids, but no participant names", async () => {
@@ -110,7 +92,7 @@ describe("buildGmRequest", () => {
 describe("GameMaster", () => {
   it("does not call the model until N utterances have accumulated", async () => {
     const provider = new MockModelProvider();
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 2 });
+    const gm = new GameMaster({ engine, provider, everyNUtterances: 2, reask: false });
     await engine.say("host", "hello");
     await gm.tick();
     expect(provider.calls).toHaveLength(0);
@@ -131,7 +113,7 @@ describe("GameMaster", () => {
   });
 
   it("stays in the scene on a false verdict and on unparseable output", async () => {
-    const provider = new MockModelProvider(['{"verdict": false, "reasoning": "only one greeted"}', "garbage"]);
+    const provider = new MockModelProvider(['{"verdict": false, "reasoning": "only one greeted"}', "garbage", "more garbage"]);
     const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
     await engine.say("host", "hello"); await gm.tick();
     await engine.say("host", "hello again"); await gm.tick();
@@ -218,22 +200,32 @@ describe("GameMaster", () => {
     expect(engine.state.currentScene?.id).toBe("s1_open");
   });
 
-  it("an empty reply yields no decision and an info alert", async () => {
+  it("an empty reply is re-asked once, then recorded as gm.no_verdict (reason empty, 2 attempts), with no decision", async () => {
     const provider: ModelProvider = { name: "empty", async *stream() { /* nothing */ } };
     const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
     await engine.say("host", "hello");
     await gm.tick();
     expect(await events("gm.decision")).toHaveLength(0);
-    expect(await events("facilitator.alert")).toHaveLength(1);
+    expect(await events("gm.no_verdict")).toEqual([expect.objectContaining({ sceneId: "s1_open", condition: "both parties have said hello", reason: "empty", attempts: 2 })]);
+    expect(await events("facilitator.alert")).toHaveLength(0);
   });
 
-  it("unparseable JSON yields no decision (even a truthy-looking one) and an alert", async () => {
+  it("reads a string verdict tolerantly (the old strict parser refused it)", async () => {
     const provider = new MockModelProvider(['{"verdict": "true"}']);
     const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
     await engine.say("host", "hello");
     await gm.tick();
+    expect(await events("gm.decision")).toEqual([expect.objectContaining({ verdict: true, via: "strict" })]);
+    expect(engine.state.currentScene?.id).toBe("s2_close");
+  });
+
+  it("a verdict that is not a boolean never counts, even after the re-ask", async () => {
+    const provider = new MockModelProvider(['{"verdict": 1}', '{"verdict": "yes"}']);
+    const gm = new GameMaster({ engine, provider, everyNUtterances: 1 });
+    await engine.say("host", "hello");
+    await gm.tick();
     expect(await events("gm.decision")).toHaveLength(0);
-    expect(await events("facilitator.alert")).toHaveLength(1);
+    expect(await events("gm.no_verdict")).toEqual([expect.objectContaining({ reason: "bad_verdict", attempts: 2 })]);
     expect(engine.state.currentScene?.id).toBe("s1_open");
   });
 
@@ -249,7 +241,7 @@ describe("GameMaster", () => {
   it("resets its utterance counter on a new scene: scene 2 evaluates after its own N utterances", async () => {
     const eng = await twoGmScenesEngine();
     const provider = new MockModelProvider(['{"verdict": false, "reasoning": "no"}']);
-    const gm = new GameMaster({ engine: eng, provider, everyNUtterances: 2 });
+    const gm = new GameMaster({ engine: eng, provider, everyNUtterances: 2, reask: false });
     await eng.say("host", "one"); await gm.tick();
     expect(provider.calls).toHaveLength(0);
     await eng.say("host", "two"); await gm.tick();

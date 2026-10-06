@@ -52,8 +52,9 @@ export const NPC_SCRIPT = [
 export const GM_MALFORMED = "I am not able to decide right now, sorry.";
 export const GM_SCRIPT = [
   '{"verdict": false, "reasoning": "still discussing"}',
+  GM_MALFORMED, // the re-ask (one bounded) gets the same unusable reply, so the evaluation ends as gm.no_verdict
   GM_MALFORMED,
-  '{"verdict": true, "reasoning": "delivery lead summarised one position and the others agreed"}',
+  'Here is my judgement:\n```json\n{"reasoning": "delivery lead summarised one position and the others agreed", "verdict": true}\n```',
   '{"verdict": false, "reasoning": "no next step yet"}',
   '{"verdict": true, "reasoning": "a phased plan by Monday was agreed"}',
 ];

@@ -154,9 +154,9 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
           st.ev.afterFirst = { ok: true, value: { calls: sys.gm!.calls.length, decisions: decisions(st).length } };
         }
         if (i === 5) {
-          const alertSeen = alerts(st).some((a) => a.message.includes("no usable verdict"));
-          st.ev.malformed = { ok: true, value: { calls: sys.gm!.calls.length, decisions: decisions(st).length, alertSeen } };
-          await n.note("the Game Master's second reply is not valid JSON: it records no decision and the facilitator gets an alert");
+          const noVerdict = fac.events().filter((e): e is Extract<SessionEvent, { type: "gm.no_verdict" }> => e.type === "gm.no_verdict");
+          st.ev.malformed = { ok: true, value: { calls: sys.gm!.calls.length, decisions: decisions(st).length, noVerdict: noVerdict.map((e) => ({ reason: e.reason, attempts: e.attempts })) } };
+          await n.note("the Game Master's second reply is not valid JSON: it is asked again once, answers badly again, and the facilitator gets a gm.no_verdict event (no decision)");
         }
       }
     }
@@ -171,12 +171,15 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
     }
 
     await rec.run("F-13", () => {
-      const m = got<{ calls: number; decisions: number; alertSeen: boolean }>(st.ev.malformed, "the malformed-reply step");
+      const m = got<{ calls: number; decisions: number; noVerdict: { reason: string; attempts: number }[] }>(st.ev.malformed, "the malformed-reply step");
       const first = got<{ calls: number; decisions: number }>(st.ev.afterFirst, "the first evaluation");
-      ensure(m.calls === 2, `expected the second Game Master call after 6 lines, saw ${m.calls} calls`);
+      ensure(m.calls === first.calls + 2, `expected the malformed reply and exactly one re-ask after 6 lines (${first.calls} + 2 calls), saw ${m.calls} calls`);
       ensure(m.decisions === first.decisions, `a malformed reply recorded a decision (${first.decisions} -> ${m.decisions})`);
-      ensure(m.alertSeen, "no facilitator alert for the unusable verdict");
-      return "an unparseable Game Master reply recorded no gm.decision and raised an info alert";
+      ensure(m.noVerdict.length === 1 && m.noVerdict[0]!.attempts === 2, `expected one gm.no_verdict after 2 attempts, saw ${JSON.stringify(m.noVerdict)}`);
+      ensure(m.noVerdict[0]!.reason === "no_json", `the no-verdict reason was ${m.noVerdict[0]!.reason}, expected no_json`);
+      const loud = alerts(st).filter((a) => a.message.startsWith("GM:"));
+      ensure(loud.length === 0, `an unusable reply raised an alert instead of gm.no_verdict: ${loud[0]?.message}`);
+      return "an unparseable Game Master reply was re-asked once, then recorded as gm.no_verdict (no_json, 2 attempts) with no gm.decision";
     });
   });
 
@@ -272,7 +275,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
         ensure(exits.map((x) => x.sceneId).join() === `${s1},${s2}`, `expected gm_detects exits for ${s1} and ${s2}, saw ${exits.map((x) => x.sceneId).join() || "none"}`);
         const e = got<{ verdicts: boolean[]; calls: number }>(st.ev.s1exit, "scene 1 exit");
         ensure(e.verdicts.at(-1) === true, "scene 1's exiting verdict was not true");
-        return `scenes ${s1} and ${s2} both exited on scripted true verdicts (${decisions(st).length} decisions in all, the malformed reply recorded none)`;
+        return `scenes ${s1} and ${s2} both exited on scripted true verdicts (${decisions(st).length} decisions in all, the malformed reply recorded none, and one fenced reply was read tolerantly)`;
       });
     } else {
       await advanceTo(ctx, st, s3);

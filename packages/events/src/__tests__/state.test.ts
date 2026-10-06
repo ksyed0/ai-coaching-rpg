@@ -92,6 +92,12 @@ describe("reduce: advance request and GM verdicts", () => {
     expect(before.gmVerdicts).toEqual({});
   });
 
+  it("gm.no_verdict changes nothing in the state (it is a record for the facilitator)", () => {
+    const before = inScene();
+    const s = reduce(before, { ...env(3), type: "gm.no_verdict", sceneId: "a", condition: "c", reason: "empty", attempts: 2 });
+    expect(s).toEqual({ ...before, lastSeq: 3 });
+  });
+
   it("ignores gm.decision for a different scene", () => {
     const s = reduce(inScene(), { ...env(3), type: "gm.decision", sceneId: "zzz", condition: "c", verdict: true, reasoning: "r" });
     expect(s.gmVerdicts).toEqual({});

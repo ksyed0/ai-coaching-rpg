@@ -22,6 +22,12 @@ describe("renderEvent", () => {
     expect(renderEvent(d, "host")).toBeNull();
     expect(renderEvent(d, "facilitator")).toBe("[gm] c => true (r)");
   });
+  it("renders a no-verdict event for the facilitator only, with its reason and the re-ask", () => {
+    const e = { ...env, type: "gm.no_verdict" as const, sceneId: "s", condition: "c", reason: "no_json" as const, attempts: 2 };
+    expect(renderEvent(e, "host")).toBeNull();
+    expect(renderEvent(e, "facilitator")).toBe('[gm] no verdict for "c" (no_json after re-ask)');
+    expect(renderEvent({ ...e, attempts: 1 }, "facilitator")).toBe('[gm] no verdict for "c" (no_json)');
+  });
   it("renders alerts, npc updates, whispers and session lifecycle", () => {
     expect(renderEvent({ ...env, type: "facilitator.alert", level: "warning", message: "slow" }, "facilitator")).toBe("[alert] slow");
     expect(renderEvent({ ...env, type: "facilitator.alert", level: "warning", message: "slow" }, "host")).toBeNull();

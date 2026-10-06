@@ -224,6 +224,7 @@ describe("SessionHost.filterFor is default-deny per event type (I1)", () => {
     ["inject.fired to guest", { ...base, type: "inject.fired", injectId: "i", sceneId: "s1_open", to: ["guest"], content: "c" }, false, false],
     ["npc.updated", { ...base, type: "npc.updated", roleId: "guest", goals: [], knowledge: [] }, false, false],
     ["gm.decision", { ...base, type: "gm.decision", sceneId: "s1_open", condition: "c", verdict: true, reasoning: "r" }, false, false],
+    ["gm.no_verdict", { ...base, type: "gm.no_verdict", sceneId: "s1_open", condition: "c", reason: "no_json", attempts: 2 }, false, false],
     ["facilitator.alert", { ...base, type: "facilitator.alert", level: "info", message: "m" }, false, false],
     ["facilitator.command advance", { ...base, type: "facilitator.command", command: "advance" }, false, false],
     ["session.ended", { ...base, type: "session.ended", reason: "script_complete" }, true, true],

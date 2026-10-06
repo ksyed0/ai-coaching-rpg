@@ -20,7 +20,7 @@ export const CHECKS: readonly CheckDef[] = [
   { id: "F-10", title: "A stalled model gives the fallback line plus a facilitator alert", kind: "inproc" },
   { id: "F-11", title: "An empty model reply gives the fallback line, never an empty utterance", kind: "inproc" },
   { id: "F-12", title: "A Game Master verdict exits a scene (gm_detects)", kind: "scripted" },
-  { id: "F-13", title: "A malformed Game Master reply records no decision", kind: "scripted" },
+  { id: "F-13", title: "A malformed Game Master reply is re-asked once, then recorded as gm.no_verdict with no decision", kind: "scripted" },
   { id: "F-14", title: "The Game Master cannot record a verdict for a scene that has ended", kind: "inproc" },
   { id: "F-15", title: "Pause refuses speech and appends nothing; resume restores it", kind: "any" },
   { id: "F-16", title: "Facilitator advance moves to the next scene", kind: "any" },

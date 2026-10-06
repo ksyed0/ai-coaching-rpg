@@ -1,13 +1,25 @@
-import type { ModelProvider } from "@acr/adapters";
+import { ModelProviderError, type ChatRequest, type ModelProvider } from "@acr/adapters";
+import type { GmNoVerdictReason, GmVia } from "@acr/events";
 import type { SessionEngine } from "../engine/session-engine.js";
 import { describeModelFailure, describeRetryProgress } from "./model-failure.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "./timeouts.js";
-import { buildGmRequest, parseGmVerdict } from "./gm-prompt.js";
+import { buildGmReaskRequest, buildGmRequest } from "./gm-prompt.js";
+import { parseGmReply } from "./gm-parse.js";
+import { DEFAULT_GM_EVERY_N_UTTERANCES } from "./gm-config.js";
 import { DEFAULT_GM_MAX_TOKENS } from "./token-budgets.js";
 
 /** The Game Master judges each gm_detects condition after this many NEW utterances in a scene. */
-export const GM_EVERY_N_UTTERANCES = 3;
+export const GM_EVERY_N_UTTERANCES = DEFAULT_GM_EVERY_N_UTTERANCES;
 
+/** One raw Game Master model reply and how it was read (`--gm-trace` / `GM_TRACE_FILE`). Holds the dialogue-derived reply: facilitator-grade data, never part of the session log. */
+export type GmTraceRecord = {
+  /** The last event seq when the prompt was built: the prompt can be rebuilt from the session log up to this seq. */
+  seq: number; sceneId: string; condition: string; attempt: 1 | 2; raw: string;
+  /** A model error that stood in for the reply (a reasoning-only reply), else absent. */
+  error?: string;
+  parse: { ok: true; verdict: boolean; via: GmVia } | { ok: false; reason: GmNoVerdictReason };
+};
+type Call = { kind: "text"; text: string } | { kind: "deadline" } | { kind: "error"; err: unknown };
 export class GameMaster {
   private readonly engine: SessionEngine;
   private readonly provider: ModelProvider;
@@ -21,8 +33,12 @@ export class GameMaster {
   /** Sampling temperature (GM_TEMPERATURE); undefined leaves the provider default. */
   readonly temperature: number | undefined;
   private evaluating = false; // R19: at most one evaluation in flight
+  /** One bounded re-ask after a reply with no usable verdict (GM_REASK; default on). */
+  private readonly reask: boolean;
+  private readonly trace: ((rec: GmTraceRecord) => void) | undefined;
 
-  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number }) {
+  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number; reask?: boolean; trace?: (rec: GmTraceRecord) => void }) {
+    this.reask = opts.reask ?? true; this.trace = opts.trace;
     this.engine = opts.engine; this.provider = opts.provider; this.everyN = opts.everyNUtterances ?? GM_EVERY_N_UTTERANCES;
     this.maxTokens = opts.maxTokens ?? DEFAULT_GM_MAX_TOKENS;
     this.temperature = opts.temperature;
@@ -34,8 +50,8 @@ export class GameMaster {
    * Called by the host about once a second. Always runs engine.tick (timers, injects, exits). Every N new
    * utterances it also evaluates each gm_detects condition. A tick that arrives while an evaluation is in
    * flight skips evaluation (no duplicate model calls or decisions). Never throws on model problems: a model
-   * error, empty reply or unparseable verdict records no decision and raises a facilitator.alert instead
-   * (warning for errors, info for empty/unparseable). Engine/log failures go to onError (default console.error) plus a best-effort warning alert. The attempt still counts, so a failing model is retried
+   * error or deadline records no decision and raises a facilitator.alert (warning); a reply with no usable verdict is re-asked once
+   * (GM_REASK) and then recorded as the facilitator-only gm.no_verdict event with its reason. Engine/log failures go to onError (default console.error) plus a best-effort warning alert. The attempt still counts, so a failing model is retried
    * after N more utterances rather than on every tick. Verdicts are bound to the scene captured before the
    * model call (engine rejects stale ones, R18).
    */
@@ -102,41 +118,78 @@ export class GameMaster {
     try { this.onError(err); } catch { /* a throwing handler must not break the ticker */ }
   }
 
-  private async evaluate(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>, condition: string): Promise<void> {
-    const expectSceneId = scene.id;
+  /** One model call under the evaluation's shared deadline. Never throws. */
+  private async call(req: ChatRequest, ac: AbortController, deadline: Promise<"deadline">): Promise<Call> {
     let text = "";
-    // One deadline per evaluation (retries and their backoff happen inside it): a stalled model can no longer hold the
-    // in-flight guard forever. The abort also cuts a retry backoff short at once.
-    const ac = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let expired = false;
-    const deadline = new Promise<"deadline">((r) => { timer = setTimeout(() => r("deadline"), this.evaluationTimeoutMs); });
     try {
-      const it = this.provider.stream(buildGmRequest({ scene, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature }), ac.signal)[Symbol.asyncIterator]();
+      const it = this.provider.stream(req, ac.signal)[Symbol.asyncIterator]();
       for (;;) {
         const nextP = it.next();
         nextP.catch(() => undefined); // if the deadline wins, a later rejection must not go unhandled
         const r = await Promise.race([nextP, deadline]);
-        if (r === "deadline") { ac.abort(); expired = true; break; }
-        if (r.done) break;
+        if (r === "deadline") { ac.abort(); return { kind: "deadline" }; }
+        if (r.done) return { kind: "text", text };
         text += r.value;
       }
     } catch (err) {
       ac.abort();
-      await this.engine.alert(`GM: ${describeModelFailure(err, ` for "${condition}"`)}`, "warning", { expectSceneId });
-      return;
+      return { kind: "error", err };
+    }
+  }
+
+  private traceRecord(rec: GmTraceRecord): void {
+    try { this.trace?.(rec); } catch (err) { this.report(err); } // a failing trace file never affects the session
+  }
+
+  /**
+   * One evaluation: ask, parse tolerantly, and when the reply has no usable verdict ask ONCE more (inside the same deadline).
+   * A model error or the deadline is not re-asked (the retry wrapper and the deadline already cover them) and raises a warning alert;
+   * a reasoning-only reply (the model spent its whole budget thinking) counts as a parse failure. No usable verdict after the last
+   * attempt records the facilitator-only gm.no_verdict with its reason.
+   */
+  private async evaluate(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>, condition: string): Promise<void> {
+    const expectSceneId = scene.id;
+    // One deadline per evaluation (retries, backoff and the re-ask happen inside it): a stalled model can no longer hold the
+    // in-flight guard forever. The abort also cuts a retry backoff short at once.
+    const ac = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<"deadline">((r) => { timer = setTimeout(() => r("deadline"), this.evaluationTimeoutMs); });
+    try {
+      const seq = this.engine.state.lastSeq;
+      const base = buildGmRequest({ scene, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature });
+      let attempts = 0;
+      let reply = "";
+      let reason: GmNoVerdictReason = "empty";
+      for (;;) {
+        attempts++;
+        const got = await this.call(attempts === 1 ? base : buildGmReaskRequest(base, reply), ac, deadline);
+        if (got.kind === "deadline") {
+          await this.engine.alert(`GM: model call exceeded its deadline of ${this.evaluationTimeoutMs} ms for "${condition}"${describeRetryProgress(ac.signal)}`, "warning", { expectSceneId });
+          return;
+        }
+        let error: string | undefined;
+        if (got.kind === "error") {
+          // An exhausted reasoning budget is a reply with no answer: it is re-asked like any other unusable reply.
+          if (!(got.err instanceof ModelProviderError && got.err.kind === "reasoning_budget")) {
+            await this.engine.alert(`GM: ${describeModelFailure(got.err, ` for "${condition}"`)}`, "warning", { expectSceneId });
+            return;
+          }
+          reply = ""; error = got.err.kind;
+        } else reply = got.text;
+        const parsed = error ? ({ ok: false, reason: "reasoning_only" } as const) : parseGmReply(reply);
+        const attempt = attempts === 1 ? 1 : 2;
+        this.traceRecord({ seq, sceneId: expectSceneId, condition, attempt, raw: reply, ...(error ? { error } : {}),
+          parse: parsed.ok ? { ok: true, verdict: parsed.verdict, via: attempt === 1 ? parsed.via : "reask" } : { ok: false, reason: parsed.reason } });
+        if (parsed.ok) {
+          await this.engine.recordGmVerdict(condition, parsed.verdict, parsed.reasoning, { expectSceneId, via: attempt === 1 ? parsed.via : "reask" });
+          return;
+        }
+        reason = parsed.reason;
+        if (!this.reask || attempts >= 2) break;
+      }
+      await this.engine.recordGmNoVerdict(condition, reason, attempts, { expectSceneId });
     } finally {
       clearTimeout(timer);
     }
-    if (expired) {
-      await this.engine.alert(`GM: model call exceeded its deadline of ${this.evaluationTimeoutMs} ms for "${condition}"${describeRetryProgress(ac.signal)}`, "warning", { expectSceneId });
-      return;
-    }
-    const parsed = parseGmVerdict(text);
-    if (!parsed) {
-      await this.engine.alert(`GM: no usable verdict for "${condition}"`, "info", { expectSceneId });
-      return;
-    }
-    await this.engine.recordGmVerdict(condition, parsed.verdict, parsed.reasoning, { expectSceneId });
   }
 }
