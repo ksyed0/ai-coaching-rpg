@@ -39,3 +39,4 @@
 
 
 - US-0032 built on `feature/EPIC-0006-ai-character-voices` (from the evaluator branch): NPC role fields `seniority`, `responds_with`, `only_you_say`, `defer_to` (content for Priya and Helena), `## Who else is in the room` and `## How you respond` prompt sections, `<silent/>` turns (max 2 in a row, never recorded, counted in memory), junior-first reply order, echo metric and silent counts in the showcase report. Next: the controller records the live comparison (AC-0119 stays unticked).
+- US-0032 fix round (independent review): forced last speaker per round, silence markers folded and stripped before cleaning, roster tags, generic prompt wording and `defers_text`, echo metric limited to different roles and the same player line (`echoes / eligiblePairs`), participant-order ties, bounded silence memory, S-06 cross-character prompt audit.

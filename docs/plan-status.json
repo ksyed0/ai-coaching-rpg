@@ -1088,12 +1088,12 @@
         },
         {
           "id": "AC-0115",
-          "text": "when several AI characters are in a scene they reply after a player line in seniority order, junior first (ties by role id), deterministically and under the existing serialisation guarantees; a scene with one AI character, or characters without seniority, behaves as before",
+          "text": "when several AI characters are in a scene they reply after a player line in seniority order, junior first (ties by the scene's participant order), deterministically; the last character of a round nobody has answered yet must speak, and a facilitator warning is raised if every character stays silent and under the existing serialisation guarantees; a scene with one AI character, or characters without seniority, behaves as before",
           "done": true
         },
         {
           "id": "AC-0116",
-          "text": "the showcase report, narration summary and `--json` `showcase` section count near-duplicate consecutive AI character replies in a scene (token-set Jaccard similarity of at least 0.6, a pure tested function) and the silent turns per character, as observations and never as failures",
+          "text": "the showcase report, narration summary and `--json` `showcase` section count near-duplicate replies of two different AI characters to the same player line (echoes out of eligible pairs) (token-set Jaccard similarity of at least 0.6, a pure tested function) and the silent turns per character, as observations and never as failures",
           "done": true
         },
         {
@@ -1436,7 +1436,7 @@
       "assignee": "Agent",
       "status": "In Progress",
       "branch": "feature/EPIC-0006-ai-character-voices",
-      "notes": "Observed 2026-10-06 in real Gemma runs of `pnpm demo --showcase --live --players generated`: both AI characters answered every player line and the CFO's reply rephrased the sponsor's point. Live comparison is recorded by the controller, not in this task."
+      "notes": "Observed 2026-10-06 in real Gemma runs of `pnpm demo --showcase --live --players generated`: both AI characters answered every player line and the CFO's reply rephrased the sponsor's point. Live comparison is recorded by the controller, not in this task. Fix round 2026-10-06 after an independent review: forced last speaker, silence forms folded before cleaning, roster tags, generic prompt wording, echo metric restricted to different roles answering the same player line, validator warnings, ordered silent-turn note, bounded silence memory, cross-character prompt audit in S-06."
     }
   ],
   "testCases": [],
@@ -2004,9 +2004,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T19:27:20.622Z",
-  "commitSha": "3a3c0b5",
-  "buildNumber": "115",
+  "generatedAt": "2026-10-06T19:39:32.572Z",
+  "commitSha": "ac9acc2",
+  "buildNumber": "117",
   "branch": "feature/EPIC-0006-ai-character-voices",
   "sessionTimeline": [
     {
@@ -2204,7 +2204,7 @@
       "2026-10-03T19:20:14.805Z",
       "2026-10-04T19:20:14.805Z",
       "2026-10-05T19:20:14.805Z",
-      "2026-10-06T19:27:20.722Z"
+      "2026-10-06T19:39:32.650Z"
     ],
     "doneCounts": [
       0,
