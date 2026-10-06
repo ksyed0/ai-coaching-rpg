@@ -157,6 +157,10 @@ All settings are environment variables (read from `.env` at the repository root;
 | `NPC_TEMPERATURE` | `0.8` | Sampling temperature for AI character replies (sent as `temperature` to Anthropic and OpenAI-compatible providers). A decimal, `0` to `2`; a little randomness keeps characters from repeating themselves |
 | `PLAYER_TEMPERATURE` | `0.9` | Sampling temperature for the demo's generated player bots (`--players generated`). A decimal, `0` to `2` |
 | `GM_TEMPERATURE` | `0.2` | Sampling temperature for Game Master verdicts (low, for steadier JSON). A decimal, `0` to `2` |
+| `EVAL_MODEL` | the NPC model | Model for the post-session evaluator (`pnpm evaluate`, `--evaluate`). See [docs/EVALUATOR.md](docs/EVALUATOR.md) |
+| `EVAL_MAX_TOKENS`, `EVAL_TEMPERATURE` | `3000`, `0.2` | Token budget (`200` to `8000`) and temperature (`0` to `2`) per evaluator call |
+| `EVAL_TIMEOUT_MS` | `180000` | Deadline per evaluator call, `500` to `600000`; the effective value is `max(EVAL_TIMEOUT_MS, NPC_REPLY_TIMEOUT_MS)` (no other floor) |
+| `EVAL_TRANSCRIPT_CHARS` | `60000` | Hard cap on the transcript (characters) sent in one evaluator call; a longer one is trimmed and the report says so |
 | `MODEL_MAX_RETRIES` | `2` | How many times a transient model error is retried (so up to 3 attempts) before the NPC speaks its fallback line. Whole number, `0` to `5`; `0` turns retrying off |
 | `MODEL_RETRY_BASE_MS` | `500` | First retry delay in milliseconds; it doubles per retry (capped at 4 s) with +/-25% jitter. Whole number, `100` to `10000` |
 | `SCENARIO_DIR` | `scenarios/friday-escalation` | Scenario folder (relative paths resolve from the repository root) |
@@ -240,6 +244,24 @@ Checklist
 Summary: 29 passed, 0 failed, 0 skipped (mock mode, 0.9 s)
 ```
 
+### Scoring and feedback
+
+After a session, the evaluator drafts feedback from the recorded log: a score per criterion for each player and for the team, learning-objective results, a personal report per player (strengths, development points, 2 to 3 next actions tied to learning objectives) and a group report with talking points for the facilitator. Full details are in [docs/EVALUATOR.md](docs/EVALUATOR.md).
+
+```bash
+pnpm evaluate data/sessions/local.jsonl                 # reports in data/reports/local/ (index.md links them all)
+pnpm evaluate <session.jsonl> [--scenario <dir>] [--out <dir>] [--json -]
+pnpm demo --showcase --fast --evaluate                  # the showcase, then the reports; adds check S-16
+```
+
+- **Scoring method.** A Behaviourally Anchored Rating Scale (BARS): four levels per criterion with no midpoint, 1 Not yet demonstrated, 2 Developing, 3 Proficient, 4 Advanced, plus Not observed (N/O, no score) when there is no evidence either way. Each level has a written behavioural anchor per criterion in the scenario's `rubrics/` files.
+- **Evidence rule.** Every score of 3 or 4 needs a verified, verbatim, timestamped quote from that participant (at least 15 characters and 3 words); a 1 or 2 may stand without one (flagged, Low confidence). The program checks the quote against the recording; unverifiable or overlapping quotes are dropped and a 3 or 4 without a qualifying quote is capped at 2 and flagged. Level 1 means there was a clear opportunity and the behaviour was absent; Not observed means no opportunity or no usable evidence; an unusable answer from the AI is shown as Invalid and its learning objective as incomplete. Confidence (High, Medium, Low) comes from the number of distinct lines with a verified quote and the model's own statement. A learning-objective score is the mean of the observed criteria it maps to; there is no single overall grade.
+- **Every report prints the method** (the scale, the evidence and confidence rules, how scores are combined and the limitations: AI-drafted and needs facilitator review, a small sample of three players, one session is a snapshot, first-person evidence only) and is written as Markdown and as a JSON twin (`schema: "acr.report/1"`).
+- **Draft status.** Reports are labelled "AI-drafted - held for facilitator review before release (facilitator editing is planned)".
+- **Visibility: all participants (prototype setting; per-participant isolation is planned).** Everyone may see everyone's scores and reports for now; there is no access control.
+- **Privacy and cost.** A real run sends the session transcript to the configured model provider (a one-line notice says so) and makes one call per player plus one for the team (and at most one re-ask each). With `MODEL_PROVIDER=mock` a scripted offline evaluator is used and nothing leaves the machine.
+- **Exit codes** of `pnpm evaluate`: 0 ok, 1 an evaluation failed (the other reports are still written), 2 usage or input error. Reports go into a fresh directory per run and are never overwritten (`data/reports/` is git-ignored).
+
 ### Showcase: a longer scenario so the AI does real work
 
 The default run plays one short AI scene, so a live run shows only a couple of model replies. `pnpm demo --showcase` plays **`scenarios/friday-escalation-extended`** instead: six scenes (about 50 minutes of scenario time), three players and **two** AI characters, Priya Raman (`client_sponsor`) and a new CFO, Helena Brandt (`cfo`), a numbers-first finance executive. Players-only huddles frame a call with Priya (scene 2) and an escalation call and a negotiation of the final terms with Priya and the CFO (scenes 4 and 5). The bots speak 24 scripted lines (`showcase.yaml` in the scenario folder), which produce about 20 AI replies and 14 Game Master evaluations in a full run. Each scene has a `gm_detects` exit condition, a time box and a facilitator-advance backstop, plus timed and private injects (two aimed at the AI characters).
@@ -251,11 +273,12 @@ pnpm demo --showcase --live --max-lines 2         # a shorter run for a slow mod
 pnpm demo --showcase --live --max-fallbacks 0     # fail the run if any AI reply was a canned fallback line
 pnpm demo --showcase --live --players generated   # the model plays the three player roles too (see Generated players)
 pnpm demo --showcase --live --players generated --player-model qwen3:8b   # a different model for the player bots
+pnpm demo --showcase --fast --evaluate            # then write the feedback reports for the run (scripted offline evaluator; with --live a real one), check S-16
 pnpm demo --showcase --scenario scenarios/my-scenario --fast   # your own package (needs its own showcase.yaml)
 pnpm -s demo --showcase --fast --json -           # JSON report on stdout (with a `showcase` section)
 ```
 
-Flags: `--scenario <dir>` (default `scenarios/friday-escalation-extended`, relative to the repo root; must load and have a `showcase.yaml`), `--max-lines <n>` (1 to 20 scripted lines per scene), `--max-fallbacks <n>` (0 to 1000: more fallback lines than this fail the run; without it they are only a warning) and `--watchdog <minutes>` (default 3, or 30 with `--live`), `--players scripted|generated` (default `scripted`) and `--player-model <id>` (see below). `--url` is not supported (exit 2). Invalid scenario or showcase files exit 2 with one line naming the file and the problem.
+Flags: `--scenario <dir>` (default `scenarios/friday-escalation-extended`, relative to the repo root; must load and have a `showcase.yaml`), `--max-lines <n>` (1 to 20 scripted lines per scene), `--max-fallbacks <n>` (0 to 1000: more fallback lines than this fail the run; without it they are only a warning) and `--watchdog <minutes>` (default 3, or 30 with `--live`), `--players scripted|generated` (default `scripted`) and `--player-model <id>` (see below), and `--evaluate` with `--eval-out <dir>` (default `data/reports`): after the checks the evaluator runs on that run's own session log, the narration gets a short summary, the `--json` report lists the report files under `evaluation` and check `S-16` is added (the default run keeps exactly `S-01` to `S-14`). See [Scoring and feedback](#scoring-and-feedback). `--url` is not supported (exit 2). Invalid scenario or showcase files exit 2 with one line naming the file and the problem.
 
 **In live mode the real Game Master ends the scenes** (every third utterance it judges each `gm_detects` condition); the facilitator's `advance` is only a safety net after a scene's scripted lines run out, recorded as the observation `GM did not exit; facilitator advanced (<scene>)`, never a failure. Every wait is bounded by the configured NPC timeouts. **Run time:** mock about a second. Live depends on the model: an OpenRouter free-tier model takes minutes (and may answer some replies with the fallback line when it is overloaded); a slow local model can take about a minute per reply, so use `--max-lines 2`. `--live` sends the AI characters' personas and goals and the scripted conversation to your provider and may cost money (the run prints how many calls to expect); it prints only the provider's label, never keys or URLs, and refuses a `mock` provider with exit 2.
 
@@ -347,8 +370,8 @@ The default test run never calls a real model or touches the network.
 packages/events     session event types and the state reducer
 packages/script     scenario schema, loader, validator, scene state machine
 packages/adapters   model provider adapters (mock, Anthropic, OpenAI-compatible)
-services/runtime    session engine, NPC agents, Game Master, WebSocket server, terminal client, demo runner (src/demo)
-scenarios/          playable scenarios (YAML): friday-escalation (3 scenes, 1 AI character) and friday-escalation-extended (6 scenes, 2 AI characters, plus the showcase.yaml script for `pnpm demo --showcase`)
+services/runtime    session engine, NPC agents, Game Master, WebSocket server, terminal client, demo runner (src/demo), post-session evaluator (src/evaluator)
+scenarios/          playable scenarios (YAML): friday-escalation (3 scenes, 1 AI character) and friday-escalation-extended (6 scenes, 2 AI characters, plus the showcase.yaml script for `pnpm demo --showcase`); each has rubrics/ (BARS rubric files)
 docs/               architecture, release plan, plans and the generated plan dashboard
 ```
 
@@ -367,7 +390,7 @@ Work follows `feature/*` → `develop` (pull request) → `main` (pull request).
 - Sessions are not resumed after a restart: on start, an earlier log for the same session id is moved aside as `data/sessions/<id>.<timestamp>.jsonl` and a fresh session begins. The move uses a hard link and falls back to a file copy, so the data directory's filesystem must support one of the two.
 - Two server processes on the same data directory and session id will rotate each other's log file; use a different `SESSION_ID` (or data directory) per process.
 - NPCs are a scripted mock unless you configure a model provider.
-- No scoring or feedback reports yet; sessions are recorded for later.
+- Scoring and feedback reports are a first, AI-drafted version: no facilitator edit workflow, no participant self-assessment, no isolation between participants (everyone may see every report), and not yet validated against human raters. See [docs/EVALUATOR.md](docs/EVALUATOR.md).
 
 ## License
 

@@ -1,6 +1,5 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { Scene, Scenario } from "@acr/script";
+import { FileTooLargeError, readTextCapped, type Scene, type Scenario } from "@acr/script";
 import { parse } from "yaml";
 import { ZodError, z } from "zod";
 import { GM_EVERY_N_UTTERANCES } from "../agents/game-master.js";
@@ -101,7 +100,11 @@ export function parseShowcaseScript(text: string, scenario: Scenario, o: Showcas
 /** Reads `<dir>/showcase.yaml` and validates it (see parseShowcaseScript). */
 export async function loadShowcaseScript(dir: string, scenario: Scenario, o: ShowcaseLoadOptions): Promise<ShowcaseScript> {
   let text: string;
-  try { text = await readFile(path.join(dir, SHOWCASE_FILE), "utf8"); }
-  catch { throw new ShowcaseScriptError(`${SHOWCASE_FILE}: the scenario has no showcase script (expected a ${SHOWCASE_FILE} file next to scenario.yaml)`); }
+  // one bounded read (one byte over the cap, so parseShowcaseScript can report an oversize file)
+  try { text = await readTextCapped(path.join(dir, SHOWCASE_FILE), MAX_SHOWCASE_BYTES + 1); }
+  catch (err) {
+    if (err instanceof FileTooLargeError) throw new ShowcaseScriptError(`${SHOWCASE_FILE}: the file is larger than ${MAX_SHOWCASE_BYTES / 1024} KiB`);
+    throw new ShowcaseScriptError(`${SHOWCASE_FILE}: the scenario has no showcase script (expected a ${SHOWCASE_FILE} file next to scenario.yaml)`);
+  }
   return parseShowcaseScript(text, scenario, o);
 }

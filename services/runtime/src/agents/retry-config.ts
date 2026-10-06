@@ -40,7 +40,7 @@ export function retryCapMs(baseMs: number): number { return Math.max(DEFAULT_MOD
  * Wraps a LIVE provider with the retry policy (the name is unchanged). `log` receives at most one short line per model call
  * that needed a retry: the role label, the failure kind, an HTTP status and the delay; never a message, URL or key.
  */
-export function withModelRetry(provider: ModelProvider, cfg: ModelRetryConfig, role: "NPC" | "GM", log?: (m: string) => void): ModelProvider {
+export function withModelRetry(provider: ModelProvider, cfg: ModelRetryConfig, role: "NPC" | "GM" | "EVAL", log?: (m: string) => void): ModelProvider {
   const onRetry = log ? (i: RetryInfo) => log(`${role} model call: ${i.kind}${i.status !== undefined ? ` (HTTP ${i.status})` : ""}, retrying in ${i.delayMs} ms`) : undefined;
   return withRetry(provider, { maxRetries: cfg.maxRetries, baseMs: cfg.baseMs, capMs: retryCapMs(cfg.baseMs), onRetry });
 }

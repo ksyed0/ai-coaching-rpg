@@ -29,10 +29,12 @@ type Seen = {
   aborted: number;
   /** Raw request bodies of the AI character and Game Master calls (the evaluator's input). */
   otherBodies: string[];
+  /** Raw request bodies of the evaluator's calls (`--evaluate`). */
+  evalBodies: string[];
 };
 /** A loopback OpenAI-compatible fake: the AI characters and the Game Master get fixed answers, player prompts (recognised by their system prompt) get `playerReply`. */
 async function fakeModel(playerReply: (n: number, role: string) => { status?: number; text?: string; stall?: true }, npcReply?: (n: number, system: string) => string) {
-  const seen: Seen = { player: [], npc: 0, gm: 0, npcCalls: [], gmCalls: [], aborted: 0, otherBodies: [] };
+  const seen: Seen = { player: [], npc: 0, gm: 0, npcCalls: [], gmCalls: [], aborted: 0, otherBodies: [], evalBodies: [] };
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (d) => { body += d; });
@@ -41,7 +43,10 @@ async function fakeModel(playerReply: (n: number, role: string) => { status?: nu
       const system = parsed.messages.find((m) => m.role === "system")?.content ?? "";
       let text: string;
       if (!system.includes("as a human trainee")) seen.otherBodies.push(body);
-      if (system.includes("Game Master")) { seen.gm++; seen.gmCalls.push({ model: parsed.model, temperature: parsed.temperature }); text = '{"verdict": false, "reasoning": "not yet"}'; }
+      if (system.includes("learning-and-development assessor")) {
+        seen.evalBodies.push(body);
+        text = JSON.stringify({ criteria: ["discovery", "listening", "negotiation", "commercial_judgement", "stakeholder_management", "team_alignment", "role_clarity", "shared_understanding", "decision_quality", "role_clarity_group", "escalation_discipline"].map((id) => ({ id, score: null })), talking_points: ["x"] });
+      } else if (system.includes("Game Master")) { seen.gm++; seen.gmCalls.push({ model: parsed.model, temperature: parsed.temperature }); text = '{"verdict": false, "reasoning": "not yet"}'; }
       else if (system.includes("as a human trainee")) {
         const role = /\(role id ([a-z_]+)\)/.exec(system)![1]!;
         seen.player.push({ role, model: parsed.model, body, temperature: parsed.temperature });
@@ -462,6 +467,25 @@ describe("generated players: logging the private intents (US-0027)", () => {
     expect(r.stdout).not.toContain("intent for ");
     expect(r.showcase.players!.intents).toBeUndefined();
     expect(r.showcase.players!.intentsLogged).toBe(0);
+  });
+
+  it.each([[false], [true]])("--evaluate works with --players generated (--no-intents: %s): the evaluator input holds no intent text, S-16 passes and the JSON has both the players and the evaluation sections", async (noIntents) => {
+    const { env, seen } = await fakeModel(GEN);
+    const { dir, sentinels } = await sentinelScenario();
+    const out = await tmp();
+    const r = await run([...ARGV, "--scenario", dir, ...(noIntents ? ["--no-intents"] : []), "--evaluate", "--eval-out", path.join(out, "rep"), "--transcript", "e.md"], env, { cwd: out });
+    expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    expect(r.report!.results.map((x) => x.id)).toEqual([...SHOWCASE_CHECKS.map((c) => c.id), "S-15", "S-16"]);
+    expect(seen.evalBodies.length).toBeGreaterThan(0);
+    for (const s of sentinels) expect(seen.evalBodies.join("\n")).not.toContain(s);
+    expect(seen.evalBodies.join("\n")).toContain("Take 1 as"); // the evaluator saw what was actually said
+    expect(r.showcase.players!.intentsLogged).toBe(noIntents ? 0 : 12);
+    expect(r.report!.evaluation).toMatchObject({ failures: [], group: { status: "ok" } });
+    expect(r.report!.evaluation!.files).toContain("index.md");
+    const md = await readFile(path.join(out, "e.md"), "utf8");
+    expect(md.includes("intent for ")).toBe(!noIntents);
+    expect(md).not.toContain("EVALUATION");
   });
 
   it("scripted-player and mock runs have no intent entries and no players section", async () => {

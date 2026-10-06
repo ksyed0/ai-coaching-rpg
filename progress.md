@@ -32,3 +32,8 @@
 ## Session 4 — 2026-10-05
 
 - US-0022 built on `feature/EPIC-0006-US-0022-retry-transient-model-errors`: typed `ModelProviderError` classification in the OpenAI-compatible and Anthropic adapters (mock can script typed errors), `RetryingModelProvider` (bounded, backoff with jitter, Retry-After, abortable so retries never outlive the NPC deadlines, never retries after the first chunk), `MODEL_MAX_RETRIES` / `MODEL_RETRY_BASE_MS` read in `bootstrap()` and the live demo paths, alerts that state attempts and kind (`used fallback line` kept). Verified with fakes only; the controller measures the real-provider fallback rate afterwards. Review round R46: Anthropic SSE error events and custom-endpoint connection failures classified correctly, SDK retries off under the wrapper, Game Master deadline max(reply timeout, 60 s), quota 429 permanent, retry history in deadline alerts. Bounds: a retry waits base x 2^(n-1) (+/-25%, cap max(4 s, base)) or Retry-After up to 10 s; deadlines cut it. Real run after review: 10 of 20 fallbacks without retries, 0 of 20 with.
+
+## Session 5 — 2026-10-06
+
+- EPIC-0005 pulled forward (Planned -> In Progress) on `feature/EPIC-0005-evaluator-feedback`, stacked on US-0027: US-0028 (BARS rubric schema, loader, validator, two rubrics), US-0029 (evaluator engine with verified evidence, aggregation, re-ask), US-0030 (participant and group reports, index, method), US-0031 (`pnpm evaluate`, `pnpm demo --showcase --evaluate`, check S-16). Decisions: scores visible to all participants for now; BARS with four levels and Not observed. Follow-ups not filed: moderation workflow (ASM-04), self-assessment (ASM-07), isolation (ASM-09). No live model calls were made; the controller runs the real evaluations.
+
