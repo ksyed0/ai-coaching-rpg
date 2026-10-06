@@ -1,5 +1,6 @@
 import { stampFromBody } from "./nonce.js";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { readOnce } from "../../agents/__tests__/read-once.js";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -110,8 +111,9 @@ describe("--gm-trace", () => {
     const r = await run(["--showcase", "--fast", "--no-color", "--gm-trace", "gm.jsonl"], { cwd: dir });
     expect(r.exitCode).toBe(0);
     const file = path.join(dir, "gm.jsonl");
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    const recs = readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l) as { seq: number; sceneId: string; attempt: number; raw: string; parse: { ok: boolean; via?: string; reason?: string } });
+    const seen = readOnce(file);
+    expect(seen.mode).toBe(0o600);
+    const recs = seen.text.trim().split("\n").map((l) => JSON.parse(l) as { seq: number; sceneId: string; attempt: number; raw: string; parse: { ok: boolean; via?: string; reason?: string } });
     expect(recs).toHaveLength(17); // 16 evaluations, one of them asked twice
     expect(recs.filter((x) => x.parse.via === "tolerant")).toHaveLength(1);
     expect(recs.filter((x) => x.parse.via === "reask")).toHaveLength(1);

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { readOnce } from "../agents/__tests__/read-once.js";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,12 +41,13 @@ describe("bootstrap: Game Master settings (US-0025)", () => {
     const r = await boot({ GM_TRACE_FILE: "gm-trace.log", GM_EVERY_N_UTTERANCES: "1" });
     expect(r.ok).toBe(true);
     const file = path.join(tmp, "gm-trace.log");
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
     const host = runtime!.host;
     host.join("host", "p1"); await host.start();
     await host.onPlayerUtterance("host", "hello"); await host.idle();
     // the mock model answers "[mock reply]": no verdict, asked twice
-    const recs = (await readFile(file, "utf8")).trim().split("\n").map((l) => JSON.parse(l) as { attempt: number; raw: string; parse: { ok: boolean; reason?: string } });
+    const seen = readOnce(file);
+    expect(seen.mode).toBe(0o600);
+    const recs = seen.text.trim().split("\n").map((l) => JSON.parse(l) as { attempt: number; raw: string; parse: { ok: boolean; reason?: string } });
     expect(recs.map((x) => x.attempt)).toEqual([1, 2]);
     expect(recs[0]).toMatchObject({ raw: "[mock reply]", parse: { ok: false, reason: "no_json" } });
   });

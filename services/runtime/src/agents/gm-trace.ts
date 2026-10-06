@@ -1,4 +1,4 @@
-import { closeSync, constants as C, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, realpathSync, writeSync } from "node:fs";
+import { closeSync, constants as C, fchmodSync, fstatSync, mkdirSync, openSync, realpathSync, writeSync } from "node:fs";
 import path from "node:path";
 import type { GmTraceRecord } from "./game-master.js";
 
@@ -20,9 +20,15 @@ export function createGmTraceWriter(file: string, opts: { forbid?: string[]; /**
   }
   if (opts.forbidDir !== undefined && target.endsWith(".jsonl") && realOrResolved(path.dirname(target)) === realOrResolved(opts.forbidDir)) throw new Error("the trace file must not be a session log (*.jsonl in the sessions directory)");
   mkdirSync(path.dirname(target), { recursive: true });
-  try { if (lstatSync(target).isSymbolicLink()) throw Object.assign(new Error("a symbolic link"), { code: "ELOOP" }); }
-  catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
-  const fd = openSync(target, C.O_WRONLY | C.O_APPEND | C.O_CREAT | (C.O_NOFOLLOW ?? 0), 0o600);
+  // O_NOFOLLOW on the open is the guard against a symbolic link (no separate path check that could race with it).
+  let fd: number;
+  try { fd = openSync(target, C.O_WRONLY | C.O_APPEND | C.O_CREAT | (C.O_NOFOLLOW ?? 0), 0o600); }
+  catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ELOOP") throw Object.assign(new Error("the trace file must not be a symbolic link"), { code });
+    if (code === "EISDIR") throw Object.assign(new Error("the trace file must not be a directory"), { code });
+    throw err;
+  }
   try {
     const st = fstatSync(fd);
     if (!st.isFile()) throw Object.assign(new Error("not a regular file"), { code: "EISDIR" });

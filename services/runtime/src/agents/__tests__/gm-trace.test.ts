@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync, chmodSync, linkSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, chmodSync, linkSync, mkdirSync } from "node:fs";
+import { readOnce } from "./read-once.js";
 import os from "node:os";
 import path from "node:path";
 import { createGmTraceWriter, parseGmTraceEnv } from "../gm-trace.js";
@@ -12,13 +13,14 @@ describe("GM trace file", () => {
   it("appends one JSON line per reply, in a file only its owner can read", () => {
     const file = path.join(tmp(), "nested", "trace.jsonl");
     const write = createGmTraceWriter(file);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
     write({ seq: 3, sceneId: "s", condition: "c", attempt: 1, nonce: null, raw: "nope", parse: { ok: false, reason: "no_json" } });
     write({ seq: 3, sceneId: "s", condition: "c", attempt: 2, nonce: null, raw: '{"verdict":true}', parse: { ok: true, verdict: true, via: "reask" } });
-    const lines = readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    const seen = readOnce(file); // one open: type, mode and text from the same descriptor
+    expect(seen.isFile).toBe(true);
+    expect(seen.mode).toBe(0o600);
+    const lines = seen.text.trim().split("\n").map((l) => JSON.parse(l));
     expect(lines).toHaveLength(2);
     expect(lines[1]).toMatchObject({ attempt: 2, parse: { via: "reask" } });
-    expect(statSync(file).mode & 0o777).toBe(0o600);
   });
   it("refuses the session log, a symbolic link and a non-file; chmods an existing file; close() stops writing", () => {
     const d = tmp();
@@ -34,11 +36,12 @@ describe("GM trace file", () => {
     const own = path.join(d, "own.jsonl");
     writeFileSync(own, "", { mode: 0o644 }); chmodSync(own, 0o644);
     const w = createGmTraceWriter(own);
-    expect(statSync(own).mode & 0o777).toBe(0o600);
     w({ seq: 1, sceneId: "s", condition: "c", attempt: 1, nonce: null, raw: "a", parse: { ok: false, reason: "empty" } });
     w.close();
     w({ seq: 2, sceneId: "s", condition: "c", attempt: 1, nonce: null, raw: "b", parse: { ok: false, reason: "empty" } });
-    expect(readFileSync(own, "utf8").trim().split("\n")).toHaveLength(1);
+    const after = readOnce(own);
+    expect(after.mode).toBe(0o600); // an existing 0644 file was chmodded through the writer's descriptor
+    expect(after.text.trim().split("\n")).toHaveLength(1);
   });
   it("refuses ANY *.jsonl in the sessions directory, and a file with several hard links", () => {
     const d = tmp();

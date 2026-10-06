@@ -87,7 +87,12 @@ export function validateCase(raw: unknown, where: string): GmCase {
     const r = d as Record<string, unknown>;
     if (!r || !isStr(r.role) || typeof r.text !== "string") bad(`dialogue[${i}] needs a role and a text`);
   }
-  return raw as GmCase;
+  // Rebuild a typed object from the validated fields only: unknown extra keys in a case file are dropped, never passed on to a prompt.
+  const scene2 = c.scene as { id: string; title: string; goal: string };
+  return {
+    id: c.id as string, scene: { id: scene2.id, title: scene2.title, goal: scene2.goal }, condition: c.condition as string,
+    dialogue: (c.dialogue as { role: string; text: string }[]).map((d) => ({ role: d.role, text: d.text })), label: c.label as boolean, source: c.source as string,
+  };
 }
 
 /** Loads cases from one JSON file or every `*.json` file of a directory (a file may hold `{cases: [...]}` or a bare array). Files without cases (e.g. the parser corpus) are skipped. */
