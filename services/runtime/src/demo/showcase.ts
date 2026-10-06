@@ -150,6 +150,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
   const snapshot = (): ShowcaseReport => buildShowcaseReport({
     events: st.fac?.events() ?? [], scenario, mode: o.mode, timing, wallTimeMs: ctx.now() - o.startedMs, maxLines: o.maxLines, maxFallbacks: o.maxFallbacks,
     watchdogMinutes: o.watchdogMinutes, observations, provider: o.provider, players: o.players?.lines, showIntents: o.players?.showIntents,
+    silences: sys?.host.silentTurns(),
   });
   o.holder.snapshot = snapshot;
 
@@ -193,6 +194,12 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
       default: break;
     }
   };
+  // A silent turn leaves no event: say so in the narration and the transcript (the marker itself is never recorded anywhere).
+  const stopSilence = sys?.host.onSilentTurn((t) => {
+    const msg = `${npcName(t.roleId)} (${t.roleId}) had nothing new to add and stayed silent`;
+    ctx.tr?.add({ kind: "log", source: "system", text: msg, scene: t.sceneId });
+    chain = chain.then(() => n.tagged("system", "dim", "", msg)).catch(() => undefined);
+  });
   const narratePlayer = o.players?.lines.reader();
   const flush = async (): Promise<void> => { await chain; };
 
@@ -338,6 +345,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
   }
   await fac.waitFor(isEvent("session.ended"), { timeoutMs: 15_000, what: "the session to end" });
   await flush();
+  stopSilence?.();
   await settle(ctx, st);
   await flush();
 
@@ -386,13 +394,14 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       const here = scene.participants.filter((p) => npcIds.includes(p));
       for (const id of here) {
         const said = summary.lines.filter((l) => l.source === "ai-character" && l.role === id && l.sceneId === scene.id);
-        ensure(said.length > 0, `${id} never spoke in ${scene.id}`);
+        const silent = summary.voices.silentTurns.byScene.find((x) => x.sceneId === scene.id && x.roleId === id)?.count ?? 0;
+        ensure(said.length > 0 || silent > 0, `${id} never spoke in ${scene.id}`); // a character that chose silence every turn did not fail
         ensure(said.every((l) => l.text.trim().length > 0), `${id} produced an empty utterance in ${scene.id}`);
         parts.push(`${id}@${scene.id}:${said.length}`);
       }
     }
     ensure(parts.length > 0, "the scenario has no scene with an AI character (the check would be vacuous)");
-    return `${summary.npcReplies} AI replies; every character spoke in every scene it is in (${parts.join(", ")})`;
+    return `${summary.npcReplies} AI replies; every character spoke in every scene it is in, or chose silence (${parts.join(", ")})`;
   }, ["S-01"]);
 
   await rec.run("S-03", () => {

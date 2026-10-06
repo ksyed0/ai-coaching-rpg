@@ -1,12 +1,13 @@
 import type { SessionEvent } from "@acr/events";
 import type { NpcRole, Scenario } from "@acr/script";
 import { sanitizeText } from "../cli/render.js";
+import { ECHO_THRESHOLD, findEchoes, type EchoPair } from "./echo.js";
 import { playerSource, type PlayerLines } from "./player-lines.js";
 import { classifyGmDecision, classifyNpcReply, isFallbackReply, type Provenance } from "./provenance.js";
 
 export type LineSource = "player-bot" | "ai-character" | "game-master" | "system";
 export type LineRecord = { seq: number; source: LineSource; /** SCRIPTED / GENERATED / FALLBACK / SYSTEM: the same tags as the Markdown transcript. */ tag: Provenance; sceneId: string | null; role?: string; text: string; fallback?: boolean };
-export type NpcStats = { roleId: string; name: string; replies: number; modelReplies: number; fallbackReplies: number; latencyMs: { median: number; max: number } | null };
+export type NpcStats = { roleId: string; name: string; /** Turns the character chose to stay silent (`<silent/>`): no utterance, counted in memory only. */ silentTurns: number; replies: number; modelReplies: number; fallbackReplies: number; latencyMs: { median: number; max: number } | null };
 export type GmDecision = { seq: number; sceneId: string; condition: string; verdict: boolean; reasoning: string };
 export type SceneStats = { id: string; title: string; exitReason: string | null; playerLines: number; npcReplies: number; gmDecisions: number };
 export type PlayerStats = {
@@ -24,6 +25,14 @@ export type PlayerStats = {
   /** How many intents were logged (0 with `--no-intents`). */
   intentsLogged: number;
 };
+/** How distinct the AI characters' voices were (observations only, never a failure). */
+export type VoiceStats = {
+  /** Token-set Jaccard similarity at or above which two consecutive AI replies of a scene count as an echo. */
+  echoThreshold: number;
+  /** Consecutive AI character replies of the same scene that are near-duplicates. */
+  echoes: EchoPair[];
+  silentTurns: { total: number; byRole: Record<string, number>; byScene: { sceneId: string; roleId: string; count: number }[] };
+};
 export type ShowcaseReport = {
   scenario: { id: string; title: string };
   mode: "mock" | "live";
@@ -38,6 +47,8 @@ export type ShowcaseReport = {
   playerLines: number;
   /** Only with `--players generated`: how the player lines were produced. Counted from the lines the server actually recorded. */
   players?: PlayerStats;
+  /** Echo detection and silent turns of the AI characters. */
+  voices: VoiceStats;
   npcReplies: number;
   fallbackLines: number;
   facilitatorAdvances: number;
@@ -76,6 +87,8 @@ export type ReportInput = {
   players?: PlayerLines;
   /** `--players generated` logs each line's private intent (the default); false for `--no-intents`. */
   showIntents?: boolean;
+  /** The turns AI characters chose to stay silent (kept in memory by the host: a silent turn is not an event). */
+  silences?: readonly { roleId: string; sceneId: string }[];
 };
 
 /**
@@ -162,11 +175,25 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
     }
   });
 
+  const silences = i.silences ?? [];
+  const byRole: Record<string, number> = {};
+  const byScene = new Map<string, { sceneId: string; roleId: string; count: number }>();
+  for (const x of silences) {
+    byRole[x.roleId] = (byRole[x.roleId] ?? 0) + 1;
+    const k = `${x.sceneId}|${x.roleId}`;
+    const e = byScene.get(k) ?? { sceneId: x.sceneId, roleId: x.roleId, count: 0 };
+    e.count++; byScene.set(k, e);
+  }
+  const voices: VoiceStats = {
+    echoThreshold: ECHO_THRESHOLD,
+    echoes: findEchoes(lines.filter((l) => l.source === "ai-character").map((l) => ({ seq: l.seq, sceneId: l.sceneId, role: l.role!, text: l.text, ...(l.fallback ? { fallback: true as const } : {}) }))),
+    silentTurns: { total: silences.length, byRole, byScene: [...byScene.values()] },
+  };
   const npcs: NpcStats[] = npcRoles.map((r) => {
     const s = stats.get(r.id)!;
     const m = median(s.latencies);
     return {
-      roleId: r.id, name: r.name, replies: s.replies, modelReplies: s.replies - s.fallback, fallbackReplies: s.fallback,
+      roleId: r.id, name: r.name, silentTurns: byRole[r.id] ?? 0, replies: s.replies, modelReplies: s.replies - s.fallback, fallbackReplies: s.fallback,
       latencyMs: m === null ? null : { median: Math.round(m), max: Math.max(...s.latencies) },
     };
   });
@@ -183,7 +210,7 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
       evaluations: decisions.length, verdictsTrue: decisions.filter((d) => d.verdict).length, verdictsFalse: decisions.filter((d) => !d.verdict).length,
       exitedScenes: exited, decisions,
     },
-    playerLines, ...(i.players ? { players: ps } : {}), npcReplies, fallbackLines, facilitatorAdvances: advances, observations: i.observations.map((o) => clip(o, 300)), warnings, alerts, lines,
+    playerLines, ...(i.players ? { players: ps } : {}), voices, npcReplies, fallbackLines, facilitatorAdvances: advances, observations: i.observations.map((o) => clip(o, 300)), warnings, alerts, lines,
     wallTimeMs: Math.round(i.wallTimeMs),
   };
 }
@@ -206,6 +233,9 @@ export function formatAiSummary(r: ShowcaseReport): string[] {
     const p = r.players;
     out.push(`  Player bots (--players generated): ${p.generated} of ${r.playerLines} lines generated by the model, ${p.scriptedFallbacks} fell back to the scripted line; ${p.verbatimRepeats} generated line(s) repeated the scripted line verbatim, ${p.cutReplies} had lines for other speakers cut; ${p.intentsLogged} intent(s) logged`);
   }
+  const v = r.voices;
+  const silent = r.npcs.filter((n) => n.silentTurns > 0).map((n) => `${n.name} ${n.silentTurns}`);
+  out.push(`  AI voices: ${v.echoes.length} near-duplicate consecutive AI reply pair(s) (similarity >= ${v.echoThreshold}); silent turns: ${silent.length ? silent.join(", ") : "none"}`);
   out.push(`  Facilitator advances: ${r.facilitatorAdvances}`);
   out.push(`  Alerts: ${r.alerts.length}`);
   for (const o of r.observations) out.push(`  Observation: ${o}`);

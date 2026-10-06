@@ -106,7 +106,7 @@ describe("pnpm demo --showcase (mock mode, in-process)", () => {
     const parsed = JSON.parse(stdout) as Report;
     expect(parsed.mode).toBe("mock");
     expect(Object.keys(parsed.showcase!).sort()).toEqual([
-      "alerts", "facilitatorAdvances", "fallbackLines", "gm", "lines", "maxFallbacks", "maxLines", "mode", "npcReplies", "npcs", "observations", "playerLines", "scenario", "scenes", "wallTimeMs", "warnings", "watchdogMinutes",
+      "alerts", "facilitatorAdvances", "fallbackLines", "gm", "lines", "maxFallbacks", "maxLines", "mode", "npcReplies", "npcs", "observations", "playerLines", "scenario", "scenes", "voices", "wallTimeMs", "warnings", "watchdogMinutes",
     ]);
     expect(parsed.showcase!.gm.decisions).toHaveLength(14);
     expect(parsed.showcase!.gm.decisions[0]).toEqual(expect.objectContaining({ sceneId: "s1_huddle", verdict: false, reasoning: expect.any(String) }));
