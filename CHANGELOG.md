@@ -69,6 +69,7 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 
 ### Fixed
 
+- Pausing a session now freezes the scene time box and the timed-inject clock; `/resume` continues with the remaining time instead of firing every overdue inject at once or ending the scene (BUG-0005). Remaining time is derived from the recorded pause and resume event timestamps (`activeElapsedMs` in `@acr/events`).
 - `startServer` rejects a `heartbeatMs` of 0, a negative, non-finite or too large value instead of dropping every socket almost at once, and the heartbeat tests use a 150 ms period so a loaded CI runner cannot fail them (BUG-0001).
 - A regression test pins that a refused connection to a custom Anthropic endpoint is reported as a connection error and not as a refused redirect (the classification itself was fixed with US-0022) (BUG-0002).
 - Demo check F-23 (silent client dropped) judges the drop by the unanswered pings the client saw and a limit of 3 heartbeat periods from the first, instead of a timing-dependent figure against a limit of 25 (BUG-0003).

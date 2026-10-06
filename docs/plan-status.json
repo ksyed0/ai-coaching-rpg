@@ -1115,6 +1115,70 @@
       "dependencies": [
         "US-0027"
       ]
+    },
+    {
+      "id": "US-0033",
+      "epicId": "EPIC-0006",
+      "title": "As an operator, I want each player role to have its own join code, so that a person cannot claim a role that was meant for someone else.",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0033-player-join-codes",
+      "acs": [
+        {
+          "id": "AC-0120",
+          "text": "when the server starts a session it creates one random join code per player role (stored only as a hash, never written to the event log), the operator can see the codes once at start, and a `join` for a player role must present that role's code",
+          "done": false
+        },
+        {
+          "id": "AC-0121",
+          "text": "a `join` with a missing or wrong code is refused with one generic error that does not say whether the role exists or is taken, and the refusals count towards the existing connection and rate limits",
+          "done": false
+        },
+        {
+          "id": "AC-0122",
+          "text": "the facilitator token (US-0017) remains separate, a rejoining player keeps using the reconnect token for a live session, and the README documents how to hand the codes out",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0017"
+      ]
+    },
+    {
+      "id": "US-0034",
+      "epicId": "EPIC-0006",
+      "title": "As a facilitator, I want the Game Master to suggest releasing a hidden fact when a scenario `earned_when` condition is met (suggest-only, never auto-release by default), so that I do not have to watch for the moment a participant has earned it.",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release",
+      "acs": [
+        {
+          "id": "AC-0123",
+          "text": "a scenario may give a hidden fact an optional `earned_when` condition (plain text, validated like a scene exit condition), and a scenario without it behaves exactly as before",
+          "done": false
+        },
+        {
+          "id": "AC-0124",
+          "text": "when the Game Master judges an `earned_when` condition true for a fact that is not yet released, the facilitator (only) receives one alert that names the role and the fact index and says how to release it (`/release <role> <n>`); the fact text never reaches players, and the same suggestion is not repeated",
+          "done": false
+        },
+        {
+          "id": "AC-0125",
+          "text": "nothing is released without the facilitator's `release_hidden` command, unless the operator explicitly sets an opt-in `GM_AUTO_RELEASE` option, which is off by default and records the release as a Game Master action",
+          "done": false
+        },
+        {
+          "id": "AC-0126",
+          "text": "the scripted mock provider covers the suggestion and the no-suggestion cases, the demo checks stay stable, and the README and CHANGELOG describe the feature",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0016",
+        "US-0025"
+      ]
     }
   ],
   "tasks": [
@@ -1437,6 +1501,26 @@
       "status": "Done",
       "branch": "feature/EPIC-0006-ai-character-voices",
       "notes": "Observed 2026-10-06 in real Gemma runs of `pnpm demo --showcase --live --players generated`: both AI characters answered every player line and the CFO's reply rephrased the sponsor's point. Live comparison is recorded by the controller, not in this task. Fix round 2026-10-06 after an independent review: forced last speaker, silence forms folded before cleaning, roster tags, generic prompt wording, echo metric restricted to different roles answering the same player line, validator warnings, ordered silent-turn note, bounded silence memory, cross-character prompt audit in S-06."
+    },
+    {
+      "id": "TASK-0033",
+      "storyId": "US-0033",
+      "title": "Generate and verify per-role join codes, add the code to the join message and the terminal client, document it",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0033-player-join-codes",
+      "notes": "Closes the gap US-0017 leaves open: with only a facilitator token, any connection can still claim an unclaimed player role. Also needed so that US-0018 (resume after restart) can keep roles protected across a restart (hashed codes only)."
+    },
+    {
+      "id": "TASK-0034",
+      "storyId": "US-0034",
+      "title": "Add earned_when to the schema, have the Game Master evaluate it and alert the facilitator, add the opt-in auto release",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release",
+      "notes": "Follow-up to the design notes for US-0016 and US-0025. US-0016 gives the facilitator the manual release command; this story only suggests it."
     }
   ],
   "testCases": [],
@@ -1488,198 +1572,222 @@
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0005",
+      "title": "Pausing a session does not stop the scene clock: on /resume every overdue timed inject fires at once and the time box can end the scene immediately",
+      "severity": "Medium",
+      "relatedStory": "US-0004",
+      "relatedTask": "TASK-0004",
+      "status": "Fixed (499ba98 on chore/BUG-0005-pause-freezes-scene-clock)",
+      "fixBranch": "chore/BUG-0005-pause-freezes-scene-clock",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
     }
   ],
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 0.192722,
+      "costUsd": 0.181385,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0033": {
+      "projectedUsd": 800,
+      "costUsd": 0.181385,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0034": {
+      "projectedUsd": 800,
+      "costUsd": 0.181385,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -1714,6 +1822,14 @@
         "projectedUsd": 400
       },
       "BUG-0004": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0005": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -1952,6 +2068,20 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": true
+    },
+    "US-0033": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0034": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -2004,10 +2134,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T21:41:51.055Z",
-  "commitSha": "5428a92",
-  "buildNumber": "129",
-  "branch": "chore/housekeeping-plan-status-and-bugs",
+  "generatedAt": "2026-10-06T21:52:38.978Z",
+  "commitSha": "499ba98",
+  "buildNumber": "132",
+  "branch": "chore/BUG-0005-pause-freezes-scene-clock",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2105,13 +2235,13 @@
     }
   },
   "budget": {
-    "totalBudget": 6006.1671,
+    "totalBudget": 7606.1671,
     "totalSpent": 6.1671,
-    "totalProjected": 26800,
+    "totalProjected": 28400,
     "percentUsed": 0,
-    "burnRate": 0.19186533333333333,
-    "daysRemaining": 31271,
-    "projectedExhaustion": 31271,
+    "burnRate": 0.19871766666666665,
+    "daysRemaining": 38245,
+    "projectedExhaustion": 38245,
     "thresholds": [
       50,
       75,
@@ -2123,33 +2253,33 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 2.698108,
-        "spent": 2.698108,
+        "budget": 2.5393899999999996,
+        "spent": 2.5393899999999996,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 0.770888,
-        "spent": 0.770888,
+        "budget": 0.72554,
+        "spent": 0.72554,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.192722,
-        "spent": 0.192722,
+        "budget": 800.181385,
+        "spent": 0.181385,
         "remaining": 800,
         "percentUsed": 0
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 5202.505386,
-        "spent": 2.505386,
-        "remaining": 5200,
+        "budget": 6802.720775,
+        "spent": 2.7207749999999997,
+        "remaining": 6800,
         "percentUsed": 0
       },
       {
@@ -2174,37 +2304,37 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-06T21:37:26.999Z",
-      "2026-09-07T21:37:26.999Z",
-      "2026-09-08T21:37:26.999Z",
-      "2026-09-09T21:37:26.999Z",
-      "2026-09-10T21:37:26.999Z",
-      "2026-09-11T21:37:26.999Z",
-      "2026-09-12T21:37:26.999Z",
-      "2026-09-13T21:37:26.999Z",
-      "2026-09-14T21:37:26.999Z",
-      "2026-09-15T21:37:26.999Z",
-      "2026-09-16T21:37:26.999Z",
-      "2026-09-17T21:37:26.999Z",
-      "2026-09-18T21:37:26.999Z",
-      "2026-09-19T21:37:26.999Z",
-      "2026-09-20T21:37:26.999Z",
-      "2026-09-21T21:37:26.999Z",
-      "2026-09-22T21:37:26.999Z",
-      "2026-09-23T21:37:26.999Z",
-      "2026-09-24T21:37:26.999Z",
-      "2026-09-25T21:37:26.999Z",
-      "2026-09-26T21:37:26.999Z",
-      "2026-09-27T21:37:26.999Z",
-      "2026-09-28T21:37:26.999Z",
-      "2026-09-29T21:37:26.999Z",
-      "2026-09-30T21:37:26.999Z",
-      "2026-10-01T21:37:26.999Z",
-      "2026-10-02T21:37:26.999Z",
-      "2026-10-03T21:37:26.999Z",
-      "2026-10-04T21:37:26.999Z",
-      "2026-10-05T21:37:26.999Z",
-      "2026-10-06T21:41:51.140Z"
+      "2026-09-06T21:52:39.043Z",
+      "2026-09-07T21:52:39.043Z",
+      "2026-09-08T21:52:39.043Z",
+      "2026-09-09T21:52:39.043Z",
+      "2026-09-10T21:52:39.043Z",
+      "2026-09-11T21:52:39.043Z",
+      "2026-09-12T21:52:39.043Z",
+      "2026-09-13T21:52:39.043Z",
+      "2026-09-14T21:52:39.043Z",
+      "2026-09-15T21:52:39.043Z",
+      "2026-09-16T21:52:39.043Z",
+      "2026-09-17T21:52:39.043Z",
+      "2026-09-18T21:52:39.043Z",
+      "2026-09-19T21:52:39.043Z",
+      "2026-09-20T21:52:39.043Z",
+      "2026-09-21T21:52:39.043Z",
+      "2026-09-22T21:52:39.043Z",
+      "2026-09-23T21:52:39.043Z",
+      "2026-09-24T21:52:39.043Z",
+      "2026-09-25T21:52:39.043Z",
+      "2026-09-26T21:52:39.043Z",
+      "2026-09-27T21:52:39.043Z",
+      "2026-09-28T21:52:39.043Z",
+      "2026-09-29T21:52:39.043Z",
+      "2026-09-30T21:52:39.043Z",
+      "2026-10-01T21:52:39.043Z",
+      "2026-10-02T21:52:39.043Z",
+      "2026-10-03T21:52:39.043Z",
+      "2026-10-04T21:52:39.043Z",
+      "2026-10-05T21:52:39.043Z",
+      "2026-10-06T21:52:39.042Z"
     ],
     "doneCounts": [
       0,
@@ -2214,29 +2344,29 @@
       0,
       0,
       0,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      1,
-      2,
-      2,
-      2,
-      2,
-      2,
-      2,
-      2,
-      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0
     ],
     "totalStories": [
@@ -2270,7 +2400,7 @@
       32,
       32,
       32,
-      32
+      34
     ],
     "aiCosts": [
       0.20556999999999997,
@@ -2346,62 +2476,62 @@
       0,
       0,
       0,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
-      6,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0
     ],
     "openBugs": [
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
-      3,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0
     ],
     "atRisk": [
@@ -2445,29 +2575,29 @@
       0,
       0,
       0,
-      26667,
-      30000,
-      33333,
-      36667,
-      40000,
-      43333,
-      46667,
-      50000,
-      50000,
-      50000,
-      50000,
-      50000,
-      50000,
-      50000,
-      50000,
-      88333,
-      90000,
-      91667,
-      93333,
-      95000,
-      96667,
-      98333,
-      100000,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       522440
     ],
     "outputTokens": [
@@ -2478,63 +2608,63 @@
       0,
       0,
       0,
-      8000,
-      9000,
-      10000,
-      11000,
-      12000,
-      13000,
-      14000,
-      15000,
-      15000,
-      15000,
-      15000,
-      15000,
-      15000,
-      15000,
-      15000,
-      26500,
-      27000,
-      27500,
-      28000,
-      28500,
-      29000,
-      29500,
-      30000,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       69480
     ],
     "avgRisk": [
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1656250000000004,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1774193548387102,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1870967741935488,
-      1.1967741935483873,
-      1.2000000000000002,
-      1.2000000000000002,
-      1.2000000000000002,
-      1.2000000000000002,
-      1.2000000000000002,
-      1.2000000000000002,
-      1.2100000000000004,
-      1.2100000000000004,
-      1.1093750000000004
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1093750000000004,
+      1.1187500000000006,
+      1.1187500000000006,
+      1.1187500000000006,
+      1.1187500000000006,
+      1.1187500000000006,
+      1.1187500000000006,
+      1.1187500000000006,
+      1.1187500000000006,
+      1.1187500000000006,
+      1.1187500000000006,
+      1.1187500000000006,
+      1.1187500000000006,
+      1.1088235294117652
     ],
     "velocityByWeek": {
       "labels": [
@@ -2547,19 +2677,19 @@
       ],
       "points": [
         0,
-        3,
         0,
         0,
-        3,
+        0,
+        0,
         0
       ],
       "rollingAvg": [
         0,
-        1.5,
-        1,
-        0.8,
-        1.5,
-        0.8
+        0,
+        0,
+        0,
+        0,
+        0
       ]
     }
   }
