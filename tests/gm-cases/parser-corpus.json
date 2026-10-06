@@ -1,0 +1,161 @@
+{
+  "version": 1,
+  "description": "Raw Game Master replies as models write them and the parse the tolerant parser must give (offline check of `pnpm gm-eval`). Add a captured reply here whenever a real model finds a new shape.",
+  "replies": [
+    {
+      "id": "strict-true",
+      "raw": "{\"reasoning\": \"all three agreed\", \"verdict\": true}",
+      "expect": {
+        "ok": true,
+        "verdict": true,
+        "via": "strict"
+      }
+    },
+    {
+      "id": "strict-false-verdict-first",
+      "raw": "{\"verdict\": false, \"reasoning\": \"still open\"}",
+      "expect": {
+        "ok": true,
+        "verdict": false,
+        "via": "strict"
+      }
+    },
+    {
+      "id": "fence-json",
+      "raw": "```json\n{\"reasoning\": \"agreed\", \"verdict\": true}\n```",
+      "expect": {
+        "ok": true,
+        "verdict": true,
+        "via": "tolerant"
+      }
+    },
+    {
+      "id": "prose-then-json",
+      "raw": "Here is my judgement: {\"reasoning\": \"not yet\", \"verdict\": false} Let me know if you need more.",
+      "expect": {
+        "ok": true,
+        "verdict": false,
+        "via": "tolerant"
+      }
+    },
+    {
+      "id": "json-then-stray-braces",
+      "raw": "{\"reasoning\": \"ok\", \"verdict\": true}\n(see {notes} for details)",
+      "expect": {
+        "ok": true,
+        "verdict": true,
+        "via": "tolerant"
+      }
+    },
+    {
+      "id": "echoed-schema-then-answer",
+      "raw": "The format is {\"reasoning\": \"...\", \"verdict\": true or false}.\n{\"reasoning\": \"only proposed\", \"verdict\": false}",
+      "expect": {
+        "ok": true,
+        "verdict": false,
+        "via": "tolerant"
+      }
+    },
+    {
+      "id": "think-block-then-json",
+      "raw": "<think>The condition needs an explicit agreement. {\"verdict\": true}? No.</think>\n{\"reasoning\": \"proposed only\", \"verdict\": false}",
+      "expect": {
+        "ok": true,
+        "verdict": false,
+        "via": "tolerant"
+      }
+    },
+    {
+      "id": "string-boolean",
+      "raw": "{\"reasoning\": \"yes\", \"verdict\": \"true\"}",
+      "expect": {
+        "ok": true,
+        "verdict": true,
+        "via": "strict"
+      }
+    },
+    {
+      "id": "plain-verdict-line",
+      "raw": "Reasoning: they agreed.\nverdict: true",
+      "expect": {
+        "ok": true,
+        "verdict": true,
+        "via": "tolerant"
+      }
+    },
+    {
+      "id": "bare-false",
+      "raw": "false",
+      "expect": {
+        "ok": true,
+        "verdict": false,
+        "via": "tolerant"
+      }
+    },
+    {
+      "id": "truncated-after-verdict",
+      "raw": "{\"verdict\": true, \"reasoning\": \"the team agre",
+      "expect": {
+        "ok": true,
+        "verdict": true,
+        "via": "tolerant"
+      }
+    },
+    {
+      "id": "empty",
+      "raw": "",
+      "expect": {
+        "ok": false,
+        "reason": "empty"
+      }
+    },
+    {
+      "id": "refusal-prose",
+      "raw": "I am not able to decide this.",
+      "expect": {
+        "ok": false,
+        "reason": "no_json"
+      }
+    },
+    {
+      "id": "number-verdict",
+      "raw": "{\"reasoning\": \"x\", \"verdict\": 1}",
+      "expect": {
+        "ok": false,
+        "reason": "bad_verdict"
+      }
+    },
+    {
+      "id": "yes-verdict",
+      "raw": "{\"reasoning\": \"x\", \"verdict\": \"yes\"}",
+      "expect": {
+        "ok": false,
+        "reason": "bad_verdict"
+      }
+    },
+    {
+      "id": "truncated-before-verdict",
+      "raw": "{\"reasoning\": \"The account manager proposed a plan with a date and a",
+      "expect": {
+        "ok": false,
+        "reason": "truncated"
+      }
+    },
+    {
+      "id": "reasoning-only-think",
+      "raw": "<think>I need to weigh whether the delivery lead actually agreed to",
+      "expect": {
+        "ok": false,
+        "reason": "reasoning_only"
+      }
+    },
+    {
+      "id": "verdict-word-in-reasoning",
+      "raw": "{\"reasoning\": \"the verdict: true would be premature\", \"verdict\": \"maybe\"}",
+      "expect": {
+        "ok": false,
+        "reason": "bad_verdict"
+      }
+    }
+  ]
+}
