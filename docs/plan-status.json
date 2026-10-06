@@ -1447,7 +1447,7 @@
       "severity": "Low",
       "relatedStory": "US-0009",
       "relatedTask": "TASK-0009",
-      "status": "Open",
+      "status": "Fixed (8c18795)",
       "fixBranch": "bugfix/BUG-0001-heartbeat-test-timing",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -1459,7 +1459,7 @@
       "severity": "Low",
       "relatedStory": "US-0014",
       "relatedTask": "TASK-0014",
-      "status": "Open",
+      "status": "Fixed (the classification was corrected in 2d2e31b under US-0022; regression test 6401b13)",
       "fixBranch": "bugfix/BUG-0002-anthropic-endpoint-errors",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -1471,7 +1471,7 @@
       "severity": "Low",
       "relatedStory": "US-0021",
       "relatedTask": "TASK-0021",
-      "status": "Open",
+      "status": "Fixed (2b59b4a)",
       "fixBranch": "bugfix/BUG-0003-demo-heartbeat-evidence",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -2004,9 +2004,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T21:37:26.888Z",
-  "commitSha": "8c662d2",
-  "buildNumber": "123",
+  "generatedAt": "2026-10-06T21:40:45.862Z",
+  "commitSha": "2b59b4a",
+  "buildNumber": "128",
   "branch": "chore/housekeeping-plan-status-and-bugs",
   "sessionTimeline": [
     {
@@ -2109,9 +2109,9 @@
     "totalSpent": 6.1671,
     "totalProjected": 26800,
     "percentUsed": 0,
-    "burnRate": 0.19871766666666665,
-    "daysRemaining": 30193,
-    "projectedExhaustion": 30193,
+    "burnRate": 0.19186533333333333,
+    "daysRemaining": 31271,
+    "projectedExhaustion": 31271,
     "thresholds": [
       50,
       75,
@@ -2204,7 +2204,7 @@
       "2026-10-03T21:37:26.999Z",
       "2026-10-04T21:37:26.999Z",
       "2026-10-05T21:37:26.999Z",
-      "2026-10-06T21:37:26.996Z"
+      "2026-10-06T21:40:45.937Z"
     ],
     "doneCounts": [
       0,
@@ -2402,7 +2402,7 @@
       3,
       3,
       3,
-      3
+      0
     ],
     "atRisk": [
       0,
@@ -2534,7 +2534,7 @@
       1.2000000000000002,
       1.2100000000000004,
       1.2100000000000004,
-      1.1375000000000004
+      1.1093750000000004
     ],
     "velocityByWeek": {
       "labels": [
