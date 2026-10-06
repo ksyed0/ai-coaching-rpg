@@ -41,8 +41,8 @@ export const LIVE_WATCHDOG_MS = 600_000;
 export const DEFAULT_SHOWCASE_SCENARIO = "scenarios/friday-escalation-extended";
 export const SHOWCASE_WATCHDOG_MINUTES = 3;
 export const SHOWCASE_LIVE_WATCHDOG_MINUTES = 30;
-/** With `--evaluate --live` the default watchdog grows by this much: the evaluator makes one slow call per player plus one for the group. */
-export const EVALUATE_EXTRA_WATCHDOG_MINUTES = 10;
+/** With `--evaluate --live` the watchdog (default or explicit `--watchdog`) grows by the evaluator's worst case: EVAL timeout x (players + 1 calls) x 2 (each may be re-asked). */
+export function evaluateExtraMs(timeoutMs: number, players: number): number { return timeoutMs * (players + 1) * 2; }
 
 export type Out = { write(chunk: string): unknown; isTTY?: boolean };
 export type RunDeps = {
@@ -75,6 +75,8 @@ export type RunDeps = {
   tempParent?: string;
   /** Test hooks that run inside the showcase story (to force scene races). */
   showcaseHooks?: ShowcaseHooks;
+  /** Test hook for `--evaluate`: runs after the reports are written and before check S-16 reads them back (tests tamper with a file here). */
+  afterReportsWritten?: (dir: string) => Promise<void>;
 };
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -201,7 +203,12 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   let unexpected = false;
   const bots: Ctx["bots"] = [];
 
-  const watchdogMinutes = opts.watchdog ?? (kind === "live" ? SHOWCASE_LIVE_WATCHDOG_MINUTES + (opts.evaluate ? EVALUATE_EXTRA_WATCHDOG_MINUTES : 0) : SHOWCASE_WATCHDOG_MINUTES);
+  let evalExtraMinutes = 0;
+  if (showcase && opts.evaluate && kind === "live" && liveEnv) {
+    const ec = parseEvalConfig(liveEnv); // validated before anything started
+    if (ec.ok) evalExtraMinutes = Math.ceil(evaluateExtraMs(ec.timeoutMs, Object.values(showcase.scenario.roles).filter((r) => r.type === "player").length) / 60_000);
+  }
+  const watchdogMinutes = (opts.watchdog ?? (kind === "live" ? SHOWCASE_LIVE_WATCHDOG_MINUTES : SHOWCASE_WATCHDOG_MINUTES)) + evalExtraMinutes;
   const limit = deps.watchdogMs ?? (opts.watchdog !== undefined || showcase ? watchdogMinutes * 60_000 : kind === "live" ? LIVE_WATCHDOG_MS : DEFAULT_WATCHDOG_MS);
 
   const executeShowcase = async (sc: { scenario: Scenario; script: ShowcaseScript; rubrics: Rubric[] }): Promise<void> => {
@@ -259,6 +266,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
           const provider = mockRun ? createScriptedEvaluator(events, sc.scenario, sc.rubrics) : startEvaluatorProvider(liveEnv!, config);
           const result = await evaluateSession({ events, scenario: sc.scenario, rubrics: sc.rubrics, provider, config, signal });
           const written = await writeReports(result, { outDir, evaluator: evaluatorInfo(mockRun ? {} : liveEnv!, config, { scripted: mockRun }), secrets: secretValues });
+          await deps.afterReportsWritten?.(written.dir);
           return { result, written };
         },
       };

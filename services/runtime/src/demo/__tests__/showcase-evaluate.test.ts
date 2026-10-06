@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 import { REPO_ROOT } from "../../main.js";
 import { parseDemoArgs } from "../args.js";
-import { runDemo, type RunDeps } from "../runner.js";
+import { evaluateExtraMs, runDemo, type RunDeps } from "../runner.js";
 import { SHOWCASE_CHECKS } from "../showcase.js";
 
 type Captured = { out: string[]; err: string[]; stdout: { write(s: string): void; isTTY?: boolean }; stderr: { write(s: string): void; isTTY?: boolean } };
@@ -55,7 +55,7 @@ describe("pnpm demo --showcase --evaluate (mock mode)", () => {
     expect(stdout).toMatch(/scripted offline evaluator/);
     expect(stdout).toMatch(/delivery_lead: LO1 .*; LO2 .*; LO3 .*; LO4/);
     expect(stdout).toMatch(/model calls: 5/);
-    expect(stdout).toMatch(/S-16 4 reports \(3 players and the group\) in 10 files/);
+    expect(stdout).toMatch(/S-16 3 of 3 players evaluated; 4 reports \(3 players and the group\) in 10 files/);
     expect(report!.evaluation).toMatchObject({ modelCalls: 5, group: { status: "ok" }, failures: [], participants: [{ role: "account_manager", status: "ok" }, { role: "delivery_lead", status: "ok" }, { role: "tech_lead", status: "ok" }] });
     expect(report!.evaluation!.files).toContain("index.md");
     const written = JSON.parse(readFileSync(json, "utf8"));
@@ -68,6 +68,23 @@ describe("pnpm demo --showcase --evaluate (mock mode)", () => {
     const dl = JSON.parse(readFileSync(path.join(dir, "delivery_lead.json"), "utf8"));
     expect(dl.criteria.some((c: { dropped_quotes: number }) => c.dropped_quotes > 0)).toBe(true);
     expect(dl.criteria[0].flags.join(" ")).toMatch(/capped from 4 to 2/);
+  });
+
+  it("S-16 reads the files back from disk: a quote edited in <role>.json after writing makes S-16 fail with 'quote is not verbatim'", async () => {
+    const r = await run(["--showcase", "--fast", "--no-color", "--evaluate", "--eval-out", outDir()], {
+      afterReportsWritten: async (dir) => {
+        const file = path.join(dir, "account_manager.json");
+        const j = JSON.parse(readFileSync(file, "utf8"));
+        const c = j.criteria.find((x: { evidence: unknown[] }) => x.evidence.length > 0);
+        c.evidence[0].quote = `${c.evidence[0].quote} and something nobody said`;
+        await writeFile(file, JSON.stringify(j));
+      },
+    });
+    expect(r.exitCode).toBe(1);
+    const s16 = r.report!.results.find((x) => x.id === "S-16")!;
+    expect(s16.status).toBe("failed");
+    expect(s16.details).toMatch(/quote is not verbatim/);
+    expect(r.report!.results.filter((x) => x.status === "failed").map((x) => x.id)).toEqual(["S-16"]);
   });
 
   it("without --evaluate the run is exactly S-01 to S-14, writes no reports and has no evaluation section", async () => {
@@ -105,7 +122,8 @@ describe("pnpm demo --showcase --evaluate (mock mode)", () => {
 });
 
 describe("pnpm demo --showcase --live --evaluate (a fake OpenAI-compatible server on loopback)", () => {
-  const evalJson = JSON.stringify({ criteria: [{ id: "discovery", score: null, rationale: "nothing observed" }, { id: "shared_understanding", score: null }], strengths: ["You took part."], talking_points: ["Discuss the price."] });
+  const ALL_IDS = ["discovery", "listening", "negotiation", "commercial_judgement", "stakeholder_management", "team_alignment", "role_clarity", "shared_understanding", "decision_quality", "role_clarity_group", "escalation_discipline"];
+  const evalJson = JSON.stringify({ criteria: ALL_IDS.map((id) => ({ id, score: null, rationale: "nothing observed" })), strengths: ["You took part."], talking_points: ["Discuss the price."] });
   const start = async (evaluatorReply: string) => {
     const seen = { eval: 0, bodies: [] as string[] };
     const server = http.createServer((req, res) => {
@@ -160,5 +178,30 @@ describe("pnpm demo --showcase --live --evaluate (a fake OpenAI-compatible serve
     expect(r.exitCode).toBe(2);
     expect(r.stderr).toMatch(/EVAL_MAX_TOKENS/);
     expect(r.stdout).toBe("");
+  });
+});
+
+describe("the live --evaluate watchdog", () => {
+  it("grows by EVAL_TIMEOUT_MS x (players + 1) x 2, for a default and for an explicit --watchdog", async () => {
+    expect(evaluateExtraMs(180_000, 3)).toBe(1_440_000); // 24 minutes
+    const server = http.createServer((req, res) => {
+      let body = ""; req.on("data", (d) => { body += d; });
+      req.on("end", () => {
+        const text = body.includes("learning-and-development assessor") ? JSON.stringify({ criteria: [{ id: "discovery", score: null }, { id: "shared_understanding", score: null }] }) : body.includes("Game Master") ? '{"verdict": false, "reasoning": "x"}' : "ok then";
+        res.writeHead(200, { "Content-Type": "text/event-stream" });
+        res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`); res.end("data: [DONE]\n\n");
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    cleanups.push(() => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }));
+    const port = (server.address() as { port: number }).port;
+    const env = { MODEL_PROVIDER: "local", LOCAL_BASE_URL: `http://127.0.0.1:${port}/v1`, NPC_MODEL: "m", GM_MODEL: "m" };
+    const base = ["--showcase", "--live", "--max-lines", "1", "--fast", "--no-color", "--evaluate"];
+    const a = await run([...base, "--eval-out", outDir()], { resolveLiveEnv: () => env });
+    expect(a.report!.showcase!.watchdogMinutes).toBe(30 + 24);
+    const b = await run([...base, "--watchdog", "5", "--eval-out", outDir()], { resolveLiveEnv: () => env });
+    expect(b.report!.showcase!.watchdogMinutes).toBe(5 + 24);
+    const c = await run(["--showcase", "--live", "--max-lines", "1", "--fast", "--no-color"], { resolveLiveEnv: () => env });
+    expect(c.report!.showcase!.watchdogMinutes).toBe(30); // without --evaluate nothing changes
   });
 });
