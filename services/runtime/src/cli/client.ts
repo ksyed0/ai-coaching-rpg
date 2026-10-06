@@ -1,6 +1,6 @@
 import type { Options } from "./commands.js";
 import { isFatalError, joinMessage, parseInput, parseServerMessage } from "./commands.js";
-import { renderError, renderEvent, renderJoined, sanitizeText } from "./render.js";
+import { parseHiddenFacts, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, sanitizeText } from "./render.js";
 
 export const MAX_PREJOIN_LINES = 100;
 export const DEFAULT_IDLE_MS = 1_500;
@@ -29,6 +29,9 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
   let eof = false;
   let idleTimer: NodeJS.Timeout | null = null;
   const pending: unknown[] = [];
+  // Facilitator only: the hidden facts the server listed at join, and which of them are released (from the snapshot and the live npc.updated events).
+  let hiddenFacts = new Map<string, string[]>();
+  const released = new Map<string, string[]>();
 
   function finish(code: number, message?: string, polite = false): void {
     if (done) return;
@@ -63,12 +66,24 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
       if (eof && joined) armIdle();
       if (m.type === "joined") {
         joined = true;
+        if (opts.facilitator) {
+          hiddenFacts = parseHiddenFacts(m.hiddenFacts);
+          const npcs = (m.state as { npcs?: unknown } | undefined)?.npcs;
+          if (typeof npcs === "object" && npcs !== null) for (const [role, n] of Object.entries(npcs)) {
+            const r = (n as { released?: unknown } | null)?.released;
+            if (Array.isArray(r)) released.set(role, r.filter((t): t is string => typeof t === "string"));
+          }
+        }
         for (const l of renderJoined(m)) io.print(l);
         for (const queued of pending.splice(0)) send(queued);
         if (eof) armIdle();
       } else if (m.type === "event") {
         const line = renderEvent(m.event, opts.facilitator ? "facilitator" : opts.role!);
         if (line) io.print(line);
+        if (opts.facilitator && m.event.type === "npc.updated") {
+          for (const l of renderNewReleases(m.event, hiddenFacts, released)) io.print(l);
+          if (Array.isArray(m.event.released)) released.set(m.event.roleId, m.event.released.filter((t): t is string => typeof t === "string"));
+        }
       } else if (isFatalError(m.code, joined)) {
         finish(1, renderError(m.code, m.message));
       } else {
@@ -82,6 +97,11 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
         case "none": return;
         case "quit": return finish(0, undefined, true);
         case "help": return io.print(input.message);
+        case "hidden":
+          if (!joined) return io.print("not joined yet");
+          io.print("hidden facts (the numbers are for /release <role> <n>):");
+          for (const l of renderHidden(hiddenFacts, released)) io.print(l);
+          return;
         case "send":
           if (joined) send(input.message);
           else if (pending.length < MAX_PREJOIN_LINES) pending.push(input.message);

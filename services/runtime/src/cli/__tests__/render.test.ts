@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEvent } from "@acr/events";
-import { renderEvent, sanitizeText, renderJoined, renderError, MAX_DISPLAY_CHARS } from "../render.js";
+import { renderEvent, sanitizeText, renderJoined, renderError, MAX_DISPLAY_CHARS, parseHiddenFacts, renderHidden, renderNewReleases } from "../render.js";
 
 const env = { seq: 1, ts: 0, sessionId: "s" };
 // eslint-disable-next-line no-control-regex
@@ -172,5 +172,47 @@ describe("renderJoined notice (US-0017)", () => {
     const lines = renderJoined({ type: "joined", roleId: "facilitator", state: { transcript: [] } as never, notice: "no token\x1b[2J" });
     expect(lines[1]).toMatch(/^warning: no token/);
     expect(lines.join("")).not.toContain("\x1b");
+  });
+});
+
+describe("hidden facts in the terminal client (US-0016)", () => {
+  const env = { seq: 1, ts: 0, sessionId: "s" };
+  it("renders the release command to the facilitator by number, never to a player, and never with text", () => {
+    const e = { ...env, type: "facilitator.command", command: "release_hidden", roleId: "cfo", fact: 1 } as const;
+    expect(renderEvent(e, "facilitator")).toBe("[facilitator] released hidden fact #1 of cfo");
+    expect(renderEvent(e, "host")).toBeNull();
+  });
+  it("sanitises a hostile role id and number in the command line", () => {
+    const e = { ...env, type: "facilitator.command", command: "release_hidden", roleId: "\u001b[31mcfo\n[x]", fact: "\u001b[2J" } as never;
+    const out = renderEvent(e, "facilitator")!;
+    expect(out).not.toMatch(/[\u0000-\u001f]/);
+  });
+  it("lists facts numbered, marks released ones and sanitises the text", () => {
+    const facts = parseHiddenFacts({ cfo: ["Can approve it\u001b[31m", "second"], client_sponsor: ["third"] });
+    const lines = renderHidden(facts, new Map([["cfo", ["second"]]]));
+    expect(lines).toEqual(["cfo #1 Can approve it·[31m", "cfo #2 [released] second", "client_sponsor #1 third"]);
+    expect(renderHidden(new Map(), new Map())).toEqual(["no AI character has hidden facts"]);
+  });
+  it("parseHiddenFacts drops anything that is not a role id to a list of strings, and bounds what it keeps", () => {
+    expect([...parseHiddenFacts("x")]).toEqual([]);
+    expect([...parseHiddenFacts([1])]).toEqual([]);
+    expect([...parseHiddenFacts({ a: "no", b: [1, "ok", null] })]).toEqual([["b", ["ok"]]]);
+    const many = parseHiddenFacts({ r: Array.from({ length: 80 }, (_, i) => `f${i}`) });
+    expect(many.get("r")).toHaveLength(50);
+    expect(parseHiddenFacts(JSON.parse('{"__proto__": ["x"]}')).get("__proto__")).toEqual(["x"]);
+  });
+  it("renders only newly released facts of an npc.updated, with their number", () => {
+    const facts = new Map([["cfo", ["a", "b"]]]);
+    const e = { ...env, type: "npc.updated", roleId: "cfo", goals: [], knowledge: [], released: ["a", "b"] } as const;
+    expect(renderNewReleases(e, facts, new Map([["cfo", ["a"]]]))).toEqual(["[npc cfo] released #2: b"]);
+    expect(renderNewReleases(e, facts, new Map([["cfo", ["a", "b"]]]))).toEqual([]);
+    expect(renderNewReleases({ ...e, released: ["zzz"] }, facts, new Map())).toEqual(["[npc cfo] released: zzz"]);
+    expect(renderNewReleases({ ...e, released: undefined }, facts, new Map())).toEqual([]);
+  });
+  it("the facilitator's join line counts the facts without printing them", () => {
+    const lines = renderJoined({ type: "joined", roleId: "facilitator", state: {} as never, hiddenFacts: { cfo: ["SECRET TEXT"] } });
+    expect(lines.join("\n")).toContain("hidden facts: cfo 1");
+    expect(lines.join("\n")).not.toContain("SECRET TEXT");
+    expect(renderJoined({ type: "joined", roleId: "host", state: {} as never, hiddenFacts: { cfo: ["x"] } }).join("\n")).not.toContain("hidden facts");
   });
 });

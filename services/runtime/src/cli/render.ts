@@ -46,7 +46,10 @@ export function renderEvent(e: SessionEvent, me: string): string | null {
     case "gm.decision": return isFacilitator ? `[gm] ${s(e.condition)} => ${s(String(e.verdict))} (${s(e.reasoning)})` : null;
     case "gm.no_verdict": return isFacilitator ? `[gm] no verdict for ${JSON.stringify(s(e.condition))} (${s(e.reason)}${e.attempts > 1 ? " after re-ask" : ""})` : null;
     case "facilitator.alert": return isFacilitator ? `[alert] ${s(e.message)}` : null;
-    case "facilitator.command": return e.command === "whisper" ? `[whisper] ${s(e.text)}` : `[facilitator] ${s(e.command)}`;
+    case "facilitator.command":
+      // A release names the role and the fact NUMBER only: the event carries no fact text (it goes in the facilitator-only npc.updated).
+      if (e.command === "release_hidden") return isFacilitator ? `[facilitator] released hidden fact #${s(String(e.fact))} of ${s(e.roleId)}` : null;
+      return e.command === "whisper" ? `[whisper] ${s(e.text)}` : `[facilitator] ${s(e.command)}`;
     case "session.started": return `session started: ${s(e.scenarioId)} v${s(e.version)}`;
     case "session.ended": return `=== session ended (${s(e.reason)}) ===`;
     case "npc.updated": return isFacilitator ? `[npc ${s(e.roleId)}] goals: ${(e.goals ?? []).map(s).join("; ")}` : null;
@@ -54,9 +57,47 @@ export function renderEvent(e: SessionEvent, me: string): string | null {
   }
 }
 
+/** Most roles and facts per role the client will list: a hostile or broken server cannot make it print without bound. */
+const MAX_LISTED_ROLES = 100;
+const MAX_LISTED_FACTS = 50;
+
+/** The hidden facts a `joined` message carries, validated: role id -> up to 50 strings (anything else is dropped). Facilitator connections only. */
+export function parseHiddenFacts(v: unknown): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  for (const [role, facts] of Object.entries(v as Record<string, unknown>).slice(0, MAX_LISTED_ROLES)) {
+    if (Array.isArray(facts)) out.set(role, facts.filter((f): f is string => typeof f === "string").slice(0, MAX_LISTED_FACTS));
+  }
+  return out;
+}
+
+/** The facilitator's `/hidden` listing: `cfo #1 [released] text`, numbered as `/release <role> <n>` expects. Text goes through sanitizeText. */
+export function renderHidden(facts: Map<string, string[]>, released: Map<string, string[]>): string[] {
+  const lines: string[] = [];
+  for (const [role, list] of facts) {
+    const done = released.get(role) ?? [];
+    list.forEach((text, i) => lines.push(`${s(role)} #${i + 1}${done.includes(text) ? " [released]" : ""} ${s(text)}`));
+  }
+  return lines.length ? lines : ["no AI character has hidden facts"];
+}
+
+/** For the facilitator: a line for each fact an `npc.updated` newly released (not in `known`), with its number when the fact list is known. */
+export function renderNewReleases(e: Extract<SessionEvent, { type: "npc.updated" }>, facts: Map<string, string[]>, known: Map<string, string[]>): string[] {
+  const before = known.get(e.roleId) ?? [];
+  const list = facts.get(e.roleId) ?? [];
+  return (Array.isArray(e.released) ? e.released : []).filter((t) => typeof t === "string" && !before.includes(t)).map((t) => {
+    const n = list.indexOf(t) + 1;
+    return `[npc ${s(e.roleId)}] released${n > 0 ? ` #${n}` : ""}: ${s(t)}`;
+  });
+}
+
 export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>): string[] {
   const lines = [`joined as ${s(m.roleId)}`]; // never the reconnect token
   if (m.notice) lines.push(`warning: ${s(m.notice)}`);
+  if (m.roleId === "facilitator") {
+    const held = [...parseHiddenFacts(m.hiddenFacts)].filter(([, f]) => f.length > 0);
+    if (held.length) lines.push(`hidden facts: ${held.map(([r, f]) => `${s(r)} ${f.length}`).join(", ")} (/hidden lists them, /release <role> <n> releases one)`);
+  }
   if (m.brief) {
     lines.push("", `Your brief: ${s(m.brief)}`);
     for (const f of m.privateFacts ?? []) lines.push(`  - ${s(f)}`);
