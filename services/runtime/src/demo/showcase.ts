@@ -73,14 +73,14 @@ export type ShowcaseOptions = {
   startedMs: number;
   holder: ShowcaseHolder;
   /** `--players generated`: the model that speaks the player roles, and the record of how each line was produced. */
-  players?: { generator: PlayerBotGenerator; lines: PlayerLines };
+  players?: { generator: PlayerBotGenerator; lines: PlayerLines; /** Log each private intent (default; `--no-intents` turns it off). */ showIntents: boolean };
   /** `--evaluate`: run the post-session evaluator after the checks and add check S-16. */
   evaluate?: ShowcaseEvaluate;
   /** Test hooks: run just before a scripted line is sent, and just before the safety-net advance (to force races). */
   hooks?: ShowcaseHooks;
 };
 export type ShowcaseHooks = {
-  beforeLine?: (a: { sceneId: string; index: number; sys?: System; players?: Story["players"]; /** `--players generated` only: the generator and the line registry (tests tamper with them to prove the S-15 audit can fail). */ generated?: { generator: PlayerBotGenerator; lines: PlayerLines } }) => Promise<void>;
+  beforeLine?: (a: { sceneId: string; index: number; sys?: System; players?: Story["players"]; /** `--players generated` only: the generator and the line registry (tests tamper with them to prove the S-15 audit can fail). */ generated?: { generator: PlayerBotGenerator; lines: PlayerLines; showIntents: boolean } }) => Promise<void>;
   beforeAdvance?: (a: { sceneId: string; index: number; sys?: System }) => Promise<void>;
 };
 
@@ -149,7 +149,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
 
   const snapshot = (): ShowcaseReport => buildShowcaseReport({
     events: st.fac?.events() ?? [], scenario, mode: o.mode, timing, wallTimeMs: ctx.now() - o.startedMs, maxLines: o.maxLines, maxFallbacks: o.maxFallbacks,
-    watchdogMinutes: o.watchdogMinutes, observations, provider: o.provider, players: o.players?.lines,
+    watchdogMinutes: o.watchdogMinutes, observations, provider: o.provider, players: o.players?.lines, showIntents: o.players?.showIntents,
   });
   o.holder.snapshot = snapshot;
 
@@ -274,10 +274,16 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
       if (o.players) {
         // The model speaks this slot; the scripted line is only its private intent. The player's own stream must have caught up first.
         await playerCaughtUp(bot, line.role);
+        if (o.players.showIntents) {
+          // Technical logging only: the intent never goes to the server, a client or the Game Master.
+          const msg = `intent for ${line.role} (private to the player bot; the server and the other players never see it): ${line.text}`;
+          ctx.tr?.add({ kind: "log", source: "system", text: msg, scene: scene.id });
+          chain = chain.then(() => n.note(clip(msg, 900), false)).catch(() => undefined);
+        }
         const said = await o.players.generator.speak({ roleId: line.role, scene, scripted: line.text, joined: st.joined[line.role as PlayerId]!, events: bot.events() });
         if (ctx.signal.aborted) throw new Error("run aborted");
         text = said.text;
-        record = o.players.lines.add({ role: line.role, text, source: said.source, verbatim: said.verbatim, cut: said.cut, ...(said.reason !== undefined ? { reason: said.reason } : {}) });
+        record = o.players.lines.add({ role: line.role, text, source: said.source, verbatim: said.verbatim, cut: said.cut, intent: line.text, scene: scene.id, ...(said.reason !== undefined ? { reason: said.reason } : {}) });
         if (said.reason !== undefined) {
           const msg = `player ${line.role}: generation failed (${said.reason}); used the scripted line`;
           chain = chain.then(() => n.tagged("alert", "yellow", "", clip(msg, 300))).catch(() => undefined);

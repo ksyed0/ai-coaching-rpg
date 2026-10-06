@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile, cp } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
@@ -27,10 +27,14 @@ type Seen = {
   npcCalls: { model: string; temperature?: number }[]; gmCalls: { model: string; temperature?: number }[];
   /** Player requests whose connection was closed before the reply was sent (the client aborted). */
   aborted: number;
+  /** Raw request bodies of the AI character and Game Master calls (the evaluator's input). */
+  otherBodies: string[];
+  /** Raw request bodies of the evaluator's calls (`--evaluate`). */
+  evalBodies: string[];
 };
 /** A loopback OpenAI-compatible fake: the AI characters and the Game Master get fixed answers, player prompts (recognised by their system prompt) get `playerReply`. */
 async function fakeModel(playerReply: (n: number, role: string) => { status?: number; text?: string; stall?: true }) {
-  const seen: Seen = { player: [], npc: 0, gm: 0, npcCalls: [], gmCalls: [], aborted: 0 };
+  const seen: Seen = { player: [], npc: 0, gm: 0, npcCalls: [], gmCalls: [], aborted: 0, otherBodies: [], evalBodies: [] };
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (d) => { body += d; });
@@ -38,7 +42,11 @@ async function fakeModel(playerReply: (n: number, role: string) => { status?: nu
       const parsed = JSON.parse(body) as { model: string; temperature?: number; messages: { role: string; content: string }[] };
       const system = parsed.messages.find((m) => m.role === "system")?.content ?? "";
       let text: string;
-      if (system.includes("Game Master")) { seen.gm++; seen.gmCalls.push({ model: parsed.model, temperature: parsed.temperature }); text = '{"verdict": false, "reasoning": "not yet"}'; }
+      if (!system.includes("as a human trainee")) seen.otherBodies.push(body);
+      if (system.includes("learning-and-development assessor")) {
+        seen.evalBodies.push(body);
+        text = JSON.stringify({ criteria: ["discovery", "listening", "negotiation", "commercial_judgement", "stakeholder_management", "team_alignment", "role_clarity", "shared_understanding", "decision_quality", "role_clarity_group", "escalation_discipline"].map((id) => ({ id, score: null })), talking_points: ["x"] });
+      } else if (system.includes("Game Master")) { seen.gm++; seen.gmCalls.push({ model: parsed.model, temperature: parsed.temperature }); text = '{"verdict": false, "reasoning": "not yet"}'; }
       else if (system.includes("as a human trainee")) {
         const role = /\(role id ([a-z_]+)\)/.exec(system)![1]!;
         seen.player.push({ role, model: parsed.model, body, temperature: parsed.temperature });
@@ -82,7 +90,7 @@ describe("--showcase --live --players generated (loopback fake model)", () => {
     expect(report!.results.find((r) => r.id === "S-15")).toMatchObject({ status: "passed" });
     expect(seen.player).toHaveLength(12); // 6 scenes x 2 slots (--max-lines keeps meaning: line SLOTS per scene)
     expect(showcase.playerLines).toBe(12);
-    expect(showcase.players).toEqual({ mode: "generated", generated: 12, scriptedFallbacks: 0, verbatimRepeats: 0, cutReplies: 0 });
+    expect(showcase.players).toMatchObject({ mode: "generated", generated: 12, scriptedFallbacks: 0, verbatimRepeats: 0, cutReplies: 0, intentsLogged: 12 });
     const spoken = showcase.lines.filter((l) => l.source === "player-bot");
     expect(spoken.every((l) => l.tag === "generated" && /^Take \d+ as /.test(l.text))).toBe(true);
     expect(new Set(spoken.map((l) => l.text)).size).toBe(12); // varied
@@ -242,7 +250,6 @@ describe("generated players: waiting for the player's own stream", () => {
   it("a role absent from the previous scene can speak first in the next one (it never waits for an utterance it was not sent)", async () => {
     const { env } = await fakeModel(GEN);
     const dir = await tmp();
-    const { cp, writeFile } = await import("node:fs/promises");
     await cp(path.join(REPO_ROOT, "scenarios", "friday-escalation-extended"), dir, { recursive: true });
     const f = path.join(dir, "showcase.yaml");
     const yaml = await readFile(f, "utf8");
@@ -378,3 +385,122 @@ describe("generated players: a model that explains its intent after a separator"
     expect(stdout).toContain("player tech_lead: generation failed (empty reply); used the scripted line");
   });
 });
+
+describe("generated players: logging the private intents (US-0027)", () => {
+  /** A private copy of the scenario whose scripted player lines are distinct sentinels (never said by the fake model). */
+  const sentinelScenario = async () => {
+    const dir = await tmp();
+    await cp(path.join(REPO_ROOT, "scenarios", "friday-escalation-extended"), dir, { recursive: true });
+    const f = path.join(dir, "showcase.yaml");
+    const { parse, stringify } = await import("yaml");
+    const doc = parse(await readFile(f, "utf8")) as { scenes: { lines: { text: string }[] }[] };
+    const sentinels: string[] = [];
+    for (const sc of doc.scenes) sc.lines.forEach((l) => { l.text = `Sentinel intent number ${sentinels.length} zorblax`; sentinels.push(l.text); });
+    await writeFile(f, stringify(doc));
+    return { dir, sentinels };
+  };
+
+  it("logs each intent immediately before its line in the transcript, narration and JSON, and keeps it out of the session log, every inbox and the Game Master/AI character prompts", async () => {
+    const { env, seen } = await fakeModel(GEN);
+    const { dir, sentinels } = await sentinelScenario();
+    const out = await tmp();
+    let log = ""; let inboxes = "";
+    const hooks = {
+      beforeLine: async ({ sceneId, index, sys, players }: { sceneId: string; index: number; sys?: { logFile: string }; players?: Partial<Record<string, { inbox: unknown[] }>> }) => {
+        if (sceneId === "s6_wrap_up" && index === 1) {
+          log = await readFile(sys!.logFile, "utf8");
+          inboxes = JSON.stringify(Object.values(players!).map((b) => b!.inbox));
+        }
+      },
+    };
+    const r = await run([...ARGV, "--scenario", dir, "--transcript", "i.md"], env, { cwd: out, showcaseHooks: hooks as never });
+    expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    expect(s15x(r).status).toBe("passed");
+    expect(log.length).toBeGreaterThan(100);
+    expect(inboxes.length).toBeGreaterThan(100);
+    for (const s of sentinels) {
+      expect(log).not.toContain(s);
+      expect(inboxes).not.toContain(s);
+      expect(seen.otherBodies.join("\n")).not.toContain(s);
+    }
+    expect(r.stdout).not.toContain(sentinels[0] + "x");
+    // transcript: 12 intents, each right before its player line (no other dialogue in between), as plain [SYSTEM] entries
+    const md = await readFile(path.join(out, "i.md"), "utf8");
+    const entries = md.split("\n\n");
+    const idx = entries.map((e, i) => (e.startsWith("[SYSTEM] intent for ") ? i : -1)).filter((i) => i >= 0);
+    expect(idx).toHaveLength(12);
+    for (const i of idx) {
+      expect(entries[i]).toMatch(/^\[SYSTEM\] intent for [a-z\\_]+ \(private to the player bot; the server and the other players never see it\): Sentinel intent number \d+ zorblax$/);
+      const next = entries.slice(i + 1).find((e) => e.startsWith("**") || e.startsWith("[SYSTEM] intent"))!;
+      expect(next.startsWith("**[GENERATED] ")).toBe(true);
+      expect(next).not.toContain("Sentinel");
+    }
+    expect(md).toContain("also the player intents: the scripted line a generated player was asked to express");
+    expect(md).toContain("Intents logged: 12.");
+    // narration and JSON
+    expect(r.stdout.split("\n").filter((l) => l.includes("intent for ")).length).toBe(12);
+    expect(r.showcase.players!.intentsLogged).toBe(12);
+    expect(r.showcase.players!.intents![0]).toMatchObject({ role: "delivery_lead", scene: "s1_huddle", intent: sentinels[0], source: "generated" });
+    expect(r.showcase.players!.intents![0]!.text).toMatch(/^Take 1 as/);
+    expect(r.stdout).toContain("12 intent(s) logged");
+  });
+
+  it("a fallback line is also preceded by its intent and listed as scripted-fallback", async () => {
+    const { env } = await fakeModel((n, role) => (n === 1 ? { status: 400 } : GEN(n, role)));
+    const { dir, sentinels } = await sentinelScenario();
+    const out = await tmp();
+    const r = await run([...ARGV, "--scenario", dir, "--transcript", "f.md"], env, { cwd: out });
+    const md = await readFile(path.join(out, "f.md"), "utf8");
+    expect(md).toContain(`Sentinel intent number 0 zorblax\n\n[SYSTEM] player delivery\\_lead: generation failed`);
+    expect(md).toContain(`**[SCRIPTED] delivery_lead: ${sentinels[0]}**`);
+    expect(r.showcase.players!.intents![0]).toMatchObject({ source: "scripted-fallback", intent: sentinels[0], text: sentinels[0] });
+  });
+
+  it("--no-intents hides them everywhere (and the run is otherwise the same)", async () => {
+    const { env } = await fakeModel(GEN);
+    const out = await tmp();
+    const r = await run([...ARGV, "--no-intents", "--transcript", "n.md"], env, { cwd: out });
+    expect(r.exitCode).toBe(0);
+    const md = await readFile(path.join(out, "n.md"), "utf8");
+    expect(md).not.toContain("intent for ");
+    expect(r.stdout).not.toContain("intent for ");
+    expect(r.showcase.players!.intents).toBeUndefined();
+    expect(r.showcase.players!.intentsLogged).toBe(0);
+  });
+
+  it.each([[false], [true]])("--evaluate works with --players generated (--no-intents: %s): the evaluator input holds no intent text, S-16 passes and the JSON has both the players and the evaluation sections", async (noIntents) => {
+    const { env, seen } = await fakeModel(GEN);
+    const { dir, sentinels } = await sentinelScenario();
+    const out = await tmp();
+    const r = await run([...ARGV, "--scenario", dir, ...(noIntents ? ["--no-intents"] : []), "--evaluate", "--eval-out", path.join(out, "rep"), "--transcript", "e.md"], env, { cwd: out });
+    expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    expect(r.report!.results.map((x) => x.id)).toEqual([...SHOWCASE_CHECKS.map((c) => c.id), "S-15", "S-16"]);
+    expect(seen.evalBodies.length).toBeGreaterThan(0);
+    for (const s of sentinels) expect(seen.evalBodies.join("\n")).not.toContain(s);
+    expect(seen.evalBodies.join("\n")).toContain("Take 1 as"); // the evaluator saw what was actually said
+    expect(r.showcase.players!.intentsLogged).toBe(noIntents ? 0 : 12);
+    expect(r.report!.evaluation).toMatchObject({ failures: [], group: { status: "ok" } });
+    expect(r.report!.evaluation!.files).toContain("index.md");
+    const md = await readFile(path.join(out, "e.md"), "utf8");
+    expect(md.includes("intent for ")).toBe(!noIntents);
+    expect(md).not.toContain("EVALUATION");
+  });
+
+  it("scripted-player and mock runs have no intent entries and no players section", async () => {
+    const out = await tmp();
+    const mock = await run(["--showcase", "--fast", "--no-color", "--transcript", "m.md"], {}, { cwd: out });
+    expect(mock.exitCode).toBe(0);
+    const md = await readFile(path.join(out, "m.md"), "utf8");
+    expect(md).not.toContain("intent for ");
+    expect(md).not.toContain("player intents");
+    expect(mock.stdout).not.toContain("intent for ");
+    expect(mock.showcase.players).toBeUndefined();
+    const { env } = await fakeModel(GEN);
+    const live = await run(["--showcase", "--live", "--max-lines", "1", "--fast", "--no-color", "--transcript", "s.md"], env, { cwd: out });
+    expect(await readFile(path.join(out, "s.md"), "utf8")).not.toContain("intent for ");
+    expect(live.showcase.players).toBeUndefined();
+  });
+});
+const s15x = (r: Awaited<ReturnType<typeof run>>) => r.report!.results.find((x) => x.id === "S-15")!;
