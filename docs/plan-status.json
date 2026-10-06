@@ -850,12 +850,12 @@
         {
           "id": "AC-0085",
           "text": "when an OpenAI-compatible server streams or returns a reasoning field (`reasoning_content` or `reasoning`) and an empty answer because the token budget ran out, the provider reports a distinct, retryable 'reasoning used the whole token budget' error instead of a silent empty reply, and the reasoning text is never shown to players as dialogue",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0086",
           "text": "the NPC and Game Master token budgets are configurable (`NPC_MAX_TOKENS`, `GM_MAX_TOKENS`, validated range, documented), and the demo narration says an empty reply was caused by an exhausted budget",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0087",
@@ -1126,7 +1126,7 @@
       "title": "Detect reasoning-only replies in the OpenAI-compatible provider, make the token budgets configurable, rerun the local showcase",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0026-reasoning-model-empty-replies",
       "notes": "Found 2026-10-05 in the local showcase. Cause: the provider reads only `content` and ignores `reasoning_content`, and the budgets are fixed at 300 (NPC) and 200 (Game Master); probes with small budgets returned finish_reason length with empty content on both Qwen3.8-27B and raptor-v0.5-8b. The Raptor run was clean (0 fallbacks), so the budget matters mostly for slow or long-thinking models."
     }
@@ -1165,6 +1165,18 @@
       "relatedTask": "TASK-0021",
       "status": "Open",
       "fixBranch": "bugfix/BUG-0003-demo-heartbeat-evidence",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0004",
+      "title": "An AI character writes lines for the other participants, and multi-line replies show a literal marker in the Markdown transcript",
+      "severity": "Medium",
+      "relatedStory": "US-0026",
+      "relatedTask": "TASK-0026",
+      "status": "Fixed (2546513 on feature/EPIC-0006-US-0026-reasoning-model-empty-replies)",
+      "fixBranch": "feature/EPIC-0006-US-0026-reasoning-model-empty-replies",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -1350,6 +1362,14 @@
         "projectedUsd": 400
       },
       "BUG-0003": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0004": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -1593,9 +1613,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T13:44:38.111Z",
-  "commitSha": "303edcd",
-  "buildNumber": "82",
+  "generatedAt": "2026-10-06T14:00:43.177Z",
+  "commitSha": "2546513",
+  "buildNumber": "86",
   "branch": "feature/EPIC-0006-US-0026-reasoning-model-empty-replies",
   "sessionTimeline": [
     {
@@ -1698,9 +1718,9 @@
     "totalSpent": 6.1671,
     "totalProjected": 21200,
     "percentUsed": 0,
-    "burnRate": 0.19871766666666665,
-    "daysRemaining": 84542,
-    "projectedExhaustion": 84542,
+    "burnRate": 0.19186533333333333,
+    "daysRemaining": 87561,
+    "projectedExhaustion": 87561,
     "thresholds": [
       50,
       75,
@@ -1793,7 +1813,7 @@
       "2026-10-03T13:44:38.199Z",
       "2026-10-04T13:44:38.199Z",
       "2026-10-05T13:44:38.199Z",
-      "2026-10-06T13:44:38.198Z"
+      "2026-10-06T14:00:43.298Z"
     ],
     "doneCounts": [
       0,

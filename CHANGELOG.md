@@ -61,6 +61,8 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 
 ### Fixed
 
+- An AI character no longer speaks for the other participants: the prompt forbids it, and a reply is stripped of its own `[role]:` prefix and cut at the first line or sentence that starts with another speaker's `[role_id]:` tag, with one facilitator alert (BUG-0004, US-0026).
+- The Markdown demo transcript shows a multi-line reply as separate lines instead of a literal ⏎ marker (the terminal keeps the marker) (BUG-0004).
 - Session-log rotation falls back to an exclusive file copy (never overwriting) when the filesystem refuses hard links (EPERM, ENOTSUP, EXDEV, EOPNOTSUPP), so a Docker restart works on such bind mounts; a failed removal after the copy is reported explicitly (US-0009).
 - `./run.sh` no longer starts the container as root when run as root or with sudo; it falls back to 1000:1000 unless `HOST_UID`/`HOST_GID` are set (US-0012).
 - Root `package.json` license corrected from ISC to MIT to match `LICENSE`.
