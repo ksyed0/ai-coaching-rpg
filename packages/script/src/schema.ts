@@ -2,8 +2,11 @@ import { z } from "zod";
 
 const Id = z.string().regex(/^[a-z0-9_\-]+$/, "ids are lowercase letters, digits, _ or -");
 
+/** Learning-objective ids appear in report text and file content, so they follow a safe pattern (upper case allowed: LO1). */
+const LoId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, "learning objective ids are 1 to 64 letters, digits, _ or -");
+
 export const LearningObjectiveSchema = z.object({
-  id: z.string(), statement: z.string(), rubric_criteria: z.array(z.string()),
+  id: LoId, statement: z.string(), rubric_criteria: z.array(z.string()),
 });
 
 export const ScenarioMetaSchema = z.object({

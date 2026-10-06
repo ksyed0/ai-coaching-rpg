@@ -130,3 +130,27 @@ describe("the shipped scenarios", () => {
     expect(res.rubrics[1]!.criteria.map((c) => c.id)).toEqual(["shared_understanding", "decision_quality", "role_clarity_group", "escalation_discipline"]);
   });
 });
+
+describe("scenario hygiene", () => {
+  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../../../scenarios");
+  it("the two copies of each rubric file stay byte-identical", async () => {
+    const { readFile } = await import("node:fs/promises");
+    for (const f of ["individual_delivery_v2.yaml", "group_collaboration_v1.yaml"]) {
+      const a = await readFile(path.join(root, "friday-escalation", "rubrics", f));
+      const b = await readFile(path.join(root, "friday-escalation-extended", "rubrics", f));
+      expect(a.equals(b), f).toBe(true);
+    }
+  });
+  it("learning-objective ids follow the safe id pattern (they are printed in reports)", async () => {
+    const { LearningObjectiveSchema } = await import("../index.js");
+    expect(LearningObjectiveSchema.parse({ id: "LO1", statement: "s", rubric_criteria: [] }).id).toBe("LO1");
+    for (const bad of ["LO 1", "LO|1", "../x", "", "x".repeat(65), "<b>"]) expect(() => LearningObjectiveSchema.parse({ id: bad, statement: "s", rubric_criteria: [] })).toThrow();
+  });
+  it("no rubric example or anchor names a scenario figure or character", async () => {
+    const { readFile } = await import("node:fs/promises");
+    for (const f of ["individual_delivery_v2.yaml", "group_collaboration_v1.yaml"]) {
+      const text = await readFile(path.join(root, "friday-escalation-extended", "rubrics", f), "utf8");
+      expect(text, f).not.toMatch(/48 thousand|Helena|Priya|three weeks after go-live/);
+    }
+  });
+});

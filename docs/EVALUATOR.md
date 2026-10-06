@@ -8,22 +8,24 @@ The evaluator turns a recorded session into draft feedback: a score per criterio
 
 The scoring system is a **Behaviourally Anchored Rating Scale (BARS)**, a standard approach in learning and development: each level of each criterion is described by a written example of observable behaviour, so a score says what was seen rather than an impression.
 
-| Level | Label |
-| --- | --- |
-| 1 | Not yet demonstrated |
-| 2 | Developing |
-| 3 | Proficient |
-| 4 | Advanced |
-| N/O | Not observed (no evidence either way; no score, left out of every average) |
+| Level | Label | Meaning |
+| --- | --- | --- |
+| 1 | Not yet demonstrated | There was a clear opportunity to show the behaviour and it was absent from the participant's own words, or the participant worked against the aim |
+| 2 | Developing | Parts of the behaviour were seen: partial, unplanned or inconsistent |
+| 3 | Proficient | The behaviour was seen clearly and did its job |
+| 4 | Advanced | The behaviour was seen at a high standard |
+| N/O | Not observed | No opportunity to show the behaviour, or no usable evidence either way; no score, left out of every average |
+| Invalid | Invalid (evaluator error) | The AI's answer for the criterion was unusable even after one re-ask (omitted, or a score that is not a whole number 1 to 4): left out of the averages and the learning objective is marked incomplete. Never the same as N/O |
 
 There is no midpoint, to avoid the central-tendency habit of rating everyone as average.
 
-- **Evidence rule.** Every score needs at least one verbatim, timestamped quote from that participant. The quote is checked by the program: after whitespace normalisation it must be a substring of the recorded utterance, at the `seq` the model named, spoken by that role (any player for the group). A quote that cannot be found is dropped. A 3 or 4 with no verified quote is **capped at 2 and flagged**; a 1 or 2 with none is kept, flagged and shown with Low confidence. Only the participant's own words are evidence for them (first-person-only rule).
-- **Confidence** (High, Medium, Low) is the lower of what the number of verified quotes supports (3 or more High, 2 Medium, fewer Low) and what the model said (a missing statement counts as Medium). A capped score is always Low. The model can lower a confidence but never raise it above the evidence.
-- **Aggregation.** A learning-objective (LO) score is the mean of the observed scores of the criteria mapped to it, rounded to one decimal. The label of the rounded value is: below 1.5 Not yet demonstrated, below 2.5 Developing, below 3.5 Proficient, otherwise Advanced. There is **no single overall grade**: the overall picture is the list of LO results. An LO with no observed criterion is Not observed.
-- **Limitations.** AI-drafted and needs facilitator review; a small sample (three players, one session); one session is a snapshot, not a measure of general ability; only what was said is assessed; evidence is first-person only; a long session may be trimmed before it is sent (the report says so).
+- **Evidence rule.** Every score of **3 or 4 must rest on at least one verified quote**; a 1 or 2 may stand without one (flagged, Low confidence). A quote is verified by the program: `seq` must be an utterance by that role (any player for the group) and the quote, after whitespace is normalised and quote marks, ellipses at the edges and invisible characters are removed, must be an exact, case-sensitive substring of that recorded utterance. It needs at least 8 characters and a letter or digit; a quote that **keeps a 3 or 4 needs at least 15 characters and 3 words** (shorter verified quotes stay as flagged evidence for a 1 or 2). A quote contained in or overlapping an already accepted quote from the same line is dropped. A 3 or 4 with no qualifying quote is **capped at 2 and flagged**. A stored quote longer than 300 characters is cut to that length (still a verbatim prefix). Only the participant's own words are evidence for them (first-person-only rule).
+- **What verification does not prove.** It proves a quote exists in the participant's own words, not that it shows the behaviour. A participant can write rating language into their own line to sway the scorer; evidence whose quote contains such language (score, rating, rate me, assessor, ignore ... instructions) is flagged in the report and caps nothing. Facilitator review is required.
+- **Confidence** (High, Medium, Low) is the lower of what the number of DISTINCT lines with a verified quote supports (3 or more distinct lines High, 2 Medium, fewer Low; for a 3 or 4 only qualifying quotes count) and what the model said (a missing or unusable statement counts as Medium). A capped score is always Low. The model can lower a confidence but never raise it above the evidence.
+- **Aggregation.** A learning-objective (LO) score is the mean of the observed scores of the criteria mapped to it **that are in scope** (individual criteria for a participant, group criteria for the team), rounded to one decimal. The label of the rounded value is: below 1.5 Not yet demonstrated, below 2.5 Developing, below 3.5 Proficient, otherwise Advanced. There is **no single overall grade**. An LO with no observed criterion is Not observed; one with an invalid criterion is marked incomplete. When no LO maps to a group criterion the group report says so and has no team LO table.
+- **Limitations.** AI-drafted and needs facilitator review; a small sample (the scenario's player count, one session); one session is a snapshot, not a measure of general ability; only what was said is assessed; evidence is first-person only; roles with little opportunity for a criterion (a tech lead on commercial negotiation) will show Not observed; a long session may be trimmed before it is sent (the report says so).
 
-The same text is printed in every report (`## How this was scored`), in `method.md`, and stored in every JSON file under `method`.
+The same text is printed in every report (`## How this was scored`), in `method.md`, and stored in every JSON file under `method`. Reports from the scripted offline evaluator say so (`demo: true` in the JSON, a note in every report and the index).
 
 ## Data flow
 
@@ -34,14 +36,16 @@ scenario + rubrics ─► loadScenario / loadRubrics (validated)
         ▼
 buildTranscript: every utterance (players and AI characters, with seq, role, time, scene),
                  injects, scene boundaries and Game Master verdicts as context lines
-        │  trimmed to EVAL_TRANSCRIPT_CHARS when needed (injects and scene boundaries kept, every speaker keeps a proportional share)
+        │  trimmed to EVAL_TRANSCRIPT_CHARS (a hard cap) when needed (every speaker keeps a proportional share; injects, Game Master
+        │  lines and scene details are shortened or dropped too only if they alone exceed the budget, and the report says so)
         ▼
 one model call per player role ──► strict JSON {criteria, strengths, development_points, next_actions}
 one model call for the team    ──► strict JSON {criteria, talking_points, notable_moments}
-        │  tolerant parsing (code fence, prose around the JSON), one bounded re-ask with the parse error
+        │  tolerant parsing (code fence, prose around the JSON), one bounded re-ask naming exactly what to fix
         ▼
-normaliseCriteria: unknown ids ignored, missing ids Not observed, scores that are not whole numbers 1 to 4 rejected,
-                   quotes verified, 3/4 without a verified quote capped at 2, confidence derived
+normaliseCriteria: unknown ids ignored; an omitted criterion or a score that is not a whole number 1 to 4 (0, 5, 2.5, "none") is a
+                   problem list for the re-ask and, if still wrong, an Invalid criterion (never N/O); quotes verified,
+                   3/4 without a qualifying quote capped at 2, confidence derived from distinct lines
         ▼
 aggregateObjectives (pure) ──► per-LO score and label
         ▼
@@ -52,7 +56,7 @@ The model goes through the same provider path as the AI characters (`selectModel
 
 **Prompt injection.** The transcript is data between delimiters that carry a random nonce, and the system prompt says to ignore any instruction inside it. Line breaks inside an utterance are folded to spaces, so a line cannot forge another speaker's line or a scene marker. Because quotes are verified programmatically and scores are checked, text in the transcript cannot make the evaluator invent evidence.
 
-**Failure handling.** A participant with fewer than 2 utterances gets "insufficient evidence" (all Not observed) with no model call. If a participant's evaluation fails (timeout, error, or a reply that is still unusable after one re-ask) their report says `evaluation failed: <reason>`, the other reports are still written, and the exit code is non-zero. The number of model calls is reported (re-asks count; retries of transient errors inside the provider do not).
+**Failure handling.** A participant with fewer than 2 utterances gets "insufficient evidence" (all Not observed) with no model call. A reply that cannot be used (not JSON, no criterion id matched) or that has fixable problems (an omitted criterion, a score that is not 1, 2, 3, 4 or null) is re-asked once, naming exactly what to fix and asking for shorter rationales; after the re-ask a reply with only fixable problems is accepted and those criteria are marked Invalid. A reply cut off at the token budget fails with "raise EVAL_MAX_TOKENS". If a participant's evaluation fails (timeout, error, or an unusable reply after the re-ask) their report says `evaluation failed: <reason>`, the other reports are still written, and the exit code is non-zero. The number of model calls is reported (re-asks count; retries of transient errors inside the provider do not). If writing the report files fails midway the partial directory is removed and the error says so. Next actions that name an unknown learning objective are dropped (the report notes it).
 
 ## Configuration
 
@@ -61,8 +65,8 @@ The model goes through the same provider path as the AI characters (`selectModel
 | `EVAL_MODEL` | `NPC_MODEL` | Model for the evaluator |
 | `EVAL_MAX_TOKENS` | `3000` | Token budget per evaluator call, `200` to `8000` |
 | `EVAL_TEMPERATURE` | `0.2` | Sampling temperature, `0` to `2` |
-| `EVAL_TIMEOUT_MS` | `180000` | Deadline per call, `500` to `600000`; never below `NPC_REPLY_TIMEOUT_MS` |
-| `EVAL_TRANSCRIPT_CHARS` | `60000` | Largest transcript sent in one call, `5000` to `400000` |
+| `EVAL_TIMEOUT_MS` | `180000` | Deadline per call, `500` to `600000`. The effective deadline is exactly `max(EVAL_TIMEOUT_MS, NPC_REPLY_TIMEOUT_MS)` (no other floor). The first-token wait is `max(NPC_FIRST_TOKEN_TIMEOUT_MS, 60 s)`, capped at the deadline |
+| `EVAL_TRANSCRIPT_CHARS` | `60000` | Hard cap on the transcript sent in one call, `5000` to `400000` |
 
 With `MODEL_PROVIDER=mock` (the default) the evaluator uses a **scripted offline evaluator** that answers from the recorded session: deterministic, nothing leaves the machine, and the scores are demo data. It deliberately includes one invented quote (dropped, and a 4 capped at 2) and one malformed reply followed by a valid one (the re-ask path).
 
@@ -78,7 +82,7 @@ pnpm demo --showcase --live --evaluate --eval-out reports     # live: sends the 
 
 Exit codes: 0 reports written, 1 an evaluation failed (reports for the others are still written), 2 usage or input error (bad flags, unreadable log, invalid scenario or rubrics, invalid settings). A one-line notice says the transcript is sent to the model provider. Reports are written into a fresh directory (`<session-id>`, then `<session-id>-2`, ...) with exclusive file creation: nothing is overwritten and nothing is written outside it.
 
-Check **S-16** (only with `--evaluate`) reads the written files back and verifies that every player has a report, every quoted piece of evidence is a verbatim substring of an utterance in the recorded log (by that player for a personal report), the method section and visibility line are present, and every score is 1 to 4 or Not observed. In a mock run it also requires that the scripted evaluator did not fail.
+Check **S-16** (only with `--evaluate`) reads the written files back and verifies that every player has a report, every quoted piece of evidence is a verbatim substring of an utterance in the recorded log (by that player for a personal report), the method section and visibility line are present, and every score is 1 to 4 or Not observed. The detail says "N of M players evaluated". In a mock run it also requires that the scripted evaluator did not fail; a **live run passes S-16 when at least one player was evaluated and the files verify**: evaluation failures of individual players are recorded as observations and in the `--json` `evaluation.failures`, not as a failed check. With `--live --evaluate` the showcase watchdog (the default 30 minutes, or an explicit `--watchdog`) is extended by the evaluator's worst case: `EVAL_TIMEOUT_MS` x (players + 1 calls) x 2 (each call may be re-asked), 24 minutes with the defaults and 3 players.
 
 ## Authoring rubrics
 
@@ -102,13 +106,13 @@ criteria:
       4: { anchor: "Reframes around the need and tests it with the client.", examples: ["So what you really need is..."] }
 ```
 
-Write anchors as **observable behaviour** for the scenario's persona, not as traits. The validator (`loadRubrics`) checks the schema, that all four levels have an anchor, that criterion ids are unique, that levels 2 and 4 have example phrases, and that every `rubric_criteria` id of every learning objective names a criterion in a loaded rubric (an error otherwise). Files are size-capped (256 KiB) and limited in YAML aliases. A scenario whose `rubrics:` is empty loads as "no rubrics" with a warning (and cannot be evaluated).
+Write anchors as **observable behaviour in the participant's OWN words**, for the scenario's persona, not as traits: an anchor must be something a quote from that participant can evidence. Avoid anchors that depend on other people's behaviour ("the other side agrees") or on pure absence; for level 1 write "there was an opportunity to ... and the participant's own lines contain no such behaviour", because level 1 is only right when there was an opportunity (otherwise the criterion is Not observed). Use "at least two of the following" for level 3 rather than requiring three behaviours at once, and make sure the level 2 to level 3 step is explicit. Give each criterion its own key behaviour so two criteria do not score the same sentence twice (state the individual versus team distinction in the descriptions). Keep examples generic: no scenario-specific figures or names. Put these two sentences in the file header: level 1 / Not observed as defined above, and "if a participant sits between two anchors, choose the lower only when the higher anchor's key behaviour is clearly missing". The validator (`loadRubrics`) checks the schema, that all four levels have an anchor, that criterion ids are unique, that levels 2 and 4 have example phrases, and that every `rubric_criteria` id of every learning objective names a criterion in a loaded rubric (an error otherwise). Learning-objective ids are 1 to 64 letters, digits, `_` or `-`. Files are size-capped (256 KiB) and limited in YAML aliases. A scenario whose `rubrics:` is empty loads as "no rubrics" with a warning (and cannot be evaluated). The two Friday Escalation scenarios carry identical copies of their rubric files (a test keeps them byte-identical).
 
 ## Reading a report
 
 - **Summary.** Strengths, development points and 2 to 3 next actions, each tied to a learning objective (`LO1`...). The wording is the model's and should be read as a draft.
 - **Learning objectives.** Each LO's score (one decimal) and label, and how many of its criteria were observed. A score based on one criterion of two is thinner than one based on both.
-- **Criteria.** The level and its label, the confidence and the rationale. Flags in brackets matter: `capped from 4 to 2: no verified quote`, `N quote(s) could not be verified ... and were dropped`, `no verified quote`. Not observed (N/O) is not a low score.
+- **Criteria.** The level and its label, the confidence and the rationale. Flags in brackets matter: `capped from 4 to 2: no verified quote ...`, `N quote(s) could not be verified ... and were dropped`, `no verified quote`, `only short quotes`, `a quote contains rating language`. Not observed (N/O) is not a low score; `Invalid (evaluator error)` means the AI's answer was unusable and the learning objective is marked incomplete.
 - **Evidence.** The verified quotes with scene number, time from the start of the session and the line number (`#12` is the event sequence number in the log).
 - **Group report.** Group criteria, LO coverage across the team (players by LO), the scenario author's facilitator notes next to the model's talking points, and notable moments.
 - **index.md** links everything and shows the LO table for everyone.
