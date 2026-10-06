@@ -23,12 +23,25 @@ export const PlayerRoleSchema = z.object({
   id: Id, type: z.literal("player"), brief: z.string(), private_facts: z.array(z.string()).default([]),
 });
 
+/** Limits for the voice lists of an AI character: they go into every model prompt, so they stay small. */
+export const VOICE_LIST_MAX = 5;
+export const VOICE_ITEM_MAX_CHARS = 160;
+const VoiceList = z.array(z.string().trim().min(1).max(VOICE_ITEM_MAX_CHARS)).max(VOICE_LIST_MAX).default([]);
+
 export const NpcRoleSchema = z.object({
   id: Id, type: z.literal("npc"), name: z.string(), title: z.string().default(""),
   persona: z.string(), goals: z.array(z.string()), knowledge: z.array(z.string()).default([]),
   hidden: z.array(z.string()).default([]), guardrails: z.array(z.string()).default([]),
   fallback_line: z.string().default("Sorry, give me a moment."),
   voice: z.object({ style: z.string().default("neutral"), pace: z.string().default("medium") }).default({}),
+  /** 1 to 5, higher is more senior. Decides the order of replies when several AI characters are in a scene (junior first) and how the characters see each other. */
+  seniority: z.number().int().min(1).max(5).default(3),
+  /** The KIND of contribution this character makes (a ruling, a condition, a consequence...). */
+  responds_with: VoiceList,
+  /** Topics and statements that only this role would make. */
+  only_you_say: VoiceList,
+  /** Role ids of AI characters this one normally lets have the final say when both are in the scene (prompt wording only; the reply order follows seniority). */
+  defer_to: z.array(Id).max(VOICE_LIST_MAX).default([]),
 });
 
 export const RoleSchema = z.discriminatedUnion("type", [PlayerRoleSchema, NpcRoleSchema]);

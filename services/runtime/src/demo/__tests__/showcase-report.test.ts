@@ -7,7 +7,7 @@ const scenario: Scenario = {
   meta: { id: "m", title: "Demo Scenario", version: "1", audience: "", duration_minutes: 10, players: { min: 1, max: 1 }, context: "c", learning_objectives: [], rubrics: [], facilitator_notes: "" },
   roles: {
     pa: { id: "pa", type: "player", brief: "b", private_facts: [] },
-    bot: { id: "bot", type: "npc", name: "Bo Tester", title: "", persona: "p", goals: ["g"], knowledge: [], hidden: [], guardrails: [], fallback_line: "Say that again?", voice: { style: "s", pace: "p" } },
+    bot: { id: "bot", type: "npc", name: "Bo Tester", title: "", persona: "p", goals: ["g"], knowledge: [], hidden: [], guardrails: [], fallback_line: "Say that again?", voice: { style: "s", pace: "p" }, seniority: 3, responds_with: [], only_you_say: [], defer_to: [] },
   },
   script: {
     scenes: [

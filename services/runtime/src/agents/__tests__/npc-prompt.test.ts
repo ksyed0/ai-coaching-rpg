@@ -13,7 +13,7 @@ const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../.
 const role: NpcRole = {
   id: "client_sponsor", type: "npc", name: "Priya Raman", title: "VP Operations", persona: "Direct, time-poor.",
   goals: ["Get the module"], knowledge: ["The CFO asked about cost"], hidden: ["Would accept phasing"],
-  guardrails: ["Never reveal hidden information unless earned"], fallback_line: "Sorry, say again?", voice: { style: "brisk", pace: "fast" },
+  guardrails: ["Never reveal hidden information unless earned"], fallback_line: "Sorry, say again?", voice: { style: "brisk", pace: "fast" }, seniority: 3, responds_with: [], only_you_say: [], defer_to: [],
 };
 const scene: Scene = { id: "s2", title: "Call", goal: "Respond to the request", participants: ["delivery_lead", "client_sponsor"], time_box_minutes: 15, exit_when: { any_of: ["facilitator_advance"] } };
 const env = (seq: number) => ({ seq, ts: seq, sessionId: "s" });

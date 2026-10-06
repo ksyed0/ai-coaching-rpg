@@ -53,3 +53,60 @@ describe("validateScenario", () => {
     expect(validateScenario(s).errors).toContain("id 'guest' is used by both the scenario and a role");
   });
 });
+
+describe("AI character voice fields (US-0032)", () => {
+  const npcOf = async () => {
+    const s = await loadScenario(path.join(fixtures, "minimal"));
+    const npc = Object.values(s.roles).find((r) => r.type === "npc")!;
+    return { s, npc: npc as Extract<typeof npc, { type: "npc" }> };
+  };
+  it("defaults: seniority 3 and empty lists", async () => {
+    const { npc } = await npcOf();
+    expect(npc).toMatchObject({ seniority: 3, responds_with: [], only_you_say: [], defer_to: [] });
+  });
+  it("accepts valid fields", async () => {
+    const { s, npc } = await npcOf();
+    npc.seniority = 5; npc.responds_with = ["a ruling"]; npc.only_you_say = ["price"];
+    expect(validateScenario(s).errors).toEqual([]);
+  });
+  it("rejects an out-of-range seniority, too many or too long items", async () => {
+    const { RoleSchema } = await import("../schema.js");
+    const base = { id: "x", type: "npc", name: "X", persona: "p", goals: [] };
+    expect(RoleSchema.safeParse({ ...base, seniority: 6 }).success).toBe(false);
+    expect(RoleSchema.safeParse({ ...base, seniority: 0 }).success).toBe(false);
+    expect(RoleSchema.safeParse({ ...base, seniority: 2.5 }).success).toBe(false);
+    expect(RoleSchema.safeParse({ ...base, responds_with: ["a", "b", "c", "d", "e", "f"] }).success).toBe(false);
+    expect(RoleSchema.safeParse({ ...base, only_you_say: ["x".repeat(161)] }).success).toBe(false);
+    expect(RoleSchema.safeParse({ ...base, only_you_say: [""] }).success).toBe(false);
+    expect(RoleSchema.safeParse({ ...base, seniority: 4, responds_with: ["a"] }).success).toBe(true);
+  });
+  it("errors on defer_to naming an unknown role, a player role, itself or a duplicate", async () => {
+    const { s, npc } = await npcOf();
+    const player = Object.values(s.roles).find((r) => r.type === "player")!;
+    npc.defer_to = ["ghost", player.id, npc.id];
+    const errs = validateScenario(s).errors;
+    expect(errs).toContain(`role ${npc.id}: defer_to 'ghost' is not a role`);
+    expect(errs).toContain(`role ${npc.id}: defer_to '${player.id}' is not an AI character (npc) role`);
+    expect(errs).toContain(`role ${npc.id}: defer_to cannot name the role itself`);
+    npc.defer_to = [player.id, player.id];
+    expect(validateScenario(s).errors.some((e) => e.includes("more than once"))).toBe(true);
+  });
+});
+
+describe("shipped scenarios carry the voice fields (US-0032)", () => {
+  const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../scenarios");
+  it("extended: Helena (5) outranks Priya (3), who defers to her; both validate", async () => {
+    const s = await loadScenario(path.join(root, "friday-escalation-extended"));
+    expect(validateScenario(s).errors).toEqual([]);
+    const cfo = s.roles.cfo as { seniority: number; responds_with: string[]; only_you_say: string[] };
+    const priya = s.roles.client_sponsor as { seniority: number; defer_to: string[]; responds_with: string[] };
+    expect(cfo.seniority).toBe(5); expect(priya.seniority).toBe(3);
+    expect(priya.defer_to).toEqual(["cfo"]);
+    expect(cfo.responds_with.length).toBeGreaterThan(0); expect(cfo.only_you_say.length).toBeGreaterThan(0);
+  });
+  it("plain: Priya has the fields and no defer_to (there is no CFO role)", async () => {
+    const s = await loadScenario(path.join(root, "friday-escalation"));
+    expect(validateScenario(s).errors).toEqual([]);
+    expect(s.roles.client_sponsor).toMatchObject({ seniority: 3, defer_to: [] });
+  });
+});
