@@ -69,6 +69,9 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 
 ### Fixed
 
+- `startServer` rejects a `heartbeatMs` of 0, a negative, non-finite or too large value instead of dropping every socket almost at once, and the heartbeat tests use a 150 ms period so a loaded CI runner cannot fail them (BUG-0001).
+- A regression test pins that a refused connection to a custom Anthropic endpoint is reported as a connection error and not as a refused redirect (the classification itself was fixed with US-0022) (BUG-0002).
+- Demo check F-23 (silent client dropped) judges the drop by the unanswered pings the client saw and a limit of 3 heartbeat periods from the first, instead of a timing-dependent figure against a limit of 25 (BUG-0003).
 - Showcase check `S-07` no longer fails when a live model recites its own material aloud (US-0027): in live runs an AI character or a generated player saying its own goals, knowledge or private facts is not a server leak. Everything the server sends outside utterances, and utterances spoken by a role that does not own the string, are still checked in full; hidden-fact and rubric strings said aloud are reported as an observation (`AI character X said N unreleased hidden-fact string(s) aloud: the live model ignored the hidden-fact rule`). Mock runs keep the old strictness.
 - An AI character no longer speaks for the other participants: the prompt forbids it, and a reply is stripped of its own `[role]:` prefix and cut at the first line or sentence that starts with another speaker's `[role_id]:` tag, with one facilitator alert (BUG-0004, US-0026).
 - Inline `<think>...</think>` text at the start of an AI character's reply is removed instead of being shown as dialogue; speaker labels are also recognised by the scenario's role ids and character names, and a reply with no letters or digits falls back (BUG-0004).

@@ -5,36 +5,36 @@ BUG-0001: Heartbeat tests use 30 ms periods and can fail on a loaded CI runner; 
 Severity: Low
 Related Story: US-0009
 Related Task: TASK-0009
-Status: Open
+Status: Fixed (8c18795)
 Fix Branch: bugfix/BUG-0001-heartbeat-test-timing
 Lesson Encoded: No
 ```
 
-A healthy client whose pong is delayed by more than one period is terminated, and a slow join can be killed before `joined`. Use periods of 100-150 ms in the tests. Separately, `heartbeatMs: 0`, a negative value or NaN makes `setInterval(0)` terminate sockets almost at once; production never passes the option, but it should be validated.
+A healthy client whose pong is delayed by more than one period is terminated, and a slow join can be killed before `joined`. Use periods of 100-150 ms in the tests. Separately, `heartbeatMs: 0`, a negative value or NaN makes `setInterval(0)` terminate sockets almost at once; production never passes the option, but it should be validated. Fixed: `startServer` now rejects a `heartbeatMs` that is not a finite number greater than 0 and at most 2147483647 (the setInterval limit) with a clear error before opening a port, and the heartbeat tests use a 150 ms period.
 
 ```
 BUG-0002: Connection failures on a custom Anthropic endpoint are reported as "redirects are refused"
 Severity: Low
 Related Story: US-0014
 Related Task: TASK-0014
-Status: Open
+Status: Fixed (the classification was corrected in 2d2e31b under US-0022; regression test 6401b13)
 Fix Branch: bugfix/BUG-0002-anthropic-endpoint-errors
 Lesson Encoded: No
 ```
 
-With `ANTHROPIC_BASE_URL` set, the redirect-refusing fetch wrapper maps every non-abort failure (ECONNREFUSED, DNS errors, redirects) to one generic message, which hides the real cause. Distinguish a refused redirect from other connection errors while still never echoing URLs or keys.
+With `ANTHROPIC_BASE_URL` set, the redirect-refusing fetch wrapper maps every non-abort failure (ECONNREFUSED, DNS errors, redirects) to one generic message, which hides the real cause. Distinguish a refused redirect from other connection errors while still never echoing URLs or keys. Verified in code on 2026-10-06: the redirect-refusing fetch wrapper rewrites only a fetch "unexpected redirect" cause, and every other failure (ECONNREFUSED, DNS, reset, TLS) reaches the classifier as a connection error. A loopback test with the real SDK now asserts that a refused connection reads `anthropic request failed: connection error` and never mentions a redirect.
 
 ```
 BUG-0003: Demo check F-23 (dead client dropped) reports a timing-dependent figure against a very lenient limit
 Severity: Low
 Related Story: US-0021
 Related Task: TASK-0021
-Status: Open
+Status: Fixed (2b59b4a)
 Fix Branch: bugfix/BUG-0003-demo-heartbeat-evidence
 Lesson Encoded: No
 ```
 
-F-23 reports "dropped after ~2 heartbeat periods (limit 25)" in a fast run and "~0 heartbeat periods (limit 25)" in a paced run. The figure changes with pacing, and a heartbeat that took 20 periods would still pass. The server terminates a silent socket after at most 2 periods, so the limit should be about 3, measured from the moment the client stops answering pings, not from the start of the check.
+F-23 reports "dropped after ~2 heartbeat periods (limit 25)" in a fast run and "~0 heartbeat periods (limit 25)" in a paced run. The figure changes with pacing, and a heartbeat that took 20 periods would still pass. The server terminates a silent socket after at most 2 periods, so the limit should be about 3, measured from the moment the client stops answering pings, not from the start of the check. Fixed: F-23 now counts the pings the silent client received and never answered (1 expected, at most 2), requires the drop within 3 heartbeat periods of the first unanswered ping, and prints no timing-dependent figure; the judging function is unit tested.
 
 ```
 BUG-0004: An AI character writes lines for the other participants, and multi-line replies show a literal marker in the Markdown transcript

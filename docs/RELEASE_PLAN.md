@@ -8,7 +8,7 @@ Source of truth for scope and sequencing. Design: `docs/ARCHITECTURE.md`; implem
 EPIC-0001: Slice 1 — script package and text-only runtime
 Description: A scenario written in YAML is loaded, validated and played in text by three people over a LAN against AI NPCs with a Game Master, from one laptop with one command. Proves the core loop before voice, 3D and scoring.
 Release Target: MVP
-Status: Planned
+Status: Complete
 Dependencies: None
 ```
 
@@ -38,7 +38,7 @@ Dependencies: EPIC-0002
 
 ```
 EPIC-0005: Slice 5 — evaluator and reports
-Description: Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility.
+Description: Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), per-participant visibility and access control (ASM-09; reports are visible to all participants for now) and calibration (ASM-08).
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0003
@@ -49,7 +49,7 @@ Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version 
 EPIC-0006: Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling
 Description: Work deliberately deferred while delivering Slice 1: releasing NPC hidden facts, protecting facilitator access and limiting abuse, resuming a session after a restart, lowering model cost, keeping identifier rules in one place, and an unattended demo and test runner.
 Release Target: MVP
-Status: Planned
+Status: In Progress
 Dependencies: EPIC-0001
 ```
 
@@ -59,19 +59,19 @@ Dependencies: EPIC-0001
 US-0001 (EPIC-0001): As a developer, I want a pnpm monorepo with TypeScript and Vitest, so that every package builds and tests with one command.
 Priority: High
 Estimate: S
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: None
 Acceptance Criteria:
-  - [ ] AC-0001: `pnpm install && pnpm test && pnpm typecheck` succeed from a clean clone
-  - [ ] AC-0002: packages import each other as @acr/<name> workspace links
+  - [x] AC-0001: `pnpm install && pnpm test && pnpm typecheck` succeed from a clean clone
+  - [x] AC-0002: packages import each other as @acr/<name> workspace links
 ```
 
 ```
 TASK-0001 (US-0001): Scaffold workspace, base tsconfig, Vitest workspace, .env.example
 Type: Infra
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -80,20 +80,20 @@ Notes: See the implementation plan task of the same number.
 US-0002 (EPIC-0001): As the runtime, I want typed session events and a pure reducer, so that session state is always a projection of the event log.
 Priority: High
 Estimate: M
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: US-0001
 Acceptance Criteria:
-  - [ ] AC-0003: reduce() rejects out-of-order seq
-  - [ ] AC-0004: visibleTranscript() returns only scenes the role participated in
-  - [ ] AC-0005: pause, resume, scene entry/exit, injects and NPC updates are reflected in state
+  - [x] AC-0003: reduce() rejects out-of-order seq
+  - [x] AC-0004: visibleTranscript() returns only scenes the role participated in
+  - [x] AC-0005: pause, resume, scene entry/exit, injects and NPC updates are reflected in state
 ```
 
 ```
 TASK-0002 (US-0002): Implement events.ts and state.ts with reducer tests
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -102,22 +102,22 @@ Notes: See the implementation plan task of the same number.
 US-0003 (EPIC-0001): As a scenario author, I want my YAML scenario folder loaded and validated, so that mistakes are reported before a session starts.
 Priority: High
 Estimate: M
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: US-0002
 Acceptance Criteria:
-  - [ ] AC-0006: loadScenario reads scenario.yaml, roles/*.yaml and script.yaml
-  - [ ] AC-0007: a missing roles/ directory fails with one message naming the folder
-  - [ ] AC-0008: validator errors on unknown participants and duplicate inject ids
-  - [ ] AC-0009: validator warns on injects past the time box and objectives with no criteria
-  - [ ] AC-0010: a JSON Schema is exported for editors
+  - [x] AC-0006: loadScenario reads scenario.yaml, roles/*.yaml and script.yaml
+  - [x] AC-0007: a missing roles/ directory fails with one message naming the folder
+  - [x] AC-0008: validator errors on unknown participants and duplicate inject ids
+  - [x] AC-0009: validator warns on injects past the time box and objectives with no criteria
+  - [x] AC-0010: a JSON Schema is exported for editors
 ```
 
 ```
 TASK-0003 (US-0003): Implement Zod schema, loader, validator and fixtures
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -126,19 +126,19 @@ Notes: See the implementation plan task of the same number.
 US-0004 (EPIC-0001): As the runtime, I want a scene state machine, so that scenes exit on time box, facilitator advance or a Game Master verdict.
 Priority: High
 Estimate: S
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: US-0003
 Acceptance Criteria:
-  - [ ] AC-0011: evaluateExit honours only the conditions a scene lists
-  - [ ] AC-0012: dueInjects returns timed injects once
+  - [x] AC-0011: evaluateExit honours only the conditions a scene lists
+  - [x] AC-0012: dueInjects returns timed injects once
 ```
 
 ```
 TASK-0004 (US-0004): Implement fsm.ts with exit evaluation, next scene and due injects
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -147,20 +147,20 @@ Notes: See the implementation plan task of the same number.
 US-0005 (EPIC-0001): As the runtime, I want a ModelProvider adapter with a mock and an Anthropic implementation, so that NPCs run in tests without a key and with a real model in play.
 Priority: High
 Estimate: M
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: US-0004
 Acceptance Criteria:
-  - [ ] AC-0013: the contract suite passes for the mock and (with a key) for Anthropic
-  - [ ] AC-0014: MockModelProvider replays scripted replies and records calls
-  - [ ] AC-0015: no file outside packages/adapters imports a provider SDK (lint)
+  - [x] AC-0013: the contract suite passes for the mock and (with a key) for Anthropic
+  - [x] AC-0014: MockModelProvider replays scripted replies and records calls
+  - [x] AC-0015: no file outside packages/adapters imports a provider SDK (lint)
 ```
 
 ```
 TASK-0005 (US-0005): Implement model adapter types, mock, Anthropic, selector and SDK-import lint
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -169,22 +169,22 @@ Notes: See the implementation plan task of the same number.
 US-0006 (EPIC-0001): As a facilitator, I want a session engine that runs the script, so that scenes advance, injects fire and every turn is logged.
 Priority: High
 Estimate: L
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: US-0005
 Acceptance Criteria:
-  - [ ] AC-0016: start() enters the first scene and fires its opening inject
-  - [ ] AC-0017: say() is refused while paused or when the role is not in the scene
-  - [ ] AC-0018: timed injects fire once on tick
-  - [ ] AC-0019: scenes exit on time box, advance or GM verdict and the session ends after the last scene
-  - [ ] AC-0020: events persist to a JSONL log with monotonic seq
+  - [x] AC-0016: start() enters the first scene and fires its opening inject
+  - [x] AC-0017: say() is refused while paused or when the role is not in the scene
+  - [x] AC-0018: timed injects fire once on tick
+  - [x] AC-0019: scenes exit on time box, advance or GM verdict and the session ends after the last scene
+  - [x] AC-0020: events persist to a JSONL log with monotonic seq
 ```
 
 ```
 TASK-0006 (US-0006): Implement SessionEngine, EventLog (memory, JSONL) and Clock
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -193,21 +193,21 @@ Notes: See the implementation plan task of the same number.
 US-0007 (EPIC-0001): As a participant, I want NPCs to reply in character, so that the role-play feels real.
 Priority: High
 Estimate: L
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: US-0006
 Acceptance Criteria:
-  - [ ] AC-0021: the persona prefix is cacheable and contains goals, knowledge, guardrails and the scene goal
-  - [ ] AC-0022: hidden facts and other roles' briefs never appear in NPC prompts
-  - [ ] AC-0023: on timeout or empty reply the fallback line is spoken and the facilitator is alerted
-  - [ ] AC-0024: NPCs stay silent while paused or outside their scene
+  - [x] AC-0021: the persona prefix is cacheable and contains goals, knowledge, guardrails and the scene goal
+  - [x] AC-0022: hidden facts and other roles' briefs never appear in NPC prompts
+  - [x] AC-0023: on timeout or empty reply the fallback line is spoken and the facilitator is alerted
+  - [x] AC-0024: NPCs stay silent while paused or outside their scene
 ```
 
 ```
 TASK-0007 (US-0007): Implement buildNpcRequest and NpcAgent with timeout and fallback
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -216,20 +216,20 @@ Notes: See the implementation plan task of the same number.
 US-0008 (EPIC-0001): As a facilitator, I want the Game Master to detect scripted exit conditions, so that scenes move on when the team achieves the goal.
 Priority: High
 Estimate: M
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: US-0007
 Acceptance Criteria:
-  - [ ] AC-0025: the GM evaluates gm_detects conditions every N utterances, not per turn
-  - [ ] AC-0026: a true verdict exits the scene in the same tick and is logged with reasoning
-  - [ ] AC-0027: unparseable or false verdicts leave the scene running
+  - [x] AC-0025: the GM evaluates gm_detects conditions every N utterances, not per turn
+  - [x] AC-0026: a true verdict exits the scene in the same tick and is logged with reasoning
+  - [x] AC-0027: unparseable or false verdicts leave the scene running
 ```
 
 ```
 TASK-0008 (US-0008): Implement gm-prompt.ts and GameMaster
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -238,20 +238,20 @@ Notes: See the implementation plan task of the same number.
 US-0009 (EPIC-0001): As a participant, I want to join a session over WebSocket with my role, so that I can play from any machine on the LAN.
 Priority: High
 Estimate: L
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: US-0008
 Acceptance Criteria:
-  - [ ] AC-0028: a second participant claiming a taken role is refused with role_taken
-  - [ ] AC-0029: players receive only events for scenes and injects addressed to them; the facilitator receives everything
-  - [ ] AC-0030: the facilitator can start the session and send commands; players cannot
+  - [x] AC-0028: a second participant claiming a taken role is refused with role_taken
+  - [x] AC-0029: players receive only events for scenes and injects addressed to them; the facilitator receives everything
+  - [x] AC-0030: the facilitator can start the session and send commands; players cannot
 ```
 
 ```
 TASK-0009 (US-0009): Implement SessionHost, protocol, ws-server and main.ts
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -260,19 +260,19 @@ Notes: See the implementation plan task of the same number.
 US-0010 (EPIC-0001): As a participant or facilitator, I want a terminal client, so that the slice is playable without a web UI.
 Priority: High
 Estimate: S
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: US-0009
 Acceptance Criteria:
-  - [ ] AC-0031: pnpm play joins as a role or as facilitator and renders events
-  - [ ] AC-0032: facilitator slash-commands map to protocol messages
+  - [x] AC-0031: pnpm play joins as a role or as facilitator and renders events
+  - [x] AC-0032: facilitator slash-commands map to protocol messages
 ```
 
 ```
 TASK-0010 (US-0010): Implement play.ts and render.ts
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -281,20 +281,20 @@ Notes: See the implementation plan task of the same number.
 US-0011 (EPIC-0001): As a scenario author, I want the Friday Escalation scenario to run end to end in a simulation test, so that the slice is proven against a real script.
 Priority: High
 Estimate: M
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: US-0010
 Acceptance Criteria:
-  - [ ] AC-0033: the scenario validates with no errors or warnings
-  - [ ] AC-0034: a scripted play-through passes all three scenes and ends
-  - [ ] AC-0035: NPC prompts never contain hidden facts or player private facts
+  - [x] AC-0033: the scenario validates with no errors or warnings
+  - [x] AC-0034: a scripted play-through passes all three scenes and ends
+  - [x] AC-0035: NPC prompts never contain hidden facts or player private facts
 ```
 
 ```
 TASK-0011 (US-0011): Write the scenario YAML and the simulation test
 Type: Test
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -303,20 +303,20 @@ Notes: See the implementation plan task of the same number.
 US-0012 (EPIC-0001): As a facilitator, I want to start the whole MVP with one command, so that a session can run from a laptop.
 Priority: High
 Estimate: S
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0001-US-0001-monorepo
 Dependencies: US-0011
 Acceptance Criteria:
-  - [ ] AC-0036: ./run.sh --dev starts the runtime and three terminals can play
-  - [ ] AC-0037: the Docker image builds and runs the runtime
-  - [ ] AC-0038: CI runs typecheck, tests and the SDK-import check
+  - [x] AC-0036: ./run.sh --dev starts the runtime and three terminals can play
+  - [x] AC-0037: the Docker image builds and runs the runtime
+  - [x] AC-0038: CI runs typecheck, tests and the SDK-import check
 ```
 
 ```
 TASK-0012 (US-0012): Add compose, Dockerfile, run.sh, CI and README
 Type: Infra
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0001-US-0001-monorepo
 Notes: See the implementation plan task of the same number.
 ```
@@ -618,7 +618,7 @@ Notes: Found in the first real live showcase (OpenRouter free Nemotron): 4 Game 
 US-0026 (EPIC-0006): As a facilitator running a local reasoning model, I want AI character and Game Master replies to survive a model that thinks before it answers, so that a slow or reasoning model does not turn into canned fallback lines.
 Priority: Medium
 Estimate: S
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0006-US-0026-reasoning-model-empty-replies
 Dependencies: US-0014, US-0022
 Acceptance Criteria:
@@ -640,7 +640,7 @@ Notes: Found 2026-10-05 in the local showcase. Cause: the provider reads only `c
 US-0027 (EPIC-0006): As a facilitator running the showcase, I want the player roles to be played by the model too (as humans normally would), so that a run varies between runs and scenes instead of repeating the same stilted scripted lines.
 Priority: High
 Estimate: M
-Status: Done
+Status: Complete
 Branch: feature/EPIC-0006-US-0027-generated-players
 Dependencies: US-0024, US-0026
 Acceptance Criteria:
@@ -666,7 +666,7 @@ Notes: Observed 2026-10-05: scripted player lines make every showcase run identi
 US-0028 (EPIC-0005): As a scenario author, I want to write rubrics as YAML files with a behavioural anchor for every level of every criterion, so that scoring is judged against observable behaviour and each scenario can bring its own rubric.
 Priority: High
 Estimate: M
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0005-evaluator-feedback
 Dependencies: US-0003
 Acceptance Criteria:
@@ -680,7 +680,7 @@ Acceptance Criteria:
 TASK-0028 (US-0028): Define the rubric schema, loader and validator and author the two rubrics
 Type: Dev
 Assignee: Agent
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0005-evaluator-feedback
 Notes: Criteria: discovery, listening, negotiation, commercial_judgement, stakeholder_management, team_alignment and role_clarity (individual behaviours); shared_understanding, decision_quality, role_clarity_group and escalation_discipline (group, ASM-02). Review fix round 2026-10-06: anchors rewritten to be observable from the participant's own words, distinct key behaviours, "at least two of" at level 3, generic examples; the two scenario copies are kept byte-identical by a test.
 ```
@@ -689,7 +689,7 @@ Notes: Criteria: discovery, listening, negotiation, commercial_judgement, stakeh
 US-0029 (EPIC-0005): As a facilitator, I want each player and the group scored per criterion from the recorded session log, with verified quoted evidence, a confidence level and a roll-up to the learning objectives, so that feedback rests on what people actually said.
 Priority: High
 Estimate: L
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0005-evaluator-feedback
 Dependencies: US-0028, US-0002
 Acceptance Criteria:
@@ -704,7 +704,7 @@ Acceptance Criteria:
 TASK-0029 (US-0029): Build the evaluator engine in services/runtime/src/evaluator
 Type: Dev
 Assignee: Agent
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0005-evaluator-feedback
 Notes: Prompt-injection hardening and programmatic quote verification are the core of the design; see docs/EVALUATOR.md. Review fix round 2026-10-06: Invalid criteria and incomplete LOs, distinct-line confidence, quote overlap and minimum, hard transcript cap, method text aligned with the code.
 ```
@@ -713,7 +713,7 @@ Notes: Prompt-injection hardening and programmatic quote verification are the co
 US-0030 (EPIC-0005): As a participant and a facilitator, I want a draft personal report and a group report written from the scores, so that people get strengths, development points and next actions and the facilitator gets talking points.
 Priority: High
 Estimate: M
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0005-evaluator-feedback
 Dependencies: US-0029
 Acceptance Criteria:
@@ -727,7 +727,7 @@ Acceptance Criteria:
 TASK-0030 (US-0030): Render participant and group reports, the index and the method page
 Type: Dev
 Assignee: Agent
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0005-evaluator-feedback
 Notes: The method text is defined once (rubric scale, evidence rule, confidence rule, aggregation, limitations) and printed in every report.
 ```
@@ -736,7 +736,7 @@ Notes: The method text is defined once (rubric scale, evidence rule, confidence 
 US-0031 (EPIC-0005): As a facilitator or developer, I want to run the evaluator on a session log and to have the showcase produce the reports at the end, so that feedback can be generated after any session and verified in the demo.
 Priority: Medium
 Estimate: M
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0005-evaluator-feedback
 Dependencies: US-0029, US-0030, US-0024
 Acceptance Criteria:
@@ -750,7 +750,7 @@ Acceptance Criteria:
 TASK-0031 (US-0031): Add the evaluate script and wire --evaluate into the showcase
 Type: Dev
 Assignee: Agent
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0005-evaluator-feedback
 Notes: Live runs of the evaluator are done by the controller, not in this task. A real Gemma run (2026-10-06) worked; the review fix round also made S-16 read-back tests, the live watchdog extension and partial-write cleanup.
 ```
@@ -759,7 +759,7 @@ Notes: Live runs of the evaluator are done by the controller, not in this task. 
 US-0032 (EPIC-0006): As a facilitator running a scene with two AI characters, I want each character to respond with its own kind of contribution and to stay silent when it has nothing of its own to add, so that a senior executive gives a decision, a condition or a number instead of echoing the sponsor.
 Priority: High
 Estimate: M
-Status: Done
+Status: Complete
 Branch: feature/EPIC-0006-ai-character-voices
 Dependencies: US-0027
 Acceptance Criteria:

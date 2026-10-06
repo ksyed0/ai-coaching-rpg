@@ -3,6 +3,22 @@ import { ensure } from "./checks.js";
 import { act, attempt, connectBot, errCode, isJoinedMsg, npcRole, sceneIds, utterancesOf, withTimeout, type Ctx, type Story, type Utter } from "./ctx.js";
 import { LAB_FIRST_TOKEN_MS, LAB_HEARTBEAT_MS, startLabSystem } from "./harness.js";
 
+/** The server terminates a silent socket at the second heartbeat tick after its last answer, so a 3 period limit has room for scheduling slack. */
+export const SILENT_DROP_LIMIT_PERIODS = 3;
+
+/**
+ * BUG-0003: judges check F-23 from what the silent client saw, not from how long the whole check took. `pings` is the number of
+ * server pings it received (and never answered) before the socket was closed; `sinceFirstPingMs` is measured from the first one.
+ * The server pings once, then terminates at the next tick, so 1 ping is normal and more than 2 means the heartbeat is not working.
+ */
+export function silentDropEvidence(o: { pings: number; sinceFirstPingMs: number; heartbeatMs: number }): string {
+  ensure(o.pings >= 1, "the server never pinged the silent client before closing it, so the drop was not caused by the heartbeat");
+  ensure(o.pings <= 2, `the server pinged the silent client ${o.pings} times before dropping it (at most 2 expected)`);
+  const periods = o.sinceFirstPingMs / o.heartbeatMs;
+  ensure(periods <= SILENT_DROP_LIMIT_PERIODS, `the silent client was dropped ${periods.toFixed(1)} heartbeat periods after its first unanswered ping (limit ${SILENT_DROP_LIMIT_PERIODS})`);
+  return `the silent client got ${o.pings} unanswered ping${o.pings === 1 ? "" : "s"} and was dropped within ${SILENT_DROP_LIMIT_PERIODS} heartbeat periods of the first; live clients stayed; its role was freed`;
+}
+
 /**
  * The side room (act 6): a second in-process server with a short heartbeat, short NPC timeouts and an NPC model that
  * misbehaves on purpose (stalls, then answers with nothing). It proves the failure paths the main story cannot wait for.
@@ -33,18 +49,19 @@ export async function playLab(ctx: Ctx, st: Story): Promise<void> {
     // A client that connects, claims a role and then never answers pings.
     await rec.run("F-23", async () => {
       const ghost = await connectBot(ctx, "ghost", { url, autoPong: false });
+      let pings = 0; let firstPingAt = 0;
+      ghost.ws.on("ping", () => { if (pings++ === 0) firstPingAt = Date.now(); });
       ensure(isJoinedMsg(await join(ghost, "tech_lead", "ZedGhostParticipant")), "the ghost could not join");
       await n.step("a client claims tech_lead, then stops answering the server's pings");
-      const t0 = ctx.now();
       await withTimeout(ghost.closed, 5_000, `the server to drop the silent client (heartbeat ${LAB_HEARTBEAT_MS} ms)`);
-      const took = ctx.now() - t0;
+      const closedAt = Date.now();
       ensure(dl.isOpen && am.isOpen, "a client that answered its pings was dropped too");
       const taker = await connectBot(ctx, "replacement tech_lead", { url });
       const j = await join(taker, "tech_lead", "ZedDeltaParticipant");
       ensure(isJoinedMsg(j), `the role was not freed: ${errCode(j)}`);
       taker.close();
       await n.step("the silent client is terminated by the server and tech_lead is free for someone else");
-      return `the silent client was dropped after ~${Math.round(took / LAB_HEARTBEAT_MS)} heartbeat periods (limit 25); live clients stayed; its role was freed`;
+      return silentDropEvidence({ pings, sinceFirstPingMs: pings > 0 ? closedAt - firstPingAt : 0, heartbeatMs: LAB_HEARTBEAT_MS });
     });
 
     fac.send({ type: "start" });

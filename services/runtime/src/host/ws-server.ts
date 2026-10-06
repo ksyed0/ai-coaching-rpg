@@ -7,9 +7,17 @@ import { EngineError } from "../engine/session-engine.js";
 export const MAX_PAYLOAD_BYTES = 64 * 1024;
 const MAX_BUFFERED_BYTES = 1024 * 1024; // a client this far behind is dropped rather than buffered forever
 
+const DEFAULT_HEARTBEAT_MS = 15_000;
+const MAX_TIMER_MS = 2_147_483_647; // the largest delay setInterval accepts
+
 /** heartbeatMs: ping interval; a socket that has not answered the previous ping is terminated (frees half-open players). */
 export async function startServer(opts: { port: number; hosts: Map<string, SessionHost>; log?: (m: string) => void; heartbeatMs?: number }): Promise<{ port: number; close(): Promise<void> }> {
   const log = opts.log ?? (() => {});
+  const heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  // BUG-0001: setInterval treats 0, negative, NaN and anything above 2^31-1 ms as 1 ms, which would terminate every socket almost at once.
+  if (!Number.isFinite(heartbeatMs) || heartbeatMs <= 0 || heartbeatMs > MAX_TIMER_MS) {
+    throw new Error(`heartbeatMs must be a finite number of milliseconds greater than 0 and at most ${MAX_TIMER_MS}`);
+  }
   const wss = new WebSocketServer({ port: opts.port, host: "0.0.0.0", maxPayload: MAX_PAYLOAD_BYTES });
   await new Promise<void>((resolve, reject) => {
     wss.once("listening", resolve);
@@ -33,7 +41,7 @@ export async function startServer(opts: { port: number; hosts: Map<string, Sessi
       alive.delete(c);
       try { c.ping(); } catch (err) { log(`ping failed: ${(err as Error).message}`); }
     }
-  }, opts.heartbeatMs ?? 15_000);
+  }, heartbeatMs);
   heartbeat.unref();
 
   /** Which connection currently holds each player role, so a stale socket closing cannot free a rejoined role. */

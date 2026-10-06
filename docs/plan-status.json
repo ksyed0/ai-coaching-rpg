@@ -5,7 +5,7 @@
       "title": "Slice 1 — script package and text-only runtime",
       "description": "A scenario written in YAML is loaded, validated and played in text by three people over a LAN against AI NPCs with a Game Master, from one laptop with one command. Proves the core loop before voice, 3D and scoring.",
       "releaseTarget": "MVP",
-      "status": "Planned",
+      "status": "Complete",
       "startDate": null,
       "doneDate": null,
       "dependencies": []
@@ -49,7 +49,7 @@
     {
       "id": "EPIC-0005",
       "title": "Slice 5 — evaluator and reports",
-      "description": "Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility.",
+      "description": "Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), per-participant visibility and access control (ASM-09; reports are visible to all participants for now) and calibration (ASM-08).",
       "releaseTarget": "MVP",
       "status": "In Progress",
       "startDate": null,
@@ -63,7 +63,7 @@
       "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
       "description": "Work deliberately deferred while delivering Slice 1: releasing NPC hidden facts, protecting facilitator access and limiting abuse, resuming a session after a restart, lowering model cost, keeping identifier rules in one place, and an unattended demo and test runner.",
       "releaseTarget": "MVP",
-      "status": "Planned",
+      "status": "In Progress",
       "startDate": null,
       "doneDate": null,
       "dependencies": [
@@ -78,18 +78,18 @@
       "title": "As a developer, I want a pnpm monorepo with TypeScript and Vitest, so that every package builds and tests with one command.",
       "priority": "High",
       "estimate": "S",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0001",
           "text": "`pnpm install && pnpm test && pnpm typecheck` succeed from a clean clone",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0002",
           "text": "packages import each other as @acr/<name> workspace links",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": []
@@ -100,23 +100,23 @@
       "title": "As the runtime, I want typed session events and a pure reducer, so that session state is always a projection of the event log.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0003",
           "text": "reduce() rejects out-of-order seq",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0004",
           "text": "visibleTranscript() returns only scenes the role participated in",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0005",
           "text": "pause, resume, scene entry/exit, injects and NPC updates are reflected in state",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -129,33 +129,33 @@
       "title": "As a scenario author, I want my YAML scenario folder loaded and validated, so that mistakes are reported before a session starts.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0006",
           "text": "loadScenario reads scenario.yaml, roles/*.yaml and script.yaml",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0007",
           "text": "a missing roles/ directory fails with one message naming the folder",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0008",
           "text": "validator errors on unknown participants and duplicate inject ids",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0009",
           "text": "validator warns on injects past the time box and objectives with no criteria",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0010",
           "text": "a JSON Schema is exported for editors",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -168,18 +168,18 @@
       "title": "As the runtime, I want a scene state machine, so that scenes exit on time box, facilitator advance or a Game Master verdict.",
       "priority": "High",
       "estimate": "S",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0011",
           "text": "evaluateExit honours only the conditions a scene lists",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0012",
           "text": "dueInjects returns timed injects once",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -192,23 +192,23 @@
       "title": "As the runtime, I want a ModelProvider adapter with a mock and an Anthropic implementation, so that NPCs run in tests without a key and with a real model in play.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0013",
           "text": "the contract suite passes for the mock and (with a key) for Anthropic",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0014",
           "text": "MockModelProvider replays scripted replies and records calls",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0015",
           "text": "no file outside packages/adapters imports a provider SDK (lint)",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -221,33 +221,33 @@
       "title": "As a facilitator, I want a session engine that runs the script, so that scenes advance, injects fire and every turn is logged.",
       "priority": "High",
       "estimate": "L",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0016",
           "text": "start() enters the first scene and fires its opening inject",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0017",
           "text": "say() is refused while paused or when the role is not in the scene",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0018",
           "text": "timed injects fire once on tick",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0019",
           "text": "scenes exit on time box, advance or GM verdict and the session ends after the last scene",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0020",
           "text": "events persist to a JSONL log with monotonic seq",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -260,28 +260,28 @@
       "title": "As a participant, I want NPCs to reply in character, so that the role-play feels real.",
       "priority": "High",
       "estimate": "L",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0021",
           "text": "the persona prefix is cacheable and contains goals, knowledge, guardrails and the scene goal",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0022",
           "text": "hidden facts and other roles' briefs never appear in NPC prompts",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0023",
           "text": "on timeout or empty reply the fallback line is spoken and the facilitator is alerted",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0024",
           "text": "NPCs stay silent while paused or outside their scene",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -294,23 +294,23 @@
       "title": "As a facilitator, I want the Game Master to detect scripted exit conditions, so that scenes move on when the team achieves the goal.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0025",
           "text": "the GM evaluates gm_detects conditions every N utterances, not per turn",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0026",
           "text": "a true verdict exits the scene in the same tick and is logged with reasoning",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0027",
           "text": "unparseable or false verdicts leave the scene running",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -323,23 +323,23 @@
       "title": "As a participant, I want to join a session over WebSocket with my role, so that I can play from any machine on the LAN.",
       "priority": "High",
       "estimate": "L",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0028",
           "text": "a second participant claiming a taken role is refused with role_taken",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0029",
           "text": "players receive only events for scenes and injects addressed to them; the facilitator receives everything",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0030",
           "text": "the facilitator can start the session and send commands; players cannot",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -352,18 +352,18 @@
       "title": "As a participant or facilitator, I want a terminal client, so that the slice is playable without a web UI.",
       "priority": "High",
       "estimate": "S",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0031",
           "text": "pnpm play joins as a role or as facilitator and renders events",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0032",
           "text": "facilitator slash-commands map to protocol messages",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -376,23 +376,23 @@
       "title": "As a scenario author, I want the Friday Escalation scenario to run end to end in a simulation test, so that the slice is proven against a real script.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0033",
           "text": "the scenario validates with no errors or warnings",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0034",
           "text": "a scripted play-through passes all three scenes and ends",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0035",
           "text": "NPC prompts never contain hidden facts or player private facts",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -405,23 +405,23 @@
       "title": "As a facilitator, I want to start the whole MVP with one command, so that a session can run from a laptop.",
       "priority": "High",
       "estimate": "S",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "acs": [
         {
           "id": "AC-0036",
           "text": "./run.sh --dev starts the runtime and three terminals can play",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0037",
           "text": "the Docker image builds and runs the runtime",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0038",
           "text": "CI runs typecheck, tests and the SDK-import check",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -844,7 +844,7 @@
       "title": "As a facilitator running a local reasoning model, I want AI character and Game Master replies to survive a model that thinks before it answers, so that a slow or reasoning model does not turn into canned fallback lines.",
       "priority": "Medium",
       "estimate": "S",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0026-reasoning-model-empty-replies",
       "acs": [
         {
@@ -874,7 +874,7 @@
       "title": "As a facilitator running the showcase, I want the player roles to be played by the model too (as humans normally would), so that a run varies between runs and scenes instead of repeating the same stilted scripted lines.",
       "priority": "High",
       "estimate": "M",
-      "status": "Done",
+      "status": "Complete",
       "branch": "feature/EPIC-0006-US-0027-generated-players",
       "acs": [
         {
@@ -924,7 +924,7 @@
       "title": "As a scenario author, I want to write rubrics as YAML files with a behavioural anchor for every level of every criterion, so that scoring is judged against observable behaviour and each scenario can bring its own rubric.",
       "priority": "High",
       "estimate": "M",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0005-evaluator-feedback",
       "acs": [
         {
@@ -958,7 +958,7 @@
       "title": "As a facilitator, I want each player and the group scored per criterion from the recorded session log, with verified quoted evidence, a confidence level and a roll-up to the learning objectives, so that feedback rests on what people actually said.",
       "priority": "High",
       "estimate": "L",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0005-evaluator-feedback",
       "acs": [
         {
@@ -998,7 +998,7 @@
       "title": "As a participant and a facilitator, I want a draft personal report and a group report written from the scores, so that people get strengths, development points and next actions and the facilitator gets talking points.",
       "priority": "High",
       "estimate": "M",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0005-evaluator-feedback",
       "acs": [
         {
@@ -1032,7 +1032,7 @@
       "title": "As a facilitator or developer, I want to run the evaluator on a session log and to have the showcase produce the reports at the end, so that feedback can be generated after any session and verified in the demo.",
       "priority": "Medium",
       "estimate": "M",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0005-evaluator-feedback",
       "acs": [
         {
@@ -1068,7 +1068,7 @@
       "title": "As a facilitator running a scene with two AI characters, I want each character to respond with its own kind of contribution and to stay silent when it has nothing of its own to add, so that a senior executive gives a decision, a condition or a number instead of echoing the sponsor.",
       "priority": "High",
       "estimate": "M",
-      "status": "Done",
+      "status": "Complete",
       "branch": "feature/EPIC-0006-ai-character-voices",
       "acs": [
         {
@@ -1124,7 +1124,7 @@
       "title": "Scaffold workspace, base tsconfig, Vitest workspace, .env.example",
       "type": "Infra",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1134,7 +1134,7 @@
       "title": "Implement events.ts and state.ts with reducer tests",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1144,7 +1144,7 @@
       "title": "Implement Zod schema, loader, validator and fixtures",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1154,7 +1154,7 @@
       "title": "Implement fsm.ts with exit evaluation, next scene and due injects",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1164,7 +1164,7 @@
       "title": "Implement model adapter types, mock, Anthropic, selector and SDK-import lint",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1174,7 +1174,7 @@
       "title": "Implement SessionEngine, EventLog (memory, JSONL) and Clock",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1184,7 +1184,7 @@
       "title": "Implement buildNpcRequest and NpcAgent with timeout and fallback",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1194,7 +1194,7 @@
       "title": "Implement gm-prompt.ts and GameMaster",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1204,7 +1204,7 @@
       "title": "Implement SessionHost, protocol, ws-server and main.ts",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1214,7 +1214,7 @@
       "title": "Implement play.ts and render.ts",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1224,7 +1224,7 @@
       "title": "Write the scenario YAML and the simulation test",
       "type": "Test",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1234,7 +1234,7 @@
       "title": "Add compose, Dockerfile, run.sh, CI and README",
       "type": "Infra",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0001-US-0001-monorepo",
       "notes": "See the implementation plan task of the same number."
     },
@@ -1394,7 +1394,7 @@
       "title": "Define the rubric schema, loader and validator and author the two rubrics",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0005-evaluator-feedback",
       "notes": "Criteria: discovery, listening, negotiation, commercial_judgement, stakeholder_management, team_alignment and role_clarity (individual behaviours); shared_understanding, decision_quality, role_clarity_group and escalation_discipline (group, ASM-02). Review fix round 2026-10-06: anchors rewritten to be observable from the participant's own words, distinct key behaviours, \"at least two of\" at level 3, generic examples; the two scenario copies are kept byte-identical by a test."
     },
@@ -1404,7 +1404,7 @@
       "title": "Build the evaluator engine in services/runtime/src/evaluator",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0005-evaluator-feedback",
       "notes": "Prompt-injection hardening and programmatic quote verification are the core of the design; see docs/EVALUATOR.md. Review fix round 2026-10-06: Invalid criteria and incomplete LOs, distinct-line confidence, quote overlap and minimum, hard transcript cap, method text aligned with the code."
     },
@@ -1414,7 +1414,7 @@
       "title": "Render participant and group reports, the index and the method page",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0005-evaluator-feedback",
       "notes": "The method text is defined once (rubric scale, evidence rule, confidence rule, aggregation, limitations) and printed in every report."
     },
@@ -1424,7 +1424,7 @@
       "title": "Add the evaluate script and wire --evaluate into the showcase",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0005-evaluator-feedback",
       "notes": "Live runs of the evaluator are done by the controller, not in this task. A real Gemma run (2026-10-06) worked; the review fix round also made S-16 read-back tests, the live watchdog extension and partial-write cleanup."
     },
@@ -1447,7 +1447,7 @@
       "severity": "Low",
       "relatedStory": "US-0009",
       "relatedTask": "TASK-0009",
-      "status": "Open",
+      "status": "Fixed (8c18795)",
       "fixBranch": "bugfix/BUG-0001-heartbeat-test-timing",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -1459,7 +1459,7 @@
       "severity": "Low",
       "relatedStory": "US-0014",
       "relatedTask": "TASK-0014",
-      "status": "Open",
+      "status": "Fixed (the classification was corrected in 2d2e31b under US-0022; regression test 6401b13)",
       "fixBranch": "bugfix/BUG-0002-anthropic-endpoint-errors",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -1471,7 +1471,7 @@
       "severity": "Low",
       "relatedStory": "US-0021",
       "relatedTask": "TASK-0021",
-      "status": "Open",
+      "status": "Fixed (2b59b4a)",
       "fixBranch": "bugfix/BUG-0003-demo-heartbeat-evidence",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -1492,157 +1492,157 @@
   ],
   "costs": {
     "US-0001": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 400,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 400,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 1600,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 1600,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 1600,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 400,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 400,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 400,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 1600,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 400,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 400,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 400,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 1600,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 400,
       "costUsd": 0.192722,
       "inputTokens": 0,
       "outputTokens": 0
@@ -1916,7 +1916,7 @@
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": false
+      "isAtRisk": true
     },
     "US-0028": {
       "missingTCs": true,
@@ -1951,7 +1951,7 @@
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": false
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -2004,10 +2004,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T19:52:20.383Z",
-  "commitSha": "8a86f24",
-  "buildNumber": "119",
-  "branch": "feature/EPIC-0006-ai-character-voices",
+  "generatedAt": "2026-10-06T21:41:51.055Z",
+  "commitSha": "5428a92",
+  "buildNumber": "129",
+  "branch": "chore/housekeeping-plan-status-and-bugs",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2105,13 +2105,13 @@
     }
   },
   "budget": {
-    "totalBudget": 25.067099999999996,
+    "totalBudget": 6006.1671,
     "totalSpent": 6.1671,
-    "totalProjected": 5623.4,
-    "percentUsed": 25,
+    "totalProjected": 26800,
+    "percentUsed": 0,
     "burnRate": 0.19186533333333333,
-    "daysRemaining": 98,
-    "projectedExhaustion": 98,
+    "daysRemaining": 31271,
+    "projectedExhaustion": 31271,
     "thresholds": [
       50,
       75,
@@ -2121,6 +2121,14 @@
     "crossedThresholds": [],
     "epicBudgets": [
       {
+        "id": "EPIC-0001",
+        "title": "Slice 1 — script package and text-only runtime",
+        "budget": 2.698108,
+        "spent": 2.698108,
+        "remaining": 0,
+        "percentUsed": 100
+      },
+      {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
         "budget": 0.770888,
@@ -2129,28 +2137,20 @@
         "percentUsed": 100
       },
       {
-        "id": "EPIC-0006",
-        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 9.705386,
-        "spent": 2.505386,
-        "remaining": 7.200000000000001,
-        "percentUsed": 26
-      },
-      {
-        "id": "EPIC-0001",
-        "title": "Slice 1 — script package and text-only runtime",
-        "budget": 13.498108000000002,
-        "spent": 2.698108,
-        "remaining": 10.800000000000002,
-        "percentUsed": 20
-      },
-      {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 1.092722,
+        "budget": 800.192722,
         "spent": 0.192722,
-        "remaining": 0.8999999999999999,
-        "percentUsed": 18
+        "remaining": 800,
+        "percentUsed": 0
+      },
+      {
+        "id": "EPIC-0006",
+        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
+        "budget": 5202.505386,
+        "spent": 2.505386,
+        "remaining": 5200,
+        "percentUsed": 0
       },
       {
         "id": "EPIC-0003",
@@ -2171,48 +2171,40 @@
     ],
     "hasBudget": true
   },
-  "completion": {
-    "likelyDate": "Nov 30",
-    "rangeStart": "Sep 7",
-    "rangeEnd": "Feb 22",
-    "velocityWeeks": 4,
-    "storiesPerWeek": 0.5,
-    "pointsPerWeek": 1.4
-  },
+  "completion": null,
   "trends": {
     "dates": [
-      "2026-09-06T19:20:14.805Z",
-      "2026-09-07T19:20:14.805Z",
-      "2026-09-08T19:20:14.805Z",
-      "2026-09-09T19:20:14.805Z",
-      "2026-09-10T19:20:14.805Z",
-      "2026-09-11T19:20:14.805Z",
-      "2026-09-12T19:20:14.805Z",
-      "2026-09-13T19:20:14.805Z",
-      "2026-09-14T19:20:14.805Z",
-      "2026-09-15T19:20:14.805Z",
-      "2026-09-16T19:20:14.805Z",
-      "2026-09-17T19:20:14.805Z",
-      "2026-09-18T19:20:14.805Z",
-      "2026-09-19T19:20:14.805Z",
-      "2026-09-20T19:20:14.805Z",
-      "2026-09-21T19:20:14.805Z",
-      "2026-09-22T19:20:14.805Z",
-      "2026-09-23T19:20:14.805Z",
-      "2026-09-24T19:20:14.805Z",
-      "2026-09-25T19:20:14.805Z",
-      "2026-09-26T19:20:14.805Z",
-      "2026-09-27T19:20:14.805Z",
-      "2026-09-28T19:20:14.805Z",
-      "2026-09-29T19:20:14.805Z",
-      "2026-09-30T19:20:14.805Z",
-      "2026-10-01T19:20:14.805Z",
-      "2026-10-02T19:20:14.805Z",
-      "2026-10-03T19:20:14.805Z",
-      "2026-10-04T19:20:14.805Z",
-      "2026-10-05T19:20:14.805Z",
-      "2026-10-06T19:39:32.650Z",
-      "2026-10-06T19:52:20.471Z"
+      "2026-09-06T21:37:26.999Z",
+      "2026-09-07T21:37:26.999Z",
+      "2026-09-08T21:37:26.999Z",
+      "2026-09-09T21:37:26.999Z",
+      "2026-09-10T21:37:26.999Z",
+      "2026-09-11T21:37:26.999Z",
+      "2026-09-12T21:37:26.999Z",
+      "2026-09-13T21:37:26.999Z",
+      "2026-09-14T21:37:26.999Z",
+      "2026-09-15T21:37:26.999Z",
+      "2026-09-16T21:37:26.999Z",
+      "2026-09-17T21:37:26.999Z",
+      "2026-09-18T21:37:26.999Z",
+      "2026-09-19T21:37:26.999Z",
+      "2026-09-20T21:37:26.999Z",
+      "2026-09-21T21:37:26.999Z",
+      "2026-09-22T21:37:26.999Z",
+      "2026-09-23T21:37:26.999Z",
+      "2026-09-24T21:37:26.999Z",
+      "2026-09-25T21:37:26.999Z",
+      "2026-09-26T21:37:26.999Z",
+      "2026-09-27T21:37:26.999Z",
+      "2026-09-28T21:37:26.999Z",
+      "2026-09-29T21:37:26.999Z",
+      "2026-09-30T21:37:26.999Z",
+      "2026-10-01T21:37:26.999Z",
+      "2026-10-02T21:37:26.999Z",
+      "2026-10-03T21:37:26.999Z",
+      "2026-10-04T21:37:26.999Z",
+      "2026-10-05T21:37:26.999Z",
+      "2026-10-06T21:41:51.140Z"
     ],
     "doneCounts": [
       0,
@@ -2222,13 +2214,6 @@
       0,
       0,
       0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
       1,
       1,
       1,
@@ -2244,41 +2229,46 @@
       1,
       1,
       1,
-      1,
-      1,
-      2
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      2,
+      0
     ],
     "totalStories": [
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
-      31,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
+      32,
       32,
       32
     ],
@@ -2313,7 +2303,6 @@
       5.75596,
       5.96153,
       6.1671,
-      6.1671,
       6.1671
     ],
     "coverage": [
@@ -2347,7 +2336,6 @@
       0,
       0,
       0,
-      null,
       null
     ],
     "velocity": [
@@ -2358,13 +2346,6 @@
       0,
       0,
       0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
       3,
       3,
       3,
@@ -2380,9 +2361,15 @@
       3,
       3,
       3,
-      3,
-      3,
-      6
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      6,
+      0
     ],
     "openBugs": [
       3,
@@ -2415,11 +2402,9 @@
       3,
       3,
       3,
-      3,
-      3
+      0
     ],
     "atRisk": [
-      0,
       0,
       0,
       0,
@@ -2460,30 +2445,29 @@
       0,
       0,
       0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      25000,
       26667,
-      28333,
       30000,
-      31667,
       33333,
-      35000,
       36667,
-      38333,
       40000,
-      41667,
       43333,
-      45000,
       46667,
-      48333,
       50000,
-      522440,
+      50000,
+      50000,
+      50000,
+      50000,
+      50000,
+      50000,
+      50000,
+      88333,
+      90000,
+      91667,
+      93333,
+      95000,
+      96667,
+      98333,
+      100000,
       522440
     ],
     "outputTokens": [
@@ -2494,40 +2478,39 @@
       0,
       0,
       0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      7500,
       8000,
-      8500,
       9000,
-      9500,
       10000,
-      10500,
       11000,
-      11500,
       12000,
-      12500,
       13000,
-      13500,
       14000,
-      14500,
       15000,
-      69480,
+      15000,
+      15000,
+      15000,
+      15000,
+      15000,
+      15000,
+      15000,
+      26500,
+      27000,
+      27500,
+      28000,
+      28500,
+      29000,
+      29500,
+      30000,
       69480
     ],
     "avgRisk": [
-      1.1677419354838714,
-      1.1677419354838714,
-      1.1677419354838714,
-      1.1677419354838714,
-      1.1677419354838714,
-      1.1677419354838714,
-      1.1677419354838714,
+      1.1656250000000004,
+      1.1656250000000004,
+      1.1656250000000004,
+      1.1656250000000004,
+      1.1656250000000004,
+      1.1656250000000004,
+      1.1656250000000004,
       1.1774193548387102,
       1.1774193548387102,
       1.1774193548387102,
@@ -2535,14 +2518,14 @@
       1.1774193548387102,
       1.1774193548387102,
       1.1774193548387102,
-      1.1900000000000004,
-      1.1900000000000004,
-      1.1900000000000004,
-      1.1900000000000004,
-      1.1900000000000004,
-      1.1900000000000004,
-      1.1900000000000004,
-      1.2000000000000002,
+      1.1870967741935488,
+      1.1870967741935488,
+      1.1870967741935488,
+      1.1870967741935488,
+      1.1870967741935488,
+      1.1870967741935488,
+      1.1870967741935488,
+      1.1967741935483873,
       1.2000000000000002,
       1.2000000000000002,
       1.2000000000000002,
@@ -2551,8 +2534,7 @@
       1.2000000000000002,
       1.2100000000000004,
       1.2100000000000004,
-      1.17741935483871,
-      1.1700000000000004
+      1.1093750000000004
     ],
     "velocityByWeek": {
       "labels": [
@@ -2565,19 +2547,19 @@
       ],
       "points": [
         0,
-        0,
         3,
         0,
         0,
-        3
+        3,
+        0
       ],
       "rollingAvg": [
         0,
-        0,
+        1.5,
         1,
         0.8,
-        0.8,
-        1.5
+        1.5,
+        0.8
       ]
     }
   }

@@ -342,8 +342,21 @@ describe("ws-server", () => {
   });
 
   describe("heartbeat (F1)", () => {
+    // BUG-0001: a period this long leaves a loaded CI runner room to answer a ping or finish a join in time.
+    const HEARTBEAT_TEST_MS = 150;
+
+    it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, 1.5e10])("rejects heartbeatMs %s with a clear error and opens no port", async (bad) => {
+      await expect(startServer({ port: 0, hosts: new Map(), heartbeatMs: bad })).rejects.toThrow(/heartbeatMs must be a finite number of milliseconds greater than 0/);
+    });
+
+    it("accepts a positive heartbeatMs and the default", async () => {
+      server = await startServer({ port: 0, hosts: new Map(), heartbeatMs: 1000 });
+      await server.close();
+      server = await startServer({ port: 0, hosts: new Map() });
+    });
+
     it("terminates a client that stops answering pings and frees its role for the same participant", async () => {
-      const { port, host } = await setup(["Hi!"], fixture, undefined, 30);
+      const { port, host } = await setup(["Hi!"], fixture, undefined, HEARTBEAT_TEST_MS);
       const dead = new WebSocket(`ws://127.0.0.1:${port}`, { autoPong: false }); // ws >= 8.17: never answers server pings
       sockets.push(dead);
       const deadClosed = new Promise<void>((r) => dead.on("close", () => r()));
@@ -359,7 +372,7 @@ describe("ws-server", () => {
     });
 
     it("keeps a healthy client connected across several heartbeat periods", async () => {
-      const { port } = await setup(["Hi!"], fixture, undefined, 30);
+      const { port } = await setup(["Hi!"], fixture, undefined, HEARTBEAT_TEST_MS);
       const { p } = await joinPlayer(port, "p1");
       let pings = 0;
       await new Promise<void>((r) => p.ws.on("ping", () => { if (++pings >= 5) r(); }));
@@ -373,7 +386,7 @@ describe("ws-server", () => {
       global.setInterval = ((...a: Parameters<typeof setInterval>) => { const t = realSet(...a); made.push(t); return t; }) as typeof setInterval;
       global.clearInterval = ((t: NodeJS.Timeout) => { cleared.push(t); return realClear(t); }) as typeof clearInterval;
       try {
-        await setup(["Hi!"], fixture, undefined, 30);
+        await setup(["Hi!"], fixture, undefined, HEARTBEAT_TEST_MS);
         await server!.close(); server = null;
       } finally { global.setInterval = realSet; global.clearInterval = realClear; }
       expect(made.length).toBeGreaterThan(0);
