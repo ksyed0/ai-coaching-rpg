@@ -46,6 +46,13 @@ describe("real SDK: custom endpoint connection failures", () => {
     expect(e).toMatchObject({ kind: "network", transient: true });
     expectClean(e);
   });
+  it("BUG-0002: a refused connection is reported as a connection error, never as a refused redirect", async () => {
+    const dead = await startFakeServer(); const url = base(dead); await dead.close();
+    const e = await failure(make(url));
+    expect((e as Error).message).toBe("anthropic request failed: connection error");
+    expect((e as Error).message).not.toMatch(/redirect/i);
+    expect(`${(e as { cause?: unknown }).cause ?? ""}`).not.toMatch(/redirect/i);
+  });
   it("a redirect is a permanent, clearly worded error: no URL, and the target receives no request", async () => {
     srv.mode = { kind: "redirect", location: `${target.url}/v1/messages?k=${KEY}` };
     const e = await failure(make());
