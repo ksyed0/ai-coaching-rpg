@@ -2,7 +2,7 @@ import type { ChatRequest, ModelProvider } from "@acr/adapters";
 import type { SessionEvent } from "@acr/events";
 import type { Criterion, Rubric, Scenario } from "@acr/script";
 import { collectModelReply } from "../agents/model-reply.js";
-import { aggregateObjectives, type LoInput, type LoResult, type Score } from "./aggregate.js";
+import { INVALID, aggregateObjectives, type CriterionScore, type LoInput, type LoResult } from "./aggregate.js";
 import type { EvalConfig } from "./config.js";
 import { cleanActions, cleanList, cleanProse, extractJson, makeVerifier, normaliseCriteria, verifyAll, type Action, type CriterionResult, type Evidence } from "./parse.js";
 import { buildGroupRequest, buildParticipantRequest, buildReask, newNonce } from "./prompt.js";
@@ -16,6 +16,8 @@ export type ParticipantEval = {
   roleId: string; status: EvalStatus; /** Why: set for failed and insufficient_evidence. */ reason?: string;
   utterances: number; criteria: CriterionResult[]; objectives: LoResult[];
   strengths: string[]; development_points: string[]; next_actions: Action[]; modelCalls: number;
+  /** Things worth knowing about this evaluation that are not failures (for example next actions dropped for an unknown learning objective). */
+  notes: string[];
 };
 export type NotableMoment = { seq: number; roleId: string; quote: string; note: string; sceneNumber: number; sceneTitle: string; time: string };
 export type GroupEval = {
@@ -38,38 +40,49 @@ export type EvaluateInput = {
 };
 
 type Asked = { ok: true; value: Record<string, unknown>; calls: number } | { ok: false; reason: string; calls: number };
+/** What `accept` found: `fatal` makes the reply unusable (re-ask, then fail); `problems` are fixable (re-ask once, then the affected criteria are marked invalid). */
+type Verdict = { fatal: string | null; problems: string[] };
 
 const reasonOf = (s: string): string => cleanProse(s, 300);
 
 /**
- * One evaluator call with a single bounded re-ask: a model failure (timeout, error, abort) ends the call at once; an unusable reply
- * (not JSON, or no criterion id matched) is sent back once with the problem. `accept` returns the problem text, or null when usable.
+ * One evaluator call with a single bounded re-ask: a model failure (timeout, error, abort) ends the call at once; an unusable reply (not
+ * JSON, no criterion id matched) or a reply with fixable problems (an omitted criterion, a score that is not a whole number 1 to 4) is sent
+ * back once, naming exactly what to fix. After the re-ask a reply with only fixable problems is accepted (those criteria become invalid).
+ * A reply cut off at the token budget says so, and the re-ask asks for shorter rationales.
  */
-async function ask(provider: ModelProvider, req: ChatRequest, cfg: EvalConfig, signal: AbortSignal | undefined, accept: (v: Record<string, unknown>) => string | null): Promise<Asked> {
+async function ask(provider: ModelProvider, req: ChatRequest, cfg: EvalConfig, signal: AbortSignal | undefined, accept: (v: Record<string, unknown>) => Verdict): Promise<Asked> {
   let calls = 0;
   let current = req;
   let last = "unknown problem";
+  let truncated = false;
   for (let attempt = 0; attempt < 2; attempt++) {
     calls++;
     const got = await collectModelReply(provider, current, { firstTokenTimeoutMs: cfg.firstTokenTimeoutMs, replyTimeoutMs: cfg.timeoutMs, signal });
     if (got.failure) return { ok: false, reason: reasonOf(got.failure), calls };
     const parsed = extractJson(got.text);
-    const problem = parsed.ok ? accept(parsed.value) : parsed.error;
-    if (parsed.ok && problem === null) return { ok: true, value: parsed.value, calls };
-    last = problem ?? "unknown problem";
+    if (parsed.ok) {
+      const v = accept(parsed.value);
+      if (v.fatal === null && (v.problems.length === 0 || attempt === 1)) return { ok: true, value: parsed.value, calls };
+      last = v.fatal ?? `fix these and return every criterion: ${v.problems.join("; ")}`;
+      truncated = false;
+    } else { last = parsed.error; truncated = parsed.truncated === true; }
     current = buildReask(req, got.text, last);
   }
-  return { ok: false, reason: reasonOf(`the reply could not be used after one re-ask: ${last}`), calls };
+  const hint = truncated ? `; the reply looks cut off: raise EVAL_MAX_TOKENS (now ${cfg.maxTokens})` : "";
+  return { ok: false, reason: reasonOf(`the reply could not be used after one re-ask: ${last}${hint}`), calls };
 }
 
 const noScores = (criteria: Criterion[], flag: string): CriterionResult[] =>
-  criteria.map((c) => ({ id: c.id, name: c.name, score: null, label: "Not observed", confidence: null, rationale: "", evidence: [], droppedQuotes: 0, flags: [flag] }));
+  criteria.map((c) => ({ id: c.id, name: c.name, score: null, label: "Not observed", confidence: null, rationale: "", invalid: false, evidence: [], droppedQuotes: 0, flags: [flag] }));
 
-const scoreMap = (cs: CriterionResult[]): Map<string, Score | null> => new Map(cs.map((c) => [c.id, c.score]));
+const scoreMap = (cs: CriterionResult[]): Map<string, CriterionScore> => new Map(cs.map((c) => [c.id, c.invalid ? INVALID : c.score]));
 
-function lowestLo(objs: LoResult[]): string {
-  const scored = objs.filter((o) => o.score !== null).sort((a, b) => a.score! - b.score!);
-  return (scored[0] ?? objs[0])?.id ?? "LO1";
+/** The verdict for a parsed reply: fatal when there is no criteria array or no id matched, otherwise the fixable problems. */
+function judge(v: Record<string, unknown>, n: ReturnType<typeof normaliseCriteria>, ids: string[]): Verdict {
+  if (!Array.isArray(v.criteria)) return { fatal: 'the JSON has no "criteria" array', problems: [] };
+  if (n.recognised === 0) return { fatal: `none of the criterion ids matched (use exactly: ${ids.join(", ")})`, problems: [] };
+  return { fatal: null, problems: n.problems };
 }
 
 /**
@@ -98,19 +111,14 @@ export async function evaluateSession(input: EvaluateInput): Promise<EvaluationR
     const crit = criteriaOf(individual);
     const empty = (status: EvalStatus, reason: string, calls = 0): ParticipantEval => {
       const criteria = noScores(crit, status === "failed" ? "evaluation failed" : "insufficient evidence");
-      return { roleId, status, reason, utterances, criteria, objectives: aggregateObjectives(objectives, scoreMap(criteria)), strengths: [], development_points: [], next_actions: [], modelCalls: calls };
+      return { roleId, status, reason, utterances, criteria, objectives: aggregateObjectives(objectives, scoreMap(criteria)), strengths: [], development_points: [], next_actions: [], modelCalls: calls, notes: [] };
     };
     if (utterances < MIN_UTTERANCES) { participants.push(empty("insufficient_evidence", `insufficient evidence: ${utterances} utterance(s), at least ${MIN_UTTERANCES} are needed`)); continue; }
     if (input.signal?.aborted) { const p = empty("failed", "run aborted"); failures.push(`${roleId}: ${p.reason}`); participants.push(p); continue; }
     const verify = makeVerifier(t, (u) => u.roleId === roleId);
     const req = buildParticipantRequest({ ...base, rubrics: individual, roleId });
     let normalised: ReturnType<typeof normaliseCriteria> | undefined;
-    const asked = await ask(input.provider, req, config, input.signal, (v) => {
-      normalised = normaliseCriteria(v.criteria, crit, verify);
-      if (!Array.isArray(v.criteria)) return 'the JSON has no "criteria" array';
-      if (normalised.recognised === 0) return `none of the criterion ids matched (use exactly: ${crit.map((c) => c.id).join(", ")})`;
-      return null;
-    });
+    const asked = await ask(input.provider, req, config, input.signal, (v) => { normalised = normaliseCriteria(v.criteria, crit, verify); return judge(v, normalised, crit.map((c) => c.id)); });
     modelCalls += asked.calls;
     if (!asked.ok || !normalised) {
       const reason = asked.ok ? "no usable evaluation" : asked.reason;
@@ -118,10 +126,12 @@ export async function evaluateSession(input: EvaluateInput): Promise<EvaluationR
       failures.push(`${roleId}: evaluation failed: ${reason}`); participants.push(p); continue;
     }
     const objs = aggregateObjectives(objectives, scoreMap(normalised.criteria));
+    const acts = cleanActions(asked.value.next_actions, objectives.map((o) => o.id));
+    const notes = acts.dropped > 0 ? [`${acts.dropped} next action(s) named an unknown learning objective and were dropped`] : [];
     participants.push({
       roleId, status: "ok", utterances, criteria: normalised.criteria, objectives: objs,
       strengths: cleanList(asked.value.strengths, 3, 400), development_points: cleanList(asked.value.development_points, 3, 400),
-      next_actions: cleanActions(asked.value.next_actions, objectives.map((o) => o.id), lowestLo(objs)), modelCalls: asked.calls,
+      next_actions: acts.actions, modelCalls: asked.calls, notes,
     });
   }
 
@@ -140,12 +150,7 @@ export async function evaluateSession(input: EvaluateInput): Promise<EvaluationR
   else {
     const verify = makeVerifier(t, (u) => u.speaker === "player");
     let normalised: ReturnType<typeof normaliseCriteria> | undefined;
-    const asked = await ask(input.provider, buildGroupRequest({ ...base, rubrics: group, players }), config, input.signal, (v) => {
-      normalised = normaliseCriteria(v.criteria, groupCrit, verify);
-      if (!Array.isArray(v.criteria)) return 'the JSON has no "criteria" array';
-      if (normalised.recognised === 0) return `none of the criterion ids matched (use exactly: ${groupCrit.map((c) => c.id).join(", ")})`;
-      return null;
-    });
+    const asked = await ask(input.provider, buildGroupRequest({ ...base, rubrics: group, players }), config, input.signal, (v) => { normalised = normaliseCriteria(v.criteria, groupCrit, verify); return judge(v, normalised, groupCrit.map((c) => c.id)); });
     modelCalls += asked.calls;
     if (!asked.ok || !normalised) {
       const reason = asked.ok ? "no usable evaluation" : asked.reason;

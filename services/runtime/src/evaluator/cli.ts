@@ -12,7 +12,7 @@ import { evaluateSession, EvaluatorInputError, type EvaluationResult } from "./e
 import { readSessionLog, SessionLogError } from "./log-reader.js";
 import { evaluatorInfo, isMockProvider, startEvaluatorProvider } from "./provider.js";
 import { summaryLines } from "./summary.js";
-import { writeReports, type WrittenReports } from "./report-write.js";
+import { ReportWriteError, writeReports, type WrittenReports } from "./report-write.js";
 
 export const EVALUATE_USAGE = [
   "usage: pnpm evaluate <session.jsonl> [--scenario <dir>] [--out <dir>] [--json -] [--help]",
@@ -125,7 +125,7 @@ export async function runEvaluate(deps: EvaluateDeps): Promise<{ exitCode: numbe
   let written: WrittenReports;
   try { written = await writeReports(result, { outDir: path.resolve(base, values.out ?? "data/reports"), evaluator: evaluatorInfo(deps.env, cfg, { scripted }), secrets }); }
   catch (e) {
-    err(`error: cannot write the reports: ${e instanceof EvaluatorInputError ? e.message : (e as NodeJS.ErrnoException).code ?? "failed"}`);
+    err(`error: cannot write the reports: ${e instanceof EvaluatorInputError || e instanceof ReportWriteError ? e.message : (e as NodeJS.ErrnoException).code ?? "failed"}`);
     return { exitCode: e instanceof EvaluatorInputError ? 2 : 1, result };
   }
   say("");

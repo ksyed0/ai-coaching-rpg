@@ -4,6 +4,11 @@ import { LEVEL_LABELS } from "@acr/script";
 export type Score = 1 | 2 | 3 | 4;
 export type Confidence = "high" | "medium" | "low";
 export const NOT_OBSERVED = "Not observed";
+/** A criterion whose evaluator answer was unusable even after the re-ask (an omitted criterion, or a score that is not a whole number 1 to 4). It is NOT "Not observed". */
+export const INVALID = "invalid" as const;
+export const INVALID_LABEL = "Invalid (evaluator error)";
+export const INCOMPLETE_LABEL = "Incomplete (evaluator error)";
+export type CriterionScore = Score | null | typeof INVALID;
 
 export const LO_THRESHOLDS = { developing: 1.5, proficient: 2.5, advanced: 3.5 } as const;
 
@@ -55,15 +60,26 @@ export function parseConfidence(v: unknown): Confidence | null {
 }
 
 export type LoInput = { id: string; statement: string; rubric_criteria: string[] };
-export type LoResult = { id: string; statement: string; score: number | null; label: string; criteria: string[]; observed: string[] };
+export type LoResult = {
+  id: string; statement: string; score: number | null; label: string;
+  /** The mapped criteria that are in scope for this result (individual criteria for a participant, group criteria for the team). */
+  criteria: string[]; observed: string[];
+  /** True when at least one mapped criterion was invalid (an evaluator error): the score is a mean of the rest, not of all. */
+  incomplete: boolean;
+};
 
-/** Learning-objective results from criterion scores (by criterion id). Not a single overall grade: one result per objective. Pure. */
-export function aggregateObjectives(objectives: LoInput[], scores: ReadonlyMap<string, Score | null> | Record<string, Score | null>): LoResult[] {
-  const get = (id: string): Score | null | undefined => (scores instanceof Map ? scores.get(id) : (scores as Record<string, Score | null>)[id]);
+/**
+ * Learning-objective results from criterion scores (by criterion id). Not a single overall grade: one result per objective. Only criteria
+ * present in `scores` count (those in scope for the participant or the team). Invalid criteria are left out of the mean and mark the
+ * objective incomplete; they are never treated as Not observed. Pure.
+ */
+export function aggregateObjectives(objectives: LoInput[], scores: ReadonlyMap<string, CriterionScore> | Record<string, CriterionScore>): LoResult[] {
+  const get = (id: string): CriterionScore | undefined => (scores instanceof Map ? scores.get(id) : (scores as Record<string, CriterionScore>)[id]);
   return objectives.map((lo) => {
     const mapped = lo.rubric_criteria.filter((id) => get(id) !== undefined);
-    const observed = mapped.filter((id) => get(id) !== null);
+    const incomplete = mapped.some((id) => get(id) === INVALID);
+    const observed = mapped.filter((id) => isScore(get(id)));
     const score = loScore(observed.map((id) => get(id) as Score));
-    return { id: lo.id, statement: lo.statement, score, label: loLabel(score), criteria: [...lo.rubric_criteria], observed };
+    return { id: lo.id, statement: lo.statement, score, label: score === null && incomplete ? INCOMPLETE_LABEL : loLabel(score), criteria: mapped, observed, incomplete };
   });
 }

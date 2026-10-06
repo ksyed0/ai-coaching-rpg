@@ -13,6 +13,10 @@ describe("parseEvalConfig", () => {
     const c = parseEvalConfig({ EVAL_TIMEOUT_MS: "5000", NPC_REPLY_TIMEOUT_MS: "120000", NPC_FIRST_TOKEN_TIMEOUT_MS: "100000" });
     expect(c).toMatchObject({ ok: true, timeoutMs: 120_000, firstTokenTimeoutMs: 100_000 });
   });
+  it("has no floor other than the NPC reply timeout (exactly max(EVAL_TIMEOUT_MS, NPC_REPLY_TIMEOUT_MS))", () => {
+    expect(parseEvalConfig({ EVAL_TIMEOUT_MS: "5000", NPC_REPLY_TIMEOUT_MS: "5000", NPC_FIRST_TOKEN_TIMEOUT_MS: "1000" })).toMatchObject({ ok: true, timeoutMs: 5000 });
+    expect(parseEvalConfig({ EVAL_TIMEOUT_MS: "5000", NPC_REPLY_TIMEOUT_MS: "8000", NPC_FIRST_TOKEN_TIMEOUT_MS: "1000" })).toMatchObject({ ok: true, timeoutMs: 8000 });
+  });
   it("the first-token wait never exceeds the deadline", () => {
     const c = parseEvalConfig({ EVAL_TIMEOUT_MS: "30000" });
     expect(c).toMatchObject({ ok: true });

@@ -8,7 +8,7 @@ export const SCRIPTED_EVALUATOR_NAME = "demo-scripted-evaluator";
 
 /** A sentence-sized piece of a line that is safe to quote: the first sentence, at most 120 characters, cut at a word boundary. */
 export function fragmentOf(u: UtteranceRec, skip = 0): string {
-  const sentences = u.norm.split(/(?<=[.!?])\s+/).filter((s) => s.length >= 12);
+  const sentences = u.norm.split(/(?<=[.!?])\s+/).filter((s) => s.length >= 15 && s.split(" ").length >= 3);
   const s = sentences[skip % Math.max(sentences.length, 1)] ?? u.norm;
   if (s.length <= 120) return s;
   const cut = s.slice(0, 120);

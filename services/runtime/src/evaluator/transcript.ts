@@ -93,7 +93,7 @@ export function buildTranscript(events: SessionEvent[], scenario: Scenario): Tra
   return { entries, utterances, counts, scenes, startedTs, sessionId: first?.sessionId ?? "", scenarioId: first && first.type === "session.started" ? first.scenarioId : null, complete };
 }
 
-export type TrimInfo = { budgetChars: number; fullChars: number; keptChars: number; omittedLines: number; shortenedLines: number };
+export type TrimInfo = { budgetChars: number; fullChars: number; keptChars: number; omittedLines: number; shortenedLines: number; /** Injects, Game Master lines or scene boundaries were shortened or dropped too because they alone exceeded the budget. */ structuralTrimmed: boolean };
 const MIN_CAP = 60;
 const MAX_CAP = 2_000;
 
@@ -102,12 +102,13 @@ function speakerLabel(u: UtteranceRec): string {
 }
 function speechHeader(u: UtteranceRec): string { return `#${u.seq} ${formatClock(u.atMs)} ${speakerLabel(u)}: `; }
 
-function structuralLine(e: Exclude<Entry, { kind: "utterance" }>, verdictOnly = false): string {
+/** level 0: everything (a Game Master line keeps its reasoning). 1: Game Master reasoning dropped. 2: injects clipped to 120 characters, Game Master lines dropped, scene starts without goal. 3: scene boundaries only. */
+function structuralLine(e: Exclude<Entry, { kind: "utterance" }>, level = 0): string | null {
   switch (e.kind) {
-    case "scene_start": return `--- Scene ${e.number} begins: "${e.title}". Goal: ${e.goal}. In the room: ${e.participants.join(", ")} ---`;
+    case "scene_start": return level >= 3 ? `--- Scene ${e.number} begins ---` : `--- Scene ${e.number} begins: "${e.title}". ${level >= 2 ? "" : `Goal: ${e.goal}. `}In the room: ${e.participants.join(", ")} ---`;
     case "scene_end": return `--- Scene ${e.number} ends (${e.reason}) ---`;
-    case "inject": return `[Inject #${e.seq} to ${e.to.join(", ")}: ${clip(e.content, 600)}]`;
-    case "gm": return `[Game Master #${e.seq}: condition "${clip(e.condition, 200)}" judged ${e.verdict ? "TRUE" : "FALSE"}${verdictOnly ? "" : `: ${e.reasoning}`}]`;
+    case "inject": return level >= 3 ? null : `[Inject #${e.seq} to ${e.to.join(", ")}: ${clip(e.content, level >= 2 ? 120 : 600)}]`;
+    case "gm": return level >= 2 ? null : `[Game Master #${e.seq}: condition "${clip(e.condition, 200)}" judged ${e.verdict ? "TRUE" : "FALSE"}${level >= 1 ? "" : `: ${e.reasoning}`}]`;
   }
 }
 
@@ -117,47 +118,58 @@ function speechLine(u: UtteranceRec, cap: number): string {
 }
 
 /**
- * The transcript as text for the model, within `budgetChars`. When it does not fit: Game Master reasoning is shortened to the verdict, then
- * every speaker keeps a share of the budget in proportion to how much they said (long lines are cut short, and if that is not enough
- * lines are thinned evenly, always keeping the first and the last), while injects and scene boundaries stay. Returns what was trimmed.
+ * The transcript as text for the model, within `budgetChars` (a HARD cap). When it does not fit: Game Master reasoning is shortened to the
+ * verdict, then every speaker keeps a share of the budget in proportion to how much they said (long lines are cut short, and if that is not
+ * enough lines are thinned evenly, always keeping the first and the last). Injects and scene boundaries stay unless they alone take most of
+ * the budget, in which case they are shortened and dropped in steps (and `structuralTrimmed` says so). A final clip guarantees the cap.
  */
 export function renderTranscript(t: Transcript, budgetChars: number): { text: string; trimmed: TrimInfo | null } {
-  const lines = (entries: Entry[], fn: (e: Entry) => string | null): string[] => entries.map(fn).filter((x): x is string => x !== null);
-  const full = lines(t.entries, (e) => (e.kind === "utterance" ? speechLine(e, Number.MAX_SAFE_INTEGER) : structuralLine(e)));
+  const full = t.entries.map((e) => (e.kind === "utterance" ? speechLine(e, Number.MAX_SAFE_INTEGER) : structuralLine(e, 0))).filter((x): x is string => x !== null);
   const fullChars = full.reduce((a, l) => a + l.length + 1, 0);
   if (fullChars <= budgetChars) return { text: full.join("\n"), trimmed: null };
 
-  const structural = t.entries.filter((e): e is Exclude<Entry, { kind: "utterance" }> => e.kind !== "utterance");
-  const structuralChars = structural.reduce((a, e) => a + structuralLine(e, true).length + 1, 0);
   const speech = t.entries.filter((e): e is Extract<Entry, { kind: "utterance" }> => e.kind === "utterance");
-  const speechBudget = Math.max(budgetChars - structuralChars - 200, 400);
   const bySpeaker = new Map<string, UtteranceRec[]>();
   for (const u of speech) bySpeaker.set(u.roleId, [...(bySpeaker.get(u.roleId) ?? []), u]);
   const weight = (us: UtteranceRec[]) => us.reduce((a, u) => a + speechHeader(u).length + u.norm.length + 1, 0);
   const totalWeight = [...bySpeaker.values()].reduce((a, us) => a + weight(us), 0);
 
-  const keep = new Map<number, number>(); // seq -> cap
-  for (const us of bySpeaker.values()) {
-    const share = Math.floor((speechBudget * weight(us)) / Math.max(totalWeight, 1));
-    const sizeAt = (cap: number) => us.reduce((a, u) => a + speechHeader(u).length + Math.min(u.norm.length, cap) + (u.norm.length > cap ? 4 : 0) + 1, 0);
-    if (sizeAt(MAX_CAP) <= share) { for (const u of us) keep.set(u.seq, MAX_CAP); continue; }
-    let lo = MIN_CAP; let hi = MAX_CAP; let best = 0;
-    while (lo <= hi) { const mid = (lo + hi) >> 1; if (sizeAt(mid) <= share) { best = mid; lo = mid + 1; } else hi = mid - 1; }
-    if (best >= MIN_CAP) { for (const u of us) keep.set(u.seq, best); continue; }
-    const per = us.reduce((a, u) => a + speechHeader(u).length, 0) / us.length + MIN_CAP + 5;
-    const k = Math.max(1, Math.min(us.length, Math.floor(share / per)));
-    for (let i = 0; i < k; i++) keep.set(us[k === 1 ? us.length - 1 : Math.round((i * (us.length - 1)) / (k - 1))]!.seq, MIN_CAP);
-  }
+  const build = (level: number): { text: string; omitted: number; shortened: number } | null => {
+    const structuralChars = t.entries.reduce((a, e) => { if (e.kind === "utterance") return a; const l = structuralLine(e, Math.max(level, 1)); return a + (l ? l.length + 1 : 0); }, 0);
+    const speechBudget = budgetChars - structuralChars - 200;
+    if (level < 3 && speechBudget < budgetChars * 0.25) return null; // the structure takes too much: shorten it
+    const budgetForSpeech = Math.max(speechBudget, 400);
+    const keep = new Map<number, number>(); // seq -> cap
+    for (const us of bySpeaker.values()) {
+      const share = Math.floor((budgetForSpeech * weight(us)) / Math.max(totalWeight, 1));
+      const sizeAt = (cap: number) => us.reduce((a, u) => a + speechHeader(u).length + Math.min(u.norm.length, cap) + (u.norm.length > cap ? 4 : 0) + 1, 0);
+      if (sizeAt(MAX_CAP) <= share) { for (const u of us) keep.set(u.seq, MAX_CAP); continue; }
+      let lo = MIN_CAP; let hi = MAX_CAP; let best = 0;
+      while (lo <= hi) { const mid = (lo + hi) >> 1; if (sizeAt(mid) <= share) { best = mid; lo = mid + 1; } else hi = mid - 1; }
+      if (best >= MIN_CAP) { for (const u of us) keep.set(u.seq, best); continue; }
+      const per = us.reduce((a, u) => a + speechHeader(u).length, 0) / us.length + MIN_CAP + 5;
+      const k = Math.max(1, Math.min(us.length, Math.floor(share / per)));
+      for (let i = 0; i < k; i++) keep.set(us[k === 1 ? us.length - 1 : Math.round((i * (us.length - 1)) / (k - 1))]!.seq, MIN_CAP);
+    }
+    let omitted = 0; let shortened = 0;
+    const out = t.entries.map((e) => {
+      if (e.kind !== "utterance") return structuralLine(e, Math.max(level, 1));
+      const cap = keep.get(e.seq);
+      if (cap === undefined) { omitted++; return null; }
+      if (e.norm.length > cap) shortened++;
+      return speechLine(e, cap);
+    }).filter((x): x is string => x !== null);
+    return { text: out.join("\n"), omitted, shortened };
+  };
 
-  let omitted = 0; let shortened = 0;
-  const out = lines(t.entries, (e) => {
-    if (e.kind !== "utterance") return structuralLine(e, true);
-    const cap = keep.get(e.seq);
-    if (cap === undefined) { omitted++; return null; }
-    if (e.norm.length > cap) shortened++;
-    return speechLine(e, cap);
-  });
-  const note = `[Trimmed to fit: ${omitted} line(s) omitted and ${shortened} line(s) cut short. Only text shown here can be quoted.]`;
-  const text = [note, ...out].join("\n");
-  return { text, trimmed: { budgetChars, fullChars, keptChars: text.length, omittedLines: omitted, shortenedLines: shortened } };
+  let level = 0; let built = build(1);
+  if (!built) { level = 2; built = build(2); }
+  if (!built) { level = 3; built = build(3); }
+  const result = built!;
+  if (level === 0) level = 1;
+  const note = `[Trimmed to fit: ${result.omitted} line(s) omitted and ${result.shortened} line(s) cut short${level >= 2 ? "; injects, Game Master lines and scene details were shortened too" : ""}. Only text shown here can be quoted.]`;
+  let text = `${note}\n${result.text}`;
+  let hard = false;
+  if (text.length > budgetChars) { text = `${text.slice(0, Math.max(budgetChars - 40, 0))}\n[… cut at the budget]`; hard = true; }
+  return { text, trimmed: { budgetChars, fullChars, keptChars: text.length, omittedLines: result.omitted, shortenedLines: result.shortened, structuralTrimmed: level >= 2 || hard } };
 }

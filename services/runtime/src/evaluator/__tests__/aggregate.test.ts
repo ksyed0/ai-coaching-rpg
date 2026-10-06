@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateObjectives, confidenceFromEvidence, deriveConfidence, levelLabel, loLabel, loScore, parseConfidence, round1, type Score } from "../aggregate.js";
+import { INVALID, aggregateObjectives, confidenceFromEvidence, deriveConfidence, levelLabel, loLabel, loScore, parseConfidence, round1, type Score } from "../aggregate.js";
 
 /** A small deterministic generator, so the property-style tests are reproducible. */
 function rng(seed: number): () => number { let s = seed; return () => { s = (s * 1664525 + 1013904223) % 4294967296; return s / 4294967296; }; }
@@ -85,6 +85,17 @@ describe("aggregateObjectives", () => {
     expect(res[0]).toMatchObject({ id: "LO1", score: 3, label: "Proficient", observed: ["a"] });
     expect(res[1]).toMatchObject({ id: "LO2", score: 2.5, label: "Proficient", observed: ["c", "d"] });
     expect(res[2]).toMatchObject({ id: "LO3", score: null, label: "Not observed", observed: [] });
+  });
+  it("an invalid criterion is left out of the mean and marks the objective incomplete; it is never Not observed", () => {
+    const res = aggregateObjectives(los, new Map<string, Score | null | typeof INVALID>([["a", 3], ["b", INVALID], ["c", INVALID], ["d", INVALID]]));
+    expect(res[0]).toMatchObject({ id: "LO1", score: 3, observed: ["a"], incomplete: true });
+    expect(res[1]).toMatchObject({ id: "LO2", score: null, label: "Incomplete (evaluator error)", incomplete: true });
+    expect(res[2]).toMatchObject({ id: "LO3", score: null, label: "Not observed", incomplete: false });
+  });
+  it("counts only the criteria in scope (a group LO table does not count individual criteria as 'of Y')", () => {
+    const res = aggregateObjectives(los, new Map<string, Score | null>([["a", 3]]));
+    expect(res[0]).toMatchObject({ criteria: ["a"], observed: ["a"] });
+    expect(res[1]).toMatchObject({ criteria: [], observed: [] });
   });
   it("accepts a plain record too", () => {
     expect(aggregateObjectives(los, { a: 1, b: 1 })[0]).toMatchObject({ score: 1, label: "Not yet demonstrated" });

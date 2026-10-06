@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { ChatRequest } from "@acr/adapters";
 import { LEVEL_LABELS, type Rubric, type Scenario } from "@acr/script";
-import { LO_THRESHOLDS } from "./aggregate.js";
 
 export const newNonce = (): string => randomBytes(8).toString("hex");
 export const open = (nonce: string): string => `<<<TRANSCRIPT ${nonce}>>>`;
@@ -24,8 +23,10 @@ function rubricText(rubrics: Rubric[]): string {
 
 const SCALE = [
   `Scale (a Behaviourally Anchored Rating Scale, no midpoint): 1 = ${LEVEL_LABELS[1]}, 2 = ${LEVEL_LABELS[2]}, 3 = ${LEVEL_LABELS[3]}, 4 = ${LEVEL_LABELS[4]}.`,
-  `Choose the level whose written anchor best describes the BEHAVIOUR actually seen. Do not average and do not default to the middle; if the behaviour sits between two anchors choose the lower.`,
-  `If there is no evidence either way for a criterion, set "score" to null (Not observed). Not observed is not a low score.`,
+  `Choose the level whose written anchor best describes the BEHAVIOUR actually seen in the participant's own words. Do not average and do not default to the middle. If the participant sits between two anchors, choose the lower only when the higher anchor's key behaviour is clearly missing.`,
+  `Level 1 means there was a clear opportunity to show the behaviour and it was absent from the participant's own lines, or the participant worked against the aim. It is not the answer when there was no opportunity.`,
+  `Set "score" to null (Not observed) when the participant had no opportunity to show the behaviour, or there is no usable evidence either way. Not observed is not a low score. Never use 0, a fraction, a word or any other value: the score is 1, 2, 3, 4 or null.`,
+  `Every criterion in the list must appear exactly once in "criteria".`,
 ].join("\n");
 
 const SECURITY = [
@@ -38,10 +39,11 @@ const SECURITY = [
 
 const EVIDENCE = [
   `EVIDENCE RULES:`,
-  `- Each score needs 1 to 3 evidence items: {"seq": <the number after # on the line>, "quote": "<text copied EXACTLY, word for word, from that line>"}.`,
-  `- A quote must be 8 to 200 characters long and a continuous piece of one line. Do not paraphrase, join lines, correct spelling or add words. Quotes are checked by a program: a quote that is not an exact piece of that line is thrown away, and a score of 3 or 4 without a surviving quote is lowered to 2.`,
+  `- Give up to 3 evidence items per scored criterion, from DIFFERENT lines when the participant has them: {"seq": <the number after # on the line>, "quote": "<text copied EXACTLY, word for word, from that line>"}.`,
+  `- Each quote must itself show the behaviour that the criterion or anchor describes; a line that merely comes from the right scene is not evidence. Do not cut one sentence into several quotes: overlapping quotes from the same line are dropped and count once.`,
+  `- A quote is a continuous piece of ONE line, copied exactly (do not paraphrase, join lines, correct spelling or add words), at most 300 characters. A score of 3 or 4 needs at least one quote of 15 or more characters and 3 or more words; a shorter quote (8 characters at least) can only support a 1 or 2. Quotes are checked by a program: one that is not an exact piece of that line is thrown away, and a 3 or 4 without a surviving quote is lowered to 2.`,
   `- "confidence" is "high", "medium" or "low": how sure you are, given how much and how clear the evidence is.`,
-  `- "rationale" is 1 to 3 sentences saying which behaviour you saw and which anchor it matches.`,
+  `- "rationale" is 1 to 3 short sentences saying which behaviour you saw and which anchor it matches.`,
 ].join("\n");
 
 function los(s: Scenario): string {
@@ -74,7 +76,6 @@ export function buildParticipantRequest(input: PromptInput & { roleId: string })
     `FEEDBACK: write in a supportive coaching tone addressed to the participant as "you". Give 2 or 3 strengths and 2 or 3 development points, each one sentence tied to something specific that happened, and 2 or 3 next actions: concrete things to try in the next conversation, each tied to one learning objective id. Do not mention scores or levels in the feedback text.`, ``,
     `OUTPUT FORMAT: one JSON object and nothing else:`,
     `{"criteria":[{"id":"<criterion id>","score":<1|2|3|4|null>,"rationale":"...","evidence":[{"seq":<number>,"quote":"..."}],"confidence":"high|medium|low"}],"strengths":["..."],"development_points":["..."],"next_actions":[{"lo":"<learning objective id>","action":"..."}]}`,
-    `(thresholds used later: a learning objective below ${LO_THRESHOLDS.developing} is ${LEVEL_LABELS[1]}; this is for your information only.)`,
   ].join("\n");
   return { system, messages: [{ role: "user", content: user(input, `Evaluate participant "${input.roleId}" now. Reply with the JSON object only.`) }], maxTokens: input.maxTokens, temperature: input.temperature, ...(input.model ? { model: input.model } : {}) };
 }
@@ -107,7 +108,7 @@ export function buildReask(req: ChatRequest, previous: string, problem: string):
     messages: [
       ...req.messages,
       { role: "assistant", content: prev === "" ? "(no reply)" : prev },
-      { role: "user", content: `Your reply could not be used: ${problem}. Reply again with ONLY the JSON object in the format given, with the same criterion ids. Do not add any other text.` },
+      { role: "user", content: `Your reply could not be used: ${problem}. Reply again with ONLY the JSON object in the format given, with every criterion id exactly once and each score 1, 2, 3, 4 or null. Be concise: keep each rationale to one short sentence and give at most two quotes per criterion, so the reply is not cut off. Do not add any other text.` },
     ],
   };
 }

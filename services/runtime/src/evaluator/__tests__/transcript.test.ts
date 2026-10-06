@@ -86,3 +86,41 @@ describe("trimming to a budget", () => {
     expect(tr.utterances.get(4)!.norm.startsWith(shown)).toBe(true);
   });
 });
+
+describe("the budget is a hard cap", () => {
+  const huge = (injects: number, gm: number) => build([
+    [0, { type: "session.started", scenarioId: "mini-01", version: "1", roles: {} }],
+    [1, { type: "scene.entered", sceneId: "s1", participants: ["alice", "bob"] }],
+    ...Array.from({ length: injects }, (_, i) => [2 + i, { type: "inject.fired", injectId: `i${i}`, sceneId: "s1", to: ["alice"], content: `inject ${i} ${"padding ".repeat(60)}` }] as [number, never]),
+    ...Array.from({ length: gm }, (_, i) => [300 + i, { type: "gm.decision", sceneId: "s1", condition: `condition ${i} ${"x".repeat(150)}`, verdict: false, reasoning: "r".repeat(250) }] as [number, never]),
+    [900, { type: "utterance", roleId: "alice", text: "I will ask what the real need is before we answer them.", channel: "text" }],
+    [901, { type: "utterance", roleId: "bob", text: "The ingestion layer is the risk to the go-live date.", channel: "text" }],
+    [999, { type: "scene.exited", sceneId: "s1", reason: "time_box_elapsed" }],
+  ] as never);
+  it("injects and Game Master lines that alone exceed the budget are shortened and dropped too, the speech survives and the cap holds", () => {
+    const tr = buildTranscript(huge(80, 60), sampleScenario());
+    const { text, trimmed } = renderTranscript(tr, 5_000);
+    expect(text.length).toBeLessThanOrEqual(5_000);
+    expect(trimmed!.structuralTrimmed).toBe(true);
+    expect(text).toMatch(/shortened too/);
+    expect(text).toMatch(/alice \(player\): I will ask what the real need/);
+    expect(text).toMatch(/bob \(player\): The ingestion layer/);
+    expect(text).toContain("--- Scene 1 begins");
+  });
+  it("never exceeds the budget even when nothing else helps (many speakers, tiny budget)", () => {
+    const tr = buildTranscript(huge(400, 400), sampleScenario());
+    for (const budget of [1_000, 2_500, 5_000]) {
+      const { text, trimmed } = renderTranscript(tr, budget);
+      expect(text.length).toBeLessThanOrEqual(budget);
+      expect(trimmed).not.toBeNull();
+    }
+  });
+  it("an ordinary trim does not flag the structure", () => {
+    const evs = build([
+      [0, { type: "session.started", scenarioId: "mini-01", version: "1", roles: {} }],
+      [1, { type: "scene.entered", sceneId: "s1", participants: ["alice", "bob"] }],
+      ...Array.from({ length: 60 }, (_, i) => [2 + i, { type: "utterance", roleId: i % 2 ? "bob" : "alice", text: `line ${i} ${"word ".repeat(60)}`.trim(), channel: "text" }] as [number, never]),
+    ] as never);
+    expect(renderTranscript(buildTranscript(evs, sampleScenario()), 6_000).trimmed!.structuralTrimmed).toBe(false);
+  });
+});

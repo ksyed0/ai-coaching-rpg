@@ -1,10 +1,10 @@
 import type { Criterion } from "@acr/script";
-import { deriveConfidence, isScore, levelLabel, parseConfidence, type Confidence, type Score } from "./aggregate.js";
+import { INVALID_LABEL, deriveConfidence, isScore, levelLabel, parseConfidence, type Confidence, type Score } from "./aggregate.js";
 import { formatClock, normText, type Transcript, type UtteranceRec } from "./transcript.js";
 
 // ---- tolerant JSON ----------------------------------------------------------------------------------------------
 
-export type JsonParse = { ok: true; value: Record<string, unknown> } | { ok: false; error: string };
+export type JsonParse = { ok: true; value: Record<string, unknown> } | { ok: false; error: string; /** The reply opened a JSON object and never closed it: it was probably cut off at the token budget. */ truncated?: boolean };
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -50,7 +50,9 @@ export function extractJson(reply: string): JsonParse {
       from = c.indexOf("{", from + 1);
     }
   }
-  return { ok: false, error: text.includes("{") ? "no complete, valid JSON object was found in the reply" : "the reply held no JSON object" };
+  const open = text.indexOf("{");
+  const truncated = open !== -1 && balancedObject(text, open) === null;
+  return { ok: false, error: truncated ? "the reply was cut off before the JSON object was complete" : open !== -1 ? "no complete, valid JSON object was found in the reply" : "the reply held no JSON object", ...(truncated ? { truncated: true } : {}) };
 }
 
 // ---- text cleaning ----------------------------------------------------------------------------------------------
@@ -73,28 +75,43 @@ export function cleanList(v: unknown, maxItems: number, maxChars: number): strin
   return out;
 }
 export type Action = { lo: string; action: string };
-/** Next actions as {lo, action}; an item without a known LO id is tied to `fallbackLo`. */
-export function cleanActions(v: unknown, validLos: string[], fallbackLo: string, maxItems = 3): Action[] {
-  if (!Array.isArray(v)) return [];
-  const out: Action[] = [];
+/** Next actions as {lo, action}. An item whose LO id is unknown is dropped (and counted), never re-tied to another objective. */
+export function cleanActions(v: unknown, validLos: string[], maxItems = 3): { actions: Action[]; dropped: number } {
+  if (!Array.isArray(v)) return { actions: [], dropped: 0 };
+  const actions: Action[] = [];
+  let dropped = 0;
   for (const item of v) {
     const action = cleanProse(isObject(item) ? (item.action ?? item.text ?? item.description) : item, 400);
-    if (!action || out.some((a) => a.action === action)) continue;
-    const loRaw = isObject(item) && typeof item.lo === "string" ? item.lo.trim() : "";
-    out.push({ lo: validLos.includes(loRaw) ? loRaw : fallbackLo, action });
-    if (out.length >= maxItems) break;
+    if (!action || actions.some((a) => a.action === action)) continue;
+    const lo = isObject(item) && typeof item.lo === "string" ? item.lo.trim() : "";
+    if (!validLos.includes(lo)) { dropped++; continue; }
+    if (actions.length < maxItems) actions.push({ lo, action });
   }
-  return out;
+  return { actions, dropped };
 }
 
 // ---- evidence verification --------------------------------------------------------------------------------------
 
-export type Evidence = { seq: number; roleId: string; quote: string; sceneId: string | null; sceneNumber: number; sceneTitle: string; atMs: number; time: string };
+export type Evidence = {
+  seq: number; roleId: string; quote: string; sceneId: string | null; sceneNumber: number; sceneTitle: string; atMs: number; time: string;
+  /** Where the quote sits in the normalised utterance (start, end): used to drop overlapping quotes. Not written to the reports. */
+  span: [number, number];
+  /** The quote contains rating language (a participant may write it into their own line to sway the scorer). A flag only: nothing is capped. */
+  ratingLanguage: boolean;
+};
+/** A quote must have at least this many characters to count at all. */
 export const MIN_QUOTE_CHARS = 8;
+/** A quote that keeps a score of 3 or 4 must be a real phrase: at least 15 characters and 3 words. */
+export const STRONG_QUOTE_CHARS = 15;
+export const STRONG_QUOTE_WORDS = 3;
+/** A longer quote is cut to this length when stored (the cut is still a verbatim prefix). */
 export const MAX_QUOTE_CHARS = 300;
 export const MAX_EVIDENCE_PER_CRITERION = 4;
 const QUOTE_EDGES = /^[\s"'“”‘’«»`]+|[\s"'“”‘’«»`]+$/g;
 const ELLIPSIS_EDGES = /^(?:\.{2,}|…)\s*|\s*(?:\.{2,}|…)$/g;
+const RATING_LANGUAGE = /\b(?:scores?|scoring|rate (?:me|us)|rating|assessor|evaluator|marked? (?:me|us))\b|\bignore\b.{0,40}\binstructions?\b|\b(?:give|award)\b.{0,20}\b(?:me|us|everyone|them)\b.{0,12}\b[1-4]\b/i;
+
+export const isStrongQuote = (q: string): boolean => q.length >= STRONG_QUOTE_CHARS && q.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w)).length >= STRONG_QUOTE_WORDS;
 
 /** What a quote looks like after the model's decoration (quote marks, leading or trailing ellipsis) is removed. */
 export function cleanQuote(q: string): string {
@@ -107,8 +124,9 @@ export type Verifier = (raw: unknown) => Evidence | null;
 
 /**
  * The programmatic check at the heart of the evidence rule: a quote is accepted only when `seq` is an utterance by an allowed speaker and
- * the quote (whitespace-normalised, without quote marks or ellipses) is a substring of that recorded utterance. `allow` decides whose
- * lines count: one role for an individual, any player for the group.
+ * the quote (whitespace-normalised, without quote marks or ellipses, at least 8 characters with a letter or digit) is a substring of that
+ * recorded utterance. `allow` decides whose lines count: one role for an individual, any player for the group. Verification proves the
+ * words exist in the participant's own line, not that they show the behaviour.
  */
 export function makeVerifier(t: Transcript, allow: (u: UtteranceRec) => boolean): Verifier {
   return (raw) => {
@@ -121,19 +139,23 @@ export function makeVerifier(t: Transcript, allow: (u: UtteranceRec) => boolean)
     if (typeof raw.quote !== "string" || raw.quote.length > 4_000) return null;
     const q = cleanQuote(raw.quote);
     if (q.length < MIN_QUOTE_CHARS || !/[\p{L}\p{N}]/u.test(q)) return null;
-    if (!u.norm.includes(q)) return null;
-    return { seq, roleId: u.roleId, quote: q.length > MAX_QUOTE_CHARS ? q.slice(0, MAX_QUOTE_CHARS) : q, sceneId: u.sceneId, sceneNumber: u.sceneNumber, sceneTitle: u.sceneTitle, atMs: u.atMs, time: formatClock(u.atMs) };
+    const at = u.norm.indexOf(q);
+    if (at === -1) return null;
+    const stored = q.length > MAX_QUOTE_CHARS ? q.slice(0, MAX_QUOTE_CHARS) : q;
+    return { seq, roleId: u.roleId, quote: stored, sceneId: u.sceneId, sceneNumber: u.sceneNumber, sceneTitle: u.sceneTitle, atMs: u.atMs, time: formatClock(u.atMs), span: [at, at + stored.length], ratingLanguage: RATING_LANGUAGE.test(stored) };
   };
 }
 
+const overlaps = (a: [number, number], b: [number, number]): boolean => a[0] < b[1] && b[0] < a[1];
+
+/** Verifies a list of quotes. A quote contained in or overlapping one already accepted from the same line is dropped (counted), so one sentence cannot be sliced into several "quotes". */
 export function verifyAll(raw: unknown, verify: Verifier): { verified: Evidence[]; dropped: number } {
   const list = Array.isArray(raw) ? raw.slice(0, 12) : [];
   const verified: Evidence[] = [];
   let dropped = 0;
   for (const item of list) {
     const e = verify(item);
-    if (!e) { dropped++; continue; }
-    if (verified.some((v) => v.seq === e.seq && v.quote === e.quote)) continue;
+    if (!e || verified.some((v) => v.seq === e.seq && overlaps(v.span, e.span))) { dropped++; continue; }
     if (verified.length < MAX_EVIDENCE_PER_CRITERION) verified.push(e);
   }
   return { verified, dropped };
@@ -143,27 +165,30 @@ export function verifyAll(raw: unknown, verify: Verifier): { verified: Evidence[
 
 export type CriterionResult = {
   id: string; name: string; score: Score | null; label: string; confidence: Confidence | null; rationale: string;
+  /** True when the evaluator's answer for this criterion was unusable (omitted, or a score that is not a whole number 1 to 4): not the same as Not observed. */
+  invalid: boolean;
   evidence: Evidence[]; droppedQuotes: number; flags: string[];
 };
 
-const NOT_OBSERVED_WORDS = new Set(["n/o", "no", "not observed", "not_observed", "none", "null", "n/a", "na"]);
+const NOT_OBSERVED_WORDS = new Set(["n/o", "not observed", "not_observed", "null"]);
 
-/** Reads a model's score: a whole number 1 to 4 (also "3"); null or "N/O" for not observed; anything else is rejected with a reason. */
+/** Reads a model's score: a whole number 1 to 4 (also "3"); null or "N/O" for not observed; anything else (0, 5, 2.5, "none", {}) is rejected with a reason. */
 export function readScore(v: unknown): { score: Score | null; rejected: string | null } {
-  if (v === null || v === undefined) return { score: null, rejected: null };
+  if (v === null) return { score: null, rejected: null };
   if (typeof v === "string" && NOT_OBSERVED_WORDS.has(v.trim().toLowerCase())) return { score: null, rejected: null };
   const n = typeof v === "number" ? v : typeof v === "string" && /^[1-4]$/.test(v.trim()) ? Number(v.trim()) : NaN;
   if (isScore(n)) return { score: n, rejected: null };
-  const shown = typeof v === "number" || typeof v === "string" ? JSON.stringify(String(v).slice(0, 20)) : typeof v;
-  return { score: null, rejected: `score ${shown} is not a whole number from 1 to 4` };
+  const shown = typeof v === "number" || typeof v === "string" ? JSON.stringify(String(v).slice(0, 20)) : v === undefined ? "missing" : typeof v;
+  return { score: null, rejected: `score ${shown} is not a whole number from 1 to 4 (use null when there is no evidence either way)` };
 }
 
 /**
- * Turns the model's `criteria` array into one result per rubric criterion, in rubric order. Unknown ids are ignored, missing ones are Not
- * observed, scores that are not whole numbers 1 to 4 are rejected, evidence that cannot be verified is dropped, and a 3 or 4 left with no
- * verified quote is capped at 2. `recognised` counts the model entries that matched a rubric criterion.
+ * Turns the model's `criteria` array into one result per rubric criterion, in rubric order, and a list of problems for the re-ask.
+ * Unknown ids are ignored. An omitted criterion and a score that is not a whole number 1 to 4 (or null) are problems and the criterion
+ * is marked invalid (never silently Not observed). Evidence that cannot be verified is dropped. A 3 or 4 needs a verified quote of at least
+ * 15 characters and 3 words, otherwise it is capped at 2. Confidence counts DISTINCT lines. `recognised` counts model entries that matched.
  */
-export function normaliseCriteria(raw: unknown, rubric: Criterion[], verify: Verifier): { criteria: CriterionResult[]; recognised: number } {
+export function normaliseCriteria(raw: unknown, rubric: Criterion[], verify: Verifier): { criteria: CriterionResult[]; recognised: number; problems: string[] } {
   const entries = Array.isArray(raw) ? raw.filter(isObject).slice(0, 200) : [];
   const byId = new Map<string, Record<string, unknown>>();
   for (const e of entries) {
@@ -171,28 +196,34 @@ export function normaliseCriteria(raw: unknown, rubric: Criterion[], verify: Ver
     if (id && !byId.has(id)) byId.set(id, e);
   }
   let recognised = 0;
+  const problems: string[] = [];
   const criteria = rubric.map((c): CriterionResult => {
     const e = byId.get(c.id);
     const base = { id: c.id, name: c.name };
-    if (!e) return { ...base, score: null, label: levelLabel(null), confidence: null, rationale: "", evidence: [], droppedQuotes: 0, flags: ["not reported by the evaluator"] };
+    const invalid = (flag: string): CriterionResult => ({ ...base, score: null, label: INVALID_LABEL, confidence: null, rationale: "", invalid: true, evidence: [], droppedQuotes: 0, flags: [flag] });
+    if (!e) { problems.push(`criterion "${c.id}" is missing from "criteria"`); return invalid("not reported by the evaluator"); }
     recognised++;
-    const flags: string[] = [];
     const read = readScore(e.score);
-    if (read.rejected) flags.push(`${read.rejected}: treated as Not observed`);
     const rationale = cleanProse(e.rationale, 600);
-    if (read.score === null) {
-      return { ...base, score: null, label: levelLabel(null), confidence: null, rationale, evidence: [], droppedQuotes: 0, flags };
-    }
+    if (read.rejected) { problems.push(`criterion "${c.id}": ${read.rejected}`); return { ...invalid(`${read.rejected}: the criterion is invalid`), rationale }; }
+    const flags: string[] = [];
+    if (read.score === null) return { ...base, score: null, label: levelLabel(null), confidence: null, rationale, invalid: false, evidence: [], droppedQuotes: 0, flags };
     const { verified, dropped } = verifyAll(e.evidence, verify);
+    const strong = verified.filter((v) => isStrongQuote(v.quote));
     let score: Score = read.score;
     let capped = false;
-    if (dropped > 0) flags.push(`${dropped} quote(s) could not be verified against the recording and were dropped`);
+    if (dropped > 0) flags.push(`${dropped} quote(s) could not be verified against the recording, or overlapped another quote of the same line, and were dropped`);
     if (verified.length === 0) {
       if (score >= 3) { flags.push(`capped from ${score} to 2: no verified quote`); score = 2; capped = true; }
       else flags.push("no verified quote");
-    }
+    } else if (score >= 3 && strong.length === 0) {
+      flags.push(`capped from ${score} to 2: no verified quote of at least ${STRONG_QUOTE_CHARS} characters and ${STRONG_QUOTE_WORDS} words`); score = 2; capped = true;
+    } else if (score <= 2 && strong.length === 0) flags.push("only short quotes (they can support a 1 or 2 only)");
+    if (verified.some((v) => v.ratingLanguage)) flags.push("a quote contains rating language: read it with care");
     if (!rationale) flags.push("no rationale given");
-    return { ...base, score, label: levelLabel(score), confidence: deriveConfidence(verified.length, parseConfidence(e.confidence), capped || verified.length === 0), rationale, evidence: verified, droppedQuotes: dropped, flags };
+    const counted = score >= 3 ? strong : verified;
+    const distinct = new Set(counted.map((v) => v.seq)).size;
+    return { ...base, score, label: levelLabel(score), confidence: deriveConfidence(distinct, parseConfidence(e.confidence), capped || verified.length === 0), rationale, invalid: false, evidence: verified, droppedQuotes: dropped, flags };
   });
-  return { criteria, recognised };
+  return { criteria, recognised, problems };
 }

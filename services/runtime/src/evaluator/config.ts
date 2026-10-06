@@ -1,5 +1,5 @@
 import { parseTemperatureEnv } from "../agents/temperatures.js";
-import { DEFAULT_REPLY_TIMEOUT_MS, DEFAULT_FIRST_TOKEN_TIMEOUT_MS, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, parseNpcTimeouts, parseTimeoutEnv } from "../agents/timeouts.js";
+import { DEFAULT_FIRST_TOKEN_TIMEOUT_MS, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, parseNpcTimeouts, parseTimeoutEnv } from "../agents/timeouts.js";
 import { parseRetryEnv } from "../agents/retry-config.js";
 
 /** EVAL_MAX_TOKENS: the evaluator's reply is a long JSON document, so its budget is far above the NPC's. */
@@ -30,7 +30,8 @@ export type EvalConfigParse = ({ ok: true } & EvalConfig) | { ok: false; errors:
 
 /**
  * Reads EVAL_MODEL (default: the NPC model), EVAL_MAX_TOKENS (3000, 200..8000), EVAL_TEMPERATURE (0.2, 0..2), EVAL_TIMEOUT_MS (180000,
- * 500..600000, validated like the NPC timeouts; the effective value is at least NPC_REPLY_TIMEOUT_MS) and EVAL_TRANSCRIPT_CHARS (60000).
+ * 500..600000, validated like the NPC timeouts; the effective value is exactly max(EVAL_TIMEOUT_MS, NPC_REPLY_TIMEOUT_MS), with no other floor)
+ * and EVAL_TRANSCRIPT_CHARS (60000). The first-token wait is max(NPC_FIRST_TOKEN_TIMEOUT_MS, 60 s), capped at the deadline.
  * Every error names a variable, never a value beyond a short quoted fragment.
  */
 export function parseEvalConfig(env: NodeJS.ProcessEnv): EvalConfigParse {
@@ -47,7 +48,7 @@ export function parseEvalConfig(env: NodeJS.ProcessEnv): EvalConfigParse {
   for (const r of [tokens, temp, timeout, chars]) if (!r.ok) errors.push(r.error);
   if (!npc.ok) errors.push(...npc.errors);
   if (errors.length || !tokens.ok || !temp.ok || !timeout.ok || !chars.ok || !npc.ok) return { ok: false, errors };
-  const timeoutMs = Math.max(timeout.value, npc.replyTimeoutMs, DEFAULT_REPLY_TIMEOUT_MS);
+  const timeoutMs = Math.max(timeout.value, npc.replyTimeoutMs);
   return {
     ok: true, model: model === "" ? undefined : model, maxTokens: tokens.value, temperature: temp.value, timeoutMs,
     firstTokenTimeoutMs: Math.min(timeoutMs, Math.max(npc.firstTokenTimeoutMs, DEFAULT_FIRST_TOKEN_TIMEOUT_MS, 60_000)), transcriptChars: chars.value,
