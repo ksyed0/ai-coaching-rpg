@@ -5,7 +5,7 @@ import path from "node:path";
 import type { ChatRequest } from "@acr/adapters";
 import { evaluateSession, EvaluatorInputError, type EvaluationResult } from "../evaluate.js";
 import { parseEvalConfig } from "../config.js";
-import { ReportWriteError, checkRoleId, renderReports, writeExclusive, writeReports } from "../report-write.js";
+import { REPORT_FILE_MODE, ReportWriteError, checkRoleId, reportPath, renderReports, writeExclusive, writeReports } from "../report-write.js";
 import { DRAFT_BANNER, VISIBILITY_LINE } from "../method.js";
 import { sampleEvents, sampleRubrics, sampleScenario } from "./fixtures.js";
 
@@ -250,6 +250,21 @@ describe("role ids and files", () => {
       expect(w.dir).toBe(path.join(out, "sess1-2"));
       expect(await readdir(elsewhere)).toEqual([]);
     } finally { await rm(out, { recursive: true, force: true }); await rm(elsewhere, { recursive: true, force: true }); }
+  });
+  it.skipIf(process.platform === "win32")("report files are owner-only (0o600) and the directories it creates are 0o700", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "acr-mode-"));
+    try {
+      const w = await writeReports(await evaluate(), { outDir: path.join(root, "new", "out"), evaluator: EVALUATOR });
+      expect(REPORT_FILE_MODE).toBe(0o600);
+      for (const f of w.files) expect((await stat(f)).mode & 0o777).toBe(0o600);
+      expect((await stat(w.dir)).mode & 0o777).toBe(0o700);
+      expect((await stat(path.dirname(w.dir))).mode & 0o777).toBe(0o700);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+  it("reportPath stays strictly inside the report directory", () => {
+    const dir = path.resolve("/x/reports/s1");
+    expect(reportPath(dir, "alice.md")).toBe(path.join(dir, "alice.md"));
+    for (const bad of ["../a.md", "/etc/passwd", "sub/a.md", "..", ""]) expect(() => reportPath(dir, bad)).toThrow(/outside the report directory/);
   });
   it("exclusive create: a second write into the same path fails and never overwrites", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "acr-wx-"));

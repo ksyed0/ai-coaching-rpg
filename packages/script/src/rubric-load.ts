@@ -1,7 +1,7 @@
-import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "yaml";
 import { ZodError } from "zod";
+import { FileTooLargeError, readTextCapped } from "./read-capped.js";
 import { RubricSchema, validateRubrics, type Rubric } from "./rubric.js";
 
 /** A rubric file is a few KiB; refuse anything absurd before parsing it (YAML aliases can expand). */
@@ -31,12 +31,11 @@ export async function loadRubrics(dir: string, scenario: { meta: { rubrics: stri
     const file = `rubrics/${id}.yaml`;
     const full = path.join(dir, "rubrics", `${id}.yaml`);
     let text: string;
-    try {
-      const size = (await stat(full)).size;
-      if (size > MAX_RUBRIC_BYTES) { errors.push(`${file}: the file is larger than ${MAX_RUBRIC_BYTES / 1024} KiB`); continue; }
-      text = await readFile(full, "utf8");
-    } catch { errors.push(`${file}: the file cannot be read (the scenario names rubric '${id}')`); continue; }
-    if (Buffer.byteLength(text, "utf8") > MAX_RUBRIC_BYTES) { errors.push(`${file}: the file is larger than ${MAX_RUBRIC_BYTES / 1024} KiB`); continue; }
+    try { text = await readTextCapped(full, MAX_RUBRIC_BYTES); } // one bounded read: no separate size check to race with
+    catch (err) {
+      errors.push(err instanceof FileTooLargeError ? `${file}: the file is larger than ${MAX_RUBRIC_BYTES / 1024} KiB` : `${file}: the file cannot be read (the scenario names rubric '${id}')`);
+      continue;
+    }
     let raw: unknown;
     try { raw = parse(text, { maxAliasCount: MAX_RUBRIC_ALIASES }); }
     catch (err) { errors.push(`${file}: not valid YAML: ${(err as Error).message.split("\n")[0]}`); continue; }

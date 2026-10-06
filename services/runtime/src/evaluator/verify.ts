@@ -1,7 +1,6 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { SessionEvent } from "@acr/events";
-import type { Scenario } from "@acr/script";
+import { readTextCapped, type Scenario } from "@acr/script";
 import { VISIBILITY_LINE } from "./method.js";
 import { buildTranscript } from "./transcript.js";
 
@@ -19,7 +18,7 @@ export async function verifyReportFiles(dir: string, events: SessionEvent[], sce
   const problems: string[] = [];
   let reports = 0; let quotes = 0; let scores = 0;
   const players = Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => r.id);
-  const read = async (name: string): Promise<string | null> => { try { return await readFile(path.join(dir, name), "utf8"); } catch { problems.push(`${name} is missing`); return null; } };
+  const read = async (name: string): Promise<string | null> => { try { return await readTextCapped(path.join(dir, name), 8 * 1024 * 1024); } catch { problems.push(`${name} is missing`); return null; } };
   for (const name of [...players, "group"]) {
     const md = await read(`${name}.md`);
     const raw = await read(`${name}.json`);

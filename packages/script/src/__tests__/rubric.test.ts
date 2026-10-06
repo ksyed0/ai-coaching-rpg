@@ -154,3 +154,17 @@ describe("scenario hygiene", () => {
     }
   });
 });
+
+describe("bounded rubric reads", () => {
+  it("a rubric file one byte over the cap is refused with the size message, with no separate size check", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "acr-rb-"));
+    try {
+      await mkdir(path.join(dir, "rubrics"));
+      await writeFile(path.join(dir, "rubrics", "big.yaml"), "x".repeat(MAX_RUBRIC_BYTES + 1));
+      await mkdir(path.join(dir, "rubrics", "dir.yaml"));
+      const res = await loadRubrics(dir, { meta: { rubrics: ["big", "dir"], learning_objectives: [] } });
+      expect(res.errors.join("\n")).toMatch(/big\.yaml: the file is larger than 256 KiB/);
+      expect(res.errors.join("\n")).toMatch(/dir\.yaml: the file cannot be read/);
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+});

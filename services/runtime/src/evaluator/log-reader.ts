@@ -1,4 +1,4 @@
-import { open } from "node:fs/promises";
+import { FileTooLargeError, readTextCapped } from "@acr/script";
 import { initialState, reduce, type SessionEvent } from "@acr/events";
 
 /** A session log is a few hundred KiB; refuse anything that would not fit comfortably in memory. */
@@ -32,15 +32,10 @@ export function parseSessionLog(text: string): SessionEvent[] {
 /** Reads a session JSONL file (bounded) and parses it. */
 export async function readSessionLog(file: string): Promise<SessionEvent[]> {
   let text: string;
-  let fh;
-  try {
-    fh = await open(file, "r");
-    const { size } = await fh.stat();
-    if (size > MAX_LOG_BYTES) throw new SessionLogError(`the log is larger than ${MAX_LOG_BYTES / 1024 / 1024} MiB`);
-    text = await fh.readFile("utf8");
-  } catch (err) {
-    if (err instanceof SessionLogError) throw err;
+  try { text = await readTextCapped(file, MAX_LOG_BYTES); } // one bounded read
+  catch (err) {
+    if (err instanceof FileTooLargeError) throw new SessionLogError(`the log is larger than ${MAX_LOG_BYTES / 1024 / 1024} MiB`);
     throw new SessionLogError(`cannot read the session log (${(err as NodeJS.ErrnoException).code ?? "failed"})`);
-  } finally { await fh?.close(); }
+  }
   return parseSessionLog(text);
 }

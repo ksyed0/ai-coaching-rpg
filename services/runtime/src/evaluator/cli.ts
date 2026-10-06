@@ -1,10 +1,10 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { parse } from "yaml";
 import { describeModelProvider } from "@acr/adapters";
 import type { SessionEvent } from "@acr/events";
-import { loadRubrics, loadScenario, validateScenario, type Rubric, type Scenario } from "@acr/script";
+import { loadRubrics, loadScenario, readTextCapped, validateScenario, type Rubric, type Scenario } from "@acr/script";
 import { createScriptedEvaluator } from "../demo/eval-mock.js";
 import { scrubText } from "../demo/report.js";
 import { parseEvalConfig } from "./config.js";
@@ -43,8 +43,7 @@ export async function findScenarioDir(repoRoot: string, scenarioId: string): Pro
   for (const name of names.sort()) {
     const file = path.join(root, name, "scenario.yaml");
     try {
-      if ((await stat(file)).size > 256 * 1024) continue;
-      const meta = parse(await readFile(file, "utf8"), { maxAliasCount: 10 }) as { id?: unknown } | null;
+      const meta = parse(await readTextCapped(file, 256 * 1024), { maxAliasCount: 10 }) as { id?: unknown } | null;
       if (meta && meta.id === scenarioId) return path.join(root, name);
     } catch { /* not a scenario folder */ }
   }

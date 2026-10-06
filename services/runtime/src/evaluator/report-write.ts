@@ -63,9 +63,23 @@ export class ReportWriteError extends Error {
 
 export type WrittenReports = { dir: string; files: string[]; participants: ParticipantReport[]; group: GroupReport };
 
-/** Creates a file that must not exist yet (flag `wx`): a second write to the same path fails with EEXIST and never overwrites. */
+/** Reports hold session text: files are owner-only (0o600) and the directories this writer creates are 0o700. */
+export const REPORT_FILE_MODE = 0o600;
+export const REPORT_DIR_MODE = 0o700;
+
+/** Creates a file that must not exist yet (flag `wx`, owner-only): a second write to the same path fails with EEXIST and never overwrites. */
 export async function writeExclusive(file: string, text: string, write: typeof writeFile = writeFile): Promise<void> {
-  await write(file, text, { encoding: "utf8", flag: "wx", mode: 0o644 });
+  await write(file, text, { encoding: "utf8", flag: "wx", mode: REPORT_FILE_MODE });
+}
+
+/**
+ * The path of one report file inside the report directory: resolved, and it must stay strictly under `dir`. `name` is always one of the
+ * fixed names the renderer produces (a validated role id plus .md/.json, group, index, method), never user input from elsewhere.
+ */
+export function reportPath(dir: string, name: string): string {
+  const full = path.resolve(dir, name);
+  if (!full.startsWith(path.resolve(dir) + path.sep) || path.dirname(full) !== path.resolve(dir)) throw new EvaluatorInputError("a report file would be outside the report directory");
+  return full;
 }
 
 /**
@@ -77,20 +91,19 @@ export async function writeReports(result: EvaluationResult, o: { outDir: string
   if (!isValidSessionId(result.sessionId)) throw new EvaluatorInputError(`session id ${JSON.stringify(result.sessionId.slice(0, 40))} is not a safe directory name`);
   const rendered = renderReports(result, o.evaluator, o.secrets ?? []);
   const out = path.resolve(o.outDir);
-  await mkdir(out, { recursive: true });
+  await mkdir(out, { recursive: true, mode: REPORT_DIR_MODE });
   let dir = "";
   for (let n = 1; n <= 99; n++) {
     const candidate = path.join(out, n === 1 ? result.sessionId : `${result.sessionId}-${n}`);
     if (path.dirname(candidate) !== out) throw new EvaluatorInputError("the report directory would be outside the output directory");
-    try { await mkdir(candidate); dir = candidate; break; }
+    try { await mkdir(candidate, { mode: REPORT_DIR_MODE }); dir = candidate; break; }
     catch (err) { if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err; }
   }
   if (!dir) throw new EvaluatorInputError(`too many report directories for session ${result.sessionId} in the output directory`);
   const files: string[] = [];
   try {
     for (const [name, text] of rendered.files) {
-      const file = path.join(dir, name);
-      if (path.dirname(file) !== dir) throw new EvaluatorInputError("a report file would be outside the report directory");
+      const file = reportPath(dir, name);
       await writeExclusive(file, text, o.write);
       files.push(file);
     }
