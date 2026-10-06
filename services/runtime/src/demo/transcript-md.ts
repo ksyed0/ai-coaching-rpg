@@ -102,7 +102,7 @@ export function renderTranscript(i: TranscriptInput): string {
     `${TAGS.generated} produced by a live model at run time: live AI character replies and the Game Master's reasoning${gen ? " and, with `--players generated`, the player bots' lines (only when the model wrote the recorded text)" : ""}.`, "",
     `${TAGS.fallback} the character's canned fallback line, used in place of a missing model reply (scripted text, never generated).`, "",
     `${TAGS.unverified} an AI character or Game Master line seen through \`--url\`: the runner cannot tell whether the remote server used a real model or a script. Under \`--url\` the fallback marker is asserted by the remote server: a hostile server can set it, but it can never make a line generated.`, "",
-    `${TAGS.system} technical logging, not dialogue.`, "",
+    `${TAGS.system} technical logging, not dialogue${gen ? " (with `--players generated` also the player intents: the scripted line a generated player was asked to express, private to the bot)" : ""}.`, "",
     "Dialogue lines are **bold**. Text is escaped, so nothing in a line can forge a tag, a heading, a table or a link.", "");
 
   for (const r of i.records) {
@@ -129,7 +129,7 @@ export function renderTranscript(i: TranscriptInput): string {
     out.push("", `Facilitator advances: ${s.facilitatorAdvances}. Alerts: ${s.alerts.length}. Canned fallback lines: ${s.fallbackLines}.`, "");
     if (s.players) {
       const p = s.players;
-      out.push(`Player bots (generated): ${p.generated} of ${s.playerLines} lines written by the model, ${p.scriptedFallbacks} spoken as the scripted line after a failed generation, ${p.verbatimRepeats} generated line(s) identical to the scripted line.`, "");
+      out.push(`Player bots (generated): ${p.generated} of ${s.playerLines} lines written by the model, ${p.scriptedFallbacks} spoken as the scripted line after a failed generation, ${p.verbatimRepeats} generated line(s) identical to the scripted line. Intents logged: ${p.intentsLogged}.`, "");
     }
   }
 

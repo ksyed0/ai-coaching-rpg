@@ -906,6 +906,11 @@
           "id": "AC-0093",
           "text": "a recorded live showcase with `--players generated` on a real model is run and compared with a scripted-player run (lines per role, fallbacks, repeats) (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4: 21 of 21 player lines generated, 1 verbatim repeat of the script, 0 fallbacks, 0 alerts, 13 checks passed, 520 s; generated players on Raptor-8B echoed each other, so the model matters; a first Gemma run leaked the private intent after a `***` separator in all 21 lines, fixed in this story)",
           "done": true
+        },
+        {
+          "id": "AC-0094",
+          "text": "with `--players generated` each player's private intent (the scripted line it was asked to express) is logged as a `[SYSTEM]` entry right before its line in the transcript and narration, listed per slot in the JSON report and counted in the summary; it never reaches the session log, a client or the Game Master, and `--no-intents` hides it",
+          "done": true
         }
       ],
       "dependencies": [
@@ -1681,9 +1686,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T15:52:09.785Z",
-  "commitSha": "e0066b1",
-  "buildNumber": "96",
+  "generatedAt": "2026-10-06T17:18:34.115Z",
+  "commitSha": "f35b146",
+  "buildNumber": "97",
   "branch": "feature/EPIC-0006-US-0027-generated-players",
   "sessionTimeline": [
     {
@@ -1882,7 +1887,8 @@
       "2026-10-04T14:23:23.807Z",
       "2026-10-05T14:23:23.807Z",
       "2026-10-06T14:23:23.805Z",
-      "2026-10-06T15:52:09.849Z"
+      "2026-10-06T15:52:09.849Z",
+      "2026-10-06T17:18:34.170Z"
     ],
     "doneCounts": [
       0,
@@ -1916,6 +1922,7 @@
       0,
       0,
       0,
+      1,
       1
     ],
     "totalStories": [
@@ -1950,6 +1957,7 @@
       26,
       26,
       27,
+      27,
       27
     ],
     "aiCosts": [
@@ -1982,6 +1990,7 @@
       5.55039,
       5.75596,
       5.96153,
+      6.1671,
       6.1671,
       6.1671,
       6.1671
@@ -2018,6 +2027,7 @@
       0,
       0,
       null,
+      null,
       null
     ],
     "velocity": [
@@ -2052,9 +2062,11 @@
       0,
       0,
       0,
+      3,
       3
     ],
     "openBugs": [
+      3,
       3,
       3,
       3,
@@ -2120,6 +2132,7 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "inputTokens": [
@@ -2153,6 +2166,7 @@
       0,
       0,
       0,
+      522440,
       522440,
       522440
     ],
@@ -2188,6 +2202,7 @@
       0,
       0,
       69480,
+      69480,
       69480
     ],
     "avgRisk": [
@@ -2222,6 +2237,7 @@
       1.1807692307692312,
       1.1807692307692312,
       1.1444444444444448,
+      1.134615384615385,
       1.134615384615385
     ],
     "velocityByWeek": {

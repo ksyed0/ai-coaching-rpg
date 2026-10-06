@@ -5,6 +5,8 @@ export type PlayerLineRecord = {
   role: string; text: string; source: Extract<Provenance, "generated" | "scripted">;
   /** The generated text equals the scripted line (ignoring case and spacing). */
   verbatim: boolean;
+  /** The scripted line the bot was given as its private intent, and the scene it was spoken in. */
+  intent: string; scene: string | null;
   /** Lines for other speakers were cut from the model's reply. */
   cut: boolean;
   /** Set when a failed generation fell back to the scripted line. */

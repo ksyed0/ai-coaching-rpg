@@ -649,6 +649,7 @@ Acceptance Criteria:
   - [x] AC-0091: a spoken line is tagged `[GENERATED]` only when the model produced the recorded text; the transcript legend and the AI contribution summary count generated player lines apart from AI character replies and Game Master verdicts and report how many generated lines repeated the scripted line verbatim (an observation, not a failure)
   - [x] AC-0092: the AI character prompt states that the character IS that person (first person, never its own role or title in the third person) and Helena Brandt's persona is consistently she/her; the Game Master prompt format is unchanged
   - [x] AC-0093: a recorded live showcase with `--players generated` on a real model is run and compared with a scripted-player run (lines per role, fallbacks, repeats) (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4: 21 of 21 player lines generated, 1 verbatim repeat of the script, 0 fallbacks, 0 alerts, 13 checks passed, 520 s; generated players on Raptor-8B echoed each other, so the model matters; a first Gemma run leaked the private intent after a `***` separator in all 21 lines, fixed in this story)
+  - [x] AC-0094: with `--players generated` each player's private intent (the scripted line it was asked to express) is logged as a `[SYSTEM]` entry right before its line in the transcript and narration, listed per slot in the JSON report and counted in the summary; it never reaches the session log, a client or the Game Master, and `--no-intents` hides it
 ```
 
 ```

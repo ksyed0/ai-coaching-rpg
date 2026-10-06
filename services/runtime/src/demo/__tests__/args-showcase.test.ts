@@ -102,3 +102,16 @@ describe("parseDemoArgs: --players and --player-model (US-0027)", () => {
     }
   });
 });
+
+describe("parseDemoArgs: --no-intents", () => {
+  it("is unset by default and accepted with --players generated", () => {
+    expect(ok(["--showcase", "--live", "--players", "generated"]).noIntents).toBeUndefined();
+    expect(ok(["--showcase", "--live", "--players", "generated", "--no-intents"]).noIntents).toBe(true);
+  });
+  it("is refused without --players generated, with one line", () => {
+    expect(fail(["--no-intents"])).toBe("error: --no-intents needs --players generated");
+    expect(fail(["--showcase", "--live", "--no-intents"])).toBe("error: --no-intents needs --players generated");
+    expect(fail(["--showcase", "--players", "scripted", "--no-intents"])).toBe("error: --no-intents needs --players generated");
+    expect(fail(["--showcase", "--live", "--players", "generated", "--no-intents", "--no-intents"])).toBe("error: --no-intents was given more than once");
+  });
+});

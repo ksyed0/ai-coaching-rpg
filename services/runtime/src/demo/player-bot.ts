@@ -7,7 +7,7 @@ import { MAX_LINE_CHARS } from "./showcase-script.js";
 import { buildPlayerRequest, roleLabel, viewFromEvents } from "./player-prompt.js";
 import type { PlayerLineRecord } from "./player-lines.js";
 
-export type PlayerSpeech = Omit<PlayerLineRecord, "role" | "text"> & { text: string };
+export type PlayerSpeech = Omit<PlayerLineRecord, "role" | "text" | "intent" | "scene"> & { text: string };
 
 /** C0/C1 controls (not tab or line breaks, which are folded into spaces later) and bidi controls: never sent to the server. */
 const CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;

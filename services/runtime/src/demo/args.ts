@@ -12,7 +12,7 @@ const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+-]*$/;
 
 export const DEMO_USAGE = [
   "usage: pnpm demo [--fast] [--speed <x>] [--json <path|->] [--live] [--url <ws://host:port>] [--session <id>] [--transcript <path.md>] [--no-color] [--help]",
-  "       pnpm demo --showcase [--scenario <dir>] [--max-lines <n>] [--max-fallbacks <n>] [--watchdog <minutes>] [--players scripted|generated] [--player-model <id>] [--live] [--fast] [--json <path|->]",
+  "       pnpm demo --showcase [--scenario <dir>] [--max-lines <n>] [--max-fallbacks <n>] [--watchdog <minutes>] [--players scripted|generated] [--player-model <id>] [--no-intents] [--live] [--fast] [--json <path|->]",
   `  --fast            no pacing delays (instant narration)`,
   `  --speed <x>       scale the pacing, ${MIN_SPEED} to ${MAX_SPEED} (default 1; 2 is twice as fast)`,
   "  --json <path|->   write a machine-readable report to a file, or to stdout with - (narration then goes to stderr;",
@@ -29,6 +29,7 @@ export const DEMO_USAGE = [
   "  --players <mode>  --showcase only: who speaks the player roles: scripted (default, the lines in showcase.yaml) or generated (the model plays",
   "                    them too, using each scripted line as its private intent; needs --live; a failed generation falls back to the scripted line)",
   "  --player-model <id> --players generated only: the model id for the player bots (default: the NPC model, NPC_MODEL)",
+  "  --no-intents      --players generated only: do not log each generated player's private intent (the scripted line it was asked to express)",
   `  --max-fallbacks <n> --showcase only: fail the run when more than n AI replies were canned fallback lines, 0 to ${MAX_FALLBACKS}`,
   "                    (without it the count is only a warning)",
   `  --watchdog <min>  real-time limit for the whole run, 1 to ${MAX_WATCHDOG_MINUTES} minutes (--showcase default: 3, or 30 with --live;`,
@@ -41,12 +42,12 @@ export type DemoOptions = {
   /** Showcase options stay undefined unless given, so a default run's options are exactly what they always were. */
   showcase?: true; scenario?: string; maxLines?: number; maxFallbacks?: number; watchdog?: number; transcript?: string;
   /** Only set for `--players generated` (scripted is the default and leaves it undefined). */
-  players?: "generated"; playerModel?: string;
+  players?: "generated"; playerModel?: string; noIntents?: true;
 };
 export type DemoArgsResult = { ok: true; opts: DemoOptions } | { ok: false; error: string; usage: string };
 
 const fail = (error: string): DemoArgsResult => ({ ok: false, error, usage: DEMO_USAGE });
-const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript", "players", "player-model"];
+const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript", "players", "player-model", "no-intents"];
 const hasControl = (v: string) => new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]").test(v);
 
 /** Validates a --url value. The error never echoes the value (it may carry credentials). */
@@ -68,14 +69,14 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
     const n = argv.filter((a) => a === `--${f}` || a.startsWith(`--${f}=`)).length;
     if (n > 1) return fail(`error: --${f} was given more than once`);
   }
-  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string; transcript?: string; players?: string; "player-model"?: string };
+  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string; transcript?: string; players?: string; "player-model"?: string; "no-intents"?: boolean };
   try {
     ({ values } = nodeParseArgs({
       args: argv, allowPositionals: false, strict: true,
       options: {
         fast: { type: "boolean" }, speed: { type: "string" }, json: { type: "string" }, live: { type: "boolean" },
         url: { type: "string" }, session: { type: "string" }, "no-color": { type: "boolean" }, help: { type: "boolean" },
-        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" }, transcript: { type: "string" }, players: { type: "string" }, "player-model": { type: "string" },
+        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" }, transcript: { type: "string" }, players: { type: "string" }, "player-model": { type: "string" }, "no-intents": { type: "boolean" },
       },
     }));
   } catch (err) { return fail(`error: ${(err as Error).message.split("\n")[0]}`); }
@@ -117,6 +118,7 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
     if (!values.showcase) return fail("error: --players needs --showcase");
     if (values.players === "generated" && !values.live) return fail("error: --players generated needs --live (the mock and CI runs stay scripted)");
   }
+  if (values["no-intents"] && values.players !== "generated") return fail("error: --no-intents needs --players generated");
   if (values["player-model"] !== undefined) {
     if (values.players !== "generated") return fail("error: --player-model needs --players generated");
     const id = values["player-model"];
@@ -129,7 +131,7 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
       fast: values.fast === true, speed, json: values.json, live: values.live === true, url: values.url,
       session: values.session, noColor: values["no-color"] === true, help: values.help === true,
       showcase: values.showcase === true ? true : undefined, scenario: values.scenario, maxLines, maxFallbacks, watchdog, transcript: values.transcript,
-      players: values.players === "generated" ? "generated" : undefined, playerModel: values["player-model"],
+      players: values.players === "generated" ? "generated" : undefined, playerModel: values["player-model"], noIntents: values["no-intents"] === true ? true : undefined,
     },
   };
 }

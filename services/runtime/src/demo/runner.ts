@@ -209,7 +209,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     register(() => sys.stop());
     ctx.sys = sys; ctx.tmp = { root: t.root, dataDir: t.dataDir, scenarioDir: "", cleanup: t.cleanup }; ctx.wsUrl = `ws://127.0.0.1:${sys.port}`;
     const timeouts = liveEnv ? parseNpcTimeouts(liveEnv) : undefined;
-    let players: { generator: PlayerBotGenerator; lines: PlayerLines } | undefined;
+    let players: { generator: PlayerBotGenerator; lines: PlayerLines; showIntents: boolean } | undefined;
     if (opts.players === "generated") {
       if (!liveEnv) throw new Error("--players generated needs the live environment");
       if (!timeouts?.ok) throw new Error(`the NPC timeouts are invalid: ${timeouts?.errors.join("; ")}`);
@@ -218,7 +218,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       const temps = parseTemperatures(liveEnv);
       if (!temps.ok) throw new Error(temps.errors.join("; "));
       players = {
-        lines: new PlayerLines(),
+        lines: new PlayerLines(), showIntents: opts.noIntents !== true,
         generator: new PlayerBotGenerator({
           provider: startPlayerProvider(liveEnv, opts.playerModel), scenario: sc.scenario, signal: ac.signal,
           firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, maxTokens: budgets.npcMaxTokens, temperature: temps.playerTemperature,
