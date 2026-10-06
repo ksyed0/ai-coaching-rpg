@@ -11,7 +11,7 @@ const scenario: Scenario = {
   roles: {
     pa: { id: "pa", type: "player", brief: "b", private_facts: [] },
     pb: { id: "pb", type: "player", brief: "b", private_facts: [] },
-    bot: { id: "bot", type: "npc", name: "Bot", title: "", persona: "p", goals: ["g"], knowledge: [], hidden: [], guardrails: [], fallback_line: "f", voice: { style: "s", pace: "p" } },
+    bot: { id: "bot", type: "npc", name: "Bot", title: "", persona: "p", goals: ["g"], knowledge: [], hidden: [], guardrails: [], fallback_line: "f", voice: { style: "s", pace: "p" }, seniority: 3, responds_with: [], only_you_say: [], defer_to: [] },
   },
   script: {
     scenes: [

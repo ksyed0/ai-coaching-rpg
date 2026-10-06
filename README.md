@@ -307,10 +307,25 @@ AI contribution
   Game Master: 14 evaluations (6 true, 8 false); exited: s1_huddle, s2_priya_call, s3_internal_huddle, s4_escalation_call, s5_final_terms, s6_wrap_up
   Scenes played: 6 (ended by Game Master 6, time box 0, facilitator advance 0)
   Player-bot lines: 24; AI character replies: 20 (0 canned fallback)
+  AI voices: 0 of 8 comparable AI reply pair(s) (different characters, same player line) were near-duplicates (similarity >= 0.6); silent turns: none
   Facilitator advances: 0
   Alerts: 0
   Total wall time: 0.0 s
 ```
+
+### Scenario authoring: AI character voices
+
+When two AI characters share a scene, give each its own kind of contribution, or the more senior one tends to rephrase the junior one. An AI character role (`roles/<id>.yaml`, `type: npc`) takes these optional fields:
+
+| Field | Meaning |
+| --- | --- |
+| `seniority` | Integer 1 to 5 (default 3); higher is more senior. After a player line the AI characters of the scene reply junior first (ties by the order of the scene's participants), so the senior one reads the junior one's reply and answers with the decision. |
+| `responds_with` | Up to 5 short strings (160 characters each): the KIND of contribution this character makes, e.g. `a ruling or decision on price and terms`, `a concrete condition or number she needs before agreeing`, `a consequence if the date slips`, `challenges one assumption at a time`. |
+| `only_you_say` | Up to 5 short strings: what only this role would say, e.g. `total cost, what it displaces, fixed price, penalties, contract precedent`. |
+| `defer_to` | Role ids of AI characters this one lets have the final say when both are in the scene (wording in the prompt only; the reply order follows `seniority`). Must be other `npc` roles of the scenario; the validator warns when one is less senior or two defer to each other. |
+| `defers_text` | Optional (up to 200 characters, your own role's prompt text only): replaces the generic sentence "leave the final decision on price, terms and approval to <name> (<title>)". |
+
+The AI character's prompt gets a `## Who else is in the room` section (the other AI characters of the scene: name, title and `more senior`, `less senior` or `peer`; never their goals, knowledge or hidden facts) and a `## How you respond` section from `responds_with` and `only_you_say`, with the rules: do not restate, paraphrase or agree-and-repeat the previous speaker; open with your own angle; a senior character answering after a junior one must open with a decision, a condition with a number or a date, or the cost or consequence, and then stop; a junior one speaks to its own area first and does not pre-empt the decision it defers. The roster also tells the character how the others' lines are tagged (`[role_id]`). When another AI character is present, a character may stay silent by replying exactly `<silent/>` if the last speaker already said what it would say and it has no decision, condition or number to add (never when addressed by name or asked a question): this records nothing (no line, no fallback, no alert), is never shown to players, is allowed at most 2 turns in a row, and the last character of a round that nobody has answered yet must speak (if every character is somehow silent a facilitator warning is raised). `(silent)`, `*stays silent*` and `...` as a whole reply count as silence, never as text. In the showcase, the summary and the `--json` `showcase.voices` section count silent turns per character and, as `echoes / eligiblePairs`, the near-duplicate replies of two different AI characters to the same player line (token-set Jaccard similarity of at least 0.6 after lowercasing, punctuation and stop-word removal, at least 4 content tokens per side, same polarity), as observations and never as failures. `scenarios/friday-escalation-extended` shows it with Priya Raman (seniority 3) and Helena Brandt (seniority 5). The scripted mock replies are per character, so the mock runs needed no change.
 
 ### Markdown transcript
 

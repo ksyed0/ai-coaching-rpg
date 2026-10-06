@@ -754,3 +754,30 @@ Status: In Progress
 Branch: feature/EPIC-0005-evaluator-feedback
 Notes: Live runs of the evaluator are done by the controller, not in this task. A real Gemma run (2026-10-06) worked; the review fix round also made S-16 read-back tests, the live watchdog extension and partial-write cleanup.
 ```
+
+```
+US-0032 (EPIC-0006): As a facilitator running a scene with two AI characters, I want each character to respond with its own kind of contribution and to stay silent when it has nothing of its own to add, so that a senior executive gives a decision, a condition or a number instead of echoing the sponsor.
+Priority: High
+Estimate: M
+Status: Done
+Branch: feature/EPIC-0006-ai-character-voices
+Dependencies: US-0027
+Acceptance Criteria:
+  - [x] AC-0112: an AI character role has optional `seniority` (integer 1 to 5, default 3), `responds_with` and `only_you_say` (up to 5 short strings each) and `defer_to` (role ids); the validator rejects an id that is not an NPC role (or the role itself), bounds the lengths, and both scenario folders carry them for Priya Raman and Helena Brandt
+  - [x] AC-0113: the AI character prompt has a '## Who else is in the room' section (the other characters present: name, title, seniority relative to the speaker) built only from data already public to participants, and a '## How you respond' section from `responds_with` and `only_you_say`, with the rules not to restate, paraphrase or agree-and-repeat the previous speaker, to open with its own angle and, when a more junior character has just spoken for the client side, to add the decision, condition or number only it would give; `npcIntro` and the prompt size bounds are unchanged
+  - [x] AC-0114: a character may reply exactly `<silent/>` (trimmed, case-insensitive) when it has nothing new that only it would say: this is no utterance, no fallback and no alert, it is counted, the session still advances (Game Master counting and in-flight guards unaffected), at most 2 turns in a row, and the marker never reaches a player, the log, the transcript or the evaluator, even when it appears inside a longer reply or a quote
+  - [x] AC-0115: when several AI characters are in a scene they reply after a player line in seniority order, junior first (ties by the scene's participant order), deterministically; the last character of a round nobody has answered yet must speak, and a facilitator warning is raised if every character stays silent and under the existing serialisation guarantees; a scene with one AI character, or characters without seniority, behaves as before
+  - [x] AC-0116: the showcase report, narration summary and `--json` `showcase` section count near-duplicate replies of two different AI characters to the same player line (echoes out of eligible pairs) (token-set Jaccard similarity of at least 0.6, a pure tested function) and the silent turns per character, as observations and never as failures
+  - [x] AC-0117: the scripted mock providers and shipped showcase scripts keep working (`demo --fast` 29/29, `--showcase --fast` 14/14, `--evaluate` 15/15), and a loopback fake-model showcase run in generated-players mode proves a silent turn and a spoken turn by the CFO end to end
+  - [x] AC-0118: README documents the new role fields, and the changelog and dashboard are updated
+  - [x] AC-0119: a recorded live comparison on a real model shows the CFO's replies are distinct from the sponsor's (echo count compared with the run before this story) (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4 with generated players: 0 of 5 comparable AI reply pairs were near-duplicates, Priya stayed silent once, 0 alerts, 22 of 22 player lines generated, 13 checks passed, 673 s; the CFO now opens with a decision, a number or an ultimatum (for example 'I require a daily credit of two thousand dollars, or I will not sign the change request') and the sponsor relays and defers to her; sample is one run with 5 comparable pairs)
+```
+
+```
+TASK-0032 (US-0032): Add voice fields to the schema, the roster and response sections to the NPC prompt, silence, seniority turn order and the echo metric
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-ai-character-voices
+Notes: Observed 2026-10-06 in real Gemma runs of `pnpm demo --showcase --live --players generated`: both AI characters answered every player line and the CFO's reply rephrased the sponsor's point. Live comparison is recorded by the controller, not in this task. Fix round 2026-10-06 after an independent review: forced last speaker, silence forms folded before cleaning, roster tags, generic prompt wording, echo metric restricted to different roles answering the same player line, validator warnings, ordered silent-turn note, bounded silence memory, cross-character prompt audit in S-06.
+```

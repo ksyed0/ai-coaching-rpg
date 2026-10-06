@@ -560,3 +560,56 @@ describe("S-07 when a live AI character recites its own material", () => {
     expect(s7(r).status).toBe("failed");
   });
 });
+
+describe("AI character voices (US-0032, loopback fake model)", () => {
+  const helena = (system: string) => system.includes("You are playing Helena Brandt");
+  it("Helena stays silent once and replies once: nothing is recorded for the silent turn, it is counted, junior replies first and no <silent/> text appears anywhere", async () => {
+    let helenaCalls = 0;
+    const { env, seen } = await fakeModel(GEN, (_n, system) => {
+      if (!helena(system)) return "Priya here: the daily tie-out is what Finance needs.";
+      helenaCalls++;
+      return helenaCalls === 1 ? "<silent/>" : "<silent/> Fixed price or no deal, and the date is not negotiable.";
+    });
+    const dir = await tmp();
+    const r = await run([...ARGV, "--evaluate", "--eval-out", path.join(dir, "rep"), "--transcript", "v.md"], env, { cwd: dir });
+    expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    const ai = r.showcase.lines.filter((l) => l.source === "ai-character");
+    // The first Helena turn was silent: no line for it; every later turn spoke and the marker was stripped from the reply that carried it.
+    const cfoLines = ai.filter((l) => l.role === "cfo");
+    expect(cfoLines.length).toBeGreaterThan(0);
+    expect(cfoLines.every((l) => l.text === "Fixed price or no deal, and the date is not negotiable." && l.tag === "generated" && !l.fallback)).toBe(true);
+    expect(r.showcase.voices.silentTurns.total).toBe(1);
+    expect(r.showcase.voices.silentTurns.byRole).toEqual({ cfo: 1 });
+    expect(r.showcase.npcs.find((n) => n.roleId === "cfo")).toMatchObject({ silentTurns: 1, fallbackReplies: 0 });
+    expect(r.showcase.fallbackLines).toBe(0);
+    // Junior first: in each scene both are in, Priya's reply precedes Helena's after the same player line.
+    for (const sc of new Set(cfoLines.map((l) => l.sceneId))) {
+      const here = ai.filter((l) => l.sceneId === sc);
+      const firstCfo = here.findIndex((l) => l.role === "cfo");
+      expect(here.slice(0, firstCfo + 1).some((l) => l.role === "client_sponsor")).toBe(true);
+    }
+    expect(Array.isArray(r.showcase.voices.echoes)).toBe(true);
+    expect(r.stdout).toContain("AI voices:");
+    expect(r.stdout).toContain("silent turns: Helena Brandt 1");
+    expect(r.stdout).toContain("Helena Brandt (cfo) had nothing new to add and stayed silent");
+    // The note is narrated after the utterance it follows (Priya's reply), never before it.
+    const out = r.stdout.split("\n");
+    const at = out.findIndex((l) => l.includes("stayed silent"));
+    expect(out[at - 1]).toContain("[AI character] Priya Raman (client_sponsor)");
+    expect(JSON.stringify(r.report!.results.find((x) => x.id === "S-02"))).toMatch(/cfo@s\d_\w+:\d+ silent:1/);
+    // Helena's prompt offered silence and listed Priya as less senior; Priya's did not list Helena's goals.
+    const helenaPrompt = seen.otherBodies.find((b) => b.includes("You are playing Helena Brandt"))!;
+    expect(helenaPrompt).toContain("Priya Raman, VP Operations");
+    expect(helenaPrompt).toContain("less senior than you");
+    expect(helenaPrompt).toContain("reply with exactly <silent/>");
+    const md = await readFile(path.join(dir, "v.md"), "utf8");
+    expect(md).toContain("stayed silent");
+    // The marker text itself never reached the narration, the report, the transcript or the evaluator.
+    const everything = r.stdout + r.stderr + JSON.stringify(r.report) + md + seen.evalBodies.join("\n");
+    expect(everything).not.toContain("<silent");
+    expect(seen.evalBodies.length).toBeGreaterThan(0);
+    expect(seen.evalBodies.join("\n")).not.toContain("<silent");
+    expect(JSON.stringify(r.showcase.lines)).not.toContain("<silent");
+  });
+});

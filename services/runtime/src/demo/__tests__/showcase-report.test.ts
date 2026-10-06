@@ -7,7 +7,7 @@ const scenario: Scenario = {
   meta: { id: "m", title: "Demo Scenario", version: "1", audience: "", duration_minutes: 10, players: { min: 1, max: 1 }, context: "c", learning_objectives: [], rubrics: [], facilitator_notes: "" },
   roles: {
     pa: { id: "pa", type: "player", brief: "b", private_facts: [] },
-    bot: { id: "bot", type: "npc", name: "Bo Tester", title: "", persona: "p", goals: ["g"], knowledge: [], hidden: [], guardrails: [], fallback_line: "Say that again?", voice: { style: "s", pace: "p" } },
+    bot: { id: "bot", type: "npc", name: "Bo Tester", title: "", persona: "p", goals: ["g"], knowledge: [], hidden: [], guardrails: [], fallback_line: "Say that again?", voice: { style: "s", pace: "p" }, seniority: 3, responds_with: [], only_you_say: [], defer_to: [] },
   },
   script: {
     scenes: [
@@ -48,7 +48,7 @@ const build = (over: Partial<Parameters<typeof buildShowcaseReport>[0]> = {}) =>
 describe("buildShowcaseReport", () => {
   it("counts replies per AI character, separating real model output from the canned fallback line", () => {
     const r = build();
-    expect(r.npcs).toEqual([{ roleId: "bot", name: "Bo Tester", replies: 3, modelReplies: 1, fallbackReplies: 2, latencyMs: { median: 500, max: 900 } }]);
+    expect(r.npcs).toEqual([{ roleId: "bot", name: "Bo Tester", silentTurns: 0, replies: 3, modelReplies: 1, fallbackReplies: 2, latencyMs: { median: 500, max: 900 } }]);
     expect(r.fallbackLines).toBe(2);
     expect(r.playerLines).toBe(4);
     expect(r.npcReplies).toBe(3);
@@ -119,5 +119,34 @@ describe("formatAiSummary", () => {
     const text = formatAiSummary(build({ mode: "mock", timing: false })).join("\n");
     expect(text).toContain("latency n/a");
     expect(text).toContain("scripted (mock) output");
+  });
+});
+
+describe("voices: echoes and silent turns (US-0032)", () => {
+  const two: Scenario = { ...scenario, roles: { ...scenario.roles, boss: { ...(scenario.roles.bot as object), id: "boss", name: "Big Boss", seniority: 5 } as Scenario["roles"][string] } };
+  const mk = (a: string, b: string) => stream([
+    [1000, { type: "session.started", scenarioId: "m", version: "1", roles: {} }],
+    [1000, { type: "scene.entered", sceneId: "one", participants: ["pa", "bot", "boss"] }],
+    [2000, u("pa", "hello")], [2100, u("bot", a)], [2200, u("boss", b)],
+    [2300, { type: "scene.exited", sceneId: "one", reason: "facilitator_advance" }],
+  ]);
+  const base = { scenario: two, mode: "mock" as const, timing: false, wallTimeMs: 1, maxLines: null, maxFallbacks: null, watchdogMinutes: 1, observations: [] };
+
+  it("counts an echo and silent turns per character, in the JSON section and the summary", () => {
+    const r = buildShowcaseReport({ ...base, events: mk("The budget is the problem, forty five thousand extra.", "Forty five thousand extra: the budget is the problem."), silences: [{ roleId: "boss", sceneId: "one" }, { roleId: "boss", sceneId: "one" }] });
+    expect(r.voices.echoes).toHaveLength(1);
+    expect(r.voices.eligiblePairs).toBe(1);
+    expect(r.voices.echoes[0]).toMatchObject({ sceneId: "one", first: { role: "bot" }, second: { role: "boss" } });
+    expect(r.voices.silentTurns).toEqual({ total: 2, byRole: { boss: 2 }, byScene: [{ sceneId: "one", roleId: "boss", count: 2 }] });
+    expect(r.npcs.find((n) => n.roleId === "boss")!.silentTurns).toBe(2);
+    expect(r.voices.echoThreshold).toBe(0.6);
+    expect(formatAiSummary(r)).toContain("  AI voices: 1 of 1 comparable AI reply pair(s) (different characters, same player line) were near-duplicates (similarity >= 0.6); silent turns: Big Boss 2");
+  });
+
+  it("distinct replies and no silences: zero, 'none', and a silent turn is no utterance in the lines", () => {
+    const r = buildShowcaseReport({ ...base, events: mk("We need the module before the close.", "Fixed price, 45k, or no deal; the date is 14 June.") });
+    expect(r.voices).toMatchObject({ echoes: [], silentTurns: { total: 0, byRole: {}, byScene: [] } });
+    expect(formatAiSummary(r)).toContain("  AI voices: 0 of 1 comparable AI reply pair(s) (different characters, same player line) were near-duplicates (similarity >= 0.6); silent turns: none");
+    expect(JSON.stringify(r)).not.toContain("<silent");
   });
 });

@@ -23,7 +23,7 @@ export function sampleScenario(): Scenario {
     roles: {
       alice: { id: "alice", type: "player", brief: "b", private_facts: [] },
       bob: { id: "bob", type: "player", brief: "b", private_facts: [] },
-      npc1: { id: "npc1", type: "npc", name: "Priya", title: "", persona: "p", goals: [], knowledge: [], hidden: [], guardrails: [], fallback_line: "x", voice: { style: "n", pace: "m" } },
+      npc1: { id: "npc1", type: "npc", name: "Priya", title: "", persona: "p", goals: [], knowledge: [], hidden: [], guardrails: [], fallback_line: "x", voice: { style: "n", pace: "m" }, seniority: 3, responds_with: [], only_you_say: [], defer_to: [] },
     },
     script: { scenes: [
       { id: "s1", title: "Huddle", goal: "Agree", participants: ["alice", "bob"], time_box_minutes: 5, exit_when: { any_of: ["time_box_elapsed"] } },

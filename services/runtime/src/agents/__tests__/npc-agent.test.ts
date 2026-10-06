@@ -91,7 +91,7 @@ describe("NpcAgent", () => {
 
   it("treats a reply with no letter or digit as empty", async () => {
     const alerts = alertsOf();
-    await new NpcAgent({ role: guest, engine, provider: new MockModelProvider(["..."]) }).respond();
+    await new NpcAgent({ role: guest, engine, provider: new MockModelProvider(["?!"]) }).respond();
     expect(engine.state.transcript.at(-1)?.text).toBe(guest.fallback_line);
     expect(alerts[0]).toMatch(/guest.*empty reply/);
   });
