@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { readOnce } from "../agents/__tests__/read-once.js";
 import os from "node:os";
 import path from "node:path";
@@ -62,7 +62,12 @@ describe("bootstrap: Game Master settings (US-0025)", () => {
     if (!r.ok) expect(r.errors.join(" ")).toMatch(/session log/);
   });
   it("a GM_TRACE_FILE that cannot be created refuses to start", async () => {
-    const r = await boot({ GM_TRACE_FILE: "/proc/nope/trace.jsonl" });
-    expect(r.ok).toBe(false);
+    // A path below a regular file cannot be created on any OS (ENOTDIR). Never use /proc: on Linux creating a directory there hangs.
+    const d = await mkdtemp(path.join(os.tmpdir(), "acr-main-gm-blk-"));
+    try {
+      await writeFile(path.join(d, "blocker"), "x");
+      const r = await boot({ GM_TRACE_FILE: path.join(d, "blocker", "trace.log") });
+      expect(r.ok).toBe(false);
+    } finally { await rm(d, { recursive: true, force: true }); }
   });
 });
