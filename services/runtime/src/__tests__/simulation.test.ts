@@ -83,7 +83,7 @@ describe("The Friday Escalation scenario package", () => {
     const r = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "sim", MODEL_PROVIDER: "mock" }, root: tmp, logDir: tmp, tickMs: 10_000, log: (m) => logs.push(m), warn: (m) => warns.push(m) });
     if (!r.ok) throw new Error(r.errors.join("; "));
     runtime = r.runtime;
-    expect(warns).toEqual([]);
+    expect(warns.filter((w) => !/FACILITATOR_TOKEN is not set/.test(w))).toEqual([]); // scenario warnings only; the open-server notice is covered in main.test.ts
     expect(logs.join("\n")).toContain("The Friday Escalation");
     const fac = connect(runtime.port); clients.push(fac); await fac.ready;
     fac.send({ type: "join_facilitator", sessionId: "sim" });
