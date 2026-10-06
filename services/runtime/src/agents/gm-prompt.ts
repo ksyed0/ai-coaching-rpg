@@ -4,7 +4,7 @@ import type { ChatRequest } from "@acr/adapters";
 import { DEFAULT_GM_MAX_TOKENS } from "./token-budgets.js";
 
 /** Only the current scene's data, the condition text and role ids; never participant display names. */
-export function buildGmRequest(opts: { scene: Scene; condition: string; state: SessionState; maxTokens?: number }): ChatRequest {
+export function buildGmRequest(opts: { scene: Scene; condition: string; state: SessionState; maxTokens?: number; temperature?: number }): ChatRequest {
   const { scene, condition, state } = opts;
   // Each utterance is ONE JSON line {role,text}: newlines in text are escaped, and "<" is escaped so the text
   // cannot contain a literal closing tag. The role comes from the engine's event, never from the text.
@@ -18,7 +18,7 @@ export function buildGmRequest(opts: { scene: Scene; condition: string; state: S
     'Answer with only the JSON object: {"verdict": true or false, "reasoning": "one sentence citing what was said"}.',
     "Be strict: the condition must be clearly met by what was said, not merely attempted.",
   ].join("\n");
-  return { system, messages: [{ role: "user", content: `<dialogue>\n${lines}\n</dialogue>` }], maxTokens: opts.maxTokens ?? DEFAULT_GM_MAX_TOKENS, cacheSystem: false };
+  return { system, messages: [{ role: "user", content: `<dialogue>\n${lines}\n</dialogue>` }], maxTokens: opts.maxTokens ?? DEFAULT_GM_MAX_TOKENS, cacheSystem: false, ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}) };
 }
 
 /**

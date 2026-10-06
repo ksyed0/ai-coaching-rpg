@@ -6,7 +6,7 @@ import { loadScenario, type NpcRole, type PlayerRole, type Scene } from "@acr/sc
 import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
-import { buildNpcRequest, npcIntro, toChatTurns } from "../npc-prompt.js";
+import { NO_REPEAT_RULE, buildNpcRequest, lastLinesSection, npcIntro, toChatTurns } from "../npc-prompt.js";
 import { buildGmRequest } from "../gm-prompt.js";
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
@@ -197,5 +197,35 @@ describe("buildGmRequest output format (unchanged by the persona prompt fix)", (
     expect(req.system).not.toContain("You ARE");
     expect(req.messages).toEqual([{ role: "user", content: '<dialogue>\n{"role":"delivery_lead","text":"Hi"}\n</dialogue>' }]);
     expect(req.cacheSystem).toBe(false);
+  });
+});
+
+describe("repetition guard (prompt)", () => {
+  it("carries the no-repeat rule and lists only the character's own last 3 lines, trimmed, omitted when it has said nothing", () => {
+    expect(buildNpcRequest({ role, scene, state: stateWith(["delivery_lead", "Hi"]) }).system).not.toContain("## Your last lines");
+    const long = `${"x".repeat(300)} END`;
+    const state = stateWith(["client_sponsor", "one"], ["delivery_lead", "SOMEONE ELSE LINE"], ["client_sponsor", "two"], ["client_sponsor", long], ["client_sponsor", "four"], ["delivery_lead", "last"]);
+    const req = buildNpcRequest({ role, scene, state });
+    expect(req.system).toContain(NO_REPEAT_RULE);
+    expect(req.system).toContain("react to the LATEST line".replace("react", "React"));
+    const section = req.system.split("## Your last lines (do not repeat or reword these)\n")[1]!.split("\n\n")[0]!.split("\n");
+    expect(section).toHaveLength(3);
+    expect(section[0]).toBe("- two");
+    expect(section[1]).toBe(`- ${"x".repeat(199)}…`);
+    expect(section.at(-1)).toBe("- four");
+    expect(req.system).not.toContain("- one");
+    expect(req.system).not.toContain("- SOMEONE ELSE LINE");
+    expect(req.system.startsWith("You are playing Priya Raman")).toBe(true);
+  });
+  it("lastLinesSection collapses whitespace and is empty without own lines", () => {
+    expect(lastLinesSection([{ roleId: "x", text: "a" }], "me")).toEqual([]);
+    expect(lastLinesSection([{ roleId: "me", text: "a\n  b" }], "me")).toEqual(["", "## Your last lines (do not repeat or reword these)", "- a b"]);
+  });
+  it("passes the temperature only when given", () => {
+    expect(buildNpcRequest({ role, scene, state: stateWith(), temperature: 0.8 }).temperature).toBe(0.8);
+    expect("temperature" in buildNpcRequest({ role, scene, state: stateWith() })).toBe(false);
+    const gm = buildGmRequest({ scene, condition: "c", state: stateWith(), temperature: 0.2 });
+    expect(gm.temperature).toBe(0.2);
+    expect("temperature" in buildGmRequest({ scene, condition: "c", state: stateWith() })).toBe(false);
   });
 });

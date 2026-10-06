@@ -202,3 +202,46 @@ describe("PlayerLines", () => {
     expect(playerSource(undefined)).toBe("scripted");
   });
 });
+
+describe("player prompt: repetition guard and sampling", () => {
+  const sc = { id: "s", title: "T", goal: "G" };
+  it("has the no-repeat rule and the player's own last 3 lines only (none yet: no section), bounded", () => {
+    const base = { roleId: "me", brief: "", privateFacts: [], scene: sc, injects: [] };
+    expect(buildPlayerRequest({ view: { ...base, lines: [{ roleId: "x", text: "hi" }] }, intent: "i" }).system).not.toContain("## Your last lines");
+    const lines = [1, 2, 3, 4].flatMap((n) => [{ roleId: "me", text: `mine ${n} ${"y".repeat(300)}` }, { roleId: "x", text: `theirs ${n}` }]);
+    const req = buildPlayerRequest({ view: { ...base, lines }, intent: "i", temperature: 0.9 });
+    expect(req.system).toContain("Never repeat or reword anything that has already been said");
+    const sect = req.system.split("## Your last lines (do not repeat or reword these)\n")[1]!.split("\n\n")[0]!.split("\n");
+    expect(sect).toHaveLength(3);
+    expect(sect[0]).toMatch(/^- mine 2 y+…$/);
+    expect(sect.every((l) => l.length <= 202)).toBe(true);
+    expect(req.system).not.toContain("theirs");
+    expect(req.temperature).toBe(0.9);
+    expect("temperature" in buildPlayerRequest({ view: { ...base, lines: [] }, intent: "i" })).toBe(false);
+  });
+});
+
+describe("PlayerBotGenerator: echoed note and control characters", () => {
+  it.each([
+    "[note to you only, not spoken]: What you want to get across in this turn (do not quote it): We phase it. Then ship.",
+    "Note: We phase it. Then ship.",
+    "  [ Note ]:   We phase it. Then ship.",
+    "NOTE : What you want to get across in this turn (do not quote it): We phase it. Then ship.",
+  ])("drops a leading echo of the private note: %j", async (reply) => {
+    const r = await speak(await gen(provider(reply)));
+    expect(r.text).not.toMatch(/note/i);
+    expect(r.text).not.toMatch(/get across/i);
+    expect(r).toMatchObject({ source: "generated" });
+    expect(r.text.endsWith("Then ship.")).toBe(true);
+  });
+  it("falls back when only the note prefix is left", async () => {
+    expect(await speak(await gen(provider("[note to you only, not spoken]:")))).toMatchObject({ source: "scripted", reason: "empty reply" });
+  });
+  it("strips C0/C1 and bidi control characters but keeps text and turns line breaks into spaces", async () => {
+    const r = await speak(await gen(provider("Hi\u001b[31m there\u0007‮ evil⁦ x‏\u0085 y\nnext\ttab\u007f")));
+    // eslint-disable-next-line no-control-regex
+    expect(r.text).not.toMatch(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/);
+    expect(r.text).toBe("Hi[31m there evil x y next tab");
+    expect(r.source).toBe("generated");
+  });
+});

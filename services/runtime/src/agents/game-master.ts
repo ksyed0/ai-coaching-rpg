@@ -18,11 +18,14 @@ export class GameMaster {
   private readonly evaluationTimeoutMs: number;
   /** The model's max_tokens for one verdict (GM_MAX_TOKENS). */
   readonly maxTokens: number;
+  /** Sampling temperature (GM_TEMPERATURE); undefined leaves the provider default. */
+  readonly temperature: number | undefined;
   private evaluating = false; // R19: at most one evaluation in flight
 
-  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number }) {
+  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number }) {
     this.engine = opts.engine; this.provider = opts.provider; this.everyN = opts.everyNUtterances ?? GM_EVERY_N_UTTERANCES;
     this.maxTokens = opts.maxTokens ?? DEFAULT_GM_MAX_TOKENS;
+    this.temperature = opts.temperature;
     this.evaluationTimeoutMs = opts.evaluationTimeoutMs ?? gmDeadlineMs(DEFAULT_REPLY_TIMEOUT_MS);
     this.onError = opts.onError ?? ((err) => console.error("[GameMaster] evaluation failed:", err));
   }
@@ -109,7 +112,7 @@ export class GameMaster {
     let expired = false;
     const deadline = new Promise<"deadline">((r) => { timer = setTimeout(() => r("deadline"), this.evaluationTimeoutMs); });
     try {
-      const it = this.provider.stream(buildGmRequest({ scene, condition, state: this.engine.state, maxTokens: this.maxTokens }), ac.signal)[Symbol.asyncIterator]();
+      const it = this.provider.stream(buildGmRequest({ scene, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature }), ac.signal)[Symbol.asyncIterator]();
       for (;;) {
         const nextP = it.next();
         nextP.catch(() => undefined); // if the deadline wins, a later rejection must not go unhandled

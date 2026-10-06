@@ -11,6 +11,7 @@ import { startServer } from "../host/ws-server.js";
 import { npcIntro } from "../agents/npc-prompt.js";
 import { parseNpcTimeouts } from "../agents/timeouts.js";
 import { parseTokenBudgets } from "../agents/token-budgets.js";
+import { parseTemperatures } from "../agents/temperatures.js";
 import { parseModelRetry, withModelRetry } from "../agents/retry-config.js";
 
 /** A distinctive fake key set in the runner's own env object. It is never used to call anything; the audit proves it never leaks. */
@@ -127,6 +128,8 @@ export async function startLiveSystem(o: { scenario: Scenario; sessionId: string
   if (!timeouts.ok) throw new Error(timeouts.errors.join("; "));
   const budgets = parseTokenBudgets(o.env);
   if (!budgets.ok) throw new Error(budgets.errors.join("; "));
+  const temps = parseTemperatures(o.env);
+  if (!temps.ok) throw new Error(temps.errors.join("; "));
   const retry = parseModelRetry(o.env);
   if (!retry.ok) throw new Error(retry.errors.join("; "));
   // Live providers retry transient model errors like the real runtime does (no log line: the demo's host log means "background failure").
@@ -134,7 +137,7 @@ export async function startLiveSystem(o: { scenario: Scenario; sessionId: string
     ...o, clock: new SystemClock(),
     npcProvider: withModelRetry(selectModelProvider(o.env, "npc", { sdkRetries: false }), retry, "NPC"), gmProvider: withModelRetry(selectModelProvider(o.env, "gm", { sdkRetries: false }), retry, "GM"),
     firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs,
-    npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens,
+    npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature,
   });
   sys.host.startTicker(1_000);
   return sys;
@@ -153,7 +156,7 @@ export function startPlayerProvider(env: NodeJS.ProcessEnv, model?: string): Mod
 
 export async function buildSystem(o: {
   scenario: Scenario; sessionId: string; dataDir: string; clock: Clock; fakeClock?: FakeClock; npc?: RecordingProvider; gm?: RecordingProvider;
-  npcProvider: ModelProvider; gmProvider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; log?: EventLog; heartbeatMs?: number;
+  npcProvider: ModelProvider; gmProvider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; log?: EventLog; heartbeatMs?: number;
 }): Promise<System> {
   const hostLog: string[] = []; const serverLog: string[] = [];
   const log = o.log ?? new JsonlEventLog(o.sessionId, o.dataDir);
@@ -161,7 +164,7 @@ export async function buildSystem(o: {
   const host = new SessionHost({
     scenario: o.scenario, engine, npcProvider: o.npcProvider, gmProvider: o.gmProvider, clock: o.clock,
     log: (m) => hostLog.push(m), firstTokenTimeoutMs: o.firstTokenTimeoutMs, replyTimeoutMs: o.replyTimeoutMs,
-    npcMaxTokens: o.npcMaxTokens, gmMaxTokens: o.gmMaxTokens,
+    npcMaxTokens: o.npcMaxTokens, gmMaxTokens: o.gmMaxTokens, npcTemperature: o.npcTemperature, gmTemperature: o.gmTemperature,
   });
   const server = await startServer({ port: 0, hosts: new Map([[o.sessionId, host]]), log: (m) => serverLog.push(m), heartbeatMs: o.heartbeatMs });
   return {

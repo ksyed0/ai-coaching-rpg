@@ -90,6 +90,7 @@ const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 /** Renders the transcript. Pure. Dialogue is bold in full and carries its provenance tag; technical logging is plain `[SYSTEM]` lines. */
 export function renderTranscript(i: TranscriptInput): string {
   const sec = i.secrets ?? [];
+  const gen = i.showcase?.players !== undefined;
   const cell = (t: string) => safeMd(t, CELL_CHARS, sec);
   const out: string[] = [`# ${safeMd(i.title, 200, sec)}`, ""];
   out.push("| Field | Value |", "| --- | --- |");
@@ -97,8 +98,8 @@ export function renderTranscript(i: TranscriptInput): string {
     out.push(`| ${k} | ${cell(v)} |`);
   }
   out.push("", "## Legend", "",
-    `${TAGS.scripted} text authored in advance: bot player lines (also a generated player line that fell back to its scripted text), facilitator whispers and every reply of the scripted mock providers.`, "",
-    `${TAGS.generated} produced by a live model at run time: live AI character replies, the Game Master's reasoning and, with \`--players generated\`, the player bots' lines (only when the model wrote the recorded text).`, "",
+    `${TAGS.scripted} text authored in advance: bot player lines${gen ? " (also a generated player line that fell back to its scripted text)" : ""}, facilitator whispers and every reply of the scripted mock providers.`, "",
+    `${TAGS.generated} produced by a live model at run time: live AI character replies and the Game Master's reasoning${gen ? " and, with `--players generated`, the player bots' lines (only when the model wrote the recorded text)" : ""}.`, "",
     `${TAGS.fallback} the character's canned fallback line, used in place of a missing model reply (scripted text, never generated).`, "",
     `${TAGS.unverified} an AI character or Game Master line seen through \`--url\`: the runner cannot tell whether the remote server used a real model or a script. Under \`--url\` the fallback marker is asserted by the remote server: a hostile server can set it, but it can never make a line generated.`, "",
     `${TAGS.system} technical logging, not dialogue.`, "",

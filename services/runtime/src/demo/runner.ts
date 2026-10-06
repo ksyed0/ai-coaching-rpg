@@ -26,7 +26,8 @@ import { checkTranscriptTarget, writeTranscriptFile } from "./transcript-path.js
 import { renderTranscript } from "./transcript-md.js";
 import { parseNpcTimeouts, DEFAULT_REPLY_TIMEOUT_MS } from "../agents/timeouts.js";
 import { parseModelRetry } from "../agents/retry-config.js";
-import { DEFAULT_NPC_MAX_TOKENS, parseTokenBudgets } from "../agents/token-budgets.js";
+import { parseTokenBudgets } from "../agents/token-budgets.js";
+import { parseTemperatures } from "../agents/temperatures.js";
 
 export const TOOL = "acr-demo";
 export const DEFAULT_WATCHDOG_MS = 120_000;
@@ -140,6 +141,8 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       selectModelProvider(liveEnv, "npc"); selectModelProvider(liveEnv, "gm"); // fails now, with a message that names variables, not values
       const retryConfig = parseModelRetry(liveEnv);
       if (!retryConfig.ok) throw new Error(retryConfig.errors.join("; "));
+      const temperatures = parseTemperatures(liveEnv);
+      if (!temperatures.ok) throw new Error(temperatures.errors.join("; "));
       if (opts.players === "generated") startPlayerProvider(liveEnv, opts.playerModel); // fails now, naming variables, not values
     } catch (err) {
       deps.stderr.write(`error: --live cannot use the configured model provider: ${scrubText(err instanceof Error ? err.message : String(err))}\n`);
@@ -187,8 +190,8 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     n.line(`${sc.scenario.meta.title}: AI showcase (${mode} mode${opts.players === "generated" ? ", generated players" : ""}${pacing})`);
     const calls = expectedModelCalls(sc.scenario, sc.script, opts.maxLines ?? null);
     if (opts.live) {
-      n.styled(`NOTICE: --live sends the AI characters' personas and goals and the scripted conversation to the configured model provider (${providerLabel}) and may cost money. Expect up to about ${calls.npc} AI character replies and ${calls.gm} Game Master calls.`, "yellow");
-      if (opts.players === "generated") n.styled(`NOTICE: --players generated also sends each player role's brief and private facts, the scene and the conversation so far to the model provider to write the player lines (up to about ${calls.player} more calls${opts.playerModel ? `, model ${opts.playerModel}` : ", the NPC model"}). A failed generation falls back to the scripted line.`, "yellow");
+      n.styled(`NOTICE: --live sends the AI characters' personas and goals and ${opts.players === "generated" ? "the conversation so far" : "the scripted conversation"} to the configured model provider (${providerLabel}) and may cost money. Expect up to about ${calls.npc} AI character replies and ${calls.gm} Game Master calls.`, "yellow");
+      if (opts.players === "generated") n.styled(`NOTICE: --players generated also sends each player role's brief and private facts, the scene title and goal, the injects addressed to that role and the conversation it has seen to the model provider to write the player lines (up to about ${calls.player} more calls, one per line slot and more with retries${opts.playerModel ? `, model ${opts.playerModel}` : ", the NPC model"}). A failed generation falls back to the scripted line.`, "yellow");
       n.line("The AI characters and the Game Master answer for real; how long it takes depends on the model.");
     } else n.line("Mock mode: the AI characters and the Game Master are scripted (offline and deterministic); nothing leaves this machine.");
     const markers = showcaseMarkers(sc.scenario);
@@ -207,13 +210,18 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     ctx.sys = sys; ctx.tmp = { root: t.root, dataDir: t.dataDir, scenarioDir: "", cleanup: t.cleanup }; ctx.wsUrl = `ws://127.0.0.1:${sys.port}`;
     const timeouts = liveEnv ? parseNpcTimeouts(liveEnv) : undefined;
     let players: { generator: PlayerBotGenerator; lines: PlayerLines } | undefined;
-    if (opts.players === "generated" && liveEnv && timeouts?.ok) {
+    if (opts.players === "generated") {
+      if (!liveEnv) throw new Error("--players generated needs the live environment");
+      if (!timeouts?.ok) throw new Error(`the NPC timeouts are invalid: ${timeouts?.errors.join("; ")}`);
       const budgets = parseTokenBudgets(liveEnv);
+      if (!budgets.ok) throw new Error(budgets.errors.join("; "));
+      const temps = parseTemperatures(liveEnv);
+      if (!temps.ok) throw new Error(temps.errors.join("; "));
       players = {
         lines: new PlayerLines(),
         generator: new PlayerBotGenerator({
           provider: startPlayerProvider(liveEnv, opts.playerModel), scenario: sc.scenario, signal: ac.signal,
-          firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, maxTokens: budgets.ok ? budgets.npcMaxTokens : DEFAULT_NPC_MAX_TOKENS,
+          firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, maxTokens: budgets.npcMaxTokens, temperature: temps.playerTemperature,
         }),
       };
     }

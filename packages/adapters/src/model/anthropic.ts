@@ -105,7 +105,7 @@ export class AnthropicModelProvider implements ModelProvider {
       : [{ type: "text" as const, text: req.system, cache_control: { type: "ephemeral" as const } }];
     try {
       const stream = this.client.messages.stream(
-        { model: req.model ?? this.model, max_tokens: req.maxTokens, system, messages: req.messages },
+        { model: req.model ?? this.model, max_tokens: req.maxTokens, ...(req.temperature !== undefined ? { temperature: req.temperature } : {}), system, messages: req.messages },
         { signal, ...(this.sdkRetries ? {} : { maxRetries: 0 }) },
       );
       for await (const ev of stream) {

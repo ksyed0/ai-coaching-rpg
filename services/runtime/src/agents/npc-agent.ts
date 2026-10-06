@@ -19,12 +19,15 @@ export class NpcAgent {
   private readonly replyTimeoutMs: number;
   /** The model's max_tokens for one reply (NPC_MAX_TOKENS). */
   readonly maxTokens: number;
+  /** Sampling temperature (NPC_TEMPERATURE); undefined leaves the provider default. */
+  readonly temperature: number | undefined;
 
-  constructor(opts: { role: NpcRole; engine: SessionEngine; provider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; maxTokens?: number }) {
+  constructor(opts: { role: NpcRole; engine: SessionEngine; provider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; maxTokens?: number; temperature?: number }) {
     this.role = opts.role; this.engine = opts.engine; this.provider = opts.provider;
     this.firstTokenTimeoutMs = opts.firstTokenTimeoutMs ?? DEFAULT_FIRST_TOKEN_TIMEOUT_MS;
     this.replyTimeoutMs = opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS;
     this.maxTokens = opts.maxTokens ?? DEFAULT_NPC_MAX_TOKENS;
+    this.temperature = opts.temperature;
   }
 
   /** The effective timeouts (defaults applied), for diagnostics and tests. */
@@ -42,7 +45,7 @@ export class NpcAgent {
   async respond(): Promise<SessionEvent | null> {
     const scene = this.engine.currentScene();
     if (!scene || !scene.participants.includes(this.role.id) || this.engine.state.paused || this.engine.state.status !== "running") return null;
-    const req = buildNpcRequest({ role: this.role, scene, state: this.engine.state, maxTokens: this.maxTokens });
+    const req = buildNpcRequest({ role: this.role, scene, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature });
     const expectSceneId = scene.id;
     const collected = await collectModelReply(this.provider, req, { firstTokenTimeoutMs: this.firstTokenTimeoutMs, replyTimeoutMs: this.replyTimeoutMs });
     let text = collected.text;

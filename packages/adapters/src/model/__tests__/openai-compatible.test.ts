@@ -42,6 +42,14 @@ describe("request shape", () => {
     expect(JSON.parse(r.body)).toEqual({ model: "m1", messages: [{ role: "system", content: "sys" }, { role: "user", content: "hi" }], max_tokens: 64, stream: true });
     expect(r.url).not.toContain(KEY);
   });
+  it("sends `temperature` only when the request sets it (0 included)", async () => {
+    await collect(make(), { ...REQ, temperature: 0.7 });
+    await collect(make(), { ...REQ, temperature: 0 });
+    await collect(make(), REQ);
+    expect(JSON.parse(srv.requests[0]!.body).temperature).toBe(0.7);
+    expect(JSON.parse(srv.requests[1]!.body).temperature).toBe(0);
+    expect("temperature" in JSON.parse(srv.requests[2]!.body)).toBe(false);
+  });
   it("sends no Authorization header when no key is set", async () => {
     await collect(make());
     expect(srv.requests[0]!.headers.authorization).toBeUndefined();

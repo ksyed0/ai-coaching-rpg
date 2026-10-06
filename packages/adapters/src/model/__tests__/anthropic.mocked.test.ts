@@ -28,6 +28,16 @@ describe("AnthropicModelProvider (SDK mocked)", () => {
     expect(params.system).toEqual([{ type: "text", text: "sys", cache_control: { type: "ephemeral" } }]);
   });
 
+  it("passes `temperature` only when the request sets it", async () => {
+    const p = new AnthropicModelProvider({ apiKey: "k", model: "m1" });
+    for await (const _ of p.stream({ system: "s", messages: [], maxTokens: 5, temperature: 0.4 })) void _;
+    for await (const _ of p.stream({ system: "s", messages: [], maxTokens: 5, temperature: 0 })) void _;
+    for await (const _ of p.stream({ system: "s", messages: [], maxTokens: 5 })) void _;
+    expect(streamMock.mock.calls[0]![0].temperature).toBe(0.4);
+    expect(streamMock.mock.calls[1]![0].temperature).toBe(0);
+    expect("temperature" in streamMock.mock.calls[2]![0]).toBe(false);
+  });
+
   it("passes a plain system string and model override when cacheSystem is false", async () => {
     const p = new AnthropicModelProvider({ apiKey: "k", model: "m1" });
     const ac = new AbortController();

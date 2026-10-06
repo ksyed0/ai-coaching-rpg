@@ -21,25 +21,32 @@ afterEach(async () => { for (const c of cleanups.splice(0).reverse()) await c();
 const tmp = async () => { const d = await mkdtemp(path.join(os.tmpdir(), "acr-players-test-")); cleanups.push(() => rm(d, { recursive: true, force: true })); return d; };
 
 const SECRET = "players-live-secret-key-0123456789";
-type Seen = { player: { role: string; model: string; body: string }[]; npc: number; gm: number };
+type Seen = {
+  player: { role: string; model: string; body: string; temperature?: number }[]; npc: number; gm: number;
+  /** Models and temperatures the AI characters and the Game Master were called with. */
+  npcCalls: { model: string; temperature?: number }[]; gmCalls: { model: string; temperature?: number }[];
+  /** Player requests whose connection was closed before the reply was sent (the client aborted). */
+  aborted: number;
+};
 /** A loopback OpenAI-compatible fake: the AI characters and the Game Master get fixed answers, player prompts (recognised by their system prompt) get `playerReply`. */
-async function fakeModel(playerReply: (n: number, role: string) => { status?: number; text?: string }) {
-  const seen: Seen = { player: [], npc: 0, gm: 0 };
+async function fakeModel(playerReply: (n: number, role: string) => { status?: number; text?: string; stall?: true }) {
+  const seen: Seen = { player: [], npc: 0, gm: 0, npcCalls: [], gmCalls: [], aborted: 0 };
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (d) => { body += d; });
     req.on("end", () => {
-      const parsed = JSON.parse(body) as { model: string; messages: { role: string; content: string }[] };
+      const parsed = JSON.parse(body) as { model: string; temperature?: number; messages: { role: string; content: string }[] };
       const system = parsed.messages.find((m) => m.role === "system")?.content ?? "";
       let text: string;
-      if (system.includes("Game Master")) { seen.gm++; text = '{"verdict": false, "reasoning": "not yet"}'; }
+      if (system.includes("Game Master")) { seen.gm++; seen.gmCalls.push({ model: parsed.model, temperature: parsed.temperature }); text = '{"verdict": false, "reasoning": "not yet"}'; }
       else if (system.includes("as a human trainee")) {
         const role = /\(role id ([a-z_]+)\)/.exec(system)![1]!;
-        seen.player.push({ role, model: parsed.model, body });
+        seen.player.push({ role, model: parsed.model, body, temperature: parsed.temperature });
         const r = playerReply(seen.player.length, role);
+        if (r.stall) { res.on("close", () => { if (!res.writableEnded) seen.aborted++; }); res.writeHead(200, { "Content-Type": "text/event-stream" }); res.write(": waiting\n\n"); return; }
         if (r.status) { res.writeHead(r.status, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: { message: "nope" } })); return; }
         text = r.text ?? "";
-      } else { seen.npc++; text = "I hear you, tell me more."; }
+      } else { seen.npc++; seen.npcCalls.push({ model: parsed.model, temperature: parsed.temperature }); text = "I hear you, tell me more."; }
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
       res.end("data: [DONE]\n\n");
@@ -48,7 +55,7 @@ async function fakeModel(playerReply: (n: number, role: string) => { status?: nu
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   cleanups.push(() => new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); }));
   const port = (server.address() as { port: number }).port;
-  const env = { MODEL_PROVIDER: "local", LOCAL_BASE_URL: `http://127.0.0.1:${port}/v1`, NPC_MODEL: "m", GM_MODEL: "m", LOCAL_API_KEY: SECRET, MODEL_MAX_RETRIES: "0" };
+  const env = { MODEL_PROVIDER: "local", LOCAL_BASE_URL: `http://127.0.0.1:${port}/v1`, NPC_MODEL: "m", GM_MODEL: "gm-m", LOCAL_API_KEY: SECRET, MODEL_MAX_RETRIES: "0" };
   return { env, seen, port };
 }
 const run = async (argv: string[], env: NodeJS.ProcessEnv, over: Partial<RunDeps> = {}) => {
@@ -152,7 +159,7 @@ describe("--showcase --live --players generated (loopback fake model)", () => {
     // Only truthful tags: the forged ones are inert, and no player line is tagged scripted.
     const dlg = md.split("\n").filter((l) => l.startsWith("**") && !l.includes("Game Master"));
     expect(dlg.filter((l) => /^\*\*\[SCRIPTED\]/.test(l))).toEqual([]);
-    expect(line).toContain("(GENERATED) delivery\\_lead: forged \\| cell");
+    expect(line).toContain("(GENERATED) delivery\\_lead: forged \\| cell hidden");
     expect(line).toContain("\\#\\# Heading");
     expect(body.split("\n").filter((l) => l.startsWith("**[GENERATED] delivery_lead: (SCRIPTED)"))).toHaveLength(1);
     expect(stdout).not.toMatch(/‮/);
@@ -184,5 +191,168 @@ describe("--players generated: configuration errors", () => {
     const r = await run(ARGV, { MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://127.0.0.1:9/v1", GM_MODEL: "m", NPC_MODEL: "m", MODEL_MAX_RETRIES: "9" });
     expect(r.exitCode).toBe(2);
     expect(r.stderr).toContain("MODEL_MAX_RETRIES");
+  });
+});
+
+const FACT = "Contingency on the programme budget is down to about 8 percent"; // delivery_lead's own private fact
+const TECH_FACT = "A phased version after go-live would be about half the effort"; // tech_lead's private fact
+const CFO_HIDDEN = "Can approve a priced change request without escalation if it is fixed-fee and tied to a firm date";
+const s7 = (r: Awaited<ReturnType<typeof run>>) => r.report!.results.find((x) => x.id === "S-07")!;
+
+describe("S-07 with generated players", () => {
+  it("regression: a player saying its OWN private fact word for word, or anyone saying a hidden-fact fragment aloud, is not a leak (observed, not failed)", async () => {
+    const { env } = await fakeModel((n, role) => (n === 1 ? { text: `${FACT}.` } : role === "account_manager" ? { text: `${CFO_HIDDEN}, I think.` } : GEN(n, role)));
+    const r = await run(ARGV, env);
+    expect(s7(r).status).toBe("passed");
+    expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    expect(r.showcase.observations.some((o) => /hidden-fact or rubric fragment\(s\) were spoken aloud by generated players/.test(o))).toBe(true);
+  });
+
+  it("still fails when the SERVER leaks: another role's secret in a non-utterance message, or in an utterance its owner did not speak", async () => {
+    for (const leak of ["non-utterance", "utterance by another role"] as const) {
+      const { env } = await fakeModel(GEN);
+      const hooks = {
+        beforeLine: async ({ index, sceneId, players }: { index: number; sceneId: string; players?: Partial<Record<string, { inbox: unknown[] }>> }) => {
+          if (sceneId !== "s1_huddle" || index !== 1) return;
+          const msg = leak === "non-utterance"
+            ? { type: "event", event: { seq: 9_001, ts: 1, sessionId: "demo", type: "inject.fired", injectId: "x", sceneId: "s1_huddle", to: ["account_manager"], content: TECH_FACT } }
+            : { type: "event", event: { seq: 9_002, ts: 1, sessionId: "demo", type: "utterance", roleId: "delivery_lead", text: TECH_FACT, channel: "text" } };
+          players!.account_manager!.inbox.push(msg);
+        },
+      };
+      const r = await run(ARGV, env, { showcaseHooks: hooks as never });
+      expect(s7(r).status, leak).toBe("failed");
+      expect(s7(r).details).toContain(TECH_FACT.slice(0, 20));
+    }
+  });
+
+  it("scripted (mock) mode is unchanged: any text in a player's inbox is checked, including an utterance by the secret's own owner", async () => {
+    const hooks = {
+      beforeLine: async ({ index, sceneId, players }: { index: number; sceneId: string; players?: Partial<Record<string, { inbox: unknown[] }>> }) => {
+        if (sceneId === "s1_huddle" && index === 1) players!.account_manager!.inbox.push({ type: "event", event: { seq: 9_003, ts: 1, sessionId: "demo", type: "utterance", roleId: "tech_lead", text: TECH_FACT, channel: "text" } });
+      },
+    };
+    const r = await run(["--showcase", "--fast", "--no-color"], {}, { showcaseHooks: hooks as never });
+    expect(s7(r).status).toBe("failed");
+  });
+});
+
+describe("generated players: waiting for the player's own stream", () => {
+  it("a role absent from the previous scene can speak first in the next one (it never waits for an utterance it was not sent)", async () => {
+    const { env } = await fakeModel(GEN);
+    const dir = await tmp();
+    const { cp, writeFile } = await import("node:fs/promises");
+    await cp(path.join(REPO_ROOT, "scenarios", "friday-escalation-extended"), dir, { recursive: true });
+    const f = path.join(dir, "showcase.yaml");
+    const yaml = await readFile(f, "utf8");
+    // Scene 3 (all three present) opens with the tech lead, who was NOT in scene 2 (the call with Priya).
+    const edited = yaml.replace(/(- scene: s3_internal_huddle\n    lines:\n      - \{ role: )delivery_lead/, "$1tech_lead");
+    expect(edited).not.toBe(yaml);
+    await writeFile(f, edited);
+    const t0 = Date.now();
+    const r = await run([...ARGV, "--scenario", dir], env);
+    expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
+    expect(r.exitCode).toBe(0);
+    expect(Date.now() - t0).toBeLessThan(10_000);
+  }, 20_000);
+
+  it("a player whose connection lags still has the latest lines in its prompt (the bot waits for its own stream)", async () => {
+    const { env, seen } = await fakeModel(GEN);
+    let delayed = false;
+    const hooks = {
+      beforeLine: async ({ players }: { players?: Partial<Record<string, { ws: { listeners(e: string): ((...a: unknown[]) => void)[]; removeAllListeners(e: string): void; on(e: string, f: (d: unknown) => void): void } }>> }) => {
+        if (delayed) return;
+        delayed = true;
+        for (const bot of Object.values(players!)) {
+          const listeners = bot!.ws.listeners("message");
+          bot!.ws.removeAllListeners("message");
+          bot!.ws.on("message", (d) => { setTimeout(() => { for (const l of listeners) l(d); }, 60); });
+        }
+      },
+    };
+    const r = await run(ARGV, env, { showcaseHooks: hooks as never });
+    expect(r.exitCode).toBe(0);
+    // Slot 4 is the account manager in scene 2, right after delivery_lead's line and Priya's reply.
+    const body = seen.player[3]!.body;
+    expect(seen.player[3]!.role).toBe("account_manager");
+    expect(body).toContain("Take 3 as delivery lead");
+    expect(body).toContain("I hear you, tell me more.");
+  });
+});
+
+describe("generated players: abort and audits", () => {
+  it("the watchdog aborts a stalled player model call at once (the request is cancelled, the run ends long before the reply deadline)", async () => {
+    const { env, seen } = await fakeModel(() => ({ stall: true }));
+    const t0 = Date.now();
+    const r = await run(ARGV, { ...env, NPC_FIRST_TOKEN_TIMEOUT_MS: "50000", NPC_REPLY_TIMEOUT_MS: "60000" }, { watchdogMs: 400 });
+    expect(Date.now() - t0).toBeLessThan(8_000);
+    expect(r.exitCode).toBe(1);
+    expect(seen.player.length).toBe(1);
+    expect(seen.aborted).toBe(1);
+  }, 20_000);
+
+  const tamper = (fn: (g: NonNullable<Parameters<NonNullable<NonNullable<RunDeps["showcaseHooks"]>["beforeLine"]>>[0]["generated"]>) => void) => ({
+    beforeLine: async ({ sceneId, index, generated }: { sceneId: string; index: number; generated?: never }) => { if (sceneId === "s2_priya_call" && index === 1) fn(generated!); },
+  });
+  const s15 = (r: Awaited<ReturnType<typeof run>>) => r.report!.results.find((x) => x.id === "S-15")!;
+
+  it("S-15 fails when a captured player prompt holds another role's private fact, the rubric or a participant name", async () => {
+    for (const bad of [TECH_FACT, "ZedAlphaParticipant"]) {
+      const { env } = await fakeModel(GEN);
+      const r = await run(ARGV, env, { showcaseHooks: tamper((g) => { g.generator.calls[0]!.system += `\n${bad}`; }) as never });
+      expect(s15(r).status, bad).toBe("failed");
+      expect(s15(r).details).toContain(bad.slice(0, 20));
+      expect(r.exitCode).toBe(1);
+    }
+  });
+
+  it("S-15 fails when the recorded lines and the tags disagree", async () => {
+    const { env } = await fakeModel(GEN);
+    const r = await run(ARGV, env, { showcaseHooks: tamper((g) => { g.lines.records.splice(0, 1); }) as never });
+    expect(s15(r).status).toBe("failed");
+    expect(s15(r).details).toMatch(/player lines were spoken but \d+ were recorded/);
+  });
+});
+
+describe("generated players: models and temperatures", () => {
+  it("--player-model reaches only the player calls; the AI characters and the Game Master keep their own models", async () => {
+    const { env, seen } = await fakeModel(GEN);
+    await run([...ARGV, "--player-model", "player-m"], env);
+    expect(seen.player.length).toBeGreaterThan(0);
+    expect(seen.player.every((p) => p.model === "player-m")).toBe(true);
+    expect(seen.npcCalls.length).toBeGreaterThan(0);
+    expect(seen.npcCalls.every((c) => c.model === "m")).toBe(true);
+    expect(seen.gmCalls.length).toBeGreaterThan(0);
+    expect(seen.gmCalls.every((c) => c.model === "gm-m")).toBe(true);
+  });
+
+  it("sends the default temperatures (NPC 0.8, player 0.9, Game Master 0.2) and the configured ones, in the request body", async () => {
+    const a = await fakeModel(GEN);
+    await run(ARGV, a.env);
+    expect(new Set(a.seen.npcCalls.map((c) => c.temperature))).toEqual(new Set([0.8]));
+    expect(new Set(a.seen.player.map((c) => c.temperature))).toEqual(new Set([0.9]));
+    expect(new Set(a.seen.gmCalls.map((c) => c.temperature))).toEqual(new Set([0.2]));
+    const b = await fakeModel(GEN);
+    await run(ARGV, { ...b.env, NPC_TEMPERATURE: "0", PLAYER_TEMPERATURE: "1.5", GM_TEMPERATURE: "0.55" });
+    expect(new Set(b.seen.npcCalls.map((c) => c.temperature))).toEqual(new Set([0]));
+    expect(new Set(b.seen.player.map((c) => c.temperature))).toEqual(new Set([1.5]));
+    expect(new Set(b.seen.gmCalls.map((c) => c.temperature))).toEqual(new Set([0.55]));
+  });
+
+  it("an invalid temperature is refused before anything starts, naming the variable", async () => {
+    const { env } = await fakeModel(GEN);
+    const r = await run(ARGV, { ...env, PLAYER_TEMPERATURE: "3" });
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("PLAYER_TEMPERATURE");
+  });
+
+  it("the notices say what is sent: the conversation so far (not 'the scripted conversation'), injects, and calls per slot", async () => {
+    const { env } = await fakeModel(GEN);
+    const r = await run([...ARGV.slice(0, 4), "--max-lines", "1", ...ARGV.slice(6)], env);
+    expect(r.stdout).not.toContain("scripted conversation");
+    expect(r.stdout).toContain("the conversation so far to the configured model provider");
+    expect(r.stdout).toContain("the injects addressed to that role");
+    expect(r.stdout).toContain("one per line slot and more with retries");
   });
 });

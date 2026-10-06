@@ -62,7 +62,7 @@ export type ShowcaseOptions = {
   hooks?: ShowcaseHooks;
 };
 export type ShowcaseHooks = {
-  beforeLine?: (a: { sceneId: string; index: number; sys?: System }) => Promise<void>;
+  beforeLine?: (a: { sceneId: string; index: number; sys?: System; players?: Story["players"]; /** `--players generated` only: the generator and the line registry (tests tamper with them to prove the S-15 audit can fail). */ generated?: { generator: PlayerBotGenerator; lines: PlayerLines } }) => Promise<void>;
   beforeAdvance?: (a: { sceneId: string; index: number; sys?: System }) => Promise<void>;
 };
 
@@ -211,8 +211,11 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
 
   /** Waits until the player's own connection has received the last utterance and the last inject addressed to it that the facilitator saw (so its prompt is complete). */
   const playerCaughtUp = async (bot: (typeof st.players)[PlayerId] & object, role: string): Promise<void> => {
-    const ev = [...fac.events()].reverse();
-    const lastUtter = ev.find((e) => e.type === "utterance")?.seq;
+    const all = fac.events();
+    const ev = [...all].reverse();
+    // The server sends a player only the utterances of scenes it takes part in (viewFor): mirror that, or a role absent from the previous scene would wait for an event that never comes.
+    const participants = new Map(all.flatMap((e) => (e.type === "scene.entered" ? [[e.sceneId, e.participants] as const] : [])));
+    const lastUtter = ev.find((e) => { if (e.type !== "utterance") return false; const sc = sceneAt(all, e.seq); return sc !== null && (participants.get(sc)?.includes(role) ?? false); })?.seq;
     const lastInject = ev.find((e) => e.type === "inject.fired" && e.to.includes(role))?.seq;
     for (const seq of [lastUtter, lastInject]) {
       if (seq !== undefined) await bot.waitFor((m) => m.type === "event" && m.event.seq === seq, { timeoutMs: 15_000, what: `${role} to receive event ${seq}` });
@@ -246,7 +249,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         const delta = entered.ts + timedAt * MIN - sys.clock.now();
         if (delta > 0) { sys.fakeClock.advance(delta); await n.note(`the fake clock moves to minute ${timedAt} of the scene, so its timed injects fire`); }
       }
-      await o.hooks?.beforeLine?.({ sceneId: scene.id, index: i, sys });
+      await o.hooks?.beforeLine?.({ sceneId: scene.id, index: i, sys, players: st.players, generated: o.players });
       const bot = st.players[line.role as PlayerId]!;
       let text = line.text;
       let record: PlayerLineRecord | undefined;
@@ -259,7 +262,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         record = o.players.lines.add({ role: line.role, text, source: said.source, verbatim: said.verbatim, cut: said.cut, ...(said.reason !== undefined ? { reason: said.reason } : {}) });
         if (said.reason !== undefined) {
           const msg = `player ${line.role}: generation failed (${said.reason}); used the scripted line`;
-          await n.tagged("alert", "yellow", "", clip(msg, 300));
+          chain = chain.then(() => n.tagged("alert", "yellow", "", clip(msg, 300))).catch(() => undefined);
           ctx.tr?.add({ kind: "log", source: "system", text: msg, scene: scene.id });
         }
       }
@@ -412,7 +415,7 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
 
   await rec.run("S-07", () => {
     const by = new Map<string, string[]>();
-    let audited = 0;
+    let audited = 0; let spokenAloud = 0;
     for (const [role] of ROLE_PLAYERS) {
       const bot = st.players[role as PlayerId]!;
       const text = JSON.stringify(bot.inbox);
@@ -422,13 +425,29 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       const names = findMarkers(text, PARTICIPANT_NAMES);
       ensure(names.length === 0, `${role} saw participant names: ${names.join(", ")}`);
       const others = Object.entries(markers.secretsByRole).filter(([r]) => r !== role).flatMap(([, v]) => v);
-      const leaked = findMarkers(text, [...others, ...markers.npcInternals, ...markers.hidden, ...markers.rubric]);
+      let leaked: string[];
+      if (!o.players) leaked = findMarkers(text, [...others, ...markers.npcInternals, ...markers.hidden, ...markers.rubric]);
+      else {
+        // Generated players choose their own words: a role speaking its OWN private fact, or a player saying a hidden-fact fragment aloud, is not a server leak.
+        // Everything the server sends apart from utterances is checked in full; a role's secrets are checked against utterances it did not speak itself;
+        // hidden-fact, rubric and NPC-internal strings are not counted when a player said them (they are reported as an observation).
+        const msgs = bot.inbox.filter((m) => !(m.type === "event" && m.event.type === "utterance"));
+        const said = bot.inbox.filter((m): m is Extract<Inbound, { type: "event" }> => m.type === "event" && m.event.type === "utterance");
+        const spokenBy = (r: string) => said.filter((m) => (m.event as Extract<SessionEvent, { type: "utterance" }>).roleId === r);
+        const byOthers = (owner: string) => JSON.stringify([...msgs, ...said.filter((m) => !spokenBy(owner).includes(m))]);
+        const byNonPlayers = JSON.stringify([...msgs, ...said.filter((m) => scenario.roles[(m.event as Extract<SessionEvent, { type: "utterance" }>).roleId]?.type !== "player")]);
+        leaked = findMarkers(byNonPlayers, [...markers.npcInternals, ...markers.hidden, ...markers.rubric]);
+        for (const [owner, facts] of Object.entries(markers.secretsByRole).filter(([r]) => r !== role)) leaked.push(...findMarkers(byOthers(owner), facts));
+        const aloud = findMarkers(JSON.stringify(said.filter((m) => scenario.roles[(m.event as Extract<SessionEvent, { type: "utterance" }>).roleId]?.type === "player")), [...markers.npcInternals, ...markers.hidden, ...markers.rubric]);
+        spokenAloud += aloud.length;
+      }
       ensure(leaked.length === 0, `${role} received text it must not see: ${leaked.join(" | ")}`);
       const injectLeaks = findInjectLeaks(text, role, scenario.script.scenes);
       ensure(injectLeaks.length === 0, `${role} saw inject ${injectLeaks.join(", ")}, which is not addressed to them`);
       ensure(JSON.stringify(st.joined[role as PlayerId]).includes(markers.secretsByRole[role]![0]!.slice(0, 20)), `${role}'s own brief is missing (vacuous audit)`);
       by.set(role, others);
     }
+    if (spokenAloud > 0) observations.push(`${spokenAloud} hidden-fact or rubric fragment(s) were spoken aloud by generated players (not counted as leaks: the server only delivered what was said)`);
     ensure(JSON.stringify(fac.inbox).includes("ZedAlphaParticipant"), "the facilitator never saw participant names (the control)");
     ensure(events().some((e) => e.type === "gm.decision"), "the facilitator saw no gm.decision (the control)");
     const count = [...by.values()].reduce((a, v) => a + v.length, 0) + markers.npcInternals.length + markers.rubric.length;
@@ -507,13 +526,17 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
     await rec.run("S-15", () => {
       ensure(generator.calls.length > 0, "no player prompt was captured (the audit would be vacuous)");
       const base = [...markers.rubric, ...markers.hidden, ...markers.npcInternals, ...PARTICIPANT_NAMES];
+      const spokenAloud = events().filter((e): e is Extract<SessionEvent, { type: "utterance" }> => e.type === "utterance").map((e) => e.text).join("\n");
       generator.calls.forEach((req, i) => {
         const role = generator.callRoles[i]!;
         const others = Object.entries(markers.secretsByRole).filter(([r]) => r !== role).flatMap(([, v]) => v);
         // The system prompt holds only the role's own material; the conversation turns are other people's speech (not secrets) but never carry NPC or rubric text.
-        const inSystem = findMarkers(req.system, [...base, ...others]);
+        // The system prompt lists the role's OWN last lines: a string it said itself is not a leak.
+        const ownSaid = events().filter((e): e is Extract<SessionEvent, { type: "utterance" }> => e.type === "utterance" && e.roleId === role).map((e) => e.text).join("\n");
+        const inSystem = findMarkers(req.system, [...base, ...others].filter((m) => !ownSaid.includes(m)));
         ensure(inSystem.length === 0, `a ${role} prompt contained: ${inSystem.join(" | ")}`);
-        const inTurns = findMarkers(JSON.stringify(req.messages), base);
+        // Turns are other people's speech plus the scripted intent: a string a participant SAID aloud (a hidden-fact fragment from a player's own words) is not a prompt leak.
+        const inTurns = findMarkers(JSON.stringify(req.messages), base.filter((m) => !spokenAloud.includes(m)));
         ensure(inTurns.length === 0, `a ${role} conversation turn contained: ${inTurns.join(" | ")}`);
         ensure(req.system.includes(markers.secretsByRole[role]![0]!.slice(0, 20)), `${role}'s own brief is missing from its prompt (vacuous audit)`);
       });
