@@ -908,7 +908,7 @@
           "done": true
         },
         {
-          "id": "AC-0094",
+          "id": "AC-0111",
           "text": "with `--players generated` each player's private intent (the scripted line it was asked to express) is logged as a `[SYSTEM]` entry right before its line in the transcript and narration, listed per slot in the JSON report and counted in the summary; it never reaches the session log, a client or the Game Master, and `--no-intents` hides it",
           "done": true
         }
@@ -1686,9 +1686,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T17:18:34.115Z",
-  "commitSha": "f35b146",
-  "buildNumber": "97",
+  "generatedAt": "2026-10-06T17:19:15.252Z",
+  "commitSha": "7f7a68c",
+  "buildNumber": "98",
   "branch": "feature/EPIC-0006-US-0027-generated-players",
   "sessionTimeline": [
     {
@@ -1888,7 +1888,7 @@
       "2026-10-05T14:23:23.807Z",
       "2026-10-06T14:23:23.805Z",
       "2026-10-06T15:52:09.849Z",
-      "2026-10-06T17:18:34.170Z"
+      "2026-10-06T17:19:15.312Z"
     ],
     "doneCounts": [
       0,
