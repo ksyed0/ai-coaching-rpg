@@ -22,6 +22,74 @@ const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../.
 let tmp: string; let runtime: Runtime | null = null;
 afterEach(async () => { fsHooks.link = null; fsHooks.unlink = null; await runtime?.stop(); runtime = null; if (tmp) await rm(tmp, { recursive: true, force: true }); });
 
+describe("bootstrap: facilitator token and limits (US-0017)", () => {
+  const TOKEN = "bootstrap-token-0123456789abcdef";
+  const base = (extra: Record<string, string> = {}) => ({ SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "t1", ...extra });
+  const join = (port: number, token?: string) => new Promise<any>((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    ws.on("open", () => ws.send(JSON.stringify({ type: "join_facilitator", sessionId: "t1", ...(token === undefined ? {} : { token }) })));
+    ws.on("message", (d) => { resolve(JSON.parse(d.toString())); ws.close(); });
+    ws.on("error", reject);
+  });
+
+  it("with no token the server stays open and prints one loud warning that contains no secret", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    const warns: string[] = [];
+    const r = await bootstrap({ env: base({ ANTHROPIC_API_KEY: "sk-secret-123" }), root: tmp, logDir: tmp, tickMs: 50, log: () => {}, warn: (m) => warns.push(m) });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    runtime = r.runtime;
+    expect((await join(runtime.port)).type).toBe("joined");
+    const open = warns.filter((w) => /FACILITATOR_TOKEN is not set/.test(w));
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatch(/^WARNING: /);
+    expect(open[0]).not.toContain("\n");
+    expect(open[0]).not.toContain("sk-secret-123");
+  });
+
+  it("with a token the server requires it, prints no open-server warning and never logs the token", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    const warns: string[] = []; const logs: string[] = [];
+    const r = await bootstrap({ env: base({ FACILITATOR_TOKEN: TOKEN }), root: tmp, logDir: tmp, tickMs: 50, log: (m) => logs.push(m), warn: (m) => warns.push(m) });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    runtime = r.runtime;
+    expect((await join(runtime.port)).code).toBe("unauthorized");
+    expect((await join(runtime.port, "wrong-token-0123456789")).code).toBe("unauthorized");
+    expect((await join(runtime.port, TOKEN)).type).toBe("joined");
+    expect(warns.filter((w) => /FACILITATOR_TOKEN is not set/.test(w))).toHaveLength(0);
+    expect(logs.join("\n") + warns.join("\n")).not.toContain(TOKEN);
+  });
+
+  it("reads the token from <root>/.env; the real environment wins", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    await writeFile(path.join(tmp, ".env"), `FACILITATOR_TOKEN=${TOKEN}\n`);
+    const r = await bootstrap({ env: base(), root: tmp, logDir: tmp, tickMs: 50, log: () => {}, warn: () => {} });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    runtime = r.runtime;
+    expect((await join(runtime.port)).code).toBe("unauthorized");
+    expect((await join(runtime.port, TOKEN)).type).toBe("joined");
+  });
+
+  it("an invalid token or limit stops startup with errors that name the variable, never the token value", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    const secret = "short-secret";
+    const r = await bootstrap({ env: base({ FACILITATOR_TOKEN: secret, WS_MSG_RATE: "0", WS_MAX_CONNECTIONS: "many" }), root: tmp, logDir: tmp, log: () => {}, warn: () => {} });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    const text = r.errors.join("\n");
+    expect(text).toContain("FACILITATOR_TOKEN"); expect(text).toContain("WS_MSG_RATE"); expect(text).toContain("WS_MAX_CONNECTIONS");
+    expect(text).not.toContain(secret);
+  });
+
+  it("RUNTIME_HOST binds that interface", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    const logs: string[] = [];
+    const r = await bootstrap({ env: base({ RUNTIME_HOST: "127.0.0.1" }), root: tmp, logDir: tmp, tickMs: 50, log: (m) => logs.push(m), warn: () => {} });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    runtime = r.runtime;
+    expect(logs.join("\n")).toContain("ws://127.0.0.1:");
+  });
+});
+
 describe("bootstrap", () => {
   it("starts the runtime with the mock provider on an ephemeral port and serves a facilitator join", async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));

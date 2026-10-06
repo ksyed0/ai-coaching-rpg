@@ -13,6 +13,7 @@ import { parseNpcTimeouts } from "./agents/timeouts.js";
 import { parseTokenBudgets } from "./agents/token-budgets.js";
 import { parseTemperatures } from "./agents/temperatures.js";
 import { parseModelRetry, withModelRetry } from "./agents/retry-config.js";
+import { OPEN_SERVER_WARNING, parseSecurityConfig } from "./host/security.js";
 
 /** services/runtime/src/main.ts: the repo root is three levels up from this file's directory. */
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -55,6 +56,8 @@ export async function bootstrap(opts: {
   if (!temps.ok) return { ok: false, errors: temps.errors };
   const retry = parseModelRetry(env);
   if (!retry.ok) return { ok: false, errors: retry.errors };
+  const security = parseSecurityConfig(env); // its errors never contain the token
+  if (!security.ok) return { ok: false, errors: security.errors };
 
   let scenario;
   try { scenario = await loadScenario(scenarioDir); }
@@ -86,8 +89,13 @@ export async function bootstrap(opts: {
 
   host.startTicker(opts.tickMs ?? 1_000);
   let server: Awaited<ReturnType<typeof startServer>>;
-  try { server = await startServer({ port, hosts: new Map([[sessionId, host]]), log }); }
+  try { server = await startServer({
+      port, hosts: new Map([[sessionId, host]]), log, host: security.config.host, facilitatorToken: security.config.facilitatorToken,
+      limits: security.config.limits, allowedOrigins: security.config.allowedOrigins, trustProxy: security.config.trustProxy,
+    }); }
   catch (err) { host.stopTicker(); return { ok: false, errors: [`cannot listen on port ${port}: ${err instanceof Error ? err.message : String(err)}`] }; }
+  if (security.config.facilitatorToken === undefined) warn(OPEN_SERVER_WARNING); // one line, no secret
+  else log("facilitator token required (FACILITATOR_TOKEN is set)");
   log(`scenario "${scenario.meta.title}" v${scenario.meta.version}; session "${sessionId}"; players: ${Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => r.id).join(", ")}`);
   return { ok: true, runtime: { port: server.port, host, stop: async () => { host.stopTicker(); await server.close(); } } };
 }
