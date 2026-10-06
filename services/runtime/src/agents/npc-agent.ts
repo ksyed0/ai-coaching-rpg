@@ -2,7 +2,7 @@ import type { SessionEvent } from "@acr/events";
 import type { NpcRole } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import { EngineError, type SessionEngine } from "../engine/session-engine.js";
-import { describeModelFailure, describeRetryProgress } from "./model-failure.js";
+import { collectModelReply } from "./model-reply.js";
 import { buildNpcRequest } from "./npc-prompt.js";
 import { cleanNpcReply } from "./npc-reply.js";
 import { DEFAULT_NPC_MAX_TOKENS } from "./token-budgets.js";
@@ -44,42 +44,9 @@ export class NpcAgent {
     if (!scene || !scene.participants.includes(this.role.id) || this.engine.state.paused || this.engine.state.status !== "running") return null;
     const req = buildNpcRequest({ role: this.role, scene, state: this.engine.state, maxTokens: this.maxTokens });
     const expectSceneId = scene.id;
-    const ac = new AbortController();
-    let text = "";
-    let failure: string | null = null;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let replyTimer: ReturnType<typeof setTimeout> | undefined;
-    // R21: one overall deadline covers the whole reply so a mid-stream stall cannot wedge the scene.
-    const deadline = new Promise<"deadline">((r) => { replyTimer = setTimeout(() => r("deadline"), this.replyTimeoutMs); });
-    try {
-      const it = this.provider.stream(req, ac.signal)[Symbol.asyncIterator]();
-      const firstP = it.next();
-      firstP.catch(() => undefined); // if a timeout wins, a later rejection must not go unhandled
-      const first = await Promise.race([
-        firstP,
-        deadline,
-        new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), this.firstTokenTimeoutMs); }),
-      ]);
-      if (first === "timeout") { ac.abort(); failure = `no first token within timeout${describeRetryProgress(ac.signal)}`; }
-      else if (first === "deadline") { ac.abort(); failure = `reply did not finish within the overall deadline${describeRetryProgress(ac.signal)}`; }
-      else if (!first.done) {
-        text += first.value;
-        for (;;) {
-          const nextP = it.next();
-          nextP.catch(() => undefined);
-          const r = await Promise.race([nextP, deadline]);
-          if (r === "deadline") { ac.abort(); failure = "reply did not finish within the overall deadline"; break; }
-          if (r.done) break;
-          text += r.value;
-        }
-      }
-    } catch (err) {
-      ac.abort();
-      failure = describeModelFailure(err);
-    } finally {
-      clearTimeout(timer);
-      clearTimeout(replyTimer);
-    }
+    const collected = await collectModelReply(this.provider, req, { firstTokenTimeoutMs: this.firstTokenTimeoutMs, replyTimeoutMs: this.replyTimeoutMs });
+    let text = collected.text;
+    let failure: string | null = collected.failure;
     // The reply is assembled in full before it is cleaned or recorded: nothing is forwarded to players chunk by chunk, so cut text never leaks.
     let removedOtherSpeakers = false;
     if (!failure) {
