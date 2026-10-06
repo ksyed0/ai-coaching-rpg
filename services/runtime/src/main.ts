@@ -79,7 +79,7 @@ export async function bootstrap(opts: {
   let gmTrace: ReturnType<typeof createGmTraceWriter> | undefined;
   try {
     // GM_TRACE_FILE (off by default): the raw Game Master replies, for the offline gm-eval. Owner-only file; never logged by name.
-    gmTrace = traceEnv.file ? createGmTraceWriter(traceEnv.file, { forbid: [path.join(dataDir, `${sessionId}.jsonl`)] }) : undefined;
+    gmTrace = traceEnv.file ? createGmTraceWriter(traceEnv.file, { forbid: [path.join(dataDir, `${sessionId}.jsonl`)], forbidDir: dataDir }) : undefined;
     const clock = new SystemClock();
     const engine = new SessionEngine({ scenario, log: new JsonlEventLog(sessionId, dataDir), clock });
     // Live providers retry transient errors inside the NPC deadlines; the scripted mock is never wrapped.
@@ -91,7 +91,7 @@ export async function bootstrap(opts: {
     // fixed label plus a literal yes/no for "custom endpoint".
     log(`model provider: ${describeModelProvider(env)}`);
     host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmTrace });
-  } catch (err) { return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
+  } catch (err) { gmTrace?.close(); return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
 
   host.startTicker(opts.tickMs ?? 1_000);
   let server: Awaited<ReturnType<typeof startServer>>;

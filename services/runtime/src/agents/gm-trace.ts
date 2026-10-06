@@ -13,17 +13,20 @@ const realOrResolved = (p: string): string => { try { return realpathSync(p); } 
  * set on the open descriptor and every line goes through it, so nothing is reopened by name. `forbid` lists paths it may never be (the session log).
  * Throws when the file cannot be created or is not allowed (so a bad path fails at start-up). `close()` releases the descriptor.
  */
-export function createGmTraceWriter(file: string, opts: { forbid?: string[] } = {}): GmTraceWriter {
+export function createGmTraceWriter(file: string, opts: { forbid?: string[]; /** A directory in which no `*.jsonl` file may be the trace (the session logs). */ forbidDir?: string } = {}): GmTraceWriter {
   const target = path.resolve(file);
   for (const f of opts.forbid ?? []) {
     if (path.resolve(f) === target || realOrResolved(f) === realOrResolved(target)) throw new Error("the trace file must not be the session log");
   }
+  if (opts.forbidDir !== undefined && target.endsWith(".jsonl") && realOrResolved(path.dirname(target)) === realOrResolved(opts.forbidDir)) throw new Error("the trace file must not be a session log (*.jsonl in the sessions directory)");
   mkdirSync(path.dirname(target), { recursive: true });
   try { if (lstatSync(target).isSymbolicLink()) throw Object.assign(new Error("a symbolic link"), { code: "ELOOP" }); }
   catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
   const fd = openSync(target, C.O_WRONLY | C.O_APPEND | C.O_CREAT | (C.O_NOFOLLOW ?? 0), 0o600);
   try {
-    if (!fstatSync(fd).isFile()) throw Object.assign(new Error("not a regular file"), { code: "EISDIR" });
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw Object.assign(new Error("not a regular file"), { code: "EISDIR" });
+    if (st.nlink !== 1) throw Object.assign(new Error("a file with several hard links"), { code: "EMLINK" });
     fchmodSync(fd, 0o600);
   } catch (err) { closeSync(fd); throw err; }
   let open = true;

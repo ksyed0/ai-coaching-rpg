@@ -38,8 +38,8 @@ describe("the Game Master re-ask (GM_REASK)", () => {
     const second = p.calls[1]!;
     expect(second.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
     expect(second.messages[1]!.content).toBe("I cannot decide.");
-    expect(second.messages[2]!.content).toBe(gmReaskInstruction(nonceOf(second)));
-    expect(nonceOf(second)).toMatch(/^[0-9a-f]{24}$/);
+    expect(second.messages[2]!.content).toBe(gmReaskInstruction(nonceOf(second) ?? null));
+    expect(nonceOf(second)).toMatch(/^[0-9a-f]{16}$/);
     expect(second.messages[2]!.content).toContain(nonceOf(second)!); // the re-ask repeats the id instruction
     expect(nonceOf(second)).toBe(nonceOf(p.calls[0]!));
     expect(second.system).toBe(p.calls[0]!.system);
@@ -73,7 +73,7 @@ describe("the Game Master re-ask (GM_REASK)", () => {
     expect(second.messages).toHaveLength(1);
     expect(second.messages[0]!.role).toBe("user");
     expect(second.messages[0]!.content).toContain("<dialogue>");
-    expect(second.messages[0]!.content).toContain(gmReaskInstruction(nonceOf(second)));
+    expect(second.messages[0]!.content).toContain(gmReaskInstruction(nonceOf(second) ?? null));
     expect(await events("gm.decision")).toEqual([expect.objectContaining({ via: "reask" })]);
   });
 
@@ -164,7 +164,7 @@ describe("the per-evaluation nonce (I-1)", () => {
     await engine.say("host", "hello"); await gm.tick();
     await engine.say("guest", "hi"); await gm.tick();
     const [a, b] = p.calls.map((c) => nonceOf(c)!);
-    expect(a).toMatch(/^[0-9a-f]{24}$/); expect(b).toMatch(/^[0-9a-f]{24}$/); expect(a).not.toBe(b);
+    expect(a).toMatch(/^[0-9a-f]{16}$/); expect(b).toMatch(/^[0-9a-f]{16}$/); expect(a).not.toBe(b);
     for (const c of p.calls) expect(JSON.stringify(c.messages)).not.toContain(nonceOf(c)!);
     expect(JSON.stringify(await log.all())).not.toMatch(new RegExp(`${a}|${b}`));
   });
@@ -190,6 +190,29 @@ describe("the per-evaluation nonce (I-1)", () => {
     await engine.say("host", "hello"); await gm.tick();
     expect(p.calls).toHaveLength(2);
     expect(await events("gm.decision")).toEqual([expect.objectContaining({ verdict: true, via: "reask" })]);
+  });
+});
+
+describe("evaluation lifecycle (M-a, M-i)", () => {
+  it("a provider generator left suspended by the deadline is closed (its finally runs)", async () => {
+    let closed = false;
+    const provider: ModelProvider = { name: "stuck", async *stream(_r, signal) {
+      try { await new Promise<void>((resolve) => signal?.addEventListener("abort", () => resolve(), { once: true })); yield "late chunk"; yield "never"; }
+      finally { closed = true; }
+    } };
+    const gm = new GameMaster({ engine, provider, everyNUtterances: 1, evaluationTimeoutMs: 40, reask: false });
+    await engine.say("host", "hello"); await gm.tick();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(await events("facilitator.alert")).toHaveLength(1);
+    expect(closed).toBe(true);
+  });
+  it("a deadline that fires between the first reply and the re-ask means the re-ask is never made", async () => {
+    let calls = 0;
+    const provider: ModelProvider = { name: "late", async *stream() { calls++; await new Promise((r) => setTimeout(r, 60)); yield "garbage"; } };
+    const gm = new GameMaster({ engine, provider, everyNUtterances: 1, evaluationTimeoutMs: 100 });
+    await engine.say("host", "hello"); await gm.tick();
+    expect(calls).toBe(2); // the second ask starts at 60 ms and is cut at 100 ms: no_verdict with the first reason
+    expect(await events("gm.no_verdict")).toEqual([expect.objectContaining({ reason: "no_json" })]);
   });
 });
 
@@ -221,7 +244,7 @@ describe("the re-ask after a reasoning-only reply (I-2)", () => {
 
 describe("the Game Master prompt (US-0025)", () => {
   it("judges only the condition: the goal is labelled as background, and the reasoning comes before the verdict", () => {
-    const req = buildGmRequest({ scene: engine.currentScene()!, condition: "both parties have said hello", state: engine.state });
+    const req = buildGmRequest({ scene: engine.currentScene()!, condition: "both parties have said hello", state: engine.state, nonce: null });
     expect(req.system).toContain('Judge ONLY this condition, and nothing else: "both parties have said hello"');
     expect(req.system).toMatch(/NOT part of the condition/);
     expect(req.system.indexOf('"reasoning"')).toBeLessThan(req.system.indexOf('"verdict"'));
@@ -229,8 +252,8 @@ describe("the Game Master prompt (US-0025)", () => {
     expect(req.system).toMatch(/only proposed/);
   });
   it("buildGmReaskRequest caps the echoed reply and leaves the first turn unchanged", () => {
-    const base = buildGmRequest({ scene: engine.currentScene()!, condition: "c", state: engine.state });
-    const r = buildGmReaskRequest(base, "x".repeat(10_000));
+    const base = buildGmRequest({ scene: engine.currentScene()!, condition: "c", state: engine.state, nonce: null });
+    const r = buildGmReaskRequest(base, "x".repeat(10_000), null);
     expect(r.messages[0]).toEqual(base.messages[0]);
     expect(r.messages[1]!.content.length).toBe(1_500);
   });

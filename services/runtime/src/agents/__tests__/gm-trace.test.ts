@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync, chmodSync, linkSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createGmTraceWriter, parseGmTraceEnv } from "../gm-trace.js";
@@ -13,8 +13,8 @@ describe("GM trace file", () => {
     const file = path.join(tmp(), "nested", "trace.jsonl");
     const write = createGmTraceWriter(file);
     expect(statSync(file).mode & 0o777).toBe(0o600);
-    write({ seq: 3, sceneId: "s", condition: "c", attempt: 1, raw: "nope", parse: { ok: false, reason: "no_json" } });
-    write({ seq: 3, sceneId: "s", condition: "c", attempt: 2, raw: '{"verdict":true}', parse: { ok: true, verdict: true, via: "reask" } });
+    write({ seq: 3, sceneId: "s", condition: "c", attempt: 1, nonce: null, raw: "nope", parse: { ok: false, reason: "no_json" } });
+    write({ seq: 3, sceneId: "s", condition: "c", attempt: 2, nonce: null, raw: '{"verdict":true}', parse: { ok: true, verdict: true, via: "reask" } });
     const lines = readFileSync(file, "utf8").trim().split("\n").map((l) => JSON.parse(l));
     expect(lines).toHaveLength(2);
     expect(lines[1]).toMatchObject({ attempt: 2, parse: { via: "reask" } });
@@ -35,10 +35,19 @@ describe("GM trace file", () => {
     writeFileSync(own, "", { mode: 0o644 }); chmodSync(own, 0o644);
     const w = createGmTraceWriter(own);
     expect(statSync(own).mode & 0o777).toBe(0o600);
-    w({ seq: 1, sceneId: "s", condition: "c", attempt: 1, raw: "a", parse: { ok: false, reason: "empty" } });
+    w({ seq: 1, sceneId: "s", condition: "c", attempt: 1, nonce: null, raw: "a", parse: { ok: false, reason: "empty" } });
     w.close();
-    w({ seq: 2, sceneId: "s", condition: "c", attempt: 1, raw: "b", parse: { ok: false, reason: "empty" } });
+    w({ seq: 2, sceneId: "s", condition: "c", attempt: 1, nonce: null, raw: "b", parse: { ok: false, reason: "empty" } });
     expect(readFileSync(own, "utf8").trim().split("\n")).toHaveLength(1);
+  });
+  it("refuses ANY *.jsonl in the sessions directory, and a file with several hard links", () => {
+    const d = tmp();
+    const sessions = path.join(d, "sessions"); mkdirSync(sessions);
+    expect(() => createGmTraceWriter(path.join(sessions, "other.jsonl"), { forbidDir: sessions })).toThrow(/session log/);
+    expect(() => createGmTraceWriter(path.join(sessions, "gm.txt"), { forbidDir: sessions })).not.toThrow();
+    const a = path.join(d, "a.jsonl"); writeFileSync(a, "");
+    linkSync(a, path.join(d, "b.jsonl"));
+    expect(() => createGmTraceWriter(path.join(d, "b.jsonl"))).toThrow(/hard links/);
   });
   it("fails at creation, not later, when the path cannot be created", () => {
     const d = tmp();

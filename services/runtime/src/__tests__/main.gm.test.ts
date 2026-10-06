@@ -37,9 +37,9 @@ describe("bootstrap: Game Master settings (US-0025)", () => {
     const off = await boot();
     expect(off.ok).toBe(true);
     await runtime!.stop(); runtime = null; await rm(tmp, { recursive: true, force: true });
-    const r = await boot({ GM_TRACE_FILE: "gm-trace.jsonl", GM_EVERY_N_UTTERANCES: "1" });
+    const r = await boot({ GM_TRACE_FILE: "gm-trace.log", GM_EVERY_N_UTTERANCES: "1" });
     expect(r.ok).toBe(true);
-    const file = path.join(tmp, "gm-trace.jsonl");
+    const file = path.join(tmp, "gm-trace.log");
     expect((await stat(file)).mode & 0o777).toBe(0o600);
     const host = runtime!.host;
     host.join("host", "p1"); await host.start();
@@ -51,6 +51,11 @@ describe("bootstrap: Game Master settings (US-0025)", () => {
   });
   it("a GM_TRACE_FILE equal to the session log is refused", async () => {
     const r = await boot({ GM_TRACE_FILE: "g1.jsonl" }); // SESSION_ID g1 under the data directory
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join(" ")).toMatch(/session log/);
+  });
+  it("any *.jsonl in the data directory is refused as a trace file (not only the current session's log)", async () => {
+    const r = await boot({ GM_TRACE_FILE: "other-session.jsonl" });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors.join(" ")).toMatch(/session log/);
   });

@@ -71,6 +71,11 @@ describe("parseGmReply with the per-evaluation nonce", () => {
     expect(parseGmReply("verdict: true", o)).toEqual(no("bad_verdict"));
     expect(parseGmReply("true", o)).toEqual(no("no_json"));
   });
+  it("the id is compared exactly except for case and surrounding whitespace or quotes", () => {
+    for (const id of [N.toUpperCase(), ` ${N} `, `"${N}"`, `'${N}'`, `\n${N.toUpperCase()}\t`]) expect(parseGmReply(`{"id": ${JSON.stringify(id)}, "verdict": true}`, o)).toMatchObject({ ok: true, verdict: true });
+    for (const id of [N.slice(1), `${N}0`, `${N.slice(0, 5)} ${N.slice(5)}`, "", 42]) expect(parseGmReply(`{"id": ${JSON.stringify(id)}, "verdict": true}`, o)).toEqual(no("no_nonce", 1));
+    expect(parseGmReply('{"verdict": true}', { nonce: null })).toMatchObject({ ok: true }); // null: offline rules
+  });
   it("two matching objects that disagree are a conflict", () => {
     expect(parseGmReply(`{"id":"${N}","verdict":true} {"id":"${N}","verdict":false}`, o)).toEqual(no("conflict"));
   });

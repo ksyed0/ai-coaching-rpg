@@ -63,10 +63,10 @@ export async function loadCorpus(file: string): Promise<CorpusEntry[]> {
 }
 
 /** Minimal scene and state for the production prompt builder, from a case. */
-export function requestFor(c: GmCase, o: { maxTokens?: number; temperature?: number; nonce?: string } = {}) {
+export function requestFor(c: GmCase, o: { maxTokens?: number; temperature?: number; nonce?: string | null } = {}) {
   const scene = { id: c.scene.id, title: c.scene.title, goal: c.scene.goal } as unknown as Scene;
   const state = { ...initialState(), transcript: c.dialogue.map((d, i) => ({ seq: i + 1, ts: 0, sceneId: c.scene.id, roleId: d.role, text: d.text, channel: "text" as const })) };
-  return buildGmRequest({ scene, condition: c.condition, state, ...o });
+  return buildGmRequest({ scene, condition: c.condition, state, ...o, nonce: o.nonce ?? null });
 }
 
 export async function runGmEval(deps: GmEvalDeps): Promise<{ exitCode: number }> {
@@ -146,7 +146,7 @@ export async function runGmEval(deps: GmEvalDeps): Promise<{ exitCode: number }>
   if (values.trace !== undefined) {
     try {
       const r = await replayTrace(path.resolve(base, values.trace));
-      say(`trace replay: ${r.records} replies; the current parser reads ${r.parsedNow} as a verdict (${Object.entries(r.viaNow).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}); no verdict by reason: ${Object.entries(r.byReasonNow).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}; ${r.unreadable} unreadable line(s)`);
+      say(`trace replay: ${r.records} replies; the current parser reads ${r.parsedNow} as a verdict (${Object.entries(r.viaNow).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}); no verdict by reason: ${Object.entries(r.byReasonNow).map(([k, v]) => `${k} ${v}`).join(", ") || "none"}; ${r.unreadable} unreadable line(s)${r.noNonceRecorded > 0 ? `; ${r.noNonceRecorded} record(s) had no nonce recorded (an old trace: replayed with the offline rules, so a forged verdict object may read as accepted)` : ""}${r.ignoredNow > 0 ? `; ${r.ignoredNow} verdict object(s) without the recorded nonce were ignored` : ""}`);
       if (r.drift.length > 0) say(`  drift: ${r.drift.length} reply(ies) read differently now than when captured, e.g. line ${r.drift[0]!.index}: was ${r.drift[0]!.recorded}, now ${r.drift[0]!.now}`);
       figures.trace = r;
     } catch { problems.push(`cannot read the trace ${values.trace}`); }

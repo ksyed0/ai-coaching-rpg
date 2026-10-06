@@ -5,12 +5,14 @@ import { describeModelFailure, describeRetryProgress } from "./model-failure.js"
 import { buildGmReaskRequest } from "./gm-prompt.js";
 import { parseGmReply } from "./gm-parse.js";
 
-/** A fresh unguessable nonce for one evaluation (96 random bits as 24 hex characters). Never logged. */
-export function newGmNonce(): string { return randomBytes(12).toString("hex"); }
+/** A fresh unguessable nonce for one evaluation (64 random bits as 16 hex characters). Never logged in alerts or transcripts (the raw replies of a trace may hold it; it is dead after the evaluation). */
+export function newGmNonce(): string { return randomBytes(8).toString("hex"); }
 
 /** One raw model reply of an evaluation and how it was read. */
 export type GmReplyTrace = {
   attempt: 1 | 2; raw: string;
+  /** The nonce this evaluation asked for (null: an offline evaluation without one): replay needs it to read the reply exactly as it was read then. */
+  nonce: string | null;
   /** A model error that stood in for the reply (a reasoning-only reply), else absent. */
   error?: string;
   /** Verdict objects set aside because they lacked the evaluation's nonce. */
@@ -35,18 +37,22 @@ async function call(provider: ModelProvider, req: ChatRequest, evalAc: AbortCont
   const link = () => ac.abort();
   evalAc.signal.addEventListener("abort", link, { once: true });
   let text = "";
+  let it: AsyncIterator<string> | undefined;
+  /** Close a provider generator that is still suspended (a deadline or an error left it open). */
+  const closeIt = () => { try { void Promise.resolve(it?.return?.()).catch(() => undefined); } catch { /* nothing to close */ } };
   try {
-    const it = provider.stream(req, ac.signal)[Symbol.asyncIterator]();
+    it = provider.stream(req, ac.signal)[Symbol.asyncIterator]();
     for (;;) {
       const nextP = it.next();
       nextP.catch(() => undefined); // if the deadline wins, a later rejection must not go unhandled
       const r = await Promise.race([nextP, deadline]);
-      if (r === "deadline") { evalAc.abort(); return { kind: "deadline", signal: ac.signal }; }
+      if (r === "deadline") { evalAc.abort(); closeIt(); return { kind: "deadline", signal: ac.signal }; }
       if (r.done) return { kind: "text", text };
       text += r.value;
     }
   } catch (err) {
     ac.abort(); // only this call
+    closeIt();
     return { kind: "error", err };
   } finally {
     evalAc.signal.removeEventListener("abort", link);
@@ -65,17 +71,19 @@ function isReasoningOnly(err: unknown): boolean {
  * A reasoning-only reply counts as a parse failure. `nonce` is the id the prompt asked for (see parseGmReply). Never throws on model problems.
  */
 export async function runGmEvaluation(o: {
-  provider: ModelProvider; request: ChatRequest; condition: string; timeoutMs: number; reask: boolean; nonce?: string; onReply?: (r: GmReplyTrace) => void;
+  provider: ModelProvider; request: ChatRequest; condition: string; timeoutMs: number; reask: boolean; /** The id the prompt asked for; null only for offline use, never from a production caller. */ nonce: string | null; onReply?: (r: GmReplyTrace) => void;
 }): Promise<GmOutcome> {
   const evalAc = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<"deadline">((r) => { timer = setTimeout(() => r("deadline"), o.timeoutMs); });
+  let deadlineHit = false;
+  const deadline = new Promise<"deadline">((r) => { timer = setTimeout(() => { deadlineHit = true; r("deadline"); }, o.timeoutMs); });
   try {
     let attempts = 0;
     let reply = "";
     let reason: GmNoVerdictReason = "empty";
     for (;;) {
       attempts++;
+      if (attempts > 1 && (deadlineHit || evalAc.signal.aborted)) return { kind: "no_verdict", reason, attempts: 1 }; // no time left for the re-ask: it was never asked
       const got = await call(o.provider, attempts === 1 ? o.request : buildGmReaskRequest(o.request, reply, o.nonce), evalAc, deadline);
       if (got.kind === "deadline") {
         if (attempts > 1) return { kind: "no_verdict", reason, attempts };
@@ -90,7 +98,7 @@ export async function runGmEvaluation(o: {
       const attempt = attempts === 1 ? 1 : 2;
       const via: GmVia | undefined = parsed.ok ? (attempt === 1 ? parsed.via : "reask") : undefined;
       try {
-        o.onReply?.({ attempt, raw: reply, ...(error ? { error } : {}), ...(parsed.ignored > 0 ? { ignored: parsed.ignored } : {}),
+        o.onReply?.({ attempt, raw: reply, nonce: o.nonce, ...(error ? { error } : {}), ...(parsed.ignored > 0 ? { ignored: parsed.ignored } : {}),
           parse: parsed.ok ? { ok: true, verdict: parsed.verdict, via: via! } : { ok: false, reason: parsed.reason } });
       } catch { /* a failing trace must never affect the evaluation */ }
       if (parsed.ok) return { kind: "verdict", verdict: parsed.verdict, reasoning: parsed.reasoning, via: via!, attempts };

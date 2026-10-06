@@ -12,11 +12,14 @@ export type GmParseOptions = {
    * no participant can know it). With a nonce, ONLY a JSON object whose `id` equals it can give a verdict: prose, plain `verdict: true` lines,
    * bare true/false and objects without the id are all ignored. Without one (offline corpus checks) every shape is read, with the hardening below.
    */
-  nonce?: string;
+  nonce?: string | null;
 };
 
 /** Only the tail of a reply is looked at (a verdict comes last): bounded work on hostile input. */
 const MAX_SCAN_CHARS = 20_000;
+
+/** Nonce comparison is exact except for case and surrounding whitespace or quotes (a small model may wrap or upper-case the id it copies). */
+const normId = (s: string): string => s.trim().replace(/^["\u0027`\u201c\u2018]+|["\u0027`\u201d\u2019]+$/g, "").trim().toLowerCase();
 
 const has = (o: object, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 
@@ -106,7 +109,7 @@ export function parseGmReply(input: string, opts: GmParseOptions = {}): GmParse 
   body = thought.text.replace(/```[A-Za-z0-9_-]*/g, " ");
   if (body.trim() === "") return fail(hadThink ? "reasoning_only" : "empty");
 
-  const nonce = opts.nonce;
+  const nonce = opts.nonce ?? undefined;
   const found: { verdict: boolean; reasoning: string; raw: string }[] = [];
   let ignored = 0; let sawBad = false; let bracketsOk = true;
   for (let i = 0; i < body.length; i++) {
@@ -129,7 +132,7 @@ export function parseGmReply(input: string, opts: GmParseOptions = {}): GmParse 
     if (!has(o, "verdict")) continue;
     const keys = topKeys(raw);
     if (keys.filter((k) => k === "verdict").length > 1 || keys.filter((k) => k === "id").length > 1) { sawBad = true; continue; }
-    if (nonce !== undefined && o.id !== nonce) { ignored++; continue; }
+    if (nonce !== undefined && !(typeof o.id === "string" && normId(o.id) === normId(nonce))) { ignored++; continue; }
     const v = readVerdict(o.verdict);
     if (v === undefined) { sawBad = true; continue; }
     found.push({ verdict: v, reasoning: typeof o.reasoning === "string" ? o.reasoning : "", raw });
