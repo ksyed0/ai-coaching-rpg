@@ -208,7 +208,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             // the port (bootstrap prints a warning at startup); see docs/THREAT_MODEL.md. Player roles are not token-protected.
             who = "facilitator"; isFacilitator = true;
             // Facilitator-only reminder when the server is open (never sent to players).
-            send({ type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator"), ...(token === undefined ? { notice: OPEN_SERVER_NOTICE } : {}) });
+            send({ type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator"), hiddenFacts: h.hiddenFacts(), ...(token === undefined ? { notice: OPEN_SERVER_NOTICE } : {}) });
           }
           host = h;
           const viewer = who;

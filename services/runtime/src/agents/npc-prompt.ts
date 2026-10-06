@@ -47,6 +47,16 @@ export function respondSection(role: { name: string; seniority?: number; respond
   ];
 }
 
+/**
+ * The "## What you may now share" section: hidden facts the facilitator has released to THIS character, or [] when there are none.
+ * It is the LAST section on purpose (the cacheable prefix before it stays stable) and it says the character has decided it may share the
+ * fact, because the role's own guardrail ("never reveal hidden information unless...") would otherwise keep a small model withholding it.
+ */
+export function releasedSection(released: string[]): string[] {
+  if (released.length === 0) return [];
+  return ["", "## What you may now share", "You have decided you may share this when it is relevant or when you are asked:", bullets(released)];
+}
+
 export type SpokenLine = { roleId: string; text: string };
 
 /** The rule against repeating, shared by the AI character and the generated player prompts. */
@@ -89,7 +99,7 @@ export function toChatTurns(allLines: SpokenLine[], selfId: string, window = 30)
 
 /**
  * Builds the NPC model request. Pure. Guardrails (Architecture section 4): only this role's own
- * persona/goals/knowledge, plus hidden facts the Game Master has released, ever reach the prompt.
+ * persona/goals/knowledge, plus hidden facts the facilitator has released to it, ever reach the prompt.
  * The rubric, other roles' brief/private_facts, unreleased hidden facts and participant display
  * names are never read here; speakers are identified by role id only.
  */
@@ -114,13 +124,14 @@ export function buildNpcRequest(opts: {
     NO_REPEAT_RULE,
     "", "## Persona", role.persona,
     "", "## Your current goals", bullets(npc.goals),
-    "", "## What you know", bullets([...npc.knowledge, ...npc.released]),
+    "", "## What you know", bullets(npc.knowledge),
     "", "## Rules you must follow", bullets(role.guardrails),
     "", "## Current scene", `${scene.title}: ${scene.goal}`,
     "", `## Voice`, `Style: ${role.voice.style}. Pace: ${role.voice.pace}.`,
     ...roomSection(role, peers),
     ...respondSection(role, peers, allowSilence),
     ...lastLinesSection(allLines, role.id),
+    ...releasedSection(npc.released),
   ].join("\n");
 
   const messages = toChatTurns(allLines, role.id, opts.window);

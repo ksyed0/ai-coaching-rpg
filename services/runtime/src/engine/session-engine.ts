@@ -4,7 +4,10 @@ import type { Clock } from "./clock.js";
 import type { EventLog } from "./event-log.js";
 import { Mutex } from "./mutex.js";
 
-export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role";
+/** Own-property lookup: a client-supplied role id such as `__proto__` or `constructor` must never resolve to an inherited member. */
+const own = <T>(map: Record<string, T>, key: string): T | undefined => (Object.hasOwn(map, key) ? map[key] : undefined);
+
+export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released";
 export class EngineError extends Error {
   constructor(readonly code: EngineErrorCode, message: string = code) { super(message); this.name = "EngineError"; }
 }
@@ -115,12 +118,25 @@ export class SessionEngine {
       injectToFire = { scene, inject };
     }
     if (cmd.command === "whisper") {
-      const target = this.state.roles[cmd.roleId];
+      const target = own(this.state.roles, cmd.roleId);
       if (!target) throw new EngineError("unknown_role", `unknown role ${cmd.roleId}`);
       if (target.kind !== "player") throw new EngineError("npc_role", `${cmd.roleId} is an NPC; whispers go to player roles only`);
     }
-    if (cmd.command === "set_npc_stance" && !this.state.npcs[cmd.roleId]) throw new EngineError("unknown_role", `${cmd.roleId} is not an NPC`);
+    if (cmd.command === "set_npc_stance" && !own(this.state.npcs, cmd.roleId)) throw new EngineError("unknown_role", `${cmd.roleId} is not an NPC`);
+    let release: { roleId: string; npc: SessionState["npcs"][string]; text: string } | null = null;
+    if (cmd.command === "release_hidden") {
+      const role = own(this.scenario.roles, cmd.roleId);
+      const npc = own(this.state.npcs, cmd.roleId);
+      if (!role) throw new EngineError("unknown_role", `unknown role ${cmd.roleId}`);
+      if (role.type !== "npc" || !npc) throw new EngineError("npc_role", `${cmd.roleId} is a player role; only an AI character has hidden facts`);
+      const text = Number.isInteger(cmd.fact) && cmd.fact >= 1 ? role.hidden[cmd.fact - 1] : undefined;
+      if (text === undefined) throw new EngineError("unknown_fact", `${cmd.roleId} has ${role.hidden.length} hidden fact(s); there is no fact ${cmd.fact}`);
+      if (npc.released.includes(text)) throw new EngineError("already_released", `fact ${cmd.fact} of ${cmd.roleId} is already released`);
+      release = { roleId: cmd.roleId, npc, text };
+    }
     await this.emit({ type: "facilitator.command", ...cmd });
+    // The command event above carries no fact text. The text goes only in this npc.updated, which players never receive.
+    if (release) await this.emit({ type: "npc.updated", roleId: release.roleId, goals: release.npc.goals, knowledge: release.npc.knowledge, released: [...release.npc.released, release.text] });
     if (injectToFire) await this.fireInject(injectToFire.scene, injectToFire.inject);
     if (cmd.command === "set_npc_stance") await this.doUpdateNpc(cmd.roleId, { goals: cmd.goals });
   }

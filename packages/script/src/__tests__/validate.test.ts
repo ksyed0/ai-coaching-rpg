@@ -136,4 +136,16 @@ describe("defer_to warnings and defers_text (US-0032 fix round)", () => {
     expect(RoleSchema.safeParse({ ...base, defers_text: "Let her decide." }).success).toBe(true);
     expect(RoleSchema.safeParse({ ...base, defers_text: "x".repeat(201) }).success).toBe(false);
   });
+
+  it("limits the number and the length of hidden facts (the release command numbers them 1 to 50)", async () => {
+    const dir = path.join(fixtures, "minimal");
+    const s = await loadScenario(dir);
+    const guest = s.roles["guest"] as { hidden: string[] };
+    expect(guest.hidden.length).toBeGreaterThan(0);
+    const { NpcRoleSchema, MAX_HIDDEN_FACTS, MAX_HIDDEN_FACT_CHARS } = await import("../index.js");
+    const base = { ...(s.roles["guest"] as object) } as Record<string, unknown>;
+    expect(NpcRoleSchema.safeParse({ ...base, hidden: Array(MAX_HIDDEN_FACTS).fill("x") }).success).toBe(true);
+    expect(NpcRoleSchema.safeParse({ ...base, hidden: Array(MAX_HIDDEN_FACTS + 1).fill("x") }).success).toBe(false);
+    expect(NpcRoleSchema.safeParse({ ...base, hidden: ["x".repeat(MAX_HIDDEN_FACT_CHARS + 1)] }).success).toBe(false);
+  });
 });
