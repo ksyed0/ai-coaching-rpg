@@ -11,12 +11,15 @@ scenes:
       - { role: delivery_lead, text: "So not a flat yes and not a flat no. What if we offer it as a phase two after go-live, scoped and priced?" }
       - { role: tech_lead, text: "I can live with that. A phased version is roughly half the work and keeps the go-live date safe." }
       - { role: account_manager, text: "Agreed. Position for the call: phase two after go-live, priced as a change request, with the risk to the date spelled out for her." }
-    # The mock Game Master replies are in the order of its model CALLS (not of its evaluations). The first reply is wrapped in a code fence (read
-    # tolerantly); the second is not JSON, so the Game Master asks once more and the third reply answers that re-ask.
+    # The mock Game Master replies are in the order of its model CALLS (not of its evaluations). `kind` declares what a reply is: `tolerant` is valid only
+    # through the tolerant parser (here a code fence); `malformed` has no verdict, so the Game Master asks once more and the next reply answers that re-ask.
+    # Scripted replies carry no nonce: the mock stamps the evaluation's id into every verdict object it serves, like a model that follows the prompt.
     mock:
       gm:
-        - "Here is my judgement:\n```json\n{\"reasoning\": \"The team has aired concerns but has not settled on one position yet.\", \"verdict\": false}\n```"
-        - 'The team seems to be getting close to a position, though I would need to think about it.'
+        - kind: tolerant
+          reply: "Here is my judgement:\n```json\n{\"reasoning\": \"The team has aired concerns but has not settled on one position yet.\", \"verdict\": false}\n```"
+        - kind: malformed
+          reply: 'The team seems to be getting close to a position, though I would need to think about it.'
         - '{"reasoning": "All three converged on a phased, priced module after go-live and the account manager restated it as the position.", "verdict": true}'
 
   - scene: s2_priya_call

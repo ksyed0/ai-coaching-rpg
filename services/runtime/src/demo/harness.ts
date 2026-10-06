@@ -33,7 +33,7 @@ export async function makeTempRoot(repoRoot: string): Promise<TempRoot> {
 }
 
 /** A model provider that keeps every request it received (the mock providers do), for the prompt audit. */
-export type RecordingProvider = ModelProvider & { readonly calls: ChatRequest[]; /** Scripted queues that ran dry (`<scene>|<role>`), for the scripted providers. */ readonly exhausted?: string[]; /** The scripted replies actually served, in order (the showcase mock). */ readonly served?: string[] };
+export type RecordingProvider = ModelProvider & { readonly calls: ChatRequest[]; /** Scripted queues that ran dry (`<scene>|<role>`), for the scripted providers. */ readonly exhausted?: string[]; /** The declared kind (strict, tolerant, malformed) of each scripted reply actually served, in order (the showcase mock). */ readonly servedKinds?: string[] };
 
 export type System = {
   port: number; host: SessionHost; engine: SessionEngine; clock: Clock; fakeClock?: FakeClock;
@@ -97,7 +97,7 @@ export async function makeTempDataDir(parent: string = os.tmpdir()): Promise<{ r
   return { root, dataDir: path.join(root, "data"), cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
-export type MockScenePlan = { npc: Record<string, string[]>; gm: string[] };
+export type MockScenePlan = { npc: Record<string, string[]>; gm: string[]; /** What each Game Master reply is declared to be (strict, tolerant or malformed); strict when absent. */ gmKinds?: string[] };
 
 /**
  * A scripted model for the showcase's mock run. Replies are picked per scene (and, for the AI characters, per character):
@@ -108,17 +108,20 @@ export class SceneRoutedMock implements RecordingProvider {
   readonly name = "demo-scripted";
   readonly calls: ChatRequest[] = [];
   readonly exhausted: string[] = [];
-  readonly served: string[] = [];
+  readonly servedKinds: string[] = [];
+  private readonly kinds = new Map<string, string[]>();
   private readonly queues = new Map<string, string[]>();
-  constructor(private readonly o: { sceneId: () => string | undefined; keyOf: (req: ChatRequest) => string | undefined; plan: Record<string, string[]>; exhausted: string }) {
+  constructor(private readonly o: { sceneId: () => string | undefined; keyOf: (req: ChatRequest) => string | undefined; plan: Record<string, string[]>; kinds?: Record<string, string[]>; exhausted: string }) {
     for (const [k, v] of Object.entries(o.plan)) this.queues.set(k, [...v]);
+    for (const [k, v] of Object.entries(o.kinds ?? {})) this.kinds.set(k, [...v]);
   }
   async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<string> {
     this.calls.push(req);
     const who = this.o.keyOf(req);
     const key = `${this.o.sceneId() ?? ""}|${who ?? ""}`;
     const next = this.queues.get(key)?.shift();
-    if (next === undefined) this.exhausted.push(key); else this.served.push(next);
+    const kind = this.kinds.get(key)?.shift() ?? "strict";
+    if (next === undefined) this.exhausted.push(key); else this.servedKinds.push(kind);
     const words = (next ?? this.o.exhausted).split(" ");
     for (let i = 0; i < words.length; i++) {
       if (signal?.aborted) return;
@@ -135,13 +138,13 @@ export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId
   const ref: { engine?: SessionEngine } = {};
   const sceneId = () => ref.engine?.currentScene()?.id;
   const npcRoles = Object.values(o.scenario.roles).filter((r): r is NpcRole => r.type === "npc");
-  const npcPlan: Record<string, string[]> = {}; const gmPlan: Record<string, string[]> = {};
+  const npcPlan: Record<string, string[]> = {}; const gmPlan: Record<string, string[]> = {}; const gmKinds: Record<string, string[]> = {};
   for (const { scene, mock } of o.scenes) {
     for (const [role, replies] of Object.entries(mock.npc)) npcPlan[`${scene}|${role}`] = replies;
-    gmPlan[`${scene}|`] = mock.gm;
+    gmPlan[`${scene}|`] = mock.gm; gmKinds[`${scene}|`] = mock.gmKinds ?? [];
   }
   const npc = new SceneRoutedMock({ sceneId, plan: npcPlan, exhausted: "[mock reply]", keyOf: (req) => npcRoles.find((r) => req.system.includes(npcIntro(r)))?.id });
-  const gm = new SceneRoutedMock({ sceneId, plan: gmPlan, exhausted: '{"verdict": false, "reasoning": "no scripted verdict left"}', keyOf: () => "" });
+  const gm = new SceneRoutedMock({ sceneId, plan: gmPlan, kinds: gmKinds, exhausted: '{"verdict": false, "reasoning": "no scripted verdict left"}', keyOf: () => "" });
   const fakeClock = new FakeClock(T0);
   const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: stampNonce(gm), gmTrace: o.gmTrace });
   ref.engine = sys.engine;

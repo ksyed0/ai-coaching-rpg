@@ -49,6 +49,11 @@ describe("bootstrap: Game Master settings (US-0025)", () => {
     expect(recs.map((x) => x.attempt)).toEqual([1, 2]);
     expect(recs[0]).toMatchObject({ raw: "[mock reply]", parse: { ok: false, reason: "no_json" } });
   });
+  it("a GM_TRACE_FILE equal to the session log is refused", async () => {
+    const r = await boot({ GM_TRACE_FILE: "g1.jsonl" }); // SESSION_ID g1 under the data directory
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join(" ")).toMatch(/session log/);
+  });
   it("a GM_TRACE_FILE that cannot be created refuses to start", async () => {
     const r = await boot({ GM_TRACE_FILE: "/proc/nope/trace.jsonl" });
     expect(r.ok).toBe(false);

@@ -443,7 +443,7 @@ describe("scene guards: no scene is ever skipped (R43)", () => {
   });
 
   it("records the scripted lines left unspoken after an early Game Master exit", async () => {
-    const dir = await variant((y) => y.replace(/- "Here is my judgement:[^\n]*\n/, `- '{"verdict": true, "reasoning": "Settled already."}'\n`));
+    const dir = await variant((y) => y.replace(/ {8}- kind: tolerant\n {10}reply: "Here is my judgement:[^\n]*\n/, `        - '{"verdict": true, "reasoning": "Settled already."}'\n`));
     const { exitCode, showcase } = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
     expect(exitCode).toBe(0);
     expect(showcase.observations).toContain("s1_huddle ended by gm_detects after 3 of 6 scripted lines; 3 line(s) left unspoken");

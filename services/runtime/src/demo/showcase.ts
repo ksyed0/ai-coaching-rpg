@@ -16,8 +16,8 @@ import { scrubText } from "./report.js";
 import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from "./showcase-report.js";
 import type { PlayerBotGenerator } from "./player-bot.js";
 import { playerSource, type PlayerLineRecord, type PlayerLines } from "./player-lines.js";
+import { lastNegativeLine } from "../gm-eval/cases.js";
 import { expectedGmEvaluations, type ShowcaseScript } from "./showcase-script.js";
-import { parseGmReply } from "../agents/gm-parse.js";
 import type { EvaluationResult } from "../evaluator/evaluate.js";
 import { readSessionLog } from "../evaluator/log-reader.js";
 import { summaryLines } from "../evaluator/summary.js";
@@ -75,6 +75,8 @@ export type ShowcaseOptions = {
   maxFallbacks: number | null;
   /** `--min-gm-exits <n>` (live only): S-18 fails when the Game Master ended fewer scenes than this. */
   minGmExits?: number | null;
+  /** S-18 fails when more scenes than this ended early (a false exit); null: only reported. */
+  maxFalseExits?: number | null;
   watchdogMinutes: number;
   watchdogMs: number;
   provider?: string;
@@ -463,11 +465,11 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
     const g = summary.gm;
     for (const v of g.noVerdicts) ensure(ids.has(v.sceneId), `a gm.no_verdict names an unknown scene ${v.sceneId}`);
     if (mock) {
-      // The mock script holds a fenced reply (read tolerantly) and a malformed-then-valid reply (the re-ask). Whatever the script served must show up in the events:
+      // The mock script DECLARES a tolerant reply (fenced) and a malformed reply (followed by the one that answers the re-ask). Whatever kind it served must show up in the events:
       // a --max-lines cap or an early exit may stop short of them, and then nothing is demanded.
-      const served = (sys!.gm!.served ?? []).map((r) => parseGmReply(r));
-      if (served.some((p) => p.ok && p.via === "tolerant")) ensure(g.via.tolerant >= 1, "the scripted fenced reply was served but no verdict was recorded as read tolerantly");
-      if (served.some((p) => !p.ok)) ensure(g.reasks >= 1 && g.via.reask + g.noVerdicts.length >= 1, "a scripted malformed reply was served but the Game Master did not ask again");
+      const kinds = sys!.gm!.servedKinds ?? [];
+      if (kinds.includes("tolerant")) ensure(g.via.tolerant >= 1, "a reply the script declares tolerant (fenced or in prose) was served but no verdict was recorded as read tolerantly");
+      if (kinds.includes("malformed")) ensure(g.reasks >= 1 && g.via.reask + g.noVerdicts.length >= 1, "a reply the script declares malformed was served but the Game Master did not ask again");
       ensure(g.noVerdicts.length === 0, `the mock Game Master gave no usable verdict ${g.noVerdicts.length} time(s): ${g.noVerdicts.slice(0, 2).map((v) => `${v.sceneId} ${v.reason}`).join(", ")}`);
     }
     const reasons = Object.entries(g.noVerdictByReason).map(([k, v]) => `${k} ${v}`).join(", ");
@@ -702,10 +704,14 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       const total = summary.scenes.length;
       const asked = g.evaluations + g.noVerdicts.length;
       const reasons = Object.entries(g.noVerdictByReason).map(([k, v]) => `${k} ${v}`).join(", ");
+      // An EARLY exit: the Game Master ended the scene at or before the last scripted line after which the labelled negative controls say the condition is not yet met.
+      const early = summary.scenes.filter((s) => s.exitReason === "gm_detects" && lastNegativeLine(s.id) > 0 && s.playerLines <= lastNegativeLine(s.id)).map((s) => `${s.id} after ${s.playerLines} line(s)`);
       const evidence = `the Game Master ended ${g.exitedScenes.length} of ${total} scenes (${g.exitedScenes.length === total ? "all" : `the others: ${summary.scenes.filter((s) => s.exitReason !== "gm_detects").map((s) => `${s.id} by ${s.exitReason ?? "nothing"}`).join(", ")}`}); `
+        + `early (false) exits ${early.length}${early.length ? ` (${early.join(", ")})` : ""}; `
         + `${g.evaluations} usable verdicts (${g.verdictsTrue} true, ${g.verdictsFalse} false; read strictly ${g.via.strict}, tolerantly ${g.via.tolerant}, after a re-ask ${g.via.reask}); `
         + `no usable verdict ${g.noVerdicts.length} of ${asked} evaluations${reasons ? ` (${reasons})` : ""}; ${g.reasks} re-ask(s)`;
       if (o.minGmExits != null) ensure(g.exitedScenes.length >= o.minGmExits, `${evidence}; --min-gm-exits ${o.minGmExits} needs at least ${o.minGmExits}`);
+      if (o.maxFalseExits != null) ensure(early.length <= o.maxFalseExits, `${evidence}; --max-false-exits ${o.maxFalseExits} allows at most ${o.maxFalseExits} early exit(s)`);
       return evidence;
     }, ["S-01"]);
   }

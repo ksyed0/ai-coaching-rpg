@@ -76,9 +76,10 @@ export async function bootstrap(opts: {
   const traceEnv = parseGmTraceEnv(env.GM_TRACE_FILE, dataDir);
   if (!traceEnv.ok) return { ok: false, errors: [traceEnv.error] };
   let host: SessionHost;
+  let gmTrace: ReturnType<typeof createGmTraceWriter> | undefined;
   try {
     // GM_TRACE_FILE (off by default): the raw Game Master replies, for the offline gm-eval. Owner-only file; never logged by name.
-    const gmTrace = traceEnv.file ? createGmTraceWriter(traceEnv.file) : undefined;
+    gmTrace = traceEnv.file ? createGmTraceWriter(traceEnv.file, { forbid: [path.join(dataDir, `${sessionId}.jsonl`)] }) : undefined;
     const clock = new SystemClock();
     const engine = new SessionEngine({ scenario, log: new JsonlEventLog(sessionId, dataDir), clock });
     // Live providers retry transient errors inside the NPC deadlines; the scripted mock is never wrapped.
@@ -95,9 +96,9 @@ export async function bootstrap(opts: {
   host.startTicker(opts.tickMs ?? 1_000);
   let server: Awaited<ReturnType<typeof startServer>>;
   try { server = await startServer({ port, hosts: new Map([[sessionId, host]]), log }); }
-  catch (err) { host.stopTicker(); return { ok: false, errors: [`cannot listen on port ${port}: ${err instanceof Error ? err.message : String(err)}`] }; }
+  catch (err) { host.stopTicker(); gmTrace?.close(); return { ok: false, errors: [`cannot listen on port ${port}: ${err instanceof Error ? err.message : String(err)}`] }; }
   log(`scenario "${scenario.meta.title}" v${scenario.meta.version}; session "${sessionId}"; players: ${Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => r.id).join(", ")}`);
-  return { ok: true, runtime: { port: server.port, host, stop: async () => { host.stopTicker(); await server.close(); } } };
+  return { ok: true, runtime: { port: server.port, host, stop: async () => { host.stopTicker(); await server.close(); gmTrace?.close(); } } };
 }
 
 /** Both paths must stay inside `dir`: defense in depth on top of the session id check. */

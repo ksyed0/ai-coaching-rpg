@@ -62,6 +62,48 @@ describe("the mock showcase exercises the Game Master's tolerant parser and its 
   });
 });
 
+describe("S-04 holds the mock run to what its script declares (M-10)", () => {
+  it("fails when a reply declared tolerant was served as plain strict JSON (the oracle is the declaration, not the parser)", async () => {
+    const dir = await variant((y) => y.replace(/(kind: tolerant\n {10}reply: )"[^\n]*\n/, `$1'{"reasoning": "plain", "verdict": false}'\n`));
+    const r = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
+    expect(result(r, "S-04").status).toBe("failed");
+    expect(result(r, "S-04").details).toContain("declares tolerant");
+  });
+  it("fails when a reply declared malformed was served as a valid verdict (no re-ask happened)", async () => {
+    const dir = await variant((y) => y.replace(/(kind: malformed\n {10}reply: )'[^\n]*\n/, `$1'{"reasoning": "valid after all", "verdict": false}'\n`));
+    const r = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
+    expect(result(r, "S-04").status).toBe("failed");
+    expect(result(r, "S-04").details).toContain("declares malformed");
+  });
+  it("the shipped script declares one of each, and the loader reads strings and {kind, reply} entries", async () => {
+    const r = await run(["--showcase", "--fast", "--no-color"]);
+    expect(result(r, "S-04").status).toBe("passed");
+    const { parseShowcaseScript } = await import("../showcase-script.js");
+    const { loadScenario } = await import("@acr/script");
+    const sc = await loadScenario(EXTENDED);
+    const y = await readFile(path.join(EXTENDED, "showcase.yaml"), "utf8");
+    const s1 = parseShowcaseScript(y, sc, { mode: "mock" }).scenes[0]!.mock;
+    expect(s1.gmKinds).toEqual(["tolerant", "malformed", "strict"]);
+    expect(s1.gm).toHaveLength(3);
+    expect(y.replace("kind: tolerant", "kind: weird")).not.toBe(y);
+    expect(() => parseShowcaseScript(y.replace("kind: tolerant", "kind: weird"), sc, { mode: "mock" })).toThrow(/showcase\.yaml/);
+  });
+});
+
+describe("the transcript line for a no-verdict is sanitised (M-13)", () => {
+  it("a condition with control or bidi characters cannot reach the Markdown transcript raw", async () => {
+    const dir = await variant((y) => y.replace(/ {8}- '\{"reasoning": "All three converged[^\n]*\n/, "        - 'still thinking about it'\n"));
+    const sc = path.join(dir, "script.yaml");
+    await writeFile(sc, (await readFile(sc, "utf8")).replace("the team has stated a single agreed position on the request", "the team has stated a single agreed position \\u202e\\u0007 on the request"));
+    const out = mkdtempSync(path.join(PARENT, "tr-"));
+    const r = await run(["--showcase", "--fast", "--no-color", "--max-lines", "6", "--scenario", dir, "--transcript", "t.md"], { cwd: out });
+    expect(r.stdout).toContain("transcript written");
+    const md = await readFile(path.join(out, "t.md"), "utf8");
+    expect(md).toContain("Game Master gave no verdict for");
+    expect(md).not.toMatch(new RegExp("[\\u202e\\u0007]"));
+  });
+});
+
 describe("--gm-trace", () => {
   it("writes every raw Game Master reply with how it was read to an owner-only file, resolved from the working directory", async () => {
     const dir = mkdtempSync(path.join(PARENT, "cwd-"));
@@ -113,7 +155,7 @@ describe("--showcase --live: check S-18 reports the Game Master's reliability (l
 
   it("a fenced true verdict ends scenes (read tolerantly) and S-18 reports it; --min-gm-exits is met", async () => {
     const port = await startFake('Here:\n```json\n{"reasoning": "agreed", "verdict": true}\n```');
-    const r = await run(["--showcase", "--live", "--max-lines", "3", "--fast", "--no-color", "--min-gm-exits", "1"], { resolveLiveEnv: () => env(port) });
+    const r = await run(["--showcase", "--live", "--max-lines", "3", "--fast", "--no-color", "--min-gm-exits", "1", "--max-false-exits", "9"], { resolveLiveEnv: () => env(port) });
     expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
     expect(result(r, "S-18").status).toBe("passed");
     expect(result(r, "S-18").details).toMatch(/the Game Master ended \d of 6 scenes/);
@@ -133,6 +175,25 @@ describe("--showcase --live: check S-18 reports the Game Master's reliability (l
     expect(result(strict, "S-18").status).toBe("failed");
     expect(result(strict, "S-18").details).toContain("--min-gm-exits 2 needs at least 2");
     expect(strict.exitCode).toBe(1);
+  });
+
+  it("EARLY exits are reported and bounded: a Game Master that says true to everything ends scenes too soon, and --min-gm-exits then fails on false exits (default limit 1, --max-false-exits changes it)", async () => {
+    const port = await startFake('{"reasoning": "agreed", "verdict": true}');
+    const argv = ["--showcase", "--live", "--max-lines", "3", "--fast", "--no-color"];
+    const loose = await run(argv, { resolveLiveEnv: () => env(port) });
+    expect(result(loose, "S-18").status).toBe("passed"); // no threshold given: only reported
+    expect(result(loose, "S-18").details).toMatch(/early \(false\) exits [2-9] \(s1_huddle after 3 line\(s\)/);
+    const strict = await run([...argv, "--min-gm-exits", "1"], { resolveLiveEnv: () => env(port) });
+    expect(result(strict, "S-18").status).toBe("failed");
+    expect(result(strict, "S-18").details).toContain("--max-false-exits 1 allows at most 1 early exit(s)");
+    const allowed = await run([...argv, "--min-gm-exits", "1", "--max-false-exits", "9"], { resolveLiveEnv: () => env(port) });
+    expect(result(allowed, "S-18").status).toBe("passed");
+  });
+
+  it("--max-false-exits needs --showcase --live and a whole number", () => {
+    expect(parseDemoArgs(["--showcase", "--max-false-exits", "1"])).toMatchObject({ ok: false, error: expect.stringContaining("--max-false-exits needs --showcase and --live") });
+    expect(parseDemoArgs(["--showcase", "--live", "--max-false-exits", "0"])).toMatchObject({ ok: true, opts: { maxFalseExits: 0 } });
+    expect(parseDemoArgs(["--showcase", "--live", "--max-false-exits=x"])).toMatchObject({ ok: false, error: expect.stringContaining("--max-false-exits must be a whole number") });
   });
 
   it("GM_REASK=0 asks once; an invalid GM_* variable is refused before anything starts, naming the variable", async () => {

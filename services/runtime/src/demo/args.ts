@@ -13,7 +13,7 @@ const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+-]*$/;
 
 export const DEMO_USAGE = [
   "usage: pnpm demo [--fast] [--speed <x>] [--json <path|->] [--live] [--url <ws://host:port>] [--session <id>] [--transcript <path.md>] [--no-color] [--help]",
-  "       pnpm demo --showcase [--scenario <dir>] [--max-lines <n>] [--max-fallbacks <n>] [--watchdog <minutes>] [--players scripted|generated] [--player-model <id>] [--no-intents] [--evaluate] [--eval-out <dir>] [--gm-trace <path.jsonl>] [--min-gm-exits <n>] [--live] [--fast] [--json <path|->]",
+  "       pnpm demo --showcase [--scenario <dir>] [--max-lines <n>] [--max-fallbacks <n>] [--watchdog <minutes>] [--players scripted|generated] [--player-model <id>] [--no-intents] [--evaluate] [--eval-out <dir>] [--gm-trace <path.jsonl>] [--min-gm-exits <n>] [--max-false-exits <n>] [--live] [--fast] [--json <path|->]",
   `  --fast            no pacing delays (instant narration)`,
   `  --speed <x>       scale the pacing, ${MIN_SPEED} to ${MAX_SPEED} (default 1; 2 is twice as fast)`,
   "  --json <path|->   write a machine-readable report to a file, or to stdout with - (narration then goes to stderr;",
@@ -37,6 +37,7 @@ export const DEMO_USAGE = [
   "  --gm-trace <path> --showcase only: write every raw Game Master reply and how it was read to <path> (JSON lines, owner-only file; it holds the",
   "                    conversation's judgements, so keep it private). `pnpm gm-eval --trace <path>` replays it offline",
   `  --min-gm-exits <n> --showcase --live only: fail check S-18 when the Game Master ended fewer than n scenes, 0 to ${MAX_MIN_GM_EXITS} (without it S-18 only reports)`,
+  `  --max-false-exits <n> --showcase --live only: S-18 also fails when the Game Master ended more than n scenes EARLY (at or before the last line after which the gm-eval labels say the condition is not yet met, a false exit); default 1 whenever --min-gm-exits is given, 0 to ${MAX_MIN_GM_EXITS}`,
   `  --max-fallbacks <n> --showcase only: fail the run when more than n AI replies were canned fallback lines, 0 to ${MAX_FALLBACKS}`,
   "                    (without it the count is only a warning)",
   `  --watchdog <min>  real-time limit for the whole run, 1 to ${MAX_WATCHDOG_MINUTES} minutes (--showcase default: 3, or 30 with --live;`,
@@ -56,11 +57,13 @@ export type DemoOptions = {
   gmTrace?: string;
   /** Only set with `--min-gm-exits <n>` (needs --showcase --live). */
   minGmExits?: number;
+  /** Only set with `--max-false-exits <n>` (needs --showcase --live). */
+  maxFalseExits?: number;
 };
 export type DemoArgsResult = { ok: true; opts: DemoOptions } | { ok: false; error: string; usage: string };
 
 const fail = (error: string): DemoArgsResult => ({ ok: false, error, usage: DEMO_USAGE });
-const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript", "players", "player-model", "no-intents", "evaluate", "eval-out", "gm-trace", "min-gm-exits"];
+const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript", "players", "player-model", "no-intents", "evaluate", "eval-out", "gm-trace", "min-gm-exits", "max-false-exits"];
 const hasControl = (v: string) => new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]").test(v);
 
 /** Validates a --url value. The error never echoes the value (it may carry credentials). */
@@ -82,14 +85,14 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
     const n = argv.filter((a) => a === `--${f}` || a.startsWith(`--${f}=`)).length;
     if (n > 1) return fail(`error: --${f} was given more than once`);
   }
-  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string; transcript?: string; players?: string; "player-model"?: string; "no-intents"?: boolean; evaluate?: boolean; "eval-out"?: string; "gm-trace"?: string; "min-gm-exits"?: string };
+  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string; transcript?: string; players?: string; "player-model"?: string; "no-intents"?: boolean; evaluate?: boolean; "eval-out"?: string; "gm-trace"?: string; "min-gm-exits"?: string; "max-false-exits"?: string };
   try {
     ({ values } = nodeParseArgs({
       args: argv, allowPositionals: false, strict: true,
       options: {
         fast: { type: "boolean" }, speed: { type: "string" }, json: { type: "string" }, live: { type: "boolean" },
         url: { type: "string" }, session: { type: "string" }, "no-color": { type: "boolean" }, help: { type: "boolean" },
-        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" }, transcript: { type: "string" }, players: { type: "string" }, "player-model": { type: "string" }, "no-intents": { type: "boolean" }, evaluate: { type: "boolean" }, "eval-out": { type: "string" }, "gm-trace": { type: "string" }, "min-gm-exits": { type: "string" },
+        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" }, transcript: { type: "string" }, players: { type: "string" }, "player-model": { type: "string" }, "no-intents": { type: "boolean" }, evaluate: { type: "boolean" }, "eval-out": { type: "string" }, "gm-trace": { type: "string" }, "min-gm-exits": { type: "string" }, "max-false-exits": { type: "string" },
       },
     }));
   } catch (err) { return fail(`error: ${(err as Error).message.split("\n")[0]}`); }
@@ -153,6 +156,10 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
   if (minGmExits === null) return fail(`error: --min-gm-exits must be a whole number from 0 to ${MAX_MIN_GM_EXITS}`);
   if (minGmExits !== undefined && !(values.showcase && values.live)) return fail("error: --min-gm-exits needs --showcase and --live (check S-18 only runs against a real model)");
 
+  const maxFalseExits = whole(values["max-false-exits"], 0, MAX_MIN_GM_EXITS);
+  if (maxFalseExits === null) return fail(`error: --max-false-exits must be a whole number from 0 to ${MAX_MIN_GM_EXITS}`);
+  if (maxFalseExits !== undefined && !(values.showcase && values.live)) return fail("error: --max-false-exits needs --showcase and --live (check S-18 only runs against a real model)");
+
   return {
     ok: true,
     opts: {
@@ -160,7 +167,7 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
       session: values.session, noColor: values["no-color"] === true, help: values.help === true,
       showcase: values.showcase === true ? true : undefined, scenario: values.scenario, maxLines, maxFallbacks, watchdog, transcript: values.transcript,
       players: values.players === "generated" ? "generated" : undefined, playerModel: values["player-model"], noIntents: values["no-intents"] === true ? true : undefined,
-      evaluate: values.evaluate === true ? true : undefined, evalOut: values["eval-out"], gmTrace: values["gm-trace"], minGmExits,
+      evaluate: values.evaluate === true ? true : undefined, evalOut: values["eval-out"], gmTrace: values["gm-trace"], minGmExits, maxFalseExits,
     },
   };
 }
