@@ -34,7 +34,7 @@ export function sampleScenario(): Scenario {
 
 export function sampleRubrics() {
   const lv = (a: string) => ({ anchor: a, examples: ["e"] });
-  const crit = (id: string) => ({ id, name: id.toUpperCase(), description: `${id} d`, what_to_look_for: ["x"], levels: { 1: lv(`${id} one`), 2: lv(`${id} two`), 3: lv(`${id} three`), 4: lv(`${id} four`) } });
+  const crit = (id: string) => ({ id, name: id[0]!.toUpperCase() + id.slice(1).replace(/_/g, " "), description: `${id} d`, what_to_look_for: ["x"], levels: { 1: lv(`${id} one`), 2: lv(`${id} two`), 3: lv(`${id} three`), 4: lv(`${id} four`) } });
   return [
     { id: "ind", name: "Individual", scope: "individual" as const, version: "1", description: "", criteria: ["discovery", "listening", "negotiation"].map(crit) },
     { id: "grp", name: "Group", scope: "group" as const, version: "1", description: "", criteria: ["shared_understanding"].map(crit) },

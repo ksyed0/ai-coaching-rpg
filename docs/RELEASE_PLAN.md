@@ -716,10 +716,10 @@ Status: In Progress
 Branch: feature/EPIC-0005-evaluator-feedback
 Dependencies: US-0029
 Acceptance Criteria:
-  - [ ] AC-0103: each player gets a Markdown report and a JSON twin (`schema: 'acr.report/1'`) with a header, a DRAFT banner, the visibility line, a summary of 2 to 3 strengths, 2 to 3 development points and 2 to 3 next actions each tied to an LO id, a learning-objectives table, a criteria table, the evidence quotes with scene, seq and relative time, and the 'How this was scored' section
-  - [ ] AC-0104: the group report holds the group criteria table, LO coverage across the team (players x LOs), the scenario's facilitator notes together with the model's talking points, notable moments with quotes and the method section
-  - [ ] AC-0105: all model and participant text goes through the demo's Markdown escaping and secret and path scrubbing; role ids are validated as safe file names; reports are written under `<out>/<session-id>/` in a fresh directory with exclusive create, never outside it
-  - [ ] AC-0106: `index.md` links every report and shows the per-LO table for all players, `method.md` holds the scale and method text, and every report and JSON carries the line 'Visibility: all participants (prototype setting; per-participant isolation is planned)'
+  - [x] AC-0103: each player gets a Markdown report and a JSON twin (`schema: 'acr.report/1'`) with a header, a DRAFT banner, the visibility line, a summary of 2 to 3 strengths, 2 to 3 development points and 2 to 3 next actions each tied to an LO id, a learning-objectives table, a criteria table, the evidence quotes with scene, seq and relative time, and the 'How this was scored' section
+  - [x] AC-0104: the group report holds the group criteria table, LO coverage across the team (players x LOs), the scenario's facilitator notes together with the model's talking points, notable moments with quotes and the method section
+  - [x] AC-0105: all model and participant text goes through the demo's Markdown escaping and secret and path scrubbing; role ids are validated as safe file names; reports are written under `<out>/<session-id>/` in a fresh directory with exclusive create, never outside it
+  - [x] AC-0106: `index.md` links every report and shows the per-LO table for all players, `method.md` holds the scale and method text, and every report and JSON carries the line 'Visibility: all participants (prototype setting; per-participant isolation is planned)'
 ```
 
 ```
