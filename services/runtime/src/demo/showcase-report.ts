@@ -1,6 +1,7 @@
 import type { SessionEvent } from "@acr/events";
 import type { NpcRole, Scenario } from "@acr/script";
 import { sanitizeText } from "../cli/render.js";
+import { playerSource, type PlayerLines } from "./player-lines.js";
 import { classifyGmDecision, classifyNpcReply, isFallbackReply, type Provenance } from "./provenance.js";
 
 export type LineSource = "player-bot" | "ai-character" | "game-master" | "system";
@@ -8,6 +9,17 @@ export type LineRecord = { seq: number; source: LineSource; /** SCRIPTED / GENER
 export type NpcStats = { roleId: string; name: string; replies: number; modelReplies: number; fallbackReplies: number; latencyMs: { median: number; max: number } | null };
 export type GmDecision = { seq: number; sceneId: string; condition: string; verdict: boolean; reasoning: string };
 export type SceneStats = { id: string; title: string; exitReason: string | null; playerLines: number; npcReplies: number; gmDecisions: number };
+export type PlayerStats = {
+  mode: "generated";
+  /** Lines whose text the model produced. */
+  generated: number;
+  /** Lines spoken as the scripted text, because generation failed (each has a `player <role>: generation failed` alert in the narration). */
+  scriptedFallbacks: number;
+  /** Generated lines that equal the scripted line (observation only). */
+  verbatimRepeats: number;
+  /** Generated lines from which lines written for other speakers were cut. */
+  cutReplies: number;
+};
 export type ShowcaseReport = {
   scenario: { id: string; title: string };
   mode: "mock" | "live";
@@ -20,6 +32,8 @@ export type ShowcaseReport = {
   npcs: NpcStats[];
   gm: { evaluations: number; verdictsTrue: number; verdictsFalse: number; exitedScenes: string[]; decisions: GmDecision[] };
   playerLines: number;
+  /** Only with `--players generated`: how the player lines were produced. Counted from the lines the server actually recorded. */
+  players?: PlayerStats;
   npcReplies: number;
   fallbackLines: number;
   facilitatorAdvances: number;
@@ -54,6 +68,8 @@ export type ReportInput = {
   /** Whether event timestamps are real time (false with the fake clock of the mock run). */
   timing: boolean;
   wallTimeMs: number; maxLines: number | null; maxFallbacks: number | null; watchdogMinutes: number; observations: string[]; provider?: string;
+  /** The runner's record of how each player line was produced (`--players generated`); absent in the default scripted mode. */
+  players?: PlayerLines;
 };
 
 /**
@@ -71,6 +87,8 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
   const alerts: ShowcaseReport["alerts"] = [];
   const exited: string[] = [];
   let advances = 0; let playerLines = 0; let npcReplies = 0; let fallbackLines = 0;
+  const lookup = i.players?.reader();
+  const ps: PlayerStats = { mode: "generated", generated: 0, scriptedFallbacks: 0, verbatimRepeats: 0, cutReplies: 0 };
   let current: string | null = null;
   let lastUtterance: { ts: number } | null = null;
   const sceneStat = (id: string): SceneStats => {
@@ -95,7 +113,10 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
         const npc = npcRoles.find((r) => r.id === e.roleId);
         if (!npc) {
           playerLines++; if (current) sceneStat(current).playerLines++;
-          lines.push({ seq: e.seq, source: "player-bot", tag: "scripted", sceneId: current, role: e.roleId, text: clip(e.text, TEXT_CHARS) });
+          const rec = lookup?.(e.roleId, e.text);
+          const tag = playerSource(rec);
+          if (rec && tag === "generated") { ps.generated++; if (rec.verbatim) ps.verbatimRepeats++; if (rec.cut) ps.cutReplies++; } else if (rec) ps.scriptedFallbacks++;
+          lines.push({ seq: e.seq, source: "player-bot", tag, sceneId: current, role: e.roleId, text: clip(e.text, TEXT_CHARS) });
         } else {
           const prev = i.events[idx - 1];
           const fallback = isFallbackReply(npc, e, prev, { legacy: false });
@@ -154,7 +175,7 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
       evaluations: decisions.length, verdictsTrue: decisions.filter((d) => d.verdict).length, verdictsFalse: decisions.filter((d) => !d.verdict).length,
       exitedScenes: exited, decisions,
     },
-    playerLines, npcReplies, fallbackLines, facilitatorAdvances: advances, observations: i.observations.map((o) => clip(o, 300)), warnings, alerts, lines,
+    playerLines, ...(i.players ? { players: ps } : {}), npcReplies, fallbackLines, facilitatorAdvances: advances, observations: i.observations.map((o) => clip(o, 300)), warnings, alerts, lines,
     wallTimeMs: Math.round(i.wallTimeMs),
   };
 }
@@ -173,6 +194,10 @@ export function formatAiSummary(r: ShowcaseReport): string[] {
   out.push(`  Game Master: ${r.gm.evaluations} evaluations (${r.gm.verdictsTrue} true, ${r.gm.verdictsFalse} false); exited: ${r.gm.exitedScenes.join(", ") || "none"}`);
   out.push(`  Scenes played: ${r.scenes.length} (ended by Game Master ${exits("gm_detects")}, time box ${exits("time_box_elapsed")}, facilitator advance ${exits("facilitator_advance")})`);
   out.push(`  Player-bot lines: ${r.playerLines}; AI character replies: ${r.npcReplies} (${r.fallbackLines} canned fallback)`);
+  if (r.players) {
+    const p = r.players;
+    out.push(`  Player bots (--players generated): ${p.generated} of ${r.playerLines} lines generated by the model, ${p.scriptedFallbacks} fell back to the scripted line; ${p.verbatimRepeats} generated line(s) repeated the scripted line verbatim, ${p.cutReplies} had lines for other speakers cut`);
+  }
   out.push(`  Facilitator advances: ${r.facilitatorAdvances}`);
   out.push(`  Alerts: ${r.alerts.length}`);
   for (const o of r.observations) out.push(`  Observation: ${o}`);

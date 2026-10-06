@@ -97,8 +97,8 @@ export function renderTranscript(i: TranscriptInput): string {
     out.push(`| ${k} | ${cell(v)} |`);
   }
   out.push("", "## Legend", "",
-    `${TAGS.scripted} text authored in advance: bot player lines, facilitator whispers and every reply of the scripted mock providers.`, "",
-    `${TAGS.generated} produced by a live model at run time: live AI character replies and the Game Master's reasoning.`, "",
+    `${TAGS.scripted} text authored in advance: bot player lines (also a generated player line that fell back to its scripted text), facilitator whispers and every reply of the scripted mock providers.`, "",
+    `${TAGS.generated} produced by a live model at run time: live AI character replies, the Game Master's reasoning and, with \`--players generated\`, the player bots' lines (only when the model wrote the recorded text).`, "",
     `${TAGS.fallback} the character's canned fallback line, used in place of a missing model reply (scripted text, never generated).`, "",
     `${TAGS.unverified} an AI character or Game Master line seen through \`--url\`: the runner cannot tell whether the remote server used a real model or a script. Under \`--url\` the fallback marker is asserted by the remote server: a hostile server can set it, but it can never make a line generated.`, "",
     `${TAGS.system} technical logging, not dialogue.`, "",
@@ -126,6 +126,10 @@ export function renderTranscript(i: TranscriptInput): string {
     out.push("", "| Game Master | Evaluations | True | False | Scenes it ended |", "| --- | --- | --- | --- | --- |");
     out.push(`| Game Master | ${s.gm.evaluations} evaluations | ${s.gm.verdictsTrue} true | ${s.gm.verdictsFalse} false | exited: ${cell(s.gm.exitedScenes.join(", ") || "none")} |`);
     out.push("", `Facilitator advances: ${s.facilitatorAdvances}. Alerts: ${s.alerts.length}. Canned fallback lines: ${s.fallbackLines}.`, "");
+    if (s.players) {
+      const p = s.players;
+      out.push(`Player bots (generated): ${p.generated} of ${s.playerLines} lines written by the model, ${p.scriptedFallbacks} spoken as the scripted line after a failed generation, ${p.verbatimRepeats} generated line(s) identical to the scripted line.`, "");
+    }
   }
 
   out.push("## Checks", "", "| Id | Status | Check | Evidence |", "| --- | --- | --- | --- |");

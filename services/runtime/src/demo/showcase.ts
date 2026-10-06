@@ -11,6 +11,8 @@ import { MIN, type System } from "./harness.js";
 import { gmDeadlineMs } from "../agents/timeouts.js";
 import { fallbackReason, isFallbackReply } from "./provenance.js";
 import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from "./showcase-report.js";
+import type { PlayerBotGenerator } from "./player-bot.js";
+import { playerSource, type PlayerLineRecord, type PlayerLines } from "./player-lines.js";
 import { expectedGmEvaluations, type ShowcaseScript } from "./showcase-script.js";
 
 /** The showcase's own checks (ids S-01..). `scripted` ones need the scripted models and are an intended skip in a live run. */
@@ -31,6 +33,11 @@ export const SHOWCASE_CHECKS: readonly CheckDef[] = [
   { id: "S-14", title: "The mock scripts were never exhausted and no scene needed the facilitator advance (unless --max-lines)", kind: "scripted" },
 ] as const;
 
+/** Extra checks, only in a `--players generated` run (the default run keeps exactly S-01 to S-14). */
+export const SHOWCASE_PLAYER_CHECKS: readonly CheckDef[] = [
+  { id: "S-15", title: "Generated player prompts held only what that role may see, and every player line is tagged by what produced it", kind: "any" },
+] as const;
+
 export type ShowcaseHolder = {
   /** Builds the report from what the facilitator has seen so far (also usable after a failure or an abort). */
   snapshot?: () => ShowcaseReport;
@@ -49,6 +56,8 @@ export type ShowcaseOptions = {
   replyTimeoutMs: number;
   startedMs: number;
   holder: ShowcaseHolder;
+  /** `--players generated`: the model that speaks the player roles, and the record of how each line was produced. */
+  players?: { generator: PlayerBotGenerator; lines: PlayerLines };
   /** Test hooks: run just before a scripted line is sent, and just before the safety-net advance (to force races). */
   hooks?: ShowcaseHooks;
 };
@@ -70,16 +79,16 @@ export function linesFor(script: ShowcaseScript, sceneId: string, maxLines: numb
   return entry.lines.slice(0, maxLines ?? entry.lines.length);
 }
 
-/** An upper bound of the model calls a run makes: one reply per AI character per line, plus the Game Master's evaluations. */
-export function expectedModelCalls(scenario: Scenario, script: ShowcaseScript, maxLines: number | null): { npc: number; gm: number } {
-  let npc = 0; let gm = 0;
+/** An upper bound of the model calls a run makes: one reply per AI character per line, plus the Game Master's evaluations (`player`: the calls for the player lines, made only with --players generated). */
+export function expectedModelCalls(scenario: Scenario, script: ShowcaseScript, maxLines: number | null): { npc: number; gm: number; player: number } {
+  let npc = 0; let gm = 0; let player = 0;
   for (const scene of scenario.script.scenes) {
     const n = scene.participants.filter((p) => scenario.roles[p]?.type === "npc").length;
     const lines = linesFor(script, scene.id, maxLines).length;
-    npc += n * lines;
+    npc += n * lines; player += lines;
     gm += expectedGmEvaluations(scene, lines, n);
   }
-  return { npc, gm };
+  return { npc, gm, player };
 }
 
 /**
@@ -122,7 +131,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
 
   const snapshot = (): ShowcaseReport => buildShowcaseReport({
     events: st.fac?.events() ?? [], scenario, mode: o.mode, timing, wallTimeMs: ctx.now() - o.startedMs, maxLines: o.maxLines, maxFallbacks: o.maxFallbacks,
-    watchdogMinutes: o.watchdogMinutes, observations, provider: o.provider,
+    watchdogMinutes: o.watchdogMinutes, observations, provider: o.provider, players: o.players?.lines,
   });
   o.holder.snapshot = snapshot;
 
@@ -150,7 +159,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         if (role?.type === "npc") {
           const canned = isFallbackReply(role, e, prev, { legacy: false });
           await n.tagged("AI character", "cyan", `${role.name} (${role.id}${canned ? ", canned fallback line" : ""})`, clip(e.text, NARRATION_CHARS));
-        } else await n.tagged("player bot", "green", e.roleId, clip(e.text, NARRATION_CHARS));
+        } else await n.tagged(narratePlayer && playerSource(narratePlayer(e.roleId, e.text)) === "generated" ? "player bot, generated" : "player bot", "green", e.roleId, clip(e.text, NARRATION_CHARS));
         break;
       }
       case "gm.decision":
@@ -166,6 +175,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
       default: break;
     }
   };
+  const narratePlayer = o.players?.lines.reader();
   const flush = async (): Promise<void> => { await chain; };
 
   // ---- the lobby ---------------------------------------------------------------------------------------
@@ -184,7 +194,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
     st.players[role] = bot; st.joined[role] = j;
     await n.tagged("system", "dim", "", `${role} joins as a player bot with ${j.privateFacts?.length ?? 0} private facts`);
   }
-  ctx.tr?.attach(fac, { scenario, provider: o.mode, sceneHeadings: true });
+  ctx.tr?.attach(fac, { scenario, provider: o.mode, sceneHeadings: true, players: o.players?.lines });
   const narrate = (m: Inbound) => { if (m.type === "event") { const e = m.event; chain = chain.then(() => narrateEvent(e)).catch(() => undefined); } };
   const prior = fac.onMessage;
   fac.onMessage = (m) => { prior?.(m); narrate(m); };
@@ -198,6 +208,16 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
   /** The scene the session is in right now (from the facilitator's complete stream), or null between scenes and after the end. */
   const currentScene = (): string | null => sceneAt(fac.events(), Infinity);
   const exitReasonOf = (sceneId: string) => (fac.events().find((e) => e.type === "scene.exited" && e.sceneId === sceneId) as Extract<SessionEvent, { type: "scene.exited" }> | undefined)?.reason;
+
+  /** Waits until the player's own connection has received the last utterance and the last inject addressed to it that the facilitator saw (so its prompt is complete). */
+  const playerCaughtUp = async (bot: (typeof st.players)[PlayerId] & object, role: string): Promise<void> => {
+    const ev = [...fac.events()].reverse();
+    const lastUtter = ev.find((e) => e.type === "utterance")?.seq;
+    const lastInject = ev.find((e) => e.type === "inject.fired" && e.to.includes(role))?.seq;
+    for (const seq of [lastUtter, lastInject]) {
+      if (seq !== undefined) await bot.waitFor((m) => m.type === "event" && m.event.seq === seq, { timeoutMs: 15_000, what: `${role} to receive event ${seq}` });
+    }
+  };
 
   fac.send({ type: "start" });
   await fac.waitFor(isEvent("session.started"), { what: "session.started" });
@@ -228,12 +248,28 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
       }
       await o.hooks?.beforeLine?.({ sceneId: scene.id, index: i, sys });
       const bot = st.players[line.role as PlayerId]!;
+      let text = line.text;
+      let record: PlayerLineRecord | undefined;
+      if (o.players) {
+        // The model speaks this slot; the scripted line is only its private intent. The player's own stream must have caught up first.
+        await playerCaughtUp(bot, line.role);
+        const said = await o.players.generator.speak({ roleId: line.role, scene, scripted: line.text, joined: st.joined[line.role as PlayerId]!, events: bot.events() });
+        if (ctx.signal.aborted) throw new Error("run aborted");
+        text = said.text;
+        record = o.players.lines.add({ role: line.role, text, source: said.source, verbatim: said.verbatim, cut: said.cut, ...(said.reason !== undefined ? { reason: said.reason } : {}) });
+        if (said.reason !== undefined) {
+          const msg = `player ${line.role}: generation failed (${said.reason}); used the scripted line`;
+          await n.tagged("alert", "yellow", "", clip(msg, 300));
+          ctx.tr?.add({ kind: "log", source: "system", text: msg, scene: scene.id });
+        }
+      }
       const from = bot.mark();
       const lastSeqBefore = fac.events().at(-1)?.seq ?? 0;
-      // Every scripted line names the scene it belongs to: if the scene ended in between (a time box, the Game Master), the server refuses it.
-      bot.send({ type: "say", text: line.text, expectSceneId: scene.id });
-      const r = await bot.waitFor((m) => m.type === "error" || isEvent("utterance", (e) => e.roleId === line.role && e.text === line.text)(m), { from, timeoutMs: 15_000, what: `${line.role}'s line to be accepted` });
+      // Every line names the scene it belongs to: if the scene ended in between (a time box, the Game Master), the server refuses it.
+      bot.send({ type: "say", text, expectSceneId: scene.id });
+      const r = await bot.waitFor((m) => m.type === "error" || isEvent("utterance", (e) => e.roleId === line.role && e.text === text)(m), { from, timeoutMs: 15_000, what: `${line.role}'s line to be accepted` });
       if (r.type === "error") {
+        if (record) o.players!.lines.drop(record);
         if (r.code === "stale_scene" || r.code === "not_in_scene") {
           observations.push(`scene changed under us: ${line.role}'s line ${i + 1} of ${scene.id} was refused (${r.code}); the session is now ${currentScene() ? `in ${currentScene()}` : "between scenes or ended"}`);
           break;
@@ -242,7 +278,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
       }
       spoken++;
       await waitSettled(npcCount, gmConditions);
-      const echo = fac.events().find((e) => e.type === "utterance" && e.roleId === line.role && e.text === line.text && e.seq > lastSeqBefore);
+      const echo = fac.events().find((e) => e.type === "utterance" && e.roleId === line.role && e.text === text && e.seq > lastSeqBefore);
       ensure(!echo || sceneAt(fac.events(), echo.seq) === scene.id, `${line.role}'s line ${i + 1} landed in a different scene than ${scene.id}`);
     }
     if (spoken < lines.length && exited(scene.id)) {
@@ -279,6 +315,10 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
   await flush();
 
   // ---- the summary ---------------------------------------------------------------------------------------
+  if (o.players) {
+    const p = snapshot().players;
+    if (p) observations.push(`--players generated: ${p.generated} player line(s) were generated, ${p.scriptedFallbacks} fell back to the scripted line, ${p.verbatimRepeats} generated line(s) repeated the scripted line verbatim`);
+  }
   const summary = snapshot();
   await n.heading("SUMMARY");
   const [title, ...rest] = formatAiSummary(summary);
@@ -461,6 +501,31 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
     }
     return "every scripted reply and verdict came from the script and no scene needed the facilitator advance";
   }, ["S-01"]);
+
+  if (o.players) {
+    const { generator, lines: playerLines } = o.players;
+    await rec.run("S-15", () => {
+      ensure(generator.calls.length > 0, "no player prompt was captured (the audit would be vacuous)");
+      const base = [...markers.rubric, ...markers.hidden, ...markers.npcInternals, ...PARTICIPANT_NAMES];
+      generator.calls.forEach((req, i) => {
+        const role = generator.callRoles[i]!;
+        const others = Object.entries(markers.secretsByRole).filter(([r]) => r !== role).flatMap(([, v]) => v);
+        // The system prompt holds only the role's own material; the conversation turns are other people's speech (not secrets) but never carry NPC or rubric text.
+        const inSystem = findMarkers(req.system, [...base, ...others]);
+        ensure(inSystem.length === 0, `a ${role} prompt contained: ${inSystem.join(" | ")}`);
+        const inTurns = findMarkers(JSON.stringify(req.messages), base);
+        ensure(inTurns.length === 0, `a ${role} conversation turn contained: ${inTurns.join(" | ")}`);
+        ensure(req.system.includes(markers.secretsByRole[role]![0]!.slice(0, 20)), `${role}'s own brief is missing from its prompt (vacuous audit)`);
+      });
+      const spoken = summary.lines.filter((l) => l.source === "player-bot");
+      ensure(spoken.length === playerLines.records.length, `${spoken.length} player lines were spoken but ${playerLines.records.length} were recorded`);
+      const generated = spoken.filter((l) => l.tag === "generated").length;
+      const claimed = playerLines.records.filter((r) => r.source === "generated").length;
+      ensure(generated === claimed, `${generated} lines are tagged generated but the runner recorded ${claimed} generated lines`);
+      ensure(spoken.every((l) => l.tag === "generated" || l.tag === "scripted"), "a player line has a tag other than generated or scripted");
+      return `${generator.calls.length} player prompts checked against ${base.length} shared strings and each role's other-role secrets: none appeared; ${generated} generated and ${spoken.length - generated} scripted player lines are tagged as recorded`;
+    }, ["S-01"]);
+  }
 
   await rec.run("S-12", () => {
     const took = ctx.now() - o.startedMs;

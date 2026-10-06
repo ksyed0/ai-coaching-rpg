@@ -11,11 +11,13 @@ import { DEMO_USAGE, parseDemoArgs } from "./args.js";
 import { playAudit } from "./audit.js";
 import { CHECKS, Recorder, buildMarkers, type RunKind } from "./checks.js";
 import { newStory, type Ctx } from "./ctx.js";
-import { FAKE_KEY, makeTempDataDir, makeTempRoot, startLiveSystem, startMockSystem, startShowcaseMockSystem, type System } from "./harness.js";
+import { FAKE_KEY, makeTempDataDir, makeTempRoot, startLiveSystem, startMockSystem, startPlayerProvider, startShowcaseMockSystem, type System } from "./harness.js";
+import { PlayerBotGenerator } from "./player-bot.js";
+import { PlayerLines } from "./player-lines.js";
 import { playLab } from "./lab.js";
 import { createNarrator, shouldColor } from "./narrator.js";
 import { buildReport, exitCodeFor, formatChecklist, scrubText, type CheckResult, type DemoMode, type Report } from "./report.js";
-import { SHOWCASE_CHECKS, expectedModelCalls, playShowcase, showcaseMarkers, type ShowcaseHolder, type ShowcaseHooks } from "./showcase.js";
+import { SHOWCASE_CHECKS, SHOWCASE_PLAYER_CHECKS, expectedModelCalls, playShowcase, showcaseMarkers, type ShowcaseHolder, type ShowcaseHooks } from "./showcase.js";
 import { loadShowcaseScript, type ShowcaseScript } from "./showcase-script.js";
 import { playStory } from "./story.js";
 import type { ProviderKind } from "./provenance.js";
@@ -24,6 +26,7 @@ import { checkTranscriptTarget, writeTranscriptFile } from "./transcript-path.js
 import { renderTranscript } from "./transcript-md.js";
 import { parseNpcTimeouts, DEFAULT_REPLY_TIMEOUT_MS } from "../agents/timeouts.js";
 import { parseModelRetry } from "../agents/retry-config.js";
+import { DEFAULT_NPC_MAX_TOKENS, parseTokenBudgets } from "../agents/token-budgets.js";
 
 export const TOOL = "acr-demo";
 export const DEFAULT_WATCHDOG_MS = 120_000;
@@ -137,6 +140,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       selectModelProvider(liveEnv, "npc"); selectModelProvider(liveEnv, "gm"); // fails now, with a message that names variables, not values
       const retryConfig = parseModelRetry(liveEnv);
       if (!retryConfig.ok) throw new Error(retryConfig.errors.join("; "));
+      if (opts.players === "generated") startPlayerProvider(liveEnv, opts.playerModel); // fails now, naming variables, not values
     } catch (err) {
       deps.stderr.write(`error: --live cannot use the configured model provider: ${scrubText(err instanceof Error ? err.message : String(err))}\n`);
       return { exitCode: 2 };
@@ -164,7 +168,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const startedMs = now();
   const holder: ShowcaseHolder = {};
   const rec = new Recorder({
-    kind, now, defs: showcase ? SHOWCASE_CHECKS : CHECKS, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
+    kind, now, defs: showcase ? (opts.players === "generated" ? [...SHOWCASE_CHECKS, ...SHOWCASE_PLAYER_CHECKS] : SHOWCASE_CHECKS) : CHECKS, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
     onResult: (r) => { if (r.status === "passed") n.ok(`${r.id} ${r.details}`); else if (r.status === "failed") n.fail(`${r.id} ${r.details}`); },
   });
   const cleanups: (() => Promise<void> | void)[] = [];
@@ -180,10 +184,11 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const executeShowcase = async (sc: { scenario: Scenario; script: ShowcaseScript }): Promise<void> => {
     const pacing = opts.fast ? ", fast" : opts.speed !== 1 ? `, speed ${opts.speed}` : "";
     scenarioTitle = sc.scenario.meta.title;
-    n.line(`${sc.scenario.meta.title}: AI showcase (${mode} mode${pacing})`);
+    n.line(`${sc.scenario.meta.title}: AI showcase (${mode} mode${opts.players === "generated" ? ", generated players" : ""}${pacing})`);
     const calls = expectedModelCalls(sc.scenario, sc.script, opts.maxLines ?? null);
     if (opts.live) {
       n.styled(`NOTICE: --live sends the AI characters' personas and goals and the scripted conversation to the configured model provider (${providerLabel}) and may cost money. Expect up to about ${calls.npc} AI character replies and ${calls.gm} Game Master calls.`, "yellow");
+      if (opts.players === "generated") n.styled(`NOTICE: --players generated also sends each player role's brief and private facts, the scene and the conversation so far to the model provider to write the player lines (up to about ${calls.player} more calls${opts.playerModel ? `, model ${opts.playerModel}` : ", the NPC model"}). A failed generation falls back to the scripted line.`, "yellow");
       n.line("The AI characters and the Game Master answer for real; how long it takes depends on the model.");
     } else n.line("Mock mode: the AI characters and the Game Master are scripted (offline and deterministic); nothing leaves this machine.");
     const markers = showcaseMarkers(sc.scenario);
@@ -201,10 +206,21 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     register(() => sys.stop());
     ctx.sys = sys; ctx.tmp = { root: t.root, dataDir: t.dataDir, scenarioDir: "", cleanup: t.cleanup }; ctx.wsUrl = `ws://127.0.0.1:${sys.port}`;
     const timeouts = liveEnv ? parseNpcTimeouts(liveEnv) : undefined;
+    let players: { generator: PlayerBotGenerator; lines: PlayerLines } | undefined;
+    if (opts.players === "generated" && liveEnv && timeouts?.ok) {
+      const budgets = parseTokenBudgets(liveEnv);
+      players = {
+        lines: new PlayerLines(),
+        generator: new PlayerBotGenerator({
+          provider: startPlayerProvider(liveEnv, opts.playerModel), scenario: sc.scenario, signal: ac.signal,
+          firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, maxTokens: budgets.ok ? budgets.npcMaxTokens : DEFAULT_NPC_MAX_TOKENS,
+        }),
+      };
+    }
     await playShowcase(ctx, newStory(), {
       script: sc.script, mode: kind === "live" ? "live" : "mock", maxLines: opts.maxLines ?? null, maxFallbacks: opts.maxFallbacks ?? null,
       watchdogMinutes, watchdogMs: limit, provider: kind === "live" ? providerLabel : undefined,
-      replyTimeoutMs: timeouts?.ok ? timeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS, startedMs, holder, hooks: deps.showcaseHooks,
+      replyTimeoutMs: timeouts?.ok ? timeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS, startedMs, holder, hooks: deps.showcaseHooks, players,
     });
   };
 

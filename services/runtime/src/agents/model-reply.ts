@@ -13,8 +13,10 @@ export async function collectModelReply(
   provider: ModelProvider, req: ChatRequest, o: { firstTokenTimeoutMs: number; replyTimeoutMs: number; signal?: AbortSignal },
 ): Promise<CollectedReply> {
   const ac = new AbortController();
-  const onOuter = () => ac.abort();
   if (o.signal?.aborted) return { text: "", failure: "run aborted" };
+  let onOuter = (): void => undefined;
+  // The caller's abort stops the model call at once, even when the provider does not honour the signal promptly.
+  const aborted = new Promise<"aborted">((r) => { onOuter = () => { ac.abort(); r("aborted"); }; });
   o.signal?.addEventListener("abort", onOuter, { once: true });
   let text = "";
   let failure: string | null = null;
@@ -29,16 +31,19 @@ export async function collectModelReply(
     const first = await Promise.race([
       firstP,
       deadline,
+      aborted,
       new Promise<"timeout">((r) => { timer = setTimeout(() => r("timeout"), o.firstTokenTimeoutMs); }),
     ]);
-    if (first === "timeout") { ac.abort(); failure = `no first token within timeout${describeRetryProgress(ac.signal)}`; }
+    if (first === "aborted") failure = "run aborted";
+    else if (first === "timeout") { ac.abort(); failure = `no first token within timeout${describeRetryProgress(ac.signal)}`; }
     else if (first === "deadline") { ac.abort(); failure = `reply did not finish within the overall deadline${describeRetryProgress(ac.signal)}`; }
     else if (!first.done) {
       text += first.value;
       for (;;) {
         const nextP = it.next();
         nextP.catch(() => undefined);
-        const r = await Promise.race([nextP, deadline]);
+        const r = await Promise.race([nextP, deadline, aborted]);
+        if (r === "aborted") { failure = "run aborted"; break; }
         if (r === "deadline") { ac.abort(); failure = "reply did not finish within the overall deadline"; break; }
         if (r.done) break;
         text += r.value;
@@ -52,6 +57,5 @@ export async function collectModelReply(
     clearTimeout(replyTimer);
     o.signal?.removeEventListener("abort", onOuter);
   }
-  if (!failure && o.signal?.aborted) failure = "run aborted";
   return { text, failure };
 }

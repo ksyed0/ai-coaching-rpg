@@ -363,8 +363,8 @@ describe("helpers", () => {
   it("counts the model calls a run can make and the lines a --max-lines cap leaves", async () => {
     const sc = await loadScenario(EXTENDED);
     const script = await loadShowcaseScript(EXTENDED, sc, { mode: "mock" });
-    expect(expectedModelCalls(sc, script, null)).toEqual({ npc: 20, gm: 14 });
-    expect(expectedModelCalls(sc, script, 1)).toEqual({ npc: 5, gm: 2 });
+    expect(expectedModelCalls(sc, script, null)).toEqual({ npc: 20, gm: 14, player: 24 });
+    expect(expectedModelCalls(sc, script, 1)).toEqual({ npc: 5, gm: 2, player: 6 });
     expect(linesFor(script, "s1_huddle", 2)).toHaveLength(2);
     expect(linesFor(script, "s1_huddle", null)).toHaveLength(6);
   });
