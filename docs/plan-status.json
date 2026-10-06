@@ -1074,37 +1074,37 @@
         {
           "id": "AC-0112",
           "text": "an AI character role has optional `seniority` (integer 1 to 5, default 3), `responds_with` and `only_you_say` (up to 5 short strings each) and `defer_to` (role ids); the validator rejects an id that is not an NPC role (or the role itself), bounds the lengths, and both scenario folders carry them for Priya Raman and Helena Brandt",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0113",
           "text": "the AI character prompt has a '## Who else is in the room' section (the other characters present: name, title, seniority relative to the speaker) built only from data already public to participants, and a '## How you respond' section from `responds_with` and `only_you_say`, with the rules not to restate, paraphrase or agree-and-repeat the previous speaker, to open with its own angle and, when a more junior character has just spoken for the client side, to add the decision, condition or number only it would give; `npcIntro` and the prompt size bounds are unchanged",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0114",
           "text": "a character may reply exactly `<silent/>` (trimmed, case-insensitive) when it has nothing new that only it would say: this is no utterance, no fallback and no alert, it is counted, the session still advances (Game Master counting and in-flight guards unaffected), at most 2 turns in a row, and the marker never reaches a player, the log, the transcript or the evaluator, even when it appears inside a longer reply or a quote",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0115",
           "text": "when several AI characters are in a scene they reply after a player line in seniority order, junior first (ties by role id), deterministically and under the existing serialisation guarantees; a scene with one AI character, or characters without seniority, behaves as before",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0116",
           "text": "the showcase report, narration summary and `--json` `showcase` section count near-duplicate consecutive AI character replies in a scene (token-set Jaccard similarity of at least 0.6, a pure tested function) and the silent turns per character, as observations and never as failures",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0117",
           "text": "the scripted mock providers and shipped showcase scripts keep working (`demo --fast` 29/29, `--showcase --fast` 14/14, `--evaluate` 15/15), and a loopback fake-model showcase run in generated-players mode proves a silent turn and a spoken turn by the CFO end to end",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0118",
           "text": "README documents the new role fields, and the changelog and dashboard are updated",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0119",
@@ -2004,9 +2004,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T19:20:14.707Z",
-  "commitSha": "027f45b",
-  "buildNumber": "112",
+  "generatedAt": "2026-10-06T19:27:20.622Z",
+  "commitSha": "3a3c0b5",
+  "buildNumber": "115",
   "branch": "feature/EPIC-0006-ai-character-voices",
   "sessionTimeline": [
     {
@@ -2109,9 +2109,9 @@
     "totalSpent": 6.1671,
     "totalProjected": 5623.4,
     "percentUsed": 25,
-    "burnRate": 0.19871766666666665,
-    "daysRemaining": 95,
-    "projectedExhaustion": 95,
+    "burnRate": 0.19186533333333333,
+    "daysRemaining": 98,
+    "projectedExhaustion": 98,
     "thresholds": [
       50,
       75,
@@ -2204,7 +2204,7 @@
       "2026-10-03T19:20:14.805Z",
       "2026-10-04T19:20:14.805Z",
       "2026-10-05T19:20:14.805Z",
-      "2026-10-06T19:20:14.803Z"
+      "2026-10-06T19:27:20.722Z"
     ],
     "doneCounts": [
       0,
