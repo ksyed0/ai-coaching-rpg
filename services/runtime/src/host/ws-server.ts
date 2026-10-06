@@ -60,7 +60,11 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
     if (trustProxy) return;
     const key = ipKey(sock.remoteAddress ?? "unknown");
     const n = (rawPerIp.get(key) ?? 0) + 1;
-    if (n > rawCap) { sock.destroy(); return; }
+    if (n > rawCap) {
+      try { sock.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", () => sock.destroy()); } catch { /* the peer is gone */ }
+      setTimeout(() => sock.destroy(), 200).unref(); // the guarantee when the peer never reads
+      return;
+    }
     rawPerIp.set(key, n);
     sock.once("close", () => { const left = (rawPerIp.get(key) ?? 1) - 1; if (left <= 0) rawPerIp.delete(key); else rawPerIp.set(key, left); });
   });
@@ -133,7 +137,15 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
       killTimer.unref();
     };
     /** A frame that arrives (or was queued) after a refusal: dropped, but a refused-token connection still counts each one against its address. */
-    const dropAfterClose = (raw?: string) => { if (authFailed || (token !== undefined && raw !== undefined && raw.includes("join_facilitator"))) authThrottle.fail(ip); };
+    // At most ONE extra failure per connection, however many frames follow (so a flood costs O(1) here), and only for a real join_facilitator.
+    let dropCounted = false; let dropParses = 0;
+    const dropAfterClose = (raw?: string) => {
+      if (dropCounted) return;
+      if (authFailed) { dropCounted = true; authThrottle.fail(ip); return; }
+      if (token === undefined || raw === undefined || dropParses >= 3 || !raw.includes("join_facilitator")) return;
+      dropParses++;
+      try { if ((JSON.parse(raw) as { type?: unknown } | null)?.type === "join_facilitator") { dropCounted = true; authThrottle.fail(ip); } } catch { /* not JSON: not a login attempt */ }
+    };
     // Slowloris and idle sockets: a connection that has not joined in time is closed.
     const joinTimer = setTimeout(() => { if (!host) shut(CLOSE_POLICY, "join timeout"); }, limits.joinTimeoutMs);
     joinTimer.unref();

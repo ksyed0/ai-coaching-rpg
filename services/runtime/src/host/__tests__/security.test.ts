@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AuthThrottle, ipKey, DEFAULT_LIMITS, TokenBucket, WindowCounter, clientIp, isValidToken, normalizeOrigin, parseSecurityConfig, secretsMatch } from "../security.js";
+import { AuthThrottle, authKey, ipKey, DEFAULT_LIMITS, TokenBucket, WindowCounter, clientIp, isValidToken, normalizeOrigin, parseSecurityConfig, secretsMatch } from "../security.js";
 
 const TOKEN = "0123456789abcdef0123456789abcdef";
 
@@ -126,20 +126,57 @@ describe("clientIp", () => {
   });
 });
 
-describe("ipKey (US-0017 review M2)", () => {
-  it("keys IPv6 by /64 and maps IPv4-mapped addresses to IPv4", () => {
+describe("ipKey and authKey (review M2, m1)", () => {
+  it("ipKey is the full address (IPv4-mapped becomes IPv4, lower case)", () => {
     expect(ipKey("203.0.113.9")).toBe("203.0.113.9");
     expect(ipKey("::ffff:203.0.113.9")).toBe("203.0.113.9");
-    expect(ipKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd")).toBe(ipKey("2001:db8:1:2::1"));
-    expect(ipKey("2001:db8:1:2::1")).not.toBe(ipKey("2001:db8:1:3::1"));
-    expect(ipKey("::1")).toBe("0:0:0:0::/64");
-    expect(ipKey("not an ip")).toBe("not an ip");
+    expect(ipKey("FE80::1")).toBe("fe80::1");
+    expect(ipKey("2001:db8:1:2::1")).not.toBe(ipKey("2001:db8:1:2::2"));
   });
-  it("one /64 shares one failure budget", () => {
+  it("authKey aggregates only global unicast IPv6 (2000::/3) by /64", () => {
+    expect(authKey("2001:db8:1:2:aaaa:bbbb:cccc:dddd")).toBe(authKey("2001:db8:1:2::1"));
+    expect(authKey("2001:db8:1:2::1")).not.toBe(authKey("2001:db8:1:3::1"));
+    expect(authKey("3fff::1")).toBe(authKey("3fff::2")); // still 2000::/3
+    for (const a of ["fe80::1", "fe80::2", "fd00:1:2:3::1", "fd00:1:2:3::2", "fc00::1", "::1", "4000::1", "4000::2"]) expect(authKey(a), a).toBe(ipKey(a));
+    expect(authKey("203.0.113.9")).toBe("203.0.113.9");
+    expect(authKey("::ffff:203.0.113.9")).toBe("203.0.113.9");
+  });
+  it("a global /64 shares one failure budget; a link-local or ULA LAN does not", () => {
     let t = 0;
     const th = new AuthThrottle({ max: 2, windowMs: 60_000, blockMs: 60_000, now: () => t });
     th.fail("2001:db8::1"); th.fail("2001:db8::2"); th.fail("2001:db8::3");
     expect(th.blockedForMs("2001:db8::ffff")).toBeGreaterThan(0);
+    th.fail("fe80::1"); th.fail("fe80::2"); th.fail("fe80::3"); th.fail("fd00::1"); th.fail("fd00::2"); th.fail("fd00::3");
+    expect(th.blockedForMs("fe80::4")).toBe(0);
+    expect(th.blockedForMs("fd00::4")).toBe(0);
+  });
+});
+
+describe("AuthThrottle cost (review I-new-1)", () => {
+  it("25,000 failures against 10,000 tracked addresses run at most one sweep and never scan per failure", () => {
+    let t = 0;
+    const th = new AuthThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => t });
+    for (let i = 0; i < 10_000; i++) th.fail(`10.${i >> 8 & 255}.${i & 255}.${i >> 16}`);
+    const before = th.sweeps;
+    for (let i = 0; i < 25_000; i++) th.fail("203.0.113.1");
+    expect(th.sweeps - before).toBeLessThanOrEqual(1);
+    expect(th.size()).toBeLessThanOrEqual(20_000);
+  });
+  it("sweeps at most once per second even as time passes", () => {
+    let t = 0;
+    const th = new AuthThrottle({ max: 5, windowMs: 500, blockMs: 500, now: () => t, maxEntries: 100 });
+    for (let i = 0; i < 100; i++) th.fail(`192.0.2.${i}`);
+    const before = th.sweeps;
+    for (let i = 0; i < 1_000; i++) { t += 1; th.fail("198.51.100.1"); }
+    expect(th.sweeps - before).toBeLessThanOrEqual(2);
+  });
+  it("sweeping still removes expired entries from both maps", () => {
+    let t = 0;
+    const th = new AuthThrottle({ max: 0, windowMs: 1_000, blockMs: 1_000, now: () => t, maxEntries: 20 });
+    for (let i = 0; i < 10; i++) th.fail(`192.0.2.${i}`);
+    t += 5_000;
+    th.fail("198.51.100.1");
+    expect(th.size()).toBeLessThanOrEqual(2);
   });
 });
 

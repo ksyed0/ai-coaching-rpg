@@ -334,14 +334,30 @@ describe("a refused connection stops processing (review I1)", () => {
     expect(c.inbox.filter((m) => m.code === "unauthorized").length).toBe(1);
   });
 
-  it("100 pipelined wrong guesses: at most one is answered, and every one counts against the address", async () => {
+  it("pipelined wrong guesses on one connection count as at most two failures: one answered, one for the dropped rest", async () => {
     const { port } = await setup({ token: TOKEN, trustProxy: true });
     const hdr = { "x-forwarded-for": "203.0.113.77" };
-    const c = open(port, hdr); await opened(c);
-    for (let i = 0; i < 100; i++) c.ws.send(JSON.stringify({ type: "join_facilitator", sessionId: "local", token: `guess-${i}-0123456789abcdef` }));
-    await c.closed;
-    expect(c.inbox.filter((m) => m.code === "unauthorized").length).toBeLessThanOrEqual(1);
+    const attack = async () => {
+      const c = open(port, hdr); await opened(c);
+      for (let i = 0; i < 3_000; i++) c.ws.send(JSON.stringify({ type: "join_facilitator", sessionId: "local", token: `guess-${i}-0123456789abcdef` }));
+      await c.closed;
+      expect(c.inbox.filter((m) => m.code === "unauthorized").length).toBeLessThanOrEqual(1);
+    };
+    await attack(); await attack();
+    expect((await handshake(port, hdr)).status).toBe(101); // 2 connections are at most 4 failures, under the limit of 5
+    for (let i = 0; i < 4; i++) await attack(); // 6 connections in all: at least 6 and at most 12 failures
     expect((await handshake(port, hdr)).status).toBe(429);
+  });
+
+  it("frames that merely contain the words join_facilitator are not login attempts", async () => {
+    const { port } = await setup({ token: TOKEN, trustProxy: true, limits: { msgRate: 1, msgBurst: 2, maxDrops: 1 } });
+    const hdr = { "x-forwarded-for": "203.0.113.88" };
+    for (let n = 0; n < 8; n++) {
+      const c = open(port, hdr); await opened(c);
+      for (let i = 0; i < 12; i++) c.ws.send(JSON.stringify({ type: "say", text: "how do I join_facilitator?" }));
+      await c.closed;
+    }
+    expect((await handshake(port, hdr)).status).toBe(101);
   });
 
   it("a rate-limit close also drops frames still queued (the connection is terminated shortly after)", async () => {
@@ -363,7 +379,7 @@ describe("raw socket limits (review M1)", () => {
       return new Promise<number>((resolve) => { ws.on("error", () => resolve(0)); ws.on("open", () => { resolve(101); ws.close(); }); });
     };
     const otherOk = other !== undefined && (await fromOther()) === 101;
-    const socks = await Promise.all(Array.from({ length: 25 }, () => new Promise<net.Socket>((resolve) => { const s = net.connect(port, "127.0.0.1", () => resolve(s)); s.on("error", () => resolve(s)); s.on("close", () => resolve(s)); })));
+    const socks = await Promise.all(Array.from({ length: 25 }, () => new Promise<net.Socket>((resolve) => { const s = net.connect(port, "127.0.0.1", () => resolve(s)); s.on("error", () => resolve(s)); s.on("close", () => resolve(s)); s.resume(); })));
     await new Promise((r) => setTimeout(r, 200));
     const alive = socks.filter((s) => !s.destroyed).length;
     expect(alive).toBeLessThanOrEqual(4);

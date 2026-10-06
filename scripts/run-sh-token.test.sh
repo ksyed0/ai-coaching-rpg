@@ -25,7 +25,15 @@ case "$out" in *"stored in .env"*) ok "says where the token is" ;; *) bad "does 
 mode=$(stat -c '%a' "$d/.env" 2>/dev/null || stat -f '%Lp' "$d/.env")
 case "$mode" in [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;; *) bad "could not read the .env mode (got '$mode')"; mode=unknown ;; esac
 [ "$mode" = 600 ] && ok ".env is mode 600" || bad ".env mode is $mode"
-ls "$d" | grep -q '^\.env\.new' && bad "a temporary .env file was left behind" || ok "no temporary file left behind"
+# `ls -A`: plain `ls` hides dotfiles, which would make this check unable to fail.
+leftover() { ls -A "$1" | grep -q '^\.env\.new'; }
+leftover "$d" && bad "a temporary .env file was left behind" || ok "no temporary file left behind"
+# negative self-test: the check does see a dotfile of that name
+st=$(mktemp -d); : > "$st/.env.new.ABC123"
+leftover "$st" && ok "leftover check can fail (self-test)" || bad "leftover check cannot see dotfiles"
+rm -rf "$st"
+# .gitignore keeps temporary and backup .env files out of git, but not the example
+grep -qx '\.env\.\*' "$here/.gitignore" && grep -qx '!\.env\.example' "$here/.gitignore" && ok ".gitignore covers .env.* except .env.example" || bad ".gitignore does not cover .env.*"
 rm -rf "$d"
 
 # 2. Two new installs get different tokens.
@@ -53,9 +61,16 @@ for v in 'FACILITATOR_TOKEN=' 'FACILITATOR_TOKEN=""' "FACILITATOR_TOKEN=''"; do
   case "$out" in *"server is OPEN"*) ok "empty token ($v) warns" ;; *) bad "empty token ($v) did not warn" ;; esac
   rm -rf "$d"
 done
-d=$(setup); printf 'FACILITATOR_TOKEN="quoted-token-0123456789"\n' > "$d/.env"; out=$(run "$d")
-case "$out" in *"server is OPEN"*) bad "a quoted token warned" ;; *) ok "a quoted token does not warn" ;; esac
-rm -rf "$d"
+for v in 'FACILITATOR_TOKEN="quoted-token-0123456789"' 'export FACILITATOR_TOKEN=abc-token-0123456789' 'FACILITATOR_TOKEN = spaced-token-0123456789' '  FACILITATOR_TOKEN=indented-token-0123'; do
+  d=$(setup); printf '%s\n' "$v" > "$d/.env"; out=$(run "$d")
+  case "$out" in *"server is OPEN"*) bad "set token ($v) warned" ;; *) ok "set token ($v) does not warn" ;; esac
+  rm -rf "$d"
+done
+for v in 'export FACILITATOR_TOKEN=' 'FACILITATOR_TOKEN = ' '# FACILITATOR_TOKEN=commented-token-0123456789'; do
+  d=$(setup); printf '%s\n' "$v" > "$d/.env"; out=$(run "$d")
+  case "$out" in *"server is OPEN"*) ok "unset token ($v) warns" ;; *) bad "unset token ($v) did not warn" ;; esac
+  rm -rf "$d"
+done
 
 # 6. A symlinked .env is never written through (and a dangling one is not replaced).
 d=$(setup); printf 'MODEL_PROVIDER=mock\n' > "$d/real.env"; ln -s real.env "$d/.env"; out=$(run "$d")

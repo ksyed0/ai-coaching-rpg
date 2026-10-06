@@ -146,12 +146,15 @@ export class TokenBucket {
 /** Counts events inside a sliding window; used for rate-limit drops per connection and failed logins per IP. */
 export class WindowCounter {
   private stamps: number[] = [];
+  /** Time of the latest hit (0 before the first); lets a sweep expire a counter without scanning its events. */
+  lastHit = 0;
   constructor(private readonly windowMs: number, private readonly now: () => number) {}
   /** Records one event and returns how many fall inside the window (this one included). */
   hit(): number {
     const t = this.now();
     this.stamps = this.stamps.filter((s) => t - s < this.windowMs);
     this.stamps.push(t);
+    this.lastHit = t;
     return this.stamps.length;
   }
   count(): number {
@@ -161,15 +164,26 @@ export class WindowCounter {
   }
 }
 
-/** The key per-address limits use: IPv4 as is, IPv4-mapped IPv6 as the IPv4 address, other IPv6 by its /64 (one household or host owns a whole /64). */
+/** The key the connection caps use: the address itself (IPv4-mapped IPv6 as the IPv4 address, lower case). */
 export function ipKey(ip: string): string {
   const v4 = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);
-  if (v4) return v4[1]!;
-  if (!ip.includes(":") || net.isIP(ip) !== 6) return ip;
-  const [head, tail = ""] = ip.split("::");
+  return v4 ? v4[1]! : ip.toLowerCase();
+}
+
+/**
+ * The key the failed-login throttle uses: like ipKey, but a global unicast IPv6 address (2000::/3) is keyed by its /64, because one host
+ * or household owns a whole /64 and could rotate through it. Link-local (fe80::/10), unique-local (fc00::/7) and other addresses keep
+ * the full address, since many people on one LAN or VLAN share those prefixes.
+ */
+export function authKey(ip: string): string {
+  const k = ipKey(ip);
+  if (!k.includes(":") || net.isIP(k) !== 6) return k;
+  const [head = "", tail = ""] = k.split("::");
   const a = head ? head.split(":") : [];
-  const b = ip.includes("::") && tail ? tail.split(":") : [];
-  const groups = ip.includes("::") ? [...a, ...Array(Math.max(0, 8 - a.length - b.length)).fill("0"), ...b] : a;
+  const b = k.includes("::") && tail ? tail.split(":") : [];
+  const groups = k.includes("::") ? [...a, ...Array(Math.max(0, 8 - a.length - b.length)).fill("0"), ...b] : a;
+  const first = parseInt(groups[0] || "0", 16);
+  if (first < 0x2000 || first > 0x3fff) return k;
   return groups.slice(0, 4).map((g) => parseInt(g || "0", 16).toString(16)).join(":") + "::/64";
 }
 
@@ -179,17 +193,20 @@ export const MAX_TRACKED_ADDRESSES = 10_000;
 export class AuthThrottle {
   private readonly fails = new Map<string, WindowCounter>();
   private readonly blockedUntil = new Map<string, number>();
+  private lastSweep = Number.NEGATIVE_INFINITY;
+  /** Number of full sweeps run (for tests): they are rare by design, never one per failure. */
+  sweeps = 0;
   constructor(private readonly o: { max: number; windowMs: number; blockMs: number; now: () => number; maxEntries?: number }) {}
   fail(ip: string): void {
-    const key = ipKey(ip);
+    const key = authKey(ip);
     let c = this.fails.get(key);
     if (!c) { c = new WindowCounter(this.o.windowMs, this.o.now); this.fails.set(key, c); }
     if (c.hit() > this.o.max) { this.blockedUntil.set(key, this.o.now() + this.o.blockMs); this.fails.delete(key); }
-    this.prune();
+    this.bound();
   }
   /** Milliseconds until the IP may connect again, or 0. */
   blockedForMs(ip: string): number {
-    const key = ipKey(ip);
+    const key = authKey(ip);
     const until = this.blockedUntil.get(key);
     if (until === undefined) return 0;
     const left = until - this.o.now();
@@ -198,16 +215,21 @@ export class AuthThrottle {
   }
   /** Entries tracked (for tests and monitoring). */
   size(): number { return this.fails.size + this.blockedUntil.size; }
-  /** Drops expired entries from BOTH maps once either is large, then evicts the oldest so memory stays bounded even under spoofed addresses. */
-  private prune(): void {
+  /**
+   * Memory bound with O(1) work per failure: the oldest entry is evicted when a map passes its cap (a Map iterates in insertion order),
+   * and expired entries are swept from BOTH maps at most once a second, and only when a map is large.
+   */
+  private bound(): void {
     const cap = this.o.maxEntries ?? MAX_TRACKED_ADDRESSES;
-    if (this.fails.size < cap / 10 && this.blockedUntil.size < cap / 10) return;
-    for (const [k, c] of this.fails) if (c.count() === 0) this.fails.delete(k);
-    const t = this.o.now();
-    for (const [k, until] of this.blockedUntil) if (until <= t) this.blockedUntil.delete(k);
     for (const m of [this.fails, this.blockedUntil] as Map<string, unknown>[]) {
       while (m.size > cap) { const oldest = m.keys().next().value as string | undefined; if (oldest === undefined) break; m.delete(oldest); }
     }
+    if (this.fails.size < cap / 10 && this.blockedUntil.size < cap / 10) return;
+    const t = this.o.now();
+    if (t - this.lastSweep < 1_000) return;
+    this.lastSweep = t; this.sweeps++;
+    for (const [k, c] of this.fails) if (t - c.lastHit >= this.o.windowMs) this.fails.delete(k);
+    for (const [k, until] of this.blockedUntil) if (until <= t) this.blockedUntil.delete(k);
   }
 }
 
