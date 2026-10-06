@@ -681,7 +681,7 @@ Type: Dev
 Assignee: Agent
 Status: In Progress
 Branch: feature/EPIC-0005-evaluator-feedback
-Notes: Criteria: discovery, listening, negotiation, commercial_judgement, stakeholder_management, team_alignment and role_clarity (individual behaviours); shared_understanding, decision_quality, role_clarity_group and escalation_discipline (group, ASM-02).
+Notes: Criteria: discovery, listening, negotiation, commercial_judgement, stakeholder_management, team_alignment and role_clarity (individual behaviours); shared_understanding, decision_quality, role_clarity_group and escalation_discipline (group, ASM-02). Review fix round 2026-10-06: anchors rewritten to be observable from the participant's own words, distinct key behaviours, "at least two of" at level 3, generic examples; the two scenario copies are kept byte-identical by a test.
 ```
 
 ```
@@ -705,7 +705,7 @@ Type: Dev
 Assignee: Agent
 Status: In Progress
 Branch: feature/EPIC-0005-evaluator-feedback
-Notes: Prompt-injection hardening and programmatic quote verification are the core of the design; see docs/EVALUATOR.md.
+Notes: Prompt-injection hardening and programmatic quote verification are the core of the design; see docs/EVALUATOR.md. Review fix round 2026-10-06: Invalid criteria and incomplete LOs, distinct-line confidence, quote overlap and minimum, hard transcript cap, method text aligned with the code.
 ```
 
 ```
@@ -751,5 +751,5 @@ Type: Dev
 Assignee: Agent
 Status: In Progress
 Branch: feature/EPIC-0005-evaluator-feedback
-Notes: Live runs of the evaluator are done by the controller, not in this task.
+Notes: Live runs of the evaluator are done by the controller, not in this task. A real Gemma run (2026-10-06) worked; the review fix round also made S-16 read-back tests, the live watchdog extension and partial-write cleanup.
 ```

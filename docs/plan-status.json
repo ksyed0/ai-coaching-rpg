@@ -874,7 +874,7 @@
       "title": "As a facilitator running the showcase, I want the player roles to be played by the model too (as humans normally would), so that a run varies between runs and scenes instead of repeating the same stilted scripted lines.",
       "priority": "High",
       "estimate": "M",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0027-generated-players",
       "acs": [
         {
@@ -904,8 +904,8 @@
         },
         {
           "id": "AC-0093",
-          "text": "a recorded live showcase with `--players generated` on a real model is run and compared with a scripted-player run (lines per role, fallbacks, repeats)",
-          "done": false
+          "text": "a recorded live showcase with `--players generated` on a real model is run and compared with a scripted-player run (lines per role, fallbacks, repeats) (recorded 2026-10-06 on local gemma-4-31b-it-qat-mxfp4: 21 of 21 player lines generated, 1 verbatim repeat of the script, 0 fallbacks, 0 alerts, 13 checks passed, 520 s; generated players on Raptor-8B echoed each other, so the model matters; a first Gemma run leaked the private intent after a `***` separator in all 21 lines, fixed in this story)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -1325,7 +1325,7 @@
       "title": "Add the generated player bots to the showcase, share the model-reply and prompt-turn logic with the AI characters, fix the CFO's third-person speech, record a live comparison",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0027-generated-players",
       "notes": "Observed 2026-10-05: scripted player lines make every showcase run identical; an 8B model also had the CFO say 'the CFO' in the third person with 'he'."
     },
@@ -1337,7 +1337,7 @@
       "assignee": "Agent",
       "status": "In Progress",
       "branch": "feature/EPIC-0005-evaluator-feedback",
-      "notes": "Criteria: discovery, listening, negotiation, commercial_judgement, stakeholder_management, team_alignment and role_clarity (individual behaviours); shared_understanding, decision_quality, role_clarity_group and escalation_discipline (group, ASM-02)."
+      "notes": "Criteria: discovery, listening, negotiation, commercial_judgement, stakeholder_management, team_alignment and role_clarity (individual behaviours); shared_understanding, decision_quality, role_clarity_group and escalation_discipline (group, ASM-02). Review fix round 2026-10-06: anchors rewritten to be observable from the participant's own words, distinct key behaviours, \"at least two of\" at level 3, generic examples; the two scenario copies are kept byte-identical by a test."
     },
     {
       "id": "TASK-0029",
@@ -1347,7 +1347,7 @@
       "assignee": "Agent",
       "status": "In Progress",
       "branch": "feature/EPIC-0005-evaluator-feedback",
-      "notes": "Prompt-injection hardening and programmatic quote verification are the core of the design; see docs/EVALUATOR.md."
+      "notes": "Prompt-injection hardening and programmatic quote verification are the core of the design; see docs/EVALUATOR.md. Review fix round 2026-10-06: Invalid criteria and incomplete LOs, distinct-line confidence, quote overlap and minimum, hard transcript cap, method text aligned with the code."
     },
     {
       "id": "TASK-0030",
@@ -1367,7 +1367,7 @@
       "assignee": "Agent",
       "status": "In Progress",
       "branch": "feature/EPIC-0005-evaluator-feedback",
-      "notes": "Live runs of the evaluator are done by the controller, not in this task."
+      "notes": "Live runs of the evaluator are done by the controller, not in this task. A real Gemma run (2026-10-06) worked; the review fix round also made S-16 read-back tests, the live watchdog extension and partial-write cleanup."
     }
   ],
   "testCases": [],
@@ -1423,157 +1423,157 @@
   ],
   "costs": {
     "US-0001": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 0.198939,
       "inputTokens": 0,
       "outputTokens": 0
@@ -1841,7 +1841,7 @@
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0028": {
       "missingTCs": true,
@@ -1922,9 +1922,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T15:56:38.803Z",
-  "commitSha": "e946b3c",
-  "buildNumber": "99",
+  "generatedAt": "2026-10-06T16:25:45.420Z",
+  "commitSha": "0312f1b",
+  "buildNumber": "102",
   "branch": "feature/EPIC-0005-evaluator-feedback",
   "sessionTimeline": [
     {
@@ -2023,13 +2023,13 @@
     }
   },
   "budget": {
-    "totalBudget": 16806.1671,
+    "totalBudget": 25.067099999999996,
     "totalSpent": 6.1671,
-    "totalProjected": 26000,
-    "percentUsed": 0,
+    "totalProjected": 4823.4,
+    "percentUsed": 25,
     "burnRate": 0.19186533333333333,
-    "daysRemaining": 87561,
-    "projectedExhaustion": 87561,
+    "daysRemaining": 98,
+    "projectedExhaustion": 98,
     "thresholds": [
       50,
       75,
@@ -2047,28 +2047,28 @@
         "percentUsed": 100
       },
       {
+        "id": "EPIC-0006",
+        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
+        "budget": 9.587268000000002,
+        "spent": 2.387268,
+        "remaining": 7.200000000000001,
+        "percentUsed": 25
+      },
+      {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 10402.785146,
+        "budget": 13.585146000000003,
         "spent": 2.7851460000000006,
-        "remaining": 10400,
-        "percentUsed": 0
+        "remaining": 10.800000000000002,
+        "percentUsed": 21
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.198939,
+        "budget": 1.098939,
         "spent": 0.198939,
-        "remaining": 800,
-        "percentUsed": 0
-      },
-      {
-        "id": "EPIC-0006",
-        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 5602.387268,
-        "spent": 2.387268,
-        "remaining": 5600,
-        "percentUsed": 0
+        "remaining": 0.9000000000000001,
+        "percentUsed": 18
       },
       {
         "id": "EPIC-0003",
@@ -2122,7 +2122,8 @@
       "2026-10-03T15:38:32.058Z",
       "2026-10-04T15:38:32.058Z",
       "2026-10-05T15:38:32.058Z",
-      "2026-10-06T15:56:38.865Z"
+      "2026-10-06T15:56:38.865Z",
+      "2026-10-06T16:25:45.511Z"
     ],
     "doneCounts": [
       0,
@@ -2155,7 +2156,8 @@
       0,
       0,
       0,
-      0
+      0,
+      1
     ],
     "totalStories": [
       27,
@@ -2188,6 +2190,7 @@
       27,
       27,
       27,
+      31,
       31
     ],
     "aiCosts": [
@@ -2220,6 +2223,7 @@
       5.55039,
       5.75596,
       5.96153,
+      6.1671,
       6.1671,
       6.1671
     ],
@@ -2254,6 +2258,7 @@
       0,
       0,
       0,
+      null,
       null
     ],
     "velocity": [
@@ -2287,9 +2292,11 @@
       0,
       0,
       0,
-      0
+      0,
+      3
     ],
     "openBugs": [
+      3,
       3,
       3,
       3,
@@ -2353,6 +2360,7 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "inputTokens": [
@@ -2386,6 +2394,7 @@
       0,
       0,
       0,
+      522440,
       522440
     ],
     "outputTokens": [
@@ -2419,6 +2428,7 @@
       0,
       0,
       0,
+      69480,
       69480
     ],
     "avgRisk": [
@@ -2452,7 +2462,8 @@
       1.1777777777777783,
       1.1888888888888896,
       1.1888888888888896,
-      1.17741935483871
+      1.17741935483871,
+      1.1700000000000004
     ],
     "velocityByWeek": {
       "labels": [
@@ -2469,7 +2480,7 @@
         0,
         0,
         0,
-        0
+        3
       ],
       "rollingAvg": [
         0,
@@ -2477,7 +2488,7 @@
         0,
         0,
         0,
-        0
+        0.8
       ]
     }
   }

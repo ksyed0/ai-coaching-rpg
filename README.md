@@ -159,8 +159,8 @@ All settings are environment variables (read from `.env` at the repository root;
 | `GM_TEMPERATURE` | `0.2` | Sampling temperature for Game Master verdicts (low, for steadier JSON). A decimal, `0` to `2` |
 | `EVAL_MODEL` | the NPC model | Model for the post-session evaluator (`pnpm evaluate`, `--evaluate`). See [docs/EVALUATOR.md](docs/EVALUATOR.md) |
 | `EVAL_MAX_TOKENS`, `EVAL_TEMPERATURE` | `3000`, `0.2` | Token budget (`200` to `8000`) and temperature (`0` to `2`) per evaluator call |
-| `EVAL_TIMEOUT_MS` | `180000` | Deadline per evaluator call, `500` to `600000`; never below `NPC_REPLY_TIMEOUT_MS` |
-| `EVAL_TRANSCRIPT_CHARS` | `60000` | Largest transcript (characters) sent in one evaluator call; a longer one is trimmed and the report says so |
+| `EVAL_TIMEOUT_MS` | `180000` | Deadline per evaluator call, `500` to `600000`; the effective value is `max(EVAL_TIMEOUT_MS, NPC_REPLY_TIMEOUT_MS)` (no other floor) |
+| `EVAL_TRANSCRIPT_CHARS` | `60000` | Hard cap on the transcript (characters) sent in one evaluator call; a longer one is trimmed and the report says so |
 | `MODEL_MAX_RETRIES` | `2` | How many times a transient model error is retried (so up to 3 attempts) before the NPC speaks its fallback line. Whole number, `0` to `5`; `0` turns retrying off |
 | `MODEL_RETRY_BASE_MS` | `500` | First retry delay in milliseconds; it doubles per retry (capped at 4 s) with +/-25% jitter. Whole number, `100` to `10000` |
 | `SCENARIO_DIR` | `scenarios/friday-escalation` | Scenario folder (relative paths resolve from the repository root) |
@@ -255,7 +255,7 @@ pnpm demo --showcase --fast --evaluate                  # the showcase, then the
 ```
 
 - **Scoring method.** A Behaviourally Anchored Rating Scale (BARS): four levels per criterion with no midpoint, 1 Not yet demonstrated, 2 Developing, 3 Proficient, 4 Advanced, plus Not observed (N/O, no score) when there is no evidence either way. Each level has a written behavioural anchor per criterion in the scenario's `rubrics/` files.
-- **Evidence rule.** Every score needs a verbatim, timestamped quote from that participant, verified by the program against the recording; unverifiable quotes are dropped and a 3 or 4 with no verified quote is capped at 2 and flagged. Confidence (High, Medium, Low) comes from the number of verified quotes and the model's own statement. A learning-objective score is the mean of the observed criteria it maps to; there is no single overall grade.
+- **Evidence rule.** Every score of 3 or 4 needs a verified, verbatim, timestamped quote from that participant (at least 15 characters and 3 words); a 1 or 2 may stand without one (flagged, Low confidence). The program checks the quote against the recording; unverifiable or overlapping quotes are dropped and a 3 or 4 without a qualifying quote is capped at 2 and flagged. Level 1 means there was a clear opportunity and the behaviour was absent; Not observed means no opportunity or no usable evidence; an unusable answer from the AI is shown as Invalid and its learning objective as incomplete. Confidence (High, Medium, Low) comes from the number of distinct lines with a verified quote and the model's own statement. A learning-objective score is the mean of the observed criteria it maps to; there is no single overall grade.
 - **Every report prints the method** (the scale, the evidence and confidence rules, how scores are combined and the limitations: AI-drafted and needs facilitator review, a small sample of three players, one session is a snapshot, first-person evidence only) and is written as Markdown and as a JSON twin (`schema: "acr.report/1"`).
 - **Draft status.** Reports are labelled "AI-drafted - held for facilitator review before release (facilitator editing is planned)".
 - **Visibility: all participants (prototype setting; per-participant isolation is planned).** Everyone may see everyone's scores and reports for now; there is no access control.
