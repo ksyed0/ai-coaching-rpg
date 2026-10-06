@@ -203,7 +203,7 @@ describe("hidden facts in the terminal client (US-0016)", () => {
   });
   it("renders only newly released facts of an npc.updated, with their number", () => {
     const facts = new Map([["cfo", ["a", "b"]]]);
-    const e = { ...env, type: "npc.updated", roleId: "cfo", goals: [], knowledge: [], released: ["a", "b"] } as const;
+    const e: Extract<SessionEvent, { type: "npc.updated" }> = { ...env, type: "npc.updated", roleId: "cfo", goals: [], knowledge: [], released: ["a", "b"] };
     expect(renderNewReleases(e, facts, new Map([["cfo", ["a"]]]))).toEqual(["[npc cfo] released #2: b"]);
     expect(renderNewReleases(e, facts, new Map([["cfo", ["a", "b"]]]))).toEqual([]);
     expect(renderNewReleases({ ...e, released: ["zzz"] }, facts, new Map())).toEqual(["[npc cfo] released: zzz"]);
