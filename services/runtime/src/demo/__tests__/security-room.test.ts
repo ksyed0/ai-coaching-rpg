@@ -1,6 +1,7 @@
-import { readdirSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import path from "node:path";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { REPO_ROOT, bootstrap } from "../../main.js";
 import { parseDemoArgs } from "../args.js";
 import { CHECKS, CHECK_IDS, SECURITY_CHECKS } from "../checks.js";
@@ -16,6 +17,13 @@ const deps = (c: Captured, argv: string[], over: Partial<RunDeps> = {}): RunDeps
   argv, stdout: c.stdout, stderr: c.stderr, env: { PATH: "/usr/bin" }, sleep: async () => {}, repoRoot: REPO_ROOT, version: "0.0.0-test",
   resolveLiveEnv: () => { throw new Error("the live environment must not be read here"); }, ...over,
 });
+// This file's runs make their own acr-demo-* temp dirs; keep them out of the shared temp dir so that runner.test.ts, which counts
+// those directories while it runs in parallel, never sees them. Each test file has its own worker process, so this stays local.
+const realTmp = process.env.TMPDIR;
+let privateTmp = "";
+beforeAll(() => { privateTmp = mkdtempSync(path.join(os.tmpdir(), "acr-security-room-")); process.env.TMPDIR = privateTmp; });
+afterAll(() => { if (realTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = realTmp; rmSync(privateTmp, { recursive: true, force: true }); });
+
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => { for (const c of cleanups.splice(0).reverse()) await c(); });
 
@@ -76,13 +84,11 @@ describe("pnpm demo --security", () => {
     expect(report!.summary.passed).toBe(29);
   });
 
-  it("leaves no temp dir or socket behind", async () => {
-    const before = readdirSync(os.tmpdir()).filter((d) => d.startsWith("acr-demo-")).length;
+  it("leaves no socket behind (the security room itself makes no temp files)", async () => {
     const tcp = () => process.getActiveResourcesInfo().filter((r) => r === "TCPServerWrap" || r === "TCPSocketWrap").length;
     const t0 = tcp();
     await runDemo(deps(capture(), ["--fast", "--no-color", "--security"]));
     expect(tcp()).toBe(t0);
-    expect(readdirSync(os.tmpdir()).filter((d) => d.startsWith("acr-demo-")).length).toBeLessThanOrEqual(before);
   });
 });
 
