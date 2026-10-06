@@ -33,7 +33,7 @@ type Seen = {
   evalBodies: string[];
 };
 /** A loopback OpenAI-compatible fake: the AI characters and the Game Master get fixed answers, player prompts (recognised by their system prompt) get `playerReply`. */
-async function fakeModel(playerReply: (n: number, role: string) => { status?: number; text?: string; stall?: true }) {
+async function fakeModel(playerReply: (n: number, role: string) => { status?: number; text?: string; stall?: true }, npcReply?: (n: number, system: string) => string) {
   const seen: Seen = { player: [], npc: 0, gm: 0, npcCalls: [], gmCalls: [], aborted: 0, otherBodies: [], evalBodies: [] };
   const server = http.createServer((req, res) => {
     let body = "";
@@ -54,7 +54,7 @@ async function fakeModel(playerReply: (n: number, role: string) => { status?: nu
         if (r.stall) { res.on("close", () => { if (!res.writableEnded) seen.aborted++; }); res.writeHead(200, { "Content-Type": "text/event-stream" }); res.write(": waiting\n\n"); return; }
         if (r.status) { res.writeHead(r.status, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: { message: "nope" } })); return; }
         text = r.text ?? "";
-      } else { seen.npc++; seen.npcCalls.push({ model: parsed.model, temperature: parsed.temperature }); text = "I hear you, tell me more."; }
+      } else { seen.npc++; seen.npcCalls.push({ model: parsed.model, temperature: parsed.temperature }); text = npcReply ? npcReply(seen.npc, system) : "I hear you, tell me more."; }
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`);
       res.end("data: [DONE]\n\n");
@@ -504,3 +504,59 @@ describe("generated players: logging the private intents (US-0027)", () => {
   });
 });
 const s15x = (r: Awaited<ReturnType<typeof run>>) => r.report!.results.find((x) => x.id === "S-15")!;
+
+describe("S-07 when a live AI character recites its own material", () => {
+  const KNOWLEDGE = "Finance needs the daily tie-out before the first month-end close after go-live"; // client_sponsor's own knowledge item
+  const HIDDEN = "Would accept a phased delivery after go-live if the risk is explained well"; // client_sponsor's hidden fact
+  const priya = (text: string) => (_n: number, system: string) => (system.includes("You are playing Priya Raman") ? text : "I hear you, tell me more.");
+  const leakHooks = (msg: object) => ({
+    beforeLine: async ({ sceneId, index, players }: { sceneId: string; index: number; players?: Partial<Record<string, { inbox: unknown[] }>> }) => {
+      if (sceneId === "s1_huddle" && index === 1) players!.delivery_lead!.inbox.push(msg);
+    },
+  });
+  const evt = (e: object) => ({ type: "event", event: { seq: 9_100, ts: 1, sessionId: "demo", ...e } });
+
+  it.each([["generated players", ARGV], ["scripted players", ["--showcase", "--live", "--max-lines", "2", "--fast", "--no-color"]]])("regression (%s): Priya saying her own knowledge item aloud is not a leak", async (_n, argv) => {
+    const { env } = await fakeModel(GEN, priya(`${KNOWLEDGE}. Can you confirm?`));
+    const r = await run(argv, env);
+    expect(s7(r).status).toBe("passed");
+    expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
+    expect(r.exitCode).toBe(0);
+  });
+
+  it("still fails when the same string arrives in a non-utterance message, or in an utterance by a role that does not own it", async () => {
+    for (const msg of [
+      evt({ type: "inject.fired", injectId: "x", sceneId: "s1_huddle", to: ["delivery_lead"], content: KNOWLEDGE }),
+      evt({ type: "utterance", roleId: "tech_lead", text: KNOWLEDGE, channel: "text" }),
+      evt({ type: "utterance", roleId: "cfo", text: KNOWLEDGE, channel: "text" }),
+      evt({ type: "npc.updated", roleId: "client_sponsor", goals: [], knowledge: [KNOWLEDGE] }),
+    ]) {
+      const { env } = await fakeModel(GEN, priya(`${KNOWLEDGE}.`));
+      const r = await run(ARGV, env, { showcaseHooks: leakHooks(msg) as never });
+      expect(s7(r).status, JSON.stringify(msg).slice(0, 80)).toBe("failed");
+      expect(s7(r).details).toMatch(/Finance needs the da|npc\.updated/);
+    }
+  });
+
+  it("a hidden-fact string said aloud by an AI character is an observation (narration, report), not a failure", async () => {
+    const { env } = await fakeModel(GEN, priya(`${HIDDEN}.`));
+    const r = await run(ARGV, env);
+    expect(s7(r).status).toBe("passed");
+    expect(r.exitCode).toBe(0);
+    const msg = /AI character client_sponsor said \d+ unreleased hidden-fact string\(s\) aloud: the live model ignored the hidden-fact rule/;
+    expect(r.showcase.observations.some((o) => msg.test(o))).toBe(true);
+    expect(r.stdout).toMatch(msg);
+  });
+
+  it("a hidden-fact string in a NON-utterance message still fails", async () => {
+    const { env } = await fakeModel(GEN);
+    const r = await run(ARGV, env, { showcaseHooks: leakHooks(evt({ type: "inject.fired", injectId: "x", sceneId: "s1_huddle", to: ["delivery_lead"], content: HIDDEN })) as never });
+    expect(s7(r).status).toBe("failed");
+  });
+
+  it("mock mode keeps the old strictness: even an utterance by the string's own owner in a player's inbox fails", async () => {
+    const hooks = leakHooks(evt({ type: "utterance", roleId: "client_sponsor", text: KNOWLEDGE, channel: "text" }));
+    const r = await run(["--showcase", "--fast", "--no-color"], {}, { showcaseHooks: hooks as never });
+    expect(s7(r).status).toBe("failed");
+  });
+});

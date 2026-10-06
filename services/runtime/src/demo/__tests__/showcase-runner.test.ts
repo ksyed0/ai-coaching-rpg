@@ -298,7 +298,7 @@ describe("--showcase --live (an in-process OpenAI-compatible fake on loopback)",
     expect(showcase.npcs.map((n) => [n.roleId, n.replies, n.modelReplies])).toEqual([["client_sponsor", 3, 3], ["cfo", 2, 2]]);
     expect(showcase.npcs.every((n) => n.latencyMs !== null)).toBe(true);
     expect(showcase.gm.evaluations).toBe(2); // s4 and s5 reach three utterances
-    expect(seen.npc).toBe(5);
+    expect(seen.npc).toBe(8); // 5 replies + 3 re-asks: the fake repeats one sentence, and a verbatim repeat of an own earlier reply is asked for once more
     expect(seen.gm).toBe(2);
     expect(showcase.facilitatorAdvances).toBe(6);
     expect(showcase.observations).toHaveLength(6);
