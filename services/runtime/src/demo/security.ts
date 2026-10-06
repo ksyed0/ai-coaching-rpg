@@ -1,7 +1,7 @@
 import { Bot, isEvent } from "./bots.js";
 import { ensure } from "./checks.js";
 import { act, connectBot, isJoinedMsg, sceneIds, utterancesOf, withTimeout, type Ctx, type Story } from "./ctx.js";
-import { SECURITY_TOKEN, startSecuritySystem } from "./harness.js";
+import { newSecurityToken, startSecuritySystem } from "./harness.js";
 
 /** The rates the security room runs with: a tight message budget and a short join timeout, so abuse is visible in milliseconds. */
 export const ROOM_LIMITS = { msgRate: 1, msgBurst: 10, joinTimeoutMs: 1_000, maxConnections: 100, maxConnectionsPerIp: 100 };
@@ -28,11 +28,12 @@ export async function playSecurityRoom(ctx: Ctx, st: Story): Promise<void> {
   if (!ctx.rec.has("F-31") || !ctx.rec.applicable("F-31")) return; // opt-in: pnpm demo --security
   const { rec, n } = ctx;
   const [s1] = sceneIds(ctx.scenario) as [string];
+  const SECURITY_TOKEN = newSecurityToken();
   ctx.secretValues.push(SECURITY_TOKEN); // F-28 then searches every log, inbox and line of narration for it
 
   await act(ctx, st, "6b", "Security room: the token, the rate limit, the caps and the Origin check", async () => {
-    const room = await startSecuritySystem({ scenario: ctx.scenario, sessionId: "secure", limits: ROOM_LIMITS });
-    const caps = await startSecuritySystem({ scenario: ctx.scenario, sessionId: "secure", limits: CAP_LIMITS, allowedOrigins: [ALLOWED_ORIGIN] });
+    const room = await startSecuritySystem({ scenario: ctx.scenario, sessionId: "secure", token: SECURITY_TOKEN, limits: ROOM_LIMITS });
+    const caps = await startSecuritySystem({ scenario: ctx.scenario, sessionId: "secure", token: SECURITY_TOKEN, limits: CAP_LIMITS, allowedOrigins: [ALLOWED_ORIGIN] });
     let stopped = false;
     const stop = async () => { if (!stopped) { stopped = true; await Promise.all([room.stop(), caps.stop()]); } };
     ctx.register(stop);

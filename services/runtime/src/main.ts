@@ -39,6 +39,9 @@ export async function bootstrap(opts: {
     catch (err) { return { ok: false, errors: [`cannot read ${envFile}: ${(err as NodeJS.ErrnoException).code ?? "unreadable"}`] }; }
   }
   const env: NodeJS.ProcessEnv = { ...fileEnv, ...opts.env };
+  // An EMPTY real FACILITATOR_TOKEN (for example `FACILITATOR_TOKEN=` exported by a wrapper) is "unset", so it cannot silently
+  // switch off the token that .env holds. The real environment wins only when it has a value.
+  if ((opts.env.FACILITATOR_TOKEN ?? "") === "" && (fileEnv.FACILITATOR_TOKEN ?? "") !== "") env.FACILITATOR_TOKEN = fileEnv.FACILITATOR_TOKEN;
   const log = opts.log ?? console.log;
   const warn = opts.warn ?? console.warn;
   const scenarioDir = path.resolve(root, env.SCENARIO_DIR ?? "scenarios/friday-escalation"); // absolute values are used as given
@@ -94,6 +97,9 @@ export async function bootstrap(opts: {
       limits: security.config.limits, allowedOrigins: security.config.allowedOrigins, trustProxy: security.config.trustProxy,
     }); }
   catch (err) { host.stopTicker(); return { ok: false, errors: [`cannot listen on port ${port}: ${err instanceof Error ? err.message : String(err)}`] }; }
+  if (security.config.trustProxy && !/^(localhost|::1|127(\.\d{1,3}){3})$/i.test(security.config.host)) {
+    warn("WARNING: TRUST_PROXY=1 but RUNTIME_HOST is not a loopback address: a client that reaches the port directly can forge X-Forwarded-For and dodge the per-address limits; bind 127.0.0.1 behind the proxy");
+  }
   if (security.config.facilitatorToken === undefined) warn(OPEN_SERVER_WARNING); // one line, no secret
   else log("facilitator token required (FACILITATOR_TOKEN is set)");
   log(`scenario "${scenario.meta.title}" v${scenario.meta.version}; session "${sessionId}"; players: ${Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => r.id).join(", ")}`);

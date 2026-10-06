@@ -80,6 +80,38 @@ describe("bootstrap: facilitator token and limits (US-0017)", () => {
     expect(text).not.toContain(secret);
   });
 
+  it("an EMPTY real-env FACILITATOR_TOKEN does not switch off the token in .env; a non-empty one wins", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    await writeFile(path.join(tmp, ".env"), `FACILITATOR_TOKEN=${TOKEN}\n`);
+    const r = await bootstrap({ env: base({ FACILITATOR_TOKEN: "" }), root: tmp, logDir: tmp, tickMs: 50, log: () => {}, warn: () => {} });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    runtime = r.runtime;
+    expect((await join(runtime.port)).code).toBe("unauthorized");
+    expect((await join(runtime.port, TOKEN)).type).toBe("joined");
+    await runtime.stop(); runtime = null;
+    const other = "a-different-real-env-token-0123456789";
+    const r2 = await bootstrap({ env: base({ FACILITATOR_TOKEN: other }), root: tmp, logDir: tmp, tickMs: 50, log: () => {}, warn: () => {} });
+    if (!r2.ok) throw new Error(r2.errors.join("; "));
+    runtime = r2.runtime;
+    expect((await join(runtime.port, TOKEN)).code).toBe("unauthorized");
+    expect((await join(runtime.port, other)).type).toBe("joined");
+  });
+
+  it("TRUST_PROXY=1 on a non-loopback host warns; on loopback it does not", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    const warns: string[] = [];
+    const r = await bootstrap({ env: base({ TRUST_PROXY: "1", FACILITATOR_TOKEN: TOKEN }), root: tmp, logDir: tmp, tickMs: 50, log: () => {}, warn: (m) => warns.push(m) });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    runtime = r.runtime;
+    expect(warns.filter((w) => /TRUST_PROXY=1/.test(w))).toHaveLength(1);
+    await runtime.stop(); runtime = null;
+    const warns2: string[] = [];
+    const r2 = await bootstrap({ env: base({ TRUST_PROXY: "1", RUNTIME_HOST: "127.0.0.1", FACILITATOR_TOKEN: TOKEN }), root: tmp, logDir: tmp, tickMs: 50, log: () => {}, warn: (m) => warns2.push(m) });
+    if (!r2.ok) throw new Error(r2.errors.join("; "));
+    runtime = r2.runtime;
+    expect(warns2.filter((w) => /TRUST_PROXY=1/.test(w))).toHaveLength(0);
+  });
+
   it("RUNTIME_HOST binds that interface", async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
     const logs: string[] = [];

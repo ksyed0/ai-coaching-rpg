@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -223,15 +224,15 @@ export async function startLabSystem(o: { scenario: Scenario; sessionId: string 
 }
 
 
-/** A fixed token for the security room, so the run is deterministic. F-28 and the report check prove it never leaks. */
-export const SECURITY_TOKEN = "demo-room-token-7f3a9c1e5b2d4086a1c3";
+/** A fresh random token for each run's security room (48 hex characters). The outcomes do not depend on its value; F-28 and the report check prove it never leaks. */
+export const newSecurityToken = (): string => randomBytes(24).toString("hex");
 
 /** The security room: a token, deliberately tight limits and a trusted proxy header (so one machine can play many addresses), on its own port. */
-export async function startSecuritySystem(o: { scenario: Scenario; sessionId: string; limits: Partial<Limits>; allowedOrigins?: string[] }): Promise<System> {
+export async function startSecuritySystem(o: { scenario: Scenario; sessionId: string; token: string; limits: Partial<Limits>; allowedOrigins?: string[] }): Promise<System> {
   const clock = new FakeClock(T0);
   return buildSystem({
     scenario: o.scenario, sessionId: o.sessionId, dataDir: "", clock, fakeClock: clock, log: new MemoryEventLog(o.sessionId),
     npcProvider: new MockModelProvider(), gmProvider: new MockModelProvider(),
-    facilitatorToken: SECURITY_TOKEN, limits: o.limits, allowedOrigins: o.allowedOrigins, trustProxy: true,
+    facilitatorToken: o.token, limits: o.limits, allowedOrigins: o.allowedOrigins, trustProxy: true,
   });
 }

@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { REPO_ROOT, bootstrap } from "../../main.js";
 import { parseDemoArgs } from "../args.js";
 import { CHECKS, CHECK_IDS, SECURITY_CHECKS } from "../checks.js";
-import { SECURITY_TOKEN, makeTempRoot } from "../harness.js";
+import { makeTempRoot, newSecurityToken } from "../harness.js";
 import { runDemo, type RunDeps } from "../runner.js";
 
 type Captured = { out: string[]; err: string[]; stdout: { write(s: string): void; isTTY?: boolean }; stderr: { write(s: string): void; isTTY?: boolean } };
@@ -57,7 +57,7 @@ describe("pnpm demo --security", () => {
     expect(report!.results.map((r) => r.id)).toEqual([...CHECK_IDS, "F-31", "F-32", "F-33"]);
     expect(report!.summary).toEqual({ passed: 32, failed: 0, skipped: 0 });
     const all = c.out.join("") + JSON.stringify(report);
-    expect(all).not.toContain(SECURITY_TOKEN);
+    expect(all).not.toMatch(/\b[0-9a-f]{48}\b/); // the room token is a fresh 48 hex character string
     expect(all).toContain("ACT 6b");
     expect(c.err).toEqual([]);
   });
@@ -89,6 +89,14 @@ describe("pnpm demo --security", () => {
     const t0 = tcp();
     await runDemo(deps(capture(), ["--fast", "--no-color", "--security"]));
     expect(tcp()).toBe(t0);
+  });
+});
+
+describe("the room token", () => {
+  it("is fresh and long enough on every call", () => {
+    const a = newSecurityToken(); const b = newSecurityToken();
+    expect(a).toMatch(/^[0-9a-f]{48}$/);
+    expect(a).not.toBe(b);
   });
 });
 

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolveFacilitatorToken, type TokenDeps } from "../token.js";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { TOKEN_FILE_MAX_BYTES, plainTokenWarning, readTokenFile, resolveFacilitatorToken, type TokenDeps } from "../token.js";
 
 const TOKEN = "file-token-0123456789abcdef";
 const deps = (o: Partial<TokenDeps> = {}): TokenDeps => ({
@@ -28,7 +31,7 @@ describe("resolveFacilitatorToken", () => {
   });
   it("fails on an unreadable or malformed file without showing its content", async () => {
     const missing = await resolveFacilitatorToken(deps({ tokenFile: "/nope", readFile: () => { throw new Error("ENOENT /nope"); } }));
-    expect(missing).toEqual({ ok: false, error: "error: cannot read the --token-file" });
+    expect(missing).toMatchObject({ ok: false, error: expect.stringContaining("cannot read the --token-file") });
     const bad = await resolveFacilitatorToken(deps({ tokenFile: "/f", readFile: () => "two words here 1234567890" }));
     expect(bad.ok).toBe(false);
     expect(JSON.stringify(bad)).not.toContain("two words");
@@ -43,5 +46,29 @@ describe("resolveFacilitatorToken", () => {
   });
   it("never prompts without a terminal: no token", async () => {
     expect(await resolveFacilitatorToken(deps())).toEqual({ ok: true, token: undefined, warnings: [] });
+  });
+});
+
+describe("readTokenFile (review M7)", () => {
+  it("reads a small file and refuses one over 1 KiB without reading it all", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "acr-tokfile-"));
+    try {
+      writeFileSync(path.join(dir, "ok"), "file-token-0123456789abcdef\n");
+      expect(await readTokenFile(path.join(dir, "ok"))).toBe("file-token-0123456789abcdef\n");
+      writeFileSync(path.join(dir, "big"), "x".repeat(TOKEN_FILE_MAX_BYTES + 1));
+      await expect(readTokenFile(path.join(dir, "big"))).rejects.toThrow(/larger than 1024/);
+      const r = await resolveFacilitatorToken(deps({ tokenFile: path.join(dir, "big"), readFile: readTokenFile }));
+      expect(r.ok).toBe(false);
+      await expect(readTokenFile(dir)).rejects.toThrow();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe("plainTokenWarning (review M7)", () => {
+  it("warns for ws:// to a remote host with a token, never for loopback, wss:// or no token", () => {
+    expect(plainTokenWarning("ws://192.168.1.20:8080", true)).toMatch(/clear text/);
+    expect(plainTokenWarning("ws://example.com", true)).toMatch(/clear text/);
+    for (const u of ["ws://localhost:8080", "ws://127.0.0.1:8080", "ws://[::1]:8080", "wss://example.com"]) expect(plainTokenWarning(u, true), u).toBeNull();
+    expect(plainTokenWarning("ws://192.168.1.20", false)).toBeNull();
   });
 });

@@ -1,8 +1,8 @@
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import readline from "node:readline";
 import WebSocket from "ws";
 import { parseArgs } from "./commands.js";
-import { resolveFacilitatorToken } from "./token.js";
+import { plainTokenWarning, readTokenFile, resolveFacilitatorToken } from "./token.js";
 import { createClient, DEFAULT_IDLE_MS } from "./client.js";
 import { sanitizeText } from "./render.js";
 
@@ -36,12 +36,14 @@ function promptHidden(question: string): Promise<string> {
 if (opts.facilitator) {
   const t = await resolveFacilitatorToken({
     env: process.env, tokenFile: opts.tokenFile,
-    readFile: (f) => readFileSync(f, "utf8"), fileMode: (f) => { try { return statSync(f).mode & 0o777; } catch { return undefined; } },
+    readFile: readTokenFile, fileMode: (f) => { try { return statSync(f).mode & 0o777; } catch { return undefined; } },
     isTTY: process.stdin.isTTY === true && process.stdout.isTTY === true, promptHidden,
   });
   if (!t.ok) { console.error(t.error); process.exit(2); }
   for (const w of t.warnings) console.error(w);
   if (t.token !== undefined) opts.token = t.token;
+  const plain = plainTokenWarning(opts.url, t.token !== undefined);
+  if (plain) console.error(plain);
 }
 const me = opts.facilitator ? "facilitator" : opts.role!;
 const tty = process.stdout.isTTY === true;
