@@ -29,8 +29,10 @@ export type PlayerStats = {
 export type VoiceStats = {
   /** Token-set Jaccard similarity at or above which two consecutive AI replies of a scene count as an echo. */
   echoThreshold: number;
-  /** Consecutive AI character replies of the same scene that are near-duplicates. */
+  /** Near-duplicate replies of two different AI characters to the same player line. */
   echoes: EchoPair[];
+  /** The pairs that could be compared: different AI characters answering the same player line, one right after the other (silent turns and fallback lines shrink it). */
+  eligiblePairs: number;
   silentTurns: { total: number; byRole: Record<string, number>; byScene: { sceneId: string; roleId: string; count: number }[] };
 };
 export type ShowcaseReport = {
@@ -186,7 +188,10 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
   }
   const voices: VoiceStats = {
     echoThreshold: ECHO_THRESHOLD,
-    echoes: findEchoes(lines.filter((l) => l.source === "ai-character").map((l) => ({ seq: l.seq, sceneId: l.sceneId, role: l.role!, text: l.text, ...(l.fallback ? { fallback: true as const } : {}) }))),
+    ...(() => {
+      const e = findEchoes(lines.filter((l) => l.source === "ai-character" || l.source === "player-bot").map((l) => ({ seq: l.seq, sceneId: l.sceneId, role: l.role ?? "", text: l.text, ai: l.source === "ai-character", ...(l.fallback ? { fallback: true as const } : {}) })));
+      return { echoes: e.pairs, eligiblePairs: e.eligible };
+    })(),
     silentTurns: { total: silences.length, byRole, byScene: [...byScene.values()] },
   };
   const npcs: NpcStats[] = npcRoles.map((r) => {
@@ -235,7 +240,7 @@ export function formatAiSummary(r: ShowcaseReport): string[] {
   }
   const v = r.voices;
   const silent = r.npcs.filter((n) => n.silentTurns > 0).map((n) => `${n.name} ${n.silentTurns}`);
-  out.push(`  AI voices: ${v.echoes.length} near-duplicate consecutive AI reply pair(s) (similarity >= ${v.echoThreshold}); silent turns: ${silent.length ? silent.join(", ") : "none"}`);
+  out.push(`  AI voices: ${v.echoes.length} of ${v.eligiblePairs} comparable AI reply pair(s) (different characters, same player line) were near-duplicates (similarity >= ${v.echoThreshold}); silent turns: ${silent.length ? silent.join(", ") : "none"}`);
   out.push(`  Facilitator advances: ${r.facilitatorAdvances}`);
   out.push(`  Alerts: ${r.alerts.length}`);
   for (const o of r.observations) out.push(`  Observation: ${o}`);

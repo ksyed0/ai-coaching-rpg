@@ -10,7 +10,7 @@ export const npcIntro = (role: { name: string }): string => `You are playing ${r
 
 /** What an AI character may reply, exactly, to stay silent this turn. Never shown to players and never recorded. */
 export const SILENT_MARKER = "<silent/>";
-export const SILENCE_RULE = `If you have nothing new that only you would say, reply with exactly ${SILENT_MARKER} and nothing else.`;
+export const SILENCE_RULE = `If the last speaker already said what you would say and you have no decision, condition or number to add, reply with exactly ${SILENT_MARKER} and nothing else. Never stay silent when you are addressed by name or asked a question. Never describe silence in words.`;
 
 /** What one character may know about another that is in the same scene: what any participant sees (name, title) plus the seniority it is judged by. Never goals, knowledge, hidden or private facts. */
 export type PublicPeer = { id: string; name: string; title?: string; seniority?: number };
@@ -26,11 +26,11 @@ export function roomSection(role: { id: string; seniority?: number }, peers: Pub
   const others = peers.filter((p) => p.id !== role.id);
   if (others.length === 0) return [];
   const mine = role.seniority ?? DEFAULT_SENIORITY;
-  return ["", "## Who else is in the room", bullets(others.map((p) => `${one(p.name, 80)}${p.title ? `, ${one(p.title, 120)}` : ""} (${relative(p.seniority ?? DEFAULT_SENIORITY, mine)})`))];
+  return ["", "## Who else is in the room", bullets(others.map((p) => `${one(p.name, 80)}${p.title ? `, ${one(p.title, 120)}` : ""} (${relative(p.seniority ?? DEFAULT_SENIORITY, mine)}); their lines are shown as [${p.id}]`))];
 }
 
 /** The "## How you respond" section: this character's own kind of contribution and the rules against echoing. */
-export function respondSection(role: { name: string; seniority?: number; responds_with?: string[]; only_you_say?: string[]; defer_to?: string[] }, peers: PublicPeer[], allowSilence: boolean): string[] {
+export function respondSection(role: { name: string; seniority?: number; responds_with?: string[]; only_you_say?: string[]; defer_to?: string[]; defers_text?: string }, peers: PublicPeer[], allowSilence: boolean): string[] {
   const mine = role.seniority ?? DEFAULT_SENIORITY;
   const items = (l: string[] | undefined) => (l ?? []).slice(0, MAX_ITEMS).map((x) => one(x, ITEM_CHARS));
   const own = items(role.responds_with); const only = items(role.only_you_say);
@@ -40,9 +40,9 @@ export function respondSection(role: { name: string; seniority?: number; respond
     "", "## How you respond",
     ...(own.length ? ["The kind of contribution you make:", bullets(own)] : []),
     ...(only.length ? ["What only you say (topics that are yours):", bullets(only)] : []),
-    ...(deferTo.length ? [`When ${deferTo.map((p) => one(p.name, 80)).join(" or ")} is in the room you leave the final say on their topics to them: say what you need, do not rule on it.`] : []),
+    ...(deferTo.length ? [role.defers_text ? one(role.defers_text, 200) : `Leave the final decision on price, terms and approval to ${deferTo.map((p) => `${one(p.name, 80)}${p.title ? ` (${one(p.title, 120)})` : ""}`).join(" or ")}; say what you need, do not rule on it.`, `Speak to your own area first; do not pre-empt ${deferTo.map((p) => `${one(p.name, 80)}'s`).join(" or ")} decision on price or terms.`] : []),
     `Do not restate, paraphrase or agree-and-repeat what the previous speaker (a player or another character) just said. Open with your own angle, in your own kind of contribution.`,
-    ...(juniors.length ? [`If a less senior character has just spoken for the client side, do not summarise them: add the decision, condition or number only you would give.`] : []),
+    ...(juniors.length ? [`If ${juniors.map((p) => one(p.name, 80)).join(" or ")} has just answered, do not agree with them or say it again. Your first sentence must be one of: a decision (approve, refuse, or 'not in this shape'), a condition with a number or a date, or the cost or consequence in money or time. Then stop.`] : []),
     ...(allowSilence ? [SILENCE_RULE] : []),
   ];
 }

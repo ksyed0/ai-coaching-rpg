@@ -239,13 +239,13 @@ describe("voices: room roster and response style (US-0032)", () => {
   it("lists the other characters with relative seniority, from public data only", () => {
     const sys = buildNpcRequest({ role: priya, scene: both, state: st(), peers: [priya, helena] }).system;
     expect(sys).toContain("## Who else is in the room");
-    expect(sys).toContain("- Helena Brandt, Chief Financial Officer, client side (more senior than you)");
+    expect(sys).toContain("- Helena Brandt, Chief Financial Officer, client side (more senior than you); their lines are shown as [cfo]");
     expect(sys).not.toMatch(/Priya Raman[^\n]*\(your peer\)/); // never lists itself
     for (const m of ["HELENA_GOAL_MARKER", "HELENA_KNOWLEDGE_MARKER", "HELENA_HIDDEN_MARKER", "HELENA_PERSONA_MARKER", "a ruling on price", "total cost and precedent"]) expect(sys).not.toContain(m);
     const senior = buildNpcRequest({ role: helena, scene: both, state: st(), peers: [priya, helena] }).system;
-    expect(senior).toContain("- Priya Raman, VP Operations (less senior than you)");
+    expect(senior).toContain("- Priya Raman, VP Operations (less senior than you); their lines are shown as [client_sponsor]");
     const peer = buildNpcRequest({ role: priya, scene: both, state: st(), peers: [{ id: "cfo", name: "Equal Eve", title: "", seniority: 3 }] }).system;
-    expect(peer).toContain("- Equal Eve (your peer)");
+    expect(peer).toContain("- Equal Eve (your peer); their lines are shown as [cfo]");
   });
 
   it("only lists characters that are in this scene, and no section when alone", () => {
@@ -262,11 +262,12 @@ describe("voices: room roster and response style (US-0032)", () => {
     expect(sys).toContain("- total cost and precedent");
     expect(sys).toContain("Do not restate, paraphrase or agree-and-repeat what the previous speaker");
     expect(sys).toContain("Open with your own angle");
-    expect(sys).toContain("If a less senior character has just spoken for the client side, do not summarise them: add the decision, condition or number only you would give.");
-    expect(sys).toContain("If you have nothing new that only you would say, reply with exactly <silent/> and nothing else.");
+    expect(sys).toContain("If Priya Raman has just answered, do not agree with them or say it again. Your first sentence must be one of: a decision (approve, refuse, or 'not in this shape'), a condition with a number or a date, or the cost or consequence in money or time. Then stop.");
+    expect(sys).toContain("If the last speaker already said what you would say and you have no decision, condition or number to add, reply with exactly <silent/> and nothing else. Never stay silent when you are addressed by name or asked a question. Never describe silence in words.");
     const junior = buildNpcRequest({ role: priya, scene: both, state: st(), peers: [priya, helena] }).system;
-    expect(junior).not.toContain("do not summarise them");
-    expect(junior).toContain("When Helena Brandt is in the room you leave the final say on their topics to them");
+    expect(junior).not.toContain("has just answered, do not agree");
+    expect(junior).toContain("Leave the final decision on price, terms and approval to Helena Brandt (Chief Financial Officer, client side); say what you need, do not rule on it.");
+    expect(junior).toContain("Speak to your own area first; do not pre-empt Helena Brandt's decision on price or terms.");
   });
 
   it("allowSilence: false removes the silence rule", () => {
@@ -286,5 +287,26 @@ describe("voices: room roster and response style (US-0032)", () => {
     expect(sys.startsWith("You are playing Helena Brandt, Chief Financial Officer, client side in a live role-play training session.")).toBe(true);
     expect(npcIntro(helena)).toBe("You are playing Helena Brandt");
     expect(sys).not.toContain("You are playing Priya Raman");
+  });
+});
+
+describe("voices: prompt wording is generic and overridable (US-0032 fix round)", () => {
+  const cfo: NpcRole = { ...role, id: "cfo", name: "Helena Brandt", title: "Chief Financial Officer", seniority: 5 };
+  const both: Scene = { ...scene, participants: ["delivery_lead", "client_sponsor", "cfo"] };
+  it("never says 'for the client side' or other scenario wording in the generic prompt", () => {
+    const sys = buildNpcRequest({ role: cfo, scene: both, state: stateWith(), peers: [role, cfo] }).system;
+    expect(sys).not.toContain("client side");
+    expect(sys).not.toContain("for the client side");
+  });
+  it("defers_text replaces the generic deferral sentence", () => {
+    const p: NpcRole = { ...role, defer_to: ["cfo"], defers_text: "Let Helena decide on money." };
+    const sys = buildNpcRequest({ role: p, scene: both, state: stateWith(), peers: [p, cfo] }).system;
+    expect(sys).toContain("Let Helena decide on money.");
+    expect(sys).not.toContain("Leave the final decision on price");
+  });
+  it("another AI character's persona, goals, knowledge, hidden facts and voice lists never reach the prompt", () => {
+    const other: NpcRole = { ...cfo, persona: "OTHER_PERSONA_1", goals: ["OTHER_GOAL_2"], knowledge: ["OTHER_KNOW_3"], hidden: ["OTHER_HIDDEN_4"], guardrails: ["OTHER_RULE_5"], responds_with: ["OTHER_RESP_6"], only_you_say: ["OTHER_ONLY_7"] };
+    const sys = buildNpcRequest({ role, scene: both, state: stateWith(), peers: [role, other] }).system;
+    for (const m of ["OTHER_PERSONA_1", "OTHER_GOAL_2", "OTHER_KNOW_3", "OTHER_HIDDEN_4", "OTHER_RULE_5", "OTHER_RESP_6", "OTHER_ONLY_7"]) expect(sys).not.toContain(m);
   });
 });

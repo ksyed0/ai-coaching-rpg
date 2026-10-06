@@ -42,6 +42,8 @@ export const NpcRoleSchema = z.object({
   only_you_say: VoiceList,
   /** Role ids of AI characters this one normally lets have the final say when both are in the scene (prompt wording only; the reply order follows seniority). */
   defer_to: z.array(Id).max(VOICE_LIST_MAX).default([]),
+  /** Optional replacement for the generic sentence that tells this character to leave a decision to the characters in `defer_to`. Own-prompt text only (at most 200 characters). */
+  defers_text: z.string().trim().min(1).max(200).optional(),
 });
 
 export const RoleSchema = z.discriminatedUnion("type", [PlayerRoleSchema, NpcRoleSchema]);

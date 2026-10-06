@@ -135,17 +135,18 @@ describe("voices: echoes and silent turns (US-0032)", () => {
   it("counts an echo and silent turns per character, in the JSON section and the summary", () => {
     const r = buildShowcaseReport({ ...base, events: mk("The budget is the problem, forty five thousand extra.", "Forty five thousand extra: the budget is the problem."), silences: [{ roleId: "boss", sceneId: "one" }, { roleId: "boss", sceneId: "one" }] });
     expect(r.voices.echoes).toHaveLength(1);
+    expect(r.voices.eligiblePairs).toBe(1);
     expect(r.voices.echoes[0]).toMatchObject({ sceneId: "one", first: { role: "bot" }, second: { role: "boss" } });
     expect(r.voices.silentTurns).toEqual({ total: 2, byRole: { boss: 2 }, byScene: [{ sceneId: "one", roleId: "boss", count: 2 }] });
     expect(r.npcs.find((n) => n.roleId === "boss")!.silentTurns).toBe(2);
     expect(r.voices.echoThreshold).toBe(0.6);
-    expect(formatAiSummary(r)).toContain("  AI voices: 1 near-duplicate consecutive AI reply pair(s) (similarity >= 0.6); silent turns: Big Boss 2");
+    expect(formatAiSummary(r)).toContain("  AI voices: 1 of 1 comparable AI reply pair(s) (different characters, same player line) were near-duplicates (similarity >= 0.6); silent turns: Big Boss 2");
   });
 
   it("distinct replies and no silences: zero, 'none', and a silent turn is no utterance in the lines", () => {
     const r = buildShowcaseReport({ ...base, events: mk("We need the module before the close.", "Fixed price, 45k, or no deal; the date is 14 June.") });
     expect(r.voices).toMatchObject({ echoes: [], silentTurns: { total: 0, byRole: {}, byScene: [] } });
-    expect(formatAiSummary(r)).toContain("  AI voices: 0 near-duplicate consecutive AI reply pair(s) (similarity >= 0.6); silent turns: none");
+    expect(formatAiSummary(r)).toContain("  AI voices: 0 of 1 comparable AI reply pair(s) (different characters, same player line) were near-duplicates (similarity >= 0.6); silent turns: none");
     expect(JSON.stringify(r)).not.toContain("<silent");
   });
 });

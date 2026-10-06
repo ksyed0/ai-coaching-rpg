@@ -9,6 +9,8 @@ import {
 } from "./ctx.js";
 import { MIN, type System } from "./harness.js";
 import { gmDeadlineMs } from "../agents/timeouts.js";
+import { MAX_CONSECUTIVE_SILENT_TURNS, type SilentTurn } from "../agents/npc-agent.js";
+import { npcIntro } from "../agents/npc-prompt.js";
 import { fallbackReason, isFallbackReply } from "./provenance.js";
 import { scrubText } from "./report.js";
 import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from "./showcase-report.js";
@@ -158,6 +160,11 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
   let chain: Promise<void> = Promise.resolve();
   let previous: SessionEvent | undefined;
   const narrateEvent = async (e: SessionEvent): Promise<void> => {
+    await narrateOne(e);
+    narratedSeq = Math.max(narratedSeq, e.seq);
+    await flushSilences();
+  };
+  const narrateOne = async (e: SessionEvent): Promise<void> => {
     const prev = previous; previous = e;
     switch (e.type) {
       case "session.started": await n.tagged("system", "dim", "", "session started"); break;
@@ -194,11 +201,21 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
       default: break;
     }
   };
-  // A silent turn leaves no event: say so in the narration and the transcript (the marker itself is never recorded anywhere).
+  // A silent turn leaves no event. Its note is narrated (and added to the transcript) only after the utterance it follows (`afterSeq`) has been narrated,
+  // so it never appears before the line it comes after. The marker itself is never recorded anywhere.
+  const pendingSilences: SilentTurn[] = [];
+  let narratedSeq = 0;
+  const flushSilences = async (all = false): Promise<void> => {
+    while (pendingSilences.length > 0 && (all || pendingSilences[0]!.afterSeq <= narratedSeq)) {
+      const t = pendingSilences.shift()!;
+      const msg = `${npcName(t.roleId)} (${t.roleId}) had nothing new to add and stayed silent`;
+      ctx.tr?.add({ kind: "log", source: "system", text: msg, scene: t.sceneId });
+      await n.tagged("system", "dim", "", msg);
+    }
+  };
   const stopSilence = sys?.host.onSilentTurn((t) => {
-    const msg = `${npcName(t.roleId)} (${t.roleId}) had nothing new to add and stayed silent`;
-    ctx.tr?.add({ kind: "log", source: "system", text: msg, scene: t.sceneId });
-    chain = chain.then(() => n.tagged("system", "dim", "", msg)).catch(() => undefined);
+    pendingSilences.push(t);
+    chain = chain.then(() => flushSilences()).catch(() => undefined);
   });
   const narratePlayer = o.players?.lines.reader();
   const flush = async (): Promise<void> => { await chain; };
@@ -346,6 +363,8 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
   await fac.waitFor(isEvent("session.ended"), { timeoutMs: 15_000, what: "the session to end" });
   await flush();
   stopSilence?.();
+  chain = chain.then(() => flushSilences(true)).catch(() => undefined);
+  await flush();
   await settle(ctx, st);
   await flush();
 
@@ -395,9 +414,11 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       for (const id of here) {
         const said = summary.lines.filter((l) => l.source === "ai-character" && l.role === id && l.sceneId === scene.id);
         const silent = summary.voices.silentTurns.byScene.find((x) => x.sceneId === scene.id && x.roleId === id)?.count ?? 0;
-        ensure(said.length > 0 || silent > 0, `${id} never spoke in ${scene.id}`); // a character that chose silence every turn did not fail
+        const playerLines = summary.scenes.find((x) => x.id === scene.id)?.playerLines ?? 0;
+        // A character may stay silent at most MAX_CONSECUTIVE_SILENT_TURNS turns in a row: with more player lines than that it must have spoken.
+        ensure(said.length > 0 || (silent > 0 && playerLines <= MAX_CONSECUTIVE_SILENT_TURNS), `${id} never spoke in ${scene.id}${silent > 0 ? ` (silent:${silent} of ${playerLines} player line(s), more than the ${MAX_CONSECUTIVE_SILENT_TURNS} turns in a row a character may stay silent)` : ""}`);
         ensure(said.every((l) => l.text.trim().length > 0), `${id} produced an empty utterance in ${scene.id}`);
-        parts.push(`${id}@${scene.id}:${said.length}`);
+        parts.push(`${id}@${scene.id}:${said.length}${silent > 0 ? ` silent:${silent}` : ""}`);
       }
     }
     ensure(parts.length > 0, "the scenario has no scene with an AI character (the check would be vacuous)");
@@ -441,11 +462,24 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       const found = findMarkers(`${req.system}\n${JSON.stringify(req.messages)}`, banned);
       ensure(found.length === 0, `a model prompt contained: ${found.join(" | ")}`);
     }
-    const npcs = Object.values(scenario.roles).filter((r) => r.type === "npc") as { persona: string }[];
+    // Another AI character's persona, goals, knowledge, hidden facts, guardrails and voice lists must not be in a character's system prompt (only name, title and seniority are public). Text both characters hold is exempt.
+    const npcRoles = Object.values(scenario.roles).filter((r): r is NpcRole => r.type === "npc");
+    const privateOf = (r: NpcRole): string[] => [r.persona, ...r.goals, ...r.knowledge, ...r.hidden, ...r.guardrails, ...r.responds_with, ...r.only_you_say].map((x) => x.trim()).filter((x) => x.length >= 12);
+    let crossChecked = 0;
+    for (const req of sys!.npc!.calls) {
+      const owner = npcRoles.find((r) => req.system.includes(npcIntro(r)));
+      if (!owner) continue;
+      const own = new Set(privateOf(owner));
+      const foreign = npcRoles.filter((r) => r !== owner).flatMap(privateOf).filter((x) => !own.has(x));
+      const leaked = foreign.filter((x) => req.system.includes(x));
+      ensure(leaked.length === 0, `${owner.id}'s prompt contained another AI character's private text: ${leaked.map((x) => x.slice(0, 60)).join(" | ")}`);
+      crossChecked++;
+    }
+    const npcs = npcRoles as { persona: string }[];
     ensure(npcs.every((p) => sys!.npc!.calls.some((c) => c.system.includes(p.persona.slice(0, 20)))), "an AI character's own persona is missing from its prompts (vacuous audit)");
     const conditions = scenario.script.scenes.flatMap((s) => s.exit_when.any_of).filter((c): c is { gm_detects: string } => typeof c === "object").map((c) => c.gm_detects);
     ensure(sys!.gm!.calls.every((c) => conditions.some((cond) => c.system.includes(cond))), "a Game Master prompt lacks the scene's condition (vacuous audit)");
-    return `all ${calls.length} captured prompts (${sys!.npc!.calls.length} AI character, ${sys!.gm!.calls.length} Game Master) were checked against ${banned.length} strings; none appeared, and the positive controls did`;
+    return `all ${calls.length} captured prompts (${sys!.npc!.calls.length} AI character, ${sys!.gm!.calls.length} Game Master) were checked against ${banned.length} strings (and ${crossChecked} AI character prompts against the other characters' private text); none appeared, and the positive controls did`;
   }, ["S-01"]);
 
   await rec.run("S-07", () => {

@@ -593,6 +593,11 @@ describe("AI character voices (US-0032, loopback fake model)", () => {
     expect(r.stdout).toContain("AI voices:");
     expect(r.stdout).toContain("silent turns: Helena Brandt 1");
     expect(r.stdout).toContain("Helena Brandt (cfo) had nothing new to add and stayed silent");
+    // The note is narrated after the utterance it follows (Priya's reply), never before it.
+    const out = r.stdout.split("\n");
+    const at = out.findIndex((l) => l.includes("stayed silent"));
+    expect(out[at - 1]).toContain("[AI character] Priya Raman (client_sponsor)");
+    expect(JSON.stringify(r.report!.results.find((x) => x.id === "S-02"))).toMatch(/cfo@s\d_\w+:\d+ silent:1/);
     // Helena's prompt offered silence and listed Priya as less senior; Priya's did not list Helena's goals.
     const helenaPrompt = seen.otherBodies.find((b) => b.includes("You are playing Helena Brandt"))!;
     expect(helenaPrompt).toContain("Priya Raman, VP Operations");

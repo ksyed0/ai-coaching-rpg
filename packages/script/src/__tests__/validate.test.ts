@@ -110,3 +110,23 @@ describe("shipped scenarios carry the voice fields (US-0032)", () => {
     expect(s.roles.client_sponsor).toMatchObject({ seniority: 3, defer_to: [] });
   });
 });
+
+describe("defer_to warnings and defers_text (US-0032 fix round)", () => {
+  it("warns when defer_to names a less senior role, and when two roles defer to each other", async () => {
+    const s = await loadScenario(path.join(fixtures, "minimal"));
+    const guest = Object.values(s.roles).find((r) => r.type === "npc")! as Extract<(typeof s.roles)[string], { type: "npc" }>;
+    s.roles.other = { ...guest, id: "other", name: "Other", seniority: 1, defer_to: [guest.id] };
+    guest.seniority = 4; guest.defer_to = ["other"];
+    const w = validateScenario(s).warnings;
+    expect(w).toContain(`role ${guest.id}: defer_to 'other' is less senior (1) than ${guest.id} (4)`);
+    expect(w).toContain(`roles ${guest.id} and other defer to each other`);
+    expect(validateScenario(s).errors).toEqual([]);
+  });
+  it("defers_text is optional and at most 200 characters", async () => {
+    const { RoleSchema } = await import("../schema.js");
+    const base = { id: "x", type: "npc", name: "X", persona: "p", goals: [] };
+    expect(RoleSchema.safeParse(base).success).toBe(true);
+    expect(RoleSchema.safeParse({ ...base, defers_text: "Let her decide." }).success).toBe(true);
+    expect(RoleSchema.safeParse({ ...base, defers_text: "x".repeat(201) }).success).toBe(false);
+  });
+});

@@ -25,9 +25,11 @@ export class SessionHost {
   private tickPending = false;
   private roundQueued = false;
   private readonly silences: SilentTurn[] = [];
+  private readonly maxSilencesKept: number;
   private readonly silentListeners = new Set<(t: SilentTurn) => void>();
 
-  constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number }) {
+  constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number }) {
+    this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
     this.scenario = opts.scenario; this.engine = opts.engine;
     this.log = opts.log ?? (() => {});
     // What each AI character may know about the others: name, title and seniority (what every participant sees), never goals or secrets.
@@ -40,6 +42,7 @@ export class SessionHost {
 
   private noteSilence(t: SilentTurn): void {
     this.silences.push(t);
+    if (this.silences.length > this.maxSilencesKept) this.silences.splice(0, this.silences.length - this.maxSilencesKept);
     for (const fn of this.silentListeners) { try { fn(t); } catch (err) { this.report("silence listener", err); } }
   }
 
@@ -105,10 +108,16 @@ export class SessionHost {
       this.roundQueued = false;
       const scene = this.engine.currentScene();
       if (!scene) return;
-      for (const id of this.replyOrder(scene.participants)) {
-        const agent = this.npcs.get(id);
-        if (!agent) continue;
-        try { await agent.respond(); } catch (err) { this.report(`NPC ${id}`, err); }
+      const order = this.replyOrder(scene.participants);
+      const before = this.engine.state.transcript.length;
+      let spoke = false;
+      for (const [i, id] of order.entries()) {
+        const agent = this.npcs.get(id)!;
+        // Nobody has answered yet: the last character of the round must speak, so a player line is never left entirely unanswered.
+        try { if (await agent.respond({ mustSpeak: i === order.length - 1 && !spoke })) spoke = true; } catch (err) { this.report(`NPC ${id}`, err); }
+      }
+      if (order.length > 0 && !spoke && this.engine.state.transcript.length === before && this.engine.currentScene()?.id === scene.id && !this.engine.state.paused && this.engine.state.status === "running") {
+        try { await this.engine.alert("every AI character stayed silent for this line", "warning", { expectSceneId: scene.id }); } catch (err) { this.report("silence alert", err); }
       }
       await this.gm.tick();
     });
@@ -116,11 +125,11 @@ export class SessionHost {
 
   /**
    * The AI characters of a scene in reply order: by seniority ascending (junior first, so the senior one reads the junior's reply
-   * and answers the players with the decision), ties by role id. Deterministic. A scene with one AI character is unaffected.
+   * and answers the players with the decision), ties by the scene's participant order (a stable sort). Deterministic. A scene with one AI character is unaffected.
    */
   private replyOrder(participants: string[]): string[] {
     const seniority = (id: string): number => this.npcs.get(id)?.seniority ?? 3;
-    return participants.filter((id) => this.npcs.has(id)).sort((a, b) => seniority(a) - seniority(b) || (a < b ? -1 : a > b ? 1 : 0));
+    return participants.filter((id) => this.npcs.has(id)).sort((a, b) => seniority(a) - seniority(b));
   }
 
   async command(cmd: Parameters<SessionEngine["command"]>[0], opts: { expectSceneId?: string } = {}): Promise<void> {

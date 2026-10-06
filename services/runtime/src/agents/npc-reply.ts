@@ -94,17 +94,51 @@ export function cleanNpcReply(raw: string, role: SpeakerName, others: SpeakerNam
   return { text: text.slice(0, index[Math.min(...hits)]).trim(), cut: true };
 }
 
-/** The silence marker in any case and spacing (`<silent/>`, `<SILENT />`, `<silent>`), wherever it appears: inside a longer reply or inside a quote. */
-const SILENT_RE = /<\s*silent\s*\/?\s*>/gi;
+/**
+ * The silence marker in any form a model produces: `<silent/>`, `<silent />`, `<silent>`, `</silent>`, `<silence/>`, in any case, with invisible
+ * characters inside the tag or full-width characters (`＜silent／＞`). Bounded whitespace keeps matching linear on abusive input.
+ */
+const SILENT_TAG = /<[ \t\r\n]{0,16}\/?[ \t\r\n]{0,16}silen(?:t|ce)[ \t\r\n]{0,16}\/?[ \t\r\n]{0,16}>/gi;
+/** A whole reply that only describes silence: "(silent)", "[silent]", "*stays silent*", "...". */
+const SILENCE_IN_WORDS = /^[[(*_\s]{0,8}(?:(?:stays?|stayed|remains?|remained)\s+)?silen(?:t|ce)[\])*_\s.]{0,8}$/i;
+const ELLIPSIS_ONLY = /^(?:\.{2,}|\u2026+)$/;
+
+/** True when `text` (already cleaned) is nothing but a way of saying "I stay silent": the whole reply is "(silent)", "*stays silent*", "[silent]" or "...". */
+export function isSilenceInWords(text: string): boolean {
+  const t = text.trim();
+  return t.length > 0 && t.length <= 40 && (SILENCE_IN_WORDS.test(t) || ELLIPSIS_ONLY.test(t.replace(/[\s]+/g, "")));
+}
 
 /**
- * Removes every silence marker from an already cleaned reply. `silent` is true when a marker was present and nothing
- * that reads as words is left (the character chose not to speak); a marker inside a longer reply is only stripped, the rest is kept.
- * The marker is never an utterance: callers record `text` only when `silent` is false.
+ * Removes every silence marker (see SILENT_TAG) from a RAW reply, before it is cleaned, so a label after the marker is still cleaned
+ * (`<silent/> [cfo]: Fixed price.` becomes ` [cfo]: Fixed price.`). Matching is done on a folded copy (look-alikes and invisible
+ * characters folded away, like the speaker-label cleaning) and the cut is applied to the original text. `marker` says one was found.
  */
-export function stripSilentMarker(text: string): { text: string; marker: boolean; silent: boolean } {
-  const marker = new RegExp(SILENT_RE.source, "i").test(text);
-  if (!marker) return { text, marker: false, silent: false };
-  const stripped = text.replace(SILENT_RE, "").replace(/[ \t]{2,}/g, " ").trim();
-  return { text: stripped, marker: true, silent: !/[\p{L}\p{N}]/u.test(stripped) };
+export function stripSilentMarker(raw: string): { text: string; marker: boolean } {
+  const { folded, index } = foldForMatching(raw);
+  const ranges: [number, number][] = [];
+  SILENT_TAG.lastIndex = 0;
+  for (let m = SILENT_TAG.exec(folded); m; m = SILENT_TAG.exec(folded)) {
+    const start = index[m.index]!;
+    const lastAt = index[m.index + m[0].length - 1]!;
+    ranges.push([start, lastAt + ((raw.codePointAt(lastAt) ?? 0) > 0xffff ? 2 : 1)]);
+  }
+  if (ranges.length === 0) return { text: raw, marker: false };
+  let out = ""; let at = 0;
+  for (const [a, b] of ranges) {
+    out += raw.slice(at, a); at = Math.max(at, b);
+    if (/[ \t]$/.test(out)) while (at < raw.length && /[ \t]/.test(raw[at]!)) at++; // no double space where the marker was
+  }
+  out += raw.slice(at);
+  return { text: out, marker: true };
+}
+
+export type CleanedWithSilence = { text: string; cut: boolean; /** The character chose not to speak: the marker (or a description of silence) was the whole reply. `text` is then "". */ silent: boolean };
+
+/** cleanNpcReply plus silence: strips the marker first, cleans, then decides whether anything is left to say. The marker is never part of `text`. */
+export function cleanReplyWithSilence(raw: string, role: SpeakerName, others: SpeakerName[] = []): CleanedWithSilence {
+  const m = stripSilentMarker(raw);
+  const c = cleanNpcReply(m.text, role, others);
+  const silent = (m.marker && !/[\p{L}\p{N}]/u.test(c.text)) || isSilenceInWords(c.text);
+  return { text: silent ? "" : c.text, cut: c.cut, silent };
 }

@@ -44,6 +44,12 @@ export function validateScenario(s: Scenario): { errors: string[]; warnings: str
       else if (!target) errors.push(`role ${r.id}: defer_to '${d}' is not a role`);
       else if (target.type !== "npc") errors.push(`role ${r.id}: defer_to '${d}' is not an AI character (npc) role`);
     }
+    for (const d of r.defer_to) {
+      const target = s.roles[d];
+      if (target?.type !== "npc" || d === r.id) continue;
+      if (target.seniority < r.seniority) warnings.push(`role ${r.id}: defer_to '${d}' is less senior (${target.seniority}) than ${r.id} (${r.seniority})`);
+      if (target.defer_to.includes(r.id) && r.id < d) warnings.push(`roles ${r.id} and ${d} defer to each other`);
+    }
     if (new Set(r.defer_to).size !== r.defer_to.length) errors.push(`role ${r.id}: defer_to lists a role more than once`);
   }
   const playerCount = Object.values(s.roles).filter((r) => r.type === "player").length;

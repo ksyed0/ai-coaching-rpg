@@ -4,7 +4,7 @@ import type { ModelProvider } from "@acr/adapters";
 import { EngineError, type SessionEngine } from "../engine/session-engine.js";
 import { collectModelReply } from "./model-reply.js";
 import { buildNpcRequest, type PublicPeer } from "./npc-prompt.js";
-import { cleanNpcReply, stripSilentMarker } from "./npc-reply.js";
+import { cleanReplyWithSilence } from "./npc-reply.js";
 import { DEFAULT_NPC_MAX_TOKENS } from "./token-budgets.js";
 import { DEFAULT_FIRST_TOKEN_TIMEOUT_MS, DEFAULT_REPLY_TIMEOUT_MS } from "./timeouts.js";
 
@@ -70,13 +70,17 @@ export class NpcAgent {
     return own.some((u) => normalizeForRepeat(u.text) === norm);
   }
 
-  async respond(): Promise<SessionEvent | null> {
+  /**
+   * `mustSpeak`: the host asks the last character of a round that has heard nothing yet to answer, so a player line never goes
+   * entirely unanswered; silence is then not offered (and a silent reply is re-asked once, then falls back).
+   */
+  async respond(opts: { mustSpeak?: boolean } = {}): Promise<SessionEvent | null> {
     const scene = this.engine.currentScene();
     if (!scene || !scene.participants.includes(this.role.id) || this.engine.state.paused || this.engine.state.status !== "running") return null;
     const inRoom = this.peers.some((p) => p.id !== this.role.id && scene.participants.includes(p.id));
     const run = this.silentRun.sceneId === scene.id ? this.silentRun.n : 0;
     // Silence is offered only when another AI character is in the room, and never after MAX_CONSECUTIVE_SILENT_TURNS silent turns in a row.
-    const offered = inRoom && run < MAX_CONSECUTIVE_SILENT_TURNS;
+    const offered = inRoom && run < MAX_CONSECUTIVE_SILENT_TURNS && !opts.mustSpeak;
     const req = buildNpcRequest({ role: this.role, scene, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, peers: this.peers, allowSilence: offered });
     const expectSceneId = scene.id;
     const started = performance.now();
@@ -87,11 +91,7 @@ export class NpcAgent {
     let removedOtherSpeakers = false;
     const others = this.engine.speakerNames().filter((n) => n.id !== this.role.id);
     /** Cleans a raw reply; the silence marker is always removed (it is never text), `silent` says nothing but the marker was left. */
-    const clean = (raw: string): { text: string; cut: boolean; silent: boolean } => {
-      const c = cleanNpcReply(raw, this.role, others);
-      const m = stripSilentMarker(c.text);
-      return { text: m.text, cut: c.cut, silent: m.silent };
-    };
+    const clean = (raw: string): { text: string; cut: boolean; silent: boolean } => cleanReplyWithSilence(raw, this.role, others);
     const reask = async (extra: string): Promise<ReturnType<typeof clean> | null> => {
       const left = this.replyTimeoutMs - (performance.now() - started);
       if (left < 1) return null;
@@ -104,7 +104,7 @@ export class NpcAgent {
       text = cleaned.text; removedOtherSpeakers = cleaned.cut; silent = cleaned.silent;
     }
     if (!failure && silent && !offered) {
-      // The model stayed silent although silence was not offered (a lone character, or a third silent turn in a row): ask once more, then fall back.
+      // The model stayed silent although silence was not offered (a lone character, a third silent turn in a row, or the last character of a round): ask once more, then fall back.
       silent = false;
       const second = await reask(SILENCE_NOT_ALLOWED_REASK);
       if (second && !second.silent && /[\p{L}\p{N}]/u.test(second.text)) { text = second.text; removedOtherSpeakers = second.cut; }
