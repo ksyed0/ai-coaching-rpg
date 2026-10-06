@@ -560,23 +560,63 @@
       "title": "As an operator, I want facilitator access protected by a token and connections and message rates limited, so that the server can be run outside a fully trusted network.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
       "acs": [
         {
           "id": "AC-0053",
           "text": "when `FACILITATOR_TOKEN` is set, `join_facilitator` without the matching token is refused (constant-time comparison) and the token is never logged or echoed",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0054",
           "text": "a configurable cap on concurrent connections and a per-connection message rate limit close or throttle abusers without affecting other clients",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0055",
           "text": "the threat model is documented, and the README limitation states exactly what the token does and does not protect (claiming an unclaimed player role is covered separately)",
-          "done": false
+          "done": true
+        },
+        {
+          "id": "AC-0140",
+          "text": "with `FACILITATOR_TOKEN` unset the server stays open and prints one loud startup warning that contains no secret; `run.sh` writes a random token only into a new `.env` and never overwrites an existing `.env` or token (failing closed is a later release; per-role join codes are US-0033)",
+          "done": true
+        },
+        {
+          "id": "AC-0141",
+          "text": "a missing, empty, wrong or over-long token is refused with a generic `unauthorized` and the connection is closed after one failed attempt; more than 5 failures per address per minute block that address; the token never appears in a log, alert, event or any client's inbox",
+          "done": true
+        },
+        {
+          "id": "AC-0142",
+          "text": "connection caps (total and per address) and the Origin check (`ALLOWED_ORIGINS`) refuse a handshake before a WebSocket exists; a connection that does not join within `WS_JOIN_TIMEOUT_MS` is closed",
+          "done": true
+        },
+        {
+          "id": "AC-0143",
+          "text": "each connection has its own token bucket (`WS_MSG_RATE`, `WS_MSG_BURST`) and a queue cap; repeated drops or a full queue close that connection with 1008 and never affect another client; frames are capped at 16 KiB",
+          "done": true
+        },
+        {
+          "id": "AC-0144",
+          "text": "`FACILITATOR_TOKEN`, `RUNTIME_HOST`, `ALLOWED_ORIGINS`, `TRUST_PROXY` and the `WS_*` variables are validated at startup like the other settings, with errors that name the variable and its range and never show the token; ranges are documented in the README and `.env.example`",
+          "done": true
+        },
+        {
+          "id": "AC-0145",
+          "text": "the terminal client takes the token from `FACILITATOR_TOKEN`, `--token-file` or a hidden prompt and never from argv (`--token` is refused); the token is never printed",
+          "done": true
+        },
+        {
+          "id": "AC-0146",
+          "text": "`docs/THREAT_MODEL.md` states what the token protects and does not (no TLS with a reverse-proxy recommendation, unclaimed player roles, a role freed on disconnect, logs at rest, the model provider, denial of service beyond the caps)",
+          "done": true
+        },
+        {
+          "id": "AC-0147",
+          "text": "`pnpm demo --security` adds offline, deterministic checks F-31 to F-33 (token, flood isolation, caps, Origin, join timeout) while the default run keeps its 29 checks, and `pnpm demo --url` passes `FACILITATOR_TOKEN` to a protected server",
+          "done": true
         }
       ],
       "dependencies": [
@@ -1348,9 +1388,39 @@
       "title": "Add facilitator token check, connection cap and per-connection rate limiting to the WebSocket server",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
       "notes": "Known limitation of Slice 1: anyone who can reach the port can join as facilitator or claim an unclaimed player role. The server binds all interfaces."
+    },
+    {
+      "id": "TASK-0043",
+      "storyId": "US-0017",
+      "title": "Token check, throttle, caps, Origin check, rate limit, queue cap, join timeout and env validation in the runtime",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
+      "notes": "services/runtime/src/host/security.ts (helpers and env parsing), ws-server.ts, main.ts. Unit and abuse-case tests in host/__tests__."
+    },
+    {
+      "id": "TASK-0044",
+      "storyId": "US-0017",
+      "title": "Terminal client token delivery, run.sh token generation, .env.example and compose notes",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
+      "notes": "cli/token.ts, cli/play.ts, run.sh with scripts/run-sh-token.test.sh."
+    },
+    {
+      "id": "TASK-0045",
+      "storyId": "US-0017",
+      "title": "Demo security room (F-31 to F-33), --url token, THREAT_MODEL.md, README and CHANGELOG",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
+      "notes": "demo/security.ts behind `pnpm demo --security`; the default 29-check run is unchanged."
     },
     {
       "id": "TASK-0018",
@@ -2134,10 +2204,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T21:58:24.146Z",
-  "commitSha": "2e77514",
-  "buildNumber": "133",
-  "branch": "chore/BUG-0005-pause-freezes-scene-clock",
+  "generatedAt": "2026-10-06T23:16:48.899Z",
+  "commitSha": "4165839",
+  "buildNumber": "148",
+  "branch": "feature/EPIC-0006-US-0017-facilitator-token-and-limits",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2235,13 +2305,13 @@
     }
   },
   "budget": {
-    "totalBudget": 7606.1671,
+    "totalBudget": 6806.1671,
     "totalSpent": 6.1671,
     "totalProjected": 28400,
     "percentUsed": 0,
     "burnRate": 0.19186533333333333,
-    "daysRemaining": 39611,
-    "projectedExhaustion": 39611,
+    "daysRemaining": 35441,
+    "projectedExhaustion": 35441,
     "thresholds": [
       50,
       75,
@@ -2277,9 +2347,9 @@
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 6802.720775,
+        "budget": 6002.720775,
         "spent": 2.7207749999999997,
-        "remaining": 6800,
+        "remaining": 6000,
         "percentUsed": 0
       },
       {
@@ -2304,39 +2374,41 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-06T21:52:39.043Z",
-      "2026-09-07T21:52:39.043Z",
-      "2026-09-08T21:52:39.043Z",
-      "2026-09-09T21:52:39.043Z",
-      "2026-09-10T21:52:39.043Z",
-      "2026-09-11T21:52:39.043Z",
-      "2026-09-12T21:52:39.043Z",
-      "2026-09-13T21:52:39.043Z",
-      "2026-09-14T21:52:39.043Z",
-      "2026-09-15T21:52:39.043Z",
-      "2026-09-16T21:52:39.043Z",
-      "2026-09-17T21:52:39.043Z",
-      "2026-09-18T21:52:39.043Z",
-      "2026-09-19T21:52:39.043Z",
-      "2026-09-20T21:52:39.043Z",
-      "2026-09-21T21:52:39.043Z",
-      "2026-09-22T21:52:39.043Z",
-      "2026-09-23T21:52:39.043Z",
-      "2026-09-24T21:52:39.043Z",
-      "2026-09-25T21:52:39.043Z",
-      "2026-09-26T21:52:39.043Z",
-      "2026-09-27T21:52:39.043Z",
-      "2026-09-28T21:52:39.043Z",
-      "2026-09-29T21:52:39.043Z",
-      "2026-09-30T21:52:39.043Z",
-      "2026-10-01T21:52:39.043Z",
-      "2026-10-02T21:52:39.043Z",
-      "2026-10-03T21:52:39.043Z",
-      "2026-10-04T21:52:39.043Z",
-      "2026-10-05T21:52:39.043Z",
-      "2026-10-06T21:58:24.223Z"
+      "2026-09-06T22:02:23.430Z",
+      "2026-09-07T22:02:23.430Z",
+      "2026-09-08T22:02:23.430Z",
+      "2026-09-09T22:02:23.430Z",
+      "2026-09-10T22:02:23.430Z",
+      "2026-09-11T22:02:23.430Z",
+      "2026-09-12T22:02:23.430Z",
+      "2026-09-13T22:02:23.430Z",
+      "2026-09-14T22:02:23.430Z",
+      "2026-09-15T22:02:23.430Z",
+      "2026-09-16T22:02:23.430Z",
+      "2026-09-17T22:02:23.430Z",
+      "2026-09-18T22:02:23.430Z",
+      "2026-09-19T22:02:23.430Z",
+      "2026-09-20T22:02:23.430Z",
+      "2026-09-21T22:02:23.430Z",
+      "2026-09-22T22:02:23.430Z",
+      "2026-09-23T22:02:23.430Z",
+      "2026-09-24T22:02:23.430Z",
+      "2026-09-25T22:02:23.430Z",
+      "2026-09-26T22:02:23.430Z",
+      "2026-09-27T22:02:23.430Z",
+      "2026-09-28T22:02:23.430Z",
+      "2026-09-29T22:02:23.430Z",
+      "2026-09-30T22:02:23.430Z",
+      "2026-10-01T22:02:23.430Z",
+      "2026-10-02T22:02:23.430Z",
+      "2026-10-03T22:02:23.430Z",
+      "2026-10-04T22:02:23.430Z",
+      "2026-10-05T22:02:23.430Z",
+      "2026-10-06T22:02:23.429Z",
+      "2026-10-06T23:16:48.979Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -2400,6 +2472,7 @@
       32,
       32,
       32,
+      32,
       34
     ],
     "aiCosts": [
@@ -2432,6 +2505,7 @@
       5.55039,
       5.75596,
       5.96153,
+      6.1671,
       6.1671,
       6.1671
     ],
@@ -2466,9 +2540,11 @@
       0,
       0,
       0,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -2532,9 +2608,11 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -2598,6 +2676,7 @@
       0,
       0,
       0,
+      522440,
       522440
     ],
     "outputTokens": [
@@ -2631,6 +2710,7 @@
       0,
       0,
       0,
+      69480,
       69480
     ],
     "avgRisk": [
@@ -2664,6 +2744,7 @@
       1.1187500000000006,
       1.1187500000000006,
       1.1187500000000006,
+      1.1093750000000004,
       1.1088235294117652
     ],
     "velocityByWeek": {
