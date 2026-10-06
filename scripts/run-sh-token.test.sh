@@ -21,8 +21,11 @@ token=$(sed -n 's/^FACILITATOR_TOKEN=//p' "$d/.env")
 case "$out" in *"$token"*) bad "the token was printed" ;; *) ok "the token is not printed" ;; esac
 case "$out" in *"stored in .env"*) ok "says where the token is" ;; *) bad "does not say where the token is" ;; esac
 [ "$(grep -c '^FACILITATOR_TOKEN=' "$d/.env")" = 1 ] && ok "exactly one token line" || bad "token line count"
-mode=$(stat -f '%Lp' "$d/.env" 2>/dev/null || stat -c '%a' "$d/.env")
+# GNU stat first: on Linux `stat -f` means file-system status and would print a multi-line dump. BSD/macOS stat has no -c.
+mode=$(stat -c '%a' "$d/.env" 2>/dev/null || stat -f '%Lp' "$d/.env")
+case "$mode" in [0-7][0-7][0-7]|[0-7][0-7][0-7][0-7]) ;; *) bad "could not read the .env mode (got '$mode')"; mode=unknown ;; esac
 [ "$mode" = 600 ] && ok ".env is mode 600" || bad ".env mode is $mode"
+ls "$d" | grep -q '^\.env\.new' && bad "a temporary .env file was left behind" || ok "no temporary file left behind"
 rm -rf "$d"
 
 # 2. Two new installs get different tokens.
@@ -43,5 +46,23 @@ d=$(setup); printf 'MODEL_PROVIDER=mock\n' > "$d/.env"; before=$(cat "$d/.env")
 out=$(run "$d")
 [ "$(cat "$d/.env")" = "$before" ] && ok "existing .env without a token is untouched" || bad "existing .env was changed"
 case "$out" in *"server is OPEN"*) ok "warns that the server is open" ;; *) bad "no warning for a token-less .env" ;; esac
+rm -rf "$d"
+# 5. FACILITATOR_TOKEN= and FACILITATOR_TOKEN="" in an existing .env count as unset (warning), a quoted value counts as set.
+for v in 'FACILITATOR_TOKEN=' 'FACILITATOR_TOKEN=""' "FACILITATOR_TOKEN=''"; do
+  d=$(setup); printf 'MODEL_PROVIDER=mock\n%s\n' "$v" > "$d/.env"; out=$(run "$d")
+  case "$out" in *"server is OPEN"*) ok "empty token ($v) warns" ;; *) bad "empty token ($v) did not warn" ;; esac
+  rm -rf "$d"
+done
+d=$(setup); printf 'FACILITATOR_TOKEN="quoted-token-0123456789"\n' > "$d/.env"; out=$(run "$d")
+case "$out" in *"server is OPEN"*) bad "a quoted token warned" ;; *) ok "a quoted token does not warn" ;; esac
+rm -rf "$d"
+
+# 6. A symlinked .env is never written through (and a dangling one is not replaced).
+d=$(setup); printf 'MODEL_PROVIDER=mock\n' > "$d/real.env"; ln -s real.env "$d/.env"; out=$(run "$d")
+[ "$(cat "$d/real.env")" = "MODEL_PROVIDER=mock" ] && ok "symlink target untouched" || bad "symlink target was modified"
+case "$out" in *"symbolic link"*) ok "warns about the symlink" ;; *) bad "no symlink warning" ;; esac
+rm -rf "$d"
+d=$(setup); ln -s does-not-exist.env "$d/.env"; run "$d" >/dev/null
+[ -L "$d/.env" ] && [ ! -e "$d/does-not-exist.env" ] && ok "dangling symlink not replaced or created through" || bad "dangling symlink was touched"
 rm -rf "$d"
 exit "$fail"

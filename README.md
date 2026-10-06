@@ -118,7 +118,7 @@ pnpm play --role account_manager --name Sam   --url ws://<host-ip>:8080
 
 The client sponsor (`client_sponsor`) is played by an AI.
 
-**Facilitator token.** If the server has a `FACILITATOR_TOKEN`, the facilitator client needs it, taken from (in this order) the `FACILITATOR_TOKEN` environment variable, `pnpm play --facilitator --token-file <path>` (a warning is printed if the file is readable by group or others; `chmod 600` it), or a hidden prompt when you are on a terminal (press Enter if the server has none). There is deliberately no `--token <value>` option: command lines are visible in `ps` and kept in shell history. A wrong or missing token gets `unauthorized` and the connection is closed. Players need no token. The server drops messages from a client that sends more than `WS_MSG_RATE` per second (burst `WS_MSG_BURST`), so do not paste hundreds of lines at once.
+**Facilitator token.** If the server has a `FACILITATOR_TOKEN`, the facilitator client needs it, taken from (in this order) the `FACILITATOR_TOKEN` environment variable, `pnpm play --facilitator --token-file <path>` (read with a 1 KiB cap; a warning is printed if the file is readable by group or others, `chmod 600` it), or a hidden prompt when you are on a terminal (press Enter if the server has none). The client warns when the token would go over plain `ws://` to another machine. There is deliberately no `--token <value>` option: command lines are visible in `ps` and kept in shell history. A wrong or missing token gets `unauthorized` and the connection is closed. Players need no token. The server drops messages from a client that sends more than `WS_MSG_RATE` per second (burst `WS_MSG_BURST`), so do not paste hundreds of lines at once.
 
 ### 3. Play
 
@@ -153,14 +153,14 @@ All settings are environment variables (read from `.env` at the repository root;
 | `NPC_MODEL`, `GM_MODEL` | `claude-sonnet-5-5` (anthropic), `anthropic/claude-sonnet-5.5` (openrouter) | Model for NPC replies / the Game Master. Blank uses the default. **Required for `local`** (no default) |
 | `RUNTIME_PORT` | `8080` | Port the server listens on |
 | `RUNTIME_HOST` | `0.0.0.0` | Interface to bind: an IP address or host name. Use `127.0.0.1` behind a reverse proxy on the same machine |
-| `FACILITATOR_TOKEN` | – (server open, with a startup warning) | Token `join_facilitator` must present: 16 to 256 printable ASCII characters, no spaces. An invalid value stops startup with an error that names the variable and never shows the value. `./run.sh` writes a random one into a new `.env` |
+| `FACILITATOR_TOKEN` | – (server open, with a startup warning and a note to each facilitator) | Token `join_facilitator` must present: 16 to 256 printable ASCII characters, no spaces. An invalid value stops startup with an error that names the variable and never shows the value; an empty value in the real environment counts as unset, so `.env` still applies. `./run.sh` writes a random one into a new `.env` |
 | `WS_MAX_CONNECTIONS` | `32` | Concurrent connections, all clients. Whole number, `1` to `10000`. Over it a handshake gets HTTP 503 |
 | `WS_MAX_CONNECTIONS_PER_IP` | `8` | Concurrent connections per client address. `1` to `10000`. Behind Docker Desktop, NAT or a proxy many people share one address: raise it |
 | `WS_MSG_RATE` | `5` | Messages per second per connection. `1` to `1000`. Over the limit messages are dropped (`rate_limited`); a client that keeps going is closed |
 | `WS_MSG_BURST` | `20` | Messages one connection may send at once. `1` to `10000` |
 | `WS_JOIN_TIMEOUT_MS` | `10000` | A connection that has not joined in this time is closed. `500` to `600000` |
 | `ALLOWED_ORIGINS` | none | Comma separated browser origins (`https://play.example.com`) allowed to connect. A handshake with any other `Origin` header gets HTTP 403; the terminal client and the demo bots send none |
-| `TRUST_PROXY` | `0` | `1` reads the client address for the per-address limits from the last `X-Forwarded-For` entry. Only behind a proxy you control |
+| `TRUST_PROXY` | `0` | `1` reads the client address for the per-address limits from the last `X-Forwarded-For` entry. Only safe when clients cannot reach the server directly (bind `RUNTIME_HOST=127.0.0.1`, or publish the Docker port on loopback: `ports: ["127.0.0.1:${HOST_PORT:-8080}:8080"]`); the server warns if the host is not loopback |
 | `NPC_FIRST_TOKEN_TIMEOUT_MS` | `10000` | Milliseconds an NPC waits for the model's first token before speaking its scripted fallback line and alerting the facilitator. Whole number, `500` to `600000` |
 | `NPC_REPLY_TIMEOUT_MS` | `20000` | Milliseconds allowed for a whole NPC reply (stalls after the first token included). Whole number, `500` to `600000`, and **must be at least `NPC_FIRST_TOKEN_TIMEOUT_MS`** |
 | `NPC_MAX_TOKENS` | `600` | Token budget (`max_tokens`) for one AI character reply. Reasoning models spend part of it thinking before they answer. Whole number, `50` to `4000` |

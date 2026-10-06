@@ -9,6 +9,9 @@ services:
     env_file: ../../.env
     environment:
       RUNTIME_PORT: "8080"
+      # Inside the container the server must bind all interfaces (binding its loopback would break the published port).
+      # Who can reach it is decided by the `ports` line below.
+      RUNTIME_HOST: "0.0.0.0"
       SCENARIO_DIR: scenarios/friday-escalation
     # Lets the container reach a model server on the host (LOCAL_BASE_URL=http://host.docker.internal:11434/v1);
     # Docker Desktop and OrbStack provide this name already, the mapping makes it work on Linux too.
@@ -19,6 +22,8 @@ services:
     # Intentionally published on ALL interfaces so teammates on the LAN can join. Set FACILITATOR_TOKEN in .env
     # (run.sh does it for a new .env): without it anyone who can reach the port is a facilitator. No TLS: see
     # docs/THREAT_MODEL.md. HOST_PORT changes the host-side port.
+    # Behind a TLS reverse proxy on THIS machine, publish on loopback only and set TRUST_PROXY=1 in .env:
+    #   ports: ["127.0.0.1:${HOST_PORT:-8080}:8080"]
     ports: ["${HOST_PORT:-8080}:8080"]
     volumes:
       - ../../data:/app/data
