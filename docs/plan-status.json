@@ -880,27 +880,27 @@
         {
           "id": "AC-0088",
           "text": "`pnpm demo --showcase --live --players generated` (optional `--player-model <id>`, default the NPC model) has the model speak each player role's line slot; `--players` defaults to `scripted`, `generated` needs `--showcase` and `--live` (a one-line usage error otherwise), and the mock and CI runs are unchanged",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0089",
           "text": "a player prompt holds only what that role may see (its brief and private facts, the scene, the injects it received, the conversation it can see) plus the scripted line as a private intent; it never holds NPC goals, hidden facts, the rubric, other roles' secrets or participant names",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0090",
           "text": "a generated line is cleaned like an NPC reply (it cannot speak for others), bounded by the server's maximum line length and non-empty, and reaches the server only through `say`; on a model failure, an empty or an unusable reply the scripted line is spoken, tagged `[SCRIPTED]`, and the narration says why",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0091",
           "text": "a spoken line is tagged `[GENERATED]` only when the model produced the recorded text; the transcript legend and the AI contribution summary count generated player lines apart from AI character replies and Game Master verdicts and report how many generated lines repeated the scripted line verbatim (an observation, not a failure)",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0092",
           "text": "the AI character prompt states that the character IS that person (first person, never its own role or title in the third person) and Helena Brandt's persona is consistently she/her; the Game Master prompt format is unchanged",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0093",
@@ -1681,9 +1681,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T14:23:23.732Z",
-  "commitSha": "97b113e",
-  "buildNumber": "92",
+  "generatedAt": "2026-10-06T15:29:01.437Z",
+  "commitSha": "bbfe2b5",
+  "buildNumber": "94",
   "branch": "feature/EPIC-0006-US-0027-generated-players",
   "sessionTimeline": [
     {
@@ -1786,9 +1786,9 @@
     "totalSpent": 6.1671,
     "totalProjected": 22000,
     "percentUsed": 0,
-    "burnRate": 0.19871766666666665,
-    "daysRemaining": 84542,
-    "projectedExhaustion": 84542,
+    "burnRate": 0.19186533333333333,
+    "daysRemaining": 87561,
+    "projectedExhaustion": 87561,
     "thresholds": [
       50,
       75,
@@ -1881,9 +1881,11 @@
       "2026-10-03T14:23:23.807Z",
       "2026-10-04T14:23:23.807Z",
       "2026-10-05T14:23:23.807Z",
-      "2026-10-06T14:23:23.805Z"
+      "2026-10-06T14:23:23.805Z",
+      "2026-10-06T15:29:01.493Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -1947,6 +1949,7 @@
       26,
       26,
       26,
+      27,
       27
     ],
     "aiCosts": [
@@ -1979,6 +1982,7 @@
       5.55039,
       5.75596,
       5.96153,
+      6.1671,
       6.1671,
       6.1671
     ],
@@ -2013,9 +2017,11 @@
       0,
       0,
       0,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -2079,9 +2085,11 @@
       3,
       3,
       3,
+      3,
       3
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -2145,6 +2153,7 @@
       0,
       0,
       0,
+      522440,
       522440
     ],
     "outputTokens": [
@@ -2178,6 +2187,7 @@
       0,
       0,
       0,
+      69480,
       69480
     ],
     "avgRisk": [
@@ -2211,6 +2221,7 @@
       1.1692307692307697,
       1.1807692307692312,
       1.1807692307692312,
+      1.1444444444444448,
       1.1444444444444448
     ],
     "velocityByWeek": {
@@ -2228,7 +2239,7 @@
         0,
         0,
         0,
-        0
+        3
       ],
       "rollingAvg": [
         0,
@@ -2236,7 +2247,7 @@
         0,
         0,
         0,
-        0
+        0.8
       ]
     }
   }
