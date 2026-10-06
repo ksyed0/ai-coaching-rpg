@@ -113,7 +113,7 @@ Write anchors as **observable behaviour in the participant's OWN words**, for th
 - **Summary.** Strengths, development points and 2 to 3 next actions, each tied to a learning objective (`LO1`...). The wording is the model's and should be read as a draft.
 - **Learning objectives.** Each LO's score (one decimal) and label, and how many of its criteria were observed. A score based on one criterion of two is thinner than one based on both.
 - **Criteria.** The level and its label, the confidence and the rationale. Flags in brackets matter: `capped from 4 to 2: no verified quote ...`, `N quote(s) could not be verified ... and were dropped`, `no verified quote`, `only short quotes`, `a quote contains rating language`. Not observed (N/O) is not a low score; `Invalid (evaluator error)` means the AI's answer was unusable and the learning objective is marked incomplete.
-- **Evidence.** The verified quotes with scene number, time from the start of the session and the line number (`#12` is the event sequence number in the log).
+- **Evidence.** The verified quotes with scene number, time since the start of the session (wall clock, pauses included, not active scene time) and the line number (`#12` is the event sequence number in the log).
 - **Group report.** Group criteria, LO coverage across the team (players by LO), the scenario author's facilitator notes next to the model's talking points, and notable moments.
 - **index.md** links everything and shows the LO table for everyone.
 
