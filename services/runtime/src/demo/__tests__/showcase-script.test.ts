@@ -107,8 +107,8 @@ describe("loadShowcaseScript", () => {
     const sc = await loadScenario(dir);
     const s = await loadShowcaseScript(dir, sc, mock);
     expect(s.scenes.map((x) => x.scene)).toEqual(sc.script.scenes.map((x) => x.id));
-    expect(s.scenes.map((x) => x.lines.length)).toEqual([6, 4, 6, 4, 4, 3]);
-    expect(s.scenes.reduce((n, x) => n + x.lines.length, 0)).toBe(27);
+    expect(s.scenes.map((x) => x.lines.length)).toEqual([6, 4, 6, 4, 4, 6]);
+    expect(s.scenes.reduce((n, x) => n + x.lines.length, 0)).toBe(30);
     expect(s.scenes.reduce((n, x) => n + Object.values(x.mock.npc).reduce((m, r) => m + r.length, 0), 0)).toBe(20);
     // Live mode needs no mock section; a smaller --max-lines is still valid in mock mode.
     await expect(loadShowcaseScript(dir, sc, { mode: "live", maxLines: 1 })).resolves.toBeDefined();

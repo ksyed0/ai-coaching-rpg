@@ -105,7 +105,12 @@ scenes:
     lines:
       - { role: delivery_lead, text: "That went better than I feared. Let us capture it: the change request goes out Monday, with the terms Helena repeated back to us." }
       - { role: account_manager, text: "I will draft and send the change request on Monday morning and call Priya to confirm. I will also tell our account lead the conversation ended in a good place." }
+      - { role: tech_lead, text: "There is also the ingestion risk review and the build plan. Someone needs to book the review and send the plan to the delivery lead." }
+      - { role: delivery_lead, text: "Tech lead, please own both: book the risk review and send me the build plan." }
       - { role: tech_lead, text: "I will book the risk review for ingestion and plan the build, and I will send the plan to the delivery lead by Wednesday." }
+      - { role: delivery_lead, text: "Then we are set: the account manager owns the change request and the call to Priya, the tech lead owns the review and the plan, and I will check both on Thursday." }
+    # Judged after line 3 (the build plan and the risk review still have no owner: false) and after line 6 (every follow-up has an owner: true).
     mock:
       gm:
+        - '{"verdict": false, "reasoning": "The change request has an owner but the risk review and the build plan do not yet."}'
         - '{"verdict": true, "reasoning": "Owners and next actions were named for the change request, the risk review and the build plan."}'

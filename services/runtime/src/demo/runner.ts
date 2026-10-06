@@ -291,7 +291,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     await playShowcase(ctx, newStory(), {
       script: sc.script, mode: kind === "live" ? "live" : "mock", maxLines: opts.maxLines ?? null, maxFallbacks: opts.maxFallbacks ?? null,
       watchdogMinutes, watchdogMs: limit, provider: kind === "live" ? providerLabel : undefined,
-      replyTimeoutMs: timeouts?.ok ? timeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS, startedMs, holder, minGmExits: opts.minGmExits ?? null, maxFalseExits: opts.maxFalseExits ?? (opts.minGmExits !== undefined ? 1 : null), hooks: deps.showcaseHooks, players, evaluate,
+      replyTimeoutMs: timeouts?.ok ? timeouts.replyTimeoutMs : DEFAULT_REPLY_TIMEOUT_MS, startedMs, holder, minGmExits: opts.minGmExits ?? null, maxFalseExits: opts.maxFalseExits ?? null, hooks: deps.showcaseHooks, players, evaluate,
     });
   };
 

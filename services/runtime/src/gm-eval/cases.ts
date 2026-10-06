@@ -17,17 +17,18 @@ export type GmCase = {
 export type GmCaseFile = { version: 1; description: string; cases: GmCase[] };
 
 /**
- * The human labelling of the negative controls, made once: after how many scripted player lines of each scene of friday-escalation-extended the
- * condition is still NOT met (the lines are cut before the agreement). The full scene is labelled "met".
- * s3 keeps the proposal whose last line is the unanswered question: an unopposed proposal is not an agreement. The later cuts are HARD negatives:
- * s1 at 4 lines ends on the unanswered "What if we offer it as a phase two...?", s6 at 2 lines has named only one owner of three follow-ups.
+ * The human labelling of the negative controls, made once and keyed by scenario id, then scene id: after how many scripted player lines of each
+ * scene the condition is still NOT met (the lines are cut before the agreement). The full scene is labelled "met".
+ * s3 keeps the proposal whose last line is the unanswered question: an unopposed proposal is not an agreement. Hard negatives: s1 at 4 lines ends on
+ * the unanswered "What if we offer it as a phase two...?"; s6 at 3 lines has named owners for two follow-ups but the tech lead has only raised the
+ * third (the risk review and the build plan) with "someone needs to ...", so one follow-up has no owner yet.
  */
-export const NEGATIVE_CUTS: Readonly<Record<string, readonly number[]>> = {
-  s1_huddle: [3, 4], s2_priya_call: [2], s3_internal_huddle: [3], s4_escalation_call: [2], s5_final_terms: [3], s6_wrap_up: [1, 2],
+export const NEGATIVE_CUTS: Readonly<Record<string, Readonly<Record<string, readonly number[]>>>> = {
+  "esc-scope-creep-02": { s1_huddle: [3, 4], s2_priya_call: [2], s3_internal_huddle: [3], s4_escalation_call: [2], s5_final_terms: [3], s6_wrap_up: [1, 3] },
 };
 
-/** The most scripted lines of a scene after which an exit is still a FALSE exit (the condition is labelled not met up to there); 0 when unlabelled. */
-export function lastNegativeLine(sceneId: string): number { return Math.max(0, ...(NEGATIVE_CUTS[sceneId] ?? [])); }
+/** The most scripted lines of a scene after which an exit is still an EARLY exit (the condition is labelled not met up to there); 0 when unlabelled. */
+export function lastNegativeLine(scenarioId: string, sceneId: string): number { return Math.max(0, ...(NEGATIVE_CUTS[scenarioId]?.[sceneId] ?? [])); }
 
 /** The dialogue of a scene's first `keep` scripted lines, each followed by the mock replies of the AI characters present (junior first, as in a real run). */
 function dialogueOf(scenario: Scenario, entry: ShowcaseScript["scenes"][number], participants: string[], keep: number): GmCase["dialogue"] {
@@ -51,7 +52,7 @@ export function buildShowcaseCases(scenario: Scenario, script: ShowcaseScript): 
     const entry = script.scenes.find((s) => s.scene === scene.id);
     const conditions = scene.exit_when.any_of.filter((c): c is { gm_detects: string } => typeof c === "object").map((c) => c.gm_detects);
     if (!entry) continue;
-    const cuts = NEGATIVE_CUTS[scene.id] ?? [];
+    const cuts = NEGATIVE_CUTS[scenario.meta.id]?.[scene.id] ?? [];
     for (const condition of conditions) {
       const meta = { id: scene.id, title: scene.title, goal: scene.goal };
       cases.push({ id: `${scene.id}:full`, scene: meta, condition, dialogue: dialogueOf(scenario, entry, scene.participants, entry.lines.length), label: true, source: `showcase:${scene.id}:full` });

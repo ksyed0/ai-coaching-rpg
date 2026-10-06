@@ -16,7 +16,7 @@ import { scrubText } from "./report.js";
 import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from "./showcase-report.js";
 import type { PlayerBotGenerator } from "./player-bot.js";
 import { playerSource, type PlayerLineRecord, type PlayerLines } from "./player-lines.js";
-import { lastNegativeLine } from "../gm-eval/cases.js";
+import { buildShowcaseCases, lastNegativeLine, loadCases, type GmCase } from "../gm-eval/cases.js";
 import { expectedGmEvaluations, type ShowcaseScript } from "./showcase-script.js";
 import type { EvaluationResult } from "../evaluator/evaluate.js";
 import { readSessionLog } from "../evaluator/log-reader.js";
@@ -75,7 +75,7 @@ export type ShowcaseOptions = {
   maxFallbacks: number | null;
   /** `--min-gm-exits <n>` (live only): S-18 fails when the Game Master ended fewer scenes than this. */
   minGmExits?: number | null;
-  /** S-18 fails when more scenes than this ended early (a false exit); null: only reported. */
+  /** S-18 fails when more scenes without AI characters than this ended early (before the scripted agreement); null (the default): only reported. */
   maxFalseExits?: number | null;
   watchdogMinutes: number;
   watchdogMs: number;
@@ -468,8 +468,15 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       // The mock script DECLARES a tolerant reply (fenced) and a malformed reply (followed by the one that answers the re-ask). Whatever kind it served must show up in the events:
       // a --max-lines cap or an early exit may stop short of them, and then nothing is demanded.
       const kinds = sys!.gm!.servedKinds ?? [];
-      if (kinds.includes("tolerant")) ensure(g.via.tolerant >= 1, "a reply the script declares tolerant (fenced or in prose) was served but no verdict was recorded as read tolerantly");
-      if (kinds.includes("malformed")) ensure(g.reasks >= 1 && g.via.reask + g.noVerdicts.length >= 1, "a reply the script declares malformed was served but the Game Master did not ask again");
+      // Walk the declared kinds in the order served: a malformed or forged reply is followed by the reply that answers its re-ask (counted as `reask`, whatever its own kind).
+      let pending = false; let tolerantFirst = 0; let answeredByReask = 0; let reasked = 0;
+      for (const k of kinds) {
+        if (pending) { pending = false; if (k !== "malformed" && k !== "forged") answeredByReask++; else pending = false; continue; }
+        if (k === "tolerant") tolerantFirst++;
+        if (k === "malformed" || k === "forged") { pending = true; reasked++; }
+      }
+      ensure(g.via.tolerant >= tolerantFirst, `the script declares ${tolerantFirst} tolerant (fenced or in prose) first repl${tolerantFirst === 1 ? "y" : "ies"} but only ${g.via.tolerant} verdict(s) were recorded as read tolerantly`);
+      ensure(g.via.reask + g.noVerdicts.length >= answeredByReask && g.reasks >= reasked, `the script declares ${reasked} malformed or forged repl${reasked === 1 ? "y" : "ies"} (answered by the next reply) but only ${g.reasks} re-ask(s) happened and ${g.via.reask} verdict(s) came from one`);
       ensure(g.noVerdicts.length === 0, `the mock Game Master gave no usable verdict ${g.noVerdicts.length} time(s): ${g.noVerdicts.slice(0, 2).map((v) => `${v.sceneId} ${v.reason}`).join(", ")}`);
     }
     const reasons = Object.entries(g.noVerdictByReason).map(([k, v]) => `${k} ${v}`).join(", ");
@@ -699,19 +706,28 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
   }
 
   if (!mock) {
-    await rec.run("S-18", () => {
+    await rec.run("S-18", async () => {
       const g = summary.gm;
       const total = summary.scenes.length;
       const asked = g.evaluations + g.noVerdicts.length;
       const reasons = Object.entries(g.noVerdictByReason).map(([k, v]) => `${k} ${v}`).join(", ");
-      // An EARLY exit: the Game Master ended the scene at or before the last scripted line after which the labelled negative controls say the condition is not yet met.
-      const early = summary.scenes.filter((s) => s.exitReason === "gm_detects" && lastNegativeLine(s.id) > 0 && s.playerLines <= lastNegativeLine(s.id)).map((s) => `${s.id} after ${s.playerLines} line(s)`);
+      // An EARLY exit (before the scripted agreement): the Game Master ended the scene at or before the last scripted line after which the labelled negative controls say the
+      // condition is not yet met. Always reported. Only scenes WITHOUT AI characters are gated (in a scene with AI characters their live replies can legitimately meet the condition).
+      const hasNpc = (id: string) => scenario.script.scenes.find((s) => s.id === id)!.participants.some((p) => scenario.roles[p]?.type === "npc");
+      const early = summary.scenes.filter((s) => s.exitReason === "gm_detects" && lastNegativeLine(scenario.meta.id, s.id) > 0 && s.playerLines <= lastNegativeLine(scenario.meta.id, s.id));
+      const gated = o.players ? [] : early.filter((s) => !hasNpc(s.id));
+      const label = (s: { id: string; playerLines: number }) => `${s.id} after ${s.playerLines} line(s)${hasNpc(s.id) ? ", with AI characters" : ""}`;
       const evidence = `the Game Master ended ${g.exitedScenes.length} of ${total} scenes (${g.exitedScenes.length === total ? "all" : `the others: ${summary.scenes.filter((s) => s.exitReason !== "gm_detects").map((s) => `${s.id} by ${s.exitReason ?? "nothing"}`).join(", ")}`}); `
-        + `early (false) exits ${early.length}${early.length ? ` (${early.join(", ")})` : ""}; `
+        + `early exits (before the scripted agreement) ${early.length}${early.length ? ` (${early.map(label).join(", ")}; in scenes without AI characters ${early.filter((s) => !hasNpc(s.id)).length}; an early exit in a scene with AI characters may be legitimate: their live replies can meet the condition)` : ""}; `
         + `${g.evaluations} usable verdicts (${g.verdictsTrue} true, ${g.verdictsFalse} false; read strictly ${g.via.strict}, tolerantly ${g.via.tolerant}, after a re-ask ${g.via.reask}); `
         + `no usable verdict ${g.noVerdicts.length} of ${asked} evaluations${reasons ? ` (${reasons})` : ""}; ${g.reasks} re-ask(s)`;
       if (o.minGmExits != null) ensure(g.exitedScenes.length >= o.minGmExits, `${evidence}; --min-gm-exits ${o.minGmExits} needs at least ${o.minGmExits}`);
-      if (o.maxFalseExits != null) ensure(early.length <= o.maxFalseExits, `${evidence}; --max-false-exits ${o.maxFalseExits} allows at most ${o.maxFalseExits} early exit(s)`);
+      if (o.maxFalseExits != null) {
+        // The labels behind "early" must still match the script, or the count means nothing.
+        const have = JSON.stringify((await loadCases(path.join(ctx.repoRoot, "tests", "gm-cases")).catch(() => [] as GmCase[])).filter((c) => c.source.startsWith("showcase:")));
+        ensure(have === JSON.stringify(buildShowcaseCases(scenario, o.script)), `the labelled cases in tests/gm-cases are missing or out of date with the showcase script, so early exits cannot be judged: run \`pnpm gm-eval --build tests/gm-cases\``);
+        ensure(gated.length <= o.maxFalseExits, `${evidence}; --max-false-exits ${o.maxFalseExits} allows at most ${o.maxFalseExits} early exit(s) in scenes without AI characters (${gated.length}${o.players ? "; not gated with generated players" : ""})`);
+      }
       return evidence;
     }, ["S-01"]);
   }

@@ -37,7 +37,7 @@ export const DEMO_USAGE = [
   "  --gm-trace <path> --showcase only: write every raw Game Master reply and how it was read to <path> (JSON lines, owner-only file; it holds the",
   "                    conversation's judgements, so keep it private). `pnpm gm-eval --trace <path>` replays it offline",
   `  --min-gm-exits <n> --showcase --live only: fail check S-18 when the Game Master ended fewer than n scenes, 0 to ${MAX_MIN_GM_EXITS} (without it S-18 only reports)`,
-  `  --max-false-exits <n> --showcase --live only: S-18 also fails when the Game Master ended more than n scenes EARLY (at or before the last line after which the gm-eval labels say the condition is not yet met, a false exit); default 1 whenever --min-gm-exits is given, 0 to ${MAX_MIN_GM_EXITS}`,
+  `  --max-false-exits <n> --showcase --live only: S-18 also fails when the Game Master ended more than n scenes without AI characters EARLY (at or before the last scripted line after which the gm-eval labels say the condition is not yet met); explicit only (early exits are always reported), not with --players generated, 0 to ${MAX_MIN_GM_EXITS}`,
   `  --max-fallbacks <n> --showcase only: fail the run when more than n AI replies were canned fallback lines, 0 to ${MAX_FALLBACKS}`,
   "                    (without it the count is only a warning)",
   `  --watchdog <min>  real-time limit for the whole run, 1 to ${MAX_WATCHDOG_MINUTES} minutes (--showcase default: 3, or 30 with --live;`,
@@ -158,6 +158,7 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
 
   const maxFalseExits = whole(values["max-false-exits"], 0, MAX_MIN_GM_EXITS);
   if (maxFalseExits === null) return fail(`error: --max-false-exits must be a whole number from 0 to ${MAX_MIN_GM_EXITS}`);
+  if (maxFalseExits !== undefined && values.players === "generated") return fail("error: --max-false-exits cannot be combined with --players generated (generated players do not follow the scripted lines the labels refer to)");
   if (maxFalseExits !== undefined && !(values.showcase && values.live)) return fail("error: --max-false-exits needs --showcase and --live (check S-18 only runs against a real model)");
 
   return {

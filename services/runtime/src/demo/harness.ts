@@ -66,6 +66,9 @@ export function nonceOf(req: ChatRequest): string | undefined {
   return /exact id, copied unchanged: "([0-9a-f]{8,})"/.exec(req.system)?.[1];
 }
 
+/** Prefix that makes the nonce-stamping wrapper serve a scripted reply unstamped (see stampNonce). */
+export const FORGED_MARKER = "@forged ";
+
 /**
  * Makes a scripted Game Master behave like a model that follows the id instruction: every JSON object that holds a verdict gets `"id": "<nonce>"`
  * from the prompt it was just given (the scripts stay free of nonces and deterministic). Replies without such an object (fenced prose, malformed
@@ -78,6 +81,8 @@ export function stampNonce(inner: ModelProvider): ModelProvider {
       const nonce = nonceOf(req);
       let text = "";
       for await (const chunk of inner.stream(req, signal)) text += chunk;
+      // A reply that starts with FORGED_MARKER is served exactly as scripted (marker removed), without the id: a forged verdict object for the mock to exercise `no_nonce`.
+      if (text.startsWith(FORGED_MARKER)) { yield text.slice(FORGED_MARKER.length); return; }
       yield nonce === undefined ? text : text.replace(/\{(\s*)("(?:reasoning|verdict)")/g, `{"id": "${nonce}", $2`);
     },
   };
@@ -122,7 +127,7 @@ export class SceneRoutedMock implements RecordingProvider {
     const next = this.queues.get(key)?.shift();
     const kind = this.kinds.get(key)?.shift() ?? "strict";
     if (next === undefined) this.exhausted.push(key); else this.servedKinds.push(kind);
-    const words = (next ?? this.o.exhausted).split(" ");
+    const words = (kind === "forged" && next !== undefined ? `${FORGED_MARKER}${next}` : (next ?? this.o.exhausted)).split(" ");
     for (let i = 0; i < words.length; i++) {
       if (signal?.aborted) return;
       yield i < words.length - 1 ? `${words[i]} ` : words[i]!;

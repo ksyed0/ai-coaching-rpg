@@ -17,9 +17,12 @@ describe("buildShowcaseCases", () => {
   it("builds, per scene, the full dialogue (met) and a negative control cut before the agreement (not met), with the AI characters' replies in", async () => {
     const sc = await loadScenario(EXTENDED);
     const cases = buildShowcaseCases(sc, await loadShowcaseScript(EXTENDED, sc, { mode: "mock" }));
-    expect(cases.map((c) => c.id)).toEqual(sc.script.scenes.flatMap((s) => [`${s.id}:full`, ...NEGATIVE_CUTS[s.id]!.map((k) => `${s.id}:cut-${k}`)]));
+    expect(cases.map((c) => c.id)).toEqual(sc.script.scenes.flatMap((s) => [`${s.id}:full`, ...NEGATIVE_CUTS["esc-scope-creep-02"]![s.id]!.map((k) => `${s.id}:cut-${k}`)]));
     expect(cases.filter((c) => !c.label)).toHaveLength(8); // two hard negatives: s1 at 4 lines, s6 at 2
-    expect([lastNegativeLine("s1_huddle"), lastNegativeLine("s3_internal_huddle"), lastNegativeLine("nope")]).toEqual([4, 3, 0]);
+    expect([lastNegativeLine("esc-scope-creep-02", "s1_huddle"), lastNegativeLine("esc-scope-creep-02", "s6_wrap_up"), lastNegativeLine("esc-scope-creep-02", "nope"), lastNegativeLine("other", "s1_huddle")]).toEqual([4, 3, 0, 0]);
+    const s6 = cases.find((c) => c.id === "s6_wrap_up:cut-3")!;
+    expect(s6.dialogue.at(-1)!.text).toMatch(/Someone needs to book the review/); // a follow-up with no owner yet
+    expect(cases.find((c) => c.id === "s6_wrap_up:cut-2")).toBeUndefined(); // the indefensible label was dropped (three follow-ups already had owners)
     expect(cases.find((c) => c.id === "s1_huddle:cut-4")!.dialogue.at(-1)!.text).toMatch(/phase two after go-live, scoped and priced\?$/);
     expect(cases.filter((c) => c.label)).toHaveLength(6);
     const s3 = cases.find((c) => c.id === "s3_internal_huddle:cut-3")!;

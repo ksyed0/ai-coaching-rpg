@@ -51,7 +51,7 @@ const run = async (argv: string[], over: Partial<RunDeps> = {}) => {
 };
 
 describe("pnpm demo --showcase (mock mode, in-process)", () => {
-  it("plays all six scenes, passes every showcase check and shows the AI work (27 player lines, 20 AI replies, 15 Game Master decisions)", async () => {
+  it("plays all six scenes, passes every showcase check and shows the AI work (30 player lines, 20 AI replies, 16 Game Master decisions)", async () => {
     const dirsBefore = demoTempDirs(); const tcpBefore = tcpHandles();
     const { exitCode, report, stdout, stderr, showcase } = await run(["--showcase", "--fast", "--no-color"]);
     expect(report!.results.filter((r) => r.status !== "passed")).toEqual([]);
@@ -59,14 +59,14 @@ describe("pnpm demo --showcase (mock mode, in-process)", () => {
     expect(report!.mode).toBe("mock");
     expect(report!.results.map((r) => r.id)).toEqual(SHOWCASE_CHECKS.map((c) => c.id));
     expect(report!.summary).toEqual({ passed: SHOWCASE_CHECKS.length, failed: 0, skipped: 0 });
-    expect(showcase.playerLines).toBe(27);
+    expect(showcase.playerLines).toBe(30);
     expect(showcase.npcReplies).toBe(20);
     expect(showcase.npcs.map((n) => [n.roleId, n.replies, n.modelReplies, n.fallbackReplies, n.latencyMs])).toEqual([["client_sponsor", 12, 12, 0, null], ["cfo", 8, 8, 0, null]]);
     expect(showcase.fallbackLines).toBe(0);
-    expect(showcase.gm).toMatchObject({ evaluations: 15, verdictsTrue: 6, verdictsFalse: 9 });
+    expect(showcase.gm).toMatchObject({ evaluations: 16, verdictsTrue: 6, verdictsFalse: 10 });
     expect(showcase.gm.exitedScenes).toEqual(["s1_huddle", "s2_priya_call", "s3_internal_huddle", "s4_escalation_call", "s5_final_terms", "s6_wrap_up"]);
     expect(showcase.scenes.map((s) => s.exitReason)).toEqual(Array(6).fill("gm_detects"));
-    expect(showcase.scenes.map((s) => [s.playerLines, s.npcReplies, s.gmDecisions])).toEqual([[6, 0, 2], [4, 4, 2], [6, 0, 2], [4, 8, 4], [4, 8, 4], [3, 0, 1]]);
+    expect(showcase.scenes.map((s) => [s.playerLines, s.npcReplies, s.gmDecisions])).toEqual([[6, 0, 2], [4, 4, 2], [6, 0, 2], [4, 8, 4], [4, 8, 4], [6, 0, 2]]);
     expect(showcase.facilitatorAdvances).toBe(0);
     expect(showcase.observations).toEqual([]);
     expect(showcase.warnings).toEqual([]);
@@ -79,7 +79,7 @@ describe("pnpm demo --showcase (mock mode, in-process)", () => {
     expect(stdout).toContain("scene ended: the Game Master judged the exit condition true (gm_detects)");
     expect(stdout).toContain("AI contribution");
     expect(stdout).toContain("Priya Raman (client_sponsor): 12 replies, 12 scripted (mock) output, 0 fallback lines; latency n/a");
-    expect(stdout).toContain("Game Master: 15 evaluations (6 true, 9 false)");
+    expect(stdout).toContain("Game Master: 16 evaluations (6 true, 10 false)");
     expect(stdout).toContain(`Summary: ${SHOWCASE_CHECKS.length} passed, 0 failed, 0 skipped (mock mode`);
     expect(stdout).not.toContain("\u001b");
     expect(stdout).not.toContain(FAKE_KEY);
@@ -89,7 +89,7 @@ describe("pnpm demo --showcase (mock mode, in-process)", () => {
     const sources = new Set(showcase.lines.map((l) => l.source));
     expect([...sources].sort()).toEqual(["ai-character", "game-master", "player-bot", "system"]);
     expect(showcase.lines.filter((l) => l.source === "ai-character")).toHaveLength(20);
-    expect(showcase.lines.filter((l) => l.source === "player-bot")).toHaveLength(27);
+    expect(showcase.lines.filter((l) => l.source === "player-bot")).toHaveLength(30);
     // Nothing left behind.
     expect(tcpHandles()).toBe(tcpBefore);
     expect(demoTempDirs()).toEqual(dirsBefore);
@@ -109,7 +109,7 @@ describe("pnpm demo --showcase (mock mode, in-process)", () => {
     expect(Object.keys(parsed.showcase!).sort()).toEqual([
       "alerts", "facilitatorAdvances", "fallbackLines", "gm", "lines", "maxFallbacks", "maxLines", "mode", "npcReplies", "npcs", "observations", "playerLines", "scenario", "scenes", "voices", "wallTimeMs", "warnings", "watchdogMinutes",
     ]);
-    expect(parsed.showcase!.gm.decisions).toHaveLength(15);
+    expect(parsed.showcase!.gm.decisions).toHaveLength(16);
     expect(parsed.showcase!.gm.decisions[0]).toEqual(expect.objectContaining({ sceneId: "s1_huddle", verdict: false, reasoning: expect.any(String) }));
     expect(stderr).toContain("AI contribution");
     expect(stderr).toContain("[AI character]");
@@ -364,7 +364,7 @@ describe("helpers", () => {
   it("counts the model calls a run can make and the lines a --max-lines cap leaves", async () => {
     const sc = await loadScenario(EXTENDED);
     const script = await loadShowcaseScript(EXTENDED, sc, { mode: "mock" });
-    expect(expectedModelCalls(sc, script, null)).toEqual({ npc: 20, gm: 15, player: 27 });
+    expect(expectedModelCalls(sc, script, null)).toEqual({ npc: 20, gm: 16, player: 30 });
     expect(expectedModelCalls(sc, script, 1)).toEqual({ npc: 5, gm: 2, player: 6 });
     expect(linesFor(script, "s1_huddle", 2)).toHaveLength(2);
     expect(linesFor(script, "s1_huddle", null)).toHaveLength(6);
@@ -396,7 +396,7 @@ describe("scene guards: no scene is ever skipped (R43)", () => {
     expect(exitCode).toBe(0);
     expect(s(showcase, "s3_internal_huddle")).toMatchObject({ exitReason: "time_box_elapsed", playerLines: 2 });
     expect(showcase.observations).toContain("s3_internal_huddle ended by time_box_elapsed after 2 of 6 scripted lines; 4 line(s) left unspoken");
-    expect(showcase.scenes.map((x) => x.playerLines).slice(3)).toEqual([4, 4, 3]);
+    expect(showcase.scenes.map((x) => x.playerLines).slice(3)).toEqual([4, 4, 6]);
   });
 
   it("forced race: the time box ends the scene between the exited() check and the line: the line is refused (stale_scene), the next scene is untouched", async () => {
@@ -409,7 +409,7 @@ describe("scene guards: no scene is ever skipped (R43)", () => {
     expect(showcase.observations.some((o) => o.startsWith("scene changed under us: account_manager's line 3 of s3_internal_huddle was refused (stale_scene)"))).toBe(true);
     // The line was NOT accepted into the next scene.
     expect(showcase.lines.filter((l) => l.source === "player-bot" && l.sceneId === "s4_escalation_call").map((l) => l.text)[0]).toMatch(/^Thanks both/);
-    expect(showcase.scenes.map((x) => x.playerLines)).toEqual([6, 4, 2, 4, 4, 3]);
+    expect(showcase.scenes.map((x) => x.playerLines)).toEqual([6, 4, 2, 4, 4, 6]);
     expect(stdout).toContain("scene changed under us");
   });
 

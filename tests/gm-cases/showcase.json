@@ -456,7 +456,19 @@
         },
         {
           "role": "tech_lead",
+          "text": "There is also the ingestion risk review and the build plan. Someone needs to book the review and send the plan to the delivery lead."
+        },
+        {
+          "role": "delivery_lead",
+          "text": "Tech lead, please own both: book the risk review and send me the build plan."
+        },
+        {
+          "role": "tech_lead",
           "text": "I will book the risk review for ingestion and plan the build, and I will send the plan to the delivery lead by Wednesday."
+        },
+        {
+          "role": "delivery_lead",
+          "text": "Then we are set: the account manager owns the change request and the call to Priya, the tech lead owns the review and the plan, and I will check both on Thursday."
         }
       ],
       "label": true,
@@ -480,7 +492,7 @@
       "source": "showcase:s6_wrap_up:cut-1"
     },
     {
-      "id": "s6_wrap_up:cut-2",
+      "id": "s6_wrap_up:cut-3",
       "scene": {
         "id": "s6_wrap_up",
         "title": "Internal wrap-up",
@@ -495,10 +507,14 @@
         {
           "role": "account_manager",
           "text": "I will draft and send the change request on Monday morning and call Priya to confirm. I will also tell our account lead the conversation ended in a good place."
+        },
+        {
+          "role": "tech_lead",
+          "text": "There is also the ingestion risk review and the build plan. Someone needs to book the review and send the plan to the delivery lead."
         }
       ],
       "label": false,
-      "source": "showcase:s6_wrap_up:cut-2"
+      "source": "showcase:s6_wrap_up:cut-3"
     }
   ]
 }

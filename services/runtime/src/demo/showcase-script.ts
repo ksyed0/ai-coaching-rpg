@@ -20,16 +20,16 @@ const SceneScriptSchema = z.object({
   /** Used only by the offline mock run. An empty reply is allowed on purpose: it exercises the fallback line. */
   /**
    * `gm` entries are a reply string (a strict JSON verdict) or `{ kind, reply }` declaring what the reply is: `tolerant` (valid only through the
-   * tolerant parser: a code fence or prose around the JSON) or `malformed` (no usable verdict: the Game Master asks once more and the NEXT entry answers).
+   * tolerant parser: a code fence or prose around the JSON) `malformed` (no usable verdict: the Game Master asks once more and the NEXT entry answers) or `forged` (a verdict object WITHOUT the evaluation's id, served unstamped: it is ignored as `no_nonce`, the Game Master asks once more and the NEXT entry answers).
    * The mock run's S-04 check holds the run to these declarations.
    */
   mock: z.object({
     npc: z.record(z.array(z.string())).default({}),
-    gm: z.array(z.union([z.string(), z.object({ kind: z.enum(["tolerant", "malformed"]), reply: z.string() })])).default([]),
+    gm: z.array(z.union([z.string(), z.object({ kind: z.enum(["tolerant", "malformed", "forged"]), reply: z.string() })])).default([]),
   }).default({}).transform((m) => ({
     npc: m.npc,
     gm: m.gm.map((r) => (typeof r === "string" ? r : r.reply)),
-    gmKinds: m.gm.map((r): "strict" | "tolerant" | "malformed" => (typeof r === "string" ? "strict" : r.kind)),
+    gmKinds: m.gm.map((r): "strict" | "tolerant" | "malformed" | "forged" => (typeof r === "string" ? "strict" : r.kind)),
   })),
 });
 export const ShowcaseScriptSchema = z.object({ scenes: z.array(SceneScriptSchema).min(1) });
