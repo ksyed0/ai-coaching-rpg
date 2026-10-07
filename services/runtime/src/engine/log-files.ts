@@ -5,6 +5,15 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isValidSessionId } from "@acr/events";
+
+/**
+ * A session id becomes file names (`<id>.jsonl`, `<id>.lock`, `<id>.codes.json`, rotated `<id>.<time>.jsonl`) and is placed in a regular
+ * expression: every function here that takes one refuses an invalid id first (US-0020), whoever the caller is.
+ */
+export function assertSessionId(sessionId: string): void {
+  if (!isValidSessionId(sessionId)) throw new Error(`invalid session id: ${JSON.stringify(String(sessionId).slice(0, 40))}`);
+}
 
 /** Both paths must stay inside `dir`: defense in depth on top of the session id check. */
 export function assertInside(dir: string, file: string): void {
@@ -77,6 +86,7 @@ function copyFromFd(src: number, target: string): void {
  * files are left alone; a directory or symlink in that place is an error and is not touched.
  */
 export function rotateStaleLog(dir: string, sessionId: string, now: Date): string | null {
+  assertSessionId(sessionId);
   const file = path.join(dir, `${sessionId}.jsonl`);
   assertInside(dir, file);
   let fd: number;
@@ -124,6 +134,7 @@ export function rotateStaleLog(dir: string, sessionId: string, now: Date): strin
  * rotated name. Returns that name, or null when there is nothing to finish (the log is then left to the normal checks).
  */
 export function finishInterruptedRotation(dir: string, sessionId: string): string | null {
+  assertSessionId(sessionId);
   const file = path.join(dir, `${sessionId}.jsonl`);
   assertInside(dir, file);
   let fd: number;
@@ -225,6 +236,7 @@ export class SessionLock {
   }
 
   static acquire(dir: string, sessionId: string, opts: LockOptions = {}): SessionLock {
+    assertSessionId(sessionId);
     const file = path.resolve(dir, `${sessionId}.lock`);
     assertInside(dir, file);
     const staleMs = opts.staleMs ?? DEFAULT_LOCK_STALE_MS;

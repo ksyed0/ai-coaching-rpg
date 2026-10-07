@@ -8,13 +8,17 @@ import { bootstrap } from "../main.js";
 import { ClientMessageSchema } from "../host/protocol.js";
 import { parseArgs as parseClientArgs, parseInput } from "../cli/commands.js";
 import { parseDemoArgs } from "../demo/args.js";
-import { JsonlEventLog, isValidSessionId } from "../engine/event-log.js";
+import { isValidSessionId } from "@acr/events";
+import { JsonlEventLog } from "../engine/event-log.js";
 import { JoinCodes, JoinCodeRecordError } from "../engine/join-codes.js";
 import { SessionLock } from "../engine/log-files.js";
 import { openSession } from "../engine/session-store.js";
 import { SystemClock } from "../engine/clock.js";
 import { checkRoleId, writeReports } from "../evaluator/report-write.js";
 import { id as reportId } from "../evaluator/report-md.js";
+import { parseJoinCodesEnv } from "../demo/ctx.js";
+import { renderTranscript } from "../demo/transcript-md.js";
+import { earnedCheckOf } from "../agents/gm-prompt.js";
 // Real bootstraps and file locks: a generous explicit limit; nothing here measures elapsed time.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
@@ -195,5 +199,33 @@ describe("characterisation: role ids in evaluator file names and join codes (US-
     const withSession = (sessionId: string) => JSON.parse(JSON.stringify({ ...rec, sessionId }));
     for (const s of ["a", "a.b", long("x", 64)]) expect(() => JoinCodes.fromRecord(withSession(s))).not.toThrow();
     for (const s of ["", long("x", 65)]) expect(() => JoinCodes.fromRecord(withSession(s))).toThrow(JoinCodeRecordError);
+  });
+});
+
+describe("characterisation: the demo's own readers of ids (US-0020)", () => {
+  // [id, scenarioId (lower case, any length), roleKey (JOIN_CODES: either case, 1 to 128)]
+  const KEYS: [string, boolean, boolean][] = [
+    ["guest", true, true], ["a-b_9", true, true], ["Guest", false, true], ["a.b", false, false], ["a b", false, false], ["", false, false], ["a=b", false, false], ["a,b", false, false],
+    ["../x", false, false], ["a\u0001b", false, false], ["__proto__", true, true], [long("x", 128), true, true], [long("x", 129), true, false], [long("X", 128), false, true],
+  ];
+  it.each(KEYS)("JOIN_CODES role key %j is accepted as: %s/%s", (id, _scenarioId, roleKey) => {
+    const r = parseJoinCodesEnv(`${id}=ABCD-EFGH-JKMN`);
+    expect(r.ok).toBe(roleKey && id !== "");
+  });
+  it.each(KEYS)("the transcript names a speaker %j by its id only when it is a scenario id", (id, scenarioId) => {
+    if (id === "" || /[\n=,]/.test(id)) return;
+    const md = renderTranscript({
+      title: "t", meta: { mode: "mock", provider: "p", scenario: "s", date: "d", version: "1", summary: "x" },
+      records: [{ kind: "dialogue", source: "scripted", speaker: id, role: id, text: "hi", atMs: 0 }], results: [],
+    });
+    const line = md.split("\n").find((l) => l.startsWith("**[SCRIPTED]")) ?? "";
+    // a scenario id is printed as is; anything else goes through the Markdown escaper (which changes at least one character of a hostile id)
+    if (scenarioId) expect(line.startsWith(`**[SCRIPTED] ${id}: hi`)).toBe(true);
+    else expect(line.startsWith(`**[SCRIPTED] ${id}: hi`) && /^[a-z0-9_-]+$/.test(id)).toBe(false);
+  });
+  it.each(KEYS)("an earned-fact check request names the role %j only if it is a scenario id", (id, scenarioId) => {
+    if (id === "" || /[\n=,]/.test(id)) return;
+    const r = earnedCheckOf({ system: `intro\nEarned-fact check: role ${id}, fact 3.\nrest` });
+    expect(r?.roleId ?? null).toBe(scenarioId ? id : null);
   });
 });

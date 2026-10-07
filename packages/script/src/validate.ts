@@ -1,3 +1,4 @@
+import { FACILITATOR_ROLE_ID, PROTOTYPE_KEYS } from "@acr/events";
 import type { Scenario } from "./schema.js";
 
 export function validateScenario(s: Scenario): { errors: string[]; warnings: string[] } {
@@ -7,12 +8,11 @@ export function validateScenario(s: Scenario): { errors: string[]; warnings: str
   const sceneIds = new Set<string>();
   const injectIds = new Map<string, number>();
   // Ids become object keys all over the runtime: these would resolve to inherited members of a plain object.
-  const PROTOTYPE_KEYS = ["__proto__", "constructor", "prototype"];
   for (const k of PROTOTYPE_KEYS) {
     if (roleIds.has(k)) errors.push(`role id '${k}' is not allowed (it is a prototype key)`);
     if (s.script.scenes.some((sc) => sc.id === k)) errors.push(`scene id '${k}' is not allowed (it is a prototype key)`);
   }
-  if (roleIds.has("facilitator")) errors.push("role id 'facilitator' is reserved for the facilitator connection");
+  if (roleIds.has(FACILITATOR_ROLE_ID)) errors.push(`role id '${FACILITATOR_ROLE_ID}' is reserved for the facilitator connection`);
 
   for (const scene of s.script.scenes) {
     if (sceneIds.has(scene.id)) errors.push(`scene id '${scene.id}' is used more than once`);

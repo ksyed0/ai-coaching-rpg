@@ -4,7 +4,7 @@ import { parseEnv } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadScenario, validateScenario } from "@acr/script";
 import { describeModelProvider, selectModelProvider } from "@acr/adapters";
-import { isValidSessionId } from "./engine/event-log.js";
+import { SESSION_ID_RULE_TEXT, isValidSessionId } from "@acr/events";
 import { SessionStoreError, openSession, parseLockStaleMs, parseStartMode, type OpenedSession } from "./engine/session-store.js";
 import { SystemClock } from "./engine/clock.js";
 import { SessionHost } from "./host/session-host.js";
@@ -46,7 +46,7 @@ export async function bootstrap(opts: {
   // Validate the session id before ANY filesystem action: it becomes a file name under the data dir.
   const requestedId = (opts.env.SESSION_ID ?? "local");
   if (!isValidSessionId(requestedId)) {
-    return { ok: false, errors: [`SESSION_ID ${JSON.stringify(requestedId.slice(0, 40))} is invalid: use 1 to 64 letters, digits, '_' or '-'`] };
+    return { ok: false, errors: [`SESSION_ID ${JSON.stringify(requestedId.slice(0, 40))} is invalid: use ${SESSION_ID_RULE_TEXT}`] };
   }
   const root = opts.root ?? REPO_ROOT;
   // <root>/.env is optional; real environment variables win over it. Values are never logged.
@@ -65,7 +65,7 @@ export async function bootstrap(opts: {
   const scenarioDir = path.resolve(root, env.SCENARIO_DIR ?? "scenarios/friday-escalation"); // absolute values are used as given
   const sessionId = env.SESSION_ID ?? "local";
   if (!isValidSessionId(sessionId)) { // an id coming from <root>/.env gets the same check
-    return { ok: false, errors: [`SESSION_ID ${JSON.stringify(sessionId.slice(0, 40))} is invalid: use 1 to 64 letters, digits, '_' or '-'`] };
+    return { ok: false, errors: [`SESSION_ID ${JSON.stringify(sessionId.slice(0, 40))} is invalid: use ${SESSION_ID_RULE_TEXT}`] };
   }
   const port = Number(env.RUNTIME_PORT ?? 8080);
   if (!Number.isInteger(port) || port < 0 || port > 65_535) return { ok: false, errors: [`RUNTIME_PORT '${env.RUNTIME_PORT}' is not a valid port`] };
