@@ -38,7 +38,7 @@ Dependencies: EPIC-0002
 
 ```
 EPIC-0005: Slice 5 — evaluator and reports
-Description: Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), and per-participant visibility and access control (ASM-09; reports are visible to all participants for now). Calibration (ASM-08) has started: the probe format, loader, log adapter and Friday starter probes are built (US-0035); `pnpm calibrate`, metrics, probe drafting and the calibration stamp on reports are planned (US-0036..US-0039).
+Description: Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), and per-participant visibility and access control (ASM-09; reports are visible to all participants for now). Calibration (ASM-08) has started: the probe format, loader, log adapter and Friday starter probes are built (US-0035), and `pnpm calibrate` with judges, metrics, the report and the second-judge comparison (US-0036); probe drafting, prompt variants and the calibration stamp on reports are planned (US-0037..US-0039).
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0003
@@ -1019,7 +1019,7 @@ Branch: feature/EPIC-0005-US-0035-calibration-probes
 Acceptance Criteria:
   - [x] AC-0180: a probe is a validated YAML file (`single` or `contrast`, `source`, `drafter`, `approved_by`, `split`, `acceptable`) in `scenarios/<id>/calibration/` (probe-schema.ts; probe-schema.test.ts; TC-0025)
   - [x] AC-0181: loading reports every problem in one list (unknown criterion, non-player subject, a scored player with fewer than 2 lines, bad ids, hostile YAML, drafted without approval) (probe-load.ts; probe-load.test.ts; TC-0025)
-  - [x] AC-0182: a probe becomes a synthetic session log the real evaluator accepts, quote verification included (probe-events.ts; probe-events.test.ts and probe-evaluate.test.ts run the eight starter probes through the real `evaluateSession` with a scripted judge; TC-0026)
+  - [x] AC-0182: a probe becomes a synthetic session log the real evaluator accepts, quote verification included (probe-events.ts; probe-evaluate.test.ts runs the eight starter probes through the real `evaluateSession` with a scripted judge, quoting from the probe source; probe-events.test.ts uses a hand-built probe and only goes through the log reader and transcript builder; TC-0026)
   - [x] AC-0183: the Friday scenario ships 8 starter probes (4 discovery levels, 2 negotiation levels, 2 contrast groups) that validate against its rubric, and the linter reports the set as thin (scenarios/friday-escalation/calibration; starter-set.test.ts; TC-0027)
 ```
 
@@ -1036,24 +1036,24 @@ Notes: Implementation plan Tasks 0-3b (docs/superpowers/plans, evaluator calibra
 US-0036 (EPIC-0005): `pnpm calibrate`: judges, runner, metrics, report, second-judge comparison
 Priority: High
 Estimate: L
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0005-US-0036-calibrate-command
 Dependencies: US-0035
 Acceptance Criteria:
-  - [ ] AC-0184: judges are configuration (`--judge label,model[,baseUrl]`, primary defaults to the evaluator settings) and a mock provider is refused
-  - [ ] AC-0185: the runner feeds each probe to `evaluateSession` unchanged, supports `--repeat` (max 5), `--only`, and records unreachable or garbage judges as unusable
-  - [ ] AC-0186: metrics: agreement (exact and within-one as counts), signed bias overall and per expected level, contrast ordering and gap, spread, not-observed precision and recall, usability, stability, split by source, drafter and tune/holdout, with same-family drafter warnings
-  - [ ] AC-0187: a blind second-judge comparison lists every disagreement with both judges' levels, rationale and quotes
-  - [ ] AC-0188: the report is Markdown plus JSON with a one-screen summary, PASS/WARN/FAIL labels per criterion from `targets.yaml` over documented defaults, `--strict` exits non-zero on FAIL, output is exclusive-create under git-ignored `data/calibration/`, and `pnpm calibrate` never blocks `pnpm evaluate`
+  - [x] AC-0184: judges are configuration (`--judge label,model[,baseUrl]`, primary defaults to the evaluator settings) and a mock provider is refused (judge.ts, cli.ts; judge.test.ts, cli.test.ts: mock refused with exit 2 and nothing written, also with `--judge`; TC-0028)
+  - [x] AC-0185: the runner feeds each probe to `evaluateSession` unchanged, supports `--repeat` (max 5), `--only`, and records unreachable or garbage judges as unusable (runner.ts, cli.ts; runner.test.ts, cli.test.ts: a down judge is unusable and the other still runs, a judge that throws keeps its finished probes, abort keeps partial results, the planned call count equals the calls made; TC-0029)
+  - [x] AC-0186: metrics: agreement (exact and within-one as counts), signed bias overall and per expected level, contrast ordering and gap, spread, not-observed precision and recall, usability, stability, split by source, drafter and tune/holdout, with same-family drafter warnings (metrics.ts, report.ts; metrics.test.ts, report.test.ts; TC-0030)
+  - [x] AC-0187: a blind second-judge comparison lists every disagreement with both judges' levels, rationale and quotes (compare.ts, report.ts, cli.ts runs the judges one after the other; compare.test.ts, report.test.ts, cli.test.ts; TC-0031)
+  - [x] AC-0188: the report is Markdown plus JSON with a one-screen summary, PASS/WARN/FAIL labels per criterion from `targets.yaml` over documented defaults, `--strict` exits non-zero on FAIL, output is exclusive-create under git-ignored `data/calibration/`, and `pnpm calibrate` never blocks `pnpm evaluate` (report.ts, cli.ts, .gitignore; report.test.ts, targets.test.ts, cli.test.ts; the per-judge summary file is created or replaced only by a complete run (all probes, `--criteria all`, no failure or abort, a usable fraction at least `minUsable`; the summary records `usable` and `contrast.probes`), otherwise left untouched with "summary for <model> not updated: <reason>"; files on disk are secret-scrubbed; the evaluator does not read calibration output; TC-0032)
 ```
 
 ```
 TASK-0056 (US-0036): Build the calibrate command: judges, runner, metrics, report and second-judge comparison
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0005-US-0036-calibrate-command
-Notes: Implementation plan Tasks 4-8 (docs/superpowers/plans, evaluator calibration, 2026-10-07).
+Notes: Implementation plan Tasks 4-8 (docs/superpowers/plans, evaluator calibration, 2026-10-07): judge configuration, the runner, metrics, the blind cross-judge comparison, the report and result files, and `pnpm calibrate` (cli.ts, main.ts), with the carried review fixes (quiet YAML loading, base URL messages, per-criterion labels and the contrast gap in the report). Done 2026-10-07; test cases TC-0028..TC-0032. Not done here: the first live numbers (baseline task), drafting and approval (US-0037), prompt variants and the stamp (US-0038, US-0039).
 ```
 
 ```

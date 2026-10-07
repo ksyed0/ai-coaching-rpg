@@ -8,6 +8,8 @@ coverage/
 data/sessions/
 data/reports/
 services/runtime/data/reports/
+data/calibration/
+services/runtime/data/calibration/
 .superpowers/
 .history/
 demo-report.json

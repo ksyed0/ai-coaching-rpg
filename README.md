@@ -335,6 +335,13 @@ pnpm demo --showcase --fast --evaluate                  # the showcase, then the
 - **Privacy and cost.** A real run sends the session transcript to the configured model provider (a one-line notice says so) and makes one call per player plus one for the team (and at most one re-ask each). With `MODEL_PROVIDER=mock` a scripted offline evaluator is used and nothing leaves the machine.
 - **Exit codes** of `pnpm evaluate`: 0 ok, 1 an evaluation failed (the other reports are still written), 2 usage or input error. Reports go into a fresh directory per run and are never overwritten (`data/reports/` is git-ignored).
 
+**Calibrating the evaluator.** `pnpm calibrate` measures how far the evaluator's scores can be trusted: it runs the scenario's calibration probes (short synthetic transcripts with a human-assigned expected level, in `scenarios/<id>/calibration/`) through the real evaluator with each judge model and reports agreement, bias, discrimination between players, usability and stability, each judge labelled PASS, WARN or FAIL. It needs a real model (`MODEL_PROVIDER=mock` is refused) and prints the planned number of model calls before it starts. An optional second judge runs blind and is compared with the first. Results go to `data/calibration/<scenario-id>/` (git-ignored). Details, the probe format and the limits are in [docs/EVALUATOR.md](docs/EVALUATOR.md#calibration).
+
+```bash
+pnpm calibrate --scenario scenarios/friday-escalation                                              # the primary judge from the evaluator settings
+pnpm calibrate --scenario scenarios/friday-escalation --judge second,holo3-35b-a3b-jangtq4,http://127.0.0.1:1337/v1 --repeat 3
+```
+
 ### Showcase: a longer scenario so the AI does real work
 
 The default run plays one short AI scene, so a live run shows only a couple of model replies. `pnpm demo --showcase` plays **`scenarios/friday-escalation-extended`** instead: six scenes (about 50 minutes of scenario time), three players and **two** AI characters, Priya Raman (`client_sponsor`) and a new CFO, Helena Brandt (`cfo`), a numbers-first finance executive. Players-only huddles frame a call with Priya (scene 2) and an escalation call and a negotiation of the final terms with Priya and the CFO (scenes 4 and 5). The bots speak 30 scripted lines (`showcase.yaml` in the scenario folder; the file may also hold scripted facilitator steps, below), which produce about 20 AI replies and 16 Game Master evaluations in a full run. Each scene has a `gm_detects` exit condition, a time box and a facilitator-advance backstop, plus timed and private injects (two aimed at the AI characters).

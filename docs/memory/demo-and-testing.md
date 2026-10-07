@@ -18,6 +18,7 @@ Check counts are pinned by tests: add a new check only in an opt-in room or by e
 ## Other commands
 - `pnpm gm-eval` (offline: 14 labelled Game Master cases, 34-entry parser corpus, drift test against `showcase.yaml`), `--live --runs 3`, `--trace file`, `--build tests/gm-cases` (rebuild after editing the showcase script).
 - `pnpm evaluate <session.jsonl> [--scenario dir] [--out dir]`: draft BARS feedback reports (default output `data/reports`, git-ignored).
+- `pnpm calibrate --scenario scenarios/friday-escalation [--judge second,holo3-35b-a3b-jangtq4,http://127.0.0.1:1337/v1] [--repeat n] [--only ids] [--strict]`: score the probes with real judges (output `data/calibration`, git-ignored); `MODEL_PROVIDER=mock` is refused (exit 2), tests inject fake judges instead.
 - `pnpm test`, `pnpm test:coverage` (80% gate, packages are about 90 to 97%), `pnpm typecheck`, `pnpm lint:sdk`, `npm run plan:test` (jest), `npm run plan:generate`.
 
 ## Live-run recipe (owner's machine)

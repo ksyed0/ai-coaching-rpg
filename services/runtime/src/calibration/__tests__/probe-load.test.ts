@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -145,6 +145,22 @@ describe("loadProbes", () => {
     }
     expect(r.errors.some((e) => e.startsWith("k.yaml:"))).toBe(true);
   });
+  it("turns YAML warnings into probe errors and writes nothing to process stderr", async () => {
+    const { scenario, rubrics } = await ctx();
+    const hostile = good.replace("expected: 1", "expected: !!js/function 'x\u001b[2J'");
+    await writeFile(path.join(dir, "calibration", "p1.yaml"), hostile);
+    const emit = vi.spyOn(process, "emitWarning");
+    const write = vi.spyOn(process.stderr, "write");
+    try {
+      const r = await loadProbes(dir, scenario, rubrics);
+      expect(emit).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+      expect(r.probes).toEqual([]);
+      expect(r.errors).toHaveLength(1);
+      expect(r.errors[0]).toMatch(/^p1\.yaml: .*Unresolved tag/);
+      expect(r.errors[0]).not.toContain("\u001b");
+    } finally { emit.mockRestore(); write.mockRestore(); }
+  });
   it("ignores drafts and targets.yaml", async () => {
     const { scenario, rubrics } = await ctx();
     await mkdir(path.join(dir, "calibration", "drafts"), { recursive: true });
@@ -185,5 +201,15 @@ describe("printable", () => {
     expect(printable("plain text")).toBe("plain text");
     expect(printable("x".repeat(100), 10)).toBe("xxxxxxxxxx…");
     expect(printable("x".repeat(80))).toBe("x".repeat(80));
+    expect(printable("ab\u{1F600}cd", 3)).toBe("ab\u{1F600}…");
+  });
+
+  it("also replaces bidi controls, zero-width characters and the Unicode line and paragraph separators", () => {
+    for (const c of [0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x2028, 0x2029, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069, 0x061c, 0xfeff]) {
+      expect(printable(`a${String.fromCodePoint(c)}b`), c.toString(16)).toBe("a·b");
+    }
+    // neighbours of the ranges are ordinary text
+    for (const c of [0x200a, 0x2010, 0x2027, 0x202f, 0x2065, 0x206a]) expect(printable(`a${String.fromCodePoint(c)}b`), c.toString(16)).toBe(`a${String.fromCodePoint(c)}b`);
+    expect(printable("é ü 日本 \u{1F600}")).toBe("é ü 日本 \u{1F600}");
   });
 });
