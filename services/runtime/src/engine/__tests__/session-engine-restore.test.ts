@@ -75,7 +75,7 @@ describe("restore: replay equals live state (property)", () => {
         for (let i = 1; i < events.length; i++) expect(events[i]!.ts, `seed ${seed}: ts never goes back`).toBeGreaterThanOrEqual(events[i - 1]!.ts);
         await log.close?.();
       }
-    });
+    }, 60_000); // 40 sessions: under a second normally, but no time limit is part of the property
   }
 });
 

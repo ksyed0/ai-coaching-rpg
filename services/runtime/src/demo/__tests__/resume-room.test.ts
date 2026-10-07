@@ -16,6 +16,8 @@ const deps = (c: Captured, argv: string[], over: Partial<RunDeps> = {}): RunDeps
   argv, stdout: c.stdout, stderr: c.stderr, env: { PATH: "/usr/bin" }, sleep: async () => {}, repoRoot: REPO_ROOT, version: "0.0.0-test",
   resolveLiveEnv: () => { throw new Error("the live environment must not be read here"); }, ...over,
 });
+/** A whole demo run takes about a second; a loaded CI runner can be many times slower, so these runs get a generous limit. */
+const RUN_TIMEOUT_MS = 60_000;
 // Private TMPDIR: runner.test.ts counts acr-demo-* directories in the shared temp dir while it runs in parallel (see security-room.test.ts).
 const realTmp = process.env.TMPDIR;
 let privateTmp = "";
@@ -60,13 +62,13 @@ describe("pnpm demo --resume", () => {
     expect(out).not.toMatch(/acr-resume-room-|acr-demo-/); // no temp path in the narration
     expect(c.err).toEqual([]);
     expect(tcp()).toBe(t0);
-  });
+  }, RUN_TIMEOUT_MS);
 
   it("runs together with --security: 42 checks", async () => {
     const { exitCode, report } = await runDemo(deps(capture(), ["--fast", "--no-color", "--security", "--resume"]));
     expect(exitCode).toBe(0);
     expect(report!.summary).toEqual({ passed: 42, failed: 0, skipped: 0 });
-  });
+  }, RUN_TIMEOUT_MS);
 
   it("a failing resume check fails the run; a bypassed one is a failure, never a quiet skip", async () => {
     const failed = await runDemo(deps(capture(), ["--fast", "--no-color", "--resume"], { forceFail: ["F-36"] }));
@@ -75,12 +77,12 @@ describe("pnpm demo --resume", () => {
     const bypassed = await runDemo(deps(capture(), ["--fast", "--no-color", "--resume"], { bypass: ["F-40"] }));
     expect(bypassed.exitCode).toBe(1);
     expect(bypassed.report!.results.find((r) => r.id === "F-40")).toMatchObject({ status: "failed", details: expect.stringContaining("did not run") });
-  });
+  }, RUN_TIMEOUT_MS);
 
   it("the default run does not open the resume room", async () => {
     const c = capture();
     const { report } = await runDemo(deps(c, ["--fast", "--no-color"]));
     expect(c.out.join("")).not.toContain("ACT 6c");
     expect(report!.summary.passed).toBe(29);
-  });
+  }, RUN_TIMEOUT_MS);
 });

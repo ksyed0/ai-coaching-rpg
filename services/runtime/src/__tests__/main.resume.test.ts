@@ -15,6 +15,8 @@ const tsx = path.join(runtimeDir, "node_modules", ".bin", "tsx");
 
 /** tsx runs the script in a node grandchild: the whole process group must die (spawned detached, so it has its own group). */
 const killGroup = (c: ChildProcess) => { if (c.pid === undefined) return; try { process.kill(-c.pid, "SIGKILL"); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e; } };
+// Every test here starts real servers (and one a real child process): give a loaded CI runner room; nothing measures elapsed time.
+vi.setConfig({ testTimeout: 30_000 });
 let tmp = "";
 const runtimes: Runtime[] = [];
 const children: ChildProcess[] = [];
