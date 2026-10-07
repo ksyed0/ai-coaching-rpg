@@ -445,5 +445,80 @@ Status: [x] Pass
 Defect Raised: None
 Notes: Automated only. The set is deliberately thin until US-0037 scales it.
 
+## US-0036: `pnpm calibrate`: judges, runner, metrics, report and second-judge comparison
+
+TC-0028: Judges are configuration and a mock provider is refused
+Related Story: US-0036
+Related Task: TASK-0056
+Related AC: AC-0184
+Type: Negative
+Preconditions: A checkout of the branch; no server and no model needed.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/judge.test.ts src/calibration/__tests__/cli.test.ts -t "judge|mock|--judge"`.
+  2. Read the cases: `parseJudgeSpec` for `label,model[,baseUrl]`; the primary judge from the evaluator settings (EVAL_MODEL, else NPC_MODEL); `MODEL_PROVIDER` unset, `mock` or blank; a second judge given with `--judge` while the primary is mock; two `--judge` flags; a spec with a secret in its URL; a bad OPENROUTER_BASE_URL or ANTHROPIC_BASE_URL; a junk LOCAL_BASE_URL beside a judge with its own URL.
+Expected Result: Valid specs build a judge named by its model and family; the mock provider is refused with exit 2 and "MODEL_PROVIDER is mock" and nothing is written, also when `--judge` is given; at most one `--judge`; no message echoes a secret or a URL value; a bad base URL names its variable (not "not a known provider"); LOCAL_BASE_URL is validated only when used and LOCAL_API_KEY is never sent to another host.
+Actual Result: As expected (judge.test.ts, cli.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. Checked by hand under tsx: `pnpm --filter @acr/runtime exec tsx src/calibration/main.ts --help` exits 0 and a `MODEL_PROVIDER=mock` run exits 2 with the mock message.
+
+TC-0029: The runner feeds each probe to the real evaluator, with --repeat, --only and unusable judges recorded as unusable
+Related Story: US-0036
+Related Task: TASK-0056
+Related AC: AC-0185
+Type: Functional
+Preconditions: A checkout of the branch; judges are scripted fakes (__tests__/fake-judge.ts), no live model call.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/runner.test.ts src/calibration/__tests__/cli.test.ts`.
+  2. Read the cases: the starter set through `evaluateSession`; `--repeat` 1 to 5 (0, 1.5, 99 refused); `--only` (unknown or empty refused); a judge that is down for every call or for one role; a judge whose run throws after two probes; an abort after the third call; the planned call count on a probe where an unscored player speaks twice.
+Expected Result: Every probe goes through the unchanged evaluator; a judge that is down is recorded as unusable (usable 0 of N, label WARN) and the other judge still runs; a run that throws keeps the probes finished before it (`judge <label>: run failed: ...`, secrets redacted, "partial: 2 of 8") and the run is written; an abort keeps the finished probes, writes them and runs no later judge; the planned count (players with at least 2 lines x repeat x judges) is printed before the first call and equals the calls made.
+Actual Result: As expected (runner.test.ts, cli.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
+TC-0030: Metrics: agreement, bias, contrast ordering and gap, spread, not observed, usability, stability, splits and honesty warnings
+Related Story: US-0036
+Related Task: TASK-0056
+Related AC: AC-0186
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/metrics.test.ts src/calibration/__tests__/report.test.ts`.
+Expected Result: Exact and within-one agreement as counts over usable answers; signed bias overall and per expected level (null, not NaN, when nothing is scored); contrast ordering, pairwise ordering, the gap met and the mean achieved gap against the required one; spread; not-observed precision and recall; usability (unusable slots, capped scores, dropped quotes); stability with repeats; metrics split by criterion, tune/holdout, source and drafter; thin-set, thin-criterion, partial-run and same-model-family (self-agreement) warnings; a flat judge FAILs.
+Actual Result: As expected (metrics.test.ts, report.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
+TC-0031: A blind second-judge comparison lists every disagreement with both judges' levels, rationale and quotes
+Related Story: US-0036
+Related Task: TASK-0056
+Related AC: AC-0187
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/compare.test.ts src/calibration/__tests__/report.test.ts src/calibration/__tests__/cli.test.ts -t "compar|second judge|both"`.
+Expected Result: Judges run one after the other and neither sees the other's output; pairs by probe and role, mean absolute difference and within-one; every disagreement listed with both levels, rationales and quotes, ordered by probe and role; entries unusable for both judges are counted and not listed (the report line appears only when the count is above 0); prototype-like ids are safe.
+Actual Result: As expected (compare.test.ts, report.test.ts, cli.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. The first live comparison (Gemma against holo3-35b-a3b-jangtq4) is the baseline task, not a test case.
+
+TC-0032: The report: one-screen summary, labels, --strict, --json and exclusive writes under git-ignored data/calibration
+Related Story: US-0036
+Related Task: TASK-0056
+Related AC: AC-0188
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/report.test.ts src/calibration/__tests__/targets.test.ts src/calibration/__tests__/cli.test.ts`.
+  2. Run `git check-ignore data/calibration/x`.
+Expected Result: 1: The Markdown opens with a summary of at most 25 lines (reasons and warnings capped at five with "and N more"), escapes untrusted text, labels every judge and every criterion PASS/WARN/FAIL from `targets.yaml` over the defaults; `calibration-report.md` and `calibration.json` go to a new private directory per run (never overwritten, nothing created if rendering fails) and one summary per judge is replaced atomically (a failure names only `<scenario>/<file>`); `--strict` exits 1 on a FAIL, 0 without it; `--json -` prints only the run as JSON with secrets redacted; `--json <file>` refuses an existing file; YAML warnings in probe or targets files become errors, never terminal output. 2: the path is ignored.
+Actual Result: As expected (report.test.ts, targets.test.ts, cli.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. `pnpm evaluate` does not read calibration output, so calibration never blocks it.
+
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 

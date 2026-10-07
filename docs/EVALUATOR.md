@@ -117,6 +117,55 @@ Write anchors as **observable behaviour in the participant's OWN words**, for th
 - **Group report.** Group criteria, LO coverage across the team (players by LO), the scenario author's facilitator notes next to the model's talking points, and notable moments.
 - **index.md** links everything and shows the LO table for everyone.
 
+## Calibration
+
+`pnpm calibrate` measures how far the evaluator's scores can be trusted, per judge model. It feeds **probes** through the real evaluator (the same prompt, parser and quote verification that score real sessions) and compares what the judge answers with what a human expects.
+
+**A probe** is a short synthetic transcript with a human-assigned expected level for one criterion, in `scenarios/<id>/calibration/<probe-id>.yaml` (the file name is the id). A `single` probe expects one level (or `not_observed`) for one player; a `contrast` probe expects different levels for two or more players in the same conversation, which is what tests discrimination. Probes may contain only demo or synthetic text (the repository is public).
+
+```yaml
+kind: single                  # single | contrast
+id: disc-l1                   # 1 to 58 of a-z, 0-9, _ or -; must match the file name
+criterion: discovery          # an individual criterion of the scenario's rubrics
+source: handwritten           # handwritten | drafted | excerpt (drafted needs drafter, approved_by, approved_at)
+split: tune                   # tune | holdout (stored, never recomputed)
+subject: delivery_lead        # single: the player scored
+expected: 1                   # single: 1 to 4 or not_observed
+acceptable: [1, 2]            # optional; defaults to [expected]
+transcript:                   # 2 to 80 lines; every scored player needs at least 2 lines
+  - { scene: s2_client_call, role: client_sponsor, text: "Can you confirm that today?" }
+  - { scene: s2_client_call, role: delivery_lead, text: "Yes, we can do that for you." }
+# contrast instead of subject/expected/acceptable:
+#   kind: contrast
+#   players: { delivery_lead: 4, account_manager: 1 }
+#   min_gap: 2                # required level difference between adjacent players
+```
+
+An invalid probe fails the run with a list of every problem (exit 2), before any model call. Targets can be overridden per scenario in `calibration/targets.yaml` (`contrastOrdering`, default 0.8; `maxAbsBias`, 0.3; `exactAgreement`, unset; `minUsable`, 0.9).
+
+**Running it.** The primary judge is the evaluator's own configuration (`MODEL_PROVIDER`, its key, `EVAL_MODEL` or `NPC_MODEL`, the `EVAL_*` settings); `MODEL_PROVIDER=mock` is refused, because the scripted evaluator's numbers would mean nothing. An optional second judge on an OpenAI-compatible server is given with `--judge label,model[,baseUrl]` (without a base URL, `LOCAL_BASE_URL` is used; `LOCAL_API_KEY` is sent only to that same host). The judges run one after the other and never see each other's output.
+
+```bash
+pnpm calibrate --scenario scenarios/friday-escalation                       # primary judge only
+MODEL_PROVIDER=local LOCAL_BASE_URL=http://127.0.0.1:1234/v1 NPC_MODEL=gemma-4-31b-it-qat-mxfp4 \
+  pnpm calibrate --scenario scenarios/friday-escalation --judge second,holo3-35b-a3b-jangtq4,http://127.0.0.1:1337/v1
+pnpm calibrate --scenario scenarios/friday-escalation --repeat 3 --only disc-l1,listening-contrast-01
+pnpm -s calibrate --scenario scenarios/friday-escalation --json - --strict  # CI style: JSON on stdout, exit 1 on any FAIL
+```
+
+Flags: `--repeat n` (1 to 5) scores every probe n times to measure the judge's own noise; `--only id,id` runs a subset; `--criteria all` (default) has the judge score every individual criterion as in a real evaluation, `probe` only the probe's criterion; `--variant v1` (the only prompt variant so far); `--out <dir>` (default `data/calibration`, git-ignored); `--json -` or `--json <file>`; `--strict`. Before the first call the run prints the **planned call count**: per probe, every player with at least 2 lines in its transcript (scored or not, because the evaluator scores each of them) times `--repeat` times the number of judges, plus at most one re-ask per unusable reply. Exit codes: 0 results written, whatever the labels; 1 only with `--strict` when a judge is labelled FAIL; 2 usage, input or output error.
+
+A judge that is down or answers garbage is recorded as **unusable**, not as disagreeing, and the other judge still runs. If a judge's run breaks off, the probes it finished are kept; Ctrl-C stops the run and writes what was finished (exit 130). Each run is written to a new directory `data/calibration/<scenario-id>/<start time>/` (`calibration-report.md` and `calibration.json`, exclusive creation, private file modes), and the latest result per judge to `data/calibration/<scenario-id>/<model>-<variant>.json` (replaced atomically), for the calibration stamp that reports will show later.
+
+**Reading the summary.** The report (and the terminal) opens with one screen per judge: the label, contrast ordering (`ordered N of M usable`: the headline), bias (signed mean of judge level minus expected level; positive means lenient), exact and within-one agreement as counts, and usable answers; then the reasons, warnings and lint. The detail follows: per criterion, by split (tune/holdout), by source and by drafter, bias by expected level, not-observed precision and recall, stability (with `--repeat`), usability (capped scores, dropped quotes, spread of levels used), and with two judges the cross-judge comparison (numeric pairs, mean absolute difference, within one) with every disagreement listed beside both judges' rationales and quotes.
+
+- **FAIL**: contrast ordering below target, absolute bias above target, or a flat judge (it uses fewer distinct levels than the probes need: a judge that always answers 3 cannot pass).
+- **WARN**: discrimination not measured (no contrast probes) or thinly measured (under half of them usable), no usable evidence, usability below target, or exact agreement below a target set for the scenario.
+- **PASS**: none of these. Within-one agreement is shown for traceability but never decides PASS (on a four-level scale a judge that always answers 2 is within one level for expected levels 1 to 3).
+- **Warnings** on the figures: `thin` (fewer than 20 probes, or fewer than 4 for a criterion), `partial` (the run was cut short), and self-agreement (a probe drafted by a model from the judge's own family).
+
+**Limits.** Probes are a proxy for real sessions. Synthetic and drafted transcripts are cleaner than real speech, which is why real (consented, redacted demo) excerpts are required before a default change. A small probe set gives noisy numbers: the Friday starter set has 8 probes and is labelled thin. Calibration is per judge, per prompt variant and per rubric version; a result says nothing about another model, another variant or a changed rubric. It reports measurements and never claims the scores are accurate. Not built yet: drafting and approving probes (`draft`, `excerpt`, `approve`, `assign-splits` answer "not available yet"), prompt variants other than `v1`, and the calibration stamp on evaluation reports.
+
 ## Limits and planned follow-ups
 
-Not built yet: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), calibration against human raters (ASM-08), and result isolation and access control (ASM-09). The evaluator has not been validated against human raters, so treat its scores as a conversation starter for the debrief.
+Not built yet: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), calibration against human raters (ASM-08; `pnpm calibrate` above measures a judge against human-labelled probes, not against human raters scoring the same sessions), and result isolation and access control (ASM-09). The evaluator has not been validated against human raters, so treat its scores as a conversation starter for the debrief.
