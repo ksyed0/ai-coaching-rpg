@@ -274,7 +274,8 @@ describe("pnpm calibrate: usage and input errors", () => {
   });
   it("refuses the label primary for --judge, a probe listed twice in --only, a file as --scenario and a --json file in a missing directory", async () => {
     const localEnv = { MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://127.0.0.1:3/v1", NPC_MODEL: "gemma-4-31b" };
-    const prim = await run([...SCN, "--judge", "primary,m1,http://127.0.0.1:1/v1"], {}, localEnv);
+    // Judges are injected so that a mutant getting past a refusal runs fakes and never touches the network.
+    const prim = await run([...SCN, "--out", dir, "--judge", "primary,m1,http://127.0.0.1:1/v1"], { judges: [judge(good())] }, localEnv);
     expect(prim.exitCode).toBe(2);
     expect(prim.errText).toMatch(/label primary is taken/);
     const twice = await run([...SCN, "--out", dir, "--only", "disc-l1,disc-l1"], { judges: [judge(good())] });
@@ -293,10 +294,10 @@ describe("pnpm calibrate: usage and input errors", () => {
     expect(p.calls).toHaveLength(0);
   });
   it("allows at most one --judge and never echoes a bad spec", async () => {
-    const two = await run([...SCN, "--judge", "b,m1,http://127.0.0.1:1/v1", "--judge", "c,m2,http://127.0.0.1:2/v1"], {}, { MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://127.0.0.1:3/v1", NPC_MODEL: "gemma-4-31b" });
+    const two = await run([...SCN, "--out", dir, "--judge", "b,m1,http://127.0.0.1:1/v1", "--judge", "c,m2,http://127.0.0.1:2/v1"], { judges: [judge(good())] }, { MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://127.0.0.1:3/v1", NPC_MODEL: "gemma-4-31b" });
     expect(two.exitCode).toBe(2);
     expect(two.errText).toMatch(/at most one --judge/);
-    const bad = await run([...SCN, "--judge", "b,m,http://h/v1?token=sk-SECRET-9"], {}, { MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://127.0.0.1:3/v1", NPC_MODEL: "gemma-4-31b" });
+    const bad = await run([...SCN, "--out", dir, "--judge", "b,m,http://h/v1?token=sk-SECRET-9"], { judges: [judge(good())] }, { MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://127.0.0.1:3/v1", NPC_MODEL: "gemma-4-31b" });
     expect(bad.exitCode).toBe(2);
     expect(bad.errText).not.toContain("sk-SECRET-9");
   });
@@ -431,5 +432,77 @@ describe("pnpm calibrate: files on disk and write failures", () => {
     expect(msg).toMatch(/^error: the run was written to cal-out\/esc-scope-creep-01\/[0-9T-]+Z?[^/ ]* but the summaries could not be updated: calibration summary: could not replace esc-scope-creep-01\/fake-model-primary-v1\.json/);
     expect(msg).not.toContain("<tmp>");
     expect(msg).not.toContain(dir);
+  });
+});
+
+describe("pnpm calibrate: a judge that degrades mid-run", () => {
+  const summary = () => path.join(dir, "esc-scope-creep-01", "fake-model-primary-v1.json");
+  // account_manager is scored in the two contrast probes: 2 of the 10 answer slots fail, so 8 of 10 (0.8) are usable.
+  const flaky = () => fakeJudge(criteria, () => ({ discovery: 3, listening: 3, negotiation: 3 }), (role) => role === "account_manager");
+  async function friday(minUsable?: number): Promise<string> {
+    const scn = path.join(dir, "scn");
+    await cp(FRIDAY, scn, { recursive: true });
+    if (minUsable !== undefined) await writeFile(path.join(scn, "calibration", "targets.yaml"), `minUsable: ${minUsable}\n`);
+    return scn;
+  }
+  async function baseline(scn: string): Promise<string> {
+    expect((await run(["--scenario", scn, "--out", dir], { judges: [judge(good())] })).exitCode).toBe(0);
+    return readFile(summary(), "utf8");
+  }
+  it("keeps the old summary when too few answers were usable (below minUsable, 0.9 by default)", async () => {
+    const scn = await friday();
+    const before = await baseline(scn);
+    const r = await run(["--scenario", scn, "--out", dir], { judges: [judge(flaky())] });
+    expect(r.exitCode).toBe(0);
+    expect(r.run!.judges[0]!.metrics.usability).toMatchObject({ slots: 10, unusable: 2 });
+    expect(r.outText).toContain("summary for fake-model-primary not updated: too few usable answers (8 of 10)");
+    expect(r.outText).not.toMatch(/summaries updated/);
+    expect(await readFile(summary(), "utf8")).toBe(before);
+  });
+  it("replaces it when the usable fraction is exactly minUsable, and keeps it just below", async () => {
+    const at = await friday(0.8);
+    const before = await baseline(at);
+    const r = await run(["--scenario", at, "--out", dir], { judges: [judge(flaky())] });
+    expect(r.outText).toMatch(/summaries updated: fake-model-primary-v1\.json/);
+    const after = await readFile(summary(), "utf8");
+    expect(after).not.toBe(before);
+    expect(JSON.parse(after).usable).toEqual({ n: 8, of: 10 });
+    await writeFile(path.join(at, "calibration", "targets.yaml"), "minUsable: 0.81\n");
+    const below = await run(["--scenario", at, "--out", dir], { judges: [judge(flaky())] });
+    expect(below.outText).toContain("not updated: too few usable answers (8 of 10)");
+    expect(await readFile(summary(), "utf8")).toBe(after);
+  });
+});
+
+describe("pnpm calibrate: two judges with one model id", () => {
+  const same = (p: FakeJudge): Judge => ({ ...judge(p, "second"), model: "fake-model-primary" });
+  const file = () => path.join(dir, "esc-scope-creep-01", "fake-model-primary-v1.json");
+  it("warns that they share a summary file, lists it once, and the last complete judge wins", async () => {
+    const r = await run([...SCN, "--out", dir], { judges: [judge(good()), same(good())] });
+    expect(r.outText).toContain("warning: both judges use the same model id: they share one summary file, and the last complete run wins");
+    expect(r.outText).not.toContain("the second one is kept");
+    expect(r.outText).toMatch(/summaries updated: fake-model-primary-v1\.json\n/);
+    expect(JSON.parse(await readFile(file(), "utf8")).judge.label).toBe("second");
+  });
+  it("keeps the first judge's summary when the second is skipped", async () => {
+    const down = fakeJudge(criteria, () => ({ discovery: 3 }), () => true);
+    const r = await run([...SCN, "--out", dir], { judges: [judge(good()), same(down)] });
+    expect(r.outText).toContain("summary for fake-model-primary not updated: no usable answers");
+    expect(JSON.parse(await readFile(file(), "utf8")).judge.label).toBe("primary");
+  });
+});
+
+describe("pnpm calibrate: --json <file> write failure after the run", () => {
+  it("exits 1 when the file appears during the run (exclusive create)", async () => {
+    const target = path.join(dir, "run.json");
+    let created = false;
+    const sneaky = fakeJudge(criteria, () => {
+      if (!created) { created = true; void writeFile(target, "someone else"); }
+      return { discovery: 3 };
+    });
+    const r = await run([...SCN, "--out", dir, "--only", "disc-l1", "--json", target], { judges: [judge(sneaky)] });
+    expect(r.exitCode).toBe(1);
+    expect(r.errText).toMatch(/error: --json: cannot write the file: it already exists/);
+    expect(await readFile(target, "utf8")).toBe("someone else");
   });
 });

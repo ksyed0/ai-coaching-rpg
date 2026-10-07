@@ -226,10 +226,11 @@ describe("report", () => {
     const jr = buildJudgeReport(gemma, [out("a", 1, 1), { ...out("b", 4, 3), split: "holdout" }, contrastOut("c", { x: 4, y: 1 })], DEFAULT_TARGETS, probes);
     const [file] = await writeSummaries({ ...run(), judges: [jr] }, dir);
     const s = JSON.parse(await readFile(file!, "utf8")) as Record<string, unknown>;
-    expect(Object.keys(s).sort()).toEqual(["bias", "contrast", "exact", "judge", "label", "probes", "ranAt", "rubricHash", "scenarioId", "schema", "variant"]);
+    expect(Object.keys(s).sort()).toEqual(["bias", "contrast", "exact", "judge", "label", "probes", "ranAt", "rubricHash", "scenarioId", "schema", "usable", "variant"]);
     expect(s).toEqual({
       schema: "acr.calibration.summary/1", scenarioId: "esc-scope-creep-01", rubricHash: "abc123", variant: "v1", judge: { label: "primary", model: "gemma-4-31b" },
-      ranAt: "2026-10-08T00:00:00.000Z", probes: { total: 3, tune: 1, holdout: 2 }, exact: { n: 1, of: 2 }, bias: -0.5, contrast: { ordered: 1, of: 1 }, label: jr.label.label,
+      ranAt: "2026-10-08T00:00:00.000Z", probes: { total: 3, tune: 1, holdout: 2 }, exact: { n: 1, of: 2 }, bias: -0.5, contrast: { ordered: 1, of: 1, probes: 1 },
+      usable: { n: 4, of: 4 }, label: jr.label.label,
     });
   });
 
@@ -272,7 +273,9 @@ describe("report", () => {
     expect(jr.metrics.contrast.n).toBe(3);
     expect(jr.metrics.contrast.usable).toBe(2);
     const [file] = await writeSummaries({ ...run(), judges: [jr] }, dir);
-    expect(JSON.parse(await readFile(file!, "utf8")).contrast).toEqual({ ordered: 1, of: 2 });
+    const sum = JSON.parse(await readFile(file!, "utf8"));
+    expect(sum.contrast).toEqual({ ordered: 1, of: 2, probes: 3 });
+    expect(sum.usable).toEqual({ n: 5, of: 6 });
   });
   it("refuses an unsafe scenario id for a summary file", () => {
     for (const id of ["../x", "a/b", "..", "", "a b", "x".repeat(65)]) expect(() => summaryFile(dir, id, "m", "v1")).toThrow(/scenario id/);

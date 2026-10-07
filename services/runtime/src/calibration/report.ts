@@ -15,7 +15,11 @@ import type { Evidence, Observed, Outcome } from "./types.js";
 
 export type CalibrationSummary = {
   schema: "acr.calibration.summary/1"; scenarioId: string; rubricHash: string; variant: string; judge: { label: string; model: string }; ranAt: string;
-  probes: { total: number; tune: number; holdout: number }; exact: { n: number; of: number }; bias: number | null; contrast: { ordered: number; of: number };
+  probes: { total: number; tune: number; holdout: number }; exact: { n: number; of: number }; bias: number | null;
+  /** `of` is the usable contrast probes (the denominator of ordering); `probes` is every contrast probe of the run. */
+  contrast: { ordered: number; of: number; probes: number };
+  /** Usable answer slots of all slots (a scored role in a probe's first run). */
+  usable: { n: number; of: number };
   label: "PASS" | "WARN" | "FAIL";
 };
 export type JudgeReport = {
@@ -246,7 +250,8 @@ function summaryOf(run: CalibrationRun, j: JudgeReport): CalibrationSummary {
     schema: "acr.calibration.summary/1", scenarioId: run.scenario.id, rubricHash: run.rubricHash, variant: run.variant,
     judge: { label: j.judge.label, model: j.judge.model }, ranAt: run.startedAt,
     probes: { total: j.outcomes.length, tune: j.outcomes.filter((o) => o.split === "tune").length, holdout: j.outcomes.filter((o) => o.split === "holdout").length },
-    exact: { n: m.agreement.exact, of: m.agreement.n }, bias: m.bias.mean, contrast: { ordered: m.contrast.ordered, of: m.contrast.usable }, label: j.label.label,
+    exact: { n: m.agreement.exact, of: m.agreement.n }, bias: m.bias.mean,
+    contrast: { ordered: m.contrast.ordered, of: m.contrast.usable, probes: m.contrast.n }, usable: { n: m.usability.slots - m.usability.unusable, of: m.usability.slots }, label: j.label.label,
   };
 }
 

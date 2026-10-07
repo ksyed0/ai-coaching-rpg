@@ -27,7 +27,7 @@ export const CALIBRATE_USAGE = [
   "  --criteria all     the judge scores every individual criterion (default, as in a real evaluation); probe: only the probe's criterion",
   "  --variant v1       the evaluator prompt variant (only v1 exists so far)",
   "  --out <dir>        results go to <dir>/<scenario-id>/ (default: data/calibration, git-ignored). Run reports are never overwritten",
-  "                     the summary per judge (<model>-<variant>.json) is replaced only by a complete run: all probes, --criteria all, no failure or abort",
+  "                     the summary per judge (<model>-<variant>.json) is replaced only by a complete run: all probes, --criteria all, no failure or abort, usable answers >= minUsable",
   "  --strict           exit 1 when any judge is labelled FAIL (for CI)",
   "  --json -           print the run as JSON to stdout (the narration then goes to stderr; run `pnpm -s calibrate ...`); --json <file> writes it to a new file",
   "  --help             this text",
@@ -146,7 +146,7 @@ export async function runCalibrate(deps: CalibrateDeps): Promise<{ exitCode: num
   let judges: Judge[];
   try { judges = deps.judges ?? [buildPrimaryJudge(deps.env, cfg), ...(second ? [buildJudge(second, deps.env)] : [])]; }
   catch (e) { return fail(e instanceof CalibrationInputError ? e.message : "the judges could not be configured"); }
-  if (judges.length === 2 && judges[0]!.model === judges[1]!.model) say("warning: both judges use the same model id: they share one summary file (the second one is kept)");
+  if (judges.length === 2 && judges[0]!.model === judges[1]!.model) say("warning: both judges use the same model id: they share one summary file, and the last complete run wins");
 
   for (const w of loaded.warnings) say(`lint: ${w}`);
   say(`judges: ${judges.map((j) => `${j.label} (${j.model})`).join(", ")}. This sends the probe transcripts to their model providers and may cost money.`);
@@ -170,7 +170,9 @@ export async function runCalibrate(deps: CalibrateDeps): Promise<{ exitCode: num
     const report = buildJudgeReport(judge, got, targets, chosen);
     const us = report.metrics.usability;
     const reason = deps.signal?.aborted ? "aborted" : threw ? "run failed" : only ? "subset (--only)" : criteria !== "all" ? "one criterion (--criteria probe)"
-      : us.slots - us.unusable === 0 ? "no usable answers" : null;
+      : us.slots - us.unusable === 0 ? "no usable answers"
+      // A judge that degraded mid-run (provider errors become "failed" slots, not a throw) must not replace a good summary.
+      : (us.slots - us.unusable) / us.slots < targets.minUsable ? `too few usable answers (${us.slots - us.unusable} of ${us.slots})` : null;
     if (reason) skipped.set(report, reason);
     reports.push(report);
   }
@@ -192,7 +194,7 @@ export async function runCalibrate(deps: CalibrateDeps): Promise<{ exitCode: num
   try {
     if (complete.length) {
       const summaries = await writeSummaries({ ...run, judges: complete }, dataDir);
-      say(`summaries updated: ${summaries.map((f) => path.basename(f)).join(", ")}`);
+      say(`summaries updated: ${[...new Set(summaries.map((f) => path.basename(f)))].join(", ")}`);
     }
   } catch (e) {
     const rel = path.join(path.basename(dataDir), path.relative(dataDir, written.dir));
