@@ -260,26 +260,52 @@ describe("M5: replay is linear", () => {
 });
 
 describe("M2: a takeover race never makes a live holder declare its lock lost", () => {
-  it("starter B moves A's fresh lock aside for an instant (it judged the OLD lock stale) and puts it back: A keeps its lock", async () => {
-    // A stale lock, as a crashed server left it.
+  /**
+   * A stale lock S; starter B has judged it stale and still holds it open (as SessionLock.judge does until its takeover is over, which
+   * pins S's inode so a NEW lock can never reuse its number); starter A then takes S over and holds a fresh lock. B's rename now moves
+   * A's lock aside. A's re-check delay is injected, so the test controls the ORDER, not a real-time window.
+   */
+  async function setup() {
     const lockFile = path.join(dir, "s.lock");
     await writeFile(lockFile, JSON.stringify({ pid: 1, host: "gone" }));
-    const old = await stat(lockFile);
-    const t = (Date.now() - 120_000) / 1000;
+    const t = (T0 - 120_000) / 1000;
     const { utimes } = await import("node:fs/promises");
     await utimes(lockFile, t, t);
-    const a = SessionLock.acquire(dir, "s"); // A takes the stale lock over and holds a fresh one
+    const pinned = await open(lockFile, "r"); // B's descriptor on S
+    const old = await pinned.stat();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const a = SessionLock.acquire(dir, "s", { now: () => T0, recheckDelay: () => gate });
+    return { lockFile, pinned, old, a, release };
+  }
+
+  it("put back BEFORE A's re-check: A keeps its lock (and B's identity check is not fooled by a reused inode number)", async () => {
+    const { lockFile, pinned, old, a, release } = await setup();
     try {
       let check: Promise<void> | null = null;
-      // B judged the OLD file stale before A replaced it; B's rename now moves A's lock aside. While it is aside, A checks its lock.
-      SessionLock.testHooks.afterRename = () => { check = a.assertHeld(); };
+      SessionLock.testHooks.afterRename = () => { check = a.assertHeld(); }; // A checks while its lock is aside
       const removeIfSame = (SessionLock as unknown as { removeIfSame(f: string, id: { dev: number; ino: number }): boolean }).removeIfSame;
       expect(removeIfSame(path.resolve(lockFile), { dev: old.dev, ino: old.ino })).toBe(false); // not the judged file: put back
       SessionLock.testHooks = {};
+      release(); // only now does A's re-check run
       await expect(check).resolves.toBeUndefined();
       expect(a.lost).toBe(false);
       await a.assertHeld();
-    } finally { a.release(); }
+    } finally { SessionLock.testHooks = {}; a.release(); await pinned.close(); }
+  });
+
+  it("still missing when A's re-check runs: A declares its lock lost (fail-stop, the safe side)", async () => {
+    const { lockFile, pinned, a, release } = await setup();
+    const { rename } = await import("node:fs/promises");
+    try {
+      await rename(lockFile, `${lockFile}.aside`);
+      const check = a.assertHeld();
+      release(); // the re-check runs while the lock is still aside
+      await expect(check).rejects.toMatchObject({ code: "lost" });
+      expect(a.lost).toBe(true);
+      await rename(`${lockFile}.aside`, lockFile); // too late: lost is final
+      await expect(a.assertHeld()).rejects.toMatchObject({ code: "lost" });
+    } finally { a.release(); await pinned.close(); }
   });
 });
 

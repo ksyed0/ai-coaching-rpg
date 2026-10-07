@@ -14,6 +14,8 @@ export const RESUME_DOWNTIME_MS = 20 * MIN;
 /** How far into scene 2 the crash happens. */
 export const CRASH_AT_MS = 4 * MIN;
 const SID = "resume";
+/** The fixed wall-clock instant of the foreign lock's last heartbeat in F-42. */
+const LOCK_T = 1_900_000_000_000;
 const HISTORY_LINE = "Before the call: we offer a phased plan, nothing is free.";
 const LINE_1 = "Priya, we can deliver the module in a second phase.";
 const REPLY_1 = "A second phase? Tell me what Finance gets on day one.";
@@ -302,13 +304,13 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       await holder.stop();
       // Another server (another host sharing the directory) holds the session: its lock has a fresh heartbeat.
       const lockFile = path.join(dir, `${SID}.lock`);
-      await writeFile(lockFile, JSON.stringify({ pid: 4242, host: "another-host.example", startedAt: new Date().toISOString() }) + "\n", { mode: 0o600 });
-      await refused("a resume while another host's server holds the lock", {}, /locked by another server process/);
-      await refused("SESSION_START=fresh while another host's server holds the lock", { mode: "fresh" }, /locked by another server process/);
-      // That server died 60 s ago: its heartbeat is stale, so the lock is taken over.
-      const t = (Date.now() - 60_000) / 1000;
-      await utimes(lockFile, t, t);
-      const taker = await start({ clock: new FakeClock(clockB.now()) });
+      await writeFile(lockFile, JSON.stringify({ pid: 4242, host: "another-host.example", startedAt: new Date(LOCK_T).toISOString() }) + "\n", { mode: 0o600 });
+      await utimes(lockFile, LOCK_T / 1000, LOCK_T / 1000); // its last heartbeat, on a fixed clock (no real-time window in the check)
+      const fresh = { now: () => LOCK_T + 2_000 };
+      await refused("a resume while another host's server holds the lock", { lock: fresh }, /locked by another server process \(last heartbeat 2 s ago\)/);
+      await refused("SESSION_START=fresh while another host's server holds the lock", { mode: "fresh", lock: fresh }, /locked by another server process/);
+      // That server died: 60 s later its heartbeat is stale, so the lock is taken over.
+      const taker = await start({ clock: new FakeClock(clockB.now()), lock: { now: () => LOCK_T + 60_000 } });
       ensure(taker.store.lock.verify() && (JSON.parse(await readFile(lockFile, "utf8")) as { pid: number }).pid === process.pid, "the stale lock was not taken over");
       await taker.stop();
       await n.step("while a server holds the session, a second one is refused and changes nothing (also with SESSION_START=fresh); a lock whose heartbeat stopped 60 s ago is taken over");

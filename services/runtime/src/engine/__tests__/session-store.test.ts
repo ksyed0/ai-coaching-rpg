@@ -112,7 +112,7 @@ describe("openSession", () => {
   it("refuses a second process while the first holds the lock (and fresh cannot rotate it away under the holder)", async () => {
     const a = await openIt("resume");
     await a.engine.start({ host: "p" });
-    await expect(openSession({ scenario, sessionId: "s", dataDir: dir, clock: new FakeClock(T0), mode: "fresh", lock: { hostname: "other" } })).rejects.toMatchObject({ code: "lock" });
+    await expect(openSession({ scenario, sessionId: "s", dataDir: dir, clock: new FakeClock(T0), mode: "fresh", lock: { hostname: "other", now: () => 0 } })).rejects.toMatchObject({ code: "lock" }); // a fixed clock: the live lock can never look stale
     expect(await readdir(dir)).toContain("s.jsonl");
     await a.engine.say("host", "still mine");
   });

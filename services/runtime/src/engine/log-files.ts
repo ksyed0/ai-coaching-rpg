@@ -168,6 +168,8 @@ export type LockOptions = {
   isAlive?: (pid: number) => boolean;
   /** Called once if the lock file is found replaced or removed while held (the log then refuses further appends). */
   onLost?: () => void;
+  /** The wait before re-checking a lock that looked missing (default LOCK_RECHECK_MS); tests inject it to control the order of a race. */
+  recheckDelay?: () => Promise<void>;
 };
 
 export type LockErrorCode = "locked" | "not_a_file" | "contention" | "lost" | "closed";
@@ -209,12 +211,14 @@ export class SessionLock {
   private released = false;
   private readonly now: () => number;
   private readonly onLost: (() => void) | undefined;
+  private readonly recheckDelay: () => Promise<void>;
 
   /** Test seam: runs between the rename and the identity check of a takeover (to make a two-starter race deterministic). */
   static testHooks: { afterRename?: () => void } = {};
 
-  private constructor(file: string, fd: number, ident: Identity, now: () => number, heartbeatMs: number, onLost?: () => void) {
+  private constructor(file: string, fd: number, ident: Identity, now: () => number, heartbeatMs: number, onLost?: () => void, recheckDelay?: () => Promise<void>) {
     this.file = file; this.fd = fd; this.ident = ident; this.now = now; this.onLost = onLost;
+    this.recheckDelay = recheckDelay ?? (() => new Promise((r) => setTimeout(r, LOCK_RECHECK_MS)));
     HELD.add(file);
     this.timer = setInterval(() => { void this.heartbeat(); }, heartbeatMs);
     this.timer.unref();
@@ -238,7 +242,10 @@ export class SessionLock {
         const verdict = SessionLock.judge(file, { staleMs, now, host, pid, isAlive });
         if (verdict === "gone") continue;
         if (verdict.stale === false) throw new SessionLockError("locked", verdict.message);
-        if (!SessionLock.removeIfSame(file, verdict.ident)) throw new SessionLockError("contention", "another server process took the session lock at the same moment; nothing was changed");
+        // The judged file stays OPEN until the takeover is over: its inode cannot be freed and reused by a new lock meanwhile,
+        // so the identity check in removeIfSame can never mistake another server's fresh lock for the stale one.
+        try { if (!SessionLock.removeIfSame(file, verdict.ident)) throw new SessionLockError("contention", "another server process took the session lock at the same moment; nothing was changed"); }
+        finally { closeSync(verdict.fd); }
         continue;
       }
       try {
@@ -247,7 +254,7 @@ export class SessionLock {
         fsyncSync(fd);
         const st = fstatSync(fd);
         fsyncDirSync(path.dirname(file));
-        return new SessionLock(file, fd, { dev: st.dev, ino: st.ino }, now, heartbeatFor(staleMs), opts.onLost);
+        return new SessionLock(file, fd, { dev: st.dev, ino: st.ino }, now, heartbeatFor(staleMs), opts.onLost, opts.recheckDelay);
       } catch (err) {
         try { closeSync(fd); unlinkSync(file); } catch { /* best effort: the half-made lock is stale at once (our pid, not held) */ }
         throw err;
@@ -258,7 +265,7 @@ export class SessionLock {
 
   /** Reads an existing lock through one descriptor: "gone" when it vanished, else whether it is stale. */
   private static judge(file: string, o: { staleMs: number; now: () => number; host: string; pid: number; isAlive: (pid: number) => boolean }):
-    "gone" | { stale: true; ident: Identity } | { stale: false; message: string } {
+    "gone" | { stale: true; ident: Identity; fd: number } | { stale: false; message: string } {
     let fd: number;
     try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); }
     catch (err) {
@@ -267,6 +274,7 @@ export class SessionLock {
       if (code === "ELOOP" || code === "EMLINK") throw new SessionLockError("not_a_file", "the session lock is a symbolic link; remove it by hand");
       throw err;
     }
+    let keep = false; // a stale verdict hands the open descriptor to the caller (it pins the inode during the takeover)
     try {
       const st = fstatSync(fd);
       if (!st.isFile()) throw new SessionLockError("not_a_file", "the session lock is not a regular file; remove it by hand");
@@ -280,10 +288,10 @@ export class SessionLock {
       const sameHost = typeof info.host === "string" && info.host === o.host;
       const lockPid = typeof info.pid === "number" && Number.isSafeInteger(info.pid) && info.pid > 0 ? info.pid : null;
       const deadHere = sameHost && lockPid !== null && (lockPid === o.pid || !o.isAlive(lockPid));
-      if (ageMs > o.staleMs || deadHere) return { stale: true, ident: { dev: st.dev, ino: st.ino } };
+      if (ageMs > o.staleMs || deadHere) { keep = true; return { stale: true, ident: { dev: st.dev, ino: st.ino }, fd }; }
       const secs = Math.max(0, Math.round(ageMs / 1000));
       return { stale: false, message: `the session log is locked by another server process (last heartbeat ${secs} s ago); stop that process, or wait: its lock counts as stale after ${Math.round(o.staleMs / 1000)} s without a heartbeat` };
-    } finally { closeSync(fd); }
+    } finally { if (!keep) closeSync(fd); }
   }
 
   /**
@@ -330,7 +338,7 @@ export class SessionLock {
   }
 
   private async recheck(): Promise<boolean> {
-    await new Promise((r) => setTimeout(r, LOCK_RECHECK_MS));
+    await this.recheckDelay();
     return !this.released && this.verify();
   }
 

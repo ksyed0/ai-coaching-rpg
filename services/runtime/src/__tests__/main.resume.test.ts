@@ -262,7 +262,7 @@ describe("bootstrap: resume after a restart (US-0018)", () => {
     for (let i = 0; i < 200 && !gone; i++) { try { process.kill(serverPid, 0); await new Promise((r) => setTimeout(r, 25)); } catch { gone = true; } }
     // In a container whose PID 1 does not reap orphans the killed server stays a zombie, which still answers kill(pid, 0): its lock
     // then looks live and the restart must wait for the stale age. Age the lock instead (as if the crash were a minute ago).
-    if (!gone) { const t = (Date.now() - 60_000) / 1000; await utimes(path.join(dataDir(), "r1.lock"), t, t); }
+    if (!gone) { const t = (Date.now() - 600_000) / 1000; await utimes(path.join(dataDir(), "r1.lock"), t, t); } // 10 min: far past the 30 s stale age
     fac.close(); p.close();
     expect(await readdir(dataDir())).toContain("r1.lock"); // the dead process left its lock behind
 

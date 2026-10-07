@@ -9,12 +9,18 @@ let dir: string;
 const held: SessionLock[] = [];
 beforeEach(async () => { dir = await mkdtemp(path.join(os.tmpdir(), "acr-lock-")); });
 afterEach(async () => { for (const l of held.splice(0)) l.release(); await rm(dir, { recursive: true, force: true }); });
-const take = (opts: Parameters<typeof SessionLock.acquire>[2] = {}) => { const l = SessionLock.acquire(dir, "s", opts); held.push(l); return l; };
+/** A fixed wall clock for the lock's age judgements: no test depends on how long the runner takes between two lines. */
+const NOW = 1_900_000_000_000;
+const take = (opts: Parameters<typeof SessionLock.acquire>[2] = {}) => {
+  const l = SessionLock.acquire(dir, "s", { now: () => NOW, recheckDelay: () => Promise.resolve(), ...opts });
+  held.push(l);
+  return l;
+};
 const lockFile = () => path.join(dir, "s.lock");
 /** A lock file as another process would leave it, with its mtime `ageMs` in the past. */
 async function foreignLock(info: Record<string, unknown>, ageMs: number): Promise<void> {
   await writeFile(lockFile(), JSON.stringify(info) + "\n", { mode: 0o600 });
-  const t = (Date.now() - ageMs) / 1000;
+  const t = (NOW - ageMs) / 1000;
   await utimes(lockFile(), t, t);
 }
 
@@ -67,8 +73,10 @@ describe("SessionLock", () => {
 
   it("judges a half-written or foreign lock by its age only", async () => {
     await writeFile(lockFile(), "{not json");
+    const fresh = (NOW - 1_000) / 1000;
+    await utimes(lockFile(), fresh, fresh);
     expect(() => take({ hostname: "me" })).toThrow(/locked/);
-    const t = (Date.now() - 60_000) / 1000;
+    const t = (NOW - 60_000) / 1000;
     await utimes(lockFile(), t, t);
     take({ hostname: "me" });
   });
@@ -91,7 +99,7 @@ describe("SessionLock", () => {
   });
 
   it("the heartbeat refreshes the mtime through the held descriptor", async () => {
-    let now = Date.now();
+    let now = NOW;
     const l = take({ now: () => now });
     now += 3_600_000;
     await l.heartbeat();
