@@ -65,7 +65,7 @@
 - Load-sensitive tests: a few tests assert wall-clock bounds or count `acr-demo-*` temp directories in the shared `/tmp` and fail under load (see the coverage block); tracked as BUG-0006.
 - The Stop hook records cumulative totals per snapshot in `docs/AI_COST_LOG.md`; do not sum its rows.
 
-## Session 7 — 2026-10-07 (owner housekeeping, US-0033 shipped, US-0034 in build)
+## Session 7 — 2026-10-07 (owner housekeeping, US-0033, US-0034 and US-0013 shipped)
 
 **Done**
 - Owner housekeeping: `docs/pitch/` (executive pitch deck, ~6 MB .pptx) committed and merged as PR #22; the 15 remote branches merged into `develop` deleted (`chore/ai-cost-log-session-1` kept, it is not merged); merged worktree and local branch removed.
@@ -73,8 +73,13 @@
 - Review loop: implementer (opus) -> independent review (needs fixes: 1 Important, 6 Minor) -> fix round -> scoped re-review (needs fixes: 1 more Important) -> fix round -> narrow re-review (ready to push). Details in `docs/LESSONS.md` L-0012 and L-0013.
 - Gates on the final commit: typecheck ok; eslint 0 errors (37 old warnings in `tools/`); `pnpm lint:sdk` ok; `pnpm test:coverage` green twice (once under `yes` x8 load), runtime 88 files / 1708 tests, 96.4% statements / 98.6% lines; `npm run plan:test` 1241 passed; `pnpm demo --fast` 29/29, `--security --resume` 42/42, `--showcase --fast` 14/14; the join-code test files green in `node:22` as root and as `--user node`. No live model calls (no prompt change).
 
+**Also shipped overnight (autonomous run, merged on green CI, 14 of 14 checks each)**
+- **US-0034 Game Master suggests hidden-fact releases (PR #25).** Optional per-fact `earned_when` condition; the Game Master judges pending conditions (nonce-signed, one re-ask, at most 2 checks per round, none in a round whose exit verdict is true); a true verdict records one facilitator-only `gm.fact_earned` event (role and number, never the text) and the facilitator is told `/release <role> <n>`; never repeated (folded from the log, survives restart); nothing is released without `release_hidden` unless `GM_AUTO_RELEASE=1` (off by default, recorded as a Game Master action, crash window repaired on resume). Review: no Critical or Important; Minor M1..M6 fixed. TC-0008..TC-0012.
+- **US-0013 rejoin replay (PR #26).** Optional `lastSeq` on `join` / `join_facilitator`; `joined.replay {afterSeq,toSeq,events,complete}` then exactly those event frames, filtered by the same default-deny `viewFor`; exactly-once against the live stream (replay, snapshot and subscribe in one synchronous block, last 4096 events kept in memory); caps 1000 events / 256 KiB and bounded by the snapshot size; terminal client `--last-seq` and a correct rejoin hint. Reviews found 3 Important (wrong rejoin seq after a mid-replay drop, replay cap ignoring snapshot bytes, untested facilitator ordering), all fixed and re-reviewed. TC-0013..TC-0016. EPIC-0002 is now In Progress (protocol slice only).
+- **Simulation runs (live Gemma, generated players, `--evaluate`):** see `docs/memory/demo-and-testing.md`. After US-0034 the real model judged the CFO condition true in scene 4 and the Game Master suggested the release; the Game Master ended 5 of 6 scenes; 0 fallbacks. Mock demos stay 29 / 42 / 14 / 15.
+
 **In progress**
-- US-0034 (Game Master suggests hidden-fact releases) is being built by an implementer subagent on `feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release` (worktree `../ai-coaching-rpg.worktrees/US-0034`, not pushed). Test case ids TC-0008..TC-0012 are reserved for it; the registry (`TC` next/last) must be reconciled when it merges. It then needs the independent review loop and a PR.
+- Nothing is in flight at the time of writing. Next: US-0019 (model cost per session), US-0020, US-0023 and the EPIC-0005 remainder; see `docs/memory/backlog-and-decisions.md` for the follow-ups collected from the reviews.
 
 **Open items / blockers**
 - Owner: rotate the OpenRouter key pasted into chat on 2026-10-02 (still outstanding); download a second local model (recommended: Ministral-3-14B-Instruct-2512) and give its id; decide on `chore/ai-cost-log-session-1`.
