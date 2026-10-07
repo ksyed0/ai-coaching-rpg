@@ -267,6 +267,17 @@ describe("pnpm calibrate: usage and input errors", () => {
     expect(r.exitCode).toBe(0);
     expect(r.outText).toContain(CALIBRATE_USAGE);
   });
+  it("--help lists every subcommand, says approve is for the owner only, and names every summary-replace condition", async () => {
+    const r = await run(["--help"]);
+    for (const sub of ["draft", "excerpt", "approve", "assign-splits"]) expect(r.outText).toMatch(new RegExp(`^ {7}pnpm calibrate ${sub} `, "m"));
+    expect(r.outText).toMatch(/approve +OWNER ONLY \(an agent never approves on the owner's behalf\)/);
+    const start = CALIBRATE_USAGE.indexOf("is replaced only by a complete run");
+    expect(start).toBeGreaterThan(0);
+    const conditions = CALIBRATE_USAGE.slice(start, CALIBRATE_USAGE.indexOf("--strict", start));
+    for (const c of ["every probe", "--only naming every", "--criteria all", "no failure or abort", "at least one usable answer", "usable answers >= minUsable", "contrast probes, at least 50% of them usable"]) {
+      expect(conditions.replace(/\s+/g, " ")).toContain(c);
+    }
+  });
   it("rejects bad options with exit 2", async () => {
     const j = { judges: [judge(good())] };
     for (const argv of [
@@ -310,12 +321,14 @@ describe("pnpm calibrate: usage and input errors", () => {
     expect(bad.exitCode).toBe(2);
     expect(bad.errText).not.toContain("sk-SECRET-9");
   });
-  it("handles subcommands: run is the default, the reserved ones are not available yet, anything else is refused", async () => {
+  it("handles subcommands: run is the default, the authoring ones take only their own options, anything else is refused", async () => {
     for (const name of ["draft", "excerpt", "approve", "assign-splits"]) {
-      const r = await run([name, ...SCN], { judges: [judge(good())] });
+      const r = await run([name, ...SCN, "--repeat", "2"], { judges: [judge(good())] });
       expect(r.exitCode).toBe(2);
-      expect(r.errText).toContain(`error: subcommand "${name}" is not available yet`);
+      expect(r.errText).toContain(`error: --repeat is not an option of ${name}`);
     }
+    const drafterOnRun = await run([...SCN, "--drafter", "d,m"], { judges: [judge(good())] });
+    expect(drafterOnRun.errText).toContain("error: --drafter is not an option of run");
     for (const argv of [["bogus", ...SCN], ["run", "extra", ...SCN], ["run", "run", ...SCN]]) {
       const r = await run(argv, { judges: [judge(good())] });
       expect(r.exitCode, JSON.stringify(argv)).toBe(2);
@@ -493,6 +506,30 @@ describe("pnpm calibrate: a judge that degrades mid-run", () => {
   });
 });
 
+describe("pnpm calibrate: the shared usable-fraction rule at its exact boundary", () => {
+  // 5 single probes (copies of disc-l1, one scored slot each) and minUsable 0.2: a judge that answers only its first call has 1 of 5 usable,
+  // exactly 0.2, so the summary IS replaced. (5 - 4) / 5 is exactly 0.2, whereas 1 - 4/5 is 0.19999999999999996: a CLI that computed the
+  // fraction its own way instead of with metrics.usableFraction would keep the old summary here.
+  it("replaces the summary when 1 of 5 answers is usable and minUsable is 0.2", async () => {
+    const disc = await readFile(path.join(FRIDAY, "calibration", "disc-l1.yaml"), "utf8");
+    const scn = await scenarioWith(Object.fromEntries([1, 2, 3, 4, 5].map((i) => [`u-${i}.yaml`, disc.replace("id: disc-l1", `id: u-${i}`)])));
+    await writeFile(path.join(scn, "calibration", "targets.yaml"), "minUsable: 0.2\n");
+    const summary = path.join(dir, "esc-scope-creep-01", "fake-model-primary-v1.json");
+    expect((await run(["--scenario", scn, "--out", dir], { judges: [judge(good())] })).exitCode).toBe(0);
+    const before = await readFile(summary, "utf8");
+    let calls = 0;
+    const inner = good();
+    const firstOnly = { ...inner, stream: (req: Parameters<typeof inner.stream>[0]) => { calls++; if (calls > 1) throw new Error("down"); return inner.stream(req); } } as FakeJudge;
+    const r = await run(["--scenario", scn, "--out", dir], { judges: [judge(firstOnly)] });
+    expect(r.run!.judges[0]!.metrics.usability).toMatchObject({ slots: 5, unusable: 4 });
+    expect(r.outText).not.toContain("not updated");
+    expect(r.outText).toMatch(/summaries updated: fake-model-primary-v1\.json/);
+    const after = await readFile(summary, "utf8");
+    expect(after).not.toBe(before);
+    expect(JSON.parse(after).usable).toEqual({ n: 1, of: 5 });
+  });
+});
+
 describe("pnpm calibrate: two judges with one model id", () => {
   const same = (p: FakeJudge): Judge => ({ ...judge(p, "second"), model: "fake-model-primary" });
   const file = () => path.join(dir, "esc-scope-creep-01", "fake-model-primary-v1.json");
@@ -595,7 +632,7 @@ describe("pnpm calibrate: contrast thinly measured on a larger set", () => {
   });
   it("reports no usable answers ahead of the contrast reason", async () => {
     const scn = await big();
-    const r = await run(["--scenario", scn, "--out", dir, "--only", "s-1,s-2,s-3,s-4,s-5,s-6,s-7,s-8,s-9,s-10,s-11,s-12,s-13,s-14,s-15,s-16,s-17,s-18,listening-contrast-01,negotiation-contrast-01"], { judges: [judge(fakeJudge(criteria, () => ({ discovery: 3 }), () => true))] });
+    const r = await run(["--scenario", scn, "--out", dir], { judges: [judge(fakeJudge(criteria, () => ({ discovery: 3 }), () => true))] });
     expect(r.outText).toContain("not updated: no usable answers");
   });
 });
