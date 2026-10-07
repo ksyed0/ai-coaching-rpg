@@ -1,5 +1,5 @@
 import { stampFromBody } from "./nonce.js";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
@@ -30,6 +30,12 @@ const tcpHandles = () => process.getActiveResourcesInfo().filter((r) => r === "T
 const PARENT = mkdtempSync(path.join(os.tmpdir(), "acr-showcase-parent-"));
 afterAll(() => rmSync(PARENT, { recursive: true, force: true }));
 const demoTempDirs = () => readdirSync(PARENT).filter((d) => d.startsWith("acr-showcase-run-"));
+/** Hand-fired timers for RunDeps.setTimer (AGENTS.md section 8: no small real timers). armed[0] is the watchdog; armed[1], if any, the abort grace. */
+const manualTimers = () => {
+  const armed: { ms: number; fire: () => void; cancelled: boolean }[] = [];
+  const setTimer = (fire: () => void, ms: number) => { const t = { ms, fire, cancelled: false }; armed.push(t); return () => { t.cancelled = true; }; };
+  return { armed, setTimer, fireWatchdog: () => armed[0]!.fire() };
+};
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => { for (const c of cleanups.splice(0).reverse()) await c(); });
 
@@ -204,9 +210,11 @@ describe("hostile and hung runs", () => {
     expect(JSON.stringify(report)).not.toMatch(new RegExp("\\\\u001b"));
   });
 
-  it("aborts a hung run with the tiny injected watchdog and leaves nothing behind", async () => {
-    const dirsBefore = demoTempDirs(); const tcpBefore = tcpHandles();
-    const { exitCode, report } = await run(["--showcase", "--fast", "--no-color"], { watchdogMs: 100, beforeAct: () => new Promise(() => {}) });
+  it("aborts a hung run with the injected watchdog (fired by hand) and leaves nothing behind", async () => {
+    const dirsBefore = demoTempDirs(); const tcpBefore = tcpHandles(); const t = manualTimers();
+    const { exitCode, report } = await run(["--showcase", "--fast", "--no-color"], { watchdogMs: 100, setTimer: t.setTimer, beforeAct: () => { t.fireWatchdog(); return new Promise(() => {}); } });
+    expect(t.armed[0]!.ms).toBe(100);
+    expect(t.armed[1]!.cancelled).toBe(true); // the run unwound inside the grace
     expect(exitCode).toBe(1);
     expect(report!.results.find((r) => r.id === "WATCHDOG")).toMatchObject({ status: "failed" });
     const failed = report!.results.filter((r) => r.status === "failed");
@@ -216,6 +224,18 @@ describe("hostile and hung runs", () => {
     expect(report!.showcase).toBeDefined(); // whatever was seen so far is still reported
     expect(tcpHandles()).toBe(tcpBefore);
     expect(demoTempDirs()).toEqual(dirsBefore);
+  });
+
+  it("an abort right after the run's temp dir is made removes it before runDemo returns and starts no system (BUG-0007)", async () => {
+    const dirsBefore = demoTempDirs(); const tcpBefore = tcpHandles(); const t = manualTimers(); let created = "";
+    const { exitCode, report } = await run(["--showcase", "--fast", "--no-color"], { setTimer: t.setTimer, afterTempCreated: (root) => { created = root; t.fireWatchdog(); } });
+    expect(exitCode).toBe(1);
+    expect(report!.results.find((r) => r.id === "WATCHDOG")).toMatchObject({ status: "failed" });
+    expect(created.startsWith(PARENT)).toBe(true);
+    expect(existsSync(created)).toBe(false);
+    expect(demoTempDirs()).toEqual(dirsBefore);
+    expect(tcpHandles()).toBe(tcpBefore);
+    expect(t.armed[1]!.cancelled).toBe(true);
   });
 
   it("a bypassed showcase check is a failure, not a silent pass", async () => {

@@ -177,9 +177,12 @@ describe("--showcase --live --players generated (loopback fake model)", () => {
   });
 
   it("an aborted run (watchdog) stops waiting for the model and still reports", async () => {
-    const { env } = await fakeModel(() => ({ text: "ok fine." }));
-    const { exitCode } = await run(ARGV, env, { watchdogMs: 1 });
+    let fire: (() => void) | undefined; // the first timer armed is the watchdog
+    // The watchdog (fired by hand, no small real timer) goes off while the first player line is being generated.
+    const { env } = await fakeModel(() => { fire?.(); return { text: "ok fine." }; });
+    const { exitCode, report } = await run(ARGV, env, { setTimer: (f) => { fire ??= f; return () => {}; } });
     expect(exitCode).toBe(1);
+    expect(report!.results.find((r) => r.id === "WATCHDOG")).toMatchObject({ status: "failed" });
   });
 });
 
@@ -291,12 +294,15 @@ describe("generated players: waiting for the player's own stream", () => {
 
 describe("generated players: abort and audits", () => {
   it("the watchdog aborts a stalled player model call at once (the request is cancelled, the run is ended by the watchdog, not by the model deadlines)", async () => {
-    const { env, seen } = await fakeModel(() => ({ stall: true }));
-    // The model deadlines are at their 600000 ms maximum (a larger value is a configuration error), far beyond the test limit: only the watchdog can end the run in time (no elapsed-time assertion).
-    const r = await run(ARGV, { ...env, NPC_FIRST_TOKEN_TIMEOUT_MS: "600000", NPC_REPLY_TIMEOUT_MS: "600000" }, { watchdogMs: 400 });
+    let fire: (() => void) | undefined; // the first timer armed is the watchdog
+    // The first player call stalls and the watchdog is fired (by hand) as it arrives. The model deadlines are at their 600000 ms maximum
+    // (a larger value is a configuration error), so only the watchdog can end the run (no elapsed-time assertion).
+    const { env, seen } = await fakeModel(() => { fire?.(); return { stall: true }; });
+    const r = await run(ARGV, { ...env, NPC_FIRST_TOKEN_TIMEOUT_MS: "600000", NPC_REPLY_TIMEOUT_MS: "600000" }, { setTimer: (f) => { fire ??= f; return () => {}; } });
     expect(r.exitCode).toBe(1);
+    expect(r.report!.results.find((x) => x.id === "WATCHDOG")).toMatchObject({ status: "failed" });
     expect(seen.player.length).toBe(1);
-    expect(seen.aborted).toBe(1);
+    await vi.waitFor(() => expect(seen.aborted).toBe(1)); // the server sees the cancelled request close
   }, 90_000);
 
   const tamper = (fn: (g: NonNullable<Parameters<NonNullable<NonNullable<RunDeps["showcaseHooks"]>["beforeLine"]>>[0]["generated"]>) => void) => ({
