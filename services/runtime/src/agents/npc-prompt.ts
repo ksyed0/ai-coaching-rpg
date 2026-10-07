@@ -52,7 +52,7 @@ export const SHARE_SECTION = "## What you may now share";
 
 /**
  * The "## What you may now share" section: hidden facts the facilitator has released to THIS character, or [] when there are none.
- * It is the LAST section on purpose (the cacheable prefix before it stays stable) and it says the facts are cleared and override the earlier rules, because the role's own guardrail ("never reveal hidden information unless...") would otherwise keep a small model withholding it.
+ * It is the LAST section on purpose (after the guardrails it overrides; the cached prefix, stableNpcPrefix, never holds it) and it says the facts are cleared and override the earlier rules, because the role's own guardrail ("never reveal hidden information unless...") would otherwise keep a small model withholding it.
  */
 export function releasedSection(released: string[]): string[] {
   if (released.length === 0) return [];
@@ -100,10 +100,35 @@ export function toChatTurns(allLines: SpokenLine[], selfId: string, window = 30)
 }
 
 /**
+ * US-0019 (AC-0061): the STABLE start of a character's system prompt: everything that depends on the scenario role alone (who it is, how it
+ * speaks, its persona, its guardrails and its voice), never on session state. It is byte-identical for every turn of the character, before and
+ * after an npc.updated (goals, knowledge, a released fact), an inject and a scene change, so a provider's prompt cache keeps it
+ * (`cachePrefixChars`). Everything that changes comes after it, in buildNpcRequest. Holds no session data: no goals, knowledge, hidden facts,
+ * scene, peers or lines.
+ */
+export function stableNpcPrefix(role: NpcRole): string {
+  return [
+    `${npcIntro(role)}${role.title ? `, ${role.title}` : ""} in a live role-play training session.`,
+    `You ARE ${role.name}${role.title ? `, ${role.title}` : ""}: a real person on this call, not a narrator. Speak in the first person ("I", "my team"). Never refer to yourself in the third person, neither by name nor by your own role or title${role.title ? ` (not "the ${role.title.split(",")[0]!.trim()}")` : ""}. Every other speaker is another person you are talking to.`,
+    `Stay in character at all times. Speak only as ${role.name}. Reply in one to four sentences of natural spoken dialogue, no stage directions, no lists.`,
+    `Other speakers are shown as [role_id]: text. Never mention role ids; address people the way ${role.name} would.`,
+    `Reply with only ${role.name}'s own words. Never write a line for anyone else, never continue the conversation for the other speakers, and never begin a reply with a [...] speaker tag or with ${role.name}'s own name.`,
+    NO_REPEAT_RULE,
+    "", "## Persona", role.persona,
+    "", "## Rules you must follow", bullets(role.guardrails),
+    "", `## Voice`, `Style: ${role.voice.style}. Pace: ${role.voice.pace}.`,
+  ].join("\n");
+}
+
+/**
  * Builds the NPC model request. Pure. Guardrails (Architecture section 4): only this role's own
  * persona/goals/knowledge, plus hidden facts the facilitator has released to it, ever reach the prompt.
  * The rubric, other roles' brief/private_facts, unreleased hidden facts and participant display
  * names are never read here; speakers are identified by role id only.
+ *
+ * Section order (US-0019): the stable prefix (stableNpcPrefix: intro and rules, persona, guardrails, voice), then what changes, least often
+ * first: current goals, what you know, the current scene, who else is in the room, how you respond (both depend on the scene's characters),
+ * your last lines (every turn) and, last, the released facts (they override the guardrails above them).
  */
 export function buildNpcRequest(opts: {
   role: NpcRole; scene: Scene; state: SessionState; window?: number; maxTokens?: number; temperature?: number;
@@ -117,25 +142,18 @@ export function buildNpcRequest(opts: {
   const allLines = visibleTranscript(state, role.id);
   const peers = (opts.peers ?? []).filter((p) => p.id !== role.id && scene.participants.includes(p.id)).map((p): PublicPeer => ({ id: p.id, name: p.name, title: p.title, seniority: p.seniority }));
   const allowSilence = opts.allowSilence ?? peers.length > 0;
-  const system = [
-    `${npcIntro(role)}${role.title ? `, ${role.title}` : ""} in a live role-play training session.`,
-    `You ARE ${role.name}${role.title ? `, ${role.title}` : ""}: a real person on this call, not a narrator. Speak in the first person ("I", "my team"). Never refer to yourself in the third person, neither by name nor by your own role or title${role.title ? ` (not "the ${role.title.split(",")[0]!.trim()}")` : ""}. Every other speaker is another person you are talking to.`,
-    `Stay in character at all times. Speak only as ${role.name}. Reply in one to four sentences of natural spoken dialogue, no stage directions, no lists.`,
-    `Other speakers are shown as [role_id]: text. Never mention role ids; address people the way ${role.name} would.`,
-    `Reply with only ${role.name}'s own words. Never write a line for anyone else, never continue the conversation for the other speakers, and never begin a reply with a [...] speaker tag or with ${role.name}'s own name.`,
-    NO_REPEAT_RULE,
-    "", "## Persona", role.persona,
+  const stable = stableNpcPrefix(role);
+  const changing = [
     "", "## Your current goals", bullets(npc.goals),
     "", "## What you know", bullets(npc.knowledge),
-    "", "## Rules you must follow", bullets(role.guardrails),
     "", "## Current scene", `${scene.title}: ${scene.goal}`,
-    "", `## Voice`, `Style: ${role.voice.style}. Pace: ${role.voice.pace}.`,
     ...roomSection(role, peers),
     ...respondSection(role, peers, allowSilence),
     ...lastLinesSection(allLines, role.id),
     ...releasedSection(npc.released),
   ].join("\n");
+  const system = `${stable}\n${changing}`;
 
   const messages = toChatTurns(allLines, role.id, opts.window);
-  return { system, messages, maxTokens: opts.maxTokens ?? DEFAULT_NPC_MAX_TOKENS, cacheSystem: true, ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}) };
+  return { system, messages, maxTokens: opts.maxTokens ?? DEFAULT_NPC_MAX_TOKENS, cacheSystem: true, cachePrefixChars: stable.length, ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}) };
 }
