@@ -100,6 +100,16 @@ export async function bootstrap(opts: {
   const lost: { halt?: () => void } = {};
   try { store = await openSession({ scenario, sessionId, dataDir, clock, mode: startMode.mode, now: opts.now, joinCodes: true, lock: { staleMs: lockStale.staleMs, onLost: () => lost.halt?.() } }); }
   catch (err) { return { ok: false, errors: [err instanceof SessionStoreError ? err.message : `cannot open the session log: ${err instanceof Error ? err.message : String(err)}`] }; }
+  /**
+   * US-0033 (review I-1): every failure from here on withdraws join codes this start issued but never showed, then closes the store,
+   * so the next start issues and shows new ones instead of keeping codes nobody has. (The codes are written before they are shown,
+   * never after: a code on screen must already be durable, or a crash right after the display would lose codes people hold.)
+   */
+  const failOpened = async (errors: string[]): Promise<BootstrapResult> => {
+    if (!store.discardIssuedCodes()) errors.push(`the join codes this start issued could not be withdrawn: move ${sessionId}.codes.json in the data directory aside before the next start, or nobody can join`);
+    await store.close();
+    return { ok: false, errors };
+  };
   for (const note of store.notes) warn(note);
   if (store.rotatedTo) log(`previous session log moved aside${store.rotatedBecause === "ended" ? " (that session had ended)" : ""}: ${store.rotatedTo}`);
 
@@ -131,7 +141,7 @@ export async function bootstrap(opts: {
     lost.halt = () => store.engine.halt("the session lock was lost");
     opts.testHooks?.beforeLockCheck?.();
     if (store.lock.lost || !store.lock.verify()) lost.halt();
-  } catch (err) { gmTrace?.close(); await store.close(); return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
+  } catch (err) { gmTrace?.close(); return failOpened([err instanceof Error ? err.message : String(err)]); }
 
   host.startTicker(opts.tickMs ?? 1_000);
   let server: Awaited<ReturnType<typeof startServer>>;
@@ -140,7 +150,7 @@ export async function bootstrap(opts: {
       ...(store.joinCodes ? { joinCodes: new Map([[sessionId, store.joinCodes.codes]]) } : {}),
       limits: security.config.limits, allowedOrigins: security.config.allowedOrigins, trustProxy: security.config.trustProxy,
     }); }
-  catch (err) { host.stopTicker(); gmTrace?.close(); await store.close(); return { ok: false, errors: [`cannot listen on port ${port}: ${err instanceof Error ? err.message : String(err)}`] }; }
+  catch (err) { host.stopTicker(); gmTrace?.close(); return failOpened([`cannot listen on port ${port}: ${err instanceof Error ? err.message : String(err)}`]); }
   if (security.config.trustProxy && !/^(localhost|::1|127(\.\d{1,3}){3})$/i.test(security.config.host)) {
     warn("WARNING: TRUST_PROXY=1 but RUNTIME_HOST is not a loopback address: a client that reaches the port directly can forge X-Forwarded-For and dodge the per-address limits; bind 127.0.0.1 behind the proxy");
   }
@@ -150,7 +160,9 @@ export async function bootstrap(opts: {
   // US-0033: the codes are shown once, through their own channel (never log/warn), and only by the start that issued them.
   if (store.joinCodes?.issued) {
     const issued = Object.entries(store.joinCodes.issued).map(([roleId, code]) => ({ roleId, code }));
-    try { (opts.showJoinCodes ?? printJoinCodes)(issued); } catch { /* the display must not stop the server */ }
+    // Codes nobody saw lock everyone out: a display that fails stops the start (and withdraws them), never silently.
+    try { (opts.showJoinCodes ?? printJoinCodes)(issued); }
+    catch { host.stopTicker(); await server.close(); gmTrace?.close(); return failOpened(["could not show the player join codes (the start was stopped and the codes withdrawn; start again)"]); }
   } else if (store.joinCodes) {
     log("player join codes: the codes issued earlier for this session still apply (they are not shown again; to issue new ones, stop the server, move the session's .codes.json file in the data directory aside and start it again)");
   }

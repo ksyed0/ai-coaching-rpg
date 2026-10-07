@@ -12,7 +12,11 @@ const deps = (o: Partial<JoinCodeDeps> = {}): JoinCodeDeps => ({
 describe("join code on the terminal client (US-0033)", () => {
   it("test_isPlausibleJoinCode_accepts_loose_typing_and_refuses_other_shapes", () => {
     for (const ok of [CODE, "abcdefghjkmn", " abcd efgh jkmn ", "0000-1111-2222"]) expect(isPlausibleJoinCode(ok)).toBe(true);
-    for (const bad of ["", "ABCD-EFGH", "ABCD-EFGH-JKMNP", "ABCD-EFGH-JKMI", "ABCD-EFGH-JKM!", `${CODE}${" ".repeat(60)}`]) expect(isPlausibleJoinCode(bad)).toBe(false);
+    for (const bad of ["", "ABCD-EFGH", "ABCD-EFGH-JKMNP", "ABCD-EFGH-JKMU", "ABCD-EFGH-JKM!", "ſBCD-EFGH-JKMN", "ABCD-EFGH-JKMN\u200b", `ABCD${" ".repeat(60)}EFGH-JKMN`]) expect(isPlausibleJoinCode(bad)).toBe(false);
+  });
+
+  it("test_isPlausibleJoinCode_folds_O_I_L_like_the_server_review_M3", () => {
+    for (const ok of ["ABCD-EFGH-JKMO", "abcd-efgh-jkmi", "ABCD-EFGH-JKML"]) expect(isPlausibleJoinCode(ok)).toBe(true);
   });
 
   it("test_resolveJoinCode_env_first_ahead_of_a_file_and_the_prompt", async () => {

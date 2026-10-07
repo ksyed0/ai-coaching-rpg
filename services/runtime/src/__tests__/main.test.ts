@@ -467,6 +467,7 @@ describe("bootstrap: player join codes (US-0033)", () => {
     const show = (c: { roleId: string; code: string }[]) => shown.push(c);
     const a = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: show });
     if (!a.ok) throw new Error(a.errors.join("; "));
+    await a.runtime.host.start(); // the session has begun: its codes are now in people's hands
     await a.runtime.stop();
     const logs: string[] = [];
     const b = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: (m) => logs.push(m), warn: (m) => logs.push(m), showJoinCodes: show });
@@ -483,8 +484,74 @@ describe("bootstrap: player join codes (US-0033)", () => {
     expect((await ask(c.runtime.port, { type: "join", sessionId: "jc", roleId: "host", participantId: "a", joinCode: code })).code).toBe("unauthorized");
   });
 
+  const codesFile = () => path.join(tmp, "jc.codes.json");
+  const exists = async (f: string) => (await readdir(path.dirname(f))).includes(path.basename(f));
+
+  it("test_bootstrap_listen_fails_then_restart_shows_codes_review_I1", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
+    const net = await import("node:net");
+    const blocker = net.createServer();
+    await new Promise<void>((r) => blocker.listen(0, "127.0.0.1", () => r()));
+    try {
+      const port = (blocker.address() as { port: number }).port;
+      const shown: unknown[] = [];
+      const r = await bootstrap({ env: env({ RUNTIME_PORT: String(port), RUNTIME_HOST: "127.0.0.1" }), root: tmp, logDir: tmp, log: () => {}, warn: () => {}, showJoinCodes: (c) => shown.push(c) });
+      expect(r.ok).toBe(false);
+      expect(shown).toHaveLength(0);
+      expect(await exists(codesFile())).toBe(false); // the unseen codes were withdrawn
+    } finally { await new Promise<void>((r) => blocker.close(() => r())); }
+    const shown2: unknown[] = [];
+    const r2 = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: (c) => shown2.push(c) });
+    if (!r2.ok) throw new Error(r2.errors.join("; "));
+    runtime = r2.runtime;
+    expect(shown2).toHaveLength(1);
+  });
+
+  it("test_bootstrap_missing_api_key_then_restart_shows_codes_review_I1", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
+    const shown: unknown[] = [];
+    const r = await bootstrap({ env: env({ MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: "" }), root: tmp, logDir: tmp, log: () => {}, warn: () => {}, showJoinCodes: (c) => shown.push(c) });
+    expect(r.ok).toBe(false);
+    expect(shown).toHaveLength(0);
+    expect(await exists(codesFile())).toBe(false);
+    const r2 = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: (c) => shown.push(c) });
+    if (!r2.ok) throw new Error(r2.errors.join("; "));
+    runtime = r2.runtime;
+    expect(shown).toHaveLength(1);
+  });
+
+  it("test_bootstrap_failure_on_a_resumed_session_withdraws_reissued_codes_review_I1", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
+    const a = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: () => {} });
+    if (!a.ok) throw new Error(a.errors.join("; "));
+    await a.runtime.host.start();
+    await a.runtime.stop();
+    await rm(codesFile()); // the operator moved the codes aside to get new ones...
+    const r = await bootstrap({ env: env({ MODEL_PROVIDER: "anthropic", ANTHROPIC_API_KEY: "" }), root: tmp, logDir: tmp, log: () => {}, warn: () => {}, showJoinCodes: () => {} });
+    expect(r.ok).toBe(false); // ...but this start failed before showing them
+    expect(await exists(codesFile())).toBe(false);
+    const shown: unknown[] = [];
+    const r2 = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: (c) => shown.push(c) });
+    if (!r2.ok) throw new Error(r2.errors.join("; "));
+    runtime = r2.runtime;
+    expect(shown).toHaveLength(1); // the resumed session gets codes someone has actually seen
+  });
+
+  it("test_bootstrap_a_display_that_throws_fails_the_start_and_withdraws_the_codes_review_I1", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
+    const r = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: () => { throw new Error("stdout closed"); } });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join("\n")).toMatch(/could not show the player join codes/);
+    expect(await exists(codesFile())).toBe(false);
+    expect(await exists(path.join(tmp, "jc.lock"))).toBe(false); // the lock was released: the next start is not blocked
+  });
+
   it("test_bootstrap_unusable_codes_file_stops_startup_with_a_remedy", async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
+    const a = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: () => {} });
+    if (!a.ok) throw new Error(a.errors.join("; "));
+    await a.runtime.host.start(); // a running session resumes, so its codes file is read
+    await a.runtime.stop();
     await writeFile(path.join(tmp, "jc.codes.json"), "{ broken", { mode: 0o600 });
     const r = await bootstrap({ env: env(), root: tmp, logDir: tmp, log: () => {}, warn: () => {}, showJoinCodes: () => {} });
     expect(r.ok).toBe(false);

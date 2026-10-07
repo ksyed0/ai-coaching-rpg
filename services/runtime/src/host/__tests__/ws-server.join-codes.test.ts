@@ -146,6 +146,18 @@ describe("player join codes (US-0033, AC-0120 / AC-0121)", () => {
     expect(host.assignments).toEqual({});
   });
 
+  it("test_join_unknown_session_costs_the_same_digest_work_review_M2", async () => {
+    const { port, code } = await setup();
+    const spy = vi.spyOn(JoinCodes.prototype, "verify");
+    try {
+      const c = await open(port);
+      c.send(join({ sessionId: "other", joinCode: code }));
+      expect((await c.next((m) => m.type === "error")).code).toBe("unauthorized");
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.instances[0]).toBe(JoinCodes.none());
+    } finally { spy.mockRestore(); }
+  });
+
   it("test_join_over_long_code_is_a_malformed_message_and_not_echoed", async () => {
     const { port } = await setup();
     const c = await open(port);

@@ -21,7 +21,8 @@ const SYMBOLS = new RegExp(`^[${JOIN_CODE_ALPHABET}]{${JOIN_CODE_SYMBOLS}}$`);
 
 /** Could this be a join code? (The server decides whether it is the right one.) */
 export function isPlausibleJoinCode(raw: string): boolean {
-  return raw.length <= MAX_JOIN_CODE_INPUT_CHARS && SYMBOLS.test(normalizeJoinCode(raw));
+  // normalizeJoinCode refuses non-ASCII (""), folds O to 0 and I/L to 1, exactly as the server compares.
+  return raw.trim().length <= MAX_JOIN_CODE_INPUT_CHARS && SYMBOLS.test(normalizeJoinCode(raw.trim()));
 }
 
 /**

@@ -102,3 +102,33 @@ describe("JoinCodes (US-0033)", () => {
     expect(() => JoinCodes.issue(["facilitator"], BIND)).toThrow(/reserved/);
   });
 });
+
+describe("join code input rules (US-0033 review M-2, M-3)", () => {
+  // A code whose symbols include S, 0 and 1, so the Crockford mappings and the long s can be probed.
+  const withS = () => { const seq = [25, 0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18]; let i = 0; return JoinCodes.issue(["host"], BIND, () => seq[i++ % seq.length]!); };
+
+  it("test_normalizeJoinCode_maps_O_to_0_and_I_L_to_1_the_Crockford_way", () => {
+    expect(normalizeJoinCode("oOiIlL")).toBe("001111");
+    const { codes, plain } = withS();
+    expect(plain.host).toBe("S01A-BCDE-FGHJ");
+    expect(codes.verify("host", "SO1A-BCDE-FGHJ")).toBe(true);  // O typed for 0
+    expect(codes.verify("host", "s0la-bcde-fghj")).toBe(true);  // l typed for 1
+    expect(codes.verify("host", "S0IA BCDE FGHJ")).toBe(true);  // I typed for 1
+  });
+
+  it("test_verify_non_ASCII_input_is_refused_before_case_folding", () => {
+    const { codes } = withS();
+    expect("ſ".toUpperCase()).toBe("S"); // the trap: the long s upper-cases to S
+    expect(codes.verify("host", "ſ01A-BCDE-FGHJ")).toBe(false);
+    expect(codes.verify("host", "S01A-BCDE-FGHJ​")).toBe(false);
+    expect(codes.verify("host", "S01A\tBCDE-FGHJ")).toBe(false);
+    expect(normalizeJoinCode("ſ01A")).toBe("");
+  });
+
+  it("test_JoinCodes_none_refuses_everything_with_the_same_digest_work", () => {
+    const none = JoinCodes.none();
+    expect(JoinCodes.none()).toBe(none); // one module-level instance
+    const { plain } = JoinCodes.issue(ROLES, BIND);
+    for (const r of ROLES) expect(none.verify(r, plain[r])).toBe(false);
+  });
+});

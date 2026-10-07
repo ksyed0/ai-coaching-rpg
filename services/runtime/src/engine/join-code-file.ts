@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { closeSync, constants as fsConstants, fchmodSync, fstatSync, fsyncSync, openSync, readSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants as fsConstants, fchmodSync, fstatSync, fsyncSync, openSync, readdirSync, readSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import path from "node:path";
 import { JoinCodeRecordError, JoinCodes } from "./join-codes.js";
 import { assertInside, fsyncDirSync } from "./log-files.js";
@@ -73,4 +73,24 @@ export function removeJoinCodesFile(dir: string, sessionId: string): void {
   try { unlinkSync(file); }
   catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return; throw err; }
   fsyncDirSync(dir);
+}
+
+/**
+ * Removes `<id>.codes.json.<12 hex>.tmp` files a crash left behind while writing (review M-5). Call only while holding the session
+ * lock: no other process can be writing one then. Matches exactly the names writeJoinCodesFile makes; unlink never follows a link.
+ * Returns how many were removed. A missing directory is fine.
+ */
+export function sweepJoinCodesTemps(dir: string, sessionId: string): number {
+  let names: string[];
+  try { names = readdirSync(dir); } catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return 0; throw err; }
+  const prefix = `${codesFileName(sessionId)}.`;
+  let n = 0;
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !/^[0-9a-f]{12}\.tmp$/.test(name.slice(prefix.length))) continue;
+    const file = path.join(dir, name);
+    assertInside(dir, file);
+    try { unlinkSync(file); n++; } catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
+  }
+  if (n > 0) fsyncDirSync(dir);
+  return n;
 }

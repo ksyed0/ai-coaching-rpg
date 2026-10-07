@@ -5,7 +5,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { ClientMessageSchema, type ServerMessage } from "./protocol.js";
 import { HostError, type SessionHost } from "./session-host.js";
 import { EngineError } from "../engine/session-engine.js";
-import type { JoinCodes } from "../engine/join-codes.js";
+import { JoinCodes } from "../engine/join-codes.js";
 import { AuthThrottle, DEFAULT_LIMITS, OPEN_SERVER_NOTICE, TokenBucket, WindowCounter, clientIp, ipKey, isValidToken, normalizeOrigin, secretsMatch, type Limits } from "./security.js";
 
 /** A 2,000 character utterance is at most about 8 KiB of JSON, so 16 KiB leaves room and bounds what one frame can cost. */
@@ -220,7 +220,8 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
               // US-0033: the role's code (constant-time, against a hash), or the reconnect token of the live connection that holds it.
               // Every other case (no or a wrong code, an unknown session or role, an AI character, `facilitator`) gets the same answer,
               // so a refusal never tells whether the role exists or is taken. Only someone with the right code can learn `role_taken`.
-              const byCode = opts.joinCodes.get(m.sessionId)?.verify(m.roleId, m.joinCode) ?? false;
+              // An unknown session is checked against JoinCodes.none(): the same digest work, always refused.
+              const byCode = (opts.joinCodes.get(m.sessionId) ?? JoinCodes.none()).verify(m.roleId, m.joinCode);
               if (!h || !(byCode || byReconnect)) return refuseLogin("player");
             } else {
               if (!h) return fail("unknown_session", "no such session");

@@ -20,8 +20,15 @@ export function newJoinCode(pick: (n: number) => number = randomInt): string {
   return formatJoinCode(s);
 }
 
-/** What the server compares: upper case, with spaces and hyphens removed (people type codes loosely). */
-export const normalizeJoinCode = (raw: string): string => raw.toUpperCase().replace(/[\s-]+/g, "");
+/**
+ * What the server compares: spaces and hyphens removed, upper case, and Crockford's look-alikes folded (O to 0, I and L to 1; no
+ * issued code contains O, I or L). Anything outside printable ASCII gives "" (never a match), checked BEFORE case folding, because
+ * Unicode upper-casing maps other characters onto code symbols (the long s "ſ" becomes "S").
+ */
+export function normalizeJoinCode(raw: string): string {
+  if (!/^[\x20-\x7e]*$/.test(raw)) return "";
+  return raw.replace(/[ -]+/g, "").toUpperCase().replace(/O/g, "0").replace(/[IL]/g, "1");
+}
 
 /** XXXX-XXXX-XXXX for display. */
 export const formatJoinCode = (raw: string): string => normalizeJoinCode(raw).replace(/(.{4})(?=.)/g, "$1-");
@@ -42,11 +49,19 @@ function digest(salt: Buffer, roleId: string, normalized: string): Buffer {
   return createHash("sha256").update(salt).update("\u0000").update(roleId, "utf8").update("\u0000").update(normalized, "utf8").digest();
 }
 
+let NONE: JoinCodes | undefined;
+
 export class JoinCodes {
   /** Compared against when the role has no code (unknown, an AI character, reserved), so every refusal costs the same work. */
   private readonly dummy: Buffer;
   private constructor(private readonly sessionId: string, private readonly scenarioSha256: string, private readonly salt: Buffer, private readonly hashes: Map<string, Buffer>) {
     this.dummy = digest(salt, "\u0000no role\u0000", "");
+  }
+
+  /** A verifier that refuses everything with the same digest work as a real one (for an unknown session). One module-level instance. */
+  static none(): JoinCodes {
+    NONE ??= new JoinCodes("\u0000none", "0".repeat(64), randomBytes(16), new Map());
+    return NONE;
   }
 
   /** New random codes for these player roles. `plain` is the only place the codes ever appear: show it once, then drop it. */
@@ -105,8 +120,9 @@ export class JoinCodes {
   verify(roleId: string, code: string | undefined): boolean {
     const expected = this.hashes.get(roleId); // a Map: "__proto__" or "toString" is never a key
     const usable = typeof code === "string" && code.length > 0 && code.length <= MAX_JOIN_CODE_INPUT_CHARS;
-    const given = digest(this.salt, roleId, usable ? normalizeJoinCode(code) : "");
+    const normalized = usable ? normalizeJoinCode(code) : "";
+    const given = digest(this.salt, roleId, normalized);
     const same = timingSafeEqual(given, expected ?? this.dummy);
-    return same && expected !== undefined && usable && normalizeJoinCode(code).length === JOIN_CODE_SYMBOLS;
+    return same && expected !== undefined && normalized.length === JOIN_CODE_SYMBOLS;
   }
 }
