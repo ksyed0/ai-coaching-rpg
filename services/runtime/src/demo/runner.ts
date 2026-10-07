@@ -10,7 +10,7 @@ import { REPO_ROOT } from "../main.js";
 import { DEMO_USAGE, parseDemoArgs } from "./args.js";
 import { playAudit } from "./audit.js";
 import { CHECKS, RESUME_CHECKS, SECURITY_CHECKS, Recorder, buildMarkers, type RunKind } from "./checks.js";
-import { codeSecrets, newStory, parseJoinCodesEnv, type Ctx } from "./ctx.js";
+import { codeSecrets, newStory, parseJoinCodesEnv, type Ctx, type Story } from "./ctx.js";
 import { FAKE_KEY, makeTempDataDir, makeTempRoot, startLiveSystem, stopIfAborted, startMockSystem, startPlayerProvider, startShowcaseMockSystem, type System } from "./harness.js";
 import { PlayerBotGenerator } from "./player-bot.js";
 import { PlayerLines } from "./player-lines.js";
@@ -239,6 +239,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const extra: CheckResult[] = [];
   let unexpected = false;
   const bots: Ctx["bots"] = [];
+  let mainStory: Story | undefined;
 
   let evalExtraMinutes = 0;
   if (showcase && opts.evaluate && kind === "live" && liveEnv) {
@@ -366,7 +367,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     scenarioTitle = scenario.meta.title;
     const ctx: Ctx = {
       kind, tr, provider: providerKind, n, rec, signal: ac.signal, scenario, markers, sessionId, wsUrl: opts.url ?? "", facilitatorToken: urlToken, urlJoinCodes: urlCodes.codes, repoRoot, npcWaitMs: deps.npcWaitMs ?? (kind === "mock" ? 5_000 : 40_000),
-      outputTap: tap, labLogs: [], labHostLog: [], bots, secretValues, beforeAct: deps.beforeAct, register, now,
+      outputTap: tap, labLogs: [], labHostLog: [], bots, secretValues, beforeAct: deps.beforeAct, register, now, maxFallbacks: opts.maxFallbacks ?? null,
     };
     register(() => { for (const b of bots) b.terminate(); });
 
@@ -381,6 +382,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       secretValues.push(...codeSecrets(sys.joinCodes)); // US-0033: the join codes must never be printed or reach a client
     }
     const st = newStory();
+    mainStory = st;
     await playStory(ctx, st);
     await playLab(ctx, st);
     await playSecurityRoom(ctx, st);
@@ -435,7 +437,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   rec.finish(finishReason);
   const report = buildReport({
     tool: TOOL, version: deps.version ?? readVersion(), mode, startedAt: new Date(startedMs).toISOString(), durationMs: now() - startedMs,
-    results: [...rec.ordered(), ...extra], secrets: secretValues, showcase: showcaseReport,
+    results: [...rec.ordered(), ...extra], secrets: secretValues, showcase: showcaseReport, liveEvidence: showcase ? undefined : mainStory?.evidence,
     evaluation: holder.evaluation ? {
       dir: holder.evaluation.written.dir, files: holder.evaluation.written.files.map((f) => path.relative(holder.evaluation!.written.dir, f)), modelCalls: holder.evaluation.result.modelCalls,
       participants: holder.evaluation.result.participants.map((p) => ({ role: p.roleId, status: p.status })), group: { status: holder.evaluation.result.group.status }, failures: holder.evaluation.result.failures,

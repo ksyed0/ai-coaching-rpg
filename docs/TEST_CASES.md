@@ -259,6 +259,56 @@ Status: [ ] Not Run
 Defect Raised: None
 Notes: Automated: session-host-replay.test.ts (restart), session-engine-replay.test.ts (window rebuilt by restore; an event on disk that no client saw), demo F-34 and F-37 (`pnpm demo --fast --resume`).
 
+## US-0023: the demo's live evidence
+
+TC-0017: A run that ends with canned fallback lines says so in the narration, the checklist and the JSON report
+Related Story: US-0023
+Related Task: TASK-0023
+Related AC: AC-0073
+Type: Functional
+Preconditions: Automated only (live-evidence-runner.test.ts): a loopback fake model whose characters never answer. A manual run needs a configured real provider in `.env` and has not been made.
+Steps:
+  1. Run `pnpm -s demo --live --json out.json`.
+  2. Read the narration after Priya's replies, the end-of-run "Run summary", check F-08 and `liveEvidence` in `out.json`.
+  3. Run `pnpm demo --fast --json out.json` (mock) and read the same places.
+Expected Result: Each canned reply is labelled "canned fallback line" and the summary says how many of the AI replies were real and how many canned; F-08 ends with "N canned fallback lines of M AI replies" (with "WARNING:" and "no --max-fallbacks limit given" when N > 0 and no limit was set); `liveEvidence` holds `npcReplies`, `fallbackReplies`, `byCharacter`, `alerts` and `warnings`. The mock run says 0 of 4, with no warning and 29 passing checks.
+Actual Result: As expected against the loopback fake model (live-evidence-runner.test.ts) and in the mock runs (29, 42, 14 and 15 checks) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated. A run on a real model has not been made; that is the owner's.
+
+TC-0018: A facilitator alert is shown with its reason next to the reply it belongs to, and never carries a secret
+Related Story: US-0023
+Related Task: TASK-0023
+Related AC: AC-0074
+Type: Security
+Preconditions: As TC-0017; for the automated test a fake model whose error message contains an API key, a bearer token, a key-shaped string and a hidden fact's text.
+Steps:
+  1. Run the live demo against it with `--transcript t.md --json r.json`.
+  2. Read the alert lines under Priya's replies, the summary, `liveEvidence.alerts` and the transcript.
+  3. Search the narration, the report and the transcript for the key, the token (also after a line break), the key-shaped string, the hidden-fact text (also with zero-width characters or other case), the provider URL; a hidden fact cut off by the provider's snippet, a fact glued to a long run of characters; the unit tests also feed join codes in lower case, without hyphens and spaced, and check that ordinary prose and model ids are not changed.
+Expected Result: An alert that is not the cause of a reply (for example one whose reply was refused as stale) is not narrated under a later reply and has `replySeq: null`. Each fallback reply is followed by "alert (warning) for this reply: fell back to its canned line: model error ... (kind)"; the secrets are replaced by `[redacted]` in the narration, the report and the transcript; control characters are replaced by `·` and each alert is clipped to 300 characters.
+Actual Result: As expected (live-evidence.test.ts, live-evidence-runner.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated; no real model.
+
+TC-0019: --max-fallbacks n fails the 29-check run when more than n replies were canned, and a bad n is a usage error
+Related Story: US-0023
+Related Task: TASK-0023
+Related AC: AC-0075
+Type: Functional
+Preconditions: Automated only (live-evidence-runner.test.ts, args-showcase.test.ts): a loopback fake model that never answers. No manual run has been made.
+Steps:
+  1. With a model that never answers (2 replies in the live run), run `pnpm demo --live --max-fallbacks 1`, then `--max-fallbacks 2`.
+  2. Run `pnpm demo --fast --max-fallbacks 0`.
+  3. Run `pnpm demo --fast --max-fallbacks -1` (also x, 1.5, 1001).
+Expected Result: 1: exit 1 with only F-08 failed ("2 canned fallback lines of 2 AI replies, more than --max-fallbacks 1"); at 2 exit 0 ("(limit 2)"). 2: exit 0, 29 checks. 3: exit 2 with `error: --max-fallbacks must be a whole number from 0 to 1000` and nothing started.
+Actual Result: As expected (live-evidence-runner.test.ts, args-showcase.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated. The showcase's own limit (check S-05) came with US-0024 and is unchanged.
+
 TC-0023: One set of identifier rules decides every scenario, protocol, client and session id
 Related Story: US-0020
 Related Task: TASK-0020

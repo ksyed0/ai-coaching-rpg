@@ -15,6 +15,7 @@ import { SHARE_SECTION, npcIntro } from "../agents/npc-prompt.js";
 import { earnedCheckOf } from "../agents/gm-prompt.js";
 import { parseGmReply } from "../agents/gm-parse.js";
 import { releaseNote } from "./release-note.js";
+import { sanitizeAlert } from "./live-evidence.js";
 import { fallbackReason, isFallbackReply } from "./provenance.js";
 import { scrubText } from "./report.js";
 import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from "./showcase-report.js";
@@ -238,10 +239,13 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
   const observations: string[] = [];
   const timing = !mock;
 
+  // Alert text goes through the one sanitiser (US-0023) before it is printed, recorded in the report or written to the transcript.
+  const hiddenTexts = [...ctx.markers.hidden, ...Object.values(scenario.roles).flatMap((r) => (r.type === "npc" ? r.hidden : []))];
+  const safeAlert = (m: string): string => sanitizeAlert(m, { secrets: ctx.secretValues, hidden: hiddenTexts });
   const snapshot = (): ShowcaseReport => buildShowcaseReport({
     events: st.fac?.events() ?? [], scenario, mode: o.mode, timing, wallTimeMs: ctx.now() - o.startedMs, maxLines: o.maxLines, maxFallbacks: o.maxFallbacks,
     watchdogMinutes: o.watchdogMinutes, observations, provider: o.provider, players: o.players?.lines, showIntents: o.players?.showIntents,
-    silences: sys?.host.silentTurns(),
+    silences: sys?.host.silentTurns(), sanitizeAlert: safeAlert,
   });
   o.holder.snapshot = snapshot;
 
@@ -290,7 +294,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         break;
       case "facilitator.alert": {
         const why = fallbackReason(e.message);
-        await n.tagged("alert", e.level === "warning" ? "red" : "yellow", "", why !== null ? `${e.message.split(":")[0]!.replace(/^NPC /, "AI character ")} fell back to its canned line: ${why}` : clip(e.message, 300));
+        await n.tagged("alert", e.level === "warning" ? "red" : "yellow", "", why !== null ? `${e.message.split(":")[0]!.replace(/^NPC /, "AI character ")} fell back to its canned line: ${safeAlert(why)}` : safeAlert(e.message));
         break;
       }
       case "facilitator.command": await n.tagged("system", "dim", "", e.command === "release_hidden" ? `${releaseNote(e.roleId, e.fact)} (its text is facilitator-only and is not shown here)` : `facilitator: ${e.command}`); break;
@@ -333,7 +337,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
     st.players[role] = bot; st.joined[role] = j;
     await n.tagged("system", "dim", "", `${role} joins as a player bot with ${j.privateFacts?.length ?? 0} private facts`);
   }
-  ctx.tr?.attach(fac, { scenario, provider: o.mode, sceneHeadings: true, players: o.players?.lines });
+  ctx.tr?.attach(fac, { scenario, provider: o.mode, sceneHeadings: true, players: o.players?.lines, sanitizeAlert: safeAlert });
   const narrate = (m: Inbound) => { if (m.type === "event") { const e = m.event; chain = chain.then(() => narrateEvent(e)).catch(() => undefined); } };
   const prior = fac.onMessage;
   fac.onMessage = (m) => { prior?.(m); narrate(m); };
@@ -409,8 +413,8 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         record = o.players.lines.add({ role: line.role, text, source: said.source, verbatim: said.verbatim, cut: said.cut, intent: line.text, scene: scene.id, ...(said.reason !== undefined ? { reason: said.reason } : {}) });
         if (said.reason !== undefined) {
           const msg = `player ${line.role}: generation failed (${said.reason}); used the scripted line`;
-          chain = chain.then(() => n.tagged("alert", "yellow", "", clip(msg, 300))).catch(() => undefined);
-          ctx.tr?.add({ kind: "log", source: "system", text: msg, scene: scene.id });
+          chain = chain.then(() => n.tagged("alert", "yellow", "", safeAlert(msg))).catch(() => undefined);
+          ctx.tr?.add({ kind: "log", source: "system", text: safeAlert(msg), scene: scene.id });
         }
       }
       const from = bot.mark();

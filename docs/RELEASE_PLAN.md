@@ -695,22 +695,22 @@ Notes: Found in a live demo run: about 4 of 10 calls to a free OpenRouter model 
 US-0023 (EPIC-0006): As a developer or evaluator, I want the demo runner's live mode to report fallback lines and alert reasons, so that a run cannot pass while the characters only spoke canned lines.
 Priority: Medium
 Estimate: S
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0006-US-0023-demo-live-evidence
 Dependencies: US-0021
 Acceptance Criteria:
-  - [ ] AC-0073: in live mode the runner counts NPC replies that were the persona's fallback line and shows the count in the narration, in the checklist evidence and in the JSON report
-  - [ ] AC-0074: facilitator alert messages raised during the run are captured (sanitized) with their reason and shown next to the affected reply
-  - [ ] AC-0075 (the showcase-only part, `--max-fallbacks` for `pnpm demo --showcase`, is delivered by US-0024; the 29-check run still needs it): an option such as `--max-fallbacks <n>` fails the run when more than n replies were fallback lines; without it the count is reported as a warning
+  - [x] AC-0073: in live mode the runner counts NPC replies that were the persona's fallback line and shows the count in the narration, in the checklist evidence and in the JSON report
+  - [x] AC-0074: facilitator alert messages raised during the run are captured (sanitized) with their reason and shown next to the affected reply
+  - [x] AC-0075 (the showcase part, `--max-fallbacks` for `pnpm demo --showcase`, came from US-0024; US-0023 adds it to the 29-check run, check F-08): an option such as `--max-fallbacks <n>` fails the run when more than n replies were fallback lines; without it the count is reported as a warning
 ```
 
 ```
 TASK-0023 (US-0023): Count fallback replies and capture alert reasons in the demo runner, with an optional failure threshold
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0023-demo-live-evidence
-Notes: In three live runs 2 of 6 main-story replies were canned fallback lines, yet check F-08 passed because a fallback line is non-empty.
+Notes: In three live runs 2 of 6 main-story replies were canned fallback lines, yet check F-08 passed because a fallback line is non-empty. Done 2026-10-07: services/runtime/src/demo/live-evidence.ts (collectLiveEvidence, sanitizeAlert, alertsForReply), F-08 evidence and `--max-fallbacks`, the alert beside the affected reply in the narration, an end-of-run summary in the audit act, `liveEvidence` in the JSON report, sanitized alert text in the Markdown transcript. Test cases TC-0017..TC-0019. Not done here: a live run on a real model (the owner's); the showcase's own alert narration is unchanged.
 ```
 
 ```

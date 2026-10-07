@@ -939,18 +939,18 @@
       "title": "As a developer or evaluator, I want the demo runner's live mode to report fallback lines and alert reasons, so that a run cannot pass while the characters only spoke canned lines.",
       "priority": "Medium",
       "estimate": "S",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0023-demo-live-evidence",
       "acs": [
         {
           "id": "AC-0073",
           "text": "in live mode the runner counts NPC replies that were the persona's fallback line and shows the count in the narration, in the checklist evidence and in the JSON report",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0074",
           "text": "facilitator alert messages raised during the run are captured (sanitized) with their reason and shown next to the affected reply",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -1772,9 +1772,9 @@
       "title": "Count fallback replies and capture alert reasons in the demo runner, with an optional failure threshold",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0023-demo-live-evidence",
-      "notes": "In three live runs 2 of 6 main-story replies were canned fallback lines, yet check F-08 passed because a fallback line is non-empty."
+      "notes": "In three live runs 2 of 6 main-story replies were canned fallback lines, yet check F-08 passed because a fallback line is non-empty. Done 2026-10-07: services/runtime/src/demo/live-evidence.ts (collectLiveEvidence, sanitizeAlert, alertsForReply), F-08 evidence and `--max-fallbacks`, the alert beside the affected reply in the narration, an end-of-run summary in the audit act, `liveEvidence` in the JSON report, sanitized alert text in the Markdown transcript. Test cases TC-0017..TC-0019. Not done here: a live run on a real model (the owner's); the showcase's own alert narration is unchanged."
     },
     {
       "id": "TASK-0024",
@@ -2076,6 +2076,36 @@
       "relatedAC": "AC-0175",
       "type": "Functional",
       "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0017",
+      "title": "A run that ends with canned fallback lines says so in the narration, the checklist and the JSON report",
+      "relatedStory": "US-0023",
+      "relatedTask": "TASK-0023",
+      "relatedAC": "AC-0073",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0018",
+      "title": "A facilitator alert is shown with its reason next to the reply it belongs to, and never carries a secret",
+      "relatedStory": "US-0023",
+      "relatedTask": "TASK-0023",
+      "relatedAC": "AC-0074",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0019",
+      "title": "--max-fallbacks n fails the 29-check run when more than n replies were canned, and a bad n is a usage error",
+      "relatedStory": "US-0023",
+      "relatedTask": "TASK-0023",
+      "relatedAC": "AC-0075",
+      "type": "Functional",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -2615,11 +2645,11 @@
       "isAtRisk": true
     },
     "US-0023": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0024": {
       "missingTCs": true,
@@ -2853,10 +2883,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-07T06:22:17.755Z",
-  "commitSha": "687ca43",
-  "buildNumber": "229",
-  "branch": "bugfix/BUG-0007-watchdog-test-temp-dir",
+  "generatedAt": "2026-10-07T06:27:18.073Z",
+  "commitSha": "cdc668a",
+  "buildNumber": "219",
+  "branch": "feature/EPIC-0006-US-0023-demo-live-evidence",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2980,20 +3010,22 @@
     }
   },
   "budget": {
-    "totalBudget": 1221.446,
+    "totalBudget": 821.4459999999999,
     "totalSpent": 421.44599999999997,
     "totalProjected": 28400,
-    "percentUsed": 35,
+    "percentUsed": 51,
     "burnRate": 13.579926666666665,
-    "daysRemaining": 58,
-    "projectedExhaustion": 58,
+    "daysRemaining": 29,
+    "projectedExhaustion": 29,
     "thresholds": [
       50,
       75,
       90,
       100
     ],
-    "crossedThresholds": [],
+    "crossedThresholds": [
+      50
+    ],
     "epicBudgets": [
       {
         "id": "EPIC-0001",
@@ -3022,10 +3054,10 @@
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 985.932065,
+        "budget": 585.932065,
         "spent": 185.93206499999997,
-        "remaining": 800,
-        "percentUsed": 19
+        "remaining": 400,
+        "percentUsed": 32
       },
       {
         "id": "EPIC-0003",
@@ -3049,37 +3081,37 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-07T06:22:17.867Z",
-      "2026-09-08T06:22:17.867Z",
-      "2026-09-09T06:22:17.867Z",
-      "2026-09-10T06:22:17.867Z",
-      "2026-09-11T06:22:17.867Z",
-      "2026-09-12T06:22:17.867Z",
-      "2026-09-13T06:22:17.867Z",
-      "2026-09-14T06:22:17.867Z",
-      "2026-09-15T06:22:17.867Z",
-      "2026-09-16T06:22:17.867Z",
-      "2026-09-17T06:22:17.867Z",
-      "2026-09-18T06:22:17.867Z",
-      "2026-09-19T06:22:17.867Z",
-      "2026-09-20T06:22:17.867Z",
-      "2026-09-21T06:22:17.867Z",
-      "2026-09-22T06:22:17.867Z",
-      "2026-09-23T06:22:17.867Z",
-      "2026-09-24T06:22:17.867Z",
-      "2026-09-25T06:22:17.867Z",
-      "2026-09-26T06:22:17.867Z",
-      "2026-09-27T06:22:17.867Z",
-      "2026-09-28T06:22:17.867Z",
-      "2026-09-29T06:22:17.867Z",
-      "2026-09-30T06:22:17.867Z",
-      "2026-10-01T06:22:17.867Z",
-      "2026-10-02T06:22:17.867Z",
-      "2026-10-03T06:22:17.867Z",
-      "2026-10-04T06:22:17.867Z",
-      "2026-10-05T06:22:17.867Z",
-      "2026-10-06T06:22:17.867Z",
-      "2026-10-07T06:22:17.864Z"
+      "2026-09-07T06:27:18.147Z",
+      "2026-09-08T06:27:18.147Z",
+      "2026-09-09T06:27:18.147Z",
+      "2026-09-10T06:27:18.147Z",
+      "2026-09-11T06:27:18.147Z",
+      "2026-09-12T06:27:18.147Z",
+      "2026-09-13T06:27:18.147Z",
+      "2026-09-14T06:27:18.147Z",
+      "2026-09-15T06:27:18.147Z",
+      "2026-09-16T06:27:18.147Z",
+      "2026-09-17T06:27:18.147Z",
+      "2026-09-18T06:27:18.147Z",
+      "2026-09-19T06:27:18.147Z",
+      "2026-09-20T06:27:18.147Z",
+      "2026-09-21T06:27:18.147Z",
+      "2026-09-22T06:27:18.147Z",
+      "2026-09-23T06:27:18.147Z",
+      "2026-09-24T06:27:18.147Z",
+      "2026-09-25T06:27:18.147Z",
+      "2026-09-26T06:27:18.147Z",
+      "2026-09-27T06:27:18.147Z",
+      "2026-09-28T06:27:18.147Z",
+      "2026-09-29T06:27:18.147Z",
+      "2026-09-30T06:27:18.147Z",
+      "2026-10-01T06:27:18.147Z",
+      "2026-10-02T06:27:18.147Z",
+      "2026-10-03T06:27:18.147Z",
+      "2026-10-04T06:27:18.147Z",
+      "2026-10-05T06:27:18.147Z",
+      "2026-10-06T06:27:18.147Z",
+      "2026-10-07T06:27:18.145Z"
     ],
     "doneCounts": [
       0,
@@ -3409,7 +3441,7 @@
       1.1529411764705886,
       1.1529411764705886,
       1.1529411764705886,
-      1.1529411764705886
+      1.1617647058823533
     ],
     "velocityByWeek": {
       "labels": [

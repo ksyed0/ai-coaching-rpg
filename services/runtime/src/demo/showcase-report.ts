@@ -103,6 +103,8 @@ export type ReportInput = {
   showIntents?: boolean;
   /** The turns AI characters chose to stay silent (kept in memory by the host: a silent turn is not an event). */
   silences?: readonly { roleId: string; sceneId: string }[];
+  /** US-0023: makes alert text safe to store (secrets, join codes, hidden facts); the runner passes it. */
+  sanitizeAlert?: (message: string) => string;
 };
 
 /**
@@ -182,8 +184,8 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
         lines.push({ seq: e.seq, source: "system", tag: "system", sceneId: e.sceneId, text: e.autoRelease ? `the Game Master released hidden fact number ${e.fact} of ${e.roleId} itself (GM_AUTO_RELEASE)` : `the Game Master suggested releasing hidden fact number ${e.fact} of ${e.roleId} (facilitator only: /release ${e.roleId} ${e.fact})` });
         break;
       case "facilitator.alert":
-        alerts.push({ seq: e.seq, level: e.level, message: clip(e.message, 300) });
-        lines.push({ seq: e.seq, source: "system", tag: "system", sceneId: current, text: `alert (${e.level}): ${clip(e.message, 300)}` });
+        alerts.push({ seq: e.seq, level: e.level, message: clip((i.sanitizeAlert ?? ((m: string) => m))(e.message), 300) });
+        lines.push({ seq: e.seq, source: "system", tag: "system", sceneId: current, text: `alert (${e.level}): ${clip((i.sanitizeAlert ?? ((m: string) => m))(e.message), 300)}` });
         break;
       case "facilitator.command":
         if (e.command === "advance") advances++;

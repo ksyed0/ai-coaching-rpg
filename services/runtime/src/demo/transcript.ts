@@ -39,7 +39,7 @@ export class Transcript {
    * Records what a facilitator connection observes. `provider` says whether AI replies come from the scripted mock providers or a
    * live model. `sceneHeadings` turns scene starts into `##` headings (a story that has its own act headings leaves it off).
    */
-  attach(fac: Bot, o: { scenario: Scenario; provider: ProviderKind; sceneHeadings: boolean; /** The runner's record of generated player lines (`--players generated`); without it every player line is scripted. */ players?: PlayerLines }): void {
+  attach(fac: Bot, o: { scenario: Scenario; provider: ProviderKind; sceneHeadings: boolean; /** The runner's record of generated player lines (`--players generated`); without it every player line is scripted. */ players?: PlayerLines; /** US-0023: makes alert text safe to store (secrets, hidden facts, key shapes); the 29-check run passes it. */ sanitizeAlert?: (message: string) => string }): void {
     const lookup = o.players?.reader();
     const previous = fac.onMessage;
     let last: SessionEvent | undefined;
@@ -78,8 +78,9 @@ export class Transcript {
         // US-0034: by role and number only: the transcript never holds a hidden fact's text.
         case "gm.fact_earned": this.add({ kind: "log", source: "system", text: e.autoRelease ? `the Game Master released hidden fact number ${e.fact} of ${e.roleId} itself (GM_AUTO_RELEASE): ${sanitizeText(e.reasoning)}` : `the Game Master suggested releasing hidden fact number ${e.fact} of ${e.roleId} (facilitator only: /release ${e.roleId} ${e.fact}): ${sanitizeText(e.reasoning)}`, scene: e.sceneId }); break;
         case "facilitator.alert": {
+          const safe = o.sanitizeAlert ?? ((m: string) => m);
           const why = fallbackReason(e.message);
-          this.add({ kind: "log", source: "system", text: why !== null ? `alert (${e.level}): fallback line used: ${why}` : `alert (${e.level}): ${e.message}`, scene });
+          this.add({ kind: "log", source: "system", text: why !== null ? `alert (${e.level}): fallback line used: ${safe(why)}` : `alert (${e.level}): ${safe(e.message)}`, scene });
           break;
         }
         case "facilitator.command":
