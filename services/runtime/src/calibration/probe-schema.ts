@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isFileSafeId, isScenarioId } from "@acr/events";
+import { hasHiddenChar, HIDDEN_CHARS_MESSAGE } from "./hidden-chars.js";
 
 export type Level = 1 | 2 | 3 | 4;
 export type Expected = Level | "not_observed";
@@ -14,34 +15,26 @@ export const MAX_PROBE_ID = 58;
 const ProbeId = z.string().max(MAX_PROBE_ID, `must be at most ${MAX_PROBE_ID} characters (it becomes the session id probe-<id>)`).refine(isFileSafeId, idMessage(MAX_PROBE_ID));
 const RoleId = z.string().max(64).refine(isScenarioId, "must be a scenario id");
 
-/**
- * Code points a transcript line may never contain ("Trojan Source"): C0 controls except TAB and LF, DEL and the C1 controls, the Arabic
- * letter mark, zero-width characters and direction marks, the line and paragraph separators and bidi embeddings and overrides, the bidi
- * isolates and the zero-width no-break space. They would make the text an owner reviews differ from the text the judges read.
- */
-export function isHiddenControl(c: number): boolean {
-  return (c <= 0x08) || (c >= 0x0b && c <= 0x1f) || (c >= 0x7f && c <= 0x9f) || c === 0x061c || (c >= 0x200b && c <= 0x200f)
-    || (c >= 0x2028 && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069) || c === 0xfeff;
-}
-export const HIDDEN_CONTROL_MESSAGE = "a transcript line contains hidden or bidirectional control characters";
-export function hasHiddenControl(s: string): boolean {
-  for (const ch of s) if (isHiddenControl(ch.codePointAt(0)!)) return true;
-  return false;
-}
-const LineText = z.string().min(1).max(2000).refine((t) => !hasHiddenControl(t), HIDDEN_CONTROL_MESSAGE);
+const NoHidden = (field: z.ZodString) => field.refine((t) => !hasHiddenChar(t), `must not contain ${HIDDEN_CHARS_MESSAGE}`);
 
-export const LineSchema = z.object({ scene: RoleId, role: RoleId, text: LineText }).strict();
+/** A line's text: the hidden-character rule is checked on the transcript (so the message can name the line), and by callers of LineSchema. */
+export const LineSchema = z.object({ scene: RoleId, role: RoleId, text: z.string().min(1).max(2000) }).strict();
+const Transcript = z.array(LineSchema).min(2).max(80).superRefine((lines, ctx) => {
+  lines.forEach((l, k) => {
+    if (hasHiddenChar(l.text)) ctx.addIssue({ code: "custom", path: [k, "text"], message: `transcript line ${k + 1} contains ${HIDDEN_CHARS_MESSAGE}` });
+  });
+});
 
 const common = {
   id: ProbeId,
   criterion: FileId,
   source: z.enum(["handwritten", "drafted", "excerpt"]),
-  drafter: z.string().min(1).max(200).nullable().default(null),
-  approved_by: z.string().min(1).max(120).nullable().default(null),
+  drafter: NoHidden(z.string().min(1).max(200)).nullable().default(null),
+  approved_by: NoHidden(z.string().min(1).max(120)).nullable().default(null),
   /** An ISO-8601 datetime (the `...Z` form of new Date().toISOString(), or with an offset); handwritten probes keep null. */
   approved_at: z.string().max(40).datetime({ offset: true }).nullable().default(null),
   split: z.enum(["tune", "holdout"]),
-  transcript: z.array(LineSchema).min(2).max(80),
+  transcript: Transcript,
 };
 
 export const SingleProbeSchema = z

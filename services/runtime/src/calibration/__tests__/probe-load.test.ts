@@ -345,7 +345,7 @@ describe("printable", () => {
       expect(printable(`a${String.fromCodePoint(c)}b`), c.toString(16)).toBe("a·b");
     }
     // neighbours of the ranges are ordinary text
-    for (const c of [0x200a, 0x2010, 0x2027, 0x202f, 0x2065, 0x206a]) expect(printable(`a${String.fromCodePoint(c)}b`), c.toString(16)).toBe(`a${String.fromCodePoint(c)}b`);
+    for (const c of [0x200a, 0x2010, 0x2027, 0x202f, 0x205f, 0x2070]) expect(printable(`a${String.fromCodePoint(c)}b`), c.toString(16)).toBe(`a${String.fromCodePoint(c)}b`);
     expect(printable("é ü 日本 \u{1F600}")).toBe("é ü 日本 \u{1F600}");
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isValidSessionId } from "@acr/events";
 import { acceptableOf, ProbeSchema, type SingleProbe } from "../probe-schema.js";
+import { EXPECTED_HIDDEN } from "./expected-hidden.js";
 
 const line = (role: string, text: string) => ({ scene: "s2_client_call", role, text });
 const base = {
@@ -110,20 +111,38 @@ describe("ProbeSchema", () => {
   });
 });
 
-describe("transcript text: hidden and bidirectional control characters (Trojan Source)", () => {
-  const MSG = "a transcript line contains hidden or bidirectional control characters";
+const inExpected = (c: number) => EXPECTED_HIDDEN.some(([a, b]) => c >= a && c <= b);
+const hex = (c: number) => c.toString(16).padStart(4, "0");
+const ch = (c: number) => String.fromCodePoint(c);
+
+describe("transcript text: hidden and bidirectional control characters (Trojan Source, ASCII smuggling)", () => {
   const withText = (text: string) => ({ ...base, kind: "single", subject: "delivery_lead", expected: 1, transcript: [line("client_sponsor", "Hello."), line("delivery_lead", text)] });
-  const refused: [number, number][] = [[0x0000, 0x0008], [0x000b, 0x001f], [0x007f, 0x009f], [0x061c, 0x061c], [0x200b, 0x200f], [0x2028, 0x202e], [0x2066, 0x2069], [0xfeff, 0xfeff]];
-  it.each(refused.flatMap(([a, b]) => [a, b]).map((c) => [c.toString(16).padStart(4, "0")]))("refuses U+%s, naming the line by its index", (hex) => {
-    const r = ProbeSchema.safeParse(withText(`Fine ${String.fromCodePoint(parseInt(hex, 16))}by me.`));
+  it.each(EXPECTED_HIDDEN.flatMap(([a, b]) => [a, b]).map((c) => [hex(c)]))("refuses U+%s, naming the line (1-based)", (h) => {
+    const r = ProbeSchema.safeParse(withText(`Fine ${ch(parseInt(h, 16))}by me.`));
     expect(r.success).toBe(false);
-    const issue = r.error!.issues.find((i) => i.message === MSG)!;
+    const issue = r.error!.issues.find((i) => i.message === "transcript line 2 contains hidden or bidirectional control characters")!;
     expect(issue.path).toEqual(["transcript", 1, "text"]);
   });
-  it.each([0x0009, 0x000a, 0x0020, 0x007e, 0x00a0, 0x061b, 0x061d, 0x200a, 0x2010, 0x2027, 0x202f, 0x2065, 0x206a, 0xfefe, 0xff00].map((c) => [c.toString(16).padStart(4, "0")]))("accepts the neighbour U+%s just outside a refused range", (hex) => {
-    expect(messages(withText(`Fine ${String.fromCodePoint(parseInt(hex, 16))}by me.`))).toBe("");
+  const neighbours = [...new Set(EXPECTED_HIDDEN.flatMap(([a, b]) => [a - 1, b + 1]))].filter((c) => c >= 0 && !inExpected(c));
+  it.each(neighbours.map((c) => [hex(c)]))("accepts the neighbour U+%s just outside a refused range", (h) => {
+    expect(messages(withText(`Fine ${ch(parseInt(h, 16))}by me.`))).toBe("");
   });
-  it("accepts ordinary text: curly quotes, accents, emoji, CJK, Arabic and Hebrew letters", () => {
-    for (const t of ["“Yes,” she said — it’s fine.", "Café, naïve, Zürich, São Paulo", "Great 👍🏽 let’s go 🚀", "我们周五之前确认。", "مرحبا بكم", "שלום לכולם"]) expect(messages(withText(t)), t).toBe("");
+  it("accepts ordinary text: accents, Cyrillic, Arabic, Hebrew, Devanagari, CJK, emoji with modifiers and FE0F, curly quotes, em dash, NBSP, U+202F, U+205F", () => {
+    for (const t of ["“Yes,” she said — it’s fine.", "é ñ ü ß Café São Paulo", "Привет, команда", "مرحبا بكم", "שלום לכולם", "नमस्ते टीम", "我们周五之前确认。", "Great 👍🏽 ❤️ 🚀", "a\u00a0b\u202fc\u205fd\u2000e\u200af", "tab\tand\nnewline"]) {
+      expect(messages(withText(t)), t).toBe("");
+    }
+  });
+  it("refuses zero-width joiners and non-joiners (so ZWJ emoji families are not supported)", () => {
+    expect(messages(withText("family 👨\u200d👩\u200d👧"))).toContain("transcript line 2 contains hidden");
+    expect(messages(withText("می\u200cخواهم"))).toContain("transcript line 2 contains hidden");
+  });
+  it("refuses the same characters in drafter and approved_by", () => {
+    const ok = { ...base, kind: "single", subject: "delivery_lead", expected: 1, source: "drafted", drafter: "qwen3-30b", approved_by: "Kamal", approved_at: "2026-10-07T09:00:00Z" };
+    expect(messages(ok)).toBe("");
+    for (const c of [0x202e, 0x200b, 0xe0041, 0x00ad, 0x0007]) {
+      expect(messages({ ...ok, drafter: `qwen${ch(c)}3` }), hex(c)).toContain("must not contain hidden or bidirectional control characters");
+      expect(messages({ ...ok, approved_by: `Ka${ch(c)}mal` }), hex(c)).toContain("must not contain hidden or bidirectional control characters");
+    }
+    expect(messages({ ...ok, approved_by: "José Ñúñez 李" })).toBe("");
   });
 });

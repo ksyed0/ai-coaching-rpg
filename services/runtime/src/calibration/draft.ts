@@ -8,9 +8,10 @@ import { isFileSafeId, type SessionEvent } from "@acr/events";
 import type { Criterion, Rubric, Scenario } from "@acr/script";
 import { collectModelReply } from "../agents/model-reply.js";
 import { extractJson } from "../evaluator/parse.js";
+import { hasHiddenChar, HIDDEN_CHARS_MESSAGE } from "./hidden-chars.js";
 import { CalibrationInputError, modelFamily, type Judge } from "./judge.js";
 import { assignSplit, checkProbeAgainstScenario, hasPrototypeKey, hiddenFactRoles, individualCriteria, MAX_PROBE_BYTES, parseYamlQuiet, printable } from "./probe-load.js";
-import { hasHiddenControl, LineSchema, MAX_PROBE_ID, ProbeSchema, type Expected, type Level, type Probe } from "./probe-schema.js";
+import { LineSchema, MAX_PROBE_ID, ProbeSchema, type Expected, type Level, type Probe } from "./probe-schema.js";
 
 // The draft -> review -> approve workflow (spec section 6). Drafts live in <scenario>/calibration/drafts/, which the loader never reads (it
 // skips sub-directories), so a draft is never part of a calibration run. Only `approveDraft`, a command the owner runs, turns a draft into a
@@ -218,8 +219,8 @@ function readReply(text: string, id: string, criterion: string, subject: string,
   if (!Array.isArray(t)) return { problem: 'the reply needs a transcript list ({"transcript":[...]})' };
   if (t.length > MAX_DRAFT_LINES) return { problem: `the reply has more than ${MAX_DRAFT_LINES} lines (${t.length})` };
   if (t.length < 2) return { problem: "the reply needs at least 2 lines" };
-  if (t.some((l: unknown) => l !== null && typeof l === "object" && typeof (l as { text?: unknown }).text === "string" && hasHiddenControl((l as { text: string }).text))) {
-    return { problem: "the reply contains hidden or bidirectional control characters" };
+  if (t.some((l: unknown) => l !== null && typeof l === "object" && typeof (l as { text?: unknown }).text === "string" && hasHiddenChar((l as { text: string }).text))) {
+    return { problem: `the reply contains ${HIDDEN_CHARS_MESSAGE}` };
   }
   const lines: Line[] = [];
   const issues: string[] = [];
@@ -326,6 +327,7 @@ export async function excerptDraft(i: ExcerptInput): Promise<{ file: string; war
   if (leaked.length) throw new CalibrationInputError(`excerpt contains a hidden fact of ${leaked.join(", ")}: choose another range`);
   const problems: string[] = [];
   lines.forEach((l, k) => {
+    if (hasHiddenChar(l.text)) problems.push(`the line at seq ${lineSeqs[k]} contains ${HIDDEN_CHARS_MESSAGE}`);
     const r = LineSchema.safeParse(l);
     if (!r.success) problems.push(...r.error.issues.map((x) => `the line at seq ${lineSeqs[k]}: ${x.path.join(".")} ${x.message}`));
   });
@@ -485,7 +487,7 @@ export async function assignSplits(dir: string, hooks: { /** Test hook: runs jus
     // A split of null (or an empty value) is no split: it is filled. Any other value that is not tune or holdout is the owner's to fix.
     const current = doc.get("split");
     if (current === "tune" || current === "holdout") continue;
-    if (current !== null && current !== undefined) { out.problems.push(`${label}: split ${printable(String(current), 40)} is neither tune nor holdout: not changed`); continue; }
+    if (current !== null && current !== undefined) { out.problems.push(`${label}: split ${typeof current === "string" ? JSON.stringify(printable(current, 40)) : printable(String(current), 40)} is neither tune nor holdout: not changed`); continue; }
     const id = usableId(doc);
     if (id === null) { out.problems.push(`${label}: no usable id, split not added`); continue; }
     const split = assignSplit(id, total);

@@ -202,7 +202,7 @@ describe("draftProbes", () => {
   });
 
   it("refuses a reply with bidi overrides or zero-width characters, writing nothing for it and never printing them", async () => {
-    for (const bad of ["Approve \u202Eti esaelp\u202C now.", "zero\u200Bwidth", "isolate \u2066x\u2069", "bom \uFEFF here"]) {
+    for (const bad of ["Approve \u202Eti esaelp\u202C now.", "zero\u200Bwidth", "isolate \u2066x\u2069", "bom \uFEFF here", "tag \u{E0041}\u{E0042} chars", "soft\u00adhyphen"]) {
       await rm(drafts(), { recursive: true, force: true });
       const { i } = input((_req, k) => (k === 0 ? fridayReply(bad) : fridayReply()), { criterion: "discovery" });
       const r = await draftProbes(i);
@@ -214,7 +214,7 @@ describe("draftProbes", () => {
     const disc = await readFile(path.join(scn, "calibration", "disc-l1.yaml"), "utf8");
     await writeFile(path.join(scn, "calibration", "trojan.yaml"), disc.replace("id: disc-l1", "id: trojan").replace("I will tell the team", "I will \u202Etell\u202C the team"));
     const r = await loadProbes(scn, scenario, rubrics);
-    expect(r.errors).toEqual([expect.stringMatching(/^trojan\.yaml: transcript\.1\.text a transcript line contains hidden or bidirectional control characters$/)]);
+    expect(r.errors).toEqual([expect.stringMatching(/^trojan\.yaml: transcript\.1\.text transcript line 2 contains hidden or bidirectional control characters$/)]);
     expect(r.errors.join("")).not.toMatch(/[\u202A-\u202E]/);
   });
   it("writes text exactly as given, YAML-escaped by the library (no raw interpolation)", async () => {
@@ -334,8 +334,15 @@ describe("excerptDraft", () => {
   it("refuses an excerpt line with hidden or bidirectional control characters, never printing them, and writes nothing", async () => {
     const err = (await ex({ log: fridayLog({ 9: "What does \u202EFinance\u202C need it for?" }) }).catch((e: Error) => e)) as Error;
     expect(err).toBeInstanceOf(CalibrationInputError);
-    expect(err.message).toMatch(/the line at seq 9: text a transcript line contains hidden or bidirectional control characters/);
+    expect(err.message).toMatch(/the line at seq 9 contains hidden or bidirectional control characters/);
     expect(err.message).not.toMatch(/[\u202A-\u202E]/);
+    expect(await listDrafts()).toEqual([]);
+  });
+  it("catches a hidden fact smuggled with tag characters in an excerpt, without printing it", async () => {
+    const fact = "Would accept a phased delivery after go-live if the risk is explained well";
+    const smuggled = [...fact].map((c) => `${c}\u{E0020}`).join("");
+    const err = (await ex({ log: fridayLog({ 10: `Honestly? ${smuggled}.` }) }).catch((e: Error) => e)) as Error;
+    expect(err.message).toBe("excerpt contains a hidden fact of client_sponsor: choose another range");
     expect(await listDrafts()).toEqual([]);
   });
   it("refuses an existing draft id (exclusive create) and leaves it unchanged", async () => {
@@ -441,7 +448,7 @@ describe("approveDraft", () => {
     await writeFile(f, JSON.stringify(d));
     const err = (await approve().catch((e: Error) => e)) as Error;
     expect(err).toBeInstanceOf(CalibrationInputError);
-    expect(err.message).toMatch(/transcript\.1\.text a transcript line contains hidden or bidirectional control characters/);
+    expect(err.message).toMatch(/transcript\.1\.text transcript line 2 contains hidden or bidirectional control characters/);
     expect(err.message).not.toMatch(/[\u200B\u202A-\u202E]/);
     expect(await readdir(path.join(scn, "calibration"))).not.toContain("discovery-l2-1.yaml");
   });
@@ -498,12 +505,17 @@ describe("assignSplits", () => {
     const cal = path.join(scn, "calibration");
     const disc = await readFile(path.join(cal, "disc-l1.yaml"), "utf8");
     await writeFile(path.join(cal, "nullsplit.yaml"), disc.replace("id: disc-l1", "id: nullsplit").replace("split: tune", "split: null"));
-    const odd = disc.replace("id: disc-l1", "id: oddsplit").replace("split: tune", "split: maybe");
-    await writeFile(path.join(cal, "oddsplit.yaml"), odd);
+    // a string is shown quoted (so an empty one is visible), anything else as its value
+    const values: [string, string][] = [["maybe", '"maybe"'], ['""', '""'], ["TUNE", '"TUNE"'], ["3", "3"], ["true", "true"], ["[tune]", '["tune"]'], ["{a: 1}", '{"a":1}']];
+    const odd: Record<string, string> = {};
+    for (const [k, [v]] of values.entries()) {
+      odd[`odd-${k}.yaml`] = disc.replace("id: disc-l1", `id: odd-${k}`).replace("split: tune", `split: ${v}`);
+      await writeFile(path.join(cal, `odd-${k}.yaml`), odd[`odd-${k}.yaml`]!);
+    }
     const r = await assignSplits(scn);
     expect(r.changed).toEqual([path.join(cal, "nullsplit.yaml")]);
-    expect(r.problems).toEqual(["oddsplit.yaml: split maybe is neither tune nor holdout: not changed"]);
-    expect(await readFile(path.join(cal, "oddsplit.yaml"), "utf8")).toBe(odd);
+    expect(r.problems).toEqual(values.map(([, shown], k) => `odd-${k}.yaml: split ${shown} is neither tune nor holdout: not changed`));
+    for (const [name, text] of Object.entries(odd)) expect(await readFile(path.join(cal, name), "utf8")).toBe(text);
     const filled = await readFile(path.join(cal, "nullsplit.yaml"), "utf8");
     expect((parse(filled) as { split: string }).split).toBe(assignSplit("nullsplit", await probeFileTotal(scn)));
     expect(filled).not.toContain("split: null");
