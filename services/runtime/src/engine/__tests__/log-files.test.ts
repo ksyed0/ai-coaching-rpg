@@ -103,7 +103,7 @@ describe("SessionLock", () => {
     const l = take({ now: () => now });
     now += 3_600_000;
     await l.heartbeat();
-    expect(Math.abs((await stat(lockFile())).mtimeMs - now)).toBeLessThan(2_000);
+    expect(Math.abs((await stat(lockFile())).mtimeMs - now)).toBeLessThan(60_000); // the heartbeat set the mtime to "now" (an hour after NOW): far from the old one, whatever the machine load
     expect(heartbeatFor(30_000)).toBe(5_000);
     expect(heartbeatFor(10_000)).toBe(1_666);
   });

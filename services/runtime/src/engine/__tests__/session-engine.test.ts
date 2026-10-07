@@ -177,7 +177,8 @@ describe("SessionEngine", () => {
 
 describe("clocks", () => {
   it("SystemClock returns epoch ms", () => {
-    expect(Math.abs(new SystemClock().now() - Date.now())).toBeLessThan(1000);
+    const before = Date.now(); const now = new SystemClock().now(); const after = Date.now(); // an epoch-ms clock: read between two reads of the system clock, so no load can fail it
+    expect(now).toBeGreaterThanOrEqual(before); expect(now).toBeLessThanOrEqual(after);
   });
 });
 

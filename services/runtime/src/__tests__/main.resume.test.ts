@@ -16,7 +16,7 @@ const tsx = path.join(runtimeDir, "node_modules", ".bin", "tsx");
 /** tsx runs the script in a node grandchild: the whole process group must die (spawned detached, so it has its own group). */
 const killGroup = (c: ChildProcess) => { if (c.pid === undefined) return; try { process.kill(-c.pid, "SIGKILL"); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e; } };
 // Every test here starts real servers (and one a real child process): give a loaded CI runner room; nothing measures elapsed time.
-vi.setConfig({ testTimeout: 30_000 });
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 let tmp = "";
 const runtimes: Runtime[] = [];
 const children: ChildProcess[] = [];
@@ -53,7 +53,7 @@ class Client {
     const hit = this.inbox.find(pred);
     if (hit) return Promise.resolve(hit);
     return new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), 20_000);
+      const t = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), 60_000);
       this.waiters.push({ pred, resolve: (m) => { clearTimeout(t); resolve(m); } });
     });
   }
@@ -261,7 +261,7 @@ describe("bootstrap: resume after a restart (US-0018)", () => {
     await exited;
     // The server (tsx's node grandchild) must really be gone before the restart: poll its pid (no fixed sleep).
     let gone = false;
-    for (let i = 0; i < 200 && !gone; i++) { try { process.kill(serverPid, 0); await new Promise((r) => setTimeout(r, 25)); } catch { gone = true; } }
+    for (const deadline = Date.now() + 30_000; !gone && Date.now() < deadline;) { try { process.kill(serverPid, 0); await new Promise((r) => setTimeout(r, 25)); } catch { gone = true; } } // a wait for the OS, bounded only to avoid a hang
     // In a container whose PID 1 does not reap orphans the killed server stays a zombie, which still answers kill(pid, 0): its lock
     // then looks live and the restart must wait for the stale age. Age the lock instead (as if the crash were a minute ago).
     if (!gone) { const t = (Date.now() - 600_000) / 1000; await utimes(path.join(dataDir(), "r1.lock"), t, t); } // 10 min: far past the 30 s stale age

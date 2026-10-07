@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { bootstrap, type Runtime } from "../main.js";
+// Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 // Seam: lets a test make linkSync / unlinkSync fail like a bind mount without hard-link support. Passthrough by default.
 const fsHooks = vi.hoisted(() => ({ link: null as null | ((src: string, dst: string) => void), unlink: null as null | ((p: string) => void) }));

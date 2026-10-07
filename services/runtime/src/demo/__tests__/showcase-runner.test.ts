@@ -13,6 +13,8 @@ import { runDemo, type RunDeps } from "../runner.js";
 import { SHOWCASE_CHECKS, describeExit, expectedModelCalls, linesFor, showcaseMarkers } from "../showcase.js";
 import { loadShowcaseScript } from "../showcase-script.js";
 import type { ShowcaseReport } from "../showcase-report.js";
+// Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 type Captured = { out: string[]; err: string[]; stdout: { write(s: string): void; isTTY?: boolean }; stderr: { write(s: string): void; isTTY?: boolean } };
 const capture = (): Captured => {

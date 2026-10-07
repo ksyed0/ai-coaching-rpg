@@ -10,6 +10,7 @@ import { MockModelProvider } from "@acr/adapters";
 import { SessionHost } from "../../host/session-host.js";
 import { GM_EVERY_N_UTTERANCES } from "../game-master.js";
 import { MAX_CONSECUTIVE_SILENT_TURNS, NpcAgent, SILENCE_NOT_ALLOWED_REASK, type SilentTurn } from "../npc-agent.js";
+import { expectLinear } from "../../__tests__/scaling.js";
 import { cleanReplyWithSilence, isSilenceInWords } from "../npc-reply.js";
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
@@ -69,15 +70,16 @@ describe("silence markers", () => {
     for (const t of ["I am silent about it.", "The silent partner signs.", "Silence is not an answer, here is mine: no."]) expect(parse(t)).toMatchObject({ text: t, silent: false });
     expect(isSilenceInWords("(silent) but then more words")).toBe(false);
   });
-  it("is linear on abusive input: huge, repeated and padded markers", () => {
-    const t0 = performance.now();
-    const big = parse("<silent/>".repeat(20_000)); expect(big.silent).toBe(true);
-    expect(parse(`<${" ".repeat(200_000)}silent/>`).silent).toBe(false); // not a marker (too much padding), and it must not hang
-    expect(parse("<".repeat(100_000)).silent).toBe(false);
-    expect(parse(`${"a ".repeat(50_000)}<silent/>`).text.length).toBeGreaterThan(90_000);
-    expect(parse("\u200B".repeat(100_000) + "<silent/>").silent).toBe(true);
-    expect(performance.now() - t0).toBeLessThan(3_000);
-  });
+  it("is linear on abusive input: huge, repeated and padded markers (8x the input costs far less than 64x; no absolute time bound)", () => {
+    const n = (full: number, s: number) => Math.round((full * s) / 8); // the sizes are the full workload at scale 8
+    expectLinear((s) => {
+      const big = parse("<silent/>".repeat(n(20_000, s))); expect(big.silent).toBe(true);
+      expect(parse(`<${" ".repeat(n(200_000, s))}silent/>`).silent).toBe(false); // not a marker (too much padding), and it must not hang
+      expect(parse("<".repeat(n(100_000, s))).silent).toBe(false);
+      expect(parse(`${"a ".repeat(n(50_000, s))}<silent/>`).text.length).toBeGreaterThan(n(90_000, s));
+      expect(parse("\u200B".repeat(n(100_000, s)) + "<silent/>").silent).toBe(true);
+    });
+  }, 120_000);
 });
 
 describe("NpcAgent silence", () => {

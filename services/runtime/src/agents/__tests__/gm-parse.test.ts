@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseGmReply } from "../gm-parse.js";
+import { expectLinear } from "../../__tests__/scaling.js";
 
 const ok = (verdict: boolean, via: "strict" | "tolerant", reasoning = "", ignored = 0) => ({ ok: true, verdict, reasoning, via, ignored });
 const no = (reason: string, ignored = 0) => ({ ok: false, reason, ignored });
@@ -99,11 +100,9 @@ describe("parseGmReply robustness", () => {
       expect(typeof parseGmReply(s).ok).toBe("boolean");
       expect(typeof parseGmReply(s, { nonce: N }).ok).toBe("boolean");
     }
-    for (const hostile of ['{"'.repeat(30_000), "[".repeat(30_000), "<think>".repeat(5_000), "</think>".repeat(5_000), '{"a":1}'.repeat(4_000)]) {
-      const t0 = Date.now();
-      parseGmReply(hostile);
-      expect(Date.now() - t0).toBeLessThan(2_000);
-    }
+    // Sizes are 20x the original hostile inputs so that the small run is long enough to measure. Hostile inputs must cost time proportional to their size (8x the input, far less than 64x the time): no absolute bound, see scaling.ts.
+    const hostile: [string, number][] = [['{"', 30_000], ["[", 30_000], ["<think>", 5_000], ["</think>", 5_000], ['{"a":1}', 4_000]];
+    for (const [unit, full] of hostile) expectLinear((s) => { parseGmReply(unit.repeat(Math.round((full * 20 * s) / 8))); });
     expect(parseGmReply(undefined as unknown as string)).toEqual(no("empty"));
   });
   it("keeps the LAST 20 000 characters (the verdict comes last)", () => {

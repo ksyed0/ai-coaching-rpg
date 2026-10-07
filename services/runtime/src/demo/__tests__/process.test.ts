@@ -4,7 +4,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+// Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 const runtimeDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const repoRoot = path.resolve(runtimeDir, "../..");

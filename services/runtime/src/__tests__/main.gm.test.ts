@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { readOnce } from "../agents/__tests__/read-once.js";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bootstrap, type Runtime } from "../main.js";
+// Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../packages/script/src/__tests__/fixtures/minimal");
 let tmp: string; let runtime: Runtime | null = null;

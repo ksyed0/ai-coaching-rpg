@@ -65,7 +65,7 @@ BUG-0006: Several tests assert wall-clock bounds or depend on the shared temp di
 Severity: Medium
 Related Story: US-0021
 Related Task: TASK-0021
-Status: In Progress
+Status: Fixed (see git log for BUG-0006)
 Fix Branch: chore/session-close-2026-10-07
 Lesson Encoded: Yes (L-0002)
 ```

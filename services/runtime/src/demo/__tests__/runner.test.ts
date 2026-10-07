@@ -1,17 +1,19 @@
 import { stampFromBody } from "./nonce.js";
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocketServer } from "ws";
 import { REPO_ROOT, bootstrap } from "../../main.js";
 import { CHECKS, CHECK_IDS } from "../checks.js";
 import { FAKE_KEY, makeTempRoot } from "../harness.js";
 import { loadLiveEnv, runDemo, type RunDeps } from "../runner.js";
 import type { Report } from "../report.js";
+// Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 type Captured = { out: string[]; err: string[]; stdout: { write(s: string): void; isTTY?: boolean }; stderr: { write(s: string): void; isTTY?: boolean } };
 const capture = (): Captured => {
@@ -24,6 +26,13 @@ const deps = (c: Captured, argv: string[], over: Partial<RunDeps> = {}): RunDeps
 });
 
 const tcpHandles = () => process.getActiveResourcesInfo().filter((r) => r === "TCPServerWrap" || r === "TCPSocketWrap").length;
+// The tests below count the acr-demo-* directories a run leaves behind. The shared temp dir (also used by every concurrent demo run,
+// every other test file and the owner's own `pnpm demo`) cannot be counted reliably, so this file runs in a private TMPDIR: nobody else
+// can create or remove a directory in it. (Each test file has its own worker process, so the variable never leaks into another file.)
+const realTmp = process.env.TMPDIR;
+let privateTmp = "";
+beforeAll(() => { privateTmp = mkdtempSync(path.join(os.tmpdir(), "acr-runner-test-")); process.env.TMPDIR = privateTmp; });
+afterAll(() => { if (realTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = realTmp; rmSync(privateTmp, { recursive: true, force: true }); });
 const demoTempDirs = () => readdirSync(os.tmpdir()).filter((d) => d.startsWith("acr-demo-"));
 
 const cleanups: (() => Promise<void> | void)[] = [];

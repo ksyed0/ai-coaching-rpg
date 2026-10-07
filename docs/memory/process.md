@@ -25,4 +25,4 @@ Commit state, update `progress.md`, `MEMORY.md`, `PROMPT_LOG.md` (redact secrets
 - The Stop hook (`tools/capture-cost.js`) is run as `node "${CLAUDE_PROJECT_DIR:-.}/tools/capture-cost.js"` so it works from any directory; it appends to `docs/AI_COST_LOG.md`.
 - In zsh a variable is not word-split: `for x in "a b"; set -- $x` does not split (a worktree was mis-created once). Use explicit arguments.
 - `sleep N && ...` chains are blocked by the harness; use `until <condition>; do sleep 2; done` in a background command or a monitor.
-- Parallel agents share `/tmp`: tests that count `acr-demo-*` temp dirs flake when several agents run demos at once (they pass in CI).
+- Parallel agents share `/tmp`: tests must not count `acr-demo-*` temp dirs there (fixed by BUG-0006: private TMPDIR per test file). The rules for timing-proof tests are in AGENTS.md section 8, "Writing tests".

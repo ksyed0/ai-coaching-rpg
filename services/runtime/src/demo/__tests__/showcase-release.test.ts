@@ -4,13 +4,15 @@ import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import type { SessionEvent } from "@acr/events";
 import { loadScenario, type NpcRole } from "@acr/script";
 import { REPO_ROOT } from "../../main.js";
 import { runDemo, type RunDeps } from "../runner.js";
 import { hiddenFactMatches, releaseEvents, releasedFacts, showcaseMarkers } from "../showcase.js";
 import type { ShowcaseReport } from "../showcase-report.js";
+// Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 // US-0016: the showcase's scripted release of the CFO's hidden fact (scene s5, after line 1).
 const EXTENDED = path.join(REPO_ROOT, "scenarios", "friday-escalation-extended");
@@ -274,7 +276,7 @@ describe("a live run with a loopback model: the release and every place the text
     expect(readFileSync(path.join(dir, "l.md"), "utf8")).not.toContain(FACT);
     expect(r.stdout).toContain(NOTE);
     expect(await readFile(path.join(dir, "l.md"), "utf8")).toContain(NOTE);
-  }, 30_000);
+  }, 90_000);
 
   it("a step whose scene has already ended is skipped with an observation, and nothing is released", async () => {
     const { env, bodies } = await fakeModel('{"verdict": true, "reasoning": "settled"}');
@@ -283,7 +285,7 @@ describe("a live run with a loopback model: the release and every place the text
     expect(r.showcase.observations.join("\n")).toMatch(/facilitator step skipped: s5_final_terms had already ended, so hidden fact #1 of cfo was not released/);
     expect(bodies.some((b) => b.body.includes(FACT))).toBe(false);
     expect(r.stdout).not.toContain(NOTE);
-  }, 30_000);
+  }, 90_000);
 });
 
 describe("the CFO file still holds the fact the showcase releases", () => {
