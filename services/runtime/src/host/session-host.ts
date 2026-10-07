@@ -59,7 +59,8 @@ export class SessionHost {
   }
 
   join(roleId: string, participantId: string): { brief: string; privateFacts: string[] } {
-    const role = this.scenario.roles[roleId];
+    // Own properties only: `__proto__`, `constructor` or `toString` are not roles.
+    const role = Object.hasOwn(this.scenario.roles, roleId) ? this.scenario.roles[roleId] : undefined;
     if (!role) throw new HostError("unknown_role");
     if (role.type !== "player") throw new HostError("npc_role");
     if (this.assignments[roleId] && this.assignments[roleId] !== participantId) throw new HostError("role_taken");
@@ -197,6 +198,11 @@ export class SessionHost {
     });
   }
 
+  /** Every AI character's hidden facts, in the order `release_hidden` numbers them. For the facilitator's `joined` message ONLY: never put this in a player's message or log. */
+  hiddenFacts(): Record<string, string[]> {
+    return Object.fromEntries(Object.values(this.scenario.roles).filter((r): r is NpcRole => r.type === "npc" && r.hidden.length > 0).map((r) => [r.id, [...r.hidden]]));
+  }
+
   /** State snapshot safe to send to `who`: players never get NPC internals, GM verdicts, participant ids or other scenes' lines. */
   snapshotFor(who: string | "facilitator"): SessionState {
     const s = this.engine.state;
@@ -232,10 +238,10 @@ export class SessionHost {
       // Only when addressed to this role.
       case "inject.fired": return e.to.includes(who) ? e : null;
       // Facilitator controls: players learn of pause/resume and of whispers addressed to them; everything else
-      // (advance, fire_inject, set_npc_stance with NPC goals) stays private.
+      // (advance, fire_inject, set_npc_stance with NPC goals, release_hidden) stays private.
       case "facilitator.command":
         return e.command === "pause" || e.command === "resume" || (e.command === "whisper" && e.roleId === who) ? e : null;
-      // Never for players: NPC goals/knowledge, GM reasoning, facilitator alerts.
+      // Never for players: NPC goals/knowledge and released hidden facts, GM reasoning, facilitator alerts.
       case "npc.updated": case "gm.decision": case "gm.no_verdict": case "facilitator.alert": return null;
       default: {
         const _exhaustive: never = e; // compile time: a new EventBody member must be decided above

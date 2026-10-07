@@ -14,7 +14,9 @@ export type FacilitatorCommand =
   | { command: "advance" }
   | { command: "fire_inject"; injectId: string }
   | { command: "whisper"; roleId: string; text: string }
-  | { command: "set_npc_stance"; roleId: string; goals: string[] };
+  | { command: "set_npc_stance"; roleId: string; goals: string[] }
+  /** Facilitator only. `fact` is the 1-based number of the NPC's hidden fact. The event carries no fact text: the text goes only in the facilitator-only `npc.updated` that follows it. */
+  | { command: "release_hidden"; roleId: string; fact: number };
 
 export type EventEnvelope = { seq: number; ts: number; sessionId: string };
 

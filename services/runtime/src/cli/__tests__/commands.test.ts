@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseArgs, parseInput, parseServerMessage, isFatalError, joinMessage, USAGE } from "../commands.js";
+import { parseArgs, parseInput, parseServerMessage, isFatalError, joinMessage, USAGE, FACILITATOR_HELP } from "../commands.js";
 
 describe("parseArgs", () => {
   it("parses a player with defaults", () => {
@@ -119,5 +119,30 @@ describe("facilitator token options (US-0017)", () => {
     expect(joinMessage({ facilitator: true, url: "ws://x", session: "s" })).toEqual({ type: "join_facilitator", sessionId: "s" });
     expect(joinMessage({ facilitator: true, url: "ws://x", session: "s", token: "abcdefghijklmnop" })).toEqual({ type: "join_facilitator", sessionId: "s", token: "abcdefghijklmnop" });
     expect(joinMessage({ facilitator: false, role: "r", name: "n", url: "ws://x", session: "s", token: "abcdefghijklmnop" })).toEqual({ type: "join", sessionId: "s", roleId: "r", participantId: "n" });
+  });
+});
+
+describe("parseInput: /release and /hidden (US-0016)", () => {
+  const f = (l: string) => parseInput(l, true);
+  it("sends release_hidden with a 1-based fact number", () => {
+    expect(f("/release cfo 1")).toEqual({ kind: "send", message: { type: "command", command: { command: "release_hidden", roleId: "cfo", fact: 1 } } });
+    expect(f("/release   client_sponsor   12 ")).toMatchObject({ kind: "send", message: { command: { roleId: "client_sponsor", fact: 12 } } });
+    expect(f("/release cfo 50")).toMatchObject({ kind: "send" });
+  });
+  it.each(["/release", "/release cfo", "/release cfo 0", "/release cfo 51", "/release cfo -1", "/release cfo 1.5", "/release cfo one", "/release cfo 1 2", "/release cfo 0001x", "/release cfo 1e1", `/release ${"r".repeat(129)} 1`])("answers %j with usage and sends nothing", (line) => {
+    const r = f(line);
+    expect(r.kind).toBe("help");
+    expect((r as { message: string }).message).toContain("usage: /release <role> <n>");
+  });
+  it("/hidden is local and takes no argument", () => {
+    expect(f("/hidden")).toEqual({ kind: "hidden" });
+    expect(f("/hidden cfo").kind).toBe("help");
+  });
+  it("the help line lists both, and a player gets neither", () => {
+    expect(FACILITATOR_HELP).toContain("/hidden");
+    expect(FACILITATOR_HELP).toContain("/release <role> <n>");
+    expect(parseInput("/release cfo 1", false).kind).toBe("help");
+    expect(parseInput("/hidden", false).kind).toBe("help");
+    expect(parseInput("/release cfo 1", false)).not.toMatchObject({ kind: "send" });
   });
 });

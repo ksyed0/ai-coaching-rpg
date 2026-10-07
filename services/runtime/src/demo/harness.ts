@@ -43,7 +43,7 @@ export async function makeTempRoot(repoRoot: string): Promise<TempRoot> {
 }
 
 /** A model provider that keeps every request it received (the mock providers do), for the prompt audit. */
-export type RecordingProvider = ModelProvider & { readonly calls: ChatRequest[]; /** Scripted queues that ran dry (`<scene>|<role>`), for the scripted providers. */ readonly exhausted?: string[]; /** The declared kind (strict, tolerant, malformed) of each scripted reply actually served, in order (the showcase mock). */ readonly servedKinds?: string[] };
+export type RecordingProvider = ModelProvider & { readonly calls: ChatRequest[]; /** The engine's last event seq when each call in `calls` was made (the scripted showcase providers): the audits judge a prompt against what had been released by then. */ readonly callSeqs?: number[]; /** Scripted queues that ran dry (`<scene>|<role>`), for the scripted providers. */ readonly exhausted?: string[]; /** The declared kind (strict, tolerant, malformed) of each scripted reply actually served, in order (the showcase mock). */ readonly servedKinds?: string[] };
 
 export type System = {
   port: number; host: SessionHost; engine: SessionEngine; clock: Clock; fakeClock?: FakeClock;
@@ -122,16 +122,18 @@ export type MockScenePlan = { npc: Record<string, string[]>; gm: string[]; /** W
 export class SceneRoutedMock implements RecordingProvider {
   readonly name = "demo-scripted";
   readonly calls: ChatRequest[] = [];
+  readonly callSeqs: number[] = [];
   readonly exhausted: string[] = [];
   readonly servedKinds: string[] = [];
   private readonly kinds = new Map<string, string[]>();
   private readonly queues = new Map<string, string[]>();
-  constructor(private readonly o: { sceneId: () => string | undefined; keyOf: (req: ChatRequest) => string | undefined; plan: Record<string, string[]>; kinds?: Record<string, string[]>; exhausted: string }) {
+  constructor(private readonly o: { sceneId: () => string | undefined; seq?: () => number; keyOf: (req: ChatRequest) => string | undefined; plan: Record<string, string[]>; kinds?: Record<string, string[]>; exhausted: string }) {
     for (const [k, v] of Object.entries(o.plan)) this.queues.set(k, [...v]);
     for (const [k, v] of Object.entries(o.kinds ?? {})) this.kinds.set(k, [...v]);
   }
   async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<string> {
     this.calls.push(req);
+    this.callSeqs.push(this.o.seq?.() ?? 0);
     const who = this.o.keyOf(req);
     const key = `${this.o.sceneId() ?? ""}|${who ?? ""}`;
     const next = this.queues.get(key)?.shift();
@@ -158,8 +160,9 @@ export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId
     for (const [role, replies] of Object.entries(mock.npc)) npcPlan[`${scene}|${role}`] = replies;
     gmPlan[`${scene}|`] = mock.gm; gmKinds[`${scene}|`] = mock.gmKinds ?? [];
   }
-  const npc = new SceneRoutedMock({ sceneId, plan: npcPlan, exhausted: "[mock reply]", keyOf: (req) => npcRoles.find((r) => req.system.includes(npcIntro(r)))?.id });
-  const gm = new SceneRoutedMock({ sceneId, plan: gmPlan, kinds: gmKinds, exhausted: '{"verdict": false, "reasoning": "no scripted verdict left"}', keyOf: () => "" });
+  const seq = () => ref.engine?.state.lastSeq ?? 0;
+  const npc = new SceneRoutedMock({ sceneId, seq, plan: npcPlan, exhausted: "[mock reply]", keyOf: (req) => npcRoles.find((r) => req.system.includes(npcIntro(r)))?.id });
+  const gm = new SceneRoutedMock({ sceneId, seq, plan: gmPlan, kinds: gmKinds, exhausted: '{"verdict": false, "reasoning": "no scripted verdict left"}', keyOf: () => "" });
   const fakeClock = new FakeClock(T0);
   const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: stampNonce(gm), gmTrace: o.gmTrace });
   ref.engine = sys.engine;

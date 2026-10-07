@@ -14,9 +14,21 @@ const LineSchema = z.object({
   role: z.string().min(1),
   text: z.string().max(MAX_LINE_CHARS, `is longer than ${MAX_LINE_CHARS} characters (the server refuses longer lines)`).refine((t) => t.trim().length > 0, "must not be blank"),
 });
+/**
+ * A scripted facilitator step, run by the facilitator's own connection right after the scripted player line `after_line` (1-based) has been
+ * answered. The only step today is `release_hidden`: `fact` is the 1-based number of the character's hidden fact (the number `/hidden` shows).
+ * A step whose line is never spoken (a `--max-lines` cap, or the scene ended first) is skipped.
+ */
+const FacilitatorStepSchema = z.object({
+  after_line: z.number().int().min(1).max(1_000),
+  release_hidden: z.object({ role: z.string().min(1).max(128), fact: z.number().int().min(1).max(50) }).strict(),
+}).strict();
+export type FacilitatorStep = { afterLine: number; role: string; fact: number };
+
 const SceneScriptSchema = z.object({
   scene: z.string().min(1),
   lines: z.array(LineSchema).min(1),
+  facilitator: z.array(FacilitatorStepSchema).max(20).default([]).transform((steps): FacilitatorStep[] => steps.map((x) => ({ afterLine: x.after_line, role: x.release_hidden.role, fact: x.release_hidden.fact }))),
   /** Used only by the offline mock run. An empty reply is allowed on purpose: it exercises the fallback line. */
   /**
    * `gm` entries are a reply string (a strict JSON verdict) or `{ kind, reply }` declaring what the reply is: `tolerant` (valid only through the
@@ -24,10 +36,13 @@ const SceneScriptSchema = z.object({
    * The mock run's S-04 check holds the run to these declarations.
    */
   mock: z.object({
-    npc: z.record(z.array(z.string())).default({}),
+    /** A reply is a string, or `{ reply, requires_release: n }`: the reply is only valid once hidden fact `n` of that character has been released (the loader checks that a facilitator step releases it earlier in the scene). */
+    npc: z.record(z.array(z.union([z.string(), z.object({ reply: z.string(), requires_release: z.number().int().min(1).max(50) }).strict()]))).default({}),
     gm: z.array(z.union([z.string(), z.object({ kind: z.enum(["tolerant", "malformed", "forged"]), reply: z.string() })])).default([]),
   }).default({}).transform((m) => ({
-    npc: m.npc,
+    npc: Object.fromEntries(Object.entries(m.npc).map(([k, v]) => [k, v.map((r) => (typeof r === "string" ? r : r.reply))])) as Record<string, string[]>,
+    /** Per character and reply index: the fact number the reply needs released first, or null. */
+    npcNeeds: Object.fromEntries(Object.entries(m.npc).map(([k, v]) => [k, v.map((r) => (typeof r === "string" ? null : r.requires_release))])) as Record<string, (number | null)[]>,
     gm: m.gm.map((r) => (typeof r === "string" ? r : r.reply)),
     gmKinds: m.gm.map((r): "strict" | "tolerant" | "malformed" | "forged" => (typeof r === "string" ? "strict" : r.kind)),
   })),
@@ -79,6 +94,7 @@ export function parseShowcaseScript(text: string, scenario: Scenario, o: Showcas
   }
 
   const seen = new Set<string>();
+  const released = new Set<string>();
   for (const entry of script.scenes) {
     const scene = scenario.script.scenes.find((s) => s.id === entry.scene);
     if (!scene) bad(`scene '${entry.scene}' is not in the scenario`);
@@ -91,9 +107,28 @@ export function parseShowcaseScript(text: string, scenario: Scenario, o: Showcas
       if (role!.type !== "player") bad(`${where}: line ${i + 1} is spoken by '${line.role}', an AI character; only player roles may have scripted lines`);
       if (!scene!.participants.includes(line.role)) bad(`${where}: line ${i + 1} is spoken by '${line.role}', who is not in that scene`);
     });
+    for (const step of entry.facilitator) {
+      const role = Object.hasOwn(scenario.roles, step.role) ? scenario.roles[step.role] : undefined;
+      const at = `${where}: facilitator step after line ${step.afterLine}`;
+      if (!role) return bad(`${at} releases a fact of '${step.role}', which is not a role in the scenario`);
+      if (role.type !== "npc") return bad(`${at} releases a fact of '${step.role}', which is a player role; only an AI character has hidden facts`);
+      if (!scene!.participants.includes(step.role)) bad(`${at} releases a fact of '${step.role}', who is not in that scene`);
+      if (step.fact > role.hidden.length) bad(`${at} releases fact ${step.fact} of '${step.role}', who has ${role.hidden.length} hidden fact(s)`);
+      if (step.afterLine > entry.lines.length) bad(`${at} comes after line ${step.afterLine}, but the scene has ${entry.lines.length} scripted line(s)`);
+      if (released.has(`${step.role}#${step.fact}`)) bad(`${at} releases fact ${step.fact} of '${step.role}' a second time (the server refuses it: already released)`);
+      released.add(`${step.role}#${step.fact}`);
+    }
     const npcsHere = scene!.participants.filter((p) => scenario.roles[p]?.type === "npc");
     for (const id of Object.keys(entry.mock.npc)) {
       if (!npcsHere.includes(id)) bad(`${where}: mock replies are given for '${id}', who is not an AI character in that scene`);
+    }
+    // A mock reply that needs a released fact must come after the facilitator step that releases it (reply i answers line i + 1).
+    for (const [id, needs] of Object.entries(entry.mock.npcNeeds)) {
+      needs.forEach((fact, i) => {
+        if (fact === null) return;
+        const ok = entry.facilitator.some((st) => st.role === id && st.fact === fact && st.afterLine <= i);
+        if (!ok) bad(`${where}: mock reply ${i + 1} of '${id}' requires hidden fact ${fact} of '${id}' to be released first, but no facilitator step of this scene releases it after line ${i} or earlier`);
+      });
     }
     if (o.mode === "mock") {
       const spoken = Math.min(entry.lines.length, o.maxLines ?? entry.lines.length);

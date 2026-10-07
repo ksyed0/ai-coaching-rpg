@@ -136,4 +136,35 @@ describe("defer_to warnings and defers_text (US-0032 fix round)", () => {
     expect(RoleSchema.safeParse({ ...base, defers_text: "Let her decide." }).success).toBe(true);
     expect(RoleSchema.safeParse({ ...base, defers_text: "x".repeat(201) }).success).toBe(false);
   });
+
+  it("limits the number and the length of hidden facts (the release command numbers them 1 to 50)", async () => {
+    const dir = path.join(fixtures, "minimal");
+    const s = await loadScenario(dir);
+    const guest = s.roles["guest"] as { hidden: string[] };
+    expect(guest.hidden.length).toBeGreaterThan(0);
+    const { NpcRoleSchema, MAX_HIDDEN_FACTS, MAX_HIDDEN_FACT_CHARS } = await import("../index.js");
+    const base = { ...(s.roles["guest"] as object) } as Record<string, unknown>;
+    expect(NpcRoleSchema.safeParse({ ...base, hidden: Array(MAX_HIDDEN_FACTS).fill("x") }).success).toBe(true);
+    expect(NpcRoleSchema.safeParse({ ...base, hidden: Array(MAX_HIDDEN_FACTS + 1).fill("x") }).success).toBe(false);
+    expect(NpcRoleSchema.safeParse({ ...base, hidden: ["x".repeat(MAX_HIDDEN_FACT_CHARS + 1)] }).success).toBe(false);
+  });
+
+  it("refuses an empty hidden fact, and two facts with the same text in one role (they would be released together)", async () => {
+    const { NpcRoleSchema } = await import("../index.js");
+    const s = await loadScenario(path.join(fixtures, "minimal"));
+    const base = { ...(s.roles["guest"] as object) } as Record<string, unknown>;
+    expect(NpcRoleSchema.safeParse({ ...base, hidden: ["  "] }).success).toBe(false);
+    expect(NpcRoleSchema.safeParse({ ...base, hidden: [""] }).success).toBe(false);
+    (s.roles["guest"] as { hidden: string[] }).hidden = ["a fact", "other", "a fact"];
+    expect(validateScenario(s).errors).toContain("role guest: hidden facts 1 and 3 have the same text");
+  });
+
+  it.each(["__proto__", "constructor", "prototype"])("refuses %s as a role id or a scene id", async (k) => {
+    const s = await loadScenario(path.join(fixtures, "minimal"));
+    s.script.scenes[0]!.id = k;
+    expect(validateScenario(s).errors).toContain(`scene id '${k}' is not allowed (it is a prototype key)`);
+    const t = await loadScenario(path.join(fixtures, "minimal"));
+    Object.defineProperty(t.roles, k, { value: { ...(t.roles["guest"] as object), id: k }, enumerable: true });
+    expect(validateScenario(t).errors).toContain(`role id '${k}' is not allowed (it is a prototype key)`);
+  });
 });

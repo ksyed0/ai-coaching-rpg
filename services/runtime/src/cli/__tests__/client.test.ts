@@ -112,3 +112,52 @@ describe("client core: quit and SIGINT", () => {
     }
   });
 });
+
+describe("client core: facilitator /hidden and /release (US-0016)", () => {
+  const fopts = { facilitator: true, url: "ws://x", session: "s" };
+  const fjoined = JSON.stringify({ type: "joined", roleId: "facilitator", state: { npcs: { cfo: { goals: [], knowledge: [], released: ["second"] } } }, hiddenFacts: { cfo: ["first", "second"] } });
+  function fsetup() {
+    const sent: unknown[] = []; const out: string[] = [];
+    const sock: Sock = { send: (s) => sent.push(JSON.parse(s)), close: () => {}, terminate: () => {} };
+    const io: Io = { print: (l) => out.push(l), err: () => {}, closeInput: () => {}, exit: () => {} };
+    const c = createClient({ opts: fopts, sock, io, idleMs: 30 });
+    return { c, sent, out };
+  }
+  const upd = (released: string[]) => JSON.stringify({ type: "event", event: { seq: 5, ts: 0, sessionId: "s", type: "npc.updated", roleId: "cfo", goals: [], knowledge: [], released } });
+  it("lists the facts after join, marking the one already released", () => {
+    const t = fsetup(); t.c.onOpen(); t.c.onMessage(fjoined);
+    expect(t.out.join("\n")).toContain("hidden facts: cfo 2");
+    expect(t.out.join("\n")).not.toContain("first");
+    t.out.length = 0;
+    t.c.onLine("/hidden");
+    expect(t.out.slice(1)).toEqual(["cfo #1 first", "cfo #2 [released] second"]);
+    expect(t.sent).toHaveLength(1); // only the join: /hidden is local
+  });
+  it("sends /release, then shows the new release once and marks it in /hidden", () => {
+    const t = fsetup(); t.c.onOpen(); t.c.onMessage(fjoined);
+    t.out.length = 0;
+    t.c.onLine("/release cfo 1");
+    expect(t.sent[1]).toEqual({ type: "command", command: { command: "release_hidden", roleId: "cfo", fact: 1 } });
+    t.c.onMessage(JSON.stringify({ type: "event", event: { seq: 4, ts: 0, sessionId: "s", type: "facilitator.command", command: "release_hidden", roleId: "cfo", fact: 1 } }));
+    t.c.onMessage(upd(["second", "first"]));
+    expect(t.out).toEqual(["[facilitator] released hidden fact #1 of cfo", "[npc cfo] goals: ", "[npc cfo] released #1: first"]);
+    t.out.length = 0;
+    t.c.onMessage(upd(["second", "first"]));
+    expect(t.out).toEqual(["[npc cfo] goals: "]);
+    t.c.onLine("/hidden");
+    expect(t.out.slice(-2)).toEqual(["cfo #1 [released] first", "cfo #2 [released] second"]);
+  });
+  it("shows a server error such as already_released and a player never gets the commands", () => {
+    const t = fsetup(); t.c.onOpen(); t.c.onMessage(fjoined);
+    t.c.onMessage(err("already_released"));
+    expect(t.out.at(-1)).toContain("already_released");
+    const p = setup(); p.c.onOpen(); p.c.onMessage(joinedMsg);
+    p.c.onLine("/release cfo 1"); p.c.onLine("/hidden");
+    expect(p.sent).toHaveLength(1);
+  });
+  it("/hidden before the join is not sent and says so", () => {
+    const t = fsetup(); t.c.onOpen();
+    t.c.onLine("/hidden");
+    expect(t.out).toEqual(["not joined yet"]);
+  });
+});

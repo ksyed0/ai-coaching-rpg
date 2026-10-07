@@ -392,23 +392,60 @@ Notes: See the implementation plan task of the same number. Deferred to slice 2.
 US-0016 (EPIC-0006): As a facilitator, I want to release an NPC's hidden fact during a session, so that hidden information can surface when a participant earns it.
 Priority: High
 Estimate: M
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0006-US-0016-release-hidden-facts
 Dependencies: US-0011
 Acceptance Criteria:
-  - [ ] AC-0049: a facilitator `release_hidden` command (role and fact index) is recorded as an event and the NPC's next prompt contains that fact
-  - [ ] AC-0050: players never receive the event or the fact text, and unreleased facts stay out of every prompt
-  - [ ] AC-0051: the terminal client offers `/release <role> <n>` and shows the facilitator which hidden facts a role has
-  - [ ] AC-0052: the README and CHANGELOG limitation about unreleased hidden facts is removed
+  - [x] AC-0049: a facilitator `release_hidden` command (role and fact index) is recorded as an event and the NPC's next prompt contains that fact
+  - [x] AC-0050: players never receive the event or the fact text, and unreleased facts stay out of every prompt
+  - [x] AC-0051: the terminal client offers `/release <role> <n>` and shows the facilitator which hidden facts a role has
+  - [x] AC-0052: the README and CHANGELOG limitation about unreleased hidden facts is removed
+  - [x] AC-0150: `release_hidden {roleId, fact}` takes a 1-based fact number (1 to 50, the same numbering in the protocol, the engine and the terminal client); the engine refuses an unknown role (`unknown_role`, also for prototype keys such as `__proto__`), a player role (`npc_role`), a number the character has no fact for (`unknown_fact`) and a fact that is already released (`already_released`), appending nothing; a valid release records a `facilitator.command` that carries no fact text, then a facilitator-only `npc.updated` with the text; it works while paused and there is no unrelease
+  - [x] AC-0151: the fact text reaches only facilitator connections: `viewFor` and `filterFor` deny both events and `snapshotFor` drops NPC state for a player, the facilitator's `joined` message carries `hiddenFacts` only after a facilitator join (behind `FACILITATOR_TOKEN` when it is set; a refused join gets nothing), and a reconnecting facilitator sees the released state
+  - [x] AC-0152: a released fact appears in a separate last prompt section `## What you may now share` of that character only, with the line that the earlier hidden-information rules no longer apply to it, judged by time (a prompt built before the release never holds it), and never in another character's, a player's or the Game Master's prompt
+  - [x] AC-0153: `/hidden` lists each character's facts numbered with their released status and `/release <role> <n>` validates and sends the command; fact text and ids are sanitised, the list is bounded, and a player client has neither command
+  - [x] AC-0154: the scenario schema bounds a character's hidden facts (at most 50, non-empty, at most 1000 characters each, unique within the character), prototype keys are refused as role and scene ids, and role lookups from client ids use own properties
+  - [x] AC-0155: the extended showcase script may hold scripted facilitator steps (`facilitator: [{after_line, release_hidden: {role, fact}}]`, validated against the scenario); scene s5 releases the CFO's fact 1 after line 1 and the narration, transcript and report say `facilitator released hidden fact number 1 of cfo` without the text (recorded live 2026-10-06 on local gemma-4-31b-it-qat-mxfp4, first version of the share-section wording: scene 5 ended by the Game Master (5 of 6 scenes, only s2 by facilitator advance; 12 of 12 verdicts strict), the CFO used the released fact in her own words ('I will approve this change request now that it is a fixed-fee tied to a firm date'), the narration and transcript showed only 'facilitator released hidden fact number 1 of cfo'; single run; a rerun on the final prompt wording is recorded below if it differs)
+  - [x] AC-0156: checks S-06, S-07 and S-15 audit it: an unreleased fact in no AI character or generated player prompt, a released fact only in its own character's share section (with a positive control), no release command in a player inbox; the S-07 hidden-fact observation no longer counts released facts or strings a player said earlier in the same scene
+  - [x] AC-0157: the demo checks stay at 29 (default), 14 (showcase), 15 (`--evaluate`) and 32 (`--security`); no live model call is made by the tests
+  - [x] AC-0158: the narration, the Markdown transcript, the `--json` report and the evaluation reports never contain a released fact's text, except inside that character's own later utterances (dialogue) and the facilitator's own client; the release is shown by role and number
+  - [x] AC-0159: the README and CHANGELOG describe the command, the terminal client commands, the prompt section, the showcase step and what a live run must confirm
 ```
 
 ```
 TASK-0016 (US-0016): Add the release_hidden facilitator command, engine and reducer support, and the client command
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0016-release-hidden-facts
 Notes: Plan gap found in the Slice 1 final review: `SessionEngine.updateNpc(..., {released})` is only called by tests, so `hidden` facts can never surface at runtime. Architecture section 4 expects a release path.
+```
+
+```
+TASK-0046 (US-0016): Protocol, engine, host and prompt support for release_hidden, scenario limits
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0016-release-hidden-facts
+Notes: packages/events (command type), packages/script (hidden-fact limits), host/protocol.ts, engine/session-engine.ts, host/session-host.ts (`hiddenFacts`, viewFor), host/ws-server.ts (`joined.hiddenFacts`), agents/npc-prompt.ts (`## What you may now share`). Tests in each package, host/__tests__/ws-server.release.test.ts.
+```
+
+```
+TASK-0047 (US-0016): Terminal client /hidden and /release
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0016-release-hidden-facts
+Notes: cli/commands.ts, cli/render.ts, cli/client.ts with tests.
+```
+
+```
+TASK-0048 (US-0016): Showcase facilitator step, S-06/S-07/S-15 audits, README and CHANGELOG
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0016-release-hidden-facts
+Notes: demo/showcase-script.ts (`facilitator` steps), demo/showcase.ts, demo/release-note.ts, scenarios/friday-escalation-extended/showcase.yaml (s5 release, CFO mock reply 2), tests/gm-cases/showcase.json rebuilt, demo/__tests__/showcase-release.test.ts. The controller confirms live that scene 5 now ends by the Game Master.
 ```
 
 ```

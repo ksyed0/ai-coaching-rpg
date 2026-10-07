@@ -32,7 +32,10 @@ export type ResumeInfo = {
 };
 export type RestoreOutcome = { kind: "empty" } | { kind: "ended"; events: number } | { kind: "running"; info: ResumeInfo };
 
-export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role";
+/** Own-property lookup: a client-supplied role id such as `__proto__` or `constructor` must never resolve to an inherited member. */
+const own = <T>(map: Record<string, T>, key: string): T | undefined => (Object.hasOwn(map, key) ? map[key] : undefined);
+
+export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released";
 export class EngineError extends Error {
   constructor(readonly code: EngineErrorCode, message: string = code) { super(message); this.name = "EngineError"; }
 }
@@ -123,12 +126,12 @@ export class SessionEngine {
   private async doSay(roleId: string, text: string, channel: Channel, opts: { expectSceneId?: string; fallback?: true }): Promise<SessionEvent> {
     if (this.state.status === "ended") throw new EngineError("ended");
     // Participation first: a role outside the current scene must not be able to probe the scene id through the guard.
-    if (opts.expectSceneId !== undefined && this.state.roles[roleId]) {
+    if (opts.expectSceneId !== undefined && own(this.state.roles, roleId)) {
       const cur = this.currentScene();
       if (!cur || !cur.participants.includes(roleId)) throw new EngineError("not_in_scene", `${roleId} is not in the current scene`);
     }
     if (opts.expectSceneId !== undefined && this.state.currentScene?.id !== opts.expectSceneId) throw new EngineError("stale_scene");
-    if (!this.state.roles[roleId]) throw new EngineError("unknown_role", `unknown role ${roleId}`);
+    if (!own(this.state.roles, roleId)) throw new EngineError("unknown_role", `unknown role ${roleId}`);
     if (this.state.paused) throw new EngineError("paused");
     const scene = this.currentScene();
     if (!scene || !scene.participants.includes(roleId)) throw new EngineError("not_in_scene", `${roleId} is not in the current scene`);
@@ -149,19 +152,33 @@ export class SessionEngine {
       injectToFire = { scene, inject };
     }
     if (cmd.command === "whisper") {
-      const target = this.state.roles[cmd.roleId];
+      const target = own(this.state.roles, cmd.roleId);
       if (!target) throw new EngineError("unknown_role", `unknown role ${cmd.roleId}`);
       if (target.kind !== "player") throw new EngineError("npc_role", `${cmd.roleId} is an NPC; whispers go to player roles only`);
     }
-    if (cmd.command === "set_npc_stance" && !this.state.npcs[cmd.roleId]) throw new EngineError("unknown_role", `${cmd.roleId} is not an NPC`);
+    if (cmd.command === "set_npc_stance" && !own(this.state.npcs, cmd.roleId)) throw new EngineError("unknown_role", `${cmd.roleId} is not an NPC`);
+    let release: { roleId: string; npc: SessionState["npcs"][string]; text: string } | null = null;
+    if (cmd.command === "release_hidden") {
+      const role = own(this.scenario.roles, cmd.roleId);
+      const npc = own(this.state.npcs, cmd.roleId);
+      if (!role) throw new EngineError("unknown_role", `unknown role ${cmd.roleId}`);
+      if (role.type !== "npc" || !npc) throw new EngineError("npc_role", `${cmd.roleId} is a player role; only an AI character has hidden facts`);
+      const text = Number.isInteger(cmd.fact) && cmd.fact >= 1 ? role.hidden[cmd.fact - 1] : undefined;
+      if (text === undefined) throw new EngineError("unknown_fact", `${cmd.roleId} has ${role.hidden.length} hidden fact(s); there is no fact ${cmd.fact}`);
+      if (npc.released.includes(text)) throw new EngineError("already_released", `fact ${cmd.fact} of ${cmd.roleId} is already released`);
+      release = { roleId: cmd.roleId, npc, text };
+    }
     await this.emit({ type: "facilitator.command", ...cmd });
+    // The command event above carries no fact text. The text goes only in this npc.updated, which players never receive.
+    // Two appends: the npc.updated is the source of truth. If this second append fails the command is an orphan (it changed nothing, so a retry is accepted).
+    if (release) await this.emit({ type: "npc.updated", roleId: release.roleId, goals: release.npc.goals, knowledge: release.npc.knowledge, released: [...release.npc.released, release.text] });
     if (injectToFire) await this.fireInject(injectToFire.scene, injectToFire.inject);
     if (cmd.command === "set_npc_stance") await this.doUpdateNpc(cmd.roleId, { goals: cmd.goals });
   }
 
   updateNpc(roleId: string, patch: { goals?: string[]; knowledge?: string[]; released?: string[] }): Promise<void> { return this.mutex.run(() => this.doUpdateNpc(roleId, patch)); }
   private async doUpdateNpc(roleId: string, patch: { goals?: string[]; knowledge?: string[]; released?: string[] }): Promise<void> {
-    const npc = this.state.npcs[roleId];
+    const npc = own(this.state.npcs, roleId);
     if (!npc) throw new EngineError("unknown_role", `${roleId} is not an NPC`);
     await this.emit({ type: "npc.updated", roleId, goals: patch.goals ?? npc.goals, knowledge: patch.knowledge ?? npc.knowledge, released: patch.released ?? npc.released });
   }

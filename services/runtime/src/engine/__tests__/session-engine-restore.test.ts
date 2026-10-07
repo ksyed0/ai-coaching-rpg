@@ -37,7 +37,7 @@ async function randomSession(engine: SessionEngine, clock: FakeClock, seed: numb
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
   await engine.start({ host: "p1" });
   for (let i = 0; i < steps && engine.state.status === "running"; i++) {
-    const op = Math.floor(r() * 11);
+    const op = Math.floor(r() * 12);
     try {
       if (op === 0) await engine.say("host", `line ${i}`);
       else if (op === 1) await engine.say("guest", `npc ${i}`, "text", { expectSceneId: engine.state.currentScene?.id });
@@ -48,6 +48,7 @@ async function randomSession(engine: SessionEngine, clock: FakeClock, seed: numb
       else if (op === 6) await engine.recordGmVerdict("both parties have said hello", r() < 0.3, "why");
       else if (op === 7) await engine.updateNpc("guest", { goals: [`g${i}`] });
       else if (op === 8) await engine.alert(`a${i}`, pick(["info", "warning"] as const));
+      else if (op === 11) await engine.command({ command: "release_hidden", roleId: "guest", fact: pick([1, 1, 2] as const) }); // 2 does not exist: refused
       else if (op === 9) { clock.advance(Math.floor(r() * 50_000) - 5_000); await engine.tick(); } // sometimes backwards
       else { clock.advance(Math.floor(r() * 3 * MIN)); await engine.tick(); }
     } catch { /* refusals (paused, not_in_scene, ended) are part of the property: they append nothing */ }
@@ -303,5 +304,56 @@ describe("scenario hash", () => {
     expect(scenarioHash(copy)).toBe(scenarioHash(scenario));
     copy.meta.title += "!";
     expect(scenarioHash(copy)).not.toBe(scenarioHash(scenario));
+  });
+});
+
+describe("released hidden facts across a restart (US-0016 + US-0018)", () => {
+  const HIDDEN = "Sam is leaving the company next month";
+
+  it("a released fact is still released after the restart; an unreleased one stays absent from state and from the player's snapshot", async () => {
+    const { MockModelProvider } = await import("@acr/adapters");
+    const { SessionHost } = await import("../../host/session-host.js");
+    const { buildNpcRequest, SHARE_SECTION } = await import("../../agents/npc-prompt.js");
+    const unreleased = new MemoryEventLog("u");
+    const { engine: u1 } = await liveOn(unreleased);
+    await u1.say("host", "hi");
+    const released = new MemoryEventLog("r");
+    const { engine: r1 } = await liveOn(released);
+    await r1.say("host", "hi");
+    await r1.command({ command: "release_hidden", roleId: "guest", fact: 1 });
+
+    for (const [log, want] of [[released, true], [unreleased, false]] as const) {
+      const { engine, out } = await restoreOf(log);
+      if (out.kind !== "running") throw new Error("not running");
+      await engine.markResumed(out.info);
+      expect(engine.state.npcs.guest!.released.includes(HIDDEN)).toBe(want);
+      const req = buildNpcRequest({ role: scenario.roles.guest as never, scene: engine.currentScene()!, state: engine.state, peers: [], allowSilence: false });
+      const prompt = req.system + JSON.stringify(req.messages);
+      expect(prompt.includes(SHARE_SECTION)).toBe(want);
+      expect(prompt.includes(HIDDEN)).toBe(want);
+      const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(), gmProvider: new MockModelProvider(), clock: new FakeClock(T0) });
+      host.resumeFrom(out.info);
+      const snap = host.snapshotFor("host");
+      expect(JSON.stringify(snap)).not.toContain(HIDDEN); // a rejoining player never gets hidden-fact text
+      for (const e of await log.all()) expect(JSON.stringify(host.viewFor("host", e) ?? "")).not.toContain(HIDDEN);
+    }
+  });
+
+  it("a crash between the release command and its npc.updated leaves a harmless orphan command; a retried release is accepted", async () => {
+    const log = new MemoryEventLog("o");
+    const { engine: live } = await liveOn(log);
+    // The crash happened after the facilitator.command append and before the npc.updated append.
+    await log.append({ type: "facilitator.command", command: "release_hidden", roleId: "guest", fact: 1 } as never, T0 + 1);
+    void live;
+    const { engine, out } = await restoreOf(log);
+    if (out.kind !== "running") throw new Error("not running");
+    expect(engine.state.npcs.guest!.released).toEqual([]);
+    await engine.markResumed(out.info);
+    await engine.command({ command: "resume" });
+    await engine.command({ command: "release_hidden", roleId: "guest", fact: 1 });
+    expect(engine.state.npcs.guest!.released).toEqual([HIDDEN]);
+    await expect(engine.command({ command: "release_hidden", roleId: "guest", fact: 1 })).rejects.toMatchObject({ code: "already_released" });
+    const again = await restoreOf(log);
+    expect(again.engine.state).toEqual(engine.state);
   });
 });

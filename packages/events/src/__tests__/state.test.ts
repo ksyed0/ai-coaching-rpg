@@ -158,6 +158,21 @@ describe("reduce: advance request and GM verdicts", () => {
     s = reduce(s, enter(4, "b"));
     expect(s.gmVerdicts).toEqual({});
   });
+
+  it("a release_hidden command changes nothing by itself; the following npc.updated carries the fact", () => {
+    let s = reduce(inScene(), { ...env(3), type: "npc.updated", roleId: "client_sponsor", goals: ["g"], knowledge: ["k"], released: [] });
+    const cmd = reduce(s, { ...env(4), type: "facilitator.command", command: "release_hidden", roleId: "client_sponsor", fact: 1 });
+    expect(cmd.npcs).toEqual(s.npcs);
+    expect(cmd.paused).toBe(false);
+    s = reduce(cmd, { ...env(5), type: "npc.updated", roleId: "client_sponsor", goals: ["g"], knowledge: ["k"], released: ["the fact"] });
+    expect(s.npcs.client_sponsor!.released).toEqual(["the fact"]);
+  });
+
+  it("an npc.updated without released (an inject effect) keeps what was released", () => {
+    let s = reduce(inScene(), { ...env(3), type: "npc.updated", roleId: "client_sponsor", goals: ["g"], knowledge: ["k"], released: ["the fact"] });
+    s = reduce(s, { ...env(4), type: "npc.updated", roleId: "client_sponsor", goals: ["g", "g2"], knowledge: ["k"] });
+    expect(s.npcs.client_sponsor!.released).toEqual(["the fact"]);
+  });
 });
 
 describe("session.resumed (US-0018)", () => {

@@ -143,10 +143,11 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       for (const p of [dl, am, tl]) {
         const raw = JSON.stringify(p.bot.inbox);
         ensure(!raw.includes("resumed after a server restart") && !raw.includes("npcs\":{\""), `${p.bot.label} received facilitator-only data`);
+        for (const h of npc.hidden) ensure(!raw.includes(h), `${p.bot.label} received hidden-fact text`);
       }
       st.ev.resumePlayers = { ok: true, value: [dl.bot, am.bot] };
       await n.step("the players rejoin (anyone may claim a role again, as after any disconnect) and each gets the history it may see: tech_lead, who was not on the call, gets none of it");
-      return "delivery_lead and account_manager rejoined with their 4 visible lines (scene 1 and the call); tech_lead, claimed by a new participant, got only scene 1; no facilitator-only data reached a player";
+      return "delivery_lead and account_manager rejoined with their 4 visible lines (scene 1 and the call); tech_lead, claimed by a new participant, got only scene 1; no facilitator-only data or hidden-fact text reached a player";
     }, ["F-34"]);
 
     await rec.run("F-36", async () => {

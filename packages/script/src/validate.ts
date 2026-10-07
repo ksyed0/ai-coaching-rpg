@@ -6,6 +6,12 @@ export function validateScenario(s: Scenario): { errors: string[]; warnings: str
   const roleIds = new Set(Object.keys(s.roles));
   const sceneIds = new Set<string>();
   const injectIds = new Map<string, number>();
+  // Ids become object keys all over the runtime: these would resolve to inherited members of a plain object.
+  const PROTOTYPE_KEYS = ["__proto__", "constructor", "prototype"];
+  for (const k of PROTOTYPE_KEYS) {
+    if (roleIds.has(k)) errors.push(`role id '${k}' is not allowed (it is a prototype key)`);
+    if (s.script.scenes.some((sc) => sc.id === k)) errors.push(`scene id '${k}' is not allowed (it is a prototype key)`);
+  }
   if (roleIds.has("facilitator")) errors.push("role id 'facilitator' is reserved for the facilitator connection");
 
   for (const scene of s.script.scenes) {
@@ -51,6 +57,13 @@ export function validateScenario(s: Scenario): { errors: string[]; warnings: str
       if (target.seniority < r.seniority) warnings.push(`role ${r.id}: defer_to '${d}' is less senior (${target.seniority}) than ${r.id} (${r.seniority})`);
       if (target.defer_to.includes(r.id) && r.id < d) warnings.push(`roles ${r.id} and ${d} defer to each other`);
     }
+    // The release command numbers facts 1..n, and a release is tracked by the fact's text: two equal facts would be released together.
+    const seenFact = new Map<string, number>();
+    r.hidden.forEach((h, i) => {
+      const first = seenFact.get(h);
+      if (first !== undefined) errors.push(`role ${r.id}: hidden facts ${first} and ${i + 1} have the same text`);
+      else seenFact.set(h, i + 1);
+    });
     if (new Set(r.defer_to).size !== r.defer_to.length) errors.push(`role ${r.id}: defer_to lists a role more than once`);
   }
   const playerCount = Object.values(s.roles).filter((r) => r.type === "player").length;
