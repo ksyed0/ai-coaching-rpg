@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { constants } from "node:fs";
 import { mkdir, open, readdir, rename, unlink, writeFile, type FileHandle } from "node:fs/promises";
 import path from "node:path";
-import { Document, isMap, isScalar, parseDocument, stringify } from "yaml";
+import { Document, isMap, isScalar, parseDocument, stringify, type YAMLMap } from "yaml";
 import type { ChatRequest, ModelProvider } from "@acr/adapters";
 import { isFileSafeId, type SessionEvent } from "@acr/events";
 import type { Criterion, Rubric, Scenario } from "@acr/script";
@@ -10,7 +10,7 @@ import { collectModelReply } from "../agents/model-reply.js";
 import { extractJson } from "../evaluator/parse.js";
 import { CalibrationInputError, modelFamily, type Judge } from "./judge.js";
 import { assignSplit, checkProbeAgainstScenario, hasPrototypeKey, hiddenFactRoles, individualCriteria, MAX_PROBE_BYTES, parseYamlQuiet, printable } from "./probe-load.js";
-import { LineSchema, MAX_PROBE_ID, ProbeSchema, type Expected, type Level, type Probe } from "./probe-schema.js";
+import { hasHiddenControl, LineSchema, MAX_PROBE_ID, ProbeSchema, type Expected, type Level, type Probe } from "./probe-schema.js";
 
 // The draft -> review -> approve workflow (spec section 6). Drafts live in <scenario>/calibration/drafts/, which the loader never reads (it
 // skips sub-directories), so a draft is never part of a calibration run. Only `approveDraft`, a command the owner runs, turns a draft into a
@@ -218,6 +218,9 @@ function readReply(text: string, id: string, criterion: string, subject: string,
   if (!Array.isArray(t)) return { problem: 'the reply needs a transcript list ({"transcript":[...]})' };
   if (t.length > MAX_DRAFT_LINES) return { problem: `the reply has more than ${MAX_DRAFT_LINES} lines (${t.length})` };
   if (t.length < 2) return { problem: "the reply needs at least 2 lines" };
+  if (t.some((l: unknown) => l !== null && typeof l === "object" && typeof (l as { text?: unknown }).text === "string" && hasHiddenControl((l as { text: string }).text))) {
+    return { problem: "the reply contains hidden or bidirectional control characters" };
+  }
   const lines: Line[] = [];
   const issues: string[] = [];
   t.forEach((raw: unknown, k: number) => {
@@ -299,9 +302,10 @@ export async function excerptDraft(i: ExcerptInput): Promise<{ file: string; war
   const started = i.log.find((e) => e.type === "session.started");
   const sid = started?.type === "session.started" ? started.scenarioId : undefined;
   if (sid !== i.scenario.meta.id) throw new CalibrationInputError(`the log is of scenario ${printable(String(sid), 64)}, not ${i.scenario.meta.id}`);
-  const seqs = i.log.map((e) => e.seq);
-  const first = Math.min(...seqs);
-  const last = Math.max(...seqs);
+  // A loop, not Math.min(...seqs): spreading ~110 000+ arguments overflows the stack, and a capped log can hold more events than that.
+  let first = Infinity;
+  let last = -Infinity;
+  for (const e of i.log) { if (e.seq < first) first = e.seq; if (e.seq > last) last = e.seq; }
   if (i.from < first || i.to > last) throw new CalibrationInputError(`seq ${i.from} to ${i.to} is not inside the log (seq ${first} to ${last})`);
   let scene: string | null = null;
   const lines: Line[] = [];
@@ -347,12 +351,12 @@ export type ApproveInput = {
   dir: string; draftId: string; /** Who approves (the owner): 1 to 120 printable characters. */ by: string;
   /** The level: required for an excerpt (the human rating); for a drafted probe it overrides the drafted level. */ expected?: Expected;
   /** The final probe id (default: the draft id without its draft- prefix). */ finalId?: string;
-  scenario: Scenario; rubrics: Rubric[]; /** The probes already loaded (for the duplicate check and the split total). */ existing: Probe[]; now: () => Date;
+  scenario: Scenario; rubrics: Rubric[]; /** The probes already loaded (for the duplicate check; the split total is probeFileTotal). */ existing: Probe[]; now: () => Date;
 };
 export type ApproveResult = { file: string; /** False when the probe was written but the draft could not be deleted (delete it by hand). */ draftRemoved: boolean; warnings: string[] };
 
 /**
- * Turns a reviewed draft into a probe: records the approver and time, fills `split` when the draft has none, validates it exactly like the
+ * Turns a reviewed draft into a probe: records the approver and time, fills `split` when the draft has none (assignSplit(id, probeFileTotal + 1)), validates it exactly like the
  * loader (schema and semantic checks), writes calibration/<id>.yaml exclusively, then deletes the draft. The probe is written BEFORE the
  * draft is deleted, so a crash leaves the draft, or both (approve then refuses the duplicate and the draft can be deleted), never neither.
  * Only the owner runs this: no agent or other command approves a draft.
@@ -387,7 +391,7 @@ export async function approveDraft(i: ApproveInput): Promise<ApproveResult> {
   if (i.existing.some((p) => p.id === finalId)) throw new CalibrationInputError(`a probe ${finalId} already exists: approve never overwrites (choose another --id)`);
   const candidate: Record<string, unknown> = {
     ...d, id: finalId, approved_by: by, approved_at: i.now().toISOString(),
-    split: d.split ?? assignSplit(finalId, i.existing.length + 1), ...(d.kind === "contrast" ? {} : { expected }),
+    split: d.split ?? assignSplit(finalId, (await probeFileTotal(i.dir)) + 1), ...(d.kind === "contrast" ? {} : { expected }),
   };
   const parsed = ProbeSchema.safeParse(candidate);
   if (!parsed.success) {
@@ -409,45 +413,94 @@ export async function approveDraft(i: ApproveInput): Promise<ApproveResult> {
   return { file, draftRemoved, warnings: checked.warnings };
 }
 
+// ---- the split total -------------------------------------------------------------------------------------------------
+
+/** The calibration/*.yaml probe files (sorted; not targets.yaml, not directories), and the symbolic links among them (never followed). */
+async function probeFiles(cal: string): Promise<{ files: string[]; links: string[] }> {
+  let entries;
+  try { entries = await readdir(cal, { withFileTypes: true }); }
+  catch (e) { throw new CalibrationInputError(`the calibration directory cannot be read (${code(e)})`); }
+  const out = { files: [] as string[], links: [] as string[] };
+  for (const e of [...entries].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+    if (!e.name.endsWith(".yaml") || e.name === "targets.yaml" || e.isDirectory()) continue;
+    if (e.isSymbolicLink()) out.links.push(e.name);
+    else if (e.isFile()) out.files.push(e.name);
+  }
+  return out;
+}
+
+/** A probe file parsed as a YAML document, or why not: it cannot be read, does not parse cleanly or is not a mapping. */
+async function readProbeDocument(file: string): Promise<{ doc: ReturnType<typeof parseDocument> } | { problem: string }> {
+  let text: string;
+  try { text = await readNoFollow(file, MAX_PROBE_BYTES); } catch (e) { return { problem: `cannot be read (${code(e)})` }; }
+  const doc = parseDocument(text, { logLevel: "silent", prettyErrors: false });
+  const bad = doc.errors[0] ?? doc.warnings[0];
+  if (bad) return { problem: printable(bad.message.split("\n")[0] ?? "", 200) };
+  if (!isMap(doc.contents)) return { problem: "not a probe (a YAML mapping is expected)" };
+  return { doc };
+}
+
+const usableId = (doc: ReturnType<typeof parseDocument>): string | null => {
+  const id = doc.get("id");
+  return typeof id === "string" && isProbeId(id) ? id : null;
+};
+
+/**
+ * THE split total, shared by approve and assign-splits so both give one probe the same split: the number of calibration/*.yaml files
+ * that parse as probes (a YAML mapping with a usable id; whether the rest is valid does not matter, and a file without a split counts).
+ * Approve adds one for the probe it is about to write; assign-splits does not, because the file it fills is already counted.
+ */
+export async function probeFileTotal(scenarioDir: string): Promise<number> {
+  const cal = path.join(scenarioDir, "calibration");
+  const { files } = await probeFiles(cal);
+  let n = 0;
+  for (const name of files) {
+    const r = await readProbeDocument(path.join(cal, name));
+    if ("doc" in r && usableId(r.doc) !== null) n++;
+  }
+  return n;
+}
+
 // ---- assign-splits ---------------------------------------------------------------------------------------------------
 
 /**
  * Adds a `split` (assignSplit(id, number of probe files)) to every calibration/*.yaml probe that has none, keeping the rest of the file
- * (comments, order, styles, as far as the yaml library keeps them). An existing split is never changed and such files are not rewritten.
+ * (comments, order, styles, as far as the yaml library keeps them). An existing split is never changed and such files are not rewritten; a
+ * null split counts as missing, any other value is reported. The total is `probeFileTotal`, the same rule approve uses.
  * Each change is atomic: a temp file in the same directory (0o600) renamed over the original. Unparseable files are reported, not touched.
  */
-export async function assignSplits(dir: string): Promise<{ changed: string[]; problems: string[] }> {
+export async function assignSplits(dir: string, hooks: { /** Test hook: runs just before the temp file is renamed over `file`. */ beforeRename?: (file: string) => Promise<void> } = {}): Promise<{ changed: string[]; problems: string[] }> {
   const cal = path.join(dir, "calibration");
   const out = { changed: [] as string[], problems: [] as string[] };
-  let entries;
-  try { entries = await readdir(cal, { withFileTypes: true }); }
-  catch (e) { throw new CalibrationInputError(`the calibration directory cannot be read (${code(e)})`); }
-  const files: string[] = [];
-  for (const e of [...entries].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
-    if (!e.name.endsWith(".yaml") || e.name === "targets.yaml" || e.isDirectory()) continue;
-    if (e.isSymbolicLink()) out.problems.push(`${printable(e.name)}: symbolic links are not followed`);
-    else if (e.isFile()) files.push(e.name);
-  }
+  const { files, links } = await probeFiles(cal);
+  for (const name of links) out.problems.push(`${printable(name)}: symbolic links are not followed`);
+  const total = await probeFileTotal(dir);
   for (const name of files) {
     const label = printable(name);
     const file = path.join(cal, name);
-    let text: string;
-    try { text = await readNoFollow(file, MAX_PROBE_BYTES); } catch (e) { out.problems.push(`${label}: cannot be read (${code(e)})`); continue; }
-    const doc = parseDocument(text, { logLevel: "silent", prettyErrors: false });
-    const bad = doc.errors[0] ?? doc.warnings[0];
-    if (bad) { out.problems.push(`${label}: ${printable(bad.message.split("\n")[0] ?? "", 200)}`); continue; }
-    if (!isMap(doc.contents)) { out.problems.push(`${label}: not a probe (a YAML mapping is expected)`); continue; }
-    if (doc.has("split")) continue;
-    const id = doc.get("id");
-    if (typeof id !== "string" || !isProbeId(id)) { out.problems.push(`${label}: no usable id, split not added`); continue; }
-    // The parsed map's items are typed as parsed nodes; a created pair is an ordinary node pair, which the map holds just as well.
-    const items = doc.contents.items as unknown[];
-    const at = doc.contents.items.findIndex((p) => isScalar(p.key) && p.key.value === "transcript");
-    const pair = doc.createPair("split", assignSplit(id, files.length));
-    if (at === -1) items.push(pair); else items.splice(at, 0, pair);
+    const r = await readProbeDocument(file);
+    if ("problem" in r) { out.problems.push(`${label}: ${r.problem}`); continue; }
+    const { doc } = r;
+    const contents = doc.contents as YAMLMap;
+    // A split of null (or an empty value) is no split: it is filled. Any other value that is not tune or holdout is the owner's to fix.
+    const current = doc.get("split");
+    if (current === "tune" || current === "holdout") continue;
+    if (current !== null && current !== undefined) { out.problems.push(`${label}: split ${printable(String(current), 40)} is neither tune nor holdout: not changed`); continue; }
+    const id = usableId(doc);
+    if (id === null) { out.problems.push(`${label}: no usable id, split not added`); continue; }
+    const split = assignSplit(id, total);
+    if (doc.has("split")) doc.set("split", split);
+    else {
+      // The parsed map's items are typed as parsed nodes; a created pair is an ordinary node pair, which the map holds just as well.
+      const items = contents.items as unknown[];
+      const at = contents.items.findIndex((p) => isScalar(p.key) && p.key.value === "transcript");
+      const pair = doc.createPair("split", split);
+      if (at === -1) items.push(pair); else items.splice(at, 0, pair);
+    }
     const tmp = path.join(cal, `.${name}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
     try {
       await writeFile(tmp, String(doc), { flag: "wx", mode: 0o600 });
+      await hooks.beforeRename?.(file);
       await rename(tmp, file);
       out.changed.push(file);
     } catch (e) {

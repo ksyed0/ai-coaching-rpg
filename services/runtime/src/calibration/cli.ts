@@ -361,7 +361,7 @@ async function runAuthoring(sub: string, values: Values, deps: CalibrateDeps, di
       else throw new CalibrationInputError("--expected must be 1, 2, 3, 4 or not_observed");
     }
     const loaded = await loadProbes(dir, input.scenario, input.rubrics);
-    if (loaded.errors.length) say(`warning: ${plural(loaded.errors.length, "probe problem")} in calibration/ (run pnpm calibrate to list them); the split total counts the valid probes`);
+    if (loaded.errors.length) say(`warning: ${plural(loaded.errors.length, "probe problem")} in calibration/ (run pnpm calibrate to list them); approving anyway`);
     const r = await approveDraft({ dir, draftId, by, expected, finalId: str(values, "id"), scenario: input.scenario, rubrics: input.rubrics, existing: loaded.probes, now: deps.now ?? (() => new Date()) });
     for (const w of r.warnings) say(`lint: ${w}`);
     say(`approved: ${rel(r.file)} (approved by ${by.trim()})`);

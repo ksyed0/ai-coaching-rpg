@@ -109,3 +109,21 @@ describe("ProbeSchema", () => {
     });
   });
 });
+
+describe("transcript text: hidden and bidirectional control characters (Trojan Source)", () => {
+  const MSG = "a transcript line contains hidden or bidirectional control characters";
+  const withText = (text: string) => ({ ...base, kind: "single", subject: "delivery_lead", expected: 1, transcript: [line("client_sponsor", "Hello."), line("delivery_lead", text)] });
+  const refused: [number, number][] = [[0x0000, 0x0008], [0x000b, 0x001f], [0x007f, 0x009f], [0x061c, 0x061c], [0x200b, 0x200f], [0x2028, 0x202e], [0x2066, 0x2069], [0xfeff, 0xfeff]];
+  it.each(refused.flatMap(([a, b]) => [a, b]).map((c) => [c.toString(16).padStart(4, "0")]))("refuses U+%s, naming the line by its index", (hex) => {
+    const r = ProbeSchema.safeParse(withText(`Fine ${String.fromCodePoint(parseInt(hex, 16))}by me.`));
+    expect(r.success).toBe(false);
+    const issue = r.error!.issues.find((i) => i.message === MSG)!;
+    expect(issue.path).toEqual(["transcript", 1, "text"]);
+  });
+  it.each([0x0009, 0x000a, 0x0020, 0x007e, 0x00a0, 0x061b, 0x061d, 0x200a, 0x2010, 0x2027, 0x202f, 0x2065, 0x206a, 0xfefe, 0xff00].map((c) => [c.toString(16).padStart(4, "0")]))("accepts the neighbour U+%s just outside a refused range", (hex) => {
+    expect(messages(withText(`Fine ${String.fromCodePoint(parseInt(hex, 16))}by me.`))).toBe("");
+  });
+  it("accepts ordinary text: curly quotes, accents, emoji, CJK, Arabic and Hebrew letters", () => {
+    for (const t of ["“Yes,” she said — it’s fine.", "Café, naïve, Zürich, São Paulo", "Great 👍🏽 let’s go 🚀", "我们周五之前确认。", "مرحبا بكم", "שלום לכולם"]) expect(messages(withText(t)), t).toBe("");
+  });
+});

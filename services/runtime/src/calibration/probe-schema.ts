@@ -14,7 +14,23 @@ export const MAX_PROBE_ID = 58;
 const ProbeId = z.string().max(MAX_PROBE_ID, `must be at most ${MAX_PROBE_ID} characters (it becomes the session id probe-<id>)`).refine(isFileSafeId, idMessage(MAX_PROBE_ID));
 const RoleId = z.string().max(64).refine(isScenarioId, "must be a scenario id");
 
-export const LineSchema = z.object({ scene: RoleId, role: RoleId, text: z.string().min(1).max(2000) }).strict();
+/**
+ * Code points a transcript line may never contain ("Trojan Source"): C0 controls except TAB and LF, DEL and the C1 controls, the Arabic
+ * letter mark, zero-width characters and direction marks, the line and paragraph separators and bidi embeddings and overrides, the bidi
+ * isolates and the zero-width no-break space. They would make the text an owner reviews differ from the text the judges read.
+ */
+export function isHiddenControl(c: number): boolean {
+  return (c <= 0x08) || (c >= 0x0b && c <= 0x1f) || (c >= 0x7f && c <= 0x9f) || c === 0x061c || (c >= 0x200b && c <= 0x200f)
+    || (c >= 0x2028 && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069) || c === 0xfeff;
+}
+export const HIDDEN_CONTROL_MESSAGE = "a transcript line contains hidden or bidirectional control characters";
+export function hasHiddenControl(s: string): boolean {
+  for (const ch of s) if (isHiddenControl(ch.codePointAt(0)!)) return true;
+  return false;
+}
+const LineText = z.string().min(1).max(2000).refine((t) => !hasHiddenControl(t), HIDDEN_CONTROL_MESSAGE);
+
+export const LineSchema = z.object({ scene: RoleId, role: RoleId, text: LineText }).strict();
 
 const common = {
   id: ProbeId,

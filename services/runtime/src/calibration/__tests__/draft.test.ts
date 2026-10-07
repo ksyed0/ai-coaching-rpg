@@ -7,7 +7,7 @@ import { parse } from "yaml";
 import type { EventBody, SessionEvent } from "@acr/events";
 import type { Rubric, Scenario } from "@acr/script";
 import { loadEvaluationInput } from "../../evaluator/cli.js";
-import { approveDraft, assignSplits, buildDraftRequest, draftProbes, excerptDraft, type DraftInput } from "../draft.js";
+import { approveDraft, assignSplits, buildDraftRequest, draftProbes, excerptDraft, probeFileTotal, type DraftInput } from "../draft.js";
 import { CalibrationInputError } from "../judge.js";
 import { assignSplit, loadProbes } from "../probe-load.js";
 import { drafterJudge, fridayReply, scriptedDrafter, targetOf, type Script } from "./fake-drafter.js";
@@ -201,6 +201,22 @@ describe("draftProbes", () => {
     });
   });
 
+  it("refuses a reply with bidi overrides or zero-width characters, writing nothing for it and never printing them", async () => {
+    for (const bad of ["Approve \u202Eti esaelp\u202C now.", "zero\u200Bwidth", "isolate \u2066x\u2069", "bom \uFEFF here"]) {
+      await rm(drafts(), { recursive: true, force: true });
+      const { i } = input((_req, k) => (k === 0 ? fridayReply(bad) : fridayReply()), { criterion: "discovery" });
+      const r = await draftProbes(i);
+      expect(r.problems).toEqual(["draft draft-discovery-l1-1: the reply contains hidden or bidirectional control characters"]);
+      expect(await listDrafts()).not.toContain("draft-discovery-l1-1.yaml");
+    }
+  });
+  it("the loader refuses a probe line with a bidi override, naming the line, and prints it made safe", async () => {
+    const disc = await readFile(path.join(scn, "calibration", "disc-l1.yaml"), "utf8");
+    await writeFile(path.join(scn, "calibration", "trojan.yaml"), disc.replace("id: disc-l1", "id: trojan").replace("I will tell the team", "I will \u202Etell\u202C the team"));
+    const r = await loadProbes(scn, scenario, rubrics);
+    expect(r.errors).toEqual([expect.stringMatching(/^trojan\.yaml: transcript\.1\.text a transcript line contains hidden or bidirectional control characters$/)]);
+    expect(r.errors.join("")).not.toMatch(/[\u202A-\u202E]/);
+  });
   it("writes text exactly as given, YAML-escaped by the library (no raw interpolation)", async () => {
     const hostile = 'He said: "yes" \n- injected: true\n# not a comment {a: 1}';
     const { i } = input(() => fridayReply(hostile), { criterion: "discovery" });
@@ -294,6 +310,14 @@ describe("excerptDraft", () => {
     log.forEach((e, k) => { e.seq = k + 1; e.ts = k; e.sessionId = "s1"; });
     await expect(ex({ log, from: 2, to: 13 })).rejects.toThrow(/the line at seq 7 was spoken outside any scene/);
   });
+  it("handles a log of 150 000 events (no argument-spread limit on the seq range)", async () => {
+    const head = fridayLog().slice(0, 12);
+    const filler = Array.from({ length: 150_000 }, () => ({ type: "facilitator.alert", level: "info", message: "tick" }));
+    const log = [...head, ...filler].map((e, k) => ({ ...e, seq: k + 1, ts: k, sessionId: "s1" }) as SessionEvent);
+    const r = await ex({ log, from: 7, to: 12 });
+    expect(path.basename(r.file)).toBe("excerpt-disc-01.yaml");
+    await expect(ex({ log, from: 7, to: 150_013, id: "excerpt-disc-02" })).rejects.toThrow(/seq 7 to 150013 is not inside the log \(seq 1 to 150012\)/);
+  });
   it("refuses more than 80 lines", async () => {
     const base = fridayLog().slice(0, 7);
     const lines = Array.from({ length: 81 }, (_, k) => ({ type: "utterance", roleId: k % 2 ? "delivery_lead" : "client_sponsor", text: `line ${k}`, channel: "text" }));
@@ -305,6 +329,13 @@ describe("excerptDraft", () => {
     const err = await ex({ log: fridayLog({ 10: `Honestly? ${fact}.` }) }).catch((e: Error) => e);
     expect(err).toBeInstanceOf(CalibrationInputError);
     expect((err as Error).message).toBe("excerpt contains a hidden fact of client_sponsor: choose another range");
+    expect(await listDrafts()).toEqual([]);
+  });
+  it("refuses an excerpt line with hidden or bidirectional control characters, never printing them, and writes nothing", async () => {
+    const err = (await ex({ log: fridayLog({ 9: "What does \u202EFinance\u202C need it for?" }) }).catch((e: Error) => e)) as Error;
+    expect(err).toBeInstanceOf(CalibrationInputError);
+    expect(err.message).toMatch(/the line at seq 9: text a transcript line contains hidden or bidirectional control characters/);
+    expect(err.message).not.toMatch(/[\u202A-\u202E]/);
     expect(await listDrafts()).toEqual([]);
   });
   it("refuses an existing draft id (exclusive create) and leaves it unchanged", async () => {
@@ -345,14 +376,6 @@ describe("approveDraft", () => {
     const after = await loadProbes(scn, scenario, rubrics);
     expect(after.errors).toEqual([]);
     expect(after.probes.map((p) => p.id)).toContain("discovery-l2-1");
-  });
-  it("counts the new probe in the split total (existing.length + 1): 39 existing probes make a set of 40, split 70/30", async () => {
-    await drafted();
-    const many = Array.from({ length: 39 }, () => ({ id: "other" }) as never);
-    // an id whose split differs between a set of 39 (50/50) and a set of 40 (70/30)
-    const finalId = Array.from({ length: 200 }, (_, k) => `disc-split-${k}`).find((id) => assignSplit(id, 40) !== assignSplit(id, 39))!;
-    const r = await approve({ existing: many, finalId });
-    expect((parse(await readFile(r.file, "utf8")) as { split: string }).split).toBe(assignSplit(finalId, 40));
   });
   it("lets --expected override a drafted level and --id choose the final id", async () => {
     await drafted();
@@ -410,6 +433,28 @@ describe("approveDraft", () => {
     await put("d-other", text);
     await expect(approve({ draftId: "d-other" })).rejects.toThrow(/the draft's id draft-discovery-l2-1 does not match its file name d-other/);
   });
+  it("refuses a hand-edited draft with a bidi override or a zero-width character (the schema re-validates)", async () => {
+    await drafted();
+    const f = path.join(drafts(), "draft-discovery-l2-1.yaml");
+    const d = parse(await readFile(f, "utf8")) as { transcript: { text: string }[] };
+    d.transcript[1]!.text = "We can \u202Eod ti\u202C\u200B today.";
+    await writeFile(f, JSON.stringify(d));
+    const err = (await approve().catch((e: Error) => e)) as Error;
+    expect(err).toBeInstanceOf(CalibrationInputError);
+    expect(err.message).toMatch(/transcript\.1\.text a transcript line contains hidden or bidirectional control characters/);
+    expect(err.message).not.toMatch(/[\u200B\u202A-\u202E]/);
+    expect(await readdir(path.join(scn, "calibration"))).not.toContain("discovery-l2-1.yaml");
+  });
+  it("refuses a draft over the size cap (one capped read, EFBIG) and --expected on a contrast draft", async () => {
+    await mkdir(drafts(), { recursive: true });
+    await writeFile(path.join(drafts(), "d-big.yaml"), `kind: single\nid: d-big\n# ${"x".repeat(130 * 1024)}\n`);
+    await expect(approve({ draftId: "d-big" })).rejects.toThrow(/draft d-big cannot be read \(EFBIG\)/);
+    const contrast = await readFile(path.join(scn, "calibration", "listening-contrast-01.yaml"), "utf8");
+    await writeFile(path.join(drafts(), "d-con.yaml"), contrast.replace("id: listening-contrast-01", "id: d-con").replace("source: handwritten", "source: excerpt").replace(/^split: .*\n/m, ""));
+    await expect(approve({ draftId: "d-con", expected: 2 })).rejects.toThrow(/--expected does not apply to a contrast probe/);
+    const ok = await approve({ draftId: "d-con" });
+    expect(parse(await readFile(ok.file, "utf8"))).toMatchObject({ id: "d-con", kind: "contrast", approved_by: "Kamal" });
+  });
   it("does not follow a draft that is a symbolic link", async () => {
     await drafted();
     const real = path.join(dir, "real.yaml");
@@ -441,13 +486,36 @@ describe("assignSplits", () => {
     const { mode, text } = await readWithMode(path.join(cal, "nosplit-a.yaml"));
     expect(mode).toBe(0o600);
     expect(text.startsWith("# keep me\n")).toBe(true);
-    const total = names.length + 2; // the probe files, the new one and the broken one
+    const total = names.length + 1; // the probe files and the new one; the broken file does not parse, so it does not count
     expect((parse(text) as { split: string }).split).toBe(assignSplit("nosplit-a", total));
     expect(text.indexOf("split:")).toBeLessThan(text.indexOf("transcript:"));
     expect((await readdir(cal)).filter((n) => n.includes(".tmp"))).toEqual([]);
     expect((await loadProbes(scn, scenario, rubrics)).probes.map((p) => p.id)).toContain("nosplit-a");
     const again = await assignSplits(scn);
     expect(again.changed).toEqual([]);
+  });
+  it("fills a null split, and reports (without touching) a split that is neither tune nor holdout", async () => {
+    const cal = path.join(scn, "calibration");
+    const disc = await readFile(path.join(cal, "disc-l1.yaml"), "utf8");
+    await writeFile(path.join(cal, "nullsplit.yaml"), disc.replace("id: disc-l1", "id: nullsplit").replace("split: tune", "split: null"));
+    const odd = disc.replace("id: disc-l1", "id: oddsplit").replace("split: tune", "split: maybe");
+    await writeFile(path.join(cal, "oddsplit.yaml"), odd);
+    const r = await assignSplits(scn);
+    expect(r.changed).toEqual([path.join(cal, "nullsplit.yaml")]);
+    expect(r.problems).toEqual(["oddsplit.yaml: split maybe is neither tune nor holdout: not changed"]);
+    expect(await readFile(path.join(cal, "oddsplit.yaml"), "utf8")).toBe(odd);
+    const filled = await readFile(path.join(cal, "nullsplit.yaml"), "utf8");
+    expect((parse(filled) as { split: string }).split).toBe(assignSplit("nullsplit", await probeFileTotal(scn)));
+    expect(filled).not.toContain("split: null");
+  });
+  it("removes its temp file and reports the file when the rename fails (a directory took the file's place)", async () => {
+    const cal = path.join(scn, "calibration");
+    const disc = await readFile(path.join(cal, "disc-l1.yaml"), "utf8");
+    await writeFile(path.join(cal, "racy.yaml"), disc.replace("id: disc-l1", "id: racy").replace("split: tune\n", ""));
+    const r = await assignSplits(scn, { beforeRename: async (file) => { await rm(file); await mkdir(path.join(file, "inside"), { recursive: true }); } });
+    expect(r.changed).toEqual([]);
+    expect(r.problems).toEqual([expect.stringMatching(/^racy\.yaml: cannot be rewritten \((EISDIR|ENOTEMPTY|EEXIST|EPERM)\)$/)]);
+    expect((await readdir(cal)).filter((n) => n.endsWith(".tmp"))).toEqual([]);
   });
   it("does not touch a symbolic link or a file without a usable id", async () => {
     const cal = path.join(scn, "calibration");
@@ -459,5 +527,38 @@ describe("assignSplits", () => {
     expect(r.changed).toEqual([]);
     expect(r.problems).toEqual(expect.arrayContaining([expect.stringMatching(/^outside\.yaml: symbolic links are not followed/), expect.stringMatching(/^noid\.yaml: no usable id/)]));
     expect(await readFile(outside, "utf8")).toBe("kind: single\nid: outside\n");
+  });
+});
+
+// ---- one split-total rule for approve and assign-splits ------------------------------------------------------------
+
+describe("the split total shared by approve and assign-splits", () => {
+  /** The scenario with `valid` parseable probe files in calibration/ (the 8 starter probes plus copies) and one broken file. */
+  async function withProbes(valid: number): Promise<string> {
+    const cal = path.join(scn, "calibration");
+    const disc = await readFile(path.join(cal, "disc-l1.yaml"), "utf8");
+    for (let k = 1; k <= valid - 8; k++) await writeFile(path.join(cal, `copy-${k}.yaml`), disc.replace("id: disc-l1", `id: copy-${k}`));
+    await writeFile(path.join(cal, "broken.yaml"), "kind: [unclosed\n");
+    return cal;
+  }
+  // 38 valid files: the probe approved or added makes 39 (50/50); 39 valid files: it makes 40 (70/30). A broken file never counts.
+  it.each([[38, 39], [39, 40]])("with %i valid probe files, both give the split of a set of %i for the same id", async (valid, total) => {
+    const id = Array.from({ length: 400 }, (_, k) => `disc-split-${k}`).find((x) => assignSplit(x, 39) !== assignSplit(x, 40))!;
+    const cal = await withProbes(valid);
+    expect(await probeFileTotal(scn)).toBe(valid);
+    // approve: the new probe is not on disk yet, so it is counted on top
+    const { i } = input(() => fridayReply(), { criterion: "discovery" });
+    await draftProbes(i);
+    const approved = await approveDraft({ dir: scn, draftId: "draft-discovery-l2-1", by: "Kamal", finalId: id, scenario, rubrics, existing: [], now: () => new Date(0) });
+    const viaApprove = (parse(await readFile(approved.file, "utf8")) as { split: string }).split;
+    // assign-splits: the same probe without a split, already on disk, is counted as one of the files
+    const text = (await readFile(approved.file, "utf8")).replace(/^split: .*\n/m, "");
+    await rm(approved.file);
+    await writeFile(path.join(cal, `${id}.yaml`), text);
+    const r = await assignSplits(scn);
+    expect(r.changed).toEqual([path.join(cal, `${id}.yaml`)]);
+    const viaAssign = (parse(await readFile(path.join(cal, `${id}.yaml`), "utf8")) as { split: string }).split;
+    expect(viaApprove).toBe(assignSplit(id, total));
+    expect(viaAssign).toBe(viaApprove);
   });
 });

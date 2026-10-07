@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cp, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
-import { runCalibrate } from "../cli.js";
+import { CALIBRATE_USAGE, runCalibrate } from "../cli.js";
 import type { Judge } from "../judge.js";
 import { drafterJudge, fridayReply, scriptedDrafter, type ScriptedDrafter } from "./fake-drafter.js";
 
@@ -213,5 +213,64 @@ describe("pnpm calibrate assign-splits", () => {
     const bad = await run(["assign-splits", "--scenario", scn]);
     expect(bad.exitCode).toBe(1);
     expect(bad.errText).toMatch(/^not changed: broken\.yaml: /m);
+  });
+});
+
+/** Permission tests need a non-root user: root ignores directory modes. */
+const ROOT = process.getuid?.() === 0;
+
+describe("pnpm calibrate: authoring exit codes and output hygiene", () => {
+  const NOW = () => new Date("2026-10-07T09:00:00.000Z");
+  const calDrafts = () => path.join(scn, "calibration", "drafts");
+  async function oneDraft(): Promise<void> {
+    const { d } = scripted();
+    expect((await run(["draft", "--scenario", scn, ...SPEC, "--criterion", "discovery", "--subject", "delivery_lead"], { drafter: d })).exitCode).toBe(0);
+  }
+  it.skipIf(ROOT)("approve exits 1 when the probe was written but the draft could not be deleted (as --help promises)", async () => {
+    expect(CALIBRATE_USAGE.replace(/\s+/g, " ")).toContain("approve: the draft could not be deleted");
+    await oneDraft();
+    await chmod(calDrafts(), 0o500);
+    try {
+      const r = await run(["approve", "--scenario", scn, "--draft", "draft-discovery-l3-1", "--by", "Kamal"], { now: NOW });
+      expect(r.exitCode).toBe(1);
+      expect(r.outText).toContain("approved: calibration/discovery-l3-1.yaml");
+      expect(r.errText).toContain("error: the probe was written but the draft calibration/drafts/draft-discovery-l3-1.yaml could not be deleted: delete it by hand");
+    } finally { await chmod(calDrafts(), 0o700); }
+    expect(await drafts()).toContain("draft-discovery-l3-1.yaml");
+  });
+  it.skipIf(ROOT)("exits 1 (not 2) on an unexpected failure while writing, naming only the error code", async () => {
+    await writeFile(path.join(dir, "s.jsonl"), logText());
+    await mkdir(calDrafts(), { recursive: true });
+    await chmod(calDrafts(), 0o500);
+    try {
+      const r = await run(["excerpt", "--scenario", scn, "--log", "s.jsonl", "--from", "3", "--to", "7", "--subject", "delivery_lead", "--criterion", "discovery", "--id", "excerpt-01"]);
+      expect(r.exitCode).toBe(1);
+      expect(r.errText).toBe("error: excerpt failed: EACCES\n");
+    } finally { await chmod(calDrafts(), 0o700); }
+  });
+  it("approve reads --expected not_observed, and warns about other probe problems but still approves", async () => {
+    await writeFile(path.join(dir, "s.jsonl"), logText());
+    expect((await run(["excerpt", "--scenario", scn, "--log", "s.jsonl", "--from", "3", "--to", "7", "--subject", "delivery_lead", "--criterion", "discovery", "--id", "excerpt-01"])).exitCode).toBe(0);
+    await writeFile(path.join(scn, "calibration", "broken.yaml"), "kind: [\n");
+    const r = await run(["approve", "--scenario", scn, "--draft", "excerpt-01", "--by", "Kamal", "--expected", "not_observed"], { now: NOW });
+    expect(r.exitCode).toBe(0);
+    expect(r.outText).toContain("warning: 1 probe problem in calibration/ (run pnpm calibrate to list them); approving anyway");
+    expect(parse(await readFile(path.join(scn, "calibration", "excerpt-01.yaml"), "utf8"))).toMatchObject({ expected: "not_observed" });
+  });
+  it("makes stdout and stderr of the authoring commands printable and scrubs secrets (file names are untrusted)", async () => {
+    const SECRET = "sk-SECRET-123456789";
+    const cal = path.join(scn, "calibration");
+    const disc = await readFile(path.join(cal, "disc-l1.yaml"), "utf8");
+    await writeFile(path.join(cal, `evil\u001b[2J-${SECRET}.yaml`), disc.replace("id: disc-l1", "id: evil-one").replace("split: tune\n", ""));
+    await writeFile(path.join(cal, `bad\u001b]0;x\u0007-${SECRET}.yaml`), "a: [\n");
+    const r = await run(["assign-splits", "--scenario", scn], {}, { ...ENV, LOCAL_API_KEY: SECRET });
+    expect(r.exitCode).toBe(1);
+    expect(r.outText).toMatch(/^split added: calibration\/evil·\[2J-/m);
+    expect(r.errText).toMatch(/^not changed: bad·\]0;x·-/m);
+    for (const t of [r.outText, r.errText]) {
+      expect(t).not.toContain(SECRET);
+      // eslint-disable-next-line no-control-regex
+      expect(t).not.toMatch(/[\u0007\u001b]/);
+    }
   });
 });
