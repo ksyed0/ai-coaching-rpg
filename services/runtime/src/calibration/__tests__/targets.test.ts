@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_TARGETS, loadTargets } from "../targets.js";
 
 let dir: string;
@@ -40,6 +40,14 @@ describe("loadTargets", () => {
   it("refuses an oversized file", async () => {
     await write(`# ${"x".repeat(20000)}\nminUsable: 0.5\n`);
     await expect(loadTargets(dir)).rejects.toThrow(/calibration\/targets\.yaml: .*larger than/);
+  });
+  it("rejects a YAML warning (an unknown tag) as an error and writes nothing to process stderr", async () => {
+    await write("maxAbsBias: !!js/function 'x'\n");
+    const emit = vi.spyOn(process, "emitWarning");
+    try {
+      await expect(loadTargets(dir)).rejects.toThrow(/^calibration\/targets\.yaml: .*Unresolved tag/);
+      expect(emit).not.toHaveBeenCalled();
+    } finally { emit.mockRestore(); }
   });
   it("strips control characters from echoed text", async () => {
     await write('"bad\\u001b[31mkey": 1\n');

@@ -45,8 +45,12 @@ export function parseJudgeSpec(raw: string): JudgeSpec {
  * when the judge's endpoint is the caller's own LOCAL_BASE_URL (or the judge uses that variable itself).
  */
 export function scopedJudgeEnv(spec: JudgeSpec, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  // LOCAL_BASE_URL is validated only when it is used; with a URL of its own, a junk LOCAL_BASE_URL just means "not the caller's host".
   let own: string | undefined;
-  if (env.LOCAL_BASE_URL !== undefined && env.LOCAL_BASE_URL.trim() !== "") own = normalizeBaseUrl(env.LOCAL_BASE_URL, "LOCAL_BASE_URL");
+  if (env.LOCAL_BASE_URL !== undefined && env.LOCAL_BASE_URL.trim() !== "") {
+    if (spec.baseUrl === undefined) own = normalizeBaseUrl(env.LOCAL_BASE_URL, "LOCAL_BASE_URL");
+    else { try { own = normalizeBaseUrl(env.LOCAL_BASE_URL, "LOCAL_BASE_URL"); } catch { own = undefined; } }
+  }
   const baseUrl = spec.baseUrl === undefined ? own : normalizeBaseUrl(spec.baseUrl, "a --judge base URL");
   if (!baseUrl) throw new CalibrationInputError(`judge ${spec.label}: no base URL (give one in --judge or set LOCAL_BASE_URL)`);
   const scoped: NodeJS.ProcessEnv = { ...env, MODEL_PROVIDER: "local", LOCAL_BASE_URL: baseUrl, NPC_MODEL: spec.model };
@@ -70,12 +74,19 @@ export function buildJudge(spec: JudgeSpec, env: NodeJS.ProcessEnv): Judge {
   return { label: spec.label, model: spec.model, family: modelFamily(spec.model), provider: p };
 }
 
+/** The providers the adapters know (matched exactly, as the adapters do) and the base URL variable each one validates. */
+const BASE_URL_VARIABLE = new Map<string, string>([["anthropic", "ANTHROPIC_BASE_URL"], ["openrouter", "OPENROUTER_BASE_URL"], ["local", ""]]);
+
 export function buildPrimaryJudge(env: NodeJS.ProcessEnv, cfg: EvalConfig): Judge {
   const mp = (env.MODEL_PROVIDER ?? "").trim().toLowerCase();
   if (mp === "" || mp === "mock" || isMockProvider(env)) {
-    throw new CalibrationInputError("MODEL_PROVIDER is mock: calibration needs a real judge (set MODEL_PROVIDER and the model variables, or pass --judge)");
+    throw new CalibrationInputError("MODEL_PROVIDER is mock: calibration needs a real primary judge (set MODEL_PROVIDER, its key and EVAL_MODEL or NPC_MODEL; --judge only adds a second judge)");
   }
-  try { describeModelProvider(env); } catch { throw new CalibrationInputError("MODEL_PROVIDER is not a known provider (use anthropic, openrouter or local)"); }
+  const baseUrlVar = BASE_URL_VARIABLE.get(env.MODEL_PROVIDER ?? "");
+  if (baseUrlVar === undefined) throw new CalibrationInputError("MODEL_PROVIDER is not a known provider (use anthropic, openrouter or local)");
+  try { describeModelProvider(env); } catch {
+    throw new CalibrationInputError(baseUrlVar ? `${baseUrlVar} is not a valid base URL for MODEL_PROVIDER=${env.MODEL_PROVIDER} (use https, or http on a loopback address)` : "the model provider settings are invalid");
+  }
   const npc = (env.NPC_MODEL ?? "").trim();
   const model = cfg.model ?? npc;
   if (model === "") throw new CalibrationInputError("no judge model id: set EVAL_MODEL or NPC_MODEL so the judge can be named");

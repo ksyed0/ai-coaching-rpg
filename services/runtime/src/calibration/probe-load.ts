@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
-import { parse } from "yaml";
+import { parseDocument } from "yaml";
 import { isPrototypeKey } from "@acr/events";
 import { readTextCapped, type Criterion, type Rubric, type Scenario } from "@acr/script";
 import { MIN_UTTERANCES } from "../evaluator/evaluate.js";
@@ -43,6 +43,17 @@ export function printable(s: string, max = 80): string {
     n++;
   }
   return out;
+}
+
+/**
+ * Parses YAML without ever writing to the process: the yaml library's `parse` reports warnings (an unknown tag, for example) through
+ * process.emitWarning with a snippet of the source, unscrubbed. Here every error and warning becomes the thrown message instead.
+ */
+export function parseYamlQuiet(text: string, maxAliasCount: number): unknown {
+  const doc = parseDocument(text, { logLevel: "silent", prettyErrors: false });
+  const problem = doc.errors[0] ?? doc.warnings[0];
+  if (problem) throw new Error(problem.message);
+  return doc.toJS({ maxAliasCount });
 }
 
 export async function loadProbes(dir: string, scenario: Scenario, rubrics: Rubric[]): Promise<LoadedProbes> {
@@ -102,7 +113,7 @@ async function parseOne(file: string, name: string, errors: string[]): Promise<P
   const label = printable(name);
   let raw: unknown;
   try {
-    raw = parse(await readTextCapped(file, MAX_PROBE_BYTES), { maxAliasCount: MAX_ALIASES });
+    raw = parseYamlQuiet(await readTextCapped(file, MAX_PROBE_BYTES), MAX_ALIASES);
   } catch (e) {
     errors.push(`${label}: ${printable((e as Error).message.split("\n")[0] ?? "", 200)}`);
     return null;

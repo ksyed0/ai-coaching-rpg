@@ -64,6 +64,16 @@ describe("judges", () => {
     expect(() => buildPrimaryJudge({ MODEL_PROVIDER: "bogus-sk-SECRET", NPC_MODEL: "m" }, cfgOf())).toThrow(CalibrationInputError);
     try { buildPrimaryJudge({ MODEL_PROVIDER: "bogus-sk-SECRET", NPC_MODEL: "m" }, cfgOf()); } catch (e) { expect((e as Error).message).toContain("MODEL_PROVIDER"); expect((e as Error).message).not.toContain("sk-SECRET"); }
   });
+  it.each([
+    ["openrouter", "OPENROUTER_BASE_URL"], ["anthropic", "ANTHROPIC_BASE_URL"],
+  ])("names the invalid base URL variable for MODEL_PROVIDER=%s, never its value", (mp, variable) => {
+    const env = { MODEL_PROVIDER: mp, NPC_MODEL: "m", [variable]: "ftp://sk-SECRET-BASE" };
+    let msg = "";
+    try { buildPrimaryJudge(env, cfgOf()); } catch (e) { expect(e).toBeInstanceOf(CalibrationInputError); msg = (e as Error).message; }
+    expect(msg).toContain(variable);
+    expect(msg).not.toMatch(/not a known provider/);
+    expect(msg).not.toContain("sk-SECRET-BASE");
+  });
   it.each([undefined, "", "   "])("refuses a primary judge with no model id (NPC_MODEL=%j)", (npc) => {
     const env: NodeJS.ProcessEnv = { MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://127.0.0.1:1/v1", ...(npc === undefined ? {} : { NPC_MODEL: npc }) };
     expect(() => buildPrimaryJudge(env, cfgOf())).toThrow(CalibrationInputError);
@@ -100,6 +110,14 @@ describe("judges", () => {
     try { buildJudge({ label: "s", model: "m" }, { LOCAL_BASE_URL: "http://u:sk-SECRET@h/v1" }); throw new Error("no throw"); } catch (e) {
       expect(e).toBeInstanceOf(CalibrationInputError); expect((e as Error).message).not.toContain("sk-SECRET");
     }
+  });
+  it("ignores a junk LOCAL_BASE_URL when the spec has its own base URL (and then never passes LOCAL_API_KEY)", () => {
+    const env = { LOCAL_BASE_URL: "not a url sk-SECRET", LOCAL_API_KEY: "sk-PRIMARY" };
+    const scoped = scopedJudgeEnv({ label: "s", model: "m", baseUrl: "http://127.0.0.1:1337/v1" }, env);
+    expect(scoped.LOCAL_BASE_URL).toBe("http://127.0.0.1:1337/v1");
+    expect(scoped.LOCAL_API_KEY).toBeUndefined();
+    expect(buildJudge({ label: "s", model: "m", baseUrl: "http://127.0.0.1:1337/v1" }, env).label).toBe("s");
+    expect(() => scopedJudgeEnv({ label: "s", model: "m" }, env)).toThrow(/LOCAL_BASE_URL/);
   });
   it("never gives a second judge on another host the caller's LOCAL_API_KEY", () => {
     const env = { LOCAL_BASE_URL: "http://127.0.0.1:1234/v1/", LOCAL_API_KEY: "sk-PRIMARY" };

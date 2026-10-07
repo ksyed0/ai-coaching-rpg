@@ -1,8 +1,7 @@
 import path from "node:path";
-import { parse } from "yaml";
 import { z } from "zod";
 import { readTextCapped } from "@acr/script";
-import { printable } from "./probe-load.js";
+import { parseYamlQuiet, printable } from "./probe-load.js";
 
 export type Targets = { contrastOrdering: number; maxAbsBias: number; exactAgreement: number | null; minUsable: number };
 export const DEFAULT_TARGETS: Targets = { contrastOrdering: 0.8, maxAbsBias: 0.3, exactAgreement: null, minUsable: 0.9 };
@@ -26,7 +25,7 @@ export async function loadTargets(dir: string): Promise<Targets> {
     throw new Error(`${FILE_LABEL}: ${printable(((e as Error).message ?? "").split("\n")[0] ?? "", 200)}`);
   }
   let raw: unknown;
-  try { raw = parse(text, { maxAliasCount: MAX_ALIASES }); }
+  try { raw = parseYamlQuiet(text, MAX_ALIASES); }
   catch (e) { throw new Error(`${FILE_LABEL}: ${printable(((e as Error).message ?? "").split("\n")[0] ?? "", 200)}`); }
   const parsed = TargetsSchema.safeParse(raw ?? {});
   if (!parsed.success) {
