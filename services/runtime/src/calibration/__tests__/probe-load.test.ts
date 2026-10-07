@@ -33,7 +33,7 @@ transcript:
   - { scene: s2_client_call, role: delivery_lead, text: "Consider it done." }
 `);
 
-/** A valid contrast probe; with a key, one more player under that key (a prototype-like name that the schema's own id check accepts). */
+/** A valid contrast probe; with a key, one more player under that key (a prototype-like name that the schema's own id check accepts; level 4 keeps min_gap valid, so the schema alone accepts the probe). */
 const PROTO_KEY = ["con", "structor"].join("");
 const protoProbe = (id: string, key: string | null): string => yaml(`
 kind: contrast
@@ -41,7 +41,7 @@ id: ${id}
 criterion: listening
 source: handwritten
 split: tune
-players: { delivery_lead: 4, account_manager: 1${key ? `, ${key}: 2` : ""} }
+players: { delivery_lead: 4, account_manager: 1${key ? `, ${key}: 4` : ""} }
 min_gap: 2
 transcript:
   - { scene: s2_client_call, role: client_sponsor, text: "Can you confirm by Friday?" }
@@ -96,7 +96,7 @@ describe("loadProbes", () => {
     expect(r.errors).toHaveLength(3);
     expect(r.errors.find((e) => e.startsWith("big.yaml:"))).toMatch(/larger than/);
     expect(r.errors.find((e) => e.startsWith("bomb.yaml:"))).toMatch(/alias/i);
-    expect(r.errors.find((e) => e.startsWith("proto.yaml:"))).toMatch(/prototype key/);
+    expect(r.errors.find((e) => e.startsWith("proto.yaml:"))).toBe("proto.yaml: a prototype key is not allowed");
   });
   it("reports every schema problem of a file, up to five, with a count of the rest", async () => {
     const { scenario, rubrics } = await ctx();
@@ -201,6 +201,21 @@ describe("loadProbes", () => {
     expect(r.warnings).toContain("p1.yaml: account_manager speaks 2 times but is not scored (costs a model call); give them one line or make them a subject");
     expect(r.warnings.filter((w) => w.includes("not scored"))).toHaveLength(1);
   });
+  it("gives a warning only for a probe that has no errors", async () => {
+    const { scenario, rubrics } = await ctx();
+    const cal = path.join(dir, "calibration");
+    const withUnscored = (id: string, extra: string) => good.replace("id: p1", `id: ${id}`).replace(
+      '  - { scene: s2_client_call, role: delivery_lead, text: "Yes, we can do that." }\n',
+      '  - { scene: s2_client_call, role: account_manager, text: "Sure." }\n  - { scene: s2_client_call, role: account_manager, text: "Agreed." }\n  - { scene: s2_client_call, role: delivery_lead, text: "Yes, we can do that." }\n',
+    ).replace("criterion: discovery", extra);
+    await writeFile(path.join(cal, "p1.yaml"), withUnscored("p1", "criterion: discovery"));
+    await writeFile(path.join(cal, "p2.yaml"), withUnscored("p2", "criterion: not_a_criterion"));
+    const r = await loadProbes(dir, scenario, rubrics);
+    expect(r.errors.join("\n")).toMatch(/p2\.yaml.*criterion/);
+    const warned = r.warnings.filter((w) => w.includes("not scored"));
+    expect(warned).toHaveLength(1);
+    expect(warned[0]).toMatch(/^p1\.yaml:/);
+  });
   it("does not warn about a scored player or a player with one line", async () => {
     const { scenario, rubrics } = await ctx();
     await writeFile(path.join(dir, "calibration", "p1.yaml"), good);
@@ -281,7 +296,7 @@ describe("lintProbeSet balance", () => {
   const unbalanced = (ps: Probe[]) => lintProbeSet(ps).filter((w) => w.startsWith("expected levels are unbalanced"));
   it("flags a level whose share is below 15% or above 40%, naming level, counts and share", () => {
     const w = unbalanced([...set([15, 0, 0, 1])]);
-    expect(w).toContain("expected levels are unbalanced: level 1 has 15 of 16 expectations (share 94%); aim for 15% to 40% per level");
+    expect(w).toContain("expected levels are unbalanced: level 1 has 15 of 16 expectations (share 93.7%); aim for 15% to 40% per level");
     expect(w).toContain("expected levels are unbalanced: level 2 has 0 of 16 expectations (share 0%); aim for 15% to 40% per level");
     expect(w).toHaveLength(4);
   });
@@ -301,8 +316,18 @@ describe("lintProbeSet balance", () => {
     const ps = [...set([1, 1, 1, 1]), c, c, no];
     expect(unbalanced(ps)).toEqual([]);
   });
-  it("keeps the mid-heavy warning", () => {
-    expect(lintProbeSet(set([0, 8, 8, 0])).join("\n")).toMatch(/mid-heavy/);
+  it("keeps the mid-heavy warning when the set is too small for the balance check", () => {
+    expect(lintProbeSet(set([0, 4, 3, 0])).join("\n")).toMatch(/mid-heavy/);
+  });
+  it("gives the mid-heavy warning only when no unbalanced warning was emitted", () => {
+    const w = lintProbeSet(set([0, 8, 8, 0]));
+    expect(w.filter((x) => x.includes("unbalanced")).length).toBeGreaterThan(0);
+    expect(w.join("\n")).not.toMatch(/mid-heavy/);
+  });
+  it("prints the share floored to one decimal: 14.6% is never shown as the 15% it fails to reach", () => {
+    const w = unbalanced(set([73, 143, 142, 142]));
+    expect(w).toEqual(["expected levels are unbalanced: level 1 has 73 of 500 expectations (share 14.6%); aim for 15% to 40% per level"]);
+    expect(unbalanced(set([201, 100, 100, 99]))[0]).toContain("(share 40.2%)");
   });
 });
 

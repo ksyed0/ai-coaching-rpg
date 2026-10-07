@@ -144,7 +144,7 @@ transcript:                   # 2 to 80 lines; every scored player needs at leas
 
 **Writing probes: rules the loader checks.**
 
-- An `excerpt` probe (a real, redacted session range) needs `approved_by` and `approved_at`, because a human assigned its level; its `drafter` stays empty. A `drafted` probe needs `drafter` too.
+- An `excerpt` probe (a real, redacted session range) needs `approved_by` and `approved_at` (an ISO-8601 datetime such as `2026-10-08T09:30:00Z`), because a human assigned its level; its `drafter` stays empty. A `drafted` probe needs `drafter` too.
 - Every speaker of a line must be a participant of that line's scene in `script.yaml` (a role that is not in the scene is an error).
 - No line may contain a hidden fact of a role (a fact of 20 characters or more, compared ignoring case and spacing): the model would be judging a leak. The error names the role, never the fact.
 - Balance (warning): with 8 or more expectations, each of levels 1 to 4 should hold 15% to 40% of them (single probes' `expected` and every contrast player). The older mid-heavy warning stays.

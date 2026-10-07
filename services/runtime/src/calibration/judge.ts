@@ -11,7 +11,7 @@ export type Judge = { label: string; model: string; family: string; provider: Mo
 
 const FAMILIES = ["gemma", "qwen", "nemotron", "claude", "gpt", "llama", "mistral", "ministral", "holo", "raptor", "foundation", "gemini", "deepseek", "phi"];
 
-const isLetter = (c: string | undefined): boolean => c !== undefined && c.toLowerCase() !== c.toUpperCase();
+const isLetter = (c: string | undefined): boolean => c !== undefined && /\p{L}/u.test(c);
 
 /**
  * A family name matches only as a whole leading word: the character right after it must not be a letter (end of string, a digit, '-',

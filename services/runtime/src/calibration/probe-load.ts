@@ -102,9 +102,11 @@ export async function loadProbes(dir: string, scenario: Scenario, rubrics: Rubri
   for (const name of files) {
     const probe = await parseOne(path.join(calDir, name), name, out.errors);
     if (!probe) continue;
-    const problems = checkProbe(name, probe, scenario, individual, out.warnings);
+    const probeWarnings: string[] = [];
+    const problems = checkProbe(name, probe, scenario, individual, probeWarnings);
     if (seen.has(probe.id)) problems.push(`${printable(name)}: duplicate probe id ${probe.id}`);
     if (problems.length) { out.errors.push(...problems); continue; }
+    out.warnings.push(...probeWarnings);
     seen.add(probe.id);
     out.probes.push(probe);
   }
@@ -140,6 +142,7 @@ function normalise(s: string): string {
 /** A hidden fact shorter than this is too generic to be told apart from ordinary speech. */
 const MIN_HIDDEN_FACT_CHARS = 20;
 
+/** The problems of one probe; its warnings go to `warnings`, which the caller keeps only for a probe without problems. */
 function checkProbe(name: string, p: Probe, scenario: Scenario, individual: Map<string, Criterion>, warnings: string[]): string[] {
   const problems: string[] = [];
   const label = printable(name);
@@ -189,17 +192,21 @@ export function lintProbeSet(probes: Probe[]): string[] {
   for (const [c, n] of byCriterion) if (n < MIN_CRITERION_PROBES) w.push(`criterion ${c} has fewer than ${MIN_CRITERION_PROBES} probes (${n}): thin`);
   const expected: number[] = probes.flatMap((p) => (p.kind === "single" ? (typeof p.expected === "number" ? [p.expected] : []) : Object.values(p.players)));
   const ends = expected.filter((l) => l === 1 || l === 4).length;
-  if (expected.length > 0 && (!expected.includes(1) || !expected.includes(4) || ends / expected.length < 0.3)) {
-    w.push("expected levels are mid-heavy: add probes at levels 1 and 4 (a judge that always answers 3 would otherwise go unnoticed)");
-  }
+  let unbalanced = false;
   if (expected.length >= MIN_BALANCE_EXPECTATIONS) {
     for (const level of [1, 2, 3, 4]) {
       const n = expected.filter((l) => l === level).length;
       // integer comparison: 15% and 40% exactly are inside the range
       if (n * 100 < MIN_LEVEL_SHARE * expected.length || n * 100 > MAX_LEVEL_SHARE * expected.length) {
-        w.push(`expected levels are unbalanced: level ${level} has ${n} of ${expected.length} expectations (share ${Math.round((n * 100) / expected.length)}%); aim for ${MIN_LEVEL_SHARE}% to ${MAX_LEVEL_SHARE}% per level`);
+        unbalanced = true;
+        // floored to one decimal: a share that fails the range is never printed as the threshold it missed (14.6% is not 15%)
+        w.push(`expected levels are unbalanced: level ${level} has ${n} of ${expected.length} expectations (share ${Math.floor((n * 1000) / expected.length) / 10}%); aim for ${MIN_LEVEL_SHARE}% to ${MAX_LEVEL_SHARE}% per level`);
       }
     }
+  }
+  // The unbalanced warning already says the set is lopsided; the mid-heavy one is for a small set the balance check does not cover.
+  if (!unbalanced && expected.length > 0 && (!expected.includes(1) || !expected.includes(4) || ends / expected.length < 0.3)) {
+    w.push("expected levels are mid-heavy: add probes at levels 1 and 4 (a judge that always answers 3 would otherwise go unnoticed)");
   }
   return w;
 }

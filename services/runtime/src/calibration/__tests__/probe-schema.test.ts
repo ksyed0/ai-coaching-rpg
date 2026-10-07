@@ -93,4 +93,19 @@ describe("ProbeSchema", () => {
     // the criterion is not capped by this rule
     expect(ProbeSchema.safeParse({ ...single, criterion: tooLong }).success).toBe(true);
   });
+  describe("approved_at", () => {
+    const draft = { ...base, source: "drafted", kind: "single", subject: "delivery_lead", expected: 2, drafter: "m", approved_by: "kamal" };
+    const excerpt = { ...base, source: "excerpt", kind: "single", subject: "delivery_lead", expected: 2, approved_by: "kamal" };
+    it.each(["2026-10-08T00:00:00Z", new Date("2026-10-08T12:34:56.789Z").toISOString(), "2026-10-08T00:00:00+02:00"])("accepts the ISO-8601 datetime %s on a drafted and an excerpt probe", (at) => {
+      expect(ProbeSchema.safeParse({ ...draft, approved_at: at }).success).toBe(true);
+      expect(ProbeSchema.safeParse({ ...excerpt, approved_at: at }).success).toBe(true);
+    });
+    it.each(["yesterday", "2026-10-08", "2026-13-40T00:00:00Z", "2026-10-08 00:00:00", "tomorrow at noon"])("rejects %j on a drafted and an excerpt probe", (at) => {
+      expect(ProbeSchema.safeParse({ ...draft, approved_at: at }).success).toBe(false);
+      expect(ProbeSchema.safeParse({ ...excerpt, approved_at: at }).success).toBe(false);
+    });
+    it("lets a handwritten probe keep null", () => {
+      expect(ProbeSchema.safeParse({ ...base, kind: "single", subject: "delivery_lead", expected: 2, approved_at: null }).success).toBe(true);
+    });
+  });
 });

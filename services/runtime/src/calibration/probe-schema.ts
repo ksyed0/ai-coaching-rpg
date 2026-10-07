@@ -22,7 +22,8 @@ const common = {
   source: z.enum(["handwritten", "drafted", "excerpt"]),
   drafter: z.string().min(1).max(200).nullable().default(null),
   approved_by: z.string().min(1).max(120).nullable().default(null),
-  approved_at: z.string().min(1).max(40).nullable().default(null),
+  /** An ISO-8601 datetime (the `...Z` form of new Date().toISOString(), or with an offset); handwritten probes keep null. */
+  approved_at: z.string().max(40).datetime({ offset: true }).nullable().default(null),
   split: z.enum(["tune", "holdout"]),
   transcript: z.array(LineSchema).min(2).max(80),
 };
