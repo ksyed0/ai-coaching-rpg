@@ -605,22 +605,22 @@ Notes: The crash is simulated in process (connections cut, lock and log abandone
 US-0019 (EPIC-0006): As an operator, I want model calls to cost less per session, so that sessions stay affordable as they get longer.
 Priority: Low
 Estimate: S
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0006-US-0019-model-cost
 Dependencies: US-0008
 Acceptance Criteria:
-  - [ ] AC-0059: the Game Master prompt uses a bounded transcript window instead of the whole scene transcript
-  - [ ] AC-0060: the Game Master stops evaluating the remaining conditions of a scene after a condition is judged true
-  - [ ] AC-0061: the NPC persona prompt puts stable content before changing goals and knowledge so the cached prefix survives NPC updates
+  - [x] AC-0059: the Game Master prompt uses a bounded transcript window instead of the whole scene transcript (at least the latest `GM_TRANSCRIPT_WINDOW` utterances of the current scene, default 40, 10 to 500 and at least `GM_EVERY_N_UTTERANCES`, validated in the server, the demo and `gm-eval --live`; widened per condition to every line since its last answered prompt, also when lines arrive during a slow round, capped at 500 with a facilitator alert; the scene's first 2 lines and each AI character's last 2 lines, each with the line before it, kept outside the cut; window, coverage and alert count taken synchronously with the prompt build (re-review m-1); `{"omitted": n}` records in place and a numbers-only system note; no summary; nonce, verdict format, parser, re-ask and escaping unchanged; exit and earned_when prompts alike; the trace records the window; the shipped scenes fit, so the demo Game Master prompts are byte-identical to develop apart from the nonce; residual risk documented in THREAT_MODEL: a player's objection flooded out of view can allow a false exit; review fix round I-1, I-2, M-2, M-3; TC-0020; a live run on a real model is still to be recorded)
+  - [x] AC-0060: the Game Master stops evaluating the remaining conditions of a scene after a condition is judged true (once a true verdict is recorded in the round, for the tick and `finalEvaluation`; a stale refused verdict, a false, no verdict or a model error go on; the US-0034 earned_when checks were already skipped in such a round; TC-0021)
+  - [x] AC-0061: the NPC persona prompt puts stable content before changing goals and knowledge so the cached prefix survives NPC updates (`stableNpcPrefix`: instructions, persona, guardrails, voice; then goals, knowledge, scene, room, response rules, last lines, released facts last; `ChatRequest.cachePrefixChars` marks the prefix and the Anthropic adapter puts its cache breakpoint there, never inside a surrogate pair; a test asserts byte-identical prefixes through goal, knowledge and release updates and a scene change; S-06 asserts it for every captured prompt; TC-0022. Caveat: the shipped prefixes are about 420 to 520 tokens, probably below the minimum cacheable length (512 for claude-sonnet-5-5), so the saving is not measured; the story stays In Progress until `cache_read_input_tokens` is recorded on a real run)
 ```
 
 ```
 TASK-0019 (US-0019): Bound the Game Master transcript, short-circuit after a true verdict, reorder the NPC prompt prefix
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0019-model-cost
-Notes: Deferred minor findings from Tasks 7 and 8 and the final review. Behavior must stay covered by the existing leak and guardrail tests.
+Notes: Deferred minor findings from Tasks 7 and 8 and the final review. Behavior must stay covered by the existing leak and guardrail tests. Done 2026-10-07: gm-config (`GM_TRANSCRIPT_WINDOW`), gm-prompt (window, omission line), game-master (window, short-circuit, trace `window`), session-host/main/demo/gm-eval wiring, adapters (`cachePrefixChars`, Anthropic two-block system), npc-prompt (`stableNpcPrefix`, reorder), S-06 extended (no new check: 29, 14, 15, 42). Test cases TC-0020..TC-0022. Review fix round (2026-10-07): I-1 per-condition coverage of new lines (cap 500 with an alert), I-2 opening and AI character lines kept outside the cut with `{"omitted": n}` markers, M-1 caching caveat, M-2 singular wording, M-3 non-finite window, M-6 surrogate-safe split, stale-verdict test relabelled. Not done here: a live run on a real model; the live check of the reordered NPC prompt (M-4) is pending with the controller
 ```
 
 ```

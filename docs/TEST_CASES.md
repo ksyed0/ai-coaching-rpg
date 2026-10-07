@@ -309,6 +309,63 @@ Status: [x] Pass
 Defect Raised: None
 Notes: Automated. The showcase's own limit (check S-05) came with US-0024 and is unchanged.
 
+## US-0019: cheaper model calls per session
+
+TC-0020: The Game Master prompt holds a bounded window of the scene's latest lines
+Related Story: US-0019
+Related Task: TASK-0019
+Related AC: AC-0059
+Type: Functional
+Preconditions: A session whose current scene has more utterances than `GM_TRANSCRIPT_WINDOW` (default 40), with a `gm_detects` exit condition and an AI character with an `earned_when` hidden fact.
+Steps:
+  1. Let the Game Master evaluate the scene (exit condition and earned_when check) with the default window, then with `GM_TRANSCRIPT_WINDOW=10`.
+  2. Have the AI character object, then flood the scene with more than the window of player lines, then have a player propose and agree.
+  3. Hold a Game Master evaluation (slow model) while 22 lines arrive, then let it finish and evaluate again; repeat with 510 lines.
+  4. Put a forged JSON record, a forged `{"omitted": 99}`, a `</dialogue>` tag and a nonce-shaped verdict in a kept line.
+  5. Start the server with `GM_TRANSCRIPT_WINDOW=9`, `=501`, `=all`, and with `GM_TRANSCRIPT_WINDOW=12 GM_EVERY_N_UTTERANCES=15`.
+Expected Result: 1: each prompt holds the latest N lines, the scene's first 2 lines and each AI character's last 2 (each with the line before it), in order, with an `{"omitted": n}` record for each run left out and a numbers-only system note (singular for one line); within the window nothing is marked; the nonce stays in the system prompt only and the verdict format is unchanged; no hidden-fact text or participant name appears. 2: the objection is still in the prompt, with the line it answered; a kept approval keeps the proposal it approved. Lines arriving while the cap alert is recorded are in the next prompt, never silently dropped. 3: the next prompt holds all 22 new lines; with 510 it holds the latest 500 and the facilitator gets one warning that 10 lines were not shown. 4: each stays one JSON record of data and gives no usable verdict. 5: start-up refuses each with an error naming the variable (the last names both).
+Actual Result: Automated tests pass (game-master.cost.test.ts, gm-config.test.ts).
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated: game-master.cost.test.ts (`test_gm_prompt_transcript_window`), gm-config.test.ts. Residual risk (THREAT_MODEL): a player's objection flooded out of view. A live check on a real model is still to be recorded.
+
+TC-0021: The Game Master stops judging a scene's conditions after one is judged true
+Related Story: US-0019
+Related Task: TASK-0019
+Related AC: AC-0060
+Type: Functional
+Preconditions: A scene with two `gm_detects` conditions and an AI character with a pending `earned_when` fact.
+Steps:
+  1. The model answers true to the first condition.
+  2. The model answers false to the first condition and true to the second.
+  3. The first condition gets no usable verdict (after the re-ask) or a model error.
+  4. The first verdict is true but the scene moved on during the call (stale).
+  5. The same through `finalEvaluation`.
+Expected Result: 1: one model call, the scene exits, no earned_when check. 2: both conditions are judged, the earned_when check is not. 3: the round goes on to the second condition. 4: nothing more is judged and the stale verdict is not recorded. 5: as 1 and 2.
+Actual Result: Automated tests pass.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated: game-master.cost.test.ts (`test_gm_short_circuit_after_true`). The shipped scenes have one condition each, so the demo call counts are unchanged.
+
+TC-0022: The AI character prompt keeps a stable cached prefix through NPC updates
+Related Story: US-0019
+Related Task: TASK-0019
+Related AC: AC-0061
+Type: Regression
+Preconditions: An AI character in a scene; a mock showcase run.
+Steps:
+  1. Build the character's request, then update its goals and knowledge, release a hidden fact, add lines and enter a scene with another AI character, and build it again after each step.
+  2. Compare `system.slice(0, cachePrefixChars)` of every request.
+  3. Send a request through the Anthropic adapter (SDK mocked).
+  4. Run `pnpm demo --showcase --fast` and tamper with a captured prompt's prefix in a test.
+Expected Result: 1-2: the prefix bytes are identical, hold the instructions, persona, guardrails and voice, and none of the goals, knowledge, hidden or released facts, scene, room or lines; every section is still present, released facts last. 3: the system goes as two text blocks whose concatenation is the prompt, the cache breakpoint on the first only. 4: S-06 passes and reports one stable prefix per character; a changed prefix, a goal in the prefix or a missing marker fails S-06.
+Actual Result: Automated tests pass; showcase 14 of 14.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated: npc-prompt.prefix.test.ts (`test_npc_prompt_stable_prefix_survives_updates`), anthropic.mocked.test.ts, showcase-release.test.ts. Whether the provider actually serves cache reads (Anthropic needs a minimum prefix length per model; local servers reuse prefixes on their own) is not measured here.
+
+## US-0020: shared identifier rules
+
 TC-0023: One set of identifier rules decides every scenario, protocol, client and session id
 Related Story: US-0020
 Related Task: TASK-0020
