@@ -75,6 +75,8 @@ export class Transcript {
           this.add({ kind: "dialogue", source: classifyGmDecision(o.provider), speaker: "Game Master", text: e.reasoning, scene: e.sceneId, gm: { verdict: e.verdict, condition: e.condition } });
           break;
         case "gm.no_verdict": this.add({ kind: "log", source: "system", text: `Game Master gave no verdict for "${sanitizeText(e.condition)}": ${e.reason}${e.attempts > 1 ? " after the re-ask" : ""}`, scene: e.sceneId }); break;
+        // US-0034: by role and number only: the transcript never holds a hidden fact's text.
+        case "gm.fact_earned": this.add({ kind: "log", source: "system", text: e.autoRelease ? `the Game Master released hidden fact number ${e.fact} of ${e.roleId} itself (GM_AUTO_RELEASE): ${sanitizeText(e.reasoning)}` : `the Game Master suggested releasing hidden fact number ${e.fact} of ${e.roleId} (facilitator only: /release ${e.roleId} ${e.fact}): ${sanitizeText(e.reasoning)}`, scene: e.sceneId }); break;
         case "facilitator.alert": {
           const why = fallbackReason(e.message);
           this.add({ kind: "log", source: "system", text: why !== null ? `alert (${e.level}): fallback line used: ${why}` : `alert (${e.level}): ${e.message}`, scene });

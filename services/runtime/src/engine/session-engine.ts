@@ -1,5 +1,5 @@
 import { LOG_FORMAT, activeElapsedMs, initialState, reduce, reduceReplay, type Channel, type EventBody, type FacilitatorCommand, type GmNoVerdictReason, type GmVia, type SessionEvent, type SessionState } from "@acr/events";
-import { dueInjects, evaluateExit, nextSceneId, type Inject, type Scenario, type Scene } from "@acr/script";
+import { dueInjects, earnedWhenOf, evaluateExit, nextSceneId, type Inject, type NpcRole, type Scenario, type Scene } from "@acr/script";
 import type { Clock } from "./clock.js";
 import { LogFailedError, type EventLog } from "./event-log.js";
 import { Mutex } from "./mutex.js";
@@ -40,10 +40,13 @@ export type Repair =
   | { kind: "npc_init"; roleId: string }
   | { kind: "inject_effect"; sceneId: string; injectId: string; roleId: string }
   | { kind: "opening_inject"; sceneId: string }
+  /** US-0034: a Game Master auto-release (gm.fact_earned with autoRelease) whose npc.updated never reached the log. */
+  | { kind: "gm_release"; roleId: string; fact: number }
   | { kind: "enter_scene"; sceneId: string }
   | { kind: "end_session" };
 export const describeRepair = (r: Repair): string =>
   r.kind === "npc_init" ? `set up AI character ${r.roleId}` : r.kind === "inject_effect" ? `applied inject ${r.injectId} to ${r.roleId}`
+    : r.kind === "gm_release" ? `released hidden fact ${r.fact} of ${r.roleId} (Game Master auto-release)`
     : r.kind === "opening_inject" ? `fired the opening inject of ${r.sceneId}` : r.kind === "enter_scene" ? `entered scene ${r.sceneId}` : "ended the session (the last scene had ended)";
 /** What markResumed reports for the operator. */
 export type ResumeNotes = { downSecs: number; clockBehindSecs: number; repairs: string[] };
@@ -256,6 +259,56 @@ export class SessionEngine {
   }
 
   /**
+   * US-0034: the earned_when conditions the Game Master should judge now: those of the AI characters in the current scene whose fact is neither
+   * judged earned yet nor released, in scene participant order and then fact order. Empty with no current scene (and for every scenario without earned_when).
+   */
+  pendingEarnedChecks(): { role: NpcRole; fact: number; condition: string }[] {
+    const scene = this.currentScene();
+    if (!scene || this.state.status !== "running") return [];
+    const out: { role: NpcRole; fact: number; condition: string }[] = [];
+    for (const id of scene.participants) {
+      const role = own(this.scenario.roles, id);
+      const npc = own(this.state.npcs, id);
+      if (role?.type !== "npc" || !npc) continue;
+      const earned = own(this.state.factsEarned, id) ?? [];
+      for (const c of earnedWhenOf(role)) {
+        const text = role.hidden[c.fact - 1];
+        if (text !== undefined && !earned.includes(c.fact) && !npc.released.includes(text)) out.push({ role, ...c });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * US-0034: the Game Master judged the `earned_when` condition of hidden fact `fact` (1-based) of AI character `roleId` true. Appends ONE
+   * facilitator-only gm.fact_earned (no fact text) and returns "suggested"; with `autoRelease` (the operator's GM_AUTO_RELEASE) it is recorded
+   * as the Game Master's own action and directly followed by the facilitator-only npc.updated that releases the fact ("released"). Returns null,
+   * appending nothing and never throwing on these, when the session is not running, there is no current scene or `expectSceneId` no longer
+   * matches it, the role is not an AI character in the current scene, the fact does not exist or has no earned_when condition, or it was already
+   * judged earned (never twice in a session, also across a restart: the state is rebuilt from the log) or released. Checked inside the mutex.
+   * Only the Game Master calls this; no client message reaches it (the protocol has no such command).
+   */
+  recordFactEarned(roleId: string, fact: number, reasoning: string, opts: { expectSceneId?: string; via?: GmVia; autoRelease?: boolean } = {}): Promise<"suggested" | "released" | null> {
+    return this.mutex.run(async () => {
+      const scene = this.currentScene();
+      if (!scene || this.state.status !== "running") return null;
+      if (opts.expectSceneId !== undefined && scene.id !== opts.expectSceneId) return null;
+      const role = own(this.scenario.roles, roleId);
+      const npc = own(this.state.npcs, roleId);
+      if (role?.type !== "npc" || !npc || !scene.participants.includes(roleId)) return null;
+      if (!Number.isInteger(fact) || fact < 1 || fact > role.hidden.length) return null;
+      if (role.earned_when === undefined || !Object.hasOwn(role.earned_when, String(fact))) return null;
+      const text = role.hidden[fact - 1]!;
+      if ((own(this.state.factsEarned, roleId) ?? []).includes(fact) || npc.released.includes(text)) return null;
+      await this.emit({ type: "gm.fact_earned", sceneId: scene.id, roleId, fact, reasoning, ...(opts.via ? { via: opts.via } : {}), ...(opts.autoRelease ? { autoRelease: true as const } : {}) });
+      if (!opts.autoRelease) return "suggested";
+      // The release itself: the same facilitator-only npc.updated a facilitator release appends. A crash between the two appends is completed on resume (repair gm_release).
+      await this.emit({ type: "npc.updated", roleId, goals: npc.goals, knowledge: npc.knowledge, released: [...npc.released, text] });
+      return "released";
+    });
+  }
+
+  /**
    * US-0018: rebuilds the state from the log by folding every event through the pure reducer (nothing else is read). Only on a
    * fresh engine. "empty": no events. "ended": the session had ended (the caller rotates the log aside and starts fresh; the
    * engine state is left untouched). "running": the state is adopted; the caller then calls markResumed(). Refuses (RestoreError,
@@ -272,6 +325,8 @@ export class SessionEngine {
     let count = 0; let maxTs = Number.NEGATIVE_INFINITY; let format = 0; let lastGmSeq: number | null = null;
     // An inject's AI character updates follow its inject.fired directly; this tracks the ones still due if the log ends here.
     let injectDue: { sceneId: string; injectId: string; roles: string[] } | null = null;
+    // US-0034: Game Master auto-releases in the log; one whose fact is not released at the end was cut short by a crash.
+    const autoReleases: { roleId: string; fact: number }[] = [];
     const fold = (e: SessionEvent) => {
       if (count === 0) {
         if (e.type !== "session.started") throw new RestoreError("not_a_session", `the log does not begin with session.started (seq 1 is ${e.type})`);
@@ -297,7 +352,8 @@ export class SessionEngine {
       // resume's completion short; live code never puts anything else there, so only those two keep the pending updates due.
       else if (e.type !== "session.resumed" && e.type !== "facilitator.alert") injectDue = null;
       if (e.type === "scene.entered") lastGmSeq = null;
-      else if ((e.type === "gm.decision" || e.type === "gm.no_verdict") && e.sceneId === s.currentScene?.id) lastGmSeq = e.seq;
+      else if ((e.type === "gm.decision" || e.type === "gm.no_verdict" || e.type === "gm.fact_earned") && e.sceneId === s.currentScene?.id) lastGmSeq = e.seq;
+      if (e.type === "gm.fact_earned" && e.autoRelease) autoReleases.push({ roleId: e.roleId, fact: e.fact });
       maxTs = Math.max(maxTs, e.ts);
       count++;
     };
@@ -316,6 +372,13 @@ export class SessionEngine {
     for (const [id, role] of Object.entries(sc.roles)) if (role.type === "npc" && !own(s.npcs, id)) repairs.push({ kind: "npc_init", roleId: id });
     const due = injectDue as { sceneId: string; injectId: string; roles: string[] } | null; // assigned inside the fold
     for (const roleId of due?.roles ?? []) repairs.push({ kind: "inject_effect", sceneId: due!.sceneId, injectId: due!.injectId, roleId });
+    for (const a of autoReleases) {
+      const role = own(sc.roles, a.roleId);
+      const text = role?.type === "npc" ? role.hidden[a.fact - 1] : undefined;
+      const npc = own(s.npcs, a.roleId);
+      // Nothing unreleases a fact, so an auto-release whose fact is not released was cut between its two appends.
+      if (text !== undefined && npc && !npc.released.includes(text)) repairs.push({ kind: "gm_release", roleId: a.roleId, fact: a.fact });
+    }
     if (!cur) {
       const lastScene = s.sceneHistory.at(-1)?.id;
       const next = lastScene === undefined ? sc.script.scenes[0]?.id : nextSceneId(sc.script, lastScene);
@@ -365,6 +428,11 @@ export class SessionEngine {
       const inject = sc.script.scenes.find((x) => x.id === r.sceneId)?.injects?.find((i) => i.id === r.injectId);
       const npc = own(this.state.npcs, r.roleId);
       if (inject && npc) await this.emit({ type: "npc.updated", roleId: r.roleId, goals: [...npc.goals, ...(inject.effect?.goals_add ?? [])], knowledge: [...npc.knowledge, ...(inject.effect?.knowledge_add ?? [])] });
+    } else if (r.kind === "gm_release") {
+      const role = own(sc.roles, r.roleId);
+      const text = role?.type === "npc" ? role.hidden[r.fact - 1] : undefined;
+      const npc = own(this.state.npcs, r.roleId);
+      if (text !== undefined && npc && !npc.released.includes(text)) await this.emit({ type: "npc.updated", roleId: r.roleId, goals: npc.goals, knowledge: npc.knowledge, released: [...npc.released, text] });
     } else if (r.kind === "opening_inject") {
       const scene = sc.script.scenes.find((x) => x.id === r.sceneId);
       const inject = scene?.injects?.find((i) => i.id === scene.opening_inject);

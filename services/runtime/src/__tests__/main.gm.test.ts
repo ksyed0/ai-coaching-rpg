@@ -53,6 +53,30 @@ describe("bootstrap: Game Master settings (US-0025)", () => {
     expect(recs.map((x) => x.attempt)).toEqual([1, 2]);
     expect(recs[0]).toMatchObject({ raw: "[mock reply]", parse: { ok: false, reason: "no_json" } });
   });
+  it("GM_AUTO_RELEASE (US-0034): off by default; 1 reaches the Game Master with one startup warning; another value is refused", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-gm-"));
+    const offLog: string[] = []; const offWarn: string[] = [];
+    const off = await bootstrap({ env: { SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "g1", MODEL_PROVIDER: "mock" }, root: tmp, logDir: tmp, tickMs: 60_000, log: (m) => offLog.push(m), warn: (m) => offWarn.push(m) });
+    if (off.ok) runtime = off.runtime;
+    expect(off.ok).toBe(true);
+    expect((gmOf(runtime!) as unknown as { autoRelease: boolean }).autoRelease).toBe(false);
+    expect(offLog).not.toContain("facilitator token required (FACILITATOR_TOKEN is set)"); // no token: the open-server warning, never this line
+    expect(offWarn.some((w) => w.includes("GM_AUTO_RELEASE"))).toBe(false);
+    await runtime!.stop(); runtime = null; await rm(tmp, { recursive: true, force: true });
+    const warned: string[] = []; const logged: string[] = [];
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-gm-"));
+    const r = await bootstrap({ env: { SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "g1", MODEL_PROVIDER: "mock", GM_AUTO_RELEASE: "1", FACILITATOR_TOKEN: "correct-horse-battery-staple-0123456789" }, root: tmp, logDir: tmp, tickMs: 60_000, log: (m) => logged.push(m), warn: (m) => warned.push(m) });
+    if (r.ok) runtime = r.runtime;
+    expect(r.ok).toBe(true);
+    expect((gmOf(runtime!) as unknown as { autoRelease: boolean }).autoRelease).toBe(true);
+    expect(logged).toContain("facilitator token required (FACILITATOR_TOKEN is set)"); // the token lines are untouched by the new warning
+    expect(JSON.stringify([...logged, ...warned])).not.toContain("correct-horse");
+    expect(warned.filter((w) => w.includes("GM_AUTO_RELEASE"))).toEqual(["WARNING: GM_AUTO_RELEASE=1: the Game Master releases a hidden fact itself when it judges the fact's earned_when condition met (recorded as a Game Master action); a participant who persuades it releases the fact without the facilitator"]);
+    await runtime!.stop(); runtime = null; await rm(tmp, { recursive: true, force: true });
+    const bad = await boot({ GM_AUTO_RELEASE: "yes" });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.errors.join(" ")).toContain("GM_AUTO_RELEASE");
+  });
   it("a GM_TRACE_FILE equal to the session log is refused", async () => {
     const r = await boot({ GM_TRACE_FILE: "g1.jsonl" }); // SESSION_ID g1 under the data directory
     expect(r.ok).toBe(false);

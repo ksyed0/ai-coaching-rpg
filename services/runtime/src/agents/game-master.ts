@@ -1,10 +1,16 @@
 import type { ModelProvider } from "@acr/adapters";
 import type { SessionEngine } from "../engine/session-engine.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "./timeouts.js";
-import { buildGmRequest } from "./gm-prompt.js";
+import { buildGmEarnedRequest, buildGmRequest } from "./gm-prompt.js";
 import { newGmNonce, runGmEvaluation, type GmReplyTrace } from "./gm-evaluate.js";
 import { DEFAULT_GM_EVERY_N_UTTERANCES } from "./gm-config.js";
 import { DEFAULT_GM_MAX_TOKENS } from "./token-budgets.js";
+
+/**
+ * US-0034: the most earned_when conditions judged in one evaluation round (the least recently checked first, so every pending one is still
+ * reached). Bounds a round to (exit conditions + this) Game Master evaluations, each inside GM_TIMEOUT_MS, however many hidden facts carry a condition.
+ */
+export const MAX_EARNED_CHECKS_PER_ROUND = 2;
 
 /** The Game Master judges each gm_detects condition after this many NEW utterances in a scene. */
 export const GM_EVERY_N_UTTERANCES = DEFAULT_GM_EVERY_N_UTTERANCES;
@@ -13,6 +19,8 @@ export const GM_EVERY_N_UTTERANCES = DEFAULT_GM_EVERY_N_UTTERANCES;
 export type GmTraceRecord = {
   /** The last event seq when the prompt was built: the prompt can be rebuilt from the session log up to this seq. */
   seq: number; sceneId: string; condition: string;
+  /** US-0034: present when the evaluation judged a hidden fact's earned_when condition (by role id and fact number; never the fact text). */
+  earned?: { roleId: string; fact: number };
 } & GmReplyTrace;
 
 export class GameMaster {
@@ -31,9 +39,14 @@ export class GameMaster {
   /** One bounded re-ask after a reply with no usable verdict (GM_REASK; default on). */
   readonly reask: boolean;
   private readonly trace: ((rec: GmTraceRecord) => void) | undefined;
+  /** US-0034, GM_AUTO_RELEASE (off by default): release a hidden fact itself when it judges its earned_when condition true, instead of only suggesting it. */
+  readonly autoRelease: boolean;
+  /** US-0034: when each earned_when condition (`role#fact`) was last judged, in evaluation rounds, for the round-robin. In memory only: a restart starts the rotation again. */
+  private readonly earnedLastRound = new Map<string, number>();
+  private earnedRound = 0;
 
-  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number; reask?: boolean; trace?: (rec: GmTraceRecord) => void }) {
-    this.reask = opts.reask ?? true; this.trace = opts.trace;
+  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number; reask?: boolean; trace?: (rec: GmTraceRecord) => void; autoRelease?: boolean }) {
+    this.reask = opts.reask ?? true; this.trace = opts.trace; this.autoRelease = opts.autoRelease ?? false;
     this.engine = opts.engine; this.provider = opts.provider; this.everyN = opts.everyNUtterances ?? GM_EVERY_N_UTTERANCES;
     this.maxTokens = opts.maxTokens ?? DEFAULT_GM_MAX_TOKENS;
     this.temperature = opts.temperature;
@@ -71,11 +84,7 @@ export class GameMaster {
     this.evaluatedCount = count;
     this.evaluating = true;
     try {
-      for (const cond of scene.exit_when.any_of) {
-        if (typeof cond !== "object") continue;
-        if (this.engine.state.currentScene?.id !== scene.id) break; // scene moved on mid-evaluation
-        await this.evaluate(scene, cond.gm_detects);
-      }
+      await this.evaluateScene(scene);
       await this.engine.tick();
     } catch (err) {
       // Never throw into the host's ticker, but never be silent either: report to onError, then make a
@@ -106,17 +115,64 @@ export class GameMaster {
     this.evaluatedCount = count;
     this.evaluating = true;
     try {
-      for (const cond of scene.exit_when.any_of) {
-        if (typeof cond !== "object") continue;
-        if (this.engine.state.currentScene?.id !== scene.id) break;
-        await this.evaluate(scene, cond.gm_detects);
-      }
+      await this.evaluateScene(scene);
       await this.engine.tick();
     } catch (err) {
       this.report(err);
       try { await this.engine.alert(`GM: evaluation failed: ${err instanceof Error ? err.message : String(err)}`, "warning"); } catch (alertErr) { this.report(alertErr); }
     } finally { this.evaluating = false; }
     return true;
+  }
+
+  /**
+   * One evaluation pass over a scene: each gm_detects exit condition, then (US-0034) each pending earned_when condition of the AI characters
+   * in it (pendingEarnedChecks: not yet judged earned, not released), at most MAX_EARNED_CHECKS_PER_ROUND of them, and none once an exit verdict
+   * of this scene came back true. Stops when the scene moves on. A scenario without earned_when makes
+   * exactly the calls it made before.
+   */
+  private async evaluateScene(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>): Promise<void> {
+    for (const cond of scene.exit_when.any_of) {
+      if (typeof cond !== "object") continue;
+      if (this.engine.state.currentScene?.id !== scene.id) return; // scene moved on mid-evaluation
+      await this.evaluate(scene, cond.gm_detects);
+    }
+    // The scene is ending on a true exit verdict (it exits at the next engine tick): no earned_when check this round.
+    if (Object.values(this.engine.state.gmVerdicts).some((v) => v)) return;
+    this.earnedRound++;
+    const key = (c: { role: { id: string }; fact: number }) => `${c.role.id}#${c.fact}`;
+    const pending = this.engine.pendingEarnedChecks()
+      .map((c, i) => ({ c, i, last: this.earnedLastRound.get(key(c)) ?? 0 }))
+      .sort((a, b) => a.last - b.last || a.i - b.i) // least recently judged first, then scene and fact order (a stable, deterministic rotation)
+      .slice(0, MAX_EARNED_CHECKS_PER_ROUND);
+    for (const { c } of pending) {
+      if (this.engine.state.currentScene?.id !== scene.id) return;
+      this.earnedLastRound.set(key(c), this.earnedRound);
+      await this.evaluateEarned(scene, c);
+    }
+  }
+
+  /**
+   * US-0034: one evaluation of a hidden fact's earned_when condition, through the same nonce-signed path as an exit condition (runGmEvaluation:
+   * a fresh nonce in the system prompt only, the strict parser, one bounded re-ask). Only a verdict carrying the nonce counts, and the role id and
+   * fact number come from the scenario, never from the reply, so dialogue text can neither forge a suggestion nor choose which fact it names.
+   * true: the engine records the facilitator-only gm.fact_earned once (and with GM_AUTO_RELEASE the release). false: nothing is recorded (asked
+   * again at the next cadence). No usable verdict: a facilitator-only info alert. A model failure: the usual warning alert.
+   */
+  private async evaluateEarned(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>, check: ReturnType<SessionEngine["pendingEarnedChecks"]>[number]): Promise<void> {
+    const expectSceneId = scene.id;
+    const seq = this.engine.state.lastSeq;
+    const { role, fact, condition } = check;
+    const nonce = newGmNonce();
+    const request = buildGmEarnedRequest({ scene, role, fact, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, nonce });
+    const earned = { roleId: role.id, fact };
+    const out = await runGmEvaluation({
+      provider: this.provider, request, condition, timeoutMs: this.evaluationTimeoutMs, reask: this.reask, nonce,
+      subject: `hidden fact ${fact} of ${role.id} (earned_when "${condition}")`,
+      onReply: (r) => this.traceRecord({ seq, sceneId: expectSceneId, condition, earned, ...r }),
+    });
+    if (out.kind === "alert") await this.engine.alert(out.message, "warning", { expectSceneId });
+    else if (out.kind === "no_verdict") await this.engine.alert(`GM: no usable verdict on whether hidden fact ${fact} of ${role.id} is earned (${out.reason}${out.attempts > 1 ? " after the re-ask" : ""})`, "info", { expectSceneId });
+    else if (out.verdict) await this.engine.recordFactEarned(role.id, fact, out.reasoning, { expectSceneId, via: out.via, autoRelease: this.autoRelease });
   }
 
   private report(err: unknown): void {

@@ -11,6 +11,7 @@ import { SessionHost } from "../host/session-host.js";
 import { startServer } from "../host/ws-server.js";
 import type { Limits } from "../host/security.js";
 import { npcIntro } from "../agents/npc-prompt.js";
+import { earnedCheckOf } from "../agents/gm-prompt.js";
 import { parseNpcTimeouts } from "../agents/timeouts.js";
 import { parseTokenBudgets } from "../agents/token-budgets.js";
 import { parseTemperatures } from "../agents/temperatures.js";
@@ -45,7 +46,7 @@ export async function makeTempRoot(repoRoot: string): Promise<TempRoot> {
 }
 
 /** A model provider that keeps every request it received (the mock providers do), for the prompt audit. */
-export type RecordingProvider = ModelProvider & { readonly calls: ChatRequest[]; /** The engine's last event seq when each call in `calls` was made (the scripted showcase providers): the audits judge a prompt against what had been released by then. */ readonly callSeqs?: number[]; /** Scripted queues that ran dry (`<scene>|<role>`), for the scripted providers. */ readonly exhausted?: string[]; /** The declared kind (strict, tolerant, malformed) of each scripted reply actually served, in order (the showcase mock). */ readonly servedKinds?: string[] };
+export type RecordingProvider = ModelProvider & { /** The scripted replies served with their queue keys (the showcase mock). */ readonly served?: { key: string; reply: string }[]; readonly calls: ChatRequest[]; /** The engine's last event seq when each call in `calls` was made (the scripted showcase providers): the audits judge a prompt against what had been released by then. */ readonly callSeqs?: number[]; /** Scripted queues that ran dry (`<scene>|<role>`), for the scripted providers. */ readonly exhausted?: string[]; /** The declared kind (strict, tolerant, malformed) of each scripted reply actually served, in order (the showcase mock). */ readonly servedKinds?: string[] };
 
 export type System = {
   port: number; host: SessionHost; engine: SessionEngine; clock: Clock; fakeClock?: FakeClock;
@@ -120,7 +121,12 @@ export async function makeTempDataDir(parent: string = os.tmpdir()): Promise<{ r
   return { root, dataDir: path.join(root, "data"), cleanup: () => rm(root, { recursive: true, force: true }) };
 }
 
-export type MockScenePlan = { npc: Record<string, string[]>; gm: string[]; /** What each Game Master reply is declared to be (strict, tolerant or malformed); strict when absent. */ gmKinds?: string[] };
+export type MockScenePlan = { npc: Record<string, string[]>; gm: string[]; /** What each Game Master reply is declared to be (strict, tolerant or malformed); strict when absent. */ gmKinds?: string[];
+  /** US-0034: the Game Master's replies to each earned_when check of the scene, per AI character and hidden fact number. */
+  gmEarned?: { role: string; fact: number; replies: string[] }[] };
+
+/** The mock Game Master's queue key for an earned_when check (`earned:<role>#<fact>`), "" for an exit-condition check. */
+export const gmQueueKey = (req: ChatRequest): string => { const c = earnedCheckOf(req); return c ? `earned:${c.roleId}#${c.fact}` : ""; };
 
 /**
  * A scripted model for the showcase's mock run. Replies are picked per scene (and, for the AI characters, per character):
@@ -133,6 +139,8 @@ export class SceneRoutedMock implements RecordingProvider {
   readonly callSeqs: number[] = [];
   readonly exhausted: string[] = [];
   readonly servedKinds: string[] = [];
+  /** Every scripted reply actually served, with its queue key (`<scene>|<who>`), in order. */
+  readonly served: { key: string; reply: string }[] = [];
   private readonly kinds = new Map<string, string[]>();
   private readonly queues = new Map<string, string[]>();
   constructor(private readonly o: { sceneId: () => string | undefined; seq?: () => number; keyOf: (req: ChatRequest) => string | undefined; plan: Record<string, string[]>; kinds?: Record<string, string[]>; exhausted: string }) {
@@ -146,7 +154,7 @@ export class SceneRoutedMock implements RecordingProvider {
     const key = `${this.o.sceneId() ?? ""}|${who ?? ""}`;
     const next = this.queues.get(key)?.shift();
     const kind = this.kinds.get(key)?.shift() ?? "strict";
-    if (next === undefined) this.exhausted.push(key); else this.servedKinds.push(kind);
+    if (next === undefined) this.exhausted.push(key); else { this.servedKinds.push(kind); this.served.push({ key, reply: next }); }
     const words = (kind === "forged" && next !== undefined ? `${FORGED_MARKER}${next}` : (next ?? this.o.exhausted)).split(" ");
     for (let i = 0; i < words.length; i++) {
       if (signal?.aborted) return;
@@ -159,7 +167,7 @@ export class SceneRoutedMock implements RecordingProvider {
  * The showcase's mock system: scripted AI characters and Game Master (per scene), a fake clock, a real JSONL log on disk and
  * a real WebSocket server on port 0.
  */
-export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId: string; dataDir: string; scenes: { scene: string; mock: MockScenePlan }[]; gmTrace?: (rec: GmTraceRecord) => void }): Promise<System> {
+export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId: string; dataDir: string; scenes: { scene: string; mock: MockScenePlan }[]; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034: GM_AUTO_RELEASE for the mock run (default off). */ gmAutoRelease?: boolean }): Promise<System> {
   const ref: { engine?: SessionEngine } = {};
   const sceneId = () => ref.engine?.currentScene()?.id;
   const npcRoles = Object.values(o.scenario.roles).filter((r): r is NpcRole => r.type === "npc");
@@ -167,12 +175,13 @@ export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId
   for (const { scene, mock } of o.scenes) {
     for (const [role, replies] of Object.entries(mock.npc)) npcPlan[`${scene}|${role}`] = replies;
     gmPlan[`${scene}|`] = mock.gm; gmKinds[`${scene}|`] = mock.gmKinds ?? [];
+    for (const g of mock.gmEarned ?? []) gmPlan[`${scene}|earned:${g.role}#${g.fact}`] = g.replies;
   }
   const seq = () => ref.engine?.state.lastSeq ?? 0;
   const npc = new SceneRoutedMock({ sceneId, seq, plan: npcPlan, exhausted: "[mock reply]", keyOf: (req) => npcRoles.find((r) => req.system.includes(npcIntro(r)))?.id });
-  const gm = new SceneRoutedMock({ sceneId, seq, plan: gmPlan, kinds: gmKinds, exhausted: '{"verdict": false, "reasoning": "no scripted verdict left"}', keyOf: () => "" });
+  const gm = new SceneRoutedMock({ sceneId, seq, plan: gmPlan, kinds: gmKinds, exhausted: '{"verdict": false, "reasoning": "no scripted verdict left"}', keyOf: gmQueueKey });
   const fakeClock = new FakeClock(T0);
-  const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: stampNonce(gm), gmTrace: o.gmTrace });
+  const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: stampNonce(gm), gmTrace: o.gmTrace, gmAutoRelease: o.gmAutoRelease });
   ref.engine = sys.engine;
   return sys;
 }
@@ -216,8 +225,8 @@ export function startPlayerProvider(env: NodeJS.ProcessEnv, model?: string): Mod
 export async function buildSystem(o: {
   scenario: Scenario; sessionId: string; dataDir: string; clock: Clock; fakeClock?: FakeClock; npc?: RecordingProvider; gm?: RecordingProvider;
   npcProvider: ModelProvider; gmProvider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; log?: EventLog; heartbeatMs?: number;
-  /** The Game Master settings (GM_TIMEOUT_MS, GM_REASK, GM_EVERY_N_UTTERANCES) and its raw-reply trace; defaults when absent. */
-  gmConfig?: GmConfig; gmTrace?: (rec: GmTraceRecord) => void;
+  /** The Game Master settings (GM_TIMEOUT_MS, GM_REASK, GM_EVERY_N_UTTERANCES, GM_AUTO_RELEASE) and its raw-reply trace; defaults when absent. */
+  gmConfig?: GmConfig; gmTrace?: (rec: GmTraceRecord) => void; /** Overrides `gmConfig.autoRelease` (the mock showcase reads GM_AUTO_RELEASE itself). */ gmAutoRelease?: boolean;
   facilitatorToken?: string; limits?: Partial<Limits>; allowedOrigins?: string[]; trustProxy?: boolean;
   /** An engine opened elsewhere (the resume room's openSession), and what to close with the system (its log and lock). */
   engine?: SessionEngine; onStop?: () => Promise<void> | void;
@@ -232,7 +241,7 @@ export async function buildSystem(o: {
     scenario: o.scenario, engine, npcProvider: o.npcProvider, gmProvider: o.gmProvider, clock: o.clock,
     log: (m) => hostLog.push(m), firstTokenTimeoutMs: o.firstTokenTimeoutMs, replyTimeoutMs: o.replyTimeoutMs,
     npcMaxTokens: o.npcMaxTokens, gmMaxTokens: o.gmMaxTokens, npcTemperature: o.npcTemperature, gmTemperature: o.gmTemperature,
-    gmTimeoutMs: o.gmConfig?.timeoutMs, gmReask: o.gmConfig?.reask, gmEveryN: o.gmConfig?.everyNUtterances, gmTrace: o.gmTrace,
+    gmTimeoutMs: o.gmConfig?.timeoutMs, gmReask: o.gmConfig?.reask, gmEveryN: o.gmConfig?.everyNUtterances, gmAutoRelease: o.gmAutoRelease ?? o.gmConfig?.autoRelease, gmTrace: o.gmTrace,
   });
   // Every demo server requires player join codes, as the real one does (US-0033).
   const playerRoles = Object.values(o.scenario.roles).filter((r) => r.type === "player").map((r) => r.id);

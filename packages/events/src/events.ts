@@ -38,6 +38,13 @@ export type EventBody =
       via?: GmVia }
   /** Facilitator-only: the Game Master gave no usable verdict for `condition` after `attempts` model replies (1, or 2 with the re-ask). */
   | { type: "gm.no_verdict"; sceneId: string; condition: string; reason: GmNoVerdictReason; attempts: number }
+  /**
+   * US-0034, facilitator-only: the Game Master judged the `earned_when` condition of hidden fact number `fact` (1-based) of AI character `roleId`
+   * true (a nonce-verified verdict), so it suggests releasing it with `/release <roleId> <fact>`. Recorded at most once per fact for the whole
+   * session; carries NO fact text. Written only by the engine's Game Master path, never from a client message. `autoRelease`: the operator's
+   * GM_AUTO_RELEASE was on, so the Game Master released the fact itself: the facilitator-only `npc.updated` with the text follows directly.
+   */
+  | { type: "gm.fact_earned"; sceneId: string; roleId: string; fact: number; reasoning: string; via?: GmVia; autoRelease?: true }
   | ({ type: "facilitator.command" } & FacilitatorCommand)
   | { type: "facilitator.alert"; level: "info" | "warning"; message: string }
   | { type: "session.ended"; reason: "script_complete" | "facilitator_end" }
@@ -55,7 +62,7 @@ export const LOG_FORMAT = 1;
 
 const EVENT_TYPE_SET: Record<EventType, true> = {
   "session.started": true, "scene.entered": true, "scene.exited": true, utterance: true, "inject.fired": true, "npc.updated": true,
-  "gm.decision": true, "gm.no_verdict": true, "facilitator.command": true, "facilitator.alert": true, "session.ended": true, "session.resumed": true,
+  "gm.decision": true, "gm.no_verdict": true, "gm.fact_earned": true, "facilitator.command": true, "facilitator.alert": true, "session.ended": true, "session.resumed": true,
 };
 /** Every event type this version knows (a compile error until a new EventBody member is listed). */
 export const EVENT_TYPES: readonly EventType[] = Object.keys(EVENT_TYPE_SET) as EventType[];

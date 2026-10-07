@@ -64,6 +64,10 @@ export function validateScenario(s: Scenario): { errors: string[]; warnings: str
       if (first !== undefined) errors.push(`role ${r.id}: hidden facts ${first} and ${i + 1} have the same text`);
       else seenFact.set(h, i + 1);
     });
+    // US-0034: an earned_when condition must name a fact the character has (the numbering of release_hidden and /hidden).
+    for (const k of Object.keys(r.earned_when ?? {})) {
+      if (Number(k) > r.hidden.length) errors.push(`role ${r.id}: earned_when names hidden fact ${k}, but the role has ${r.hidden.length} hidden fact(s)`);
+    }
     if (new Set(r.defer_to).size !== r.defer_to.length) errors.push(`role ${r.id}: defer_to lists a role more than once`);
   }
   const playerCount = Object.values(s.roles).filter((r) => r.type === "player").length;

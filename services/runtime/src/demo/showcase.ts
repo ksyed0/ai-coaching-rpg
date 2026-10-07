@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { GmNoVerdictReason, SessionEvent } from "@acr/events";
-import type { NpcRole, Scenario } from "@acr/script";
+import { earnedWhenOf, type NpcRole, type Scenario } from "@acr/script";
 import { isEvent, type Inbound } from "./bots.js";
 import { UNSAFE_CHARS, buildMarkers, ensure, findInjectLeaks, findMarkers, logShapeProblems, type CheckDef, type Markers } from "./checks.js";
 import {
@@ -9,8 +9,11 @@ import {
 } from "./ctx.js";
 import { MIN, type System } from "./harness.js";
 import { gmDeadlineMs } from "../agents/timeouts.js";
+import { MAX_EARNED_CHECKS_PER_ROUND } from "../agents/game-master.js";
 import { MAX_CONSECUTIVE_SILENT_TURNS, type SilentTurn } from "../agents/npc-agent.js";
 import { SHARE_SECTION, npcIntro } from "../agents/npc-prompt.js";
+import { earnedCheckOf } from "../agents/gm-prompt.js";
+import { parseGmReply } from "../agents/gm-parse.js";
 import { releaseNote } from "./release-note.js";
 import { fallbackReason, isFallbackReply } from "./provenance.js";
 import { scrubText } from "./report.js";
@@ -18,7 +21,7 @@ import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from 
 import type { PlayerBotGenerator } from "./player-bot.js";
 import { playerSource, type PlayerLineRecord, type PlayerLines } from "./player-lines.js";
 import { buildShowcaseCases, lastNegativeLine, loadCases, type GmCase } from "../gm-eval/cases.js";
-import { expectedGmEvaluations, type ShowcaseScript } from "./showcase-script.js";
+import { expectedGmEvaluations, gmRoundLines, type ShowcaseScript } from "./showcase-script.js";
 import type { EvaluationResult } from "../evaluator/evaluate.js";
 import { readSessionLog } from "../evaluator/log-reader.js";
 import { summaryLines } from "../evaluator/summary.js";
@@ -110,7 +113,7 @@ export function linesFor(script: ShowcaseScript, sceneId: string, maxLines: numb
   return entry.lines.slice(0, maxLines ?? entry.lines.length);
 }
 
-/** An upper bound of the model calls a run makes: one reply per AI character per line, plus the Game Master's evaluations (`player`: the calls for the player lines, made only with --players generated). */
+/** An upper bound of the model calls a run makes: one reply per AI character per line, plus the Game Master's evaluations (exit conditions and earned_when checks; `player`: the calls for the player lines, made only with --players generated). */
 export function expectedModelCalls(scenario: Scenario, script: ShowcaseScript, maxLines: number | null, everyN?: number): { npc: number; gm: number; player: number } {
   let npc = 0; let gm = 0; let player = 0;
   for (const scene of scenario.script.scenes) {
@@ -118,6 +121,9 @@ export function expectedModelCalls(scenario: Scenario, script: ShowcaseScript, m
     const lines = linesFor(script, scene.id, maxLines).length;
     npc += n * lines; player += lines;
     gm += expectedGmEvaluations(scene, lines, n, everyN);
+    // US-0034: at most MAX_EARNED_CHECKS_PER_ROUND earned_when conditions of the characters here are judged per round (fewer once suggested or released).
+    const earned = scene.participants.reduce((a, p) => { const r = scenario.roles[p]; return a + (r?.type === "npc" ? earnedWhenOf(r).length : 0); }, 0);
+    gm += Math.min(earned, MAX_EARNED_CHECKS_PER_ROUND) * gmRoundLines(lines, n, everyN).length;
   }
   return { npc, gm, player };
 }
@@ -278,6 +284,10 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
       case "gm.no_verdict":
         await n.tagged("Game Master", "red", `no verdict for "${clip(e.condition, 160)}"`, `${e.reason}${e.attempts > 1 ? " after the re-ask" : ""}: ${NO_VERDICT_HINT[e.reason]}`);
         break;
+      // US-0034: by role and number only, never the fact text (the Game Master never saw it; the facilitator's own client lists it).
+      case "gm.fact_earned":
+        await n.tagged("Game Master", "yellow", e.autoRelease ? `released hidden fact number ${e.fact} of ${e.roleId} itself (GM_AUTO_RELEASE)` : `suggests releasing hidden fact number ${e.fact} of ${e.roleId} (to the facilitator only: /release ${e.roleId} ${e.fact})`, clip(e.reasoning, 300));
+        break;
       case "facilitator.alert": {
         const why = fallbackReason(e.message);
         await n.tagged("alert", e.level === "warning" ? "red" : "yellow", "", why !== null ? `${e.message.split(":")[0]!.replace(/^NPC /, "AI character ")} fell back to its canned line: ${why}` : clip(e.message, 300));
@@ -366,7 +376,9 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
     if (scene.opening_inject) await fac.waitFor(isEvent("inject.fired", (e) => e.injectId === scene.opening_inject), { timeoutMs: 15_000, what: `the opening inject of ${scene.id}` });
     await flush();
     const npcCount = scene.participants.filter((p) => scenario.roles[p]?.type === "npc").length;
-    const gmConditions = scene.exit_when.any_of.filter((c) => typeof c === "object").length;
+    // Exit conditions plus (US-0034) at most MAX_EARNED_CHECKS_PER_ROUND earned_when checks of the AI characters here: Game Master evaluations per round.
+    const gmConditions = scene.exit_when.any_of.filter((c) => typeof c === "object").length
+      + Math.min(MAX_EARNED_CHECKS_PER_ROUND, scene.participants.reduce((a, p) => { const r = scenario.roles[p]; return a + (r?.type === "npc" ? earnedWhenOf(r).length : 0); }, 0));
     const timedAt = Math.max(0, ...(scene.injects ?? []).filter((i) => i.at_minute !== undefined && i.at_minute < scene.time_box_minutes).map((i) => i.at_minute!));
     const lines = linesFor(o.script, scene.id, o.maxLines);
     let spoken = 0;
@@ -427,6 +439,8 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         const sent = await fac.waitFor((m) => m.type === "error" || isEvent("npc.updated", (e) => e.roleId === step.role && (e.released?.length ?? 0) > 0)(m), { from: fromStep, timeoutMs: 15_000, what: `the release of ${what}` });
         if (sent.type === "error") {
           if (sent.code === "stale_scene") { observations.push(`scene changed under us: the release of ${what} was refused (stale_scene); it was not released`); continue; }
+          // US-0034: with GM_AUTO_RELEASE on, the Game Master may have released it first.
+          if (sent.code === "already_released") { observations.push(`facilitator step skipped: ${what} was already released (by the Game Master, GM_AUTO_RELEASE)`); continue; }
           throw new Error(`the release of ${what} was refused: ${errCode(sent)}`);
         }
         await waitSettled(npcCount, gmConditions);
@@ -557,8 +571,38 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       ensure(g.via.reask + g.noVerdicts.length >= answeredByReask && g.reasks >= reasked, `the script declares ${reasked} malformed or forged repl${reasked === 1 ? "y" : "ies"} (answered by the next reply) but only ${g.reasks} re-ask(s) happened and ${g.via.reask} verdict(s) came from one`);
       ensure(g.noVerdicts.length === 0, `the mock Game Master gave no usable verdict ${g.noVerdicts.length} time(s): ${g.noVerdicts.slice(0, 2).map((v) => `${v.sceneId} ${v.reason}`).join(", ")}`);
     }
+    // US-0034: release suggestions. Each names an AI character in that scene and a fact with an earned_when condition that was not released before it,
+    // at most once per fact; an auto-release only when the Game Master was told to (GM_AUTO_RELEASE). In a mock run they match the script exactly.
+    const sugg = g.suggestions;
+    const evs = events();
+    const relSeq = releaseSeqs(evs);
+    const seenFacts = new Set<string>();
+    for (const x of sugg) {
+      const role = scenario.roles[x.roleId];
+      ensure(role?.type === "npc" && earnedWhenOf(role).some((c) => c.fact === x.fact), `a release suggestion names hidden fact ${x.fact} of ${x.roleId}, which has no earned_when condition`);
+      ensure(scenario.script.scenes.find((sc) => sc.id === x.sceneId)?.participants.includes(x.roleId) ?? false, `a release suggestion for ${x.roleId} was made in ${x.sceneId}, where that character is absent`);
+      ensure(!seenFacts.has(`${x.roleId}#${x.fact}`), `hidden fact ${x.fact} of ${x.roleId} was suggested more than once`);
+      seenFacts.add(`${x.roleId}#${x.fact}`);
+      const text = (role as NpcRole).hidden[x.fact - 1]!;
+      const at = relSeq.get(`${x.roleId}\n${text}`);
+      ensure(at === undefined || at > x.seq || (x.autoRelease && at === x.seq + 1), `hidden fact ${x.fact} of ${x.roleId} was suggested after it had been released`);
+      // (Against a remote server, --url, its setting is unknown here.)
+      ensure(!x.autoRelease || sys === undefined || sys.host.gmAutoRelease, `the Game Master released hidden fact ${x.fact} of ${x.roleId} itself although GM_AUTO_RELEASE is off`);
+    }
+    if (mock) {
+      // Every scripted TRUE earned_when verdict that was served is exactly one suggestion in that scene; a false one is none (the no-suggestion case).
+      const want = (sys!.gm!.served ?? []).flatMap((x) => {
+        const m = /^([^|]*)\|earned:([^#]+)#(\d+)$/.exec(x.key);
+        if (!m) return [];
+        const p = parseGmReply(x.reply, { nonce: null });
+        return p.ok && p.verdict ? [`${m[1]}|${m[2]}#${m[3]}`] : [];
+      });
+      const got = sugg.map((x) => `${x.sceneId}|${x.roleId}#${x.fact}`);
+      ensure(JSON.stringify(got) === JSON.stringify(want), `release suggestions ${JSON.stringify(got)} differ from the scripted true earned_when verdicts ${JSON.stringify(want)}`);
+    }
+    const suggested = sugg.length ? `${sugg.length} release suggestion(s) to the facilitator only (${sugg.map((x) => `${x.roleId} #${x.fact} in ${x.sceneId}${x.autoRelease ? ", released by the Game Master" : ""}`).join(", ")})` : "no release suggestion";
     const reasons = Object.entries(g.noVerdictByReason).map(([k, v]) => `${k} ${v}`).join(", ");
-    return `${g.evaluations} gm.decision events (${g.verdictsTrue} true, ${g.verdictsFalse} false; read strictly ${g.via.strict}, tolerantly ${g.via.tolerant}, after a re-ask ${g.via.reask}); no usable verdict ${g.noVerdicts.length}${reasons ? ` (${reasons})` : ""}; the Game Master ended ${g.exitedScenes.length} scene(s)`;
+    return `${g.evaluations} gm.decision events (${g.verdictsTrue} true, ${g.verdictsFalse} false; read strictly ${g.via.strict}, tolerantly ${g.via.tolerant}, after a re-ask ${g.via.reask}); no usable verdict ${g.noVerdicts.length}${reasons ? ` (${reasons})` : ""}; the Game Master ended ${g.exitedScenes.length} scene(s); ${suggested}`;
   }, ["S-01"]);
 
   await rec.run("S-05", () => {
@@ -630,9 +674,13 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
     const npcs = npcRoles as { persona: string }[];
     ensure(npcs.every((p) => sys!.npc!.calls.some((c) => c.system.includes(p.persona.slice(0, 20)))), "an AI character's own persona is missing from its prompts (vacuous audit)");
     const conditions = scenario.script.scenes.flatMap((s) => s.exit_when.any_of).filter((c): c is { gm_detects: string } => typeof c === "object").map((c) => c.gm_detects);
-    ensure(sys!.gm!.calls.every((c) => conditions.some((cond) => c.system.includes(cond))), "a Game Master prompt lacks the scene's condition (vacuous audit)");
+    // US-0034: an earned_when check holds its condition (JSON-quoted) and is audited like every other prompt above: no hidden fact, ever.
+    const earnedConds = npcRoles.flatMap((r) => earnedWhenOf(r).map((c) => JSON.stringify(c.condition).replace(/</g, "\\u003c")));
+    ensure(sys!.gm!.calls.every((c) => earnedCheckOf(c) ? earnedConds.some((cond) => c.system.includes(cond)) : conditions.some((cond) => c.system.includes(cond))), "a Game Master prompt lacks the scene's condition (vacuous audit)");
+    const earnedCalls = sys!.gm!.calls.filter((c) => earnedCheckOf(c) !== null).length;
+    if (mock) ensure(earnedConds.length === 0 || earnedCalls > 0, "the scenario has earned_when conditions but no earned_when check was captured (vacuous audit)");
     const nReleased = [...released.values()].reduce((a, v) => a + v.length, 0);
-    return `all ${calls.length} captured prompts (${sys!.npc!.calls.length} AI character, ${sys!.gm!.calls.length} Game Master) were checked against ${banned.length} strings (and ${crossChecked} AI character prompts against the other characters' private text); none appeared, and the positive controls did${nReleased > 0 ? `; ${nReleased} released hidden fact(s) appeared only in the "What you may now share" section of their own character's prompt (${shared} prompt(s)), never in another character's, a player's or the Game Master's` : "; no hidden fact was released, so none appeared in any prompt"}`;
+    return `all ${calls.length} captured prompts (${sys!.npc!.calls.length} AI character, ${sys!.gm!.calls.length} Game Master${earnedCalls > 0 ? `, ${earnedCalls} of them earned_when checks` : ""}) were checked against ${banned.length} strings (and ${crossChecked} AI character prompts against the other characters' private text); none appeared, and the positive controls did${nReleased > 0 ? `; ${nReleased} released hidden fact(s) appeared only in the "What you may now share" section of their own character's prompt (${shared} prompt(s)), never in another character's, a player's or the Game Master's` : "; no hidden fact was released, so none appeared in any prompt"}`;
   }, ["S-01"]);
 
   await rec.run("S-07", () => {
@@ -650,7 +698,7 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       const bot = st.players[role as PlayerId]!;
       const text = JSON.stringify(bot.inbox);
       audited += bot.inbox.length;
-      for (const e of bot.events()) ensure(!["npc.updated", "gm.decision", "gm.no_verdict", "facilitator.alert"].includes(e.type), `${role} received a ${e.type} event`);
+      for (const e of bot.events()) ensure(!["npc.updated", "gm.decision", "gm.no_verdict", "gm.fact_earned", "facilitator.alert"].includes(e.type), `${role} received a ${e.type} event`);
       ensure(!bot.events().some((e) => e.type === "facilitator.command" && e.command === "release_hidden"), `${role} received a hidden-fact release command`);
       ensure(!text.includes("participantId"), `${role} received a participantId`);
       const names = findMarkers(text, PARTICIPANT_NAMES);
