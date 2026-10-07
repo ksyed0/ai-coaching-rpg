@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdir } from "node:fs/promises";
+import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import { parse } from "yaml";
 import { isPrototypeKey } from "@acr/events";
@@ -12,6 +12,7 @@ export const MIN_CRITERION_PROBES = 4;
 export const MIN_HOLDOUT_PROBES = 10;
 export const MAX_PROBE_BYTES = 128 * 1024;
 const MAX_ALIASES = 10;
+const MAX_REPORTED_ISSUES = 5;
 
 export type LoadedProbes = { probes: Probe[]; errors: string[]; warnings: string[] };
 
@@ -23,28 +24,64 @@ function hasPrototypeKey(v: unknown, depth = 0): boolean {
   return false;
 }
 
+/** Make untrusted text safe for a one-line message: control characters become a dot, long text is cut. */
+export function printable(s: string, max = 80): string {
+  let out = "";
+  let n = 0;
+  for (const ch of s) {
+    if (n === max) return `${out}…`;
+    const c = ch.codePointAt(0)!;
+    out += c <= 0x1f || (c >= 0x7f && c <= 0x9f) ? "·" : ch;
+    n++;
+  }
+  return out;
+}
+
 export async function loadProbes(dir: string, scenario: Scenario, rubrics: Rubric[]): Promise<LoadedProbes> {
   const out: LoadedProbes = { probes: [], errors: [], warnings: [] };
   const calDir = path.join(dir, "calibration");
+  let st;
+  try {
+    st = await lstat(calDir);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+      out.warnings.push(`no calibration directory at ${printable(calDir, 300)}`);
+      return out;
+    }
+    out.errors.push(`calibration directory cannot be read: ${printable((e as Error).message.split("\n")[0] ?? "", 200)}`);
+    return out;
+  }
+  if (st.isSymbolicLink()) {
+    out.errors.push("calibration directory must not be a symbolic link");
+    return out;
+  }
+  if (!st.isDirectory()) {
+    out.errors.push("calibration exists but is not a directory");
+    return out;
+  }
   let entries;
   try {
     entries = await readdir(calDir, { withFileTypes: true });
   } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") {
-      out.warnings.push(`no calibration directory at ${calDir}`);
-      return out;
-    }
-    throw e;
+    out.errors.push(`calibration directory cannot be read: ${printable((e as Error).message.split("\n")[0] ?? "", 200)}`);
+    return out;
   }
   const individual = new Map<string, Criterion>();
   for (const r of rubrics) if (r.scope === "individual") for (const c of r.criteria) individual.set(c.id, c);
-  const files = entries.filter((e) => e.isFile() && e.name.endsWith(".yaml") && e.name !== "targets.yaml").map((e) => e.name).sort();
+  const files: string[] = [];
+  for (const e of [...entries].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+    if (e.isDirectory() || e.name === "targets.yaml") continue;
+    if (e.name.endsWith(".yml")) out.warnings.push(`${printable(e.name)}: ignored (probe files must end in .yaml)`);
+    else if (!e.name.endsWith(".yaml")) continue;
+    else if (e.isSymbolicLink()) out.errors.push(`${printable(e.name)}: symbolic links are not followed`);
+    else if (e.isFile()) files.push(e.name);
+  }
   const seen = new Set<string>();
   for (const name of files) {
     const probe = await parseOne(path.join(calDir, name), name, out.errors);
     if (!probe) continue;
     const problems = checkProbe(name, probe, scenario, individual);
-    if (seen.has(probe.id)) problems.push(`${name}: duplicate probe id ${probe.id}`);
+    if (seen.has(probe.id)) problems.push(`${printable(name)}: duplicate probe id ${probe.id}`);
     if (problems.length) { out.errors.push(...problems); continue; }
     seen.add(probe.id);
     out.probes.push(probe);
@@ -54,18 +91,20 @@ export async function loadProbes(dir: string, scenario: Scenario, rubrics: Rubri
 }
 
 async function parseOne(file: string, name: string, errors: string[]): Promise<Probe | null> {
+  const label = printable(name);
   let raw: unknown;
   try {
     raw = parse(await readTextCapped(file, MAX_PROBE_BYTES), { maxAliasCount: MAX_ALIASES });
   } catch (e) {
-    errors.push(`${name}: ${(e as Error).message.split("\n")[0]}`);
+    errors.push(`${label}: ${printable((e as Error).message.split("\n")[0] ?? "", 200)}`);
     return null;
   }
-  if (hasPrototypeKey(raw)) { errors.push(`${name}: a prototype key is not allowed`); return null; }
+  if (hasPrototypeKey(raw)) { errors.push(`${label}: a prototype key is not allowed`); return null; }
   const r = ProbeSchema.safeParse(raw);
   if (!r.success) {
-    const i = r.error.issues[0]!;
-    errors.push(`${name}: ${i.path.join(".") || "(root)"} ${i.message}`);
+    const shown = r.error.issues.slice(0, MAX_REPORTED_ISSUES).map((i) => `${i.path.map((k) => printable(String(k))).join(".") || "(root)"} ${printable(i.message, 200)}`);
+    const more = r.error.issues.length - shown.length;
+    errors.push(`${label}: ${shown.join("; ")}${more > 0 ? ` (+${more} more)` : ""}`);
     return null;
   }
   return r.data;
@@ -73,19 +112,20 @@ async function parseOne(file: string, name: string, errors: string[]): Promise<P
 
 function checkProbe(name: string, p: Probe, scenario: Scenario, individual: Map<string, Criterion>): string[] {
   const problems: string[] = [];
-  if (`${p.id}.yaml` !== name) problems.push(`${name}: the id ${p.id} must match the file name`);
-  if (!individual.has(p.criterion)) problems.push(`${name}: criterion ${p.criterion} is not an individual criterion of this scenario's rubrics`);
+  const label = printable(name);
+  if (`${p.id}.yaml` !== name) problems.push(`${label}: the id ${p.id} must match the file name`);
+  if (!individual.has(p.criterion)) problems.push(`${label}: criterion ${p.criterion} is not an individual criterion of this scenario's rubrics`);
   const sceneIds = new Set(scenario.script.scenes.map((s) => s.id));
   const counts = new Map<string, number>();
   for (const l of p.transcript) {
-    if (!sceneIds.has(l.scene)) problems.push(`${name}: unknown scene ${l.scene}`);
-    if (!Object.hasOwn(scenario.roles, l.role)) problems.push(`${name}: unknown role ${l.role}`);
+    if (!sceneIds.has(l.scene)) problems.push(`${label}: unknown scene ${l.scene}`);
+    if (!Object.hasOwn(scenario.roles, l.role)) problems.push(`${label}: unknown role ${l.role}`);
     counts.set(l.role, (counts.get(l.role) ?? 0) + 1);
   }
   for (const role of scoredRoles(p)) {
     const def = Object.hasOwn(scenario.roles, role) ? scenario.roles[role] : undefined;
-    if (def?.type !== "player") problems.push(`${name}: ${role} is not a player role`);
-    else if ((counts.get(role) ?? 0) < MIN_UTTERANCES) problems.push(`${name}: ${role} needs at least ${MIN_UTTERANCES} lines to be scored`);
+    if (def?.type !== "player") problems.push(`${label}: ${role} is not a player role`);
+    else if ((counts.get(role) ?? 0) < MIN_UTTERANCES) problems.push(`${label}: ${role} needs at least ${MIN_UTTERANCES} lines to be scored`);
   }
   return problems;
 }

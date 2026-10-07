@@ -7,13 +7,17 @@ export type Expected = Level | "not_observed";
 export const LevelSchema = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 export const ExpectedSchema = z.union([LevelSchema, z.literal("not_observed")]);
 
-const FileId = z.string().refine(isFileSafeId, "must be 1 to 64 characters of lower-case letters, digits, '_' or '-'");
+const FILE_ID_MESSAGE = "must be 1 to 64 characters of lower-case letters, digits, '_' or '-'";
+const FileId = z.string().refine(isFileSafeId, FILE_ID_MESSAGE);
+/** The probe id becomes the session id probe-<id>, which is capped at 64 characters. */
+export const MAX_PROBE_ID = 58;
+const ProbeId = z.string().max(MAX_PROBE_ID, `must be at most ${MAX_PROBE_ID} characters (it becomes the session id probe-<id>)`).refine(isFileSafeId, FILE_ID_MESSAGE);
 const RoleId = z.string().max(64).refine(isScenarioId, "must be a scenario id");
 
 export const LineSchema = z.object({ scene: RoleId, role: RoleId, text: z.string().min(1).max(2000) }).strict();
 
 const common = {
-  id: FileId,
+  id: ProbeId,
   criterion: FileId,
   source: z.enum(["handwritten", "drafted", "excerpt"]),
   drafter: z.string().min(1).max(200).nullable().default(null),
@@ -50,6 +54,13 @@ export const ProbeSchema = z.discriminatedUnion("kind", [SingleProbeSchema, Cont
     const levels = Object.values(p.players);
     if (levels.length < 2 || new Set(levels).size < 2) {
       ctx.addIssue({ code: "custom", message: "a contrast probe needs at least two players with at least two distinct expected levels" });
+    } else {
+      const distinct = [...new Set(levels)].sort((a, b) => a - b);
+      let smallest = Infinity;
+      for (let i = 1; i < distinct.length; i++) smallest = Math.min(smallest, distinct[i]! - distinct[i - 1]!);
+      if (p.min_gap > smallest) {
+        ctx.addIssue({ code: "custom", message: `min_gap ${p.min_gap} exceeds the smallest difference between two distinct expected levels (${smallest}), so the probe could never pass` });
+      }
     }
   }
 });
@@ -57,6 +68,11 @@ export const ProbeSchema = z.discriminatedUnion("kind", [SingleProbeSchema, Cont
 export type SingleProbe = z.infer<typeof SingleProbeSchema>;
 export type ContrastProbe = z.infer<typeof ContrastProbeSchema>;
 export type Probe = SingleProbe | ContrastProbe;
+
+/** The levels a single probe accepts; the spec defaults this to [expected]. */
+export function acceptableOf(p: SingleProbe): Expected[] {
+  return p.acceptable ?? [p.expected];
+}
 
 /** Roles whose scores the probe checks. */
 export function scoredRoles(p: Probe): string[] {

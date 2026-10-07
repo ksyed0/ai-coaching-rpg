@@ -8,7 +8,7 @@ expected: 2
 transcript:
   - { scene: s2_client_call, role: client_sponsor, text: "We need the reconciliation module before go-live. It is a must-have." }
   - { scene: s2_client_call, role: delivery_lead, text: "Is that Friday date fixed, or is there some give in it?" }
-  - { scene: s2_client_call, role: client_sponsor, text: "Yes, I have to tell my CFO by the end of the day." }
-  - { scene: s2_client_call, role: delivery_lead, text: "How big do you think the module needs to be? And who would need to sign it off?" }
+  - { scene: s2_client_call, role: client_sponsor, text: "Not really, I have to tell my CFO by the end of the day." }
+  - { scene: s2_client_call, role: delivery_lead, text: "What size of module are you picturing? And who would need to sign it off?" }
   - { scene: s2_client_call, role: client_sponsor, text: "Small, I hope. Whoever Finance nominates." }
   - { scene: s2_client_call, role: delivery_lead, text: "Okay, let me check with the team and come back to you." }
