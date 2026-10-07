@@ -10,8 +10,8 @@ import { REPO_ROOT } from "../main.js";
 import { DEMO_USAGE, parseDemoArgs } from "./args.js";
 import { playAudit } from "./audit.js";
 import { CHECKS, RESUME_CHECKS, SECURITY_CHECKS, Recorder, buildMarkers, type RunKind } from "./checks.js";
-import { codeSecrets, newStory, parseJoinCodesEnv, type Ctx } from "./ctx.js";
-import { FAKE_KEY, makeTempDataDir, makeTempRoot, startLiveSystem, startMockSystem, startPlayerProvider, startShowcaseMockSystem, type System } from "./harness.js";
+import { codeSecrets, newStory, parseJoinCodesEnv, type Ctx, type Story } from "./ctx.js";
+import { FAKE_KEY, makeTempDataDir, makeTempRoot, startLiveSystem, stopIfAborted, startMockSystem, startPlayerProvider, startShowcaseMockSystem, type System } from "./harness.js";
 import { PlayerBotGenerator } from "./player-bot.js";
 import { PlayerLines } from "./player-lines.js";
 import { playLab } from "./lab.js";
@@ -47,6 +47,12 @@ export const LIVE_WATCHDOG_MS = 600_000;
 export const DEFAULT_SHOWCASE_SCENARIO = "scenarios/friday-escalation-extended";
 export const SHOWCASE_WATCHDOG_MINUTES = 3;
 export const SHOWCASE_LIVE_WATCHDOG_MINUTES = 30;
+/**
+ * After the watchdog or an interrupt aborts a run, how long runDemo waits for it to unwind (close what it opened, stop at its next
+ * abort check) before cleaning up and reporting anyway (BUG-0007). A run that ignores the abort is abandoned after this, so a hung
+ * step still never hangs the process.
+ */
+export const ABORT_GRACE_MS = 5_000;
 /** With `--evaluate --live` the watchdog (default or explicit `--watchdog`) grows by the evaluator's worst case: EVAL timeout x (players + 1 calls) x 2 (each may be re-asked). */
 export function evaluateExtraMs(timeoutMs: number, players: number): number { return timeoutMs * (players + 1) * 2; }
 
@@ -83,9 +89,14 @@ export type RunDeps = {
   showcaseHooks?: ShowcaseHooks;
   /** Test hook for `--evaluate`: runs after the reports are written and before check S-16 reads them back (tests tamper with a file here). */
   afterReportsWritten?: (dir: string) => Promise<void>;
+  /** The runner's real-time timers (the watchdog, then ABORT_GRACE_MS after an abort). Returns a cancel function. Default: setTimeout. Tests fire them by hand instead of waiting on a small real timer. */
+  setTimer?: (fire: () => void, ms: number) => () => void;
+  /** Test hook: runs right after the run's temp directory is created, before it is filled and handed to the run (tests abort the run here, BUG-0007). */
+  afterTempCreated?: (root: string) => Promise<void> | void;
 };
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const realTimer = (fire: () => void, ms: number): (() => void) => { const t = setTimeout(fire, ms); return () => clearTimeout(t); };
 const SECRETISH = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/i;
 
 /** The repo-root .env plus the real environment; the real environment wins (as in bootstrap). Called ONLY for --live. */
@@ -228,6 +239,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const extra: CheckResult[] = [];
   let unexpected = false;
   const bots: Ctx["bots"] = [];
+  let mainStory: Story | undefined;
 
   let evalExtraMinutes = 0;
   if (showcase && opts.evaluate && kind === "live" && liveEnv) {
@@ -253,8 +265,8 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       outputTap: tap, labLogs: [], labHostLog: [], bots, secretValues, beforeAct: deps.beforeAct, register, now,
     };
     register(() => { for (const b of bots) b.terminate(); });
-    const t = await makeTempDataDir(deps.tempParent);
-    register(() => t.cleanup());
+    register(() => gmTrace?.close()); // first, so every way out closes it (and it closes after the system that writes to it stops)
+    const t = await makeTempDataDir(deps.tempParent, { signal: ac.signal, own: register, afterCreate: deps.afterTempCreated });
     const base = { scenario: sc.scenario, sessionId, dataDir: t.dataDir };
     if (opts.gmTrace !== undefined) n.line(`The raw Game Master replies are written to ${scrubText(opts.gmTrace)} (owner-only file; it holds judgements about the whole conversation).`);
     const sys = kind === "live"
@@ -262,7 +274,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       : await startShowcaseMockSystem({ ...base, scenes: sc.script.scenes, gmTrace, gmAutoRelease: mockAutoRelease });
     if (mockAutoRelease) n.line("GM_AUTO_RELEASE=1: the Game Master releases a hidden fact itself when it judges it earned (recorded as a Game Master action).");
     register(() => sys.stop());
-    register(() => gmTrace?.close());
+    stopIfAborted(ac.signal);
     ctx.sys = sys; ctx.tmp = { root: t.root, dataDir: t.dataDir, scenarioDir: "", cleanup: t.cleanup }; ctx.wsUrl = `ws://127.0.0.1:${sys.port}`;
     secretValues.push(...codeSecrets(sys.joinCodes)); // US-0033: the join codes must never be printed or reach a client
     const timeouts = liveEnv ? parseNpcTimeouts(liveEnv) : undefined;
@@ -348,27 +360,29 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     }
 
     const scenario = await loadScenario(path.join(repoRoot, "scenarios", "friday-escalation"));
+    stopIfAborted(ac.signal);
     const { errors } = validateScenario(scenario);
     if (errors.length) throw new Error(`the scenario is invalid: ${errors.join("; ")}`);
     const markers = buildMarkers(scenario);
     scenarioTitle = scenario.meta.title;
     const ctx: Ctx = {
       kind, tr, provider: providerKind, n, rec, signal: ac.signal, scenario, markers, sessionId, wsUrl: opts.url ?? "", facilitatorToken: urlToken, urlJoinCodes: urlCodes.codes, repoRoot, npcWaitMs: deps.npcWaitMs ?? (kind === "mock" ? 5_000 : 40_000),
-      outputTap: tap, labLogs: [], labHostLog: [], bots, secretValues, beforeAct: deps.beforeAct, register, now,
+      outputTap: tap, labLogs: [], labHostLog: [], bots, secretValues, beforeAct: deps.beforeAct, register, now, maxFallbacks: opts.maxFallbacks ?? null,
     };
     register(() => { for (const b of bots) b.terminate(); });
 
     if (kind !== "url") {
-      const t = await makeTempRoot(repoRoot);
-      register(() => t.cleanup());
+      const t = await makeTempRoot(repoRoot, { signal: ac.signal, own: register, afterCreate: deps.afterTempCreated }); // registered the moment it exists
       let sys: System;
       if (kind === "live") sys = await startLiveSystem({ scenario, sessionId, dataDir: t.dataDir, env: liveEnv! });
       else sys = await startMockSystem({ scenario, sessionId, dataDir: t.dataDir });
       register(() => sys.stop());
+      stopIfAborted(ac.signal);
       ctx.sys = sys; ctx.tmp = t; ctx.wsUrl = `ws://127.0.0.1:${sys.port}`;
       secretValues.push(...codeSecrets(sys.joinCodes)); // US-0033: the join codes must never be printed or reach a client
     }
     const st = newStory();
+    mainStory = st;
     await playStory(ctx, st);
     await playLab(ctx, st);
     await playSecurityRoom(ctx, st);
@@ -378,8 +392,9 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   };
 
   // Global watchdog: a real-time limit, so a hung server or step can never hang the process.
-  let timer: NodeJS.Timeout | undefined;
-  const watchdog = new Promise<"timeout">((resolve) => { timer = setTimeout(() => resolve("timeout"), limit); });
+  const setTimer = deps.setTimer ?? realTimer;
+  let cancelWatchdog = () => {};
+  const watchdog = new Promise<"timeout">((resolve) => { cancelWatchdog = setTimer(() => resolve("timeout"), limit); });
   let interrupted: "SIGINT" | "SIGTERM" | null = null;
   let onInterrupt: (() => void) | undefined;
   const interruptP = new Promise<"interrupt">((resolve) => { onInterrupt = () => resolve("interrupt"); });
@@ -388,7 +403,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   deps.signals?.on("SIGINT", onSigint); deps.signals?.on("SIGTERM", onSigterm);
   const body = execute().then(() => "done" as const, (err: unknown) => err);
   const outcome = await Promise.race([body, watchdog, interruptP]);
-  clearTimeout(timer);
+  cancelWatchdog();
   deps.signals?.off("SIGINT", onSigint); deps.signals?.off("SIGTERM", onSigterm);
   let finishReason = "prerequisite failed";
   if (outcome === "interrupt") {
@@ -403,11 +418,18 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     unexpected = true; finishReason = ac.signal.aborted ? "run aborted" : "run stopped by an error";
     extra.push({ id: "ERROR", title: "The run completed without an unexpected error", status: "failed", details: outcome instanceof Error ? outcome.message : String(outcome), durationMs: 0 });
   }
-  if (outcome === "timeout" || outcome === "interrupt") void body.then(() => undefined);
+  if (outcome === "timeout" || outcome === "interrupt") {
+    // BUG-0007: the run was aborted above. Wait (bounded) for it to unwind, so that what it is still creating is registered and
+    // cleaned up below and nothing keeps running after runDemo returns. A run that ignores the abort is abandoned after the grace.
+    let cancelGrace = () => {};
+    const grace = new Promise<void>((resolve) => { cancelGrace = setTimer(resolve, ABORT_GRACE_MS); });
+    await Promise.race([body, grace]);
+    cancelGrace();
+  }
 
   const showcaseReport = holder.report ?? (() => { try { return holder.snapshot?.(); } catch { return undefined; } })();
 
-  // Close everything, newest first, whatever happened. Later registrations (from a run that is still unwinding) clean up at once.
+  // Close everything, newest first, whatever happened. Later registrations (from a run abandoned after the grace) clean up at once.
   closed = true;
   ac.abort();
   for (const fn of cleanups.reverse()) { try { await fn(); } catch { /* best effort: keep closing */ } }
@@ -415,7 +437,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   rec.finish(finishReason);
   const report = buildReport({
     tool: TOOL, version: deps.version ?? readVersion(), mode, startedAt: new Date(startedMs).toISOString(), durationMs: now() - startedMs,
-    results: [...rec.ordered(), ...extra], secrets: secretValues, showcase: showcaseReport,
+    results: [...rec.ordered(), ...extra], secrets: secretValues, showcase: showcaseReport, liveEvidence: showcase ? undefined : mainStory?.evidence,
     evaluation: holder.evaluation ? {
       dir: holder.evaluation.written.dir, files: holder.evaluation.written.files.map((f) => path.relative(holder.evaluation!.written.dir, f)), modelCalls: holder.evaluation.result.modelCalls,
       participants: holder.evaluation.result.participants.map((p) => ({ role: p.roleId, status: p.status })), group: { status: holder.evaluation.result.group.status }, failures: holder.evaluation.result.failures,

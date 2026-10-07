@@ -26,3 +26,5 @@ Commit state, update `progress.md`, `MEMORY.md`, `PROMPT_LOG.md` (redact secrets
 - In zsh a variable is not word-split: `for x in "a b"; set -- $x` does not split (a worktree was mis-created once). Use explicit arguments.
 - `sleep N && ...` chains are blocked by the harness; use `until <condition>; do sleep 2; done` in a background command or a monitor.
 - Parallel agents share `/tmp`: tests must not count `acr-demo-*` temp dirs there (fixed by BUG-0006: private TMPDIR per test file). The rules for timing-proof tests are in AGENTS.md section 8, "Writing tests".
+- Merge runbook for parallel branches (each merge into develop makes the others conflict in `docs/ID_REGISTRY.md` and `docs/plan-status.*`): `git fetch; git merge origin/develop`; registry: take the maximum of every row and keep all reserved-block lines; `git checkout --theirs docs/plan-status.*`; a freshly created worktree has no root `node_modules`, so `npm ci` before `npm run plan:generate` and `npm run plan:test`, and only then commit and push. A CI watcher must wait for at least 13 listed checks (`gh pr checks` shows the previous commit's checks right after a push).
+

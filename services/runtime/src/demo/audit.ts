@@ -10,6 +10,7 @@ import {
   type Ctx, type PlayerId, type Story,
 } from "./ctx.js";
 import { FAKE_KEY } from "./harness.js";
+import { collectLiveEvidence } from "./live-evidence.js";
 
 const WHISPER_MARK = "WHISPER-ONLY-FOR-DELIVERY-LEAD";
 const FACILITATOR_ONLY = ["npc.updated", "gm.decision", "gm.no_verdict", "gm.fact_earned", "facilitator.alert"];
@@ -27,6 +28,10 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
     if (sys) { await sys.host.idle(); await sys.stop(); }
     const fac = st.fac;
     const events = (): SessionEvent[] => fac?.events() ?? [];
+    if (fac) {
+      // The summary is narration: a failure in it must never change a check or stop the audit (an abort still propagates).
+      try { await narrateRunSummary(ctx, st); } catch (err) { if (ctx.signal.aborted) throw err; }
+    }
 
     await rec.run("F-14", async () => {
       const mid = got<{ recorded: boolean; unchanged: boolean }>(st.ev.stale, "the mid-run stale-verdict probe");
@@ -210,6 +215,32 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
       return `the hosts reported no background failure and the servers logged no handler, send or internal error (${sys!.serverLog.length} routine lines)`;
     });
   }, { always: true });
+}
+
+/**
+ * US-0023: a short end-of-run summary a person can use to judge a live run: real replies against canned fallback lines, the facilitator
+ * alerts with their reason, and which join-code and replay features were exercised. Counts and sanitized reasons only: no code, token or fact text.
+ */
+async function narrateRunSummary(ctx: Ctx, st: Story): Promise<void> {
+  const { n, rec } = ctx;
+  const ev = collectLiveEvidence(st.fac!.events(), ctx.scenario, { maxFallbacks: ctx.maxFallbacks ?? null, secrets: ctx.secretValues, hidden: ctx.markers.hidden, legacy: ctx.kind === "url" });
+  st.evidence = ev;
+  await n.heading("Run summary", { record: false });
+  const real = ev.npcReplies - ev.fallbackReplies;
+  const limit = ev.maxFallbacks !== null ? ` (--max-fallbacks ${ev.maxFallbacks})` : ev.fallbackReplies > 0 ? " (no --max-fallbacks limit: only a warning)" : "";
+  await n.step(`AI character replies: ${ev.npcReplies}; ${ctx.kind === "mock" ? "scripted" : ctx.kind === "url" ? "not canned (provider unverified)" : "real"} ${real}, canned fallback ${ev.fallbackReplies}${limit}`);
+  for (const c of ev.byCharacter) if (c.replies > 0) await n.note(`${c.name} (${c.roleId}): ${c.replies} replies, ${c.fallbackReplies} canned fallback`);
+  const fb = ev.alerts.filter((a) => a.fallback).length;
+  await n.step(`facilitator alerts: ${ev.alerts.length}${ev.alerts.length > 0 ? ` (${fb} canned-fallback, ${ev.alerts.length - fb} other)` : ""}`);
+  for (const a of ev.alerts) await n.note(`alert ${a.seq} (${a.level})${a.replySeq !== null ? ` for the reply at event ${a.replySeq}` : " not tied to any reply"}: ${a.fallback ? `fell back to its canned line: ${a.reason}` : a.reason}`);
+  const players = Object.keys(st.joined).length;
+  const rj = st.ev.rejoinReplay?.ok ? (st.ev.rejoinReplay.value as { events: number }) : null;
+  const features = [
+    rec.passed("F-01") ? `${players} players joined, each with the join code of their role (codes are never shown)` : null,
+    rec.passed("F-02") ? "claims without or with a wrong code were refused" : null,
+    rj ? `delivery_lead rejoined with its reconnect token and was replayed ${rj.events} missed events` : null,
+  ].filter((x): x is string => x !== null);
+  await n.step(features.length ? `exercised: ${features.join("; ")}` : "exercised: no join-code or replay check had passed when the summary was written");
 }
 
 /** US-0033: the join codes files the restarted server wrote (hashes only: F-28 proves no code is in them). */

@@ -1,5 +1,5 @@
 import { stampFromBody } from "./nonce.js";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import http from "node:http";
@@ -10,7 +10,7 @@ import { WebSocketServer } from "ws";
 import { REPO_ROOT, bootstrap } from "../../main.js";
 import { CHECKS, CHECK_IDS } from "../checks.js";
 import { FAKE_KEY, makeTempRoot } from "../harness.js";
-import { loadLiveEnv, runDemo, type RunDeps } from "../runner.js";
+import { ABORT_GRACE_MS, loadLiveEnv, runDemo, type RunDeps } from "../runner.js";
 import type { Report } from "../report.js";
 // Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
@@ -34,6 +34,13 @@ let privateTmp = "";
 beforeAll(() => { privateTmp = mkdtempSync(path.join(os.tmpdir(), "acr-runner-test-")); process.env.TMPDIR = privateTmp; });
 afterAll(() => { if (realTmp === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = realTmp; rmSync(privateTmp, { recursive: true, force: true }); });
 const demoTempDirs = () => readdirSync(os.tmpdir()).filter((d) => d.startsWith("acr-demo-"));
+
+/** Hand-fired timers for RunDeps.setTimer (AGENTS.md section 8: no small real timers). armed[0] is the watchdog; armed[1], if any, the abort grace. */
+const manualTimers = () => {
+  const armed: { ms: number; fire: () => void; cancelled: boolean }[] = [];
+  const setTimer = (fire: () => void, ms: number) => { const t = { ms, fire, cancelled: false }; armed.push(t); return () => { t.cancelled = true; }; };
+  return { armed, setTimer, fireWatchdog: () => armed[0]!.fire() };
+};
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => { for (const c of cleanups.splice(0).reverse()) await c(); });
@@ -97,16 +104,55 @@ describe("the demo runner, in-process, fast, mock mode", () => {
 
   it("aborts a hung run with a failure report, closes everything and removes the temp dir (watchdog)", async () => {
     const dirsBefore = demoTempDirs(); const tcpBefore = tcpHandles();
-    const c = capture();
-    const { exitCode, report } = await runDemo(deps(c, ["--fast", "--no-color"], { watchdogMs: 100, beforeAct: () => new Promise(() => {}) }));
+    const c = capture(); const t = manualTimers();
+    // The watchdog fires (by hand) while the first act hangs.
+    const { exitCode, report } = await runDemo(deps(c, ["--fast", "--no-color"], { watchdogMs: 100, setTimer: t.setTimer, beforeAct: () => { t.fireWatchdog(); return new Promise(() => {}); } }));
     expect(exitCode).toBe(1);
-    expect(report!.results.find((r) => r.id === "WATCHDOG")).toMatchObject({ status: "failed" });
+    expect(t.armed[0]!.ms).toBe(100);
+    expect(report!.results.find((r) => r.id === "WATCHDOG")).toMatchObject({ status: "failed", details: "aborted after 0 s of real time" });
     // In mock mode every check that did not run is a failure, so an aborted run can never look healthy.
     const failed = report!.results.filter((r) => r.status === "failed");
     expect(failed).toHaveLength(CHECKS.length + 1);
     expect(failed.filter((r) => r.id !== "WATCHDOG").every((r) => r.details === "did not run (run aborted)")).toBe(true);
     expect(report!.summary.passed).toBe(0);
     expect(tcpHandles()).toBe(tcpBefore);
+    expect(demoTempDirs()).toEqual(dirsBefore);
+  });
+
+  it("an abort while the temp dir is being made removes it before runDemo returns and stops the run there (BUG-0007)", async () => {
+    const dirsBefore = demoTempDirs(); const tcpBefore = tcpHandles();
+    const c = capture(); const t = manualTimers(); let created = "";
+    // The watchdog fires between mkdtemp and the run taking the directory over (the gap a slow, instrumented start-up fell into).
+    const { exitCode, report } = await runDemo(deps(c, ["--fast", "--no-color"], { setTimer: t.setTimer, afterTempCreated: (root) => { created = root; t.fireWatchdog(); } }));
+    expect(exitCode).toBe(1);
+    expect(report!.results.find((r) => r.id === "WATCHDOG")).toMatchObject({ status: "failed", details: "aborted after 120 s of real time" });
+    expect(report!.results.filter((r) => r.status === "failed")).toHaveLength(CHECKS.length + 1);
+    expect(created).not.toBe("");
+    expect(existsSync(created)).toBe(false); // gone when runDemo returns, not some time later
+    expect(demoTempDirs()).toEqual(dirsBefore);
+    expect(tcpHandles()).toBe(tcpBefore);
+    // runDemo waited for the run to unwind (its grace timer was cancelled, not used up) instead of leaving it running in the background.
+    expect(t.armed).toHaveLength(2);
+    expect(t.armed[1]!.cancelled).toBe(true);
+    expect(c.out.join("")).not.toContain("ACT 1");
+  });
+
+  it("a run that ignores the abort is abandoned after the grace; its temp dir is still removed (BUG-0007)", async () => {
+    const dirsBefore = demoTempDirs();
+    const c = capture(); const t = manualTimers(); let created = "";
+    const pending = runDemo(deps(c, ["--fast", "--no-color"], { setTimer: t.setTimer, afterTempCreated: (root) => { created = root; t.fireWatchdog(); return new Promise(() => {}); } }));
+    let settled = false; void pending.then(() => { settled = true; });
+    await vi.waitFor(() => expect(t.armed).toHaveLength(2)); // the watchdog went off and the grace is armed
+    expect(t.armed[1]!.ms).toBe(ABORT_GRACE_MS);
+    // A window in which nothing may happen (only safer the longer it is): runDemo keeps waiting for the run to unwind until the grace is used up.
+    await new Promise((r) => setTimeout(r, 250));
+    expect(settled).toBe(false);
+    t.armed[1]!.fire();
+    const { exitCode, report } = await pending;
+    expect(exitCode).toBe(1);
+    expect(report!.results.find((r) => r.id === "WATCHDOG")).toMatchObject({ status: "failed" });
+    expect(created).not.toBe("");
+    expect(existsSync(created)).toBe(false);
     expect(demoTempDirs()).toEqual(dirsBefore);
   });
 
@@ -127,7 +173,7 @@ describe("output routing and the machine-readable report", () => {
     expect(exitCode).toBe(0);
     const report = JSON.parse(c.out.join("")) as Report;
     expect(report).toMatchObject({ tool: "acr-demo", version: "0.0.0-test", mode: "mock", summary: { failed: 0, skipped: 0 } });
-    expect(Object.keys(report)).toEqual(["tool", "version", "mode", "startedAt", "durationMs", "summary", "results"]);
+    expect(Object.keys(report)).toEqual(["tool", "version", "mode", "startedAt", "durationMs", "summary", "results", "liveEvidence"]);
     expect(report.results).toHaveLength(CHECKS.length);
     for (const r of report.results) expect(Object.keys(r)).toEqual(["id", "title", "status", "details", "durationMs"]);
     const err = c.err.join("");

@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { SessionEvent, SessionState } from "@acr/events";
+import { CLIENT_ID_MAX_CHARS, type SessionEvent, type SessionState } from "@acr/events";
 import { MAX_JOIN_CODE_INPUT_CHARS } from "../engine/join-codes.js";
 
 export const MAX_UTTERANCE_CHARS = 2_000;
-const Id = z.string().min(1).max(128);
+const Id = z.string().min(1).max(CLIENT_ID_MAX_CHARS);
 /** The largest hidden-fact number a release may name (the scenario schema allows at most this many facts per character). */
 export const MAX_HIDDEN_FACT_NUMBER = 50;
 

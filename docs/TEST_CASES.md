@@ -259,6 +259,56 @@ Status: [ ] Not Run
 Defect Raised: None
 Notes: Automated: session-host-replay.test.ts (restart), session-engine-replay.test.ts (window rebuilt by restore; an event on disk that no client saw), demo F-34 and F-37 (`pnpm demo --fast --resume`).
 
+## US-0023: the demo's live evidence
+
+TC-0017: A run that ends with canned fallback lines says so in the narration, the checklist and the JSON report
+Related Story: US-0023
+Related Task: TASK-0023
+Related AC: AC-0073
+Type: Functional
+Preconditions: Automated only (live-evidence-runner.test.ts): a loopback fake model whose characters never answer. A manual run needs a configured real provider in `.env` and has not been made.
+Steps:
+  1. Run `pnpm -s demo --live --json out.json`.
+  2. Read the narration after Priya's replies, the end-of-run "Run summary", check F-08 and `liveEvidence` in `out.json`.
+  3. Run `pnpm demo --fast --json out.json` (mock) and read the same places.
+Expected Result: Each canned reply is labelled "canned fallback line" and the summary says how many of the AI replies were real and how many canned; F-08 ends with "N canned fallback lines of M AI replies" (with "WARNING:" and "no --max-fallbacks limit given" when N > 0 and no limit was set); `liveEvidence` holds `npcReplies`, `fallbackReplies`, `byCharacter`, `alerts` and `warnings`. The mock run says 0 of 4, with no warning and 29 passing checks.
+Actual Result: As expected against the loopback fake model (live-evidence-runner.test.ts) and in the mock runs (29, 42, 14 and 15 checks) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated. A run on a real model has not been made; that is the owner's.
+
+TC-0018: A facilitator alert is shown with its reason next to the reply it belongs to, and never carries a secret
+Related Story: US-0023
+Related Task: TASK-0023
+Related AC: AC-0074
+Type: Security
+Preconditions: As TC-0017; for the automated test a fake model whose error message contains an API key, a bearer token, a key-shaped string and a hidden fact's text.
+Steps:
+  1. Run the live demo against it with `--transcript t.md --json r.json`.
+  2. Read the alert lines under Priya's replies, the summary, `liveEvidence.alerts` and the transcript.
+  3. Search the narration, the report and the transcript for the key, the token (also after a line break), the key-shaped string, the hidden-fact text (also with zero-width characters or other case), the provider URL; a hidden fact cut off by the provider's snippet, a fact glued to a long run of characters; the unit tests also feed join codes in lower case, without hyphens and spaced, and check that ordinary prose and model ids are not changed.
+Expected Result: An alert that is not the cause of a reply (for example one whose reply was refused as stale) is not narrated under a later reply and has `replySeq: null`. Each fallback reply is followed by "alert (warning) for this reply: fell back to its canned line: model error ... (kind)"; the secrets are replaced by `[redacted]` in the narration, the report and the transcript; control characters are replaced by `·` and each alert is clipped to 300 characters.
+Actual Result: As expected (live-evidence.test.ts, live-evidence-runner.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated; no real model.
+
+TC-0019: --max-fallbacks n fails the 29-check run when more than n replies were canned, and a bad n is a usage error
+Related Story: US-0023
+Related Task: TASK-0023
+Related AC: AC-0075
+Type: Functional
+Preconditions: Automated only (live-evidence-runner.test.ts, args-showcase.test.ts): a loopback fake model that never answers. No manual run has been made.
+Steps:
+  1. With a model that never answers (2 replies in the live run), run `pnpm demo --live --max-fallbacks 1`, then `--max-fallbacks 2`.
+  2. Run `pnpm demo --fast --max-fallbacks 0`.
+  3. Run `pnpm demo --fast --max-fallbacks -1` (also x, 1.5, 1001).
+Expected Result: 1: exit 1 with only F-08 failed ("2 canned fallback lines of 2 AI replies, more than --max-fallbacks 1"); at 2 exit 0 ("(limit 2)"). 2: exit 0, 29 checks. 3: exit 2 with `error: --max-fallbacks must be a whole number from 0 to 1000` and nothing started.
+Actual Result: As expected (live-evidence-runner.test.ts, args-showcase.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated. The showcase's own limit (check S-05) came with US-0024 and is unchanged.
+
 ## US-0019: cheaper model calls per session
 
 TC-0020: The Game Master prompt holds a bounded window of the scene's latest lines
@@ -313,6 +363,40 @@ Actual Result: Automated tests pass; showcase 14 of 14.
 Status: [x] Pass
 Defect Raised: None
 Notes: Automated: npc-prompt.prefix.test.ts (`test_npc_prompt_stable_prefix_survives_updates`), anthropic.mocked.test.ts, showcase-release.test.ts. Whether the provider actually serves cache reads (Anthropic needs a minimum prefix length per model; local servers reuse prefixes on their own) is not measured here.
+
+## US-0020: shared identifier rules
+
+TC-0023: One set of identifier rules decides every scenario, protocol, client and session id
+Related Story: US-0020
+Related Task: TASK-0020
+Related AC: AC-0062
+Type: Regression
+Preconditions: A checkout of the branch; no server needed.
+Steps:
+  1. Run `pnpm -s vitest run packages/script/src/__tests__/id-rules.characterisation.test.ts services/runtime/src/__tests__/id-rules.characterisation.test.ts` (the tables of ids written before the rules were moved).
+  2. Run `pnpm -s vitest run packages/events/src/__tests__/ids.test.ts services/runtime/src/__tests__/id-rules.files.test.ts`.
+  3. In a scratch copy, add a line such as `const X = /^[a-z0-9_-]+$/;` to `services/runtime/src/main.ts` and rerun step 2.
+Expected Result: 1 and 2 pass: scenario, role, scene, inject, rubric, criterion, learning-objective, protocol, terminal-client, demo, session, report-role and join-code ids are accepted and refused exactly as before (lower case only for scenario ids, no upper limit for them; 1 to 64 for session and file-safe ids; 1 to 128 and no control character for client ids). 3 fails with the file name listed: no source outside `packages/events/src/ids.ts` may spell an id character class.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated as above plus the existing suites (validate, rubric, protocol, commands, args, event-log, session-store, join-codes). Never run step 3 in the working tree.
+
+TC-0024: A hostile session id never reaches the file system, and the Slice 1 plan text matches the engine
+Related Story: US-0020
+Related Task: TASK-0020
+Related AC: AC-0062, AC-0063
+Type: Negative
+Preconditions: An empty private data directory.
+Steps:
+  1. Start the server with `SESSION_ID` set to `..`, `../x`, `a/b`, `a.b`, `.hidden`, `x.lock`, `(a|.*)` and a 65-character name (`SESSION_ID=... pnpm --filter @acr/runtime start`; a NUL cannot be passed in an environment variable and a newline is covered by the automated tests), and run `pnpm demo --fast --session ../x`.
+  2. Start it with `SESSION_ID=__proto__`, then `SESSION_ID=A-b_9`, and list the data directory.
+  3. Read the self-review notes at the end of `docs/superpowers/plans/2026-10-01-slice-1-script-and-text-runtime.md` and `SessionEngine` in `services/runtime/src/engine/session-engine.ts`.
+Expected Result: 1: every start fails with `SESSION_ID ... is invalid: use 1 to 64 letters, digits, '_' or '-'` (the demo says `--session must be ...`) before any file or directory is created. 2: both start; every file in the data directory is named `<id>.<something>` directly inside it. 3: the plan says `SessionEngine.alert()` replaced the planned public `emit` and lists the later rulings; the engine has `private emit`, `private readonly log` and a public `alert()`.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: id-rules.files.test.ts (every function that takes a session id, with an existing and a missing directory), id-rules.characterisation.test.ts (bootstrap, demo args, openSession), plan-text.test.ts.
 
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 

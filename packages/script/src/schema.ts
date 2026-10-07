@@ -1,9 +1,10 @@
 import { z } from "zod";
+import { LEARNING_OBJECTIVE_ID_MESSAGE, SAFE_ID_PATTERN, SCENARIO_ID_MESSAGE, SCENARIO_ID_PATTERN } from "@acr/events";
 
-const Id = z.string().regex(/^[a-z0-9_\-]+$/, "ids are lowercase letters, digits, _ or -");
+const Id = z.string().regex(SCENARIO_ID_PATTERN, SCENARIO_ID_MESSAGE);
 
 /** Learning-objective ids appear in report text and file content, so they follow a safe pattern (upper case allowed: LO1). */
-const LoId = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/, "learning objective ids are 1 to 64 letters, digits, _ or -");
+const LoId = z.string().regex(SAFE_ID_PATTERN, LEARNING_OBJECTIVE_ID_MESSAGE);
 
 export const LearningObjectiveSchema = z.object({
   id: LoId, statement: z.string(), rubric_criteria: z.array(z.string()),

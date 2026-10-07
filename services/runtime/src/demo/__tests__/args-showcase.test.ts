@@ -31,7 +31,7 @@ describe("parseDemoArgs: the showcase flags", () => {
   it("refuses --url with --showcase (usage error)", () => {
     expect(fail(["--showcase", "--url", "ws://localhost:1"])).toBe("error: --showcase cannot be combined with --url (the showcase starts its own in-process server)");
   });
-  it.each([["--scenario", "x"], ["--max-lines", "2"], ["--max-fallbacks", "1"]])("refuses %s without --showcase", (flag, value) => {
+  it.each([["--scenario", "x"], ["--max-lines", "2"]])("refuses %s without --showcase", (flag, value) => {
     expect(fail([flag, value])).toBe(`error: ${flag} needs --showcase`);
   });
   it.each([["1", 1], ["20", MAX_LINES], ["7", 7]])("accepts --max-lines %s", (raw, v) => { expect(ok(["--showcase", "--max-lines", raw]).maxLines).toBe(v); });
@@ -39,6 +39,13 @@ describe("parseDemoArgs: the showcase flags", () => {
     expect(fail(["--showcase", `--max-lines=${raw}`])).toBe(`error: --max-lines must be a whole number from 1 to ${MAX_LINES}`);
   });
   it.each([["0", 0], ["3", 3], [String(MAX_FALLBACKS), MAX_FALLBACKS]])("accepts --max-fallbacks %s", (raw, v) => { expect(ok(["--showcase", "--max-fallbacks", raw]).maxFallbacks).toBe(v); });
+  it("US-0023: --max-fallbacks also belongs to the 29-check run (no --showcase needed), live or mock, and may come with --url", () => {
+    expect(ok(["--max-fallbacks", "2"]).maxFallbacks).toBe(2);
+    expect(ok(["--live", "--max-fallbacks", "0"]).maxFallbacks).toBe(0);
+    expect(ok(["--url", "ws://127.0.0.1:1", "--max-fallbacks", "1"]).maxFallbacks).toBe(1);
+    expect(ok(["--fast"]).maxFallbacks).toBeUndefined();
+    for (const raw of [String(MAX_FALLBACKS + 1), "-1", "1.5", "x", "", "1e1"]) expect(fail([`--max-fallbacks=${raw}`])).toBe(`error: --max-fallbacks must be a whole number from 0 to ${MAX_FALLBACKS}`);
+  });
   it.each([String(MAX_FALLBACKS + 1), "-1", "1.5", "x", ""])("rejects --max-fallbacks %j", (raw) => {
     expect(fail(["--showcase", `--max-fallbacks=${raw}`])).toBe(`error: --max-fallbacks must be a whole number from 0 to ${MAX_FALLBACKS}`);
   });

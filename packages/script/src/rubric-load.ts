@@ -1,5 +1,6 @@
 import path from "node:path";
 import { parse } from "yaml";
+import { isFileSafeId } from "@acr/events";
 import { ZodError } from "zod";
 import { FileTooLargeError, readTextCapped } from "./read-capped.js";
 import { RubricSchema, validateRubrics, type Rubric } from "./rubric.js";
@@ -8,7 +9,6 @@ import { RubricSchema, validateRubrics, type Rubric } from "./rubric.js";
 export const MAX_RUBRIC_BYTES = 256 * 1024;
 /** Aliases are legitimate for repeated phrases but never need to be numerous. */
 export const MAX_RUBRIC_ALIASES = 10;
-const SAFE_ID = /^[a-z0-9_-]{1,64}$/;
 
 export type LoadedRubrics = { rubrics: Rubric[]; errors: string[]; warnings: string[] };
 
@@ -25,7 +25,7 @@ export async function loadRubrics(dir: string, scenario: { meta: { rubrics: stri
   const rubrics: Rubric[] = [];
   const seen = new Set<string>();
   for (const id of ids) {
-    if (!SAFE_ID.test(id)) { errors.push(`rubric id '${id.slice(0, 40)}' is not a safe name (1 to 64 lowercase letters, digits, _ or -)`); continue; }
+    if (!isFileSafeId(id)) { errors.push(`rubric id '${id.slice(0, 40)}' is not a safe name (1 to 64 lowercase letters, digits, _ or -)`); continue; }
     if (seen.has(id)) { errors.push(`rubric '${id}' is listed more than once`); continue; }
     seen.add(id);
     const file = `rubrics/${id}.yaml`;

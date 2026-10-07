@@ -7,6 +7,7 @@ coverage/
 *.local
 data/sessions/
 data/reports/
+services/runtime/data/reports/
 .superpowers/
 .history/
 demo-report.json

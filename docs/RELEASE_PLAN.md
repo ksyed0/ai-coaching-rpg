@@ -627,21 +627,21 @@ Notes: Deferred minor findings from Tasks 7 and 8 and the final review. Behavior
 US-0020 (EPIC-0006): As a developer, I want one shared definition of identifier rules and accurate plan text, so that scenario ids, protocol ids, session ids and the docs cannot drift apart.
 Priority: Low
 Estimate: S
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0006-US-0020-shared-id-rules
 Dependencies: US-0012
 Acceptance Criteria:
-  - [ ] AC-0062: scenario, protocol, terminal client and session-id validation use one exported set of identifier rules
-  - [ ] AC-0063: the Slice 1 plan's self-review text is corrected (`SessionEngine.alert()` replaced the planned public `emit`) and records where later rulings changed the plan
+  - [x] AC-0062: scenario, protocol, terminal client and session-id validation use one exported set of identifier rules (`packages/events/src/ids.ts`, imported by the scenario and rubric schemas, the validator, the rubric loader, the protocol, the terminal client, the demo, the session log, the lock, the join-codes file and the evaluator's report names; every accepted and refused value unchanged, pinned by characterisation tests written first; session ids are refused by every function that turns one into a file name, before anything is created; property-style tests over hostile ids; a test fails if another source spells an id character class; TC-0023, TC-0024)
+  - [x] AC-0063: the Slice 1 plan's self-review text is corrected (`SessionEngine.alert()` replaced the planned public `emit`) and records where later rulings changed the plan (inline *Built differently* notes in Tasks 7 and 8, the corrected Interfaces bullet and a Revision notes table of ten rulings; plan-text.test.ts keeps it true; TC-0024)
 ```
 
 ```
 TASK-0020 (US-0020): Extract shared identifier rules and correct the Slice 1 plan text
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0020-shared-id-rules
-Notes: Three id rules currently live in schema.ts, protocol.ts, commands.ts and event-log.ts. Mismatches are harmless today but easy to drift.
+Notes: Three id rules currently live in schema.ts, protocol.ts, commands.ts and event-log.ts. Mismatches are harmless today but easy to drift. Delivered: packages/events/src/ids.ts (scenario ids: lower case, any length; file-safe ids: lower case, 1 to 64; safe and session ids: either case, 1 to 64; client ids: 1 to 128 and no control character; reserved ids; the JOIN_CODES role key), consumers updated, `assertSessionId` in log-files.ts and a first-line check in `openSession`; tests id-rules.characterisation (script and runtime), ids.test.ts, id-rules.files.test.ts, plan-text.test.ts. Known, unchanged difference: a scenario id has no length limit while a role id used as a report file name is limited to 64 (refused when reports are written). The story stays In Progress until review. Test cases TC-0023, TC-0024.
 ```
 
 ```
@@ -695,22 +695,22 @@ Notes: Found in a live demo run: about 4 of 10 calls to a free OpenRouter model 
 US-0023 (EPIC-0006): As a developer or evaluator, I want the demo runner's live mode to report fallback lines and alert reasons, so that a run cannot pass while the characters only spoke canned lines.
 Priority: Medium
 Estimate: S
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0006-US-0023-demo-live-evidence
 Dependencies: US-0021
 Acceptance Criteria:
-  - [ ] AC-0073: in live mode the runner counts NPC replies that were the persona's fallback line and shows the count in the narration, in the checklist evidence and in the JSON report
-  - [ ] AC-0074: facilitator alert messages raised during the run are captured (sanitized) with their reason and shown next to the affected reply
-  - [ ] AC-0075 (the showcase-only part, `--max-fallbacks` for `pnpm demo --showcase`, is delivered by US-0024; the 29-check run still needs it): an option such as `--max-fallbacks <n>` fails the run when more than n replies were fallback lines; without it the count is reported as a warning
+  - [x] AC-0073: in live mode the runner counts NPC replies that were the persona's fallback line and shows the count in the narration, in the checklist evidence and in the JSON report
+  - [x] AC-0074: facilitator alert messages raised during the run are captured (sanitized) with their reason and shown next to the affected reply
+  - [x] AC-0075 (the showcase part, `--max-fallbacks` for `pnpm demo --showcase`, came from US-0024; US-0023 adds it to the 29-check run, check F-08): an option such as `--max-fallbacks <n>` fails the run when more than n replies were fallback lines; without it the count is reported as a warning
 ```
 
 ```
 TASK-0023 (US-0023): Count fallback replies and capture alert reasons in the demo runner, with an optional failure threshold
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0023-demo-live-evidence
-Notes: In three live runs 2 of 6 main-story replies were canned fallback lines, yet check F-08 passed because a fallback line is non-empty.
+Notes: In three live runs 2 of 6 main-story replies were canned fallback lines, yet check F-08 passed because a fallback line is non-empty. Done 2026-10-07: services/runtime/src/demo/live-evidence.ts (collectLiveEvidence, sanitizeAlert, alertsForReply), F-08 evidence and `--max-fallbacks`, the alert beside the affected reply in the narration, an end-of-run summary in the audit act, `liveEvidence` in the JSON report, sanitized alert text in the Markdown transcript. Test cases TC-0017..TC-0019. Not done here: a live run on a real model (the owner's); the showcase's own alert narration is unchanged.
 ```
 
 ```

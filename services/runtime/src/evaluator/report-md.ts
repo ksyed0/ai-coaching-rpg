@@ -1,11 +1,11 @@
+import { isSafeId } from "@acr/events";
 import { mdEscape, safeMd } from "../demo/transcript-md.js";
 import { DRAFT_BANNER, VISIBILITY_LINE, buildMethod, methodMarkdown, type Method } from "./method.js";
 import { NO_GROUP_LO_NOTE, loScoreText, scoreText, type GroupReport, type JsonCriterion, type ParticipantReport } from "./report-model.js";
 
 const cap = (s: string) => (s.length > 0 ? s[0]!.toUpperCase() + s.slice(1) : s);
-const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 /** A validated id, or an escaped fragment: report text never carries an unchecked identifier. */
-export const id = (v: string, sec: string[]): string => (SAFE_ID.test(v) ? `\`${v}\`` : safeMd(v, 64, sec));
+export const id = (v: string, sec: string[]): string => (isSafeId(v) ? `\`${v}\`` : safeMd(v, 64, sec));
 
 function header(title: string, r: ParticipantReport | GroupReport, sec: string[], extra: [string, string][]): string[] {
   const cell = (t: string) => safeMd(t, 200, sec);

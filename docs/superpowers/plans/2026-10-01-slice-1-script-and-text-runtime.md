@@ -1,5 +1,7 @@
 # Slice 1: Script Package and Text-Only Runtime — Implementation Plan
 
+> **Status (US-0020):** delivered (EPIC-0001, US-0001 to US-0012). The steps and code below are the plan as written and are kept as a record: where the built system differs, an inline *Built differently* note says so, and **Revision notes** at the end lists every later ruling that changed the plan. The code in `services/`, `packages/` and `docs/ARCHITECTURE.md` is the authority, not the snippets here.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Three people on one LAN can play the Friday Escalation scenario in text from a terminal client against AI-played NPCs, with the Game Master advancing scenes and every turn captured in an event log, all started from one laptop with one command.
@@ -1660,6 +1662,8 @@ export class NpcAgent {
 
 Make `emit` reachable: in `session-engine.ts` change `private async emit` to `async emit` and add the comment `/** Append any event. Used by agents for alerts; prefer the typed methods elsewhere. */`.
 
+> **Built differently (US-0007, kept in US-0020):** `emit` was NOT made public and the snippet above (`this.engine.emit({ type: "facilitator.alert", ... })`) does not exist in the code. `SessionEngine.emit` stays `private`; agents call the public `SessionEngine.alert(message, level, { expectSceneId })`, which runs inside the engine's mutex, appends nothing once the session has ended or when the scene has changed since the reply began (a stale reply's alert is dropped), and returns `null` in those cases. The NPC agent, the Game Master (a model error or deadline) and the session host use `alert()`; the Game Master records its judgements through `recordGmVerdict` and `recordGmNoVerdict`. The only public ways to append an event are the typed methods (`start`, `say`, `command`, `updateNpc`, `recordGmVerdict`, `alert`, ...), so no caller can write an arbitrary event into the log.
+
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `pnpm --filter @acr/runtime test`
@@ -1764,6 +1768,8 @@ describe("GameMaster", () => {
 ```
 
 Also expose the log for tests: in `SessionEngine` change `private readonly log` to `readonly log`.
+
+> **Built differently (US-0008, kept in US-0020):** `log` was NOT exposed either; `private readonly log: EventLog` is unchanged. A test that needs the log keeps its own reference to the `EventLog` it passed to the constructor (`MemoryEventLog.all()` or `JsonlEventLog`), and state is read through `engine.state`. The Game Master's `this.engine.emit(...)` calls in the snippet below do not exist in the built code either: a model error or deadline is `this.engine.alert(...)`, an unusable reply is the typed `recordGmNoVerdict`, and a verdict is `recordGmVerdict`.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -2768,6 +2774,27 @@ gh pr create --base main --title "EPIC-0001 Slice 1: script package and text-onl
 
 ## Self-review notes
 
-- **Spec coverage.** Architecture §3 session state and reconnect: the event log and reducer exist; reconnect replay is deferred to slice 2 with the web client, noted in RELEASE_PLAN as US-0013. §4 NPC fast path and GM beside the path: Tasks 7 and 8. §4 guardrails: enforced in `buildNpcRequest` and asserted in Task 7 and Task 11. §4 timeout fallback: Task 7. §9 adapter rule: Task 5 lint. §10 Stage A one command: Task 12. Voice, 3D, Postgres and Redis are deliberately out of this slice.
-- **Interfaces.** `SessionEngine.emit` is made public in Task 7 and `log` in Task 8; both are referenced consistently afterwards.
+- **Spec coverage.** Architecture §3 session state and reconnect: the event log and reducer exist; reconnect replay was deferred out of this slice (RELEASE_PLAN US-0013, EPIC-0002) and has since been built there: `join` and `join_facilitator` take an optional `lastSeq` and receive a filtered replay of what they missed. §4 NPC fast path and GM beside the path: Tasks 7 and 8. §4 guardrails: enforced in `buildNpcRequest` and asserted in Task 7 and Task 11. §4 timeout fallback: Task 7. §9 adapter rule: Task 5 lint. §10 Stage A one command: Task 12. Voice, 3D, Postgres and Redis are deliberately out of this slice.
+- **Interfaces.** Corrected (US-0020, AC-0063): this note originally said `SessionEngine.emit` is made public in Task 7 and `log` in Task 8. Neither happened. `emit` and `log` are both `private`; the public, serialised way for an agent to append a `facilitator.alert` is `SessionEngine.alert(message, level, { expectSceneId })`, which replaced the planned public `emit` in US-0007 and is used by the NPC agent, the Game Master and the session host. The Task 7 and Task 8 snippets that call `engine.emit` are therefore superseded (see their *Built differently* notes), and the interfaces are referenced consistently as `alert()` afterwards.
 - **Review Focus** tests are in Tasks 3, 6, 7, 8 and 9 as listed.
+
+---
+
+## Revision notes: where later rulings changed this plan (US-0020)
+
+The plan above was the starting point. These are the points where the built system departs from it, with the story or ruling that caused each. Anything not listed here was built as planned.
+
+| Plan said | Built system | Why (story) |
+| --- | --- | --- |
+| `SessionEngine.emit` public (Task 7) and `log` public (Task 8) | both stay `private`; agents use `SessionEngine.alert(message, level, { expectSceneId })`, a serialised, stale-guarded append that returns `null` after the session ended or when the scene changed | US-0007 introduced `alert()` in place of the public `emit`; its guards (nothing appended after `session.ended`, a stale reply's alert dropped) were added by later review rounds, because a raw public `emit` would let a dropped reply write after the scene moved on |
+| NPC first-token limit fixed at 4 000 ms | defaults 10 000 ms first token and 20 000 ms whole reply, set by `NPC_FIRST_TOKEN_TIMEOUT_MS` and `NPC_REPLY_TIMEOUT_MS`; transient model errors are retried inside that budget | US-0015 (slow and reasoning models), US-0022 (retries), US-0026 |
+| Providers: the scripted mock and an Anthropic implementation; model `claude-sonnet-4-5` | the mock (still the default), Anthropic with an optional custom endpoint, OpenRouter and any OpenAI-compatible local server; the default model id is now `claude-sonnet-5-5` (`anthropic/claude-sonnet-5.5` on OpenRouter), not `claude-sonnet-4-5`; provider SDKs still only inside `packages/adapters` (`pnpm lint:sdk` replaces the grep step) | US-0014 |
+| Game Master verdict: "parse the reply for `verdict`" | a verdict counts only when it carries the per-evaluation nonce that exists in the system prompt alone, with a bounded re-ask; participant text can never produce a `true` | US-0025 (L-0006) |
+| Hidden facts stay hidden until the Game Master releases them | the facilitator releases a fact (`release_hidden`, `/release <role> <n>`); a scenario `earned_when` may make the Game Master suggest it (never automatic by default) | US-0016, US-0034 |
+| Anyone who names a session and an unclaimed role may join; the facilitator connection is open | the facilitator can be protected by `FACILITATOR_TOKEN`; each player role has its own join code (hashes in `<id>.codes.json`); connections, frames and failures are limited; every refusal is one generic `unauthorized` | US-0017, US-0033 (`docs/THREAT_MODEL.md`) |
+| The JSONL log is append-only and a restart starts over | the log has a format version and a scenario hash, `fdatasync` per append, a single-writer lock `<id>.lock`, fail-stop on a write error, and a restart resumes the session paused | US-0018 |
+| Reconnect replay deferred to slice 2 | built: `lastSeq` on both joins, replayed through the same default-deny filter as live delivery | US-0013 |
+| Identifier rules written out where each module needed them (scenario schema, rubric schema, protocol, client, log) | one exported module, `packages/events/src/ids.ts`, used by all of them; accepted and refused values are unchanged; session ids (which become file names) are checked by every function that takes one | US-0020 |
+| Tooling: Vitest 2 with `vitest.workspace.ts` | Vitest 5 with `projects` in `vitest.config.ts`; tests must not depend on wall-clock time, the shared temp directory or `/proc` (`AGENTS.md` section 8) | BUG-0006, L-0002 |
+
+Details of the built behaviour live in `docs/ARCHITECTURE.md`, `docs/THREAT_MODEL.md`, `MEMORY.md` and the acceptance criteria in `docs/RELEASE_PLAN.md`.
