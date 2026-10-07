@@ -709,7 +709,7 @@
         },
         {
           "id": "AC-0162",
-          "text": "a cut-off last line is cut before the first append, with its size in the restart alert; nothing else in a log is ever rewritten",
+          "text": "a cut-off last line is cut before the first append, with its size in the restart alert; nothing else in a log is ever rewritten; an operation of several events cut short by a crash (scene exit then the next scene, inject then its effect, start, opening inject) is completed on restart and noted in the alert, also when a crash cuts that completion short (an exhaustive crash-cut test covers every prefix of a full session and every cut inside the completion)",
           "done": true
         },
         {
@@ -724,7 +724,7 @@
         },
         {
           "id": "AC-0165",
-          "text": "every append is followed by fdatasync; logs and locks are created 0600 and the data directory 0700 (never widened); reads stream the log with a 64 MiB cap",
+          "text": "every append is followed by fdatasync and the log is fail-stop (a failed write, sync or lock check refuses everything after it, clients get an unlogged notice and the process exits non-zero for a restart: Docker Compose restarts it up to 5 times); logs and locks are created 0600 (one link, own user) and the data directory 0700 (never widened; refused when it stays writable by others); the directory is synced after create and rotation; reads stream the log with a 64 MiB cap and replay in linear time",
           "done": true
         },
         {
@@ -739,7 +739,7 @@
         },
         {
           "id": "AC-0168",
-          "text": "`pnpm demo --fast --resume` runs the resume room, checks F-34 to F-42, offline and deterministic (38 checks); the default run keeps 29; CI runs it",
+          "text": "`pnpm demo --fast --resume` runs the resume room, checks F-34 to F-43, offline and deterministic (39 checks); the default run keeps 29; CI runs it",
           "done": true
         },
         {
@@ -1635,7 +1635,7 @@
     {
       "id": "TASK-0051",
       "storyId": "US-0018",
-      "title": "Demo resume room (pnpm demo --resume, F-34 to F-42), CI step and documentation",
+      "title": "Demo resume room (pnpm demo --resume, F-34 to F-43), CI step and documentation",
       "type": "Test",
       "assignee": "Agent",
       "status": "Done",
@@ -1899,212 +1899,212 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 800,
-      "costUsd": 0.181385,
+      "costUsd": 11.162924,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 6.1671,
-      "inputTokens": 522440,
-      "outputTokens": 69480
+      "costUsd": 379.5394,
+      "inputTokens": 17682561,
+      "outputTokens": 2646608
     },
     "_bugs": {
       "BUG-0001": {
@@ -2444,18 +2444,22 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-07T00:34:05.294Z",
-  "commitSha": "8609f95",
-  "buildNumber": "168",
-  "branch": "feature/EPIC-0006-US-0018-resume-after-restart",
+  "generatedAt": "2026-10-07T01:24:29.233Z",
+  "commitSha": "ac02577",
+  "buildNumber": "184",
+  "branch": "chore/ai-cost-log-sessions",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
       "cumCost": 1.5549
     },
     {
-      "date": "2026-10-01",
-      "cumCost": 6.1671
+      "date": "2026-10-03",
+      "cumCost": 77.0829
+    },
+    {
+      "date": "2026-10-07",
+      "cumCost": 379.5394
     }
   ],
   "costHistory": {
@@ -2465,14 +2469,20 @@
         "costUsd": 1.5549
       }
     ],
-    "feature/reinstall-plan-visualizer": [
+    "chore/ai-cost-log-session-1": [
       {
-        "date": "2026-10-01",
-        "costUsd": 4.6122
+        "date": "2026-10-03",
+        "costUsd": 75.528
+      }
+    ],
+    "develop": [
+      {
+        "date": "2026-10-07",
+        "costUsd": 302.4565
       }
     ]
   },
-  "deltaSpend": 4.61,
+  "deltaSpend": 302.46,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
@@ -2545,13 +2555,13 @@
     }
   },
   "budget": {
-    "totalBudget": 3606.1671,
-    "totalSpent": 6.1671,
+    "totalBudget": 3979.5394,
+    "totalSpent": 379.5394,
     "totalProjected": 28400,
-    "percentUsed": 0,
-    "burnRate": 0.19871766666666665,
-    "daysRemaining": 18116,
-    "projectedExhaustion": 18116,
+    "percentUsed": 10,
+    "burnRate": 12.644461,
+    "daysRemaining": 284,
+    "projectedExhaustion": 284,
     "thresholds": [
       50,
       75,
@@ -2563,34 +2573,34 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 2.5393899999999996,
-        "spent": 2.5393899999999996,
+        "budget": 156.28093600000003,
+        "spent": 156.28093600000003,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 0.72554,
-        "spent": 0.72554,
+        "budget": 44.651696,
+        "spent": 44.651696,
         "remaining": 0,
         "percentUsed": 100
       },
       {
-        "id": "EPIC-0002",
-        "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 800.181385,
-        "spent": 0.181385,
-        "remaining": 800,
-        "percentUsed": 0
-      },
-      {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 2802.720775,
-        "spent": 2.7207749999999997,
+        "budget": 2967.44386,
+        "spent": 167.44386000000003,
         "remaining": 2800,
-        "percentUsed": 0
+        "percentUsed": 6
+      },
+      {
+        "id": "EPIC-0002",
+        "title": "Slice 2 — web lobby, session view and reconnect",
+        "budget": 811.162924,
+        "spent": 11.162924,
+        "remaining": 800,
+        "percentUsed": 1
       },
       {
         "id": "EPIC-0003",
@@ -2614,37 +2624,37 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-07T00:34:05.352Z",
-      "2026-09-08T00:34:05.352Z",
-      "2026-09-09T00:34:05.352Z",
-      "2026-09-10T00:34:05.352Z",
-      "2026-09-11T00:34:05.352Z",
-      "2026-09-12T00:34:05.352Z",
-      "2026-09-13T00:34:05.352Z",
-      "2026-09-14T00:34:05.352Z",
-      "2026-09-15T00:34:05.352Z",
-      "2026-09-16T00:34:05.352Z",
-      "2026-09-17T00:34:05.352Z",
-      "2026-09-18T00:34:05.352Z",
-      "2026-09-19T00:34:05.352Z",
-      "2026-09-20T00:34:05.352Z",
-      "2026-09-21T00:34:05.352Z",
-      "2026-09-22T00:34:05.352Z",
-      "2026-09-23T00:34:05.352Z",
-      "2026-09-24T00:34:05.352Z",
-      "2026-09-25T00:34:05.352Z",
-      "2026-09-26T00:34:05.352Z",
-      "2026-09-27T00:34:05.352Z",
-      "2026-09-28T00:34:05.352Z",
-      "2026-09-29T00:34:05.352Z",
-      "2026-09-30T00:34:05.352Z",
-      "2026-10-01T00:34:05.352Z",
-      "2026-10-02T00:34:05.352Z",
-      "2026-10-03T00:34:05.352Z",
-      "2026-10-04T00:34:05.352Z",
-      "2026-10-05T00:34:05.352Z",
-      "2026-10-06T00:34:05.352Z",
-      "2026-10-07T00:34:05.351Z"
+      "2026-09-07T01:24:29.324Z",
+      "2026-09-08T01:24:29.324Z",
+      "2026-09-09T01:24:29.324Z",
+      "2026-09-10T01:24:29.324Z",
+      "2026-09-11T01:24:29.324Z",
+      "2026-09-12T01:24:29.324Z",
+      "2026-09-13T01:24:29.324Z",
+      "2026-09-14T01:24:29.324Z",
+      "2026-09-15T01:24:29.324Z",
+      "2026-09-16T01:24:29.324Z",
+      "2026-09-17T01:24:29.324Z",
+      "2026-09-18T01:24:29.324Z",
+      "2026-09-19T01:24:29.324Z",
+      "2026-09-20T01:24:29.324Z",
+      "2026-09-21T01:24:29.324Z",
+      "2026-09-22T01:24:29.324Z",
+      "2026-09-23T01:24:29.324Z",
+      "2026-09-24T01:24:29.324Z",
+      "2026-09-25T01:24:29.324Z",
+      "2026-09-26T01:24:29.324Z",
+      "2026-09-27T01:24:29.324Z",
+      "2026-09-28T01:24:29.324Z",
+      "2026-09-29T01:24:29.324Z",
+      "2026-09-30T01:24:29.324Z",
+      "2026-10-01T01:24:29.324Z",
+      "2026-10-02T01:24:29.324Z",
+      "2026-10-03T01:24:29.324Z",
+      "2026-10-04T01:24:29.324Z",
+      "2026-10-05T01:24:29.324Z",
+      "2026-10-06T01:24:29.324Z",
+      "2026-10-07T01:24:29.322Z"
     ],
     "doneCounts": [
       0,
@@ -2743,7 +2753,7 @@
       5.75596,
       5.96153,
       6.1671,
-      6.1671
+      379.5394
     ],
     "coverage": [
       0,
@@ -2908,7 +2918,7 @@
       0,
       0,
       0,
-      522440
+      17682561
     ],
     "outputTokens": [
       0,
@@ -2941,7 +2951,7 @@
       0,
       0,
       0,
-      69480
+      2646608
     ],
     "avgRisk": [
       1.1176470588235299,
@@ -2962,12 +2972,12 @@
       1.1176470588235299,
       1.1176470588235299,
       1.1176470588235299,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
       1.1264705882352946,
       1.1264705882352946,
       1.1264705882352946,
