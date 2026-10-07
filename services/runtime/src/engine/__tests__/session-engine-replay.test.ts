@@ -59,6 +59,23 @@ describe("SessionEngine.eventsAfter (US-0013): the retained window replay reads 
     expect(seqsAfter(again, head)).toEqual([head + 1, head + 2]); // session.resumed and the facilitator alert
   });
 
+  it("test_engine_restore_replays_an_event_that_reached_the_log_but_no_client", async () => {
+    const scenario = await loadScenario(fixture);
+    const log = new MemoryEventLog("s");
+    const clock = new FakeClock(0);
+    const first = new SessionEngine({ scenario, log, clock });
+    const seen: number[] = [];
+    first.subscribe((e) => seen.push(e.seq));
+    await first.start({ host: "p1" });
+    // As after a fail-stop: the event is on disk, but the engine never applied or delivered it (the log is the truth).
+    const orphan = await log.append({ type: "facilitator.command", command: "whisper", roleId: "host", text: "never delivered" }, 0);
+    expect(seen).not.toContain(orphan.seq);
+    const again = new SessionEngine({ scenario, log, clock });
+    expect((await again.restore()).kind).toBe("running");
+    const r = again.eventsAfter(orphan.seq - 1);
+    expect(r.complete && [...r.events]).toEqual([orphan]);
+  });
+
   it("test_engine_restore_of_an_ended_log_retains_nothing", async () => {
     const scenario = await loadScenario(fixture);
     const log = new MemoryEventLog("s");

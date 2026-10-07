@@ -326,7 +326,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       n.line("  - it ADVANCES THE SESSION TO ITS END (script_complete); that session then cannot be resumed;");
       n.line("  - a facilitator join and the commands start, pause, resume, advance and whisper;");
       n.line("  - scripted player lines (as delivery_lead, tech_lead, account_manager), including one containing an escape sequence and a forged newline, and speech while the session is paused;");
-      n.line("  - role-claim attempts (no or a wrong join code, an NPC and an unknown role, a taken role with its code), forged-token takeover attempts and a rejoin with the real token;");
+      n.line("  - role-claim attempts (no or a wrong join code, an NPC and an unknown role, a taken role with its code), forged-token takeover attempts and a rejoin with the real token (asking for the events it missed);");
       n.line("  - player-issued start and pause, speech before the start, a facilitator say, speech from a role that is absent from the scene, speech and a resume command after the session ends, speech before joining, and a whisper to the NPC role (all expected to be refused);");
       n.line("  - malformed frames (bad JSON, an unknown type, an over-long line, an empty id) and one oversized (~70 kB) frame.");
       n.line(urlToken !== undefined
