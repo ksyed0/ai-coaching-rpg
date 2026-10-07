@@ -3157,9 +3157,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-07T13:54:32.639Z",
-  "commitSha": "b72b76e",
-  "buildNumber": "243",
+  "generatedAt": "2026-10-07T14:03:37.472Z",
+  "commitSha": "694b5a6",
+  "buildNumber": "246",
   "branch": "feature/EPIC-0005-US-0035-calibration-probes",
   "sessionTimeline": [
     {
@@ -3288,9 +3288,9 @@
     "totalSpent": 441.3902,
     "totalProjected": 32800,
     "percentUsed": 8,
-    "burnRate": 14.244733333333333,
-    "daysRemaining": 336,
-    "projectedExhaustion": 336,
+    "burnRate": 13.776459999999998,
+    "daysRemaining": 348,
+    "projectedExhaustion": 348,
     "thresholds": [
       50,
       75,
@@ -3383,7 +3383,7 @@
       "2026-10-04T13:54:32.711Z",
       "2026-10-05T13:54:32.711Z",
       "2026-10-06T13:54:32.711Z",
-      "2026-10-07T13:54:32.709Z"
+      "2026-10-07T14:03:37.544Z"
     ],
     "doneCounts": [
       0,

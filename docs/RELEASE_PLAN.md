@@ -42,7 +42,7 @@ Description: Post-session rubric scoring with quoted evidence and confidence, fa
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0003
-Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed; per-participant isolation and ASM-09 are planned); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups, not yet filed as stories: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), calibration (ASM-08), and isolation and access control (ASM-09).
+Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed; per-participant isolation and ASM-09 are planned); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039.
 ```
 
 ```

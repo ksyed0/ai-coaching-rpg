@@ -1,0 +1,13 @@
+kind: single
+id: neg-l4
+criterion: negotiation
+source: handwritten
+split: tune
+subject: delivery_lead
+expected: 4
+acceptable: [3, 4]
+transcript:
+  - { scene: s2_client_call, role: client_sponsor, text: "We need the module before go-live. Can you do it for the same fee?" }
+  - { scene: s2_client_call, role: delivery_lead, text: "I can give you two options. Option one: we deliver a daily summary report before launch at no extra cost, and the full module follows in a second phase after go-live. Option two: we build the full module now, which moves the launch date by three weeks and carries an extra fee." }
+  - { scene: s2_client_call, role: client_sponsor, text: "The first option sounds closer to what I need. What do you need from me?" }
+  - { scene: s2_client_call, role: delivery_lead, text: "A written change request for the second phase, signed by you by Friday, and Finance agreeing the report layout. Shall I send the change request this afternoon so we are both clear on the next steps?" }

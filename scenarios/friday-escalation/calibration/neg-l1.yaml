@@ -1,0 +1,12 @@
+kind: single
+id: neg-l1
+criterion: negotiation
+source: handwritten
+split: holdout
+subject: delivery_lead
+expected: 1
+transcript:
+  - { scene: s2_client_call, role: client_sponsor, text: "We need the module before go-live. Can you do it for the same fee?" }
+  - { scene: s2_client_call, role: delivery_lead, text: "Of course, we will absorb it. Anything you need." }
+  - { scene: s2_client_call, role: client_sponsor, text: "And the launch date stays the same?" }
+  - { scene: s2_client_call, role: delivery_lead, text: "Absolutely, the date stays and the fee stays. No problem." }

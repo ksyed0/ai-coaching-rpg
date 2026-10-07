@@ -1,0 +1,12 @@
+kind: single
+id: disc-l1
+criterion: discovery
+source: handwritten
+split: tune
+subject: delivery_lead
+expected: 1
+transcript:
+  - { scene: s2_client_call, role: client_sponsor, text: "We need the reconciliation module before go-live. Can you confirm that today?" }
+  - { scene: s2_client_call, role: delivery_lead, text: "Yes, we can do that for you. I will tell the team to start on it today." }
+  - { scene: s2_client_call, role: client_sponsor, text: "Great, that is a relief. Finance will be happy." }
+  - { scene: s2_client_call, role: delivery_lead, text: "No problem at all, consider it done and we will keep the launch date." }

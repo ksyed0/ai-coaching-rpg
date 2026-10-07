@@ -1,0 +1,14 @@
+kind: contrast
+id: negotiation-contrast-01
+criterion: negotiation
+source: handwritten
+split: holdout
+players: { delivery_lead: 4, account_manager: 1 }
+min_gap: 2
+transcript:
+  - { scene: s2_client_call, role: client_sponsor, text: "We need the module before go-live, and I need an answer today." }
+  - { scene: s2_client_call, role: account_manager, text: "Yes, no problem, we will do the whole module before go-live." }
+  - { scene: s2_client_call, role: delivery_lead, text: "There are two ways to do this. We can phase it: a summary report before launch and the full module after, at the same fee. Or we build all of it now, which moves the date and adds a fee." }
+  - { scene: s2_client_call, role: client_sponsor, text: "I would rather not move the date." }
+  - { scene: s2_client_call, role: account_manager, text: "Fine, we will keep the date and the fee as they are." }
+  - { scene: s2_client_call, role: delivery_lead, text: "Then the phased option works, provided we have a signed change request for phase two by Friday. I will send it today and we will confirm the next steps together." }
