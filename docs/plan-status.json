@@ -2151,217 +2151,229 @@
       "lessonEncoded": "Yes (L-0002)",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0007",
+      "title": "A demo run aborted by its watchdog or an interrupt could leave its temp directory behind and keep running after it reported",
+      "severity": "Medium",
+      "relatedStory": "US-0021",
+      "relatedTask": "TASK-0021",
+      "status": "Fixed (see git log for BUG-0007)",
+      "fixBranch": "bugfix/BUG-0007-watchdog-test-temp-dir",
+      "lessonEncoded": "Yes (L-0014)",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
     }
   ],
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 412.8098,
-      "inputTokens": 18833554,
-      "outputTokens": 2858005
+      "costUsd": 421.44599999999997,
+      "inputTokens": 19040320,
+      "outputTokens": 2944083
     },
     "_bugs": {
       "BUG-0001": {
@@ -2405,6 +2417,14 @@
         "projectedUsd": 400
       },
       "BUG-0006": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0007": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -2803,12 +2823,20 @@
       "context": "",
       "date": "2026-10-07",
       "bugIds": []
+    },
+    {
+      "id": "L-0014",
+      "title": "An abort must wait for the work it cancelled, and every resource is owned from the moment it exists",
+      "rule": "A timeout or abort that reports and returns without waiting for the work it cancelled leaks whatever that work creates next (temp directories, servers, files) and lets it keep running after the result is out. After aborting, wait for the work to unwind with a bounded grace, then clean up; hand each resource to the cleanup list the moment it exists (right after `mkdtemp`, not after it is filled) and have the code that makes it remove it if it is aborted half-way; check the abort signal after each await on the start-up path. Test abort paths deterministically: inject the timer and fire it by hand at the exact point (a hook between creation and registration), never with a small real timeout.\n_Learned when the demo watchdog test failed intermittently under coverage (BUG-0007): the 100 ms watchdog fired while the run's temp directory was being made, `runDemo` returned, and the directory was registered and removed fire-and-forget later, or recreated by the run that was still going._",
+      "context": "",
+      "date": "2026-10-07",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-07T05:21:46.690Z",
-  "commitSha": "8c588aa",
-  "buildNumber": "214",
-  "branch": "feature/EPIC-0002-US-0013-reconnect",
+  "generatedAt": "2026-10-07T06:19:05.630Z",
+  "commitSha": "1a50e14",
+  "buildNumber": "220",
+  "branch": "bugfix/BUG-0007-watchdog-test-temp-dir",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2828,7 +2856,7 @@
     },
     {
       "date": "2026-10-07",
-      "cumCost": 412.8098
+      "cumCost": 421.446
     }
   ],
   "costHistory": {
@@ -2855,11 +2883,11 @@
       },
       {
         "date": "2026-10-07",
-        "costUsd": 3.8032
+        "costUsd": 12.4394
       }
     ]
   },
-  "deltaSpend": 3.8,
+  "deltaSpend": 12.44,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
@@ -2932,13 +2960,13 @@
     }
   },
   "budget": {
-    "totalBudget": 1612.8098,
-    "totalSpent": 412.8098,
+    "totalBudget": 1621.446,
+    "totalSpent": 421.44599999999997,
     "totalProjected": 28400,
     "percentUsed": 26,
-    "burnRate": 13.30164911111111,
-    "daysRemaining": 90,
-    "projectedExhaustion": 90,
+    "burnRate": 13.589522444444443,
+    "daysRemaining": 88,
+    "projectedExhaustion": 88,
     "thresholds": [
       50,
       75,
@@ -2950,32 +2978,32 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 169.98051,
-        "spent": 169.98051,
+        "budget": 173.53659399999998,
+        "spent": 173.53659399999998,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 12.141465,
-        "spent": 12.141465,
+        "budget": 12.395471,
+        "spent": 12.395471,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 48.56586,
-        "spent": 48.56586,
+        "budget": 49.581884,
+        "spent": 49.581884,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 1382.121975,
-        "spent": 182.12197500000002,
+        "budget": 1385.932065,
+        "spent": 185.93206499999997,
         "remaining": 1200,
         "percentUsed": 13
       },
@@ -3001,37 +3029,37 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-07T05:21:46.764Z",
-      "2026-09-08T05:21:46.764Z",
-      "2026-09-09T05:21:46.764Z",
-      "2026-09-10T05:21:46.764Z",
-      "2026-09-11T05:21:46.764Z",
-      "2026-09-12T05:21:46.764Z",
-      "2026-09-13T05:21:46.764Z",
-      "2026-09-14T05:21:46.764Z",
-      "2026-09-15T05:21:46.764Z",
-      "2026-09-16T05:21:46.764Z",
-      "2026-09-17T05:21:46.764Z",
-      "2026-09-18T05:21:46.764Z",
-      "2026-09-19T05:21:46.764Z",
-      "2026-09-20T05:21:46.764Z",
-      "2026-09-21T05:21:46.764Z",
-      "2026-09-22T05:21:46.764Z",
-      "2026-09-23T05:21:46.764Z",
-      "2026-09-24T05:21:46.764Z",
-      "2026-09-25T05:21:46.764Z",
-      "2026-09-26T05:21:46.764Z",
-      "2026-09-27T05:21:46.764Z",
-      "2026-09-28T05:21:46.764Z",
-      "2026-09-29T05:21:46.764Z",
-      "2026-09-30T05:21:46.764Z",
-      "2026-10-01T05:21:46.764Z",
-      "2026-10-02T05:21:46.764Z",
-      "2026-10-03T05:21:46.764Z",
-      "2026-10-04T05:21:46.764Z",
-      "2026-10-05T05:21:46.764Z",
-      "2026-10-06T05:21:46.764Z",
-      "2026-10-07T05:21:46.763Z"
+      "2026-09-07T06:19:05.707Z",
+      "2026-09-08T06:19:05.707Z",
+      "2026-09-09T06:19:05.707Z",
+      "2026-09-10T06:19:05.707Z",
+      "2026-09-11T06:19:05.707Z",
+      "2026-09-12T06:19:05.707Z",
+      "2026-09-13T06:19:05.707Z",
+      "2026-09-14T06:19:05.707Z",
+      "2026-09-15T06:19:05.707Z",
+      "2026-09-16T06:19:05.707Z",
+      "2026-09-17T06:19:05.707Z",
+      "2026-09-18T06:19:05.707Z",
+      "2026-09-19T06:19:05.707Z",
+      "2026-09-20T06:19:05.707Z",
+      "2026-09-21T06:19:05.707Z",
+      "2026-09-22T06:19:05.707Z",
+      "2026-09-23T06:19:05.707Z",
+      "2026-09-24T06:19:05.707Z",
+      "2026-09-25T06:19:05.707Z",
+      "2026-09-26T06:19:05.707Z",
+      "2026-09-27T06:19:05.707Z",
+      "2026-09-28T06:19:05.707Z",
+      "2026-09-29T06:19:05.707Z",
+      "2026-09-30T06:19:05.707Z",
+      "2026-10-01T06:19:05.707Z",
+      "2026-10-02T06:19:05.707Z",
+      "2026-10-03T06:19:05.707Z",
+      "2026-10-04T06:19:05.707Z",
+      "2026-10-05T06:19:05.707Z",
+      "2026-10-06T06:19:05.707Z",
+      "2026-10-07T06:19:05.700Z"
     ],
     "doneCounts": [
       0,
@@ -3130,7 +3158,7 @@
       385.2891466666667,
       399.0494733333333,
       412.8098,
-      412.8098
+      421.44599999999997
     ],
     "coverage": [
       0,
@@ -3295,7 +3323,7 @@
       0,
       0,
       0,
-      18833554
+      19040320
     ],
     "outputTokens": [
       0,
@@ -3328,39 +3356,39 @@
       0,
       0,
       0,
-      2858005
+      2944083
     ],
     "avgRisk": [
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
       1.144117647058824
     ],
     "velocityByWeek": {
