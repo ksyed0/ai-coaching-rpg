@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CALIBRATE_USAGE, plannedCalls, runCalibrate } from "../cli.js";
+import { loadProbes } from "../probe-load.js";
+import { loadScenario, loadRubrics } from "@acr/script";
 import type { Judge } from "../judge.js";
 import { fakeJudge, type FakeJudge } from "./fake-judge.js";
 
@@ -84,7 +86,8 @@ describe("pnpm calibrate: runs", () => {
     expect(r.run?.judges.map((j) => j.judge.label)).toEqual(["primary", "second"]);
     // blind: neither judge's requests carry anything from the other judge
     for (const req of b.calls) expect(JSON.stringify(req)).not.toMatch(/fake-model-primary|Because discovery/);
-    expect((await readdir(path.join(dir, "esc-scope-creep-01"))).filter((f) => f.endsWith(".json")).sort()).toEqual(["fake-model-primary-v1.json", "fake-model-second-v1.json"]);
+    // a subset run (--only) never writes a summary file
+    expect((await readdir(path.join(dir, "esc-scope-creep-01"))).filter((f) => f.endsWith(".json"))).toEqual([]);
   });
   it("--strict exits 1 when a judge FAILs; without it the exit code stays 0", async () => {
     const flat = () => fakeJudge(criteria, () => Object.fromEntries(criteria.map((c) => [c, 3])));
@@ -169,10 +172,30 @@ describe("pnpm calibrate: the planned call count", () => {
     expect(r.outText.indexOf("planned:")).toBeLessThan(r.outText.indexOf("# Calibration"));
     expect(a.calls.length + b.calls.length).toBe(8);
   });
-  it("plannedCalls is the per-probe player count x repeat x judges", async () => {
-    const r = await run([...SCN, "--out", dir, "--only", "listening-contrast-01"], { judges: [judge(good())] });
-    expect(r.outText).toMatch(/planned: 2 model calls/);
-    expect(plannedCalls).toBeTypeOf("function");
+  it("plannedCalls is the per-probe player count x repeat x judges: exact counts on the starter set", async () => {
+    // By hand: the 6 single probes each have one player with 2+ lines (delivery_lead; client_sponsor is an AI character and does not count),
+    // listening-contrast-01 has delivery_lead and account_manager (tech_lead speaks once), negotiation-contrast-01 has delivery_lead and
+    // account_manager (client_sponsor again not counted): 6 + 2 + 2 = 10 calls per run. Counting AI characters too would give 17.
+    const scenario = await loadScenario(FRIDAY);
+    const { rubrics } = await loadRubrics(FRIDAY, scenario);
+    const { probes } = await loadProbes(FRIDAY, scenario, rubrics);
+    expect(probes).toHaveLength(8);
+    expect(plannedCalls(probes, scenario, 1, 1)).toBe(10);
+    expect(plannedCalls(probes, scenario, 3, 2)).toBe(60);
+    expect(plannedCalls(probes.filter((p) => p.id === "listening-contrast-01"), scenario, 1, 1)).toBe(2);
+    expect(plannedCalls(probes.filter((p) => p.id === "disc-l2"), scenario, 5, 1)).toBe(5);
+    const r = await run([...SCN, "--out", dir, "--repeat", "2"], { judges: [judge(good())] });
+    expect(r.outText).toMatch(/planned: 20 model calls \(8 probes, repeat 2, 1 judge;/);
+  });
+  it("never counts an AI character, however often it speaks", async () => {
+    const scn = await scenarioWith({ "npc-01.yaml": single("npc-01", [
+      line("client_sponsor", "We need the module."), line("delivery_lead", "What is it for?"), line("client_sponsor", "Finance."),
+      line("client_sponsor", "By Friday."), line("delivery_lead", "Who reads its output?"),
+    ]) });
+    const a = good();
+    const r = await run(["--scenario", scn, "--out", dir], { judges: [judge(a)] });
+    expect(r.outText).toMatch(/planned: 1 model call \(1 probe, repeat 1, 1 judge;/);
+    expect(a.calls).toHaveLength(1);
   });
 });
 
@@ -200,6 +223,24 @@ describe("pnpm calibrate: output", () => {
     const again = await run([...SCN, "--out", dir, "--only", "disc-l1", "--json", file], { judges: [judge(good())] });
     expect(again.exitCode).toBe(2);
     expect(again.errText).toMatch(/already exists/);
+  });
+  it("prints each probe problem on its own line, and hostile text in a message never reaches the terminal", async () => {
+    const scn = await scenarioWith({ "a.yaml": "kind: single\nid: a\n", "b.yaml": "kind: nope\n" });
+    const r = await run(["--scenario", scn, "--out", dir], { judges: [judge(good())] });
+    expect(r.exitCode).toBe(2);
+    const lines = r.errText.split("\n");
+    expect(lines[0]).toMatch(/^error: the probes are invalid \(2 problems\):$/);
+    expect(lines.filter((l) => l.startsWith("  - "))).toHaveLength(2);
+    expect(r.errText).not.toContain("⏎");
+    const p = good();
+    let n = 0;
+    const hostile = "boom \u001b[2J\u202eevil\u200b\u061c\u2028tail";
+    const exploding: Judge = { label: "primary", model: "fake-model-primary", family: "fake", get provider() { if (++n > 1) throw new Error(hostile); return p; } };
+    const h = await run([...SCN, "--out", dir], { judges: [exploding] });
+    const failLine = h.err.find((l) => l.includes("run failed"))!;
+    expect(failLine).toMatch(/^judge primary: run failed: boom /);
+    expect(failLine.trimEnd().split("\n")).toHaveLength(1);
+    expect(failLine).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u061c\u200b-\u200f\u2028-\u202e]/);
   });
   it("prints at most 25 lines of the report summary, made printable", async () => {
     const r = await run([...SCN, "--out", dir], { judges: [judge(good()), judge(good(), "second")] });
@@ -230,6 +271,26 @@ describe("pnpm calibrate: usage and input errors", () => {
       expect(r.errText, JSON.stringify(argv)).toMatch(/^error: /);
     }
     expect(await readdir(dir)).toEqual([]);
+  });
+  it("refuses the label primary for --judge, a probe listed twice in --only, a file as --scenario and a --json file in a missing directory", async () => {
+    const localEnv = { MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://127.0.0.1:3/v1", NPC_MODEL: "gemma-4-31b" };
+    const prim = await run([...SCN, "--judge", "primary,m1,http://127.0.0.1:1/v1"], {}, localEnv);
+    expect(prim.exitCode).toBe(2);
+    expect(prim.errText).toMatch(/label primary is taken/);
+    const twice = await run([...SCN, "--out", dir, "--only", "disc-l1,disc-l1"], { judges: [judge(good())] });
+    expect(twice.exitCode).toBe(2);
+    expect(twice.errText).toMatch(/--only lists a probe twice/);
+    await writeFile(path.join(dir, "file.txt"), "x");
+    const file = await run(["--scenario", "file.txt", "--out", dir], { judges: [judge(good())] });
+    expect(file.exitCode).toBe(2);
+    expect(file.errText).toMatch(/is not a directory/);
+    const missing = await run(["--scenario", "no/such/dir"], { judges: [judge(good())] });
+    expect(missing.errText).toMatch(/does not exist/);
+    const p = good();
+    const json = await run([...SCN, "--out", dir, "--json", path.join(dir, "nope", "run.json")], { judges: [judge(p)] });
+    expect(json.exitCode).toBe(2);
+    expect(json.errText).toMatch(/--json: the directory .* does not exist/);
+    expect(p.calls).toHaveLength(0);
   });
   it("allows at most one --judge and never echoes a bad spec", async () => {
     const two = await run([...SCN, "--judge", "b,m1,http://127.0.0.1:1/v1", "--judge", "c,m2,http://127.0.0.1:2/v1"], {}, { MODEL_PROVIDER: "local", LOCAL_BASE_URL: "http://127.0.0.1:3/v1", NPC_MODEL: "gemma-4-31b" });
@@ -274,5 +335,101 @@ describe("pnpm calibrate: usage and input errors", () => {
       expect(r.errText).toMatch(/w\.yaml: .*Unresolved tag/);
       expect(emit).not.toHaveBeenCalled();
     } finally { emit.mockRestore(); }
+  });
+});
+
+describe("pnpm calibrate: summary files are replaced only by a complete run", () => {
+  const summary = () => path.join(dir, "esc-scope-creep-01", "fake-model-primary-v1.json");
+  async function baseline(): Promise<string> {
+    expect(await exists(summary())).toBe(false);
+    const r = await run([...SCN, "--out", dir], { judges: [judge(good())] });
+    expect(r.exitCode).toBe(0);
+    expect(r.outText).toMatch(/summaries updated: fake-model-primary-v1\.json/);
+    return readFile(summary(), "utf8");
+  }
+  const runDirs = async () => (await readdir(path.join(dir, "esc-scope-creep-01"), { withFileTypes: true })).filter((e) => e.isDirectory()).length;
+
+  it("a first-ever complete run creates the summary, and a later complete run replaces it", async () => {
+    const before = await baseline();
+    expect(JSON.parse(before).probes.total).toBe(8);
+    const flat = fakeJudge(criteria, () => Object.fromEntries(criteria.map((c) => [c, 3])));
+    await run([...SCN, "--out", dir], { judges: [judge(flat)] });
+    const after = JSON.parse(await readFile(summary(), "utf8"));
+    expect(after.label).toBe("FAIL");
+    expect(await readFile(summary(), "utf8")).not.toBe(before);
+  });
+  it.each([
+    ["subset (--only)", ["--only", "disc-l1"], () => ({ judges: [judge(good())] })],
+    ["one criterion (--criteria probe)", ["--criteria", "probe"], () => ({ judges: [judge(good())] })],
+    ["no usable answers", [], () => ({ judges: [judge(fakeJudge(criteria, () => ({ discovery: 3 }), () => true))] })],
+    ["run failed", [], () => {
+      const p = good();
+      let n = 0;
+      const j: Judge = { label: "primary", model: "fake-model-primary", family: "fake", get provider() { if (++n > 2) throw new Error("boom"); return p; } };
+      return { judges: [j] };
+    }],
+    ["aborted", [], () => {
+      const ac = new AbortController();
+      let calls = 0;
+      const j = fakeJudge(criteria, () => { if (++calls === 3) ac.abort(); return { discovery: 3 }; });
+      return { judges: [judge(j)], signal: ac.signal };
+    }],
+  ] as [string, string[], () => Extra][])("leaves the summary untouched when the run is %s, and still writes the run", async (reason, argv, extra) => {
+    const before = await baseline();
+    const r = await run([...SCN, "--out", dir, ...argv], extra());
+    expect(r.errText + r.outText).toContain(`summary for fake-model-primary not updated: ${reason}`);
+    expect(await readFile(summary(), "utf8")).toBe(before);
+    expect(await runDirs()).toBe(2);
+  });
+  it("never creates a summary file for a skipped judge", async () => {
+    const r = await run([...SCN, "--out", dir, "--only", "disc-l1,disc-l2"], { judges: [judge(good())] });
+    expect(r.exitCode).toBe(0);
+    expect(await exists(summary())).toBe(false);
+    expect(await runDirs()).toBe(1);
+  });
+  it("updates the complete judge's summary and skips only the other one", async () => {
+    const down = fakeJudge(criteria, () => ({ discovery: 3 }), () => true);
+    const r = await run([...SCN, "--out", dir], { judges: [judge(good()), judge(down, "second")] });
+    expect(r.errText + r.outText).toContain("summary for fake-model-second not updated: no usable answers");
+    expect(await exists(summary())).toBe(true);
+    expect(await exists(path.join(dir, "esc-scope-creep-01", "fake-model-second-v1.json"))).toBe(false);
+  });
+});
+
+describe("pnpm calibrate: files on disk and write failures", () => {
+  it("scrubs a secret a judge put in a rationale from every file and from the output", async () => {
+    const secret = "sk-live-RATIONALE-777";
+    const leaky = fakeJudge(criteria, () => ({ discovery: 3, listening: 3, negotiation: 3 }), undefined, undefined, (id) => `Because ${id} and ${secret}.`);
+    const r = await run([...SCN, "--out", dir, "--json", path.join(dir, "run.json")], { judges: [judge(leaky)] }, { LOCAL_API_KEY: secret });
+    expect(r.exitCode).toBe(0);
+    expect(r.outText + r.errText).not.toContain(secret);
+    const files: string[] = [];
+    const walk = async (d: string): Promise<void> => {
+      for (const e of await readdir(d, { withFileTypes: true })) {
+        const f = path.join(d, e.name);
+        if (e.isDirectory()) await walk(f); else files.push(f);
+      }
+    };
+    await walk(dir);
+    expect(files.filter((f) => f.endsWith("calibration-report.md") || f.endsWith("calibration.json") || f.endsWith("-v1.json") || f.endsWith("run.json"))).toHaveLength(4);
+    for (const f of files) expect(await readFile(f, "utf8"), f).not.toContain(secret);
+    const json = await readFile(files.find((f) => f.endsWith("calibration.json"))!, "utf8");
+    expect(json).toContain("[redacted]");
+  });
+  it("exits 1 when the run cannot be written", async () => {
+    await writeFile(path.join(dir, "out"), "a file where the data directory should be");
+    const r = await run([...SCN, "--out", path.join(dir, "out"), "--only", "disc-l1"], { judges: [judge(good())] });
+    expect(r.exitCode).toBe(1);
+    expect(r.errText).toMatch(/^error: cannot write the results: /m);
+  });
+  it("exits 1 and names the run directory it wrote when only the summaries fail", async () => {
+    const out = path.join(dir, "cal-out");
+    await mkdir(path.join(out, "esc-scope-creep-01", "fake-model-primary-v1.json", "occupied"), { recursive: true });
+    const r = await run([...SCN, "--out", out], { judges: [judge(good())] });
+    expect(r.exitCode).toBe(1);
+    const msg = r.err.find((l) => l.startsWith("error: "))!;
+    expect(msg).toMatch(/^error: the run was written to cal-out\/esc-scope-creep-01\/[0-9T-]+Z?[^/ ]* but the summaries could not be updated: calibration summary: could not replace esc-scope-creep-01\/fake-model-primary-v1\.json/);
+    expect(msg).not.toContain("<tmp>");
+    expect(msg).not.toContain(dir);
   });
 });

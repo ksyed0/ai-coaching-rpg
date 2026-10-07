@@ -16,7 +16,10 @@ export const UNREACHABLE = "fake judge: unreachable on purpose";
  * Answers participant calls with a score per criterion chosen by `decide`, quoting a piece of the participant's first line (`quoteOf` can change the quote).
  * Throws on any request it cannot read as a participant request, and records it in `unexpected`, because `evaluateSession` swallows provider errors.
  */
-export function fakeJudge(criteriaIds: string[], decide: Decide, failFor?: (role: string) => boolean, quoteOf: (line: string) => string = (l) => l.slice(0, 60)): FakeJudge {
+export function fakeJudge(
+  criteriaIds: string[], decide: Decide, failFor?: (role: string) => boolean, quoteOf: (line: string) => string = (l) => l.slice(0, 60),
+  rationaleOf: (criterion: string) => string = (id) => `Because ${id}.`,
+): FakeJudge {
   const calls: ChatRequest[] = [];
   const unreachable: string[] = [];
   const unexpected: string[] = [];
@@ -32,7 +35,7 @@ export function fakeJudge(criteriaIds: string[], decide: Decide, failFor?: (role
       const first = own[0];
       const levels = decide({ role, transcript });
       const criteria = criteriaIds.map((id) => ({
-        id, score: levels[id] ?? null, rationale: `Because ${id}.`, confidence: "high",
+        id, score: levels[id] ?? null, rationale: rationaleOf(id), confidence: "high",
         evidence: first ? [{ seq: Number(first[1]), quote: quoteOf(first[2]!) }] : [],
       }));
       yield JSON.stringify({ criteria, strengths: [], development_points: [], next_actions: [] });

@@ -3,7 +3,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { isSafeId } from "@acr/events";
 import type { Scenario } from "@acr/script";
-import { scrubText } from "../demo/report.js";
+import { scrubDeep, scrubText } from "../demo/report.js";
 import { loadEvaluationInput, secretValues, type Out } from "../evaluator/cli.js";
 import { parseEvalConfig } from "../evaluator/config.js";
 import { MIN_UTTERANCES } from "../evaluator/evaluate.js";
@@ -27,10 +27,11 @@ export const CALIBRATE_USAGE = [
   "  --criteria all     the judge scores every individual criterion (default, as in a real evaluation); probe: only the probe's criterion",
   "  --variant v1       the evaluator prompt variant (only v1 exists so far)",
   "  --out <dir>        results go to <dir>/<scenario-id>/ (default: data/calibration, git-ignored). Run reports are never overwritten",
+  "                     the summary per judge (<model>-<variant>.json) is replaced only by a complete run: all probes, --criteria all, no failure or abort",
   "  --strict           exit 1 when any judge is labelled FAIL (for CI)",
   "  --json -           print the run as JSON to stdout (the narration then goes to stderr; run `pnpm -s calibrate ...`); --json <file> writes it to a new file",
   "  --help             this text",
-  "exit codes: 0 results written (whatever the labels), 1 --strict and a judge FAILed, 2 usage, input or output error",
+  "exit codes: 0 results written (whatever the labels), 1 --strict and a judge FAILed, or the results could not be written; 2 usage or input error (nothing was run)",
   "the primary judge is the evaluator's configuration (MODEL_PROVIDER, EVAL_MODEL or NPC_MODEL, EVAL_*); MODEL_PROVIDER=mock is refused.",
   "This sends the probe transcripts (synthetic text) to the judges' model providers and may cost money: the planned call count is printed first.",
 ].join("\n");
@@ -65,10 +66,11 @@ export function plannedCalls(probes: Probe[], scenario: Scenario, repeat: number
 const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? "" : "s"}`;
 const firstLine = (e: unknown): string => ((e instanceof Error ? e.message : String(e)).split("\n")[0] ?? "");
 
-/** `pnpm calibrate`. Never calls process.exit. Returns 0 results written, 1 --strict and a judge FAILed, 2 usage, input or output error. */
+/** `pnpm calibrate`. Never calls process.exit. Returns 0 results written, 1 --strict and a judge FAILed or the results could not be written, 2 usage or input error (nothing was run). */
 export async function runCalibrate(deps: CalibrateDeps): Promise<{ exitCode: number; run?: CalibrationRun }> {
   const secrets = secretValues(deps.env);
-  const clean = (m: string): string => scrubText(m, secrets).split("\n").map((l) => printable(l, MAX_LINE)).join("\n");
+  // Split first: scrubText turns a newline into a visible marker, and a multi-line message (the probe problems) prints one line each.
+  const clean = (m: string): string => m.split("\n").map((l) => printable(scrubText(l, secrets), MAX_LINE)).join("\n");
   const err = (m: string) => deps.stderr.write(`${clean(m)}\n`);
   const fail = (m: string, usage = false) => { err(`error: ${m}`); if (usage) deps.stderr.write(`${CALIBRATE_USAGE}\n`); return { exitCode: 2 }; };
 
@@ -102,6 +104,7 @@ export async function runCalibrate(deps: CalibrateDeps): Promise<{ exitCode: num
   if (values.only !== undefined) {
     only = values.only.split(",").map((s) => s.trim());
     if (only.some((s) => s === "")) return fail("--only needs a comma-separated list of probe ids (no empty entries)");
+    if (new Set(only).size !== only.length) return fail("--only lists a probe twice");
   }
   const criteria = values.criteria ?? "all";
   if (criteria !== "all" && criteria !== "probe") return fail("--criteria must be all or probe");
@@ -119,10 +122,14 @@ export async function runCalibrate(deps: CalibrateDeps): Promise<{ exitCode: num
   const base = deps.cwd ?? deps.env.INIT_CWD ?? process.cwd();
   const jsonFile = values.json !== undefined && !toErr ? path.resolve(base, values.json) : undefined;
   if (jsonFile && (await lstat(jsonFile).then(() => true, () => false))) return fail("--json: the file already exists (results are never overwritten)");
+  if (jsonFile && !(await stat(path.dirname(jsonFile)).catch(() => null))?.isDirectory()) return fail("--json: the directory for the file does not exist");
 
   // The scenario: relative to the current directory, else to the repository.
   const local = path.resolve(base, values.scenario);
-  const scenarioDir = (await stat(local).catch(() => null))?.isDirectory() ? local : path.resolve(deps.repoRoot, values.scenario);
+  const localStat = await stat(local).catch(() => null);
+  const scenarioDir = localStat ? local : path.resolve(deps.repoRoot, values.scenario);
+  const dirStat = localStat ?? (await stat(scenarioDir).catch(() => null));
+  if (dirStat && !dirStat.isDirectory()) return fail(`--scenario ${JSON.stringify(printable(values.scenario, 200))} is not a directory`);
   let input;
   try { input = await loadEvaluationInput(scenarioDir); } catch (e) { return fail(firstLine(e)); }
   for (const w of input.warnings) say(`warning: ${w}`);
@@ -147,40 +154,63 @@ export async function runCalibrate(deps: CalibrateDeps): Promise<{ exitCode: num
 
   const startedAt = (deps.now?.() ?? new Date()).toISOString();
   const reports: JudgeReport[] = [];
+  /** Why a judge's summary file must not be replaced by this run (null: the run is complete for that judge). */
+  const skipped = new Map<JudgeReport, string>();
   // Sequential, one judge at a time: a judge never sees another judge's output, and a failing judge cannot take the others down.
   for (const judge of judges) {
     if (deps.signal?.aborted) { err(`run aborted: judge ${judge.label} was not run`); continue; }
     const got: Outcome[] = [];
+    let threw = false;
     try {
       await runJudge(judge, chosen, input.scenario, input.rubrics, cfg, {
         repeat, allCriteria: criteria === "all", signal: deps.signal, onProgress: say, onOutcome: (o) => { got.push(o); },
       });
-    } catch (e) { err(`judge ${judge.label}: run failed: ${firstLine(e)} (the ${plural(got.length, "probe")} finished before it are kept)`); }
+    } catch (e) { threw = true; err(`judge ${judge.label}: run failed: ${firstLine(e)} (the ${plural(got.length, "probe")} finished before it are kept)`); }
     if (deps.signal?.aborted) err(`run aborted: judge ${judge.label} has results for ${got.length} of ${chosen.length} probes`);
-    reports.push(buildJudgeReport(judge, got, targets, chosen));
+    const report = buildJudgeReport(judge, got, targets, chosen);
+    const us = report.metrics.usability;
+    const reason = deps.signal?.aborted ? "aborted" : threw ? "run failed" : only ? "subset (--only)" : criteria !== "all" ? "one criterion (--criteria probe)"
+      : us.slots - us.unusable === 0 ? "no usable answers" : null;
+    if (reason) skipped.set(report, reason);
+    reports.push(report);
   }
   if (reports.length === 0) return fail("the run was aborted before any judge ran: nothing was written");
 
-  const run = buildRun({ scenario: { id: input.scenario.meta.id, version: input.scenario.meta.version }, rubrics: input.rubrics, variant, startedAt, probes: chosen, lint: loaded.warnings, judges: reports });
+  const built = buildRun({ scenario: { id: input.scenario.meta.id, version: input.scenario.meta.version }, rubrics: input.rubrics, variant, startedAt, probes: chosen, lint: loaded.warnings, judges: reports });
+  // Everything written or printed from here on is scrubbed: a judge may have put a secret into a rationale.
+  const run = scrubDeep(built, secrets);
   const dataDir = path.resolve(base, values.out ?? "data/calibration");
+  // A summary file is what reports will stamp as "the" calibration of a model: only a complete run may create or replace it.
+  const complete = run.judges.filter((_j, i) => !skipped.has(built.judges[i]!));
+  for (const [i, j] of built.judges.entries()) {
+    const reason = skipped.get(j);
+    if (reason) say(`summary for ${run.judges[i]!.judge.model} not updated: ${reason}`);
+  }
   let written;
+  try { written = await writeRun(run, dataDir); }
+  catch (e) { err(`error: cannot write the results: ${(e as NodeJS.ErrnoException).code ?? firstLine(e)}`); return { exitCode: 1, run }; }
   try {
-    written = await writeRun(run, dataDir);
-    const summaries = await writeSummaries(run, dataDir);
-    say(`summaries updated: ${summaries.map((f) => path.basename(f)).join(", ")}`);
+    if (complete.length) {
+      const summaries = await writeSummaries({ ...run, judges: complete }, dataDir);
+      say(`summaries updated: ${summaries.map((f) => path.basename(f)).join(", ")}`);
+    }
   } catch (e) {
-    const code = (e as NodeJS.ErrnoException).code;
-    return { ...fail(`cannot write the results: ${code ?? firstLine(e)}`), run };
+    const rel = path.join(path.basename(dataDir), path.relative(dataDir, written.dir));
+    err(`error: the run was written to ${rel} but the summaries could not be updated: ${firstLine(e)}`);
+    return { exitCode: 1, run };
   }
   say("");
   for (const l of renderMarkdown(run).split("\n").slice(0, SUMMARY_SCREEN)) say(l);
   say(`report written to ${written.markdown}`);
 
-  const json = JSON.stringify(run, (_k, v: unknown) => (typeof v === "string" ? scrubText(v, secrets) : v));
+  const json = JSON.stringify(run);
   if (toErr) deps.stdout.write(`${json}\n`);
   if (jsonFile) {
     try { await writeFile(jsonFile, `${json}\n`, { flag: "wx", mode: 0o600 }); say(`run JSON written to ${jsonFile}`); }
-    catch (e) { return { ...fail(`--json: cannot write the file: ${(e as NodeJS.ErrnoException).code === "EEXIST" ? "it already exists" : (e as NodeJS.ErrnoException).code ?? "failed"}`), run }; }
+    catch (e) {
+      err(`error: --json: cannot write the file: ${(e as NodeJS.ErrnoException).code === "EEXIST" ? "it already exists" : (e as NodeJS.ErrnoException).code ?? "failed"}`);
+      return { exitCode: 1, run };
+    }
   }
   const failed = run.judges.filter((j) => j.label.label === "FAIL").map((j) => j.judge.label);
   if (values.strict && failed.length) { err(`--strict: judge ${failed.join(", ")} labelled FAIL`); return { exitCode: 1, run }; }
