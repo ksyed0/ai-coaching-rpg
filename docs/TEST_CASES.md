@@ -2,14 +2,116 @@
 
 Test cases are added as stories move to In Progress. Unit and simulation tests live beside the code; this file tracks manual and acceptance tests.
 
-## US-0033: per-role player join codes (test case ids not yet assigned)
+## US-0033: per-role player join codes
 
-The cases below have no `TC-` id yet: no TC ids are reserved for this story and the implementer may not edit `docs/ID_REGISTRY.md`. The controller assigns ids (the next free id in the TC sequence, per the registry) when the story is merged. Each is also covered by automated tests, named in brackets.
+TC-0001: Join codes are issued per player role and shown once
+Related Story: US-0033
+Related Task: TASK-0033
+Related AC: AC-0120
+Type: Functional
+Preconditions: No session log for the session id (or `./run.sh --dev --fresh`).
+Steps:
+  1. Start the server.
+  2. Read its output, `data/sessions/<id>.jsonl` and `data/sessions/<id>.codes.json`.
+Expected Result: One `PLAYER JOIN CODES` block with one `XXXX-XXXX-XXXX` code per player role; no code in any log line, in the session log or in the codes file (hashes only, mode 0600).
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: main.test.ts `test_bootstrap_issues_codes_...`, demo F-24 and F-28.
 
-1. **Codes are issued and shown once (AC-0120).** Start the server on a new session (`./run.sh --dev --fresh`). Expected: one `PLAYER JOIN CODES` block with one `XXXX-XXXX-XXXX` code per player role; no code in any other output line, in `data/sessions/<id>.jsonl` or in `data/sessions/<id>.codes.json` (hashes only, mode 0600). [main.test.ts `test_bootstrap_issues_codes_...`, demo F-24 and F-28]
-2. **A player needs the code (AC-0120).** `pnpm play --role delivery_lead --name A`, type delivery_lead's code at the hidden prompt. Expected: joined with the brief; the code is not echoed. [ws-server.join-codes.test.ts, demo F-01]
-3. **One generic refusal (AC-0121, negative).** Join delivery_lead with no code, with a wrong code, with tech_lead's code; join `client_sponsor` and `no_such_role` with a valid code. Expected: each gets the same `unauthorized`, the connection closes, the client says to check the join code; a free role and a taken one answer alike. [ws-server.join-codes.test.ts, demo F-02]
-4. **Refusals count against the limits (AC-0121, edge).** Six wrong codes from one address within a minute. Expected: the next handshake from that address gets HTTP 429 for a minute; another address connects. [ws-server.join-codes.test.ts `test_join_repeated_wrong_codes_...`]
-5. **Credentials stay separate (AC-0122).** The facilitator joins without a code; a join code given as the facilitator token, and the token given as a join code, are refused. A player still connected cannot be replaced by someone holding its code (`role_taken`); a rejoin with the reconnect token needs no code. [ws-server.join-codes.test.ts, demo F-22]
-6. **Codes survive a restart (AC-0122, US-0018).** Start a session, kill the server, start it again. Expected: no codes are printed again (a line says the earlier codes still apply); the players rejoin with the same codes; a join without a code is refused. `./run.sh --fresh` prints new codes and the old ones are refused. Moving `<id>.codes.json` aside and restarting resumes the session with new codes (a warning says the old ones stopped working). A corrupt codes file stops the start with a message and changes nothing. [main.resume.test.ts (including a real SIGKILL), session-store.test.ts, demo F-37, F-40, F-41]
-7. **Demo against a running server.** `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` against a fresh server. Expected: the external checks pass and no code is printed; without `JOIN_CODES` F-01 fails with `unauthorized` and the notice says how to pass the codes. [runner.test.ts]
+TC-0002: A player joins with their role's code
+Related Story: US-0033
+Related Task: TASK-0033
+Related AC: AC-0120
+Type: Functional
+Preconditions: A running server with its join codes.
+Steps:
+  1. `pnpm play --role delivery_lead --name A`.
+  2. Type delivery_lead's code at the hidden prompt (try lower case, spaces, O for 0).
+Expected Result: Joined with delivery_lead's brief; the code is never echoed.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: ws-server.join-codes.test.ts, join-codes.test.ts (Crockford folding), demo F-01.
+
+TC-0003: Missing, wrong or misdirected codes get one generic refusal
+Related Story: US-0033
+Related Task: TASK-0033
+Related AC: AC-0121
+Type: Negative
+Preconditions: A running server; delivery_lead held by a connected player.
+Steps:
+  1. Join delivery_lead with no code, with a wrong code and with tech_lead's code.
+  2. Join `client_sponsor` and `no_such_role` with a valid code.
+  3. Send a code containing a non-ASCII look-alike (the long s).
+Expected Result: Every attempt gets the same `unauthorized`, the connection closes (1008) and the client says to check the join code; a free and a taken role answer alike.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: ws-server.join-codes.test.ts, join-codes.test.ts, demo F-02.
+
+TC-0004: Refused joins count against the per-address limits
+Related Story: US-0033
+Related Task: TASK-0033
+Related AC: AC-0121
+Type: Edge Case
+Preconditions: A running server reached from one address.
+Steps:
+  1. Send six wrong codes from one address within a minute.
+  2. Open a new connection from that address, then from another address.
+Expected Result: The address gets HTTP 429 for a minute (the facilitator's handshake from that address too); another address connects.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: ws-server.join-codes.test.ts `test_join_repeated_wrong_codes_...`. Players sharing an address (NAT, Docker Desktop) share this limit.
+
+TC-0005: The facilitator token, join codes and reconnect token stay separate
+Related Story: US-0033
+Related Task: TASK-0033
+Related AC: AC-0122
+Type: Functional
+Preconditions: A server with `FACILITATOR_TOKEN` set and a connected delivery_lead.
+Steps:
+  1. Join as facilitator without a code; with a join code as the token.
+  2. Join delivery_lead with the token as its code.
+  3. Join delivery_lead with its code while its player is connected.
+  4. Rejoin delivery_lead with the live connection's reconnect token and no code.
+Expected Result: Step 1 joins with the token and is refused with a code; step 2 is `unauthorized`; step 3 is `role_taken`; step 4 joins.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: ws-server.join-codes.test.ts, demo F-22.
+
+TC-0006: Join codes across a restart
+Related Story: US-0033
+Related Task: TASK-0033
+Related AC: AC-0122
+Type: Regression
+Preconditions: A started session (the facilitator typed `/start`).
+Steps:
+  1. Kill the server and start it again.
+  2. Rejoin with the old codes; try a join without a code.
+  3. Start with `./run.sh --fresh`; try the old codes.
+  4. Restart before `/start`; move `<id>.codes.json` aside and restart; corrupt it and restart a started session.
+Expected Result: After the restart of the started session no codes are printed (a line says they still apply), the old codes work and a codeless join is refused; every other start prints new codes and the old ones are refused; a corrupt codes file stops the start without changing anything.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: main.resume.test.ts (including a real SIGKILL), main.test.ts, session-store.test.ts, demo F-37, F-40, F-41.
+
+TC-0007: A start that fails before showing the codes withdraws them
+Related Story: US-0033
+Related Task: TASK-0033
+Related AC: AC-0120
+Type: Negative
+Preconditions: The server's port is taken (or the model key is missing).
+Steps:
+  1. Start the server; it fails.
+  2. Free the port (or set the key) and start again.
+Expected Result: The failed start shows no codes and leaves no codes file; the next start shows new codes, so nobody is locked out by unseen codes.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: main.test.ts `test_bootstrap_listen_fails_...`, `test_bootstrap_missing_api_key_...`, `..._withdraws_reissued_codes_...`, `..._display_that_throws_...`.
+
+Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
