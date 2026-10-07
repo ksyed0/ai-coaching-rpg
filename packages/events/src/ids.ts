@@ -22,7 +22,7 @@
 export const PROTOTYPE_KEYS: readonly string[] = Object.freeze(["__proto__", "constructor", "prototype"]);
 /** The id the facilitator's connection uses: no role may have it. */
 export const FACILITATOR_ROLE_ID = "facilitator";
-export const isPrototypeKey = (id: string): boolean => PROTOTYPE_KEYS.includes(id);
+export const isPrototypeKey = (id: string): boolean => typeof id === "string" && PROTOTYPE_KEYS.includes(id);
 /** A role id that may never be given to a scenario role, nor a join code. */
 export const isReservedRoleId = (id: string): boolean => id === FACILITATOR_ROLE_ID || isPrototypeKey(id);
 
@@ -34,20 +34,21 @@ export const SCENARIO_ID_PATTERN = /^[a-z0-9_-]+$/;
 /** The same characters as a regular-expression class, for code that reads an id out of a longer text (a prompt line); it must not drift from the pattern above. */
 export const SCENARIO_ID_CLASS = "[a-z0-9_-]";
 export const SCENARIO_ID_MESSAGE = "ids are lowercase letters, digits, _ or -";
-export const isScenarioId = (id: string): boolean => SCENARIO_ID_PATTERN.test(id);
+export const isScenarioId = (id: string): boolean => typeof id === "string" && SCENARIO_ID_PATTERN.test(id);
 
 /** Rubric ids, criterion ids and the role ids of evaluator report files: a scenario id of at most 64 characters. */
 export const FILE_SAFE_ID_PATTERN = /^[a-z0-9_-]{1,64}$/;
-export const isFileSafeId = (id: string): boolean => FILE_SAFE_ID_PATTERN.test(id);
+export const isFileSafeId = (id: string): boolean => typeof id === "string" && FILE_SAFE_ID_PATTERN.test(id);
 
 /** Session ids and learning-objective ids: letters of either case, digits, `_`, `-`, 1 to 64. */
 export const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-export const isSafeId = (id: string): boolean => SAFE_ID_PATTERN.test(id);
+/** Strings only: `RegExp.test` would turn undefined, null or `["a"]` into "undefined", "null" or "a" and accept them. */
+export const isSafeId = (id: string): boolean => typeof id === "string" && SAFE_ID_PATTERN.test(id);
 export const LEARNING_OBJECTIVE_ID_MESSAGE = "learning objective ids are 1 to 64 letters, digits, _ or -";
 
 /** A role key an operator types for another server (the demo's JOIN_CODES `role=CODE`): letters of either case, digits, `_`, `-`, 1 to 128. */
 export const CLIENT_ROLE_KEY_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
-export const isClientRoleKey = (v: string): boolean => CLIENT_ROLE_KEY_PATTERN.test(v);
+export const isClientRoleKey = (v: string): boolean => typeof v === "string" && CLIENT_ROLE_KEY_PATTERN.test(v);
 
 /** The single source of truth for what a session id may be (it becomes a file name). */
 export const isValidSessionId = (id: string): boolean => isSafeId(id);
@@ -59,4 +60,4 @@ export const CLIENT_ID_MAX_CHARS = 128;
 /** C0 controls, DEL and C1 controls. */
 export const hasControlCharacters = (v: string): boolean => /[\u0000-\u001f\u007f-\u009f]/.test(v);
 /** The terminal client's check of an id or session it was given: 1 to 128 characters and no control character. */
-export const isClientSuppliedId = (v: string): boolean => v.length >= 1 && v.length <= CLIENT_ID_MAX_CHARS && !hasControlCharacters(v);
+export const isClientSuppliedId = (v: string): boolean => typeof v === "string" && v.length >= 1 && v.length <= CLIENT_ID_MAX_CHARS && !hasControlCharacters(v);

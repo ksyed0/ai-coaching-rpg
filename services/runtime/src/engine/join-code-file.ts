@@ -94,6 +94,7 @@ export function removeJoinCodesFile(dir: string, sessionId: string): void {
  * Returns how many were removed. A missing directory is fine.
  */
 export function sweepJoinCodesTemps(dir: string, sessionId: string): number {
+  assertSessionId(sessionId); // first: a hostile id is refused even when the directory is missing
   let entries: import("node:fs").Dirent[];
   try { entries = readdirSync(dir, { withFileTypes: true }); } catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return 0; throw err; }
   const prefix = `${codesFileName(sessionId)}.`;

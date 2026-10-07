@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import path from "node:path";
 import {
   CLIENT_ID_MAX_CHARS, FACILITATOR_ROLE_ID, FILE_SAFE_ID_PATTERN, PROTOTYPE_KEYS, SAFE_ID_MAX_CHARS, SAFE_ID_PATTERN, SCENARIO_ID_PATTERN,
-  hasControlCharacters, isClientSuppliedId, isFileSafeId, isPrototypeKey, isReservedRoleId, isSafeId, isScenarioId, isValidSessionId,
+  hasControlCharacters, isClientRoleKey, isClientSuppliedId, isFileSafeId, isPrototypeKey, isReservedRoleId, isSafeId, isScenarioId, isValidSessionId,
 } from "../index.js";
 
 /** A small seeded generator, so a failing case is reproducible (no Math.random, no clock). */
@@ -38,10 +38,11 @@ describe("identifier rules: the shared module (US-0020, AC-0062)", () => {
     }
   });
 
-  it("refuses every pair of hostile pieces (1000+ generated names)", () => {
+  it("refuses every pair of hostile pieces (36 x 36 = 1,296 generated names)", () => {
     let n = 0;
     for (const a of HOSTILE) for (const b of HOSTILE) { n++; expect(isValidSessionId(a + b), JSON.stringify(a + b)).toBe(false); }
-    expect(n).toBeGreaterThan(1000);
+    expect(n).toBe(HOSTILE.length * HOSTILE.length);
+    expect(n).toBe(1296);
   });
 
   it("is anchored at both ends: a trailing newline, a leading newline and an embedded NUL never pass", () => {
@@ -88,6 +89,19 @@ describe("identifier rules: the shared module (US-0020, AC-0062)", () => {
       expect(isValidSessionId(id)).toBe(len <= SAFE_ID_MAX_CHARS);
     }
     expect(isValidSessionId("")).toBe(false);
+  });
+
+  it("refuses anything that is not a string (RegExp.test would coerce undefined, null and arrays to text)", () => {
+    for (const v of [undefined, null, ["a"], { toString: () => "a" }, 1, true, Symbol.iterator] as unknown[]) {
+      expect(isValidSessionId(v as string), String(typeof v)).toBe(false);
+      expect(isSafeId(v as string)).toBe(false);
+      expect(isFileSafeId(v as string)).toBe(false);
+      expect(isScenarioId(v as string)).toBe(false);
+      expect(isClientSuppliedId(v as string)).toBe(false);
+      expect(isClientRoleKey(v as string)).toBe(false);
+    }
+    expect(isValidSessionId("undefined")).toBe(true); // the string is a fine name; only the value undefined is refused
+    expect(isReservedRoleId(undefined as unknown as string)).toBe(false);
   });
 
   it("keeps the three families and their differences exactly", () => {

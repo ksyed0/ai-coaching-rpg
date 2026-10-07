@@ -190,6 +190,16 @@ export class SessionLockError extends Error {
 
 /** Lock paths this process holds: a second lock on the same session inside one process is refused like one from another process. */
 const HELD = new Set<string>();
+/** The same locks by device and inode: on a case-insensitive file system (macOS APFS, Windows) `LOCAL.lock` and `local.lock` are one file under two spellings. */
+const HELD_IDENT = new Set<string>();
+const identKey = (i: { dev: number; ino: number }): string => `${i.dev}:${i.ino}`;
+/** Is this lock file one this process holds, under any spelling of its path? Opens it once and judges the descriptor. */
+function heldHere(file: string): boolean {
+  if (HELD.has(file)) return true;
+  let fd: number;
+  try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); } catch { return false; }
+  try { const st = fstatSync(fd); return HELD_IDENT.has(identKey(st)); } finally { closeSync(fd); }
+}
 
 function processAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
@@ -230,7 +240,7 @@ export class SessionLock {
   private constructor(file: string, fd: number, ident: Identity, now: () => number, heartbeatMs: number, onLost?: () => void, recheckDelay?: () => Promise<void>) {
     this.file = file; this.fd = fd; this.ident = ident; this.now = now; this.onLost = onLost;
     this.recheckDelay = recheckDelay ?? (() => new Promise((r) => setTimeout(r, LOCK_RECHECK_MS)));
-    HELD.add(file);
+    HELD.add(file); HELD_IDENT.add(identKey(ident));
     this.timer = setInterval(() => { void this.heartbeat(); }, heartbeatMs);
     this.timer.unref();
   }
@@ -250,7 +260,7 @@ export class SessionLock {
       try { fd = openSync(file, createFlags, 0o600); }
       catch (err) {
         if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-        if (HELD.has(file)) throw new SessionLockError("locked", "this session log is already open in this server process");
+        if (heldHere(file)) throw new SessionLockError("locked", "this session log is already open in this server process");
         const verdict = SessionLock.judge(file, { staleMs, now, host, pid, isAlive });
         if (verdict === "gone") continue;
         if (verdict.stale === false) throw new SessionLockError("locked", verdict.message);
@@ -373,7 +383,7 @@ export class SessionLock {
   release(): void {
     this.released = true;
     this.stopTimer();
-    HELD.delete(this.file);
+    HELD.delete(this.file); HELD_IDENT.delete(identKey(this.ident));
     if (this.fd === null) return;
     const ours = this.verify();
     try { closeSync(this.fd); } catch { /* already closed */ }
@@ -385,7 +395,7 @@ export class SessionLock {
   abandon(): void {
     this.released = true;
     this.stopTimer();
-    HELD.delete(this.file);
+    HELD.delete(this.file); HELD_IDENT.delete(identKey(this.ident));
     if (this.fd !== null) { try { closeSync(this.fd); } catch { /* already closed */ } }
     this.fd = null;
   }

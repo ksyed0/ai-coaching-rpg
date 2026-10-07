@@ -282,14 +282,14 @@ Related AC: AC-0062, AC-0063
 Type: Negative
 Preconditions: An empty private data directory.
 Steps:
-  1. Start the server with `SESSION_ID` set to `..`, `../x`, `a/b`, `a.b`, `.hidden`, `x.lock`, a name with a NUL or newline, `(a|.*)` and a 65-character name (`SESSION_ID=... pnpm start`), and run `pnpm demo --fast --session ../x`.
+  1. Start the server with `SESSION_ID` set to `..`, `../x`, `a/b`, `a.b`, `.hidden`, `x.lock`, `(a|.*)` and a 65-character name (`SESSION_ID=... pnpm --filter @acr/runtime start`; a NUL cannot be passed in an environment variable and a newline is covered by the automated tests), and run `pnpm demo --fast --session ../x`.
   2. Start it with `SESSION_ID=__proto__`, then `SESSION_ID=A-b_9`, and list the data directory.
   3. Read the self-review notes at the end of `docs/superpowers/plans/2026-10-01-slice-1-script-and-text-runtime.md` and `SessionEngine` in `services/runtime/src/engine/session-engine.ts`.
 Expected Result: 1: every start fails with `SESSION_ID ... is invalid: use 1 to 64 letters, digits, '_' or '-'` (the demo says `--session must be ...`) before any file or directory is created. 2: both start; every file in the data directory is named `<id>.<something>` directly inside it. 3: the plan says `SessionEngine.alert()` replaced the planned public `emit` and lists the later rulings; the engine has `private emit`, `private readonly log` and a public `alert()`.
 Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
-Notes: Automated: id-rules.files.test.ts (every function that takes a session id), id-rules.characterisation.test.ts (bootstrap, demo args, openSession), plan-text.test.ts.
+Notes: Automated: id-rules.files.test.ts (every function that takes a session id, with an existing and a missing directory), id-rules.characterisation.test.ts (bootstrap, demo args, openSession), plan-text.test.ts.
 
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 

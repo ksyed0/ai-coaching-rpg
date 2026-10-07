@@ -137,15 +137,13 @@ describe("characterisation: the session id rule (US-0020)", () => {
     expect(names).toContain(`${id}.codes.json`);
   });
 
-  it("openSession refuses a hostile id and leaves nothing outside (or inside) the data directory", async () => {
+  it("openSession refuses a hostile id before it creates the data directory or the lock: the parent listing is exactly unchanged", async () => {
     const scenario = await loadScenario(fixture);
     for (const [id, , , session] of ROWS) {
       if (session) continue;
       const root = await mkdtemp(path.join(tmp, "open-"));
       await expect(openSession({ scenario, sessionId: id, dataDir: path.join(root, "d"), clock: new SystemClock(), mode: "resume" }), JSON.stringify(id)).rejects.toThrow();
-      expect(await readdir(root)).toEqual(expect.not.arrayContaining(["x.lock", "x.jsonl", "x"]));
-      const inner = await readdir(path.join(root, "d")).catch(() => []);
-      expect(inner).toEqual([]);
+      expect(await readdir(root), JSON.stringify(id)).toEqual([]); // not even the data directory "d" exists afterwards
     }
   });
 
