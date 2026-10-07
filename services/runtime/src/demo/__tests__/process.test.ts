@@ -41,7 +41,7 @@ describe("the real process", () => {
     expect(report).toMatchObject({ mode: "mock", summary: { failed: 0, passed: 29 } });
     expect(r.stderr).toContain("ACT 1");
     expect(demoDirs(tmp)).toEqual([]);
-  });
+  }, 90_000); // a real process (tsx or pnpm start-up): its own spawn timeout bounds it, not vitest's 5 s default
 
   const pnpmOk = spawnSync("pnpm", ["--version"], { encoding: "utf8" }).status === 0;
   it.skipIf(!pnpmOk)("`pnpm -s demo --fast --json -` from the repo root also gives pure JSON on stdout (no pnpm banners)", async () => {
@@ -50,7 +50,7 @@ describe("the real process", () => {
     expect(r.status).toBe(0);
     expect((JSON.parse(r.stdout) as { summary: { failed: number } }).summary.failed).toBe(0);
     expect(r.stderr).toContain("ACT 1");
-  });
+  }, 90_000); // a real process (tsx or pnpm start-up): its own spawn timeout bounds it, not vitest's 5 s default
 
   it.skipIf(!pnpmOk)("`pnpm demo --fast --json demo-report.json` lands the file in the directory pnpm was run from", async () => {
     const tmp = await privateTmp();
@@ -62,7 +62,7 @@ describe("the real process", () => {
       expect(existsSync(file)).toBe(true);
       expect(existsSync(path.join(runtimeDir, "demo-report.json"))).toBe(false);
     } finally { if (!had) await rm(file, { force: true }); }
-  });
+  }, 90_000); // a real process (tsx or pnpm start-up): its own spawn timeout bounds it, not vitest's 5 s default
 
   it.each([["SIGINT", 130], ["SIGTERM", 143]] as const)("%s mid-run cleans up (no temp dir left), reports the interruption and exits %i", async (signal, code) => {
     const tmp = await privateTmp();

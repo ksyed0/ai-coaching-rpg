@@ -9,13 +9,14 @@ import { loadRubrics, loadScenario, validateScenario, type Rubric, type Scenario
 import { REPO_ROOT } from "../main.js";
 import { DEMO_USAGE, parseDemoArgs } from "./args.js";
 import { playAudit } from "./audit.js";
-import { CHECKS, SECURITY_CHECKS, Recorder, buildMarkers, type RunKind } from "./checks.js";
+import { CHECKS, RESUME_CHECKS, SECURITY_CHECKS, Recorder, buildMarkers, type RunKind } from "./checks.js";
 import { newStory, type Ctx } from "./ctx.js";
 import { FAKE_KEY, makeTempDataDir, makeTempRoot, startLiveSystem, startMockSystem, startPlayerProvider, startShowcaseMockSystem, type System } from "./harness.js";
 import { PlayerBotGenerator } from "./player-bot.js";
 import { PlayerLines } from "./player-lines.js";
 import { playLab } from "./lab.js";
 import { playSecurityRoom } from "./security.js";
+import { playResumeRoom } from "./resume.js";
 import { TOKEN_RULE, isValidToken } from "../host/security.js";
 import { createNarrator, shouldColor } from "./narrator.js";
 import { buildReport, exitCodeFor, formatChecklist, scrubText, type CheckResult, type DemoMode, type Report } from "./report.js";
@@ -209,7 +210,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const startedMs = now();
   const holder: ShowcaseHolder = {};
   const rec = new Recorder({
-    kind, now, defs: showcase ? [...SHOWCASE_CHECKS, ...(opts.players === "generated" ? SHOWCASE_PLAYER_CHECKS : []), ...(opts.evaluate ? SHOWCASE_EVAL_CHECKS : []), ...(opts.live ? SHOWCASE_LIVE_CHECKS : [])] : opts.security ? [...CHECKS, ...SECURITY_CHECKS] : CHECKS, forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
+    kind, now, defs: showcase ? [...SHOWCASE_CHECKS, ...(opts.players === "generated" ? SHOWCASE_PLAYER_CHECKS : []), ...(opts.evaluate ? SHOWCASE_EVAL_CHECKS : []), ...(opts.live ? SHOWCASE_LIVE_CHECKS : [])] : [...CHECKS, ...(opts.security ? SECURITY_CHECKS : []), ...(opts.resume ? RESUME_CHECKS : [])], forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
     onResult: (r) => { if (r.status === "passed") n.ok(`${r.id} ${r.details}`); else if (r.status === "failed") n.fail(`${r.id} ${r.details}`); },
   });
   const cleanups: (() => Promise<void> | void)[] = [];
@@ -352,6 +353,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     await playStory(ctx, st);
     await playLab(ctx, st);
     await playSecurityRoom(ctx, st);
+    await playResumeRoom(ctx, st);
     await playAudit(ctx, st);
     if (st.broken) { rec.finish("prerequisite failed"); extra.push({ id: "STORY", title: "The story ran to its end", status: "failed", details: st.broken, durationMs: 0 }); }
   };

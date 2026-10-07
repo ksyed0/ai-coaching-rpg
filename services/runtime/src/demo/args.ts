@@ -12,7 +12,7 @@ export const MAX_MODEL_ID_CHARS = 200;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+-]*$/;
 
 export const DEMO_USAGE = [
-  "usage: pnpm demo [--fast] [--speed <x>] [--json <path|->] [--live] [--url <ws://host:port>] [--session <id>] [--transcript <path.md>] [--security] [--no-color] [--help]",
+  "usage: pnpm demo [--fast] [--speed <x>] [--json <path|->] [--live] [--url <ws://host:port>] [--session <id>] [--transcript <path.md>] [--security] [--resume] [--no-color] [--help]",
   "       pnpm demo --showcase [--scenario <dir>] [--max-lines <n>] [--max-fallbacks <n>] [--watchdog <minutes>] [--players scripted|generated] [--player-model <id>] [--no-intents] [--evaluate] [--eval-out <dir>] [--gm-trace <path.jsonl>] [--min-gm-exits <n>] [--max-false-exits <n>] [--live] [--fast] [--json <path|->]",
   `  --fast            no pacing delays (instant narration)`,
   `  --speed <x>       scale the pacing, ${MIN_SPEED} to ${MAX_SPEED} (default 1; 2 is twice as fast)`,
@@ -24,6 +24,8 @@ export const DEMO_USAGE = [
   "                    export the same variable (never a command-line value)",
   "  --security        also run the security room (F-31 to F-33): a facilitator token, rate limit, connection caps and Origin check",
   "                    on two extra in-process servers (not with --url or --showcase)",
+  "  --resume          also run the resume room (F-34 to F-43): a server killed mid-scene and restarted on its log, what a restart",
+  "                    refuses (another scenario, a corrupt log, a log another server holds) and the fresh and ended rotations (not with --url or --showcase)",
   "  --session <id>    session id (default: demo, or local with --url)",
   "  --no-color        plain output (also: NO_COLOR, or output that is not a terminal)",
   "  --showcase        play the longer scenario so the AI characters and the Game Master do substantial work (works with --live;",
@@ -64,11 +66,13 @@ export type DemoOptions = {
   maxFalseExits?: number;
   /** Only set with `--security`: adds the security room checks F-31 to F-33 to the default run. */
   security?: true;
+  /** Only set with `--resume`: adds the resume room checks F-34 to F-43 to the default run. */
+  resume?: true;
 };
 export type DemoArgsResult = { ok: true; opts: DemoOptions } | { ok: false; error: string; usage: string };
 
 const fail = (error: string): DemoArgsResult => ({ ok: false, error, usage: DEMO_USAGE });
-const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript", "players", "player-model", "no-intents", "evaluate", "eval-out", "gm-trace", "min-gm-exits", "max-false-exits", "security"];
+const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript", "players", "player-model", "no-intents", "evaluate", "eval-out", "gm-trace", "min-gm-exits", "max-false-exits", "security", "resume"];
 const hasControl = (v: string) => new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]").test(v);
 
 /** Validates a --url value. The error never echoes the value (it may carry credentials). */
@@ -90,14 +94,14 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
     const n = argv.filter((a) => a === `--${f}` || a.startsWith(`--${f}=`)).length;
     if (n > 1) return fail(`error: --${f} was given more than once`);
   }
-  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string; transcript?: string; players?: string; "player-model"?: string; "no-intents"?: boolean; evaluate?: boolean; "eval-out"?: string; "gm-trace"?: string; "min-gm-exits"?: string; "max-false-exits"?: string; security?: boolean };
+  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string; transcript?: string; players?: string; "player-model"?: string; "no-intents"?: boolean; evaluate?: boolean; "eval-out"?: string; "gm-trace"?: string; "min-gm-exits"?: string; "max-false-exits"?: string; security?: boolean; resume?: boolean };
   try {
     ({ values } = nodeParseArgs({
       args: argv, allowPositionals: false, strict: true,
       options: {
         fast: { type: "boolean" }, speed: { type: "string" }, json: { type: "string" }, live: { type: "boolean" },
         url: { type: "string" }, session: { type: "string" }, "no-color": { type: "boolean" }, help: { type: "boolean" },
-        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" }, transcript: { type: "string" }, players: { type: "string" }, "player-model": { type: "string" }, "no-intents": { type: "boolean" }, evaluate: { type: "boolean" }, "eval-out": { type: "string" }, "gm-trace": { type: "string" }, "min-gm-exits": { type: "string" }, "max-false-exits": { type: "string" }, security: { type: "boolean" },
+        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" }, transcript: { type: "string" }, players: { type: "string" }, "player-model": { type: "string" }, "no-intents": { type: "boolean" }, evaluate: { type: "boolean" }, "eval-out": { type: "string" }, "gm-trace": { type: "string" }, "min-gm-exits": { type: "string" }, "max-false-exits": { type: "string" }, security: { type: "boolean" }, resume: { type: "boolean" },
       },
     }));
   } catch (err) { return fail(`error: ${(err as Error).message.split("\n")[0]}`); }
@@ -148,6 +152,8 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
 
   if (values.security && values.url !== undefined) return fail("error: --security cannot be combined with --url (the security room starts its own in-process servers)");
   if (values.security && values.showcase) return fail("error: --security belongs to the default run, not --showcase");
+  if (values.resume && values.url !== undefined) return fail("error: --resume cannot be combined with --url (the resume room starts its own in-process servers)");
+  if (values.resume && values.showcase) return fail("error: --resume belongs to the default run, not --showcase");
   if (values.evaluate && !values.showcase) return fail("error: --evaluate needs --showcase");
   if (values["eval-out"] !== undefined) {
     if (!values.evaluate) return fail("error: --eval-out needs --evaluate");
@@ -175,7 +181,7 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
       session: values.session, noColor: values["no-color"] === true, help: values.help === true,
       showcase: values.showcase === true ? true : undefined, scenario: values.scenario, maxLines, maxFallbacks, watchdog, transcript: values.transcript,
       players: values.players === "generated" ? "generated" : undefined, playerModel: values["player-model"], noIntents: values["no-intents"] === true ? true : undefined,
-      evaluate: values.evaluate === true ? true : undefined, evalOut: values["eval-out"], gmTrace: values["gm-trace"], minGmExits, maxFalseExits, ...(values.security === true ? { security: true as const } : {}),
+      evaluate: values.evaluate === true ? true : undefined, evalOut: values["eval-out"], gmTrace: values["gm-trace"], minGmExits, maxFalseExits, ...(values.security === true ? { security: true as const } : {}), ...(values.resume === true ? { resume: true as const } : {}),
     },
   };
 }

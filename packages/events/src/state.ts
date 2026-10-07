@@ -69,7 +69,25 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
       return s;
     case "session.ended":
       return { ...s, status: "ended", currentScene: null };
+    case "session.resumed":
+      // Back paused after a restart. A session that was already paused keeps its pause start; otherwise the downtime counts as paused
+      // time from the last recorded event (never after this event's own ts, so the paused interval is never negative).
+      if (s.status !== "running") return s;
+      return s.paused ? s : { ...s, paused: true, pausedSince: Number.isFinite(e.downFromTs) ? Math.min(e.downFromTs, e.ts) : e.ts };
   }
+}
+
+/**
+ * @internal Restore-only fold (US-0018), not for live use: the same result as `reduce`, but utterances and fired injects are appended to `state`'s OWN arrays in
+ * place instead of copied, so replaying n events is linear instead of quadratic. The caller must own those arrays (start from a fresh
+ * initialState() and never share an intermediate state). The live engine keeps the pure `reduce`; a property test proves both agree.
+ */
+export function reduceReplay(state: SessionState, e: SessionEvent): SessionState {
+  if (e.type !== "utterance" && e.type !== "inject.fired") return reduce(state, e);
+  if (e.seq !== state.lastSeq + 1) throw new Error(`event seq ${e.seq} out of order; expected ${state.lastSeq + 1}`);
+  if (e.type === "utterance") state.transcript.push({ seq: e.seq, ts: e.ts, sceneId: state.currentScene?.id ?? null, roleId: e.roleId, text: e.text, channel: e.channel });
+  else state.injectsFired.push(e.injectId);
+  return { ...state, lastSeq: e.seq };
 }
 
 /**

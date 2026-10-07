@@ -174,3 +174,81 @@ describe("reduce: advance request and GM verdicts", () => {
     expect(s.npcs.client_sponsor!.released).toEqual(["the fact"]);
   });
 });
+
+describe("session.resumed (US-0018)", () => {
+  const base = () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { seq: 2, ts: 1_000, sessionId: "s1", type: "scene.entered", sceneId: "s1", participants: ["delivery_lead"] });
+    return s;
+  };
+
+  it("comes back paused; the downtime since the last event counts as paused time", () => {
+    let s = base();
+    s = reduce(s, { seq: 3, ts: 61_000, sessionId: "s1", type: "session.resumed", downFromTs: 31_000 });
+    expect(s.paused).toBe(true);
+    expect(s.pausedSince).toBe(31_000);
+    expect(activeElapsedMs(s, 999_999)).toBe(30_000);
+    s = reduce(s, { seq: 4, ts: 70_000, sessionId: "s1", type: "facilitator.command", command: "resume" });
+    expect(s.paused).toBe(false);
+    expect(s.currentScene?.pausedMs).toBe(39_000);
+    expect(activeElapsedMs(s, 70_000)).toBe(30_000);
+  });
+
+  it("keeps the pause start of a session that was already paused", () => {
+    let s = base();
+    s = reduce(s, { seq: 3, ts: 11_000, sessionId: "s1", type: "facilitator.command", command: "pause" });
+    s = reduce(s, { seq: 4, ts: 50_000, sessionId: "s1", type: "session.resumed", downFromTs: 20_000 });
+    expect(s.pausedSince).toBe(11_000);
+    expect(activeElapsedMs(s, 80_000)).toBe(10_000);
+  });
+
+  it("never starts the pause after its own ts and survives a non-finite downFromTs", () => {
+    const a = reduce(base(), { seq: 3, ts: 5_000, sessionId: "s1", type: "session.resumed", downFromTs: 9_000 });
+    expect(a.pausedSince).toBe(5_000);
+    const b = reduce(base(), { seq: 3, ts: 5_000, sessionId: "s1", type: "session.resumed", downFromTs: Number.NaN });
+    expect(b.pausedSince).toBe(5_000);
+  });
+
+  it("changes nothing on an ended session", () => {
+    let s = base();
+    s = reduce(s, { seq: 3, ts: 2_000, sessionId: "s1", type: "session.ended", reason: "script_complete" });
+    const after = reduce(s, { seq: 4, ts: 3_000, sessionId: "s1", type: "session.resumed", downFromTs: 2_000 });
+    expect(after).toEqual({ ...s, lastSeq: 4 });
+  });
+});
+
+describe("event types", () => {
+  it("lists every known type and rejects others", async () => {
+    const { EVENT_TYPES, isKnownEventType, LOG_FORMAT } = await import("../index.js");
+    expect(EVENT_TYPES).toContain("session.resumed");
+    expect(EVENT_TYPES).toHaveLength(12);
+    expect(isKnownEventType("utterance")).toBe(true);
+    expect(isKnownEventType("toString")).toBe(false);
+    expect(isKnownEventType("session.future")).toBe(false);
+    expect(isKnownEventType(7)).toBe(false);
+    expect(LOG_FORMAT).toBe(1);
+  });
+});
+
+describe("reduceReplay (US-0018: linear restore)", () => {
+  it("gives the same state as reduce, appends in place, and checks the seq", async () => {
+    const { reduceReplay } = await import("../index.js");
+    const evs: SessionEvent[] = [
+      started,
+      { ...env(2), type: "scene.entered", sceneId: "s1", participants: ["delivery_lead"] },
+      { ...env(3), type: "utterance", roleId: "delivery_lead", text: "a", channel: "text" },
+      { ...env(4), type: "inject.fired", injectId: "i1", sceneId: "s1", to: ["delivery_lead"], content: "c" },
+      { ...env(5), type: "utterance", roleId: "delivery_lead", text: "b", channel: "voice" },
+      { ...env(6), type: "scene.exited", sceneId: "s1", reason: "facilitator_advance" },
+      { ...env(7), type: "utterance", roleId: "delivery_lead", text: "between scenes", channel: "text" },
+    ];
+    const pure = evs.reduce((s, e) => reduce(s, e), initialState());
+    const fresh = initialState();
+    const fast = evs.reduce((s, e) => reduceReplay(s, e), fresh);
+    expect(fast).toEqual(pure);
+    expect(fast.transcript).toBe(fresh.transcript);
+    expect(fast.injectsFired).toBe(fresh.injectsFired);
+    expect(() => reduceReplay(fast, { ...env(99), type: "utterance", roleId: "x", text: "x", channel: "text" })).toThrow(/out of order/);
+    expect(() => reduceReplay(fast, { ...env(99), type: "inject.fired", injectId: "x", sceneId: "s", to: [], content: "" })).toThrow(/out of order/);
+  });
+});

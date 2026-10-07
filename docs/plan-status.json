@@ -526,28 +526,78 @@
       "title": "As a facilitator, I want to release an NPC's hidden fact during a session, so that hidden information can surface when a participant earns it.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0006-US-0016-release-hidden-facts",
       "acs": [
         {
           "id": "AC-0049",
           "text": "a facilitator `release_hidden` command (role and fact index) is recorded as an event and the NPC's next prompt contains that fact",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0050",
           "text": "players never receive the event or the fact text, and unreleased facts stay out of every prompt",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0051",
           "text": "the terminal client offers `/release <role> <n>` and shows the facilitator which hidden facts a role has",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0052",
           "text": "the README and CHANGELOG limitation about unreleased hidden facts is removed",
-          "done": false
+          "done": true
+        },
+        {
+          "id": "AC-0150",
+          "text": "`release_hidden {roleId, fact}` takes a 1-based fact number (1 to 50, the same numbering in the protocol, the engine and the terminal client); the engine refuses an unknown role (`unknown_role`, also for prototype keys such as `__proto__`), a player role (`npc_role`), a number the character has no fact for (`unknown_fact`) and a fact that is already released (`already_released`), appending nothing; a valid release records a `facilitator.command` that carries no fact text, then a facilitator-only `npc.updated` with the text; it works while paused and there is no unrelease",
+          "done": true
+        },
+        {
+          "id": "AC-0151",
+          "text": "the fact text reaches only facilitator connections: `viewFor` and `filterFor` deny both events and `snapshotFor` drops NPC state for a player, the facilitator's `joined` message carries `hiddenFacts` only after a facilitator join (behind `FACILITATOR_TOKEN` when it is set; a refused join gets nothing), and a reconnecting facilitator sees the released state",
+          "done": true
+        },
+        {
+          "id": "AC-0152",
+          "text": "a released fact appears in a separate last prompt section `## What you may now share` of that character only, with the line that the earlier hidden-information rules no longer apply to it, judged by time (a prompt built before the release never holds it), and never in another character's, a player's or the Game Master's prompt",
+          "done": true
+        },
+        {
+          "id": "AC-0153",
+          "text": "`/hidden` lists each character's facts numbered with their released status and `/release <role> <n>` validates and sends the command; fact text and ids are sanitised, the list is bounded, and a player client has neither command",
+          "done": true
+        },
+        {
+          "id": "AC-0154",
+          "text": "the scenario schema bounds a character's hidden facts (at most 50, non-empty, at most 1000 characters each, unique within the character), prototype keys are refused as role and scene ids, and role lookups from client ids use own properties",
+          "done": true
+        },
+        {
+          "id": "AC-0155",
+          "text": "the extended showcase script may hold scripted facilitator steps (`facilitator: [{after_line, release_hidden: {role, fact}}]`, validated against the scenario); scene s5 releases the CFO's fact 1 after line 1 and the narration, transcript and report say `facilitator released hidden fact number 1 of cfo` without the text (recorded live 2026-10-06 on local gemma-4-31b-it-qat-mxfp4, first version of the share-section wording: scene 5 ended by the Game Master (5 of 6 scenes, only s2 by facilitator advance; 12 of 12 verdicts strict), the CFO used the released fact in her own words ('I will approve this change request now that it is a fixed-fee tied to a firm date'), the narration and transcript showed only 'facilitator released hidden fact number 1 of cfo'; single run; a rerun on the final prompt wording is recorded below if it differs)",
+          "done": true
+        },
+        {
+          "id": "AC-0156",
+          "text": "checks S-06, S-07 and S-15 audit it: an unreleased fact in no AI character or generated player prompt, a released fact only in its own character's share section (with a positive control), no release command in a player inbox; the S-07 hidden-fact observation no longer counts released facts or strings a player said earlier in the same scene",
+          "done": true
+        },
+        {
+          "id": "AC-0157",
+          "text": "the demo checks stay at 29 (default), 14 (showcase), 15 (`--evaluate`) and 32 (`--security`); no live model call is made by the tests",
+          "done": true
+        },
+        {
+          "id": "AC-0158",
+          "text": "the narration, the Markdown transcript, the `--json` report and the evaluation reports never contain a released fact's text, except inside that character's own later utterances (dialogue) and the facilitator's own client; the release is shown by role and number",
+          "done": true
+        },
+        {
+          "id": "AC-0159",
+          "text": "the README and CHANGELOG describe the command, the terminal client commands, the prompt section, the showcase step and what a live run must confirm",
+          "done": true
         }
       ],
       "dependencies": [
@@ -629,28 +679,78 @@
       "title": "As a facilitator, I want a session to resume from its event log after a server restart, so that a crash does not lose a session in progress.",
       "priority": "Medium",
       "estimate": "L",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0006-US-0018-resume-after-restart",
       "acs": [
         {
           "id": "AC-0056",
           "text": "starting the server with an existing session log replays it into the engine state instead of rotating it aside",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0057",
-          "text": "clients that rejoin receive their visible history (builds on the replay-from-seq protocol in US-0013)",
-          "done": false
+          "text": "clients that rejoin receive their visible history (delivered through the per-viewer `joined` snapshot: the transcript of the scenes the role took part in; replay-from-seq of injects and whispers stays with US-0013)",
+          "done": true
         },
         {
           "id": "AC-0058",
           "text": "starting a fresh session over an old log stays possible through an explicit option, with the old log rotated aside",
-          "done": false
+          "done": true
+        },
+        {
+          "id": "AC-0160",
+          "text": "a resumed session comes back paused, with a `session.resumed` event (players see it) and a facilitator alert giving the downtime; `/resume` continues it; the downtime counts as paused time, so no overdue inject fires and no time box ends on resume",
+          "done": true
+        },
+        {
+          "id": "AC-0161",
+          "text": "the log records `logFormat` 1 and the scenario's SHA-256 in `session.started`; resume is refused, with the log untouched and a message naming `SESSION_START=fresh`, for corruption beyond a cut-off last line (seq gap, duplicate or reordering, another session's event, unknown event type, malformed middle line), a newer log format, or other scenario files; a format-0 log resumes on a matching scenario id and version",
+          "done": true
+        },
+        {
+          "id": "AC-0162",
+          "text": "a cut-off last line is cut before the first append, with its size in the restart alert; nothing else in a log is ever rewritten",
+          "done": true
+        },
+        {
+          "id": "AC-0163",
+          "text": "a player line left unanswered by the crash is answered exactly once, after `/resume`; a Game Master evaluation lost in the crash runs again at its next cadence; nothing else is re-run",
+          "done": true
+        },
+        {
+          "id": "AC-0164",
+          "text": "a session lock `<id>.lock` (exclusive create, no symlinks, mode 0600, heartbeat) refuses a second server even with `SESSION_START=fresh`; documented stale-lock takeover (no heartbeat for `SESSION_LOCK_STALE_MS`, or a dead process or reused pid on this host); a server whose lock was lost stops writing",
+          "done": true
+        },
+        {
+          "id": "AC-0165",
+          "text": "every append is followed by fdatasync; logs and locks are created 0600 and the data directory 0700 (never widened); reads stream the log with a 64 MiB cap",
+          "done": true
+        },
+        {
+          "id": "AC-0166",
+          "text": "a restart over an ENDED session moves its log aside and starts fresh (demo check F-24 stays valid)",
+          "done": true
+        },
+        {
+          "id": "AC-0167",
+          "text": "replaying a log gives exactly the live engine state (property test over random sessions); timestamps never go backwards across a restart and paused and active time are never negative",
+          "done": true
+        },
+        {
+          "id": "AC-0168",
+          "text": "`pnpm demo --fast --resume` runs the resume room, checks F-34 to F-42, offline and deterministic (38 checks); the default run keeps 29; CI runs it",
+          "done": true
+        },
+        {
+          "id": "AC-0169",
+          "text": "README (Resuming a session, `SESSION_START`, `SESSION_LOCK_STALE_MS`, `./run.sh --fresh`), `.env.example`, CHANGELOG and `docs/THREAT_MODEL.md` (logs at rest, the lock, the resume trust model) are updated",
+          "done": true
         }
       ],
       "dependencies": [
         "US-0006",
-        "US-0013"
+        "BUG-0005 (pause freezes the scene clock). US-0013 is no longer a blocker: AC-0057 is met by the per-viewer join snapshot."
       ]
     },
     {
@@ -1428,9 +1528,39 @@
       "title": "Add the release_hidden facilitator command, engine and reducer support, and the client command",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0016-release-hidden-facts",
       "notes": "Plan gap found in the Slice 1 final review: `SessionEngine.updateNpc(..., {released})` is only called by tests, so `hidden` facts can never surface at runtime. Architecture section 4 expects a release path."
+    },
+    {
+      "id": "TASK-0046",
+      "storyId": "US-0016",
+      "title": "Protocol, engine, host and prompt support for release_hidden, scenario limits",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0016-release-hidden-facts",
+      "notes": "packages/events (command type), packages/script (hidden-fact limits), host/protocol.ts, engine/session-engine.ts, host/session-host.ts (`hiddenFacts`, viewFor), host/ws-server.ts (`joined.hiddenFacts`), agents/npc-prompt.ts (`## What you may now share`). Tests in each package, host/__tests__/ws-server.release.test.ts."
+    },
+    {
+      "id": "TASK-0047",
+      "storyId": "US-0016",
+      "title": "Terminal client /hidden and /release",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0016-release-hidden-facts",
+      "notes": "cli/commands.ts, cli/render.ts, cli/client.ts with tests."
+    },
+    {
+      "id": "TASK-0048",
+      "storyId": "US-0016",
+      "title": "Showcase facilitator step, S-06/S-07/S-15 audits, README and CHANGELOG",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0016-release-hidden-facts",
+      "notes": "demo/showcase-script.ts (`facilitator` steps), demo/showcase.ts, demo/release-note.ts, scenarios/friday-escalation-extended/showcase.yaml (s5 release, CFO mock reply 2), tests/gm-cases/showcase.json rebuilt, demo/__tests__/showcase-release.test.ts. The controller confirms live that scene 5 now ends by the Game Master."
     },
     {
       "id": "TASK-0017",
@@ -1478,9 +1608,39 @@
       "title": "Rebuild engine and host state from the JSONL log on startup and add an explicit fresh-session option",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0018-resume-after-restart",
-      "notes": "Slice 1 rotates a stale log aside (US-0009 rotation) and never resumes. NPC agent, Game Master and ticker state must be reconstructed from events only."
+      "notes": "Slice 1 rotates a stale log aside (US-0009 rotation) and never resumes. NPC agent, Game Master and ticker state must be reconstructed from events only. Delivered by TASK-0049 to TASK-0051."
+    },
+    {
+      "id": "TASK-0049",
+      "storyId": "US-0018",
+      "title": "Log format 1, session.resumed, restore() with fail-closed refusals, a durable owner-only log and the session lock",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0018-resume-after-restart",
+      "notes": "packages/events (LOG_FORMAT, EVENT_TYPES, session.resumed reducer), engine/event-log.ts (one handle, fdatasync, 0600, streaming validated scan, tail repair), engine/log-files.ts (SessionLock, rotation, private dir), SessionEngine.restore/markResumed, ts clamping. Property test: replay equals live state."
+    },
+    {
+      "id": "TASK-0050",
+      "storyId": "US-0018",
+      "title": "Host and Game Master reconstruction, the pending line on /resume, SESSION_START modes and ./run.sh --fresh",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0018-resume-after-restart",
+      "notes": "engine/session-store.ts openSession (lock, resume, ended and fresh rotation), bootstrap wiring, SessionHost.resumeFrom, GameMaster.restore, SESSION_LOCK_STALE_MS. A real SIGKILL crash and restart is a unit test."
+    },
+    {
+      "id": "TASK-0051",
+      "storyId": "US-0018",
+      "title": "Demo resume room (pnpm demo --resume, F-34 to F-42), CI step and documentation",
+      "type": "Test",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0006-US-0018-resume-after-restart",
+      "notes": "The crash is simulated in process (connections cut, lock and log abandoned). README, CHANGELOG, .env.example and THREAT_MODEL updated."
     },
     {
       "id": "TASK-0019",
@@ -2284,10 +2444,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-06T23:20:06.231Z",
-  "commitSha": "1ac9aed",
-  "buildNumber": "141",
-  "branch": "feature/EPIC-0006-US-0025-game-master-reliability",
+  "generatedAt": "2026-10-07T00:34:05.294Z",
+  "commitSha": "8609f95",
+  "buildNumber": "168",
+  "branch": "feature/EPIC-0006-US-0018-resume-after-restart",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2385,13 +2545,13 @@
     }
   },
   "budget": {
-    "totalBudget": 6006.1671,
+    "totalBudget": 3606.1671,
     "totalSpent": 6.1671,
     "totalProjected": 28400,
     "percentUsed": 0,
     "burnRate": 0.19871766666666665,
-    "daysRemaining": 30193,
-    "projectedExhaustion": 30193,
+    "daysRemaining": 18116,
+    "projectedExhaustion": 18116,
     "thresholds": [
       50,
       75,
@@ -2427,9 +2587,9 @@
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 5202.720775,
+        "budget": 2802.720775,
         "spent": 2.7207749999999997,
-        "remaining": 5200,
+        "remaining": 2800,
         "percentUsed": 0
       },
       {
@@ -2454,37 +2614,37 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-06T23:20:06.287Z",
-      "2026-09-07T23:20:06.287Z",
-      "2026-09-08T23:20:06.287Z",
-      "2026-09-09T23:20:06.287Z",
-      "2026-09-10T23:20:06.287Z",
-      "2026-09-11T23:20:06.287Z",
-      "2026-09-12T23:20:06.287Z",
-      "2026-09-13T23:20:06.287Z",
-      "2026-09-14T23:20:06.287Z",
-      "2026-09-15T23:20:06.287Z",
-      "2026-09-16T23:20:06.287Z",
-      "2026-09-17T23:20:06.287Z",
-      "2026-09-18T23:20:06.287Z",
-      "2026-09-19T23:20:06.287Z",
-      "2026-09-20T23:20:06.287Z",
-      "2026-09-21T23:20:06.287Z",
-      "2026-09-22T23:20:06.287Z",
-      "2026-09-23T23:20:06.287Z",
-      "2026-09-24T23:20:06.287Z",
-      "2026-09-25T23:20:06.287Z",
-      "2026-09-26T23:20:06.287Z",
-      "2026-09-27T23:20:06.287Z",
-      "2026-09-28T23:20:06.287Z",
-      "2026-09-29T23:20:06.287Z",
-      "2026-09-30T23:20:06.287Z",
-      "2026-10-01T23:20:06.287Z",
-      "2026-10-02T23:20:06.287Z",
-      "2026-10-03T23:20:06.287Z",
-      "2026-10-04T23:20:06.287Z",
-      "2026-10-05T23:20:06.287Z",
-      "2026-10-06T23:20:06.286Z"
+      "2026-09-07T00:34:05.352Z",
+      "2026-09-08T00:34:05.352Z",
+      "2026-09-09T00:34:05.352Z",
+      "2026-09-10T00:34:05.352Z",
+      "2026-09-11T00:34:05.352Z",
+      "2026-09-12T00:34:05.352Z",
+      "2026-09-13T00:34:05.352Z",
+      "2026-09-14T00:34:05.352Z",
+      "2026-09-15T00:34:05.352Z",
+      "2026-09-16T00:34:05.352Z",
+      "2026-09-17T00:34:05.352Z",
+      "2026-09-18T00:34:05.352Z",
+      "2026-09-19T00:34:05.352Z",
+      "2026-09-20T00:34:05.352Z",
+      "2026-09-21T00:34:05.352Z",
+      "2026-09-22T00:34:05.352Z",
+      "2026-09-23T00:34:05.352Z",
+      "2026-09-24T00:34:05.352Z",
+      "2026-09-25T00:34:05.352Z",
+      "2026-09-26T00:34:05.352Z",
+      "2026-09-27T00:34:05.352Z",
+      "2026-09-28T00:34:05.352Z",
+      "2026-09-29T00:34:05.352Z",
+      "2026-09-30T00:34:05.352Z",
+      "2026-10-01T00:34:05.352Z",
+      "2026-10-02T00:34:05.352Z",
+      "2026-10-03T00:34:05.352Z",
+      "2026-10-04T00:34:05.352Z",
+      "2026-10-05T00:34:05.352Z",
+      "2026-10-06T00:34:05.352Z",
+      "2026-10-07T00:34:05.351Z"
     ],
     "doneCounts": [
       0,
@@ -2784,36 +2944,36 @@
       69480
     ],
     "avgRisk": [
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.1088235294117652,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
-      1.11764705882353,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1176470588235299,
+      1.1264705882352946,
+      1.1264705882352946,
+      1.1264705882352946,
+      1.1264705882352946,
+      1.1264705882352946,
+      1.1264705882352946,
+      1.1264705882352946,
+      1.1264705882352946,
+      1.1264705882352946,
+      1.1264705882352946,
+      1.1264705882352946,
+      1.1264705882352946,
       1.1176470588235299
     ],
     "velocityByWeek": {

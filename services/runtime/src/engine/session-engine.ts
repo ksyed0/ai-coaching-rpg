@@ -1,13 +1,58 @@
-import { activeElapsedMs, initialState, reduce, type Channel, type EventBody, type FacilitatorCommand, type GmNoVerdictReason, type GmVia, type SessionEvent, type SessionState } from "@acr/events";
+import { LOG_FORMAT, activeElapsedMs, initialState, reduce, reduceReplay, type Channel, type EventBody, type FacilitatorCommand, type GmNoVerdictReason, type GmVia, type SessionEvent, type SessionState } from "@acr/events";
 import { dueInjects, evaluateExit, nextSceneId, type Inject, type Scenario, type Scene } from "@acr/script";
 import type { Clock } from "./clock.js";
-import type { EventLog } from "./event-log.js";
+import { LogFailedError, type EventLog } from "./event-log.js";
 import { Mutex } from "./mutex.js";
+import { scenarioHash } from "./scenario-hash.js";
+
+/** Why a log cannot be resumed (US-0018). The message never contains event text. */
+export type RestoreErrorCode = "not_a_session" | "scenario_mismatch" | "log_format" | "invalid_log";
+export class RestoreError extends Error {
+  constructor(readonly code: RestoreErrorCode, message: string) { super(message); this.name = "RestoreError"; }
+}
+
+/** What restore() found in a log that holds a running session. */
+export type ResumeInfo = {
+  /** Events replayed. */
+  events: number;
+  /** The latest ts in the log: the downtime is counted from here. */
+  lastTs: number;
+  /** The log's format (0: written before US-0018, resumed on scenario id and version only). */
+  format: number;
+  /** Bytes of a cut-off last line that the first append drops (0 when none). */
+  partialTailBytes: number;
+  /** The current scene when the server stopped. */
+  sceneId: string | null;
+  /**
+   * Steps of a multi-event operation the crash cut short, completed by markResumed (each is deterministic from the scenario): the
+   * initial AI character states of a start, the AI character updates of a fired inject, a scene's opening inject, and the next scene
+   * (or the end) after a scene exit.
+   */
+  repairs: Repair[];
+  /** seq of the last Game Master decision (or no-verdict) in the current scene; null when none. */
+  lastGmSeq: number | null;
+  /** The current scene's last line is a player's, with no AI character's line after it, and an AI character is in the scene. */
+  pendingLine: boolean;
+  /** The session was already paused when the server stopped. */
+  wasPaused: boolean;
+};
+export type Repair =
+  | { kind: "npc_init"; roleId: string }
+  | { kind: "inject_effect"; sceneId: string; injectId: string; roleId: string }
+  | { kind: "opening_inject"; sceneId: string }
+  | { kind: "enter_scene"; sceneId: string }
+  | { kind: "end_session" };
+export const describeRepair = (r: Repair): string =>
+  r.kind === "npc_init" ? `set up AI character ${r.roleId}` : r.kind === "inject_effect" ? `applied inject ${r.injectId} to ${r.roleId}`
+    : r.kind === "opening_inject" ? `fired the opening inject of ${r.sceneId}` : r.kind === "enter_scene" ? `entered scene ${r.sceneId}` : "ended the session (the last scene had ended)";
+/** What markResumed reports for the operator. */
+export type ResumeNotes = { downSecs: number; clockBehindSecs: number; repairs: string[] };
+export type RestoreOutcome = { kind: "empty" } | { kind: "ended"; events: number } | { kind: "running"; info: ResumeInfo };
 
 /** Own-property lookup: a client-supplied role id such as `__proto__` or `constructor` must never resolve to an inherited member. */
 const own = <T>(map: Record<string, T>, key: string): T | undefined => (Object.hasOwn(map, key) ? map[key] : undefined);
 
-export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released";
+export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released" | "log_failed";
 export class EngineError extends Error {
   constructor(readonly code: EngineErrorCode, message: string = code) { super(message); this.name = "EngineError"; }
 }
@@ -19,6 +64,11 @@ export class SessionEngine {
   private readonly clock: Clock;
   private readonly listeners = new Set<(e: SessionEvent) => void>();
   private readonly mutex = new Mutex();
+  /** The latest ts appended (or replayed): every new ts is clamped to at least this, so a wall clock that moves backwards never reorders time. */
+  private lastTs = Number.NEGATIVE_INFINITY;
+  /** Set when the log failed or the engine diverged from it (fail-stop): every later operation that would append is refused. */
+  private failure: string | null = null;
+  private readonly failureListeners = new Set<(reason: string) => void>();
 
   constructor(opts: { scenario: Scenario; log: EventLog; clock: Clock }) {
     this.scenario = opts.scenario; this.log = opts.log; this.clock = opts.clock;
@@ -36,22 +86,51 @@ export class SessionEngine {
     return id ? this.scenario.script.scenes.find((s) => s.id === id) ?? null : null;
   }
 
+  /** The clock, never earlier than the last recorded event. */
+  private now(): number { return Math.max(this.clock.now(), this.lastTs); }
+
+  /** Why the engine stopped (fail-stop), or null while healthy. */
+  get failed(): string | null { return this.failure; }
+
+  /** Called once when the engine fail-stops (the log failed, the lock was lost, or the state diverged from the log). */
+  onFailure(fn: (reason: string) => void): () => void { this.failureListeners.add(fn); return () => this.failureListeners.delete(fn); }
+
+  /** Fail-stop: from now on every operation that would append is refused with EngineError("log_failed"). Idempotent. */
+  halt(reason: string): void {
+    if (this.failure !== null) return;
+    this.failure = reason;
+    for (const fn of this.failureListeners) { try { fn(reason); } catch { /* a listener must not break the halt */ } }
+  }
+
+  private refused(): EngineError {
+    return new EngineError("log_failed", `the session log failed (${this.failure}); this server accepts nothing more. Restart it: the session resumes from its log`);
+  }
+
   private async emit(body: EventBody): Promise<SessionEvent> {
-    const e = await this.log.append(body, this.clock.now());
-    this.state = reduce(this.state, e);
+    if (this.failure !== null) throw this.refused();
+    let e: SessionEvent;
+    try { e = await this.log.append(body, this.now()); }
+    catch (err) {
+      if (err instanceof LogFailedError) { this.halt(err.reason); throw this.refused(); }
+      throw err;
+    }
+    this.lastTs = Math.max(this.lastTs, e.ts);
+    // The event is on disk. If the state cannot take it, the engine and the log disagree: never append anything after it.
+    try { this.state = reduce(this.state, e); }
+    catch (err) { this.halt(`the state rejected event ${e.seq}: ${err instanceof Error ? err.message : String(err)}`); throw this.refused(); }
     for (const l of this.listeners) l(e);
     return e;
   }
 
   start(assignments: Record<string, string>): Promise<void> { return this.mutex.run(() => this.doStart(assignments)); }
   private async doStart(assignments: Record<string, string>): Promise<void> {
-    // Sessions are not resumed from a log: starting on a non-empty log would corrupt the seq order.
-    if ((await this.log.all()).length > 0) throw new EngineError("log_not_empty", "the session log already has events; sessions are not resumed, use a fresh session id");
+    // Starting on a non-empty log would corrupt the seq order: a log with events is resumed (restore) or rotated aside, never started over.
+    if (this.state.status !== "idle" || (await this.log.all()).length > 0) throw new EngineError("log_not_empty", "the session log already has events; resume it (SESSION_START=resume) or start fresh (SESSION_START=fresh)");
     const roles: Record<string, { kind: "player" | "npc"; participantId?: string }> = {};
     for (const [id, role] of Object.entries(this.scenario.roles)) {
       roles[id] = role.type === "npc" ? { kind: "npc" } : { kind: "player", participantId: assignments[id] };
     }
-    await this.emit({ type: "session.started", scenarioId: this.scenario.meta.id, version: this.scenario.meta.version, roles });
+    await this.emit({ type: "session.started", scenarioId: this.scenario.meta.id, version: this.scenario.meta.version, roles, logFormat: LOG_FORMAT, scenarioHash: scenarioHash(this.scenario) });
     for (const [id, role] of Object.entries(this.scenario.roles)) {
       if (role.type === "npc") await this.emit({ type: "npc.updated", roleId: id, goals: role.goals, knowledge: role.knowledge, released: [] });
     }
@@ -176,12 +255,132 @@ export class SessionEngine {
     });
   }
 
+  /**
+   * US-0018: rebuilds the state from the log by folding every event through the pure reducer (nothing else is read). Only on a
+   * fresh engine. "empty": no events. "ended": the session had ended (the caller rotates the log aside and starts fresh; the
+   * engine state is left untouched). "running": the state is adopted; the caller then calls markResumed(). Refuses (RestoreError,
+   * nothing appended) when the first event is not session.started, the log names another scenario (id, version, or for format 1
+   * its sha256), its format is newer than LOG_FORMAT, it names a scene or role the scenario lacks, or the reducer rejects it. The
+   * log layer itself refuses corruption beyond a cut-off last line (LogCorruptError).
+   */
+  restore(): Promise<RestoreOutcome> { return this.mutex.run(() => this.doRestore()); }
+  private async doRestore(): Promise<RestoreOutcome> {
+    if (this.state.status !== "idle" || this.state.lastSeq !== 0) throw new EngineError("log_not_empty", "restore needs a fresh engine");
+    const sc = this.scenario;
+    const sceneIds = new Set(sc.script.scenes.map((x) => x.id));
+    let s = initialState();
+    let count = 0; let maxTs = Number.NEGATIVE_INFINITY; let format = 0; let lastGmSeq: number | null = null;
+    // An inject's AI character updates follow its inject.fired directly; this tracks the ones still due if the log ends here.
+    let injectDue: { sceneId: string; injectId: string; roles: string[] } | null = null;
+    const fold = (e: SessionEvent) => {
+      if (count === 0) {
+        if (e.type !== "session.started") throw new RestoreError("not_a_session", `the log does not begin with session.started (seq 1 is ${e.type})`);
+        if (e.scenarioId !== sc.meta.id || e.version !== sc.meta.version) throw new RestoreError("scenario_mismatch", "the log belongs to a different scenario or scenario version than the one loaded");
+        const f = e.logFormat ?? 0;
+        if (!Number.isSafeInteger(f) || f < 0) throw new RestoreError("log_format", "the log's format field is not a whole number");
+        if (f > LOG_FORMAT) throw new RestoreError("log_format", `the log has format ${f}, newer than this version reads (${LOG_FORMAT}); upgrade, or start fresh`);
+        if (f >= 1 && e.scenarioHash !== scenarioHash(sc)) throw new RestoreError("scenario_mismatch", "the scenario files changed since this session started (its sha256 differs)");
+        format = f;
+        const logged = Object.entries(e.roles ?? {});
+        const known = Object.values(sc.roles);
+        if (logged.length !== known.length || logged.some(([id, r]) => { const k = own(sc.roles, id); return !k || (k.type === "npc" ? "npc" : "player") !== r?.kind; })) {
+          throw new RestoreError("scenario_mismatch", "the log's roles do not match the scenario's roles");
+        }
+      } else if (e.type === "session.started") throw new RestoreError("invalid_log", `a second session.started at seq ${e.seq}`);
+      if (e.type === "scene.entered" && !sceneIds.has(e.sceneId)) throw new RestoreError("scenario_mismatch", "the log enters a scene the scenario does not have");
+      const npcsBefore = s.npcs;
+      try { s = reduceReplay(s, e); } // linear: appends in place to the arrays this fold owns
+      catch (err) { throw new RestoreError("invalid_log", `event ${e.seq} cannot be applied: ${err instanceof Error ? err.message : String(err)}`); }
+      if (e.type === "inject.fired") injectDue = { sceneId: e.sceneId, injectId: e.injectId, roles: e.to.filter((r) => own(npcsBefore, r) !== undefined) };
+      else if (e.type === "npc.updated" && injectDue && injectDue.roles[0] === e.roleId) injectDue.roles.shift();
+      // A restart's own bookkeeping (session.resumed and its alert) may sit between an inject and its updates when a crash cut the
+      // resume's completion short; live code never puts anything else there, so only those two keep the pending updates due.
+      else if (e.type !== "session.resumed" && e.type !== "facilitator.alert") injectDue = null;
+      if (e.type === "scene.entered") lastGmSeq = null;
+      else if ((e.type === "gm.decision" || e.type === "gm.no_verdict") && e.sceneId === s.currentScene?.id) lastGmSeq = e.seq;
+      maxTs = Math.max(maxTs, e.ts);
+      count++;
+    };
+    let partialTailBytes = 0;
+    if (this.log.replay) partialTailBytes = (await this.log.replay(fold)).partialTailBytes;
+    else for (const e of await this.log.all()) fold(e);
+    if (count === 0) return { kind: "empty" };
+    if (s.status === "ended") return { kind: "ended", events: count };
+    this.state = s;
+    this.lastTs = maxTs;
+    const cur = s.currentScene;
+    const last = s.transcript.at(-1);
+    const npcsHere = cur ? cur.participants.filter((p) => sc.roles[p]?.type === "npc") : [];
+    const pendingLine = !!cur && !!last && last.sceneId === cur.id && own(s.roles, last.roleId)?.kind === "player" && npcsHere.length > 0;
+    const repairs: Repair[] = [];
+    for (const [id, role] of Object.entries(sc.roles)) if (role.type === "npc" && !own(s.npcs, id)) repairs.push({ kind: "npc_init", roleId: id });
+    const due = injectDue as { sceneId: string; injectId: string; roles: string[] } | null; // assigned inside the fold
+    for (const roleId of due?.roles ?? []) repairs.push({ kind: "inject_effect", sceneId: due!.sceneId, injectId: due!.injectId, roleId });
+    if (!cur) {
+      const lastScene = s.sceneHistory.at(-1)?.id;
+      const next = lastScene === undefined ? sc.script.scenes[0]?.id : nextSceneId(sc.script, lastScene);
+      repairs.push(next ? { kind: "enter_scene", sceneId: next } : { kind: "end_session" });
+    } else {
+      const opening = sc.script.scenes.find((x) => x.id === cur.id)?.opening_inject;
+      if (opening && !s.injectsFired.includes(opening)) repairs.push({ kind: "opening_inject", sceneId: cur.id });
+    }
+    return { kind: "running", info: { events: count, lastTs: maxTs, format, partialTailBytes, sceneId: cur?.id ?? null, lastGmSeq, pendingLine, wasPaused: s.paused, repairs } };
+  }
+
+  /**
+   * After restore() returned "running": appends session.resumed (the session comes back PAUSED, the downtime counted as paused time
+   * from the last recorded event) and a facilitator-only warning that says so. The facilitator's /resume continues the session.
+   */
+  markResumed(info: ResumeInfo): Promise<ResumeNotes> {
+    return this.mutex.run(async () => {
+      const notes: ResumeNotes = { downSecs: 0, clockBehindSecs: 0, repairs: info.repairs.map(describeRepair) };
+      if (this.state.status !== "running") return notes;
+      const raw = this.clock.now();
+      notes.clockBehindSecs = Math.max(0, Math.round((info.lastTs - raw) / 1000));
+      notes.downSecs = Math.max(0, Math.round((this.now() - info.lastTs) / 1000));
+      await this.emit({ type: "session.resumed", downFromTs: info.lastTs });
+      const down = notes.clockBehindSecs > 0
+        ? `the server clock is ${notes.clockBehindSecs} s BEHIND the last recorded event (it moved backwards), so the downtime is unknown and counted as 0 s`
+        : `${notes.downSecs} s after the last recorded event`;
+      const cut = info.partialTailBytes > 0 ? `; a cut-off last line (${info.partialTailBytes} bytes, an event that was never confirmed) was dropped` : "";
+      const v0 = info.format === 0 ? "; this log predates log format 1, so it was matched on scenario id and version only" : "";
+      // Written BEFORE the completion, so it says what is being completed, never that it is done; a crash during the completion is
+      // completed again by the next restart (which says so in its own alert).
+      const fixed = notes.repairs.length > 0 ? `; it now completes what the crash cut short: ${notes.repairs.join(", ")}` : "";
+      const ends = info.repairs.some((r) => r.kind === "end_session");
+      const next = ends ? ". The last scene had already ended, so the session ends now" : `. It is paused: /resume to continue${info.pendingLine ? " (the last player line is then answered)" : ""}`;
+      await this.emit({ type: "facilitator.alert", level: "warning", message: `session resumed after a server restart, ${down}${cut}${v0}${fixed}${next}` });
+      for (const r of info.repairs) await this.applyRepair(r);
+      return notes;
+    });
+  }
+
+  /** Completes one step a crash cut short (see ResumeInfo.repairs), exactly as the live operation would have. */
+  private async applyRepair(r: Repair): Promise<void> {
+    const sc = this.scenario;
+    if (r.kind === "npc_init") {
+      const role = own(sc.roles, r.roleId);
+      if (role?.type === "npc") await this.emit({ type: "npc.updated", roleId: r.roleId, goals: role.goals, knowledge: role.knowledge, released: [] });
+    } else if (r.kind === "inject_effect") {
+      const inject = sc.script.scenes.find((x) => x.id === r.sceneId)?.injects?.find((i) => i.id === r.injectId);
+      const npc = own(this.state.npcs, r.roleId);
+      if (inject && npc) await this.emit({ type: "npc.updated", roleId: r.roleId, goals: [...npc.goals, ...(inject.effect?.goals_add ?? [])], knowledge: [...npc.knowledge, ...(inject.effect?.knowledge_add ?? [])] });
+    } else if (r.kind === "opening_inject") {
+      const scene = sc.script.scenes.find((x) => x.id === r.sceneId);
+      const inject = scene?.injects?.find((i) => i.id === scene.opening_inject);
+      if (scene && inject) await this.fireInject(scene, inject);
+    } else if (r.kind === "enter_scene") {
+      const scene = sc.script.scenes.find((x) => x.id === r.sceneId);
+      if (scene) await this.enterScene(scene);
+    } else await this.emit({ type: "session.ended", reason: "script_complete" });
+  }
+
   tick(): Promise<void> { return this.mutex.run(() => this.doTick()); }
   private async doTick(): Promise<void> {
     const scene = this.currentScene();
     if (!scene || this.state.paused || this.state.status !== "running") return;
     // Pause freezes the scene clock (BUG-0005): elapsed time is active time, excluding paused intervals.
-    const elapsedMs = activeElapsedMs(this.state, this.clock.now());
+    const elapsedMs = activeElapsedMs(this.state, this.now());
     // R14: only the current scene's injects fire, and never one scheduled past the time box.
     // An inject at exactly the time-box minute still fires, before the exit below.
     const timeBoxMinutes = scene.time_box_minutes;

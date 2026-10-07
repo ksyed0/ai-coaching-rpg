@@ -2,7 +2,7 @@ import { visibleTranscript, type SessionEvent, type SessionState } from "@acr/ev
 import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
-import { type SessionEngine } from "../engine/session-engine.js";
+import { type ResumeInfo, type SessionEngine } from "../engine/session-engine.js";
 import { NpcAgent, type SilentTurn } from "../agents/npc-agent.js";
 import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
@@ -24,9 +24,13 @@ export class SessionHost {
   private ticker: NodeJS.Timeout | null = null;
   private tickPending = false;
   private roundQueued = false;
+  /** US-0018: the scene whose last player line went unanswered when the server stopped; answered once, on the facilitator's /resume. */
+  private pendingAnswer: string | null = null;
   private readonly silences: SilentTurn[] = [];
   private readonly maxSilencesKept: number;
   private readonly silentListeners = new Set<(t: SilentTurn) => void>();
+  private readonly fatalListeners = new Set<(reason: string) => void>();
+  private fatal: string | null = null;
 
   constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
@@ -37,6 +41,8 @@ export class SessionHost {
     for (const role of Object.values(opts.scenario.roles)) {
       if (role.type === "npc") this.npcs.set(role.id, new NpcAgent({ role: role as NpcRole, engine: opts.engine, provider: opts.npcProvider, firstTokenTimeoutMs: opts.firstTokenTimeoutMs, replyTimeoutMs: opts.replyTimeoutMs, maxTokens: opts.npcMaxTokens, temperature: opts.npcTemperature, peers, onSilent: (t) => this.noteSilence(t) }));
     }
+    // Fail-stop (US-0018): when the log fails or the lock is lost the engine refuses everything; stop the clock and tell the server.
+    opts.engine.onFailure((reason) => this.onEngineFailure(reason));
     this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), maxTokens: opts.gmMaxTokens, temperature: opts.gmTemperature, evaluationTimeoutMs: opts.gmTimeoutMs ?? gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS), reask: opts.gmReask, everyNUtterances: opts.gmEveryN, trace: opts.gmTrace });
   }
 
@@ -51,6 +57,19 @@ export class SessionHost {
 
   /** Calls `fn` for each silent turn from now on; returns the unsubscribe function. */
   onSilentTurn(fn: (t: SilentTurn) => void): () => void { this.silentListeners.add(fn); return () => { this.silentListeners.delete(fn); }; }
+
+  /** Why the session stopped for good (the log failed or the lock was lost), or null. */
+  get fatalReason(): string | null { return this.fatal; }
+
+  /** Calls `fn` once if the session stops for good (see fatalReason). */
+  onFatal(fn: (reason: string) => void): () => void { this.fatalListeners.add(fn); return () => { this.fatalListeners.delete(fn); }; }
+
+  private onEngineFailure(reason: string): void {
+    if (this.fatal !== null) return;
+    this.fatal = reason;
+    this.stopTicker();
+    for (const fn of this.fatalListeners) { try { fn(reason); } catch (err) { this.report("fatal listener", err); } }
+  }
 
   private report(what: string, err: unknown): void {
     try { this.log(`${what}: ${err instanceof Error ? err.stack ?? err.message : String(err)}`); } catch { /* logging must never throw */ }
@@ -70,6 +89,21 @@ export class SessionHost {
   release(roleId: string, participantId: string): void {
     if (this.assignments[roleId] === participantId) delete this.assignments[roleId];
   }
+
+  /**
+   * US-0018: adopts a session the engine restored from its log (call before the server accepts connections). Role claims start empty,
+   * as after any disconnect; the Game Master continues from the log; one unanswered player line is answered on the facilitator's /resume.
+   */
+  resumeFrom(info: ResumeInfo): void {
+    this.started = true;
+    const scene = info.sceneId;
+    const evaluated = info.lastGmSeq === null ? 0 : this.engine.state.transcript.filter((u) => u.sceneId === scene && u.seq < info.lastGmSeq!).length;
+    this.gm.restore(scene, evaluated);
+    this.pendingAnswer = info.pendingLine ? scene : null;
+  }
+
+  /** The scene whose unanswered player line waits for /resume (null when none). */
+  get pendingAnswerScene(): string | null { return this.pendingAnswer; }
 
   /** `started` is set only after engine.start succeeds, so a failed start can be retried (never wedged). */
   async start(): Promise<void> {
@@ -102,7 +136,12 @@ export class SessionHost {
   async onPlayerUtterance(roleId: string, text: string, opts: { expectSceneId?: string } = {}): Promise<void> {
     if (!this.started) throw new HostError("not_started");
     await this.engine.say(roleId, text, "text", opts); // throws EngineError (paused, ended, ...) before any NPC turn can start
-    // R25: at most one round waits behind the running one; it reads the then-current transcript anyway.
+    this.pendingAnswer = null; // a new line supersedes the one from before a restart: the round below answers the conversation as it now stands
+    this.scheduleRound();
+  }
+
+  /** One NPC round (then a GM tick) in the background. R25: at most one round waits behind the running one; it reads the then-current transcript anyway. */
+  private scheduleRound(): void {
     if (this.roundQueued) return;
     this.roundQueued = true;
     this.schedule("npc round", async () => {
@@ -135,6 +174,16 @@ export class SessionHost {
 
   async command(cmd: Parameters<SessionEngine["command"]>[0], opts: { expectSceneId?: string } = {}): Promise<void> {
     await this.engine.command(cmd, opts);
+    if (cmd.command === "resume" && this.pendingAnswer !== null && !this.engine.state.paused) {
+      const sceneId = this.pendingAnswer;
+      this.pendingAnswer = null; // exactly once, whatever happens next
+      // Not when the facilitator has already asked to leave this scene (the advance takes effect at the next tick).
+      if (this.engine.currentScene()?.id === sceneId && this.engine.state.status === "running" && !this.engine.state.advanceRequested) {
+        await this.engine.alert("answering the last player line from before the restart", "info", { expectSceneId: sceneId });
+        this.scheduleRound();
+        return; // the round ends with a Game Master tick
+      }
+    }
     this.schedule("gm tick", () => this.gm.tick());
   }
 
@@ -149,6 +198,7 @@ export class SessionHost {
 
   startTicker(ms: number): void {
     this.stopTicker();
+    if (this.fatal !== null) return;
     this.ticker = setInterval(() => {
       if (this.tickPending) return; // a slow tick must not pile up behind itself
       this.tickPending = true;
@@ -197,6 +247,8 @@ export class SessionHost {
       // Redacted copy: roles -> kinds only (participant ids/names are other people's display names).
       case "session.started": return { ...e, roles: redactRoles(e.roles) };
       case "session.ended": return e;
+      // Like a pause: every participant learns the session came back paused after a restart.
+      case "session.resumed": return e;
       // Only for scenes the player takes part in.
       case "scene.entered": return e.participants.includes(who) ? e : null;
       case "scene.exited": return inScene(e.sceneId) ? e : null;

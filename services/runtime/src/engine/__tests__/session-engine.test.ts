@@ -330,7 +330,8 @@ describe("JsonlEventLog hardening", () => {
     const good = JSON.stringify({ ...body, seq: 1, ts: 1, sessionId: "t1" });
     await writeFile(path.join(dir, "t1.jsonl"), good + "\n" + '{"type":"sess', "utf8");
     expect(await new JsonlEventLog("t1", dir).all()).toHaveLength(1);
-    await writeFile(path.join(dir, "t2.jsonl"), good + "\n{bad\n" + good + "\n", "utf8");
+    const good2 = (seq: number) => JSON.stringify({ ...body, seq, ts: 1, sessionId: "t2" }); // events must name their own session (US-0018)
+    await writeFile(path.join(dir, "t2.jsonl"), good2(1) + "\n{bad\n" + good2(2) + "\n", "utf8");
     await expect(new JsonlEventLog("t2", dir).all()).rejects.toThrow(/t2\.jsonl.*line 2/);
   });
 

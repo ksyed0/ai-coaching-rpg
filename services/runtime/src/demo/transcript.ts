@@ -88,6 +88,7 @@ export class Transcript {
         case "inject.fired": this.add({ kind: "log", source: "system", text: `inject ${e.injectId} to ${e.to.join(", ")}: ${e.content}`, scene }); break;
         case "session.started": this.add({ kind: "log", source: "system", text: "session started", scene }); break;
         case "session.ended": this.add({ kind: "log", source: "system", text: `session ended (${e.reason})`, scene }); break;
+        case "session.resumed": this.add({ kind: "log", source: "system", text: "session resumed after a server restart (paused)", scene }); break;
         default: break;
       }
     };

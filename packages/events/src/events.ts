@@ -21,7 +21,11 @@ export type FacilitatorCommand =
 export type EventEnvelope = { seq: number; ts: number; sessionId: string };
 
 export type EventBody =
-  | { type: "session.started"; scenarioId: string; version: string; roles: Record<string, { kind: RoleKind; participantId?: string }> }
+  | { type: "session.started"; scenarioId: string; version: string; roles: Record<string, { kind: RoleKind; participantId?: string }>;
+      /** The session log's format (US-0018): LOG_FORMAT for new logs; absent in older logs, which count as format 0. */
+      logFormat?: number;
+      /** sha256 (hex) of the loaded scenario, so a restart can refuse to resume a log against a different scenario. Absent in format 0. */
+      scenarioHash?: string }
   | { type: "scene.entered"; sceneId: string; participants: string[] }
   | { type: "scene.exited"; sceneId: string; reason: ExitReason }
   | { type: "utterance"; roleId: string; text: string; channel: Channel;
@@ -36,7 +40,23 @@ export type EventBody =
   | { type: "gm.no_verdict"; sceneId: string; condition: string; reason: GmNoVerdictReason; attempts: number }
   | ({ type: "facilitator.command" } & FacilitatorCommand)
   | { type: "facilitator.alert"; level: "info" | "warning"; message: string }
-  | { type: "session.ended"; reason: "script_complete" | "facilitator_end" };
+  | { type: "session.ended"; reason: "script_complete" | "facilitator_end" }
+  /**
+   * US-0018: the server restarted and resumed this session from its log. The session comes back paused; the time since
+   * `downFromTs` (the last event recorded before the restart) counts as paused time, so no timer runs on during the downtime.
+   */
+  | { type: "session.resumed"; downFromTs: number };
 
 export type SessionEvent = EventEnvelope & EventBody;
 export type EventType = EventBody["type"];
+
+/** The session log format this version writes (session.started.logFormat). A log without the field is format 0. */
+export const LOG_FORMAT = 1;
+
+const EVENT_TYPE_SET: Record<EventType, true> = {
+  "session.started": true, "scene.entered": true, "scene.exited": true, utterance: true, "inject.fired": true, "npc.updated": true,
+  "gm.decision": true, "gm.no_verdict": true, "facilitator.command": true, "facilitator.alert": true, "session.ended": true, "session.resumed": true,
+};
+/** Every event type this version knows (a compile error until a new EventBody member is listed). */
+export const EVENT_TYPES: readonly EventType[] = Object.keys(EVENT_TYPE_SET) as EventType[];
+export const isKnownEventType = (t: unknown): t is EventType => typeof t === "string" && Object.prototype.hasOwnProperty.call(EVENT_TYPE_SET, t);

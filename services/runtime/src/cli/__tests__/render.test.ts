@@ -175,6 +175,14 @@ describe("renderJoined notice (US-0017)", () => {
   });
 });
 
+describe("session.resumed (US-0018)", () => {
+  const e = { seq: 9, ts: 1, sessionId: "s", type: "session.resumed", downFromTs: 0 } as const;
+  it("tells the facilitator to /resume and a player that the facilitator will", () => {
+    expect(renderEvent(e, "facilitator")).toBe("=== session paused (server restarted): /resume to continue ===");
+    expect(renderEvent(e, "delivery_lead")).toBe("=== session paused (server restarted); the facilitator will resume it ===");
+  });
+});
+
 describe("hidden facts in the terminal client (US-0016)", () => {
   const env = { seq: 1, ts: 0, sessionId: "s" };
   it("renders the release command to the facilitator by number, never to a player, and never with text", () => {

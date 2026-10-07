@@ -52,6 +52,7 @@ export function renderEvent(e: SessionEvent, me: string): string | null {
       return e.command === "whisper" ? `[whisper] ${s(e.text)}` : `[facilitator] ${s(e.command)}`;
     case "session.started": return `session started: ${s(e.scenarioId)} v${s(e.version)}`;
     case "session.ended": return `=== session ended (${s(e.reason)}) ===`;
+    case "session.resumed": return isFacilitator ? "=== session paused (server restarted): /resume to continue ===" : "=== session paused (server restarted); the facilitator will resume it ===";
     case "npc.updated": return isFacilitator ? `[npc ${s(e.roleId)}] goals: ${(e.goals ?? []).map(s).join("; ")}` : null;
     default: return null;
   }
@@ -126,5 +127,6 @@ export function renderError(code: string, message: string): string {
   if (code === "not_started") return "waiting for the facilitator to /start the session before anyone can speak";
   if (code === "unauthorized") return "error: unauthorized: this server needs the facilitator token (set FACILITATOR_TOKEN, use --token-file <path>, or type it at the prompt)";
   if (code === "rate_limited") return "slow down: too many messages, some were dropped";
+  if (code === "log_failed") return "the server can no longer record this session and is stopping; when it is back, rejoin: the session resumes, paused, from its log";
   return `error: ${s(code)}: ${s(message)}`;
 }
