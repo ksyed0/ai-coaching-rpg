@@ -104,10 +104,11 @@ describe("the room token", () => {
 
 describe("--url against a token-protected server", () => {
   const TOKEN = "url-mode-token-0123456789abcdef";
+  let codesEnv = ""; // US-0033: the target's join codes, as JOIN_CODES
   const start = async () => {
     const tmp = await makeTempRoot(REPO_ROOT);
     cleanups.push(() => tmp.cleanup());
-    const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock", FACILITATOR_TOKEN: TOKEN }, root: tmp.root, logDir: tmp.dataDir, log: () => {}, warn: () => {}, tickMs: 60_000 });
+    const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock", FACILITATOR_TOKEN: TOKEN }, root: tmp.root, logDir: tmp.dataDir, log: () => {}, warn: () => {}, tickMs: 60_000, showJoinCodes: (c) => { codesEnv = c.map((x) => `${x.roleId}=${x.code}`).join(","); } });
     if (!boot.ok) throw new Error(boot.errors.join("; "));
     cleanups.push(() => boot.runtime.stop());
     return boot.runtime.port;
@@ -116,7 +117,7 @@ describe("--url against a token-protected server", () => {
   it("passes the external checks with FACILITATOR_TOKEN in the environment, and never prints the token", async () => {
     const port = await start();
     const c = capture();
-    const { exitCode, report } = await runDemo(deps(c, ["--url", `ws://127.0.0.1:${port}`, "--session", "smoke", "--fast", "--no-color"], { env: { PATH: "/usr/bin", FACILITATOR_TOKEN: TOKEN } }));
+    const { exitCode, report } = await runDemo(deps(c, ["--url", `ws://127.0.0.1:${port}`, "--session", "smoke", "--fast", "--no-color"], { env: { PATH: "/usr/bin", FACILITATOR_TOKEN: TOKEN, JOIN_CODES: codesEnv } }));
     expect(report!.results.filter((r) => r.status === "failed")).toEqual([]);
     expect(exitCode).toBe(0);
     expect(c.out.join("") + c.err.join("") + JSON.stringify(report)).not.toContain(TOKEN);

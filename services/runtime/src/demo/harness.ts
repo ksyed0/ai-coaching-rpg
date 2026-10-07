@@ -20,6 +20,8 @@ import { parseGmConfig, type GmConfig } from "../agents/gm-config.js";
 import type { GmTraceRecord } from "../agents/game-master.js";
 import { openSession, type OpenedSession, type StartMode } from "../engine/session-store.js";
 import type { LockOptions } from "../engine/log-files.js";
+import { JoinCodes } from "../engine/join-codes.js";
+import { scenarioHash } from "../engine/scenario-hash.js";
 
 /** A distinctive fake key set in the runner's own env object. It is never used to call anything; the audit proves it never leaks. */
 export const FAKE_KEY = "sk-ant-demo-FAKE-DO-NOT-USE-0123456789abcdefghijklmnop";
@@ -52,6 +54,12 @@ export type System = {
   /** Lines the host's background workers reported (must stay empty) and the server's own log lines. */
   hostLog: string[]; serverLog: string[];
   logFile: string;
+  /**
+   * US-0033: the player roles' join codes as this system's operator would hand them out (the in-process bots join with them). Empty
+   * when the codes were issued by an earlier life of the same session (the resume room keeps the first life's codes). Never printed:
+   * the runner adds them to the secret values that F-28 searches for.
+   */
+  joinCodes: Record<string, string>;
   stop(): Promise<void>;
 };
 
@@ -222,6 +230,8 @@ export async function buildSystem(o: {
   facilitatorToken?: string; limits?: Partial<Limits>; allowedOrigins?: string[]; trustProxy?: boolean;
   /** An engine opened elsewhere (the resume room's openSession), and what to close with the system (its log and lock). */
   engine?: SessionEngine; onStop?: () => Promise<void> | void;
+  /** US-0033: the join codes of a session opened elsewhere (the resume room's store); otherwise this system issues its own. */
+  joinCodes?: { codes: JoinCodes; plain: Record<string, string> };
 }): Promise<System> {
   const hostLog: string[] = []; const serverLog: string[] = [];
   // A throwaway temp log: no fdatasync (see JsonlLogOptions.sync); the server and the resume room always sync.
@@ -233,13 +243,17 @@ export async function buildSystem(o: {
     npcMaxTokens: o.npcMaxTokens, gmMaxTokens: o.gmMaxTokens, npcTemperature: o.npcTemperature, gmTemperature: o.gmTemperature,
     gmTimeoutMs: o.gmConfig?.timeoutMs, gmReask: o.gmConfig?.reask, gmEveryN: o.gmConfig?.everyNUtterances, gmAutoRelease: o.gmAutoRelease ?? o.gmConfig?.autoRelease, gmTrace: o.gmTrace,
   });
+  // Every demo server requires player join codes, as the real one does (US-0033).
+  const playerRoles = Object.values(o.scenario.roles).filter((r) => r.type === "player").map((r) => r.id);
+  const issued = o.joinCodes ?? (playerRoles.length ? JoinCodes.issue(playerRoles, { sessionId: o.sessionId, scenarioSha256: scenarioHash(o.scenario) }) : null);
   const server = await startServer({
     port: 0, hosts: new Map([[o.sessionId, host]]), log: (m) => serverLog.push(m), heartbeatMs: o.heartbeatMs, host: "127.0.0.1",
     facilitatorToken: o.facilitatorToken, limits: { ...DEMO_LIMITS, ...o.limits }, allowedOrigins: o.allowedOrigins, trustProxy: o.trustProxy,
+    ...(issued ? { joinCodes: new Map([[o.sessionId, issued.codes]]) } : {}),
   });
   return {
     port: server.port, host, engine, clock: o.clock, fakeClock: o.fakeClock, npc: o.npc, gm: o.gm, hostLog, serverLog,
-    logFile: path.join(o.dataDir, `${o.sessionId}.jsonl`),
+    logFile: path.join(o.dataDir, `${o.sessionId}.jsonl`), joinCodes: { ...(issued?.plain ?? {}) },
     stop: async () => { host.stopTicker(); await server.close(); await log?.close?.(); await o.onStop?.(); },
   };
 }
@@ -335,7 +349,7 @@ export type ResumableSystem = System & { store: OpenedSession; npcProvider: Mode
 export async function startResumableSystem(o: {
   scenario: Scenario; sessionId: string; dataDir: string; clock: FakeClock; mode?: StartMode; npcProvider?: ModelProvider; lock?: LockOptions; now?: () => Date;
 }): Promise<ResumableSystem> {
-  const store = await openSession({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: o.clock, mode: o.mode ?? "resume", lock: o.lock, now: o.now });
+  const store = await openSession({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: o.clock, mode: o.mode ?? "resume", lock: o.lock, now: o.now, joinCodes: true });
   let crashed = false;
   const npcProvider = o.npcProvider ?? new MockModelProvider();
   let sys: System;
@@ -343,6 +357,7 @@ export async function startResumableSystem(o: {
     sys = await buildSystem({
       scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: o.clock, fakeClock: o.clock, engine: store.engine,
       npcProvider, gmProvider: stampNonce(new MockModelProvider()), gmConfig: { timeoutMs: 60_000, reask: false, everyNUtterances: 20 },
+      ...(store.joinCodes ? { joinCodes: { codes: store.joinCodes.codes, plain: store.joinCodes.issued ?? {} } } : {}),
       onStop: async () => { if (crashed) { store.lock.abandon(); await store.log.close(); } else await store.close(); },
     });
   } catch (err) { await store.close(); throw err; }

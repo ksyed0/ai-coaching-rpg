@@ -6,7 +6,7 @@ import { bootstrap } from "../main.js";
 import { isEvent, type Inbound } from "./bots.js";
 import { assertRotatedOnly, ensure, findInjectLeaks, findMarkers, logShapeProblems, missingMarkers, sceneTrace } from "./checks.js";
 import {
-  PARTICIPANT_NAMES, ROLE_PLAYERS, act, connectBot, got, isJoinedMsg, npcRole, sceneIds, utterancesByScene,
+  PARTICIPANT_NAMES, ROLE_PLAYERS, act, codeSecrets, connectBot, got, isJoinedMsg, npcRole, sceneIds, utterancesByScene,
   type Ctx, type PlayerId, type Story,
 } from "./ctx.js";
 import { FAKE_KEY } from "./harness.js";
@@ -154,11 +154,16 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
       const file = sys!.logFile;
       const before = await readFile(file);
       const logs: string[] = [];
+      const shown: { roleId: string; code: string }[][] = [];
       const r = await bootstrap({
         env: { RUNTIME_PORT: "0", SESSION_ID: ctx.sessionId, MODEL_PROVIDER: "mock", ANTHROPIC_API_KEY: FAKE_KEY },
         root: ctx.tmp!.root, logDir: ctx.tmp!.dataDir, now: () => new Date("2030-01-02T03:04:05Z"), log: (m) => logs.push(m), warn: (m) => logs.push(m), tickMs: 60_000,
+        showJoinCodes: (c) => { shown.push(c); ctx.secretValues.push(...codeSecrets(Object.fromEntries(c.map((x) => [x.roleId, x.code])))); },
       });
       ensure(r.ok, `the restarted server did not start: ${r.ok ? "" : r.errors.join("; ")}`);
+      // US-0033: the real server issues one join code per player role, shows them once outside its log and stores only their hashes.
+      ensure(shown.length === 1 && JSON.stringify(shown[0]!.map((c) => c.roleId).sort()) === JSON.stringify(ROLE_PLAYERS.map(([role]) => role).sort()), "the restarted server did not show one join code per player role exactly once");
+      ensure(findMarkers(logs.join("\n"), codeSecrets(Object.fromEntries(shown[0]!.map((x) => [x.roleId, x.code])))).length === 0, "a join code appeared in the server's log lines");
       ctx.register(() => r.runtime.stop().catch(() => undefined));
       ctx.labLogs.push(...logs);
       const rotatedName = `${ctx.sessionId}.20300102T030405Z.jsonl`;
@@ -179,11 +184,11 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
       f2.close();
       await r.runtime.stop();
       await n.step(`restart on the same session id: the old log moved aside as ${rotatedName}, byte for byte; the new session began at seq 1`);
-      return `old log (${before.length} bytes) rotated aside byte-identical as <id>.<UTC time>.jsonl; the restarted session began at seq 1`;
+      return `old log (${before.length} bytes) rotated aside byte-identical as <id>.<UTC time>.jsonl; the restarted session began at seq 1; the real server showed ${shown[0]!.length} player join codes once, outside its log`;
     }, ["F-26"]);
 
     await rec.run("F-28", async () => {
-      const files = [sys!.logFile, ...(await listLogs(ctx))];
+      const files = [sys!.logFile, ...(await listLogs(ctx)), ...(await listCodeFiles(ctx))];
       const haystacks: [string, string][] = [
         ...(await Promise.all(files.map(async (f) => [`log ${path.basename(f)}`, await readFile(f, "utf8").catch(() => "")] as [string, string]))),
         ...ctx.bots.map((b) => [`inbox of ${b.label}`, JSON.stringify(b.inbox)] as [string, string]),
@@ -194,7 +199,7 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
         const found = findMarkers(hay, ctx.secretValues);
         ensure(found.length === 0, `a secret value appeared in the ${what}`);
       }
-      return `${ctx.secretValues.length} secret value(s) (a fake API key, passed through the env of the restarted bootstrap() server in F-24, plus any key-like values in the runner's own environment) are absent from ${haystacks.length} places: every session log on disk (the old, rotated and new ones), every client's inbox, the narration so far and the server logs`;
+      return `${ctx.secretValues.length} secret value(s) (a fake API key, passed through the env of the restarted bootstrap() server in F-24, every player join code the demo's servers issued, plus any key-like values in the runner's own environment) are absent from ${haystacks.length} places: every session log and join codes file on disk (the old, rotated and new ones), every client's inbox, the narration so far and the server logs`;
     }, ["F-24"]);
 
     await rec.run("F-29", () => {
@@ -205,6 +210,12 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
       return `the hosts reported no background failure and the servers logged no handler, send or internal error (${sys!.serverLog.length} routine lines)`;
     });
   }, { always: true });
+}
+
+/** US-0033: the join codes files the restarted server wrote (hashes only: F-28 proves no code is in them). */
+async function listCodeFiles(ctx: Ctx): Promise<string[]> {
+  const names = await readdir(ctx.tmp!.dataDir).catch(() => [] as string[]);
+  return names.filter((x) => x.endsWith(".codes.json")).map((x) => path.join(ctx.tmp!.dataDir, x));
 }
 
 async function listLogs(ctx: Ctx): Promise<string[]> {

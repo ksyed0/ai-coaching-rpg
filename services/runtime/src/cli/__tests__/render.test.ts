@@ -174,6 +174,8 @@ describe("renderError for the token and rate limits (US-0017)", () => {
   it("explains unauthorized and rate_limited without echoing anything from the server", () => {
     expect(renderError("unauthorized", "x\x1b[2Jsecret")).toMatch(/needs the facilitator token/);
     expect(renderError("unauthorized", "x\x1b[2Jsecret")).not.toContain("secret");
+    expect(renderError("unauthorized", "x\x1b[2Jsecret", true)).toMatch(/join code from the facilitator/); // US-0033: a player is told about the code, not the token
+    expect(renderError("unauthorized", "x\x1b[2Jsecret", true)).not.toContain("secret");
     expect(renderError("rate_limited", "whatever")).toMatch(/slow down/);
   });
 });

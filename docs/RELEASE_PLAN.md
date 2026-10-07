@@ -932,22 +932,22 @@ Notes: Observed 2026-10-06 in real Gemma runs of `pnpm demo --showcase --live --
 US-0033 (EPIC-0006): As an operator, I want each player role to have its own join code, so that a person cannot claim a role that was meant for someone else.
 Priority: Medium
 Estimate: M
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0006-US-0033-player-join-codes
-Dependencies: US-0017
+Dependencies: US-0017, US-0018 (the codes must survive a restart)
 Acceptance Criteria:
-  - [ ] AC-0120: when the server starts a session it creates one random join code per player role (stored only as a hash, never written to the event log), the operator can see the codes once at start, and a `join` for a player role must present that role's code
-  - [ ] AC-0121: a `join` with a missing or wrong code is refused with one generic error that does not say whether the role exists or is taken, and the refusals count towards the existing connection and rate limits
-  - [ ] AC-0122: the facilitator token (US-0017) remains separate, a rejoining player keeps using the reconnect token for a live session, and the README documents how to hand the codes out
+  - [x] AC-0120: when the server starts a session it creates one random join code per player role (stored only as a hash, never written to the event log), the operator can see the codes once at start, and a `join` for a player role must present that role's code (engine/join-codes.ts: 12 Crockford base32 symbols, salted SHA-256, timingSafeEqual; printed once by bootstrap's `showJoinCodes`, never through log/warn; hashes in `<id>.codes.json`; demo F-01, F-24, F-28)
+  - [x] AC-0121: a `join` with a missing or wrong code is refused with one generic error that does not say whether the role exists or is taken, and the refusals count towards the existing connection and rate limits (one `unauthorized` for no or a wrong code, unknown, AI and reserved roles and an unknown session; 1008 close; charged in the failed-login throttle shared with the facilitator token; ws-server.join-codes.test.ts, demo F-02)
+  - [x] AC-0122: the facilitator token (US-0017) remains separate, a rejoining player keeps using the reconnect token for a live session, and the README documents how to hand the codes out (a code never opens the facilitator stream nor the token a role; a live takeover needs the reconnect token and no code; codes survive a restart as hashes, US-0018; README "Player join codes" and "Handing out the join codes"; demo F-22, F-37, F-40, F-41)
 ```
 
 ```
 TASK-0033 (US-0033): Generate and verify per-role join codes, add the code to the join message and the terminal client, document it
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0033-player-join-codes
-Notes: Closes the gap US-0017 leaves open: with only a facilitator token, any connection can still claim an unclaimed player role. Also needed so that US-0018 (resume after restart) can keep roles protected across a restart (hashed codes only).
+Notes: Closes the gap US-0017 leaves open: with only a facilitator token, any connection can still claim an unclaimed player role. Also needed so that US-0018 (resume after restart) can keep roles protected across a restart (hashed codes only). Delivered: engine/join-codes.ts (issue, verify, record), engine/join-code-file.ts (`<id>.codes.json`: O_EXCL temp + fsync + rename under the lock, read through one fstat-judged descriptor), openSession `joinCodes` (kept on resume and on an empty log, new on fresh or after an ended session, the old file removed before the log is rotated, a malformed file refused like a corrupt log), ws-server `joinCodes` (generic refusal, throttle), bootstrap `showJoinCodes`/`printJoinCodes`, protocol `joinCode`, terminal client `JOIN_CODE`/`--code-file`/hidden prompt, demo servers and checks (counts unchanged), `pnpm demo --url` with `JOIN_CODES`. Test cases TC-0001 to TC-0007. Review fix round (I-1, M-1 to M-6): unseen codes are withdrawn when a start fails and an empty log always gets new codes, Crockford folding and an ASCII-only check, the same digest work for an unknown session, stale temp files swept, docs on the shared per-address throttle. Story stays In Progress until the re-review and the controller's checks.
 ```
 
 ```

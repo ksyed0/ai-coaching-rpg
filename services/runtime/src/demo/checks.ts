@@ -9,7 +9,7 @@ export type CheckDef = { id: string; title: string; kind: CheckKind };
 
 export const CHECKS: readonly CheckDef[] = [
   { id: "F-01", title: "Players join and each receives only their own brief and private facts", kind: "any" },
-  { id: "F-02", title: "A taken, NPC or unknown role cannot be claimed; the holder keeps the role", kind: "any" },
+  { id: "F-02", title: "A role cannot be claimed without its join code (one generic refusal for a taken, free, NPC or unknown role); the holder keeps the role", kind: "any" },
   { id: "F-03", title: "Players cannot start or command; speech before the start is refused", kind: "any" },
   { id: "F-04", title: "Only the facilitator starts the session", kind: "any" },
   { id: "F-05", title: "session.started is redacted for players and complete for the facilitator", kind: "any" },
@@ -51,7 +51,7 @@ export const RESUME_CHECKS: readonly CheckDef[] = [
   { id: "F-34", title: "A server killed mid-scene restarts into the same state from its log, paused, with the scene time it had", kind: "inproc" },
   { id: "F-35", title: "Nothing that came due during the downtime fires on /resume; a timed inject fires once, at its minute of active time", kind: "inproc" },
   { id: "F-36", title: "The player line left unanswered by the crash is answered exactly once, after /resume", kind: "inproc" },
-  { id: "F-37", title: "After a restart players claim their roles again and each gets only the history it may see", kind: "inproc" },
+  { id: "F-37", title: "After a restart players rejoin with the same join codes (none without) and each gets only the history it may see", kind: "inproc" },
   { id: "F-38", title: "A restart against changed scenario files is refused and the log is left untouched", kind: "inproc" },
   { id: "F-39", title: "A log corrupt in the middle is refused untouched; a cut-off last line is cut and the session resumes", kind: "inproc" },
   { id: "F-40", title: "SESSION_START=fresh moves the log aside byte for byte and starts a new session at seq 1", kind: "inproc" },

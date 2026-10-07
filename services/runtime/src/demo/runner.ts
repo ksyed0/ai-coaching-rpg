@@ -10,7 +10,7 @@ import { REPO_ROOT } from "../main.js";
 import { DEMO_USAGE, parseDemoArgs } from "./args.js";
 import { playAudit } from "./audit.js";
 import { CHECKS, RESUME_CHECKS, SECURITY_CHECKS, Recorder, buildMarkers, type RunKind } from "./checks.js";
-import { newStory, type Ctx } from "./ctx.js";
+import { codeSecrets, newStory, parseJoinCodesEnv, type Ctx } from "./ctx.js";
 import { FAKE_KEY, makeTempDataDir, makeTempRoot, startLiveSystem, startMockSystem, startPlayerProvider, startShowcaseMockSystem, type System } from "./harness.js";
 import { PlayerBotGenerator } from "./player-bot.js";
 import { PlayerLines } from "./player-lines.js";
@@ -264,6 +264,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     register(() => sys.stop());
     register(() => gmTrace?.close());
     ctx.sys = sys; ctx.tmp = { root: t.root, dataDir: t.dataDir, scenarioDir: "", cleanup: t.cleanup }; ctx.wsUrl = `ws://127.0.0.1:${sys.port}`;
+    secretValues.push(...codeSecrets(sys.joinCodes)); // US-0033: the join codes must never be printed or reach a client
     const timeouts = liveEnv ? parseNpcTimeouts(liveEnv) : undefined;
     let players: { generator: PlayerBotGenerator; lines: PlayerLines; showIntents: boolean } | undefined;
     if (opts.players === "generated") {
@@ -316,6 +317,10 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     return { exitCode: 2 };
   }
   if (urlToken !== undefined && !secretValues.includes(urlToken)) secretValues.push(urlToken);
+  // --url: the target's player join codes (US-0033), as its operator was shown them at start. Never printed (they join secretValues).
+  const urlCodes = opts.url ? parseJoinCodesEnv(deps.env.JOIN_CODES) : { ok: true as const, codes: {} };
+  if (!urlCodes.ok) { deps.stderr.write(`${urlCodes.error}\n`); return { exitCode: 2 }; }
+  secretValues.push(...codeSecrets(urlCodes.codes));
 
   const execute = async (): Promise<void> => {
     if (showcase) return executeShowcase(showcase);
@@ -331,12 +336,15 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       n.line("  - it ADVANCES THE SESSION TO ITS END (script_complete); that session then cannot be resumed;");
       n.line("  - a facilitator join and the commands start, pause, resume, advance and whisper;");
       n.line("  - scripted player lines (as delivery_lead, tech_lead, account_manager), including one containing an escape sequence and a forged newline, and speech while the session is paused;");
-      n.line("  - role-claim attempts (a taken, an NPC and an unknown role), forged-token takeover attempts and a rejoin with the real token;");
+      n.line("  - role-claim attempts (no or a wrong join code, an NPC and an unknown role, a taken role with its code), forged-token takeover attempts and a rejoin with the real token;");
       n.line("  - player-issued start and pause, speech before the start, a facilitator say, speech from a role that is absent from the scene, speech and a resume command after the session ends, speech before joining, and a whisper to the NPC role (all expected to be refused);");
       n.line("  - malformed frames (bad JSON, an unknown type, an over-long line, an empty id) and one oversized (~70 kB) frame.");
       n.line(urlToken !== undefined
         ? "The facilitator joins with the token from the FACILITATOR_TOKEN environment variable (never printed). Structure is checked, not model content."
         : "The server must allow facilitator joins: it is open (no authentication), or export FACILITATOR_TOKEN with its token. Structure is checked, not model content.");
+      n.line(Object.keys(urlCodes.codes).length > 0
+        ? "The player bots join with the codes from the JOIN_CODES environment variable (never printed)."
+        : "The player bots need the server's join codes: export JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> with the codes it printed at start.");
     }
 
     const scenario = await loadScenario(path.join(repoRoot, "scenarios", "friday-escalation"));
@@ -345,7 +353,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     const markers = buildMarkers(scenario);
     scenarioTitle = scenario.meta.title;
     const ctx: Ctx = {
-      kind, tr, provider: providerKind, n, rec, signal: ac.signal, scenario, markers, sessionId, wsUrl: opts.url ?? "", facilitatorToken: urlToken, repoRoot, npcWaitMs: deps.npcWaitMs ?? (kind === "mock" ? 5_000 : 40_000),
+      kind, tr, provider: providerKind, n, rec, signal: ac.signal, scenario, markers, sessionId, wsUrl: opts.url ?? "", facilitatorToken: urlToken, urlJoinCodes: urlCodes.codes, repoRoot, npcWaitMs: deps.npcWaitMs ?? (kind === "mock" ? 5_000 : 40_000),
       outputTap: tap, labLogs: [], labHostLog: [], bots, secretValues, beforeAct: deps.beforeAct, register, now,
     };
     register(() => { for (const b of bots) b.terminate(); });
@@ -358,6 +366,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
       else sys = await startMockSystem({ scenario, sessionId, dataDir: t.dataDir });
       register(() => sys.stop());
       ctx.sys = sys; ctx.tmp = t; ctx.wsUrl = `ws://127.0.0.1:${sys.port}`;
+      secretValues.push(...codeSecrets(sys.joinCodes)); // US-0033: the join codes must never be printed or reach a client
     }
     const st = newStory();
     await playStory(ctx, st);

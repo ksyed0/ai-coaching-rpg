@@ -3,8 +3,8 @@ import { renderEvent, renderJoined } from "../cli/render.js";
 import { isEvent, type Inbound } from "./bots.js";
 import { UNSAFE_CHARS, ensure, findMarkers } from "./checks.js";
 import {
-  ROLE_PLAYERS, act, advanceTo, attempt, awaitNpc, command, connectBot, errCode, facilitatorJoin, got, isJoinedMsg,
-  npcRole, playerRole, sceneIds, say, settle, utterancesByScene, withTimeout, type Ctx, type PlayerId, type Story,
+  ROLE_PLAYERS, act, advanceTo, attempt, awaitNpc, codeFor, command, connectBot, errCode, facilitatorJoin, got, isJoinedMsg,
+  npcRole, playerJoin, playerRole, sceneIds, say, settle, utterancesByScene, withTimeout, type Ctx, type PlayerId, type Story,
 } from "./ctx.js";
 import { MIN } from "./harness.js";
 
@@ -53,7 +53,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       await n.step("the facilitator joins (full view of the session)");
       for (const [role, who] of ROLE_PLAYERS) {
         const bot = await connectBot(ctx, role);
-        const j = await bot.call({ type: "join", sessionId: ctx.sessionId, roleId: role, participantId: who }, isJoinedMsg, { what: `${role} to join` });
+        const j = await bot.call(playerJoin(ctx, role, who), isJoinedMsg, { what: `${role} to join` });
         ensure(isJoinedMsg(j), `${role} could not join: ${errCode(j)}`);
         const spec = playerRole(ctx.scenario, role);
         ensure(j.brief === spec.brief, `${role} received a brief that is not their own`);
@@ -63,27 +63,38 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
         const leaked = findMarkers(JSON.stringify(j), others);
         ensure(leaked.length === 0, `${role}'s joined message carried other roles' text: ${leaked.join(", ")}`);
         st.players[role] = bot; st.joined[role] = j;
-        await n.step(`${role} joins as ${who} and receives only their own brief and ${j.privateFacts?.length ?? 0} private facts`);
+        await n.step(`${role} joins as ${who} with the join code of their role and receives only their own brief and ${j.privateFacts?.length ?? 0} private facts`);
       }
-      return "3 players joined; each joined message holds exactly that role's brief and private facts, nothing of the others";
+      return "3 players joined, each with their role's join code; each joined message holds exactly that role's brief and private facts, nothing of the others";
     });
     if (!rec.passed("F-01")) throw new Error("the lobby failed, so the story cannot continue");
     const dl = st.players.delivery_lead!;
 
     await rec.run("F-02", async () => {
-      const imp = await connectBot(ctx, "imposter");
-      const claim = async (roleId: string, code: string) => {
-        const r = await imp.call({ type: "join", sessionId: ctx.sessionId, roleId, participantId: "ZedMalloryParticipant" }, isJoinedMsg, { what: `the claim of ${roleId}` });
-        ensure(r.type === "error" && r.code === code, `claiming ${roleId} gave ${errCode(r)}, expected ${code}`);
-        await n.step(`someone else claims ${roleId}: refused (${code})`);
+      // US-0033: a claim without the role's join code gets ONE generic answer, whether the role is free, taken, an AI character or unknown.
+      const GENERIC = JSON.stringify({ type: "error", code: "unauthorized", message: "unauthorized" });
+      const dlCode = codeFor(ctx, "delivery_lead");
+      const claim = async (label: string, roleId: string, joinCode: string | undefined) => {
+        const imp = await connectBot(ctx, `imposter (${label})`);
+        const r = await imp.call(playerJoin(ctx, roleId, "ZedMalloryParticipant", { joinCode }), isJoinedMsg, { what: `the claim of ${roleId}` });
+        ensure(JSON.stringify(r) === GENERIC, `claiming ${roleId} ${label} gave ${errCode(r)}, expected the generic unauthorized`);
+        const closeCode = await withTimeout(imp.closed, 5_000, `the server to close the connection after a claim ${label}`);
+        ensure(closeCode === 1008, `a refused claim closed with ${closeCode}, expected 1008`);
+        await n.step(`someone claims ${roleId} ${label}: refused (unauthorized) and disconnected`);
       };
-      await claim("delivery_lead", "role_taken");
-      await claim(npc.id, "npc_role");
-      await claim("no_such_role", "unknown_role");
+      await claim("without a join code", "delivery_lead", undefined);
+      await claim("with a wrong join code", "delivery_lead", "0000-0000-0000");
+      await claim("(an AI character) with delivery_lead's code", npc.id, dlCode);
+      await claim("(no such role) with delivery_lead's code", "no_such_role", dlCode);
+      // A code that leaked does not take a role its holder is still connected to: that needs the holder's reconnect token.
+      const leak = await connectBot(ctx, "imposter (leaked code)");
+      const r = await leak.call(playerJoin(ctx, "delivery_lead", "ZedMalloryParticipant"), isJoinedMsg, { what: "the claim with a leaked code" });
+      ensure(r.type === "error" && r.code === "role_taken", `claiming delivery_lead with its code gave ${errCode(r)}, expected role_taken`);
+      await n.step("someone with delivery_lead's (leaked) code claims it while its holder is connected: refused (role_taken)");
       ensure(dl.isOpen, "the holder's connection was dropped by a refused claim");
       if (sys) ensure(sys.host.assignments.delivery_lead === "ZedAlphaParticipant", "the role holder changed after a refused claim");
-      imp.close();
-      return "role_taken, npc_role and unknown_role refused; the original holder kept delivery_lead";
+      leak.close();
+      return "claims without a code, with a wrong code, and of an AI character's or an unknown role all got the same generic unauthorized and a 1008 close; with the right (leaked) code a live role still needs its reconnect token (role_taken); the holder kept delivery_lead";
     });
 
     await rec.run("F-03", async () => {
@@ -318,16 +329,17 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       const heard = old.events().filter((e) => e.type === "utterance").length;
       const claimer = async (label: string, participantId: string, token: string | undefined, why: string) => {
         const b = await connectBot(ctx, label);
-        const r = await b.call({ type: "join", sessionId: ctx.sessionId, roleId: "delivery_lead", participantId, reconnectToken: token }, isJoinedMsg, { what: why });
+        const r = await b.call(playerJoin(ctx, "delivery_lead", participantId, { reconnectToken: token }), isJoinedMsg, { what: why }); // with the role's code (US-0033)
         ensure(r.type === "error" && r.code === "role_taken", `${why} gave ${errCode(r)}, expected role_taken`);
         b.close();
       };
       await claimer("imposter-no-token", "ZedMalloryParticipant", undefined, "an imposter without the token");
       await claimer("imposter-wrong-token", "ZedMalloryParticipant", "not-the-token", "an imposter with a wrong token");
       await claimer("same-name-no-token", "ZedAlphaParticipant", undefined, "the right name without the token");
-      await n.step("while delivery_lead's old connection is still up, three takeover attempts without the real token are refused");
+      await n.step("while delivery_lead's old connection is still up, three takeover attempts with the role's join code but without the real reconnect token are refused");
       const fresh = await connectBot(ctx, "delivery_lead (rejoined)", { inbox: old.inbox });
-      const back = await fresh.call({ type: "join", sessionId: ctx.sessionId, roleId: "delivery_lead", participantId: "ZedAlphaParticipant", reconnectToken: j.reconnectToken }, isJoinedMsg, { what: "the rejoin" });
+      // The live rejoin needs only the reconnect token, not the join code again (US-0033 keeps the reconnect token separate).
+      const back = await fresh.call(playerJoin(ctx, "delivery_lead", "ZedAlphaParticipant", { joinCode: undefined, reconnectToken: j.reconnectToken }), isJoinedMsg, { what: "the rejoin" });
       ensure(isJoinedMsg(back), `the rejoin with the token was refused: ${errCode(back)}`);
       ensure(back.roleId === "delivery_lead", "the rejoin did not return the same role");
       ensure(back.reconnectToken !== j.reconnectToken, "the reconnect token was not rotated");
@@ -335,10 +347,10 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       const lines = renderJoined(back);
       ensure((back.state.transcript.length) >= heard, `the rejoin history has ${back.state.transcript.length} lines, ${heard} were heard`);
       ensure(lines.some((l) => l.includes(S1_LINES[0]![1])), "the rendered history lacks an early line of the session");
-      await n.step(`delivery_lead rejoins with the token: role kept, ${back.state.transcript.length} lines of history rendered, old connection closed by the server`);
+      await n.step(`delivery_lead rejoins with the reconnect token (no join code needed): role kept, ${back.state.transcript.length} lines of history rendered, old connection closed by the server`);
       await claimer("imposter-after-rejoin", "ZedMalloryParticipant", undefined, "an imposter after the rejoin");
       st.players.delivery_lead = fresh; st.joined.delivery_lead = back;
-      return `rejoin with the token kept the role and replayed ${back.state.transcript.length} history lines; the old socket was closed; imposters and the tokenless same name were refused`;
+      return `rejoin with the reconnect token alone kept the role and replayed ${back.state.transcript.length} history lines; the old socket was closed; imposters and the same name holding the join code but not the reconnect token were refused`;
     });
 
     // Hostile and malformed frames.

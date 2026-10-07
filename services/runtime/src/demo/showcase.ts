@@ -5,7 +5,7 @@ import { earnedWhenOf, type NpcRole, type Scenario } from "@acr/script";
 import { isEvent, type Inbound } from "./bots.js";
 import { UNSAFE_CHARS, buildMarkers, ensure, findInjectLeaks, findMarkers, logShapeProblems, type CheckDef, type Markers } from "./checks.js";
 import {
-  PARTICIPANT_NAMES, ROLE_PLAYERS, connectBot, errCode, isJoinedMsg, settle, withTimeout, type Ctx, type PlayerId, type Story,
+  PARTICIPANT_NAMES, ROLE_PLAYERS, connectBot, errCode, isJoinedMsg, playerJoin, settle, withTimeout, type Ctx, type PlayerId, type Story,
 } from "./ctx.js";
 import { MIN, type System } from "./harness.js";
 import { gmDeadlineMs } from "../agents/timeouts.js";
@@ -328,7 +328,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
   await n.tagged("system", "dim", "", "the facilitator joins (full view of the session)");
   for (const [role, who] of ROLE_PLAYERS) {
     const bot = await connectBot(ctx, role);
-    const j = await bot.call({ type: "join", sessionId: ctx.sessionId, roleId: role, participantId: who }, isJoinedMsg, { what: `${role} to join` });
+    const j = await bot.call(playerJoin(ctx, role, who), isJoinedMsg, { what: `${role} to join` }); // with the role's join code (US-0033)
     ensure(isJoinedMsg(j), `${role} could not join: ${errCode(j)}`);
     st.players[role] = bot; st.joined[role] = j;
     await n.tagged("system", "dim", "", `${role} joins as a player bot with ${j.privateFacts?.length ?? 0} private facts`);

@@ -144,10 +144,11 @@ describe("--transcript path handling", () => {
 });
 
 describe("--transcript with --url", () => {
+  let codesEnv = ""; // US-0033: the target's join codes, as JOIN_CODES
   const target = async () => {
     const root = await tmp();
     await cp(path.join(REPO_ROOT, "scenarios", "friday-escalation"), path.join(root, "scenarios", "friday-escalation"), { recursive: true });
-    const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root, logDir: path.join(root, "data"), log: () => {}, warn: () => {}, tickMs: 60_000 });
+    const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root, logDir: path.join(root, "data"), log: () => {}, warn: () => {}, tickMs: 60_000, showJoinCodes: (c) => { codesEnv = c.map((x) => `${x.roleId}=${x.code}`).join(","); } });
     if (!boot.ok) throw new Error(boot.errors.join("; "));
     cleanups.push(() => boot.runtime.stop());
     return boot.runtime.port;
@@ -155,7 +156,7 @@ describe("--transcript with --url", () => {
   it.each([["--url", []], ["--url --live", ["--live"]]])("%s: the runner cannot see the target's provider, so AI lines are UNVERIFIED (never GENERATED or SCRIPTED); bot lines stay SCRIPTED", async (_n, extra) => {
     const port = await target();
     const dir = await tmp();
-    const { exitCode } = await runDemo(deps(capture(), ["--url", `ws://127.0.0.1:${port}`, "--session", "smoke", "--fast", ...extra, "--transcript", "url.md"], { cwd: dir }));
+    const { exitCode } = await runDemo(deps(capture(), ["--url", `ws://127.0.0.1:${port}`, "--session", "smoke", "--fast", ...extra, "--transcript", "url.md"], { cwd: dir, env: { PATH: "/usr/bin", JOIN_CODES: codesEnv } }));
     expect(exitCode).toBe(0);
     const md = await readFile(path.join(dir, "url.md"), "utf8");
     expect(md).toContain("| Mode | " + (extra.length ? "url+live" : "url") + " |");

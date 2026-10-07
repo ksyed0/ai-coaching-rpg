@@ -64,3 +64,20 @@
 - Next stories: US-0033 per-role join codes, US-0034 Game Master suggests releases, US-0013 rejoin replay, evaluator moderation and calibration (EPIC-0005), US-0019 model cost. EPIC-0002/3/4 untouched.
 - Load-sensitive tests: a few tests assert wall-clock bounds or count `acr-demo-*` temp directories in the shared `/tmp` and fail under load (see the coverage block); tracked as BUG-0006.
 - The Stop hook records cumulative totals per snapshot in `docs/AI_COST_LOG.md`; do not sum its rows.
+
+## Session 7 — 2026-10-07 (owner housekeeping, US-0033 shipped, US-0034 in build)
+
+**Done**
+- Owner housekeeping: `docs/pitch/` (executive pitch deck, ~6 MB .pptx) committed and merged as PR #22; the 15 remote branches merged into `develop` deleted (`chore/ai-cost-log-session-1` kept, it is not merged); merged worktree and local branch removed.
+- **US-0033 per-role player join codes merged (PR #23, all 14 CI checks green).** One random 12-symbol code per player role, shown once on stdout, stored only as a salted SHA-256 in `data/sessions/<id>.codes.json` (0600), required on `join`; every refusal is one byte-identical `unauthorized`, charged to the failed-login throttle; the facilitator token and the reconnect token stay separate; codes survive a resume and are re-issued on a fresh, empty or rotated log; unseen codes are withdrawn when a start fails; terminal client reads `JOIN_CODE`, `--code-file` or a hidden prompt (never argv); `pnpm demo --url` reads `JOIN_CODES`. ACs AC-0120..AC-0122 ticked; TC-0001..TC-0007 added (story stays In Progress until a human live check).
+- Review loop: implementer (opus) -> independent review (needs fixes: 1 Important, 6 Minor) -> fix round -> scoped re-review (needs fixes: 1 more Important) -> fix round -> narrow re-review (ready to push). Details in `docs/LESSONS.md` L-0012 and L-0013.
+- Gates on the final commit: typecheck ok; eslint 0 errors (37 old warnings in `tools/`); `pnpm lint:sdk` ok; `pnpm test:coverage` green twice (once under `yes` x8 load), runtime 88 files / 1708 tests, 96.4% statements / 98.6% lines; `npm run plan:test` 1241 passed; `pnpm demo --fast` 29/29, `--security --resume` 42/42, `--showcase --fast` 14/14; the join-code test files green in `node:22` as root and as `--user node`. No live model calls (no prompt change).
+
+**In progress**
+- US-0034 (Game Master suggests hidden-fact releases) is being built by an implementer subagent on `feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release` (worktree `../ai-coaching-rpg.worktrees/US-0034`, not pushed). Test case ids TC-0008..TC-0012 are reserved for it; the registry (`TC` next/last) must be reconciled when it merges. It then needs the independent review loop and a PR.
+
+**Open items / blockers**
+- Owner: rotate the OpenRouter key pasted into chat on 2026-10-02 (still outstanding); download a second local model (recommended: Ministral-3-14B-Instruct-2512) and give its id; decide on `chore/ai-cost-log-session-1`.
+- Known limitation (US-0033, in `docs/THREAT_MODEL.md`): a crash between re-issuing codes on a resume and showing them keeps codes nobody saw; recovery is moving `<id>.codes.json` aside. Player typos share the per-address failed-login throttle (Docker Desktop shares one address).
+- Tooling follow-up (not filed): `@typescript-eslint/no-misused-promises` is not enabled because eslint lints only JS under `tools/`, `orchestrator/`, `tests/`, never the TypeScript sources; an async function used as a void callback slipped past two reviews once (L-0012).
+- Next stories after US-0034: US-0013 rejoin replay, EPIC-0005 remainder (moderation, self-assessment, visibility, calibration with a second judge), US-0019, US-0020, US-0023.

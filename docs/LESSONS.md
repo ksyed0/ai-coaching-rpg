@@ -87,3 +87,20 @@ _Learned when three parallel branches all appended to the same plan, registry an
 **Rule:** Do not paste API keys into chat; put them in the git-ignored `.env` yourself. Redact secrets in any log written to the repository (the prompt log) and scan the output before committing. Rotate any key that was exposed and record the incident in `progress.md`.
 _Learned when an OpenRouter key was pasted into a prompt on 2026-10-02; it stayed out of every committed file but must be rotated._
 **Date:** 2026-10-07
+
+## L-0012 — Never pass an async function where a synchronous check is expected
+
+@agent: all
+
+**Rule:** A guard or pre-commit hook typed `() => void` silently accepts an `async` function in TypeScript, so the check never runs and a rejection goes unhandled. Type such hooks as `() => undefined` (or reject a returned promise at run time and attach a catch), use the synchronous check (`lock.lost || !lock.verify()`) for file operations, and grep every use of an `async` function in a void-callback position.
+_Learned when `lock.assertHeld()` (async) was used as a synchronous pre-rename check in the join-code file: the lock was never actually checked, a lost lock still committed or deleted the file, and the rejected promise would have crashed Node 22. Two review passes caught it only by running a probe._
+**Date:** 2026-10-07
+
+## L-0013 — Secrets shown once must survive a failed start
+
+@agent: all
+
+**Rule:** If a value is persisted before it is shown to the operator (join codes, tokens), every failure path between the write and the display must undo the write, and a start with nothing recorded yet must issue and show new values instead of silently keeping unseen ones. Test it: make the start fail, restart, and assert the value is shown.
+_Learned when a port in use, a missing API key or a bad trace-file path left join codes on disk that nobody had seen, so the next start kept them silently and no player could join._
+**Date:** 2026-10-07
+
