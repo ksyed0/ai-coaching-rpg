@@ -286,7 +286,7 @@ Preconditions: As TC-0017; for the automated test a fake model whose error messa
 Steps:
   1. Run the live demo against it with `--transcript t.md --json r.json`.
   2. Read the alert lines under Priya's replies, the summary, `liveEvidence.alerts` and the transcript.
-  3. Search the narration, the report and the transcript for the key, the token (also after a line break), the key-shaped string, the hidden-fact text (also with zero-width characters or other case), the provider URL; the unit tests also feed join codes in lower case, without hyphens and spaced, and check that ordinary prose and model ids are not changed.
+  3. Search the narration, the report and the transcript for the key, the token (also after a line break), the key-shaped string, the hidden-fact text (also with zero-width characters or other case), the provider URL; a hidden fact cut off by the provider's snippet, a fact glued to a long run of characters; the unit tests also feed join codes in lower case, without hyphens and spaced, and check that ordinary prose and model ids are not changed.
 Expected Result: An alert that is not the cause of a reply (for example one whose reply was refused as stale) is not narrated under a later reply and has `replySeq: null`. Each fallback reply is followed by "alert (warning) for this reply: fell back to its canned line: model error ... (kind)"; the secrets are replaced by `[redacted]` in the narration, the report and the transcript; control characters are replaced by `·` and each alert is clipped to 300 characters.
 Actual Result: As expected (live-evidence.test.ts, live-evidence-runner.test.ts) on 2026-10-07.
 Status: [x] Pass

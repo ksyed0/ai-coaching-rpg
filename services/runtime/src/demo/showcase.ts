@@ -414,7 +414,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         if (said.reason !== undefined) {
           const msg = `player ${line.role}: generation failed (${said.reason}); used the scripted line`;
           chain = chain.then(() => n.tagged("alert", "yellow", "", safeAlert(msg))).catch(() => undefined);
-          ctx.tr?.add({ kind: "log", source: "system", text: msg, scene: scene.id });
+          ctx.tr?.add({ kind: "log", source: "system", text: safeAlert(msg), scene: scene.id });
         }
       }
       const from = bot.mark();

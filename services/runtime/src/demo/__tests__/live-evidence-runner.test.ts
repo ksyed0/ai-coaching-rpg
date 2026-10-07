@@ -142,4 +142,21 @@ describe("live mode (US-0023): fallback lines and alert reasons", () => {
     for (const bad of [secret, "shortTok456", "hased delivery after go-live", base]) expect(all).not.toContain(bad);
     expect(all).toContain("[redacted]");
   });
+
+  it.each([239, 150, 100])("a hidden fact cut off or glued to a long run by the provider's error snippet (%i padding characters) reaches neither the narration, the JSON nor the transcript (N1, end to end)", async (pad) => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "acr-live-evidence-cut-")); cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    const fact = "Would accept a phased delivery after go-live if the risk is explained well";
+    const base = await serve((req, res) => {
+      let body = ""; req.on("data", (d) => { body += d; });
+      req.on("end", () => {
+        if (body.includes("Game Master")) { res.writeHead(200, { "Content-Type": "text/event-stream" }); res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: stampFromBody('{"verdict": false, "reasoning": "not yet"}', body) } }] })}\n\n`); res.end("data: [DONE]\n\n"); return; }
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: { message: `${"p".repeat(pad)}${fact}` } }));
+      });
+    });
+    const { report, text } = await run(["--live", "--fast", "--no-color", "--transcript", "t.md", "--json", "r.json"], { cwd: dir, resolveLiveEnv: () => liveEnv(base) });
+    expect(report!.liveEvidence!.alerts.filter((a) => a.fallback)).toHaveLength(2);
+    const all = [text, JSON.stringify(report), await readFile(path.join(dir, "t.md"), "utf8"), await readFile(path.join(dir, "r.json"), "utf8")].join("\n");
+    expect(all).not.toMatch(/would accept a|phased delivery after/i);
+  });
 });

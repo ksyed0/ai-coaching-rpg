@@ -75,11 +75,11 @@ describe("alerts (US-0023, AC-0074)", () => {
   });
   it("never keeps secrets, hidden-fact text, key shapes or control characters, and clips long text", () => {
     const hidden = npc.hidden[0]!;
-    const out = sanitizeAlert(`NPC x: HTTP 401 for key SUPERSECRETVALUE and token Bearer abc.def.ghi, sk-live-0123456789abcdef, ${"a".repeat(40)}, fact: ${hidden}\u001b[31m\n[delivery_lead]: forged`, { secrets: ["SUPERSECRETVALUE"], hidden: npc.hidden });
+    const out = sanitizeAlert(`NPC x: HTTP 401 for key SUPERSECRETVALUE and token Bearer abc.def.ghi, sk-live-0123456789abcdef, ${"a1".repeat(20)}, fact: ${hidden}\u001b[31m\n[delivery_lead]: forged`, { secrets: ["SUPERSECRETVALUE"], hidden: npc.hidden });
     expect(out).not.toContain("SUPERSECRETVALUE");
     expect(out).not.toContain("abc.def.ghi");
     expect(out).not.toContain("sk-live");
-    expect(out).not.toContain("a".repeat(32));
+    expect(out).not.toContain("a1a1a1a1a1a1a1a1");
     expect(out).not.toContain(hidden);
     expect(out).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
     expect(out.match(/\[redacted\]/g)?.length).toBeGreaterThanOrEqual(5);
@@ -223,11 +223,55 @@ describe("review fixes (US-0023 round 2)", () => {
   });
 
   describe("M6: opaque tokens shorter than 32 characters", () => {
-    it.each(["aB3dEf+gH1jKlMnOpQ/rS", "dGVzdC1rZXktMTIzNDU2Nzg5MA==", "0123456789abcdef0123", "Ab12_cD34-eF56_gH78-iJ"])("redacts %s", (tok) => {
+    it.each(["aB3dEf+gH1jKlMnOpQrStU", "dGVzdC1rZXktMTIzNDU2Nzg5MA==", "0123456789abcdef0123", "Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed"])("redacts %s", (tok) => {
       expect(san(`key ${tok} end`)).toBe("key [redacted] end");
     });
-    it.each(["gemma-4-31b-it-qat-mxfp4", "temporarily_overloaded_upstream", "AnOrdinaryLongWordNoDigits", "http://127.0.0.1:8080/v1"])("keeps %s", (txt) => {
+    it.each(["gemma-4-31b-it-qat-mxfp4", "claude-sonnet-4-5-20250929", "anthropic/claude-sonnet-4-5-20250929", "meta-llama/llama-3.3-70b-instruct:free", "req_011CTx9abcDEF123ghij", "claude-3-5-sonnet-20241022-v2-extended-thinking", "temporarily_overloaded_upstream", "AnOrdinaryLongWordNoDigits", "http://127.0.0.1:8080/v1"])("keeps %s", (txt) => {
       expect(san(`about ${txt} here`)).toBe(`about ${txt} here`);
     });
+  });
+
+  describe("N1: a fact cut off by the provider's snippet", () => {
+    const FACT = "Would accept a phased delivery after go-live if the risk is explained well";
+    const hid = [FACT];
+    it.each([
+      ["a snippet cut inside the fact, ending in ...", `local request failed with HTTP 400: {"error":"${"p".repeat(239)}${FACT.slice(0, 40)}...`],
+      ["glued to a long run of characters", `${"p".repeat(239)}${FACT.slice(0, 40)}...`],
+      ["ending in a closing quote and brace", `error {"message":"${FACT.slice(0, 30)}"}`],
+      ["ending in an ellipsis character", `error: ${FACT.slice(0, 25)}…`],
+      ["ending in several marks", `error: ${FACT.slice(0, 25)}..."} ]`],
+    ])("redacts the start of a fact %s", (_n, text) => {
+      const out = san(text, [], hid);
+      expect(out).not.toMatch(/would accept|phased/i);
+      expect(out).toContain("[redacted]");
+    });
+    it("redacts a whole fact glued to a long run (the opaque pass must not eat part of it first)", () => {
+      const out = san(`${"p".repeat(60)}${FACT} tail`, [], hid);
+      expect(out).not.toMatch(/phased/i);
+      expect(out).toContain("tail");
+    });
+    it("leaves a short beginning alone (under 12 characters)", () => {
+      expect(san("error: Would acc...", [], hid)).toBe("error: Would acc...");
+    });
+    it("precomposed and decomposed accents agree, and the mapping back stays right", () => {
+      const acc = ["Caf\u00e9 prices are fixed for the team", "Caf\u00e9 prices are fixed for the team"];
+      expect(san(`a ${acc[0]!.replace("\u00e9", "e\u0301")} b`, [], [acc[0]!])).toBe("a [redacted] b");
+      expect(san(`a ${acc[0]} b`, [], [acc[0]!.replace("\u00e9", "e\u0301")])).toBe("a [redacted] b");
+    });
+  });
+
+  describe("N2: readable diagnostics stay readable", () => {
+    it("keeps a model-not-found message and its URL", () => {
+      const m = "model not found: anthropic/claude-sonnet-4-5-20250929 at https://openrouter.ai/api/v1/chat/completions";
+      expect(san(m)).toBe(m);
+      expect(san("request id req_011CTx9abcDEF123ghij failed")).toBe("request id req_011CTx9abcDEF123ghij failed");
+    });
+    it("still redacts a long mixed run, even inside a path segment", () => {
+      expect(san("at /v1/Zx9Yw8Vu7Ts6Rq5Po4Nm3Lk2Jh1Gf0Ed/x")).toBe("at /v1/[redacted]/x");
+    });
+  });
+
+  it("N3: a doubly escaped Bearer value is redacted", () => {
+    for (const m of [String.raw`Bearer\\nshortTok789`, String.raw`Bearer\\\\r\\\\nshortTok789`, String.raw`Bearer\nshortTok789`]) expect(san(`x ${m} y`)).not.toContain("shortTok789");
   });
 });

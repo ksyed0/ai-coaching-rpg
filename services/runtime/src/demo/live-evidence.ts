@@ -39,12 +39,12 @@ const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…`
 // Characters that never count when comparing text with a hidden fact: invisible and formatting characters, bidi overrides, soft hyphen, combining marks.
 const IGNORED = /[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff\p{M}]/u;
 type Folded = { s: string; from: number[]; to: number[] };
-/** NFKC, lower case and no ignorable characters, with, for every kept character, where it came from in `text` (so a match can be mapped back). */
+/** NFKD (compatibility forms and accents decomposed, so precomposed and decomposed text agree), lower case and no ignorable characters, with, for every kept character, where it came from in `text` (so a match can be mapped back). */
 function fold(text: string): Folded {
   const f: Folded = { s: "", from: [], to: [] };
   let i = 0;
   for (const ch of text) {
-    for (const c of ch.normalize("NFKC").toLowerCase()) {
+    for (const c of ch.normalize("NFKD").toLowerCase()) {
       if (IGNORED.test(c)) continue;
       for (let k = 0; k < c.length; k++) { f.s += c[k]; f.from.push(i); f.to.push(i + ch.length); }
     }
@@ -52,15 +52,26 @@ function fold(text: string): Folded {
   }
   return f;
 }
-/** Every hidden text (and a cut-off start of one at the very end of the text) replaced, whatever invisible characters, case or width forms hide it. */
+const TAIL = /[\s."'}\])…⏎·]/;
+const MIN_CUT_PREFIX = 12;
+/**
+ * Every hidden text replaced, whatever invisible characters, case or width forms hide it. Also the START of a hidden text that a cut-off
+ * ends: a provider's error snippet is cut at a fixed length and ends in "..." (or a closing quote or brace), so when the text, ignoring
+ * such trailing punctuation, ends with the first 12 or more characters of a hidden text, that start is replaced too. Harmless prose that
+ * happens to end in a fact's first words is replaced as well: that is accepted.
+ */
 function redactHidden(text: string, hidden: readonly string[]): string {
   const f = fold(text);
+  let tail = f.s.length;
+  while (tail > 0 && TAIL.test(f.s[tail - 1]!)) tail--;
   const ranges: [number, number][] = [];
   for (const h of hidden) {
     const hf = fold(h).s;
     if (hf.length < 4) continue;
     for (let at = f.s.indexOf(hf); at >= 0; at = f.s.indexOf(hf, at + 1)) ranges.push([f.from[at]!, f.to[at + hf.length - 1]!]);
-    for (let k = Math.min(hf.length - 1, f.s.length); k >= 8; k--) if (f.s.endsWith(hf.slice(0, k))) { ranges.push([f.from[f.s.length - k]!, text.length]); break; }
+    for (let k = Math.min(hf.length - 1, tail); k >= MIN_CUT_PREFIX; k--) {
+      if (f.s.slice(tail - k, tail) === hf.slice(0, k)) { ranges.push([f.from[tail - k]!, text.length]); break; }
+    }
   }
   if (ranges.length === 0) return text;
   ranges.sort((x, y) => x[0] - y[0]);
@@ -87,26 +98,34 @@ function joinCodePatterns(secrets: readonly string[]): RegExp[] {
   return out;
 }
 
-const OPAQUE = /[A-Za-z0-9+/_=-]{20,}/g;
+const OPAQUE = /[A-Za-z0-9+=_-]{20,}/g; // '/' and '.' end a run, so each path segment of a URL or a model id such as meta-llama/llama-3.3-70b-instruct is judged on its own
+const ID_PREFIX = /^(?:req|request|resp|msg|chatcmpl|gen|run|trace|span|org|proj)[-_]/i;
+/**
+ * Whether a run of characters looks like a key or token rather than a readable identifier. Model ids (kebab or snake case made of short
+ * words and numbers) and request ids (`req_...`) stay readable. A run of 32 or more is opaque when it mixes letters and digits; one of 20 to 31
+ * only when it also has base64 padding or plus signs, or is all hex. Known secrets are matched exactly elsewhere: this is a net for the rest,
+ * and a 20 to 31 character mixed-case token without those marks gets through it.
+ */
 const looksOpaque = (m: string): boolean => {
-  if (m.length >= 32) return true;
+  if (ID_PREFIX.test(m)) return false;
+  const parts = m.split(/[-_]/);
+  if (parts.length >= 3 && parts.every((x) => x.length <= 12)) return false;
   if (!/\d/.test(m) || !/[A-Za-z]/.test(m)) return false;
-  return (/[a-z]/.test(m) && /[A-Z]/.test(m)) || /[+/=]/.test(m) || /^[0-9a-f]+$/i.test(m);
+  return m.length >= 32 || /[+=]/.test(m) || /^[0-9a-f]+$/i.test(m);
 };
 
 /**
- * An alert message made safe to print or store. Control characters are replaced (line breaks by a visible marker) first; then every known
- * secret is replaced (keys and tokens exactly, join codes in every spelling the server accepts), then an authorization header, key shapes
- * and long opaque tokens, then every hidden-fact text (compared without case, width forms or invisible characters), and home and temp
- * paths are shortened; the result is clipped.
+ * An alert message made safe to print or store. Control characters are replaced (line breaks by a visible marker) and known secrets
+ * (keys and tokens exactly) are replaced first; then every hidden-fact text and a cut-off start of one (before any pass that could eat part
+ * of it), then an authorization header, join codes in every spelling the server accepts, key shapes and long opaque tokens. Home and
+ * temp paths are shortened and the result is clipped.
  */
 export function sanitizeAlert(message: string, o: { secrets: readonly string[]; hidden: readonly string[] }): string {
-  let out = scrubText(message, [...o.secrets]);
-  out = out.replace(/\bBearer(?:[\s⏎]|\\[nrt])+[^\s⏎"']+/gi, REDACTED);
+  let out = redactHidden(scrubText(message, [...o.secrets]), o.hidden); // first: later passes must not eat part of a fact and break the match
+  out = out.replace(/\bBearer(?:[\s⏎]|\\+[nrt])+[^\s⏎"']+/gi, REDACTED);
   for (const re of joinCodePatterns(o.secrets)) out = out.replace(re, REDACTED);
   out = out.replace(/\b(?:sk|pk|rk|xai|gsk|AIza)[-_][A-Za-z0-9_-]{12,}/g, REDACTED);
   out = out.replace(OPAQUE, (m) => (looksOpaque(m) ? REDACTED : m));
-  out = redactHidden(out, o.hidden);
   return clip(out, ALERT_CHARS);
 }
 
