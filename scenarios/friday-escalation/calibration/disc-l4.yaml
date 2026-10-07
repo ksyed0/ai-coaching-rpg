@@ -8,8 +8,8 @@ expected: 4
 acceptable: [3, 4]
 transcript:
   - { scene: s2_client_call, role: client_sponsor, text: "We need the reconciliation module before go-live. It is a must-have." }
-  - { scene: s2_client_call, role: delivery_lead, text: "Before I answer, help me understand what happens in Finance on day one if the module is not there?" }
+  - { scene: s2_client_call, role: delivery_lead, text: "Before I give you an answer, walk me through what Finance would be stuck with on the first day if the module were missing?" }
   - { scene: s2_client_call, role: client_sponsor, text: "They cannot tie out the daily loads, and my CFO is watching the first close very closely." }
-  - { scene: s2_client_call, role: delivery_lead, text: "So what you really need is for Finance to tie out the daily loads at month-end, and your CFO to trust the numbers. Have I got that right?" }
+  - { scene: s2_client_call, role: delivery_lead, text: "Let me play that back: the real goal is that Finance can reconcile each daily load before month-end and your CFO can rely on the totals. Is that fair?" }
   - { scene: s2_client_call, role: client_sponsor, text: "Yes, exactly that." }
   - { scene: s2_client_call, role: delivery_lead, text: "In that case I would offer something different from the full module: a daily summary report in two weeks that gives Finance the tie-out without touching the launch date. Would that work for you?" }

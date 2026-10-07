@@ -8,7 +8,9 @@ min_gap: 2
 transcript:
   - { scene: s2_client_call, role: client_sponsor, text: "We need the module before go-live, and I need an answer today." }
   - { scene: s2_client_call, role: account_manager, text: "Yes, no problem, we will do the whole module before go-live." }
-  - { scene: s2_client_call, role: delivery_lead, text: "There are two ways to do this. We can phase it: a summary report before launch and the full module after, at the same fee. Or we build all of it now, which moves the date and adds a fee." }
-  - { scene: s2_client_call, role: client_sponsor, text: "I would rather not move the date." }
-  - { scene: s2_client_call, role: account_manager, text: "Fine, we will keep the date and the fee as they are." }
-  - { scene: s2_client_call, role: delivery_lead, text: "Then the phased option works, provided we have a signed change request for phase two by Friday. I will send it today and we will confirm the next steps together." }
+  - { scene: s2_client_call, role: delivery_lead, text: "There are two ways to do this. We can phase it: a summary report before launch and the full module after, at the same fee. Or we build all of it now, which moves the date and adds a fee. I recommend the phased option, because it protects the launch date." }
+  - { scene: s2_client_call, role: client_sponsor, text: "Can't you just do the whole thing for the same fee?" }
+  - { scene: s2_client_call, role: account_manager, text: "Fine, we will do the whole module before go-live at the same fee." }
+  - { scene: s2_client_call, role: delivery_lead, text: "I cannot do the whole module at that fee without moving the date, so the phased option stands, and I need a signed change request for phase two to commit to it." }
+  - { scene: s2_client_call, role: client_sponsor, text: "All right, the phased option then." }
+  - { scene: s2_client_call, role: delivery_lead, text: "So to confirm: you sign the change request by Friday and I send it to you today. Is that right?" }
