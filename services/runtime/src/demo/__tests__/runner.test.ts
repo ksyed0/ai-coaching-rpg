@@ -127,7 +127,7 @@ describe("output routing and the machine-readable report", () => {
     expect(exitCode).toBe(0);
     const report = JSON.parse(c.out.join("")) as Report;
     expect(report).toMatchObject({ tool: "acr-demo", version: "0.0.0-test", mode: "mock", summary: { failed: 0, skipped: 0 } });
-    expect(Object.keys(report)).toEqual(["tool", "version", "mode", "startedAt", "durationMs", "summary", "results"]);
+    expect(Object.keys(report)).toEqual(["tool", "version", "mode", "startedAt", "durationMs", "summary", "results", "liveEvidence"]);
     expect(report.results).toHaveLength(CHECKS.length);
     for (const r of report.results) expect(Object.keys(r)).toEqual(["id", "title", "status", "details", "durationMs"]);
     const err = c.err.join("");

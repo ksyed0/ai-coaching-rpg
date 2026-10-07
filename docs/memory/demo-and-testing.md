@@ -8,10 +8,11 @@
 | `... --showcase --fast --evaluate` | + the evaluator and S-16 | 15 |
 | `pnpm demo --fast --security` | opt-in security room | 32 (F-31..F-33 added) |
 | `pnpm demo --fast --resume` | opt-in resume room (simulated crash, restart) | 39 (42 with `--security`) |
-| `... --live` | the same against the configured real model | live runs skip some checks |
+| `... --live` | the same against the configured real model | live runs skip some checks; F-08 reports canned fallback lines (US-0023) |
 | `--players generated` | player bots written by the model; intents logged in the transcript (`--no-intents` hides) | S-15 audits the prompts |
 | `--gm-trace f.log --min-gm-exits n [--max-false-exits n]` | live Game Master measurement, check S-18 | n is gated only when asked |
 Also `--url ws://...` (test a running server; `FACILITATOR_TOKEN` env passes a token), `--json -` (pure JSON on stdout), `--transcript file.md` (tags `[SCRIPTED] [GENERATED] [FALLBACK] [UNVERIFIED] [SYSTEM]`), `--watchdog <minutes 1..180>`, `--speed`, `--max-lines`.
+`--max-fallbacks <n>` (0..1000) works for the 29-check run (check F-08 fails above n; without it the count is a WARNING in F-08) and for `--showcase` (S-05). The JSON report of the main story has `liveEvidence` (counts, per-character, sanitized alerts with `replySeq`; a mock run reports 0 of 4). Alert text goes through `sanitizeAlert` (live-evidence.ts: secrets, join codes, key shapes, hidden-fact fragments, 300 chars) before narration, report and transcript. The showcase narration still prints its alerts with `clip` only.
 Check counts are pinned by tests: add a new check only in an opt-in room or by extending an existing check's assertions.
 
 ## Other commands

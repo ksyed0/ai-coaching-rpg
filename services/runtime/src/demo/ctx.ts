@@ -3,9 +3,12 @@ import type { NpcRole, PlayerRole, Scenario } from "@acr/script";
 import { Bot, isEvent, type Inbound } from "./bots.js";
 import { ensure, type Markers, type Recorder, type RunKind } from "./checks.js";
 import type { System, TempRoot } from "./harness.js";
+import type { LiveEvidence } from "./live-evidence.js";
 import type { Narrator } from "./narrator.js";
 import type { ProviderKind } from "./provenance.js";
 import type { Transcript } from "./transcript.js";
+import { alertsForReply } from "./live-evidence.js";
+import { isFallbackReply } from "./provenance.js";
 import { isPlausibleJoinCode } from "../cli/join-code.js";
 
 export const ROLE_PLAYERS = [
@@ -50,6 +53,8 @@ export type Ctx = {
   facilitatorToken?: string;
   /** US-0033: the --url target's player join codes (from JOIN_CODES, role=code pairs). In-process runs use `sys.joinCodes`. Never printed. */
   urlJoinCodes?: Record<string, string>;
+  /** US-0023: the `--max-fallbacks` limit of the 29-check run (null or absent: none, the fallback count is only a warning). */
+  maxFallbacks?: number | null;
   /** Values that must never appear in the log, any client or the output. */
   secretValues: string[];
   beforeAct?: (name: string) => Promise<void>;
@@ -66,6 +71,8 @@ export type Story = {
   /** Outcomes of driving steps that a later check turns into evidence (an error becomes the check's failure). */
   ev: Record<string, Attempt>;
   broken: string | null;
+  /** US-0023: the AI replies and alerts of the whole run, read from the facilitator's stream at the end (feeds the JSON report). */
+  evidence?: LiveEvidence;
 };
 export type Attempt<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
 export const newStory = (): Story => ({ players: {}, joined: {}, ev: {}, broken: null });
@@ -179,7 +186,13 @@ export async function awaitNpc(ctx: Ctx, st: Story, from: number): Promise<Utter
   const npc = npcRole(ctx.scenario);
   const m = await st.fac!.waitFor(isEvent("utterance", (e) => e.roleId === npc.id), { from, timeoutMs: ctx.npcWaitMs, what: `${npc.id}'s reply` });
   const e = (m as Extract<Inbound, { type: "event" }>).event as Utter;
-  await ctx.n.say(`${npc.name} (${npc.id})`, e.text);
+  const evs = st.fac!.events();
+  const canned = isFallbackReply(npc, e, evs[evs.findIndex((x) => x.seq === e.seq) - 1], { legacy: ctx.kind === "url" });
+  await ctx.n.say(`${npc.name} (${npc.id})${canned ? ", canned fallback line" : ""}`, e.text);
+  // US-0023: the (sanitized) alerts that belong to this reply, right next to it: why it is canned, or what was cut from it.
+  for (const a of alertsForReply(evs, e, { secrets: ctx.secretValues, hidden: ctx.markers.hidden })) {
+    await ctx.n.note(`alert (${a.level}) for this reply: ${a.fallback ? `fell back to its canned line: ${a.reason}` : a.reason}`);
+  }
   return e;
 }
 

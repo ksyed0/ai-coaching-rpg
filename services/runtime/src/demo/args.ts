@@ -12,7 +12,7 @@ export const MAX_MODEL_ID_CHARS = 200;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+-]*$/;
 
 export const DEMO_USAGE = [
-  "usage: pnpm demo [--fast] [--speed <x>] [--json <path|->] [--live] [--url <ws://host:port>] [--session <id>] [--transcript <path.md>] [--security] [--resume] [--no-color] [--help]",
+  "usage: pnpm demo [--fast] [--speed <x>] [--json <path|->] [--live] [--max-fallbacks <n>] [--url <ws://host:port>] [--session <id>] [--transcript <path.md>] [--security] [--resume] [--no-color] [--help]",
   "       pnpm demo --showcase [--scenario <dir>] [--max-lines <n>] [--max-fallbacks <n>] [--watchdog <minutes>] [--players scripted|generated] [--player-model <id>] [--no-intents] [--evaluate] [--eval-out <dir>] [--gm-trace <path.jsonl>] [--min-gm-exits <n>] [--max-false-exits <n>] [--live] [--fast] [--json <path|->]",
   `  --fast            no pacing delays (instant narration)`,
   `  --speed <x>       scale the pacing, ${MIN_SPEED} to ${MAX_SPEED} (default 1; 2 is twice as fast)`,
@@ -43,8 +43,8 @@ export const DEMO_USAGE = [
   "                    conversation's judgements, so keep it private). `pnpm gm-eval --trace <path>` replays it offline",
   `  --min-gm-exits <n> --showcase --live only: fail check S-18 when the Game Master ended fewer than n scenes, 0 to ${MAX_MIN_GM_EXITS} (without it S-18 only reports)`,
   `  --max-false-exits <n> --showcase --live only: S-18 also fails when the Game Master ended more than n scenes without AI characters EARLY (at or before the last scripted line after which the gm-eval labels say the condition is not yet met); explicit only (early exits are always reported), not with --players generated, 0 to ${MAX_MIN_GM_EXITS}`,
-  `  --max-fallbacks <n> --showcase only: fail the run when more than n AI replies were canned fallback lines, 0 to ${MAX_FALLBACKS}`,
-  "                    (without it the count is only a warning)",
+  `  --max-fallbacks <n> fail the run when more than n AI replies were canned fallback lines, 0 to ${MAX_FALLBACKS} (the 29-check run: check F-08;`,
+  "                    --showcase: check S-05). Without it the count is only a warning; a mock run has none",
   `  --watchdog <min>  real-time limit for the whole run, 1 to ${MAX_WATCHDOG_MINUTES} minutes (--showcase default: 3, or 30 with --live;`,
   "                    the default 29-check run keeps its own 2 / 10 minute limits)",
 ].join("\n");
@@ -121,7 +121,7 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
   if (values.session !== undefined && !isValidSessionId(values.session)) return fail("error: --session must be 1 to 64 letters, digits, '_' or '-'");
 
   if (values.showcase && values.url !== undefined) return fail("error: --showcase cannot be combined with --url (the showcase starts its own in-process server)");
-  for (const [flag, given] of [["scenario", values.scenario], ["max-lines", values["max-lines"]], ["max-fallbacks", values["max-fallbacks"]]] as const) {
+  for (const [flag, given] of [["scenario", values.scenario], ["max-lines", values["max-lines"]]] as const) {
     if (given !== undefined && !values.showcase) return fail(`error: --${flag} needs --showcase`);
   }
   if (values.scenario !== undefined && (values.scenario === "" || hasControl(values.scenario))) return fail("error: --scenario needs a directory path");

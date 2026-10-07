@@ -2,6 +2,7 @@ import type { SessionEvent } from "@acr/events";
 import { renderEvent, renderJoined } from "../cli/render.js";
 import { isEvent, type Inbound } from "./bots.js";
 import { UNSAFE_CHARS, ensure, findMarkers } from "./checks.js";
+import { collectLiveEvidence, countText, sanitizeAlert } from "./live-evidence.js";
 import {
   ROLE_PLAYERS, act, advanceTo, attempt, awaitNpc, codeFor, command, connectBot, errCode, facilitatorJoin, got, isJoinedMsg,
   npcRole, playerJoin, playerRole, sceneIds, say, settle, utterancesByScene, withTimeout, type Ctx, type PlayerId, type Story,
@@ -45,7 +46,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
   await act(ctx, st, 1, "Lobby: who may join, and what each person may know", async () => {
     await rec.run("F-01", async () => {
       st.fac = await connectBot(ctx, "facilitator");
-      ctx.tr?.attach(st.fac, { scenario: ctx.scenario, provider: ctx.provider ?? "mock", sceneHeadings: false });
+      ctx.tr?.attach(st.fac, { scenario: ctx.scenario, provider: ctx.provider ?? "mock", sceneHeadings: false, sanitizeAlert: (m) => sanitizeAlert(m, { secrets: ctx.secretValues, hidden: ctx.markers.hidden }) });
       const fj = await st.fac.call(facilitatorJoin(ctx), isJoinedMsg, { what: "the facilitator to join" });
       ensure(isJoinedMsg(fj), `the facilitator could not join: ${errCode(fj)}`);
       ensure(fj.state.status === "idle", "the server's session has already started: restart the server so the demo gets a fresh session");
@@ -295,7 +296,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
     }
 
     // The AI character: once per line, only where present.
-    await rec.run("F-08", () => {
+    await rec.run("F-08", async () => {
       const inScene = utterancesByScene(fac.events())[s2] ?? [];
       const npcLines = inScene.filter((u) => u.roleId === npc.id);
       const playerLines = inScene.filter((u) => u.roleId !== npc.id);
@@ -309,7 +310,13 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
         const expected = ["Thanks for calling.", "I hear you.", "Hm. Can you put a number on that?", "Alright. Send me the phased plan"];
         npcLines.forEach((u, i) => ensure(u.text.startsWith(expected[i]!), `reply ${i + 1} is not the scripted reply`));
       }
-      return `${npcLines.length} replies for ${playerLines.length} player lines, strictly alternating, none empty${mock ? "; each is the scripted reply" : ""}`;
+      // US-0023: how many of the replies were the character's canned fallback line (a mock run has none); --max-fallbacks turns the count into a failure.
+      const ev = collectLiveEvidence(fac.events(), ctx.scenario, { maxFallbacks: ctx.maxFallbacks ?? null, secrets: ctx.secretValues, hidden: ctx.markers.hidden, legacy: ctx.kind === "url" });
+      st.evidence = ev;
+      await n.note(`AI character replies so far: ${countText(ev)}`);
+      if (ev.maxFallbacks !== null) ensure(ev.fallbackReplies <= ev.maxFallbacks, `${countText(ev)}, more than --max-fallbacks ${ev.maxFallbacks}`);
+      const verdict = ev.maxFallbacks !== null ? `${countText(ev)} (limit ${ev.maxFallbacks})` : ev.fallbackReplies > 0 ? `WARNING: ${countText(ev)} (no --max-fallbacks limit given)` : countText(ev);
+      return `${npcLines.length} replies for ${playerLines.length} player lines, strictly alternating, none empty${mock ? "; each is the scripted reply" : ""}; ${verdict}`;
     });
     await rec.run("F-15", () => {
       got(st.ev.pause, "the pause step");
@@ -364,7 +371,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       else ensure(missed.every((e) => replayed.some((x) => x.seq === e.seq)), "the replay lacks an event delivery_lead received live");
       ensure(replayed.some((e) => e.type === "inject.fired") && replayed.some((e) => e.type === "facilitator.command" && e.command === "whisper" && e.text === WHISPER), "the replay lacks the inject or the whisper");
       ensure(!replayed.some((e) => e.type === "npc.updated" || e.type === "gm.decision" || e.type === "gm.no_verdict" || e.type === "facilitator.alert"), "the replay carried facilitator-only events");
-      st.ev.rejoinReplay = { ok: true, value: { at, toSeq: r.toSeq } };
+      st.ev.rejoinReplay = { ok: true, value: { at, toSeq: r.toSeq, events: r.events } };
       await n.step(`delivery_lead's rejoin says the last event it saw was seq ${lastSeq}: it is replayed the ${r.events} events after it that it may see (the inject and the whisper among them), exactly what it had received live, in order`);
       // What the terminal client shows: the history up to lastSeq, then the replayed events.
       const lines = [...renderJoined(back), ...replayed.flatMap((e) => renderEvent(e, "delivery_lead") ?? [])];
@@ -445,7 +452,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       ensure(ended && ended.reason === "script_complete", `the session ended with ${ended?.reason ?? "no session.ended"}`);
       for (const [role] of ROLE_PLAYERS) await st.players[role]!.waitFor(isEvent("session.ended"), { what: `${role} to see the end` });
       // US-0013: the rejoined delivery_lead got its replay and then every live event once, in order, up to the end.
-      const rj = st.ev.rejoinReplay?.ok ? (st.ev.rejoinReplay.value as { at: number; toSeq: number }) : null;
+      const rj = st.ev.rejoinReplay?.ok ? (st.ev.rejoinReplay.value as { at: number; toSeq: number; events: number }) : null;
       if (rj) {
         const after = st.players.delivery_lead!.inbox.slice(rj.at + 1).flatMap((m) => (m.type === "event" ? [m.event.seq] : []));
         ensure(after.every((q, i) => i === 0 || q > after[i - 1]!), "the rejoined delivery_lead received an event twice or out of order");

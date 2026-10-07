@@ -1,6 +1,7 @@
 import os from "node:os";
 import { sanitizeText } from "../cli/render.js";
 import { paint } from "./narrator.js";
+import type { LiveEvidence } from "./live-evidence.js";
 import type { ShowcaseReport } from "./showcase-report.js";
 
 export type CheckStatus = "passed" | "failed" | "skipped";
@@ -14,6 +15,8 @@ export type Report = {
   showcase?: ShowcaseReport;
   /** Present for `--showcase --evaluate` runs only: where the feedback reports went and how the evaluation ended. */
   evaluation?: EvaluationSummary;
+  /** US-0023: present for the 29-check main story only: the AI characters' replies, how many were canned fallback lines, and the sanitized facilitator alerts. */
+  liveEvidence?: LiveEvidence;
 };
 export type EvaluationSummary = {
   /** The report directory (home and temp directories are replaced by ~ and <tmp>). */
@@ -45,7 +48,7 @@ export function scrubDeep<T>(value: T, secrets: string[] = []): T {
   return value;
 }
 
-export function buildReport(i: { tool: string; version: string; mode: DemoMode; startedAt: string; durationMs: number; results: CheckResult[]; secrets?: string[]; showcase?: ShowcaseReport; evaluation?: EvaluationSummary }): Report {
+export function buildReport(i: { tool: string; version: string; mode: DemoMode; startedAt: string; durationMs: number; results: CheckResult[]; secrets?: string[]; showcase?: ShowcaseReport; evaluation?: EvaluationSummary; liveEvidence?: LiveEvidence }): Report {
   const results = i.results.map((r) => ({
     id: scrubText(r.id), title: scrubText(r.title, i.secrets), status: r.status, details: scrubText(r.details, i.secrets), durationMs: Math.round(r.durationMs),
   }));
@@ -55,6 +58,7 @@ export function buildReport(i: { tool: string; version: string; mode: DemoMode; 
     summary: { passed: count("passed"), failed: count("failed"), skipped: count("skipped") },
     results,
     ...(i.showcase ? { showcase: scrubDeep(i.showcase, i.secrets) } : {}),
+    ...(i.liveEvidence ? { liveEvidence: scrubDeep(i.liveEvidence, i.secrets) } : {}),
     ...(i.evaluation ? { evaluation: scrubDeep(i.evaluation, i.secrets) } : {}),
   };
 }
