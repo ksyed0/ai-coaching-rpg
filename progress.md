@@ -64,3 +64,9 @@
 - Next stories: US-0033 per-role join codes, US-0034 Game Master suggests releases, US-0013 rejoin replay, evaluator moderation and calibration (EPIC-0005), US-0019 model cost. EPIC-0002/3/4 untouched.
 - Load-sensitive tests: a few tests assert wall-clock bounds or count `acr-demo-*` temp directories in the shared `/tmp` and fail under load (see the coverage block); tracked as BUG-0006.
 - The Stop hook records cumulative totals per snapshot in `docs/AI_COST_LOG.md`; do not sum its rows.
+
+## Session 7 — 2026-10-06 (US-0033, implementer subagent)
+
+- US-0033 per-role player join codes built on `feature/EPIC-0006-US-0033-player-join-codes` (not pushed, no PR): codes issued per player role at session start, shown once on stdout, stored only as salted SHA-256 in `data/sessions/<id>.codes.json`, required on `join` with one generic `unauthorized` (charged in the failed-login throttle); codes survive a restart (kept as hashes, US-0018 lock and fail-stop untouched), new codes on fresh/ended; terminal client `JOIN_CODE` / `--code-file` / hidden prompt; demo servers require codes (checks extended, counts 29 / 42 / 14 unchanged); `pnpm demo --url` takes `JOIN_CODES`.
+- Gates: typecheck ok; eslint 0 errors (37 old warnings); `pnpm lint:sdk` ok; `pnpm test:coverage` green three times (once under `yes` x8 load): runtime 87 files / 1689 tests, 96.4% statements, new files join-codes.ts 98.7%, join-code-file.ts 87%, cli/join-code.ts 100%; `npm run plan:test` 1241 passed; `pnpm demo --fast` 29/29, `--security --resume` 42/42, `--showcase --fast` 14/14.
+- Open: TC ids for the seven US-0033 test cases in `docs/TEST_CASES.md` (none reserved); independent review; the Linux container run of the new file and socket tests (Docker was not running).

@@ -6,6 +6,7 @@ import type { System, TempRoot } from "./harness.js";
 import type { Narrator } from "./narrator.js";
 import type { ProviderKind } from "./provenance.js";
 import type { Transcript } from "./transcript.js";
+import { isPlausibleJoinCode } from "../cli/join-code.js";
 
 export const ROLE_PLAYERS = [
   ["delivery_lead", "ZedAlphaParticipant"],
@@ -47,6 +48,8 @@ export type Ctx = {
   bots: Bot[];
   /** A facilitator token for the --url target (from FACILITATOR_TOKEN); undefined for in-process runs, which are open. Never printed. */
   facilitatorToken?: string;
+  /** US-0033: the --url target's player join codes (from JOIN_CODES, role=code pairs). In-process runs use `sys.joinCodes`. Never printed. */
+  urlJoinCodes?: Record<string, string>;
   /** Values that must never appear in the log, any client or the output. */
   secretValues: string[];
   beforeAct?: (name: string) => Promise<void>;
@@ -111,6 +114,38 @@ export function got<T>(a: Attempt | undefined, what: string): T {
 /** The facilitator's first message: carries the token only when the --url target needs one. */
 export const facilitatorJoin = (ctx: Ctx): { type: "join_facilitator"; sessionId: string; token?: string } =>
   ({ type: "join_facilitator", sessionId: ctx.sessionId, ...(ctx.facilitatorToken !== undefined ? { token: ctx.facilitatorToken } : {}) });
+
+/** The join code the operator would hand to `role` on the main system (in-process: issued by the system; --url: JOIN_CODES). */
+export const codeFor = (ctx: Ctx, role: string): string | undefined => (ctx.sys ? ctx.sys.joinCodes[role] : ctx.urlJoinCodes?.[role]);
+
+/** A player's join message, carrying the role's join code (US-0033) unless `extra` overrides it. */
+export function playerJoin(ctx: Ctx, role: string, participantId: string, extra: { joinCode?: string; reconnectToken?: string; codes?: Record<string, string>; sessionId?: string } = {}): Record<string, unknown> {
+  const { codes, sessionId, ...rest } = extra;
+  const code = codes ? codes[role] : codeFor(ctx, role);
+  return { type: "join", sessionId: sessionId ?? ctx.sessionId, roleId: role, participantId, ...(code !== undefined ? { joinCode: code } : {}), ...rest };
+}
+
+/**
+ * `pnpm demo --url`: the target server's player join codes, as its operator was shown them at start, from JOIN_CODES
+ * (`role=CODE,role=CODE`). Errors never quote a value.
+ */
+export function parseJoinCodesEnv(raw: string | undefined): { ok: true; codes: Record<string, string> } | { ok: false; error: string } {
+  const codes: Record<string, string> = {};
+  if (raw === undefined || raw.trim() === "") return { ok: true, codes };
+  for (const part of raw.split(",").map((x) => x.trim()).filter(Boolean)) {
+    const eq = part.indexOf("=");
+    const role = eq > 0 ? part.slice(0, eq).trim() : "";
+    const code = eq > 0 ? part.slice(eq + 1).trim() : "";
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(role) || !isPlausibleJoinCode(code) || Object.hasOwn(codes, role)) {
+      return { ok: false, error: "error: JOIN_CODES must be comma separated role=CODE pairs, one per player role, with the codes the server printed at start (the value is not shown)" };
+    }
+    codes[role] = code;
+  }
+  return { ok: true, codes };
+}
+
+/** Every form of a code that must never be printed (as shown, and as the server compares it). */
+export const codeSecrets = (codes: Record<string, string>): string[] => Object.values(codes).flatMap((c) => [c, c.replace(/-/g, "")]);
 
 export async function connectBot(ctx: Ctx, label: string, o: { url?: string; autoPong?: boolean; inbox?: Inbound[]; headers?: Record<string, string> } = {}): Promise<Bot> {
   const bot = await Bot.connect(o.url ?? ctx.wsUrl, label, { signal: ctx.signal, autoPong: o.autoPong, inbox: o.inbox, headers: o.headers });

@@ -3,6 +3,7 @@ import readline from "node:readline";
 import WebSocket from "ws";
 import { parseArgs } from "./commands.js";
 import { plainTokenWarning, readTokenFile, resolveFacilitatorToken } from "./token.js";
+import { readCodeFile, resolveJoinCode } from "./join-code.js";
 import { createClient, DEFAULT_IDLE_MS } from "./client.js";
 import { sanitizeText } from "./render.js";
 
@@ -44,6 +45,16 @@ if (opts.facilitator) {
   if (t.token !== undefined) opts.token = t.token;
   const plain = plainTokenWarning(opts.url, t.token !== undefined);
   if (plain) console.error(plain);
+} else {
+  // US-0033: the role's join code, from JOIN_CODE, --code-file or a hidden prompt (never argv). Never printed.
+  const c = await resolveJoinCode({
+    env: process.env, codeFile: opts.codeFile, role: opts.role!,
+    readFile: readCodeFile, fileMode: (f) => { try { return statSync(f).mode & 0o777; } catch { return undefined; } },
+    isTTY: process.stdin.isTTY === true && process.stdout.isTTY === true, promptHidden,
+  });
+  if (!c.ok) { console.error(c.error); process.exit(2); }
+  for (const w of c.warnings) console.error(w);
+  if (c.code !== undefined) opts.joinCode = c.code;
 }
 const me = opts.facilitator ? "facilitator" : opts.role!;
 const tty = process.stdout.isTTY === true;

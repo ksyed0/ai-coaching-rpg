@@ -1,6 +1,6 @@
 import { Bot, isEvent, type Inbound } from "./bots.js";
 import { ensure } from "./checks.js";
-import { act, attempt, connectBot, errCode, isJoinedMsg, npcRole, sceneIds, utterancesOf, withTimeout, type Ctx, type Story, type Utter } from "./ctx.js";
+import { act, attempt, codeSecrets, connectBot, errCode, isJoinedMsg, npcRole, playerJoin, sceneIds, utterancesOf, withTimeout, type Ctx, type Story, type Utter } from "./ctx.js";
 import { LAB_FIRST_TOKEN_MS, LAB_HEARTBEAT_MS, startLabSystem } from "./harness.js";
 
 /** The server terminates a silent socket at the second heartbeat tick after its last answer, so a 3 period limit has room for scheduling slack. */
@@ -31,6 +31,7 @@ export async function playLab(ctx: Ctx, st: Story): Promise<void> {
 
   await act(ctx, st, 6, "Side room: a stalled model, an empty reply and a dead client", async () => {
     const lab = await startLabSystem({ scenario: ctx.scenario, sessionId: "lab" });
+    ctx.secretValues.push(...codeSecrets(lab.joinCodes));
     let stopped = false;
     const stop = async () => { if (!stopped) { stopped = true; await lab.stop(); } };
     ctx.register(stop);
@@ -40,7 +41,7 @@ export async function playLab(ctx: Ctx, st: Story): Promise<void> {
     const fac = await connectBot(ctx, "lab facilitator", { url });
     ctx.tr?.attach(fac, { scenario: ctx.scenario, provider: "mock", sceneHeadings: false });
     await fac.call({ type: "join_facilitator", sessionId: "lab" }, isJoinedMsg);
-    const join = async (bot: Bot, role: string, who: string): Promise<Inbound> => bot.call({ type: "join", sessionId: "lab", roleId: role, participantId: who }, isJoinedMsg, { what: `${role} to join` });
+    const join = async (bot: Bot, role: string, who: string): Promise<Inbound> => bot.call(playerJoin(ctx, role, who, { sessionId: "lab", codes: lab.joinCodes }), isJoinedMsg, { what: `${role} to join` });
     const dl = await connectBot(ctx, "lab delivery_lead", { url });
     const am = await connectBot(ctx, "lab account_manager", { url });
     ensure(isJoinedMsg(await join(dl, "delivery_lead", "ZedAlphaParticipant")), "the lab delivery_lead could not join");

@@ -164,3 +164,13 @@ describe("client core: facilitator /hidden and /release (US-0016)", () => {
     expect(t.out).toEqual(["not joined yet"]);
   });
 });
+
+describe("client core: join codes (US-0033)", () => {
+  it("test_client_a_refused_player_join_is_fatal_and_points_at_the_join_code_never_the_token", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(err("unauthorized"));
+    expect(t.exits).toEqual([1]);
+    expect(t.errs.join("\n")).toMatch(/join code/);
+    expect(t.errs.join("\n")).not.toMatch(/FACILITATOR_TOKEN/);
+  });
+});

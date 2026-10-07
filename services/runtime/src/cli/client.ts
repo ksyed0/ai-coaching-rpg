@@ -85,9 +85,9 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
           if (Array.isArray(m.event.released)) released.set(m.event.roleId, m.event.released.filter((t): t is string => typeof t === "string"));
         }
       } else if (isFatalError(m.code, joined)) {
-        finish(1, renderError(m.code, m.message));
+        finish(1, renderError(m.code, m.message, !opts.facilitator));
       } else {
-        io.print(renderError(m.code, m.message));
+        io.print(renderError(m.code, m.message, !opts.facilitator));
       }
     },
     onLine(line: string): void {

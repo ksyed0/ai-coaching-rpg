@@ -139,3 +139,146 @@ describe("openSession", () => {
     await expect(openSession({ scenario, sessionId: "s", dataDir: path.join(dir, "notadir"), clock: new FakeClock(T0), mode: "resume" })).rejects.toMatchObject({ code: "io" });
   });
 });
+
+describe("openSession with join codes (US-0033)", () => {
+  const withCodes = (mode: "resume" | "fresh", clock = new FakeClock(T0)) => openIt(mode, clock, { joinCodes: true });
+
+  it("test_openSession_new_session_issues_one_code_per_player_role_and_persists_only_hashes", async () => {
+    const o = await withCodes("resume");
+    expect(o.joinCodes).toBeDefined();
+    const issued = o.joinCodes!.issued!;
+    expect(Object.keys(issued)).toEqual(["host"]);
+    expect(o.joinCodes!.codes.verify("host", issued.host)).toBe(true);
+    expect(o.joinCodes!.codes.verify("guest", issued.host)).toBe(false); // an AI character has no code
+    expect((await readdir(dir)).sort()).toEqual(["s.codes.json", "s.lock"]);
+    expect(await readFile(path.join(dir, "s.codes.json"), "utf8")).not.toContain(issued.host!.replace(/-/g, ""));
+  });
+
+  it("test_openSession_restart_keeps_the_codes_that_were_handed_out_and_does_not_show_them_again", async () => {
+    const a = await withCodes("resume");
+    const code = a.joinCodes!.issued!.host!;
+    await a.engine.start({ host: "p" });
+    await crash(a);
+    const b = await withCodes("resume", new FakeClock(T0 + 60_000));
+    expect(b.outcome).toBe("resumed");
+    expect(b.joinCodes!.issued).toBeNull();
+    expect(b.joinCodes!.codes.verify("host", code)).toBe(true);
+    expect(b.notes.join("\n")).not.toMatch(/new join codes/);
+    // nothing about codes reached the log
+    expect(await readFile(logFile(), "utf8")).not.toContain(code.replace(/-/g, ""));
+  });
+
+  it("test_openSession_restart_on_an_empty_log_issues_and_shows_new_codes_review_I1", async () => {
+    const a = await withCodes("resume");
+    const code = a.joinCodes!.issued!.host!;
+    await crash(a); // nothing happened in the session: there is nothing the old codes must keep open
+    const b = await withCodes("resume");
+    expect(b.outcome).toBe("new");
+    expect(b.joinCodes!.issued).not.toBeNull();
+    expect(b.joinCodes!.codes.verify("host", code)).toBe(false);
+    expect(b.joinCodes!.codes.verify("host", b.joinCodes!.issued!.host)).toBe(true);
+  });
+
+  it("test_openSession_a_played_log_moved_aside_by_hand_does_not_keep_the_old_codes_review_M1", async () => {
+    const a = await withCodes("resume");
+    const code = a.joinCodes!.issued!.host!;
+    await a.engine.start({ host: "p" });
+    await crash(a);
+    const { rename } = await import("node:fs/promises");
+    await rename(logFile(), path.join(dir, "s.by-hand.jsonl"));
+    const b = await withCodes("resume");
+    expect(b.outcome).toBe("new");
+    expect(b.joinCodes!.issued).not.toBeNull();
+    expect(b.joinCodes!.codes.verify("host", code)).toBe(false);
+  });
+
+  it("test_openSession_discardIssuedCodes_removes_codes_this_start_issued_and_keeps_kept_ones", async () => {
+    const a = await withCodes("resume");
+    expect(a.discardIssuedCodes()).toBe(true);
+    expect(await readdir(dir)).not.toContain("s.codes.json");
+    await crash(a);
+    const b = await withCodes("resume"); // issues again (no file)
+    const code = b.joinCodes!.issued!.host!;
+    await b.engine.start({ host: "p" });
+    await crash(b);
+    const c = await withCodes("resume");
+    expect(c.joinCodes!.issued).toBeNull();
+    expect(c.discardIssuedCodes()).toBe(true); // kept codes were handed out earlier: never removed
+    expect(await readdir(dir)).toContain("s.codes.json");
+    expect(c.joinCodes!.codes.verify("host", code)).toBe(true);
+  });
+
+  it("test_openSession_sweeps_stale_codes_temp_files_and_nothing_else_review_M5", async () => {
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(dir, { recursive: true });
+    for (const f of ["s.codes.json.0123456789ab.tmp", "s.codes.json.ffffffffffff.tmp"]) await writeFile(path.join(dir, f), "half", { mode: 0o600 });
+    for (const f of ["s.codes.json.keep", "t.codes.json.0123456789ab.tmp", "s.codes.json.xyz.tmp"]) await writeFile(path.join(dir, f), "other", { mode: 0o600 });
+    await withCodes("resume");
+    expect((await readdir(dir)).sort()).toEqual(["s.codes.json", "s.codes.json.keep", "s.codes.json.xyz.tmp", "s.lock", "t.codes.json.0123456789ab.tmp"]);
+  });
+
+  it("test_openSession_fresh_and_ended_sessions_get_new_codes_and_the_old_ones_stop_working", async () => {
+    const a = await withCodes("resume");
+    const first = a.joinCodes!.issued!.host!;
+    await a.engine.start({ host: "p" });
+    await crash(a);
+    const b = await withCodes("fresh");
+    expect(b.outcome).toBe("rotated");
+    const second = b.joinCodes!.issued!.host!;
+    expect(b.joinCodes!.codes.verify("host", first)).toBe(false);
+    await b.engine.start({ host: "p" });
+    await b.engine.command({ command: "advance" }); await b.engine.tick();
+    await b.engine.command({ command: "advance" }); await b.engine.tick();
+    await b.close(); open.splice(open.indexOf(b), 1);
+    const c = await withCodes("resume");
+    expect(c).toMatchObject({ outcome: "rotated", rotatedBecause: "ended" });
+    expect(c.joinCodes!.issued).not.toBeNull();
+    expect(c.joinCodes!.codes.verify("host", second)).toBe(false);
+  });
+
+  it("test_openSession_resume_with_missing_codes_file_issues_new_codes_with_a_warning", async () => {
+    const a = await withCodes("resume");
+    const old = a.joinCodes!.issued!.host!;
+    await a.engine.start({ host: "p" });
+    await crash(a);
+    await rm(path.join(dir, "s.codes.json"));
+    const b = await withCodes("resume");
+    expect(b.outcome).toBe("resumed");
+    expect(b.joinCodes!.issued).not.toBeNull();
+    expect(b.joinCodes!.codes.verify("host", old)).toBe(false);
+    expect(b.notes.join("\n")).toMatch(/new join codes were issued/);
+    expect(b.notes.join("\n")).not.toContain(b.joinCodes!.issued!.host!);
+  });
+
+  it("test_openSession_codes_for_another_scenario_are_replaced", async () => {
+    const a = await withCodes("resume");
+    const old = a.joinCodes!.issued!.host!;
+    await crash(a);
+    await rm(logFile(), { force: true });
+    const changed = { ...scenario, meta: { ...scenario.meta, title: `${scenario.meta.title} (edited)` } };
+    const b = await openSession({ scenario: changed, sessionId: "s", dataDir: dir, clock: new FakeClock(T0), mode: "resume", now, joinCodes: true });
+    open.push(b);
+    expect(b.joinCodes!.issued).not.toBeNull();
+    expect(b.joinCodes!.codes.verify("host", old)).toBe(false);
+  });
+
+  it("test_openSession_malformed_codes_file_refuses_the_start_and_changes_nothing", async () => {
+    const a = await withCodes("resume");
+    await a.engine.start({ host: "p" });
+    await crash(a);
+    await writeFile(path.join(dir, "s.codes.json"), "{ not json", { mode: 0o600 });
+    const logBefore = await readFile(logFile());
+    const err = await withCodes("resume").then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(SessionStoreError);
+    expect(err).toMatchObject({ code: "join_codes", message: expect.stringMatching(/join codes file.*move s\.codes\.json aside/) });
+    expect((await readFile(logFile())).equals(logBefore)).toBe(true);
+    expect(await readFile(path.join(dir, "s.codes.json"), "utf8")).toBe("{ not json");
+    expect((await readdir(dir)).sort()).toEqual(["s.codes.json", "s.jsonl"]); // no lock left behind
+  });
+
+  it("test_openSession_without_the_option_writes_no_codes_file", async () => {
+    const o = await openIt("resume");
+    expect(o.joinCodes).toBeUndefined();
+    expect(await readdir(dir)).toEqual(["s.lock"]);
+  });
+});
