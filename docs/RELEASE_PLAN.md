@@ -38,11 +38,11 @@ Dependencies: EPIC-0002
 
 ```
 EPIC-0005: Slice 5 — evaluator and reports
-Description: Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), per-participant visibility and access control (ASM-09; reports are visible to all participants for now) and calibration (ASM-08).
+Description: Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), and per-participant visibility and access control (ASM-09; reports are visible to all participants for now). Calibration (ASM-08) has started: the probe format, loader, log adapter and Friday starter probes are built (US-0035); `pnpm calibrate`, metrics, probe drafting and the calibration stamp on reports are planned (US-0036..US-0039).
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0003
-Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed; per-participant isolation and ASM-09 are planned); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups, not yet filed as stories: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), calibration (ASM-08), and isolation and access control (ASM-09).
+Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed; per-participant isolation and ASM-09 are planned); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039.
 ```
 
 ```
@@ -1008,4 +1008,116 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release
 Notes: Follow-up to the design notes for US-0016 and US-0025. US-0016 gives the facilitator the manual release command; this story only suggests it. Done 2026-10-07: packages/script (schema, validator, earnedWhenOf), packages/events (`gm.fact_earned`, `factsEarned`), engine (`pendingEarnedChecks`, `recordFactEarned`, repair `gm_release`), agents (`buildGmEarnedRequest`, GameMaster earned checks, `GM_AUTO_RELEASE`), host (viewFor, snapshotFor), terminal client, demo (showcase mock `gm_earned`, S-04/S-06/S-07). Test cases TC-0008..TC-0012. Not done here: a live showcase on a real model.
+```
+
+```
+US-0035 (EPIC-0005): Calibration probe format, validator, log adapter and Friday starter set
+Priority: High
+Estimate: M
+Status: In Progress
+Branch: feature/EPIC-0005-US-0035-calibration-probes
+Acceptance Criteria:
+  - [x] AC-0180: a probe is a validated YAML file (`single` or `contrast`, `source`, `drafter`, `approved_by`, `split`, `acceptable`) in `scenarios/<id>/calibration/` (probe-schema.ts; probe-schema.test.ts; TC-0025)
+  - [x] AC-0181: loading reports every problem in one list (unknown criterion, non-player subject, a scored player with fewer than 2 lines, bad ids, hostile YAML, drafted without approval) (probe-load.ts; probe-load.test.ts; TC-0025)
+  - [x] AC-0182: a probe becomes a synthetic session log the real evaluator accepts, quote verification included (probe-events.ts; probe-events.test.ts and probe-evaluate.test.ts run the eight starter probes through the real `evaluateSession` with a scripted judge; TC-0026)
+  - [x] AC-0183: the Friday scenario ships 8 starter probes (4 discovery levels, 2 negotiation levels, 2 contrast groups) that validate against its rubric, and the linter reports the set as thin (scenarios/friday-escalation/calibration; starter-set.test.ts; TC-0027)
+```
+
+```
+TASK-0055 (US-0035): File the probe format, its validator, the log adapter and the Friday starter set
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0005-US-0035-calibration-probes
+Notes: Implementation plan Tasks 0-3b (docs/superpowers/plans, evaluator calibration, 2026-10-07): probe schema, loader, validator and linter, the events adapter, the eight Friday starter probes, and the fix rounds (rubric-example paraphrases, loader hardening, the package guard). Done 2026-10-07; test cases TC-0025..TC-0027. Not done here: `pnpm calibrate`, metrics, drafting and the stamp (US-0036..US-0039).
+```
+
+```
+US-0036 (EPIC-0005): `pnpm calibrate`: judges, runner, metrics, report, second-judge comparison
+Priority: High
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0005-US-0036-calibrate-command
+Dependencies: US-0035
+Acceptance Criteria:
+  - [ ] AC-0184: judges are configuration (`--judge label,model[,baseUrl]`, primary defaults to the evaluator settings) and a mock provider is refused
+  - [ ] AC-0185: the runner feeds each probe to `evaluateSession` unchanged, supports `--repeat` (max 5), `--only`, and records unreachable or garbage judges as unusable
+  - [ ] AC-0186: metrics: agreement (exact and within-one as counts), signed bias overall and per expected level, contrast ordering and gap, spread, not-observed precision and recall, usability, stability, split by source, drafter and tune/holdout, with same-family drafter warnings
+  - [ ] AC-0187: a blind second-judge comparison lists every disagreement with both judges' levels, rationale and quotes
+  - [ ] AC-0188: the report is Markdown plus JSON with a one-screen summary, PASS/WARN/FAIL labels per criterion from `targets.yaml` over documented defaults, `--strict` exits non-zero on FAIL, output is exclusive-create under git-ignored `data/calibration/`, and `pnpm calibrate` never blocks `pnpm evaluate`
+```
+
+```
+TASK-0056 (US-0036): Build the calibrate command: judges, runner, metrics, report and second-judge comparison
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0005-US-0036-calibrate-command
+Notes: Implementation plan Tasks 4-8 (docs/superpowers/plans, evaluator calibration, 2026-10-07).
+```
+
+```
+US-0037 (EPIC-0005): Probe drafting, excerpts, approval, and the scaled Friday set
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0005-US-0037-probe-drafting
+Dependencies: US-0036
+Acceptance Criteria:
+  - [ ] AC-0189: `--draft-probes` writes candidate probes to `calibration/drafts/` using a drafter of a different model family from the primary judge unless `--allow-same-family`, and a run never reads drafts
+  - [ ] AC-0190: `approve` validates a draft, records approver and time, assigns a split, and moves it into `calibration/`; `excerpt` drafts a probe from a real session log range for a human to rate
+  - [ ] AC-0191: the Friday set reaches at least 20 approved probes, balanced across levels, with at least 5 real excerpts rated by a human and at least 10 holdout probes
+```
+
+```
+TASK-0057 (US-0037): Add probe drafting, excerpts and approval, and scale the Friday set
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0005-US-0037-probe-drafting
+Notes: Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07).
+```
+
+```
+US-0038 (EPIC-0005): Evaluator prompt variants and the acceptance report (conditional on the baseline)
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0005-US-0038-prompt-variants
+Dependencies: US-0036, US-0037
+Acceptance Criteria:
+  - [ ] AC-0192: the evaluator takes a named prompt variant, `v1` is byte-identical to today's prompt, and reports record the variant
+  - [ ] AC-0193: `v2` (evidence-first, lower-level tie-break) and `v3` (next-level challenge) exist behind the variant name with the output schema, parser and quote verification unchanged
+  - [ ] AC-0194: a variant becomes the default only through a PR carrying the holdout before/after table that meets the spec's acceptance rule
+```
+
+```
+TASK-0058 (US-0038): Add evaluator prompt variants and the acceptance report
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0005-US-0038-prompt-variants
+Notes: Implementation plan Task 12 (docs/superpowers/plans, evaluator calibration, 2026-10-07).
+```
+
+```
+US-0039 (EPIC-0005): Calibration stamp on evaluation reports
+Priority: High
+Estimate: S
+Status: Planned
+Branch: feature/EPIC-0005-US-0039-calibration-stamp
+Dependencies: US-0036
+Acceptance Criteria:
+  - [ ] AC-0195: every evaluation's JSON and Markdown records the judge, model, prompt variant and rubric hash
+  - [ ] AC-0196: a one-line calibration stamp (footer, `index.md`, each personal report) states measured numbers and never claims accuracy, with states not calibrated, stale (rubric hash or variant changed) and thin
+  - [ ] AC-0197: a corrupt or missing calibration file never breaks a report
+```
+
+```
+TASK-0059 (US-0039): Stamp evaluation reports with the calibration state
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0005-US-0039-calibration-stamp
+Notes: Implementation plan Task 13 (docs/superpowers/plans, evaluator calibration, 2026-10-07).
 ```

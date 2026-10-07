@@ -1,0 +1,13 @@
+kind: contrast
+id: listening-contrast-01
+criterion: listening
+source: handwritten
+split: tune
+players: { delivery_lead: 4, account_manager: 1 }
+min_gap: 2
+transcript:
+  - { scene: s1_huddle, role: tech_lead, text: "My worry is that the new module touches the same ingestion pipeline we are still hardening, so any change this late could break the nightly loads." }
+  - { scene: s1_huddle, role: delivery_lead, text: "So the risk is the ingestion pipeline, and a late change could break the nightly loads. Have I got your concern right?" }
+  - { scene: s1_huddle, role: account_manager, text: "Anyway, I think we should just say yes to Priya and keep the relationship happy." }
+  - { scene: s1_huddle, role: delivery_lead, text: "Account manager, does the pipeline risk change how you see saying yes today? The tech lead's point gives us a reason to phase the module, and that is the line I would take to Priya." }
+  - { scene: s1_huddle, role: account_manager, text: "I still think we should say yes. Let us just say yes today." }

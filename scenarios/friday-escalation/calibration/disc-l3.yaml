@@ -1,0 +1,12 @@
+kind: single
+id: disc-l3
+criterion: discovery
+source: handwritten
+split: tune
+subject: delivery_lead
+expected: 3
+transcript:
+  - { scene: s2_client_call, role: client_sponsor, text: "We need the reconciliation module before go-live. It is a must-have." }
+  - { scene: s2_client_call, role: delivery_lead, text: "What does Finance do today when the daily loads arrive, and what goes wrong for them in the first days if the module is missing?" }
+  - { scene: s2_client_call, role: client_sponsor, text: "They cannot tie out the daily totals, so the first month-end close is at risk." }
+  - { scene: s2_client_call, role: delivery_lead, text: "So what matters is that Finance can match the daily totals before the first month-end close. Let me see what we can offer for that." }

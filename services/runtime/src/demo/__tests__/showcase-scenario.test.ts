@@ -96,8 +96,14 @@ describe("scenarios/friday-escalation-extended", () => {
     }
   });
 
-  it("the original Friday Escalation package only gained the rubric files its scenario.yaml names (US-0028)", () => {
-    expect(readdirSync(path.join(REPO_ROOT, "scenarios", "friday-escalation")).sort()).toEqual(["roles", "rubrics", "scenario.yaml", "script.yaml"]);
+  it("the original Friday Escalation package only gained the rubric files its scenario.yaml names (US-0028) and the calibration probes (US-0035)", () => {
+    // calibration/ holds the evaluator calibration probes (US-0035); the loaders never read it as scenario content.
+    expect(readdirSync(path.join(REPO_ROOT, "scenarios", "friday-escalation")).sort()).toEqual(["calibration", "roles", "rubrics", "scenario.yaml", "script.yaml"]);
+    const calibration = readdirSync(path.join(REPO_ROOT, "scenarios", "friday-escalation", "calibration"), { withFileTypes: true });
+    for (const e of calibration) {
+      if (e.isDirectory()) expect(e.name).toBe("drafts");
+      else expect(e.name, "only .yaml probe files").toMatch(/\.yaml$/);
+    }
     expect(readdirSync(path.join(REPO_ROOT, "scenarios", "friday-escalation", "rubrics")).sort()).toEqual(["group_collaboration_v1.yaml", "individual_delivery_v2.yaml"]);
   });
 });
