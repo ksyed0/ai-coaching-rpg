@@ -37,12 +37,38 @@ export const DEMO_LIMITS: Partial<Limits> = { maxConnections: 500, maxConnection
 
 export type TempRoot = { root: string; dataDir: string; scenarioDir: string; cleanup(): Promise<void> };
 
+/** How a run makes its temp directory (BUG-0007: an abort at any point must leave nothing behind). */
+export type TempOptions = {
+  /** The run's abort signal: an abort while the directory is being made removes it again and throws "run aborted". */
+  signal?: AbortSignal;
+  /** Called with the directory's cleanup as soon as the directory exists, before it is filled, so the run owns it from that moment (a run abandoned mid-way still removes it). */
+  own?: (cleanup: () => Promise<void>) => void;
+  /** Test hook: runs right after the directory is created, before it is filled. */
+  afterCreate?: (root: string) => Promise<void> | void;
+};
+
+export function stopIfAborted(signal: AbortSignal | undefined): void { if (signal?.aborted) throw new Error("run aborted"); }
+
+/** mkdtemp, hand the cleanup to its owner at once, then fill it; an abort or a failure while filling removes it. */
+async function makeOwnedDir(prefix: string, o: TempOptions, fill: (root: string) => Promise<void>): Promise<{ root: string; cleanup(): Promise<void> }> {
+  stopIfAborted(o.signal);
+  const root = await mkdtemp(prefix);
+  const cleanup = () => rm(root, { recursive: true, force: true });
+  o.own?.(cleanup);
+  try {
+    await o.afterCreate?.(root);
+    stopIfAborted(o.signal);
+    await fill(root);
+    stopIfAborted(o.signal);
+  } catch (err) { await cleanup(); throw err; }
+  return { root, cleanup };
+}
+
 /** A private temp tree holding a copy of the scenario (so bootstrap() can run against it) and the data dir. Removed by cleanup(). */
-export async function makeTempRoot(repoRoot: string): Promise<TempRoot> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "acr-demo-"));
-  const scenarioDir = path.join(root, "scenarios", "friday-escalation");
-  await cp(path.join(repoRoot, "scenarios", "friday-escalation"), scenarioDir, { recursive: true });
-  return { root, dataDir: path.join(root, "data"), scenarioDir, cleanup: () => rm(root, { recursive: true, force: true }) };
+export async function makeTempRoot(repoRoot: string, o: TempOptions = {}): Promise<TempRoot> {
+  const rel = path.join("scenarios", "friday-escalation");
+  const { root, cleanup } = await makeOwnedDir(path.join(os.tmpdir(), "acr-demo-"), o, (r) => cp(path.join(repoRoot, rel), path.join(r, rel), { recursive: true }));
+  return { root, dataDir: path.join(root, "data"), scenarioDir: path.join(root, rel), cleanup };
 }
 
 /** A model provider that keeps every request it received (the mock providers do), for the prompt audit. */
@@ -116,9 +142,9 @@ export async function startMockSystem(o: { scenario: Scenario; sessionId: string
 }
 
 /** A private temp dir for a run's data (the session log). Removed by cleanup(). */
-export async function makeTempDataDir(parent: string = os.tmpdir()): Promise<{ root: string; dataDir: string; cleanup(): Promise<void> }> {
-  const root = await mkdtemp(path.join(parent, "acr-showcase-run-"));
-  return { root, dataDir: path.join(root, "data"), cleanup: () => rm(root, { recursive: true, force: true }) };
+export async function makeTempDataDir(parent: string = os.tmpdir(), o: TempOptions = {}): Promise<{ root: string; dataDir: string; cleanup(): Promise<void> }> {
+  const { root, cleanup } = await makeOwnedDir(path.join(parent, "acr-showcase-run-"), o, async () => {});
+  return { root, dataDir: path.join(root, "data"), cleanup };
 }
 
 export type MockScenePlan = { npc: Record<string, string[]>; gm: string[]; /** What each Game Master reply is declared to be (strict, tolerant or malformed); strict when absent. */ gmKinds?: string[];
