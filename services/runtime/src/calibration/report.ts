@@ -22,6 +22,8 @@ export type JudgeReport = {
   judge: { label: string; model: string; family: string }; outcomes: Outcome[]; metrics: JudgeMetrics;
   /** Prototype-less records (see splitMetrics): read them with Object.keys, never with hasOwnProperty. */
   byCriterion: Record<string, JudgeMetrics>; bySplit: Record<string, JudgeMetrics>; bySource: Record<string, JudgeMetrics>; byDrafter: Record<string, JudgeMetrics>;
+  /** The label of each criterion on its own, from the same targets (prototype-less, like byCriterion). */
+  criterionLabels: Record<string, "PASS" | "WARN" | "FAIL">;
   label: { label: "PASS" | "WARN" | "FAIL"; reasons: string[] }; warnings: string[];
 };
 export type CalibrationRun = {
@@ -69,9 +71,11 @@ export function buildJudgeReport(judge: Judge, outcomes: Outcome[], targets: Tar
     if (d === NO_DRAFTER) continue;
     if (modelFamily(d) === judge.family) warnings.push(`agreement on probes drafted by ${printable(drafterName(d), 200)} is self-agreement: same model family as the judge`);
   }
+  const criterionLabels = Object.create(null) as Record<string, "PASS" | "WARN" | "FAIL">;
+  for (const c of Object.keys(crit)) criterionLabels[c] = labelFor(crit[c]!, targets).label;
   return {
     judge: { label: judge.label, model: judge.model, family: judge.family }, outcomes, metrics,
-    byCriterion: crit, bySplit: splitMetrics(outcomes, "split"), bySource: splitMetrics(outcomes, "source"), byDrafter,
+    byCriterion: crit, criterionLabels, bySplit: splitMetrics(outcomes, "split"), bySource: splitMetrics(outcomes, "source"), byDrafter,
     label: labelFor(metrics, targets), warnings,
   };
 }
@@ -147,11 +151,14 @@ function judgeDetail(j: JudgeReport): string[] {
     `## Judge ${md(j.judge.label, 64)} (${md(j.judge.model, 200)}, family ${md(j.judge.family, 64)}): ${j.label.label}`, "",
     ...j.label.reasons.map((r) => `- ${md(r, 300)}`), ...j.warnings.map((w) => `- warning: ${md(w, 300)}`), ...(j.label.reasons.length || j.warnings.length ? [""] : []),
     "### Per criterion", "",
-    ...table(["Criterion", ...METRIC_HEADER, "Thin"], crit.map((c) => {
+    ...table(["Criterion", "Label", ...METRIC_HEADER, "Thin"], crit.map((c) => {
       const cm = j.byCriterion[c]!;
-      return [md(c, 64), ...metricCells(cm), cm.probes < MIN_CRITERION_PROBES ? "thin" : ""];
+      return [md(c, 64), j.criterionLabels[c] ?? "", ...metricCells(cm), cm.probes < MIN_CRITERION_PROBES ? "thin" : ""];
     })), "",
     ...groupTable("By split", j.bySplit), ...groupTable("By source", j.bySource), ...groupTable("By drafter", j.byDrafter, drafterName),
+    "### Contrast", "",
+    `- ordered ${m.contrast.ordered} of ${m.contrast.usable} usable (${m.contrast.n} contrast probes); player pairs ordered ${m.contrast.pairsOrdered} of ${m.contrast.pairs}; ` +
+    `required gap met ${m.contrast.gapMet} of ${m.contrast.pairs}; mean achieved gap ${fixed(m.contrast.meanGap)} against a required ${fixed(m.contrast.meanRequired)}`, "",
     "### Bias by expected level", "",
     ...table(["Expected", "Scored", "Mean bias"], ([1, 2, 3, 4] as const).map((l) => [String(l), String(m.biasByExpected[l].n), signed(m.biasByExpected[l].mean)])), "",
     "### Not observed", "", `- precision ${fixed(m.notObserved.precision)}, recall ${fixed(m.notObserved.recall)}`, "",
@@ -212,6 +219,9 @@ export async function writeRun(run: CalibrationRun, dataDir: string): Promise<{ 
   if (!isSafeId(run.scenario.id)) throw new Error("calibration run: the scenario id is not a safe file name");
   const stamp = String(run.startedAt).replace(/[:.]/g, "-");
   if (!isSafeId(stamp) || stamp.length > 60) throw new Error("calibration run: the start time does not make a safe directory name");
+  // Render first: a run that cannot be rendered must not leave an empty directory behind.
+  const markdownText = renderMarkdown(run);
+  const jsonText = `${JSON.stringify(run, null, 2)}\n`;
   const parent = path.join(dataDir, run.scenario.id);
   await mkdir(parent, { recursive: true, mode: 0o700 });
   let dir = "";
@@ -225,8 +235,8 @@ export async function writeRun(run: CalibrationRun, dataDir: string): Promise<{ 
     }
   }
   const markdown = path.join(dir, "calibration-report.md"), json = path.join(dir, "calibration.json");
-  await writeFile(markdown, renderMarkdown(run), { flag: "wx", mode: 0o600 });
-  await writeFile(json, `${JSON.stringify(run, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+  await writeFile(markdown, markdownText, { flag: "wx", mode: 0o600 });
+  await writeFile(json, jsonText, { flag: "wx", mode: 0o600 });
   return { dir, markdown, json };
 }
 
@@ -242,7 +252,9 @@ function summaryOf(run: CalibrationRun, j: JudgeReport): CalibrationSummary {
 
 /**
  * The latest result per judge, read by reports to stamp them: one file per (model, variant), replaced atomically (a private temp file in
- * the same directory, then rename). A failed write removes its temp file. Two judges with the same model id share a file (last wins).
+ * the same directory, then rename). A failed write removes its temp file and is reported without the absolute path or the pid.
+ * File names come from slug(model): any model ids that slug alike (not only identical ones, e.g. "Org/Gemma:4" and "org-gemma-4") share
+ * one file and the last judge written wins; the summary keeps judge.model verbatim, so a reader can tell which model it describes.
  */
 export async function writeSummaries(run: CalibrationRun, dataDir: string): Promise<string[]> {
   const files: string[] = [];
@@ -255,7 +267,7 @@ export async function writeSummaries(run: CalibrationRun, dataDir: string): Prom
       await rename(tmp, file);
     } catch (e) {
       await rm(tmp, { force: true });
-      throw e;
+      throw new Error(`calibration summary: could not replace ${run.scenario.id}/${path.basename(file)}`, { cause: e });
     }
     files.push(file);
   }

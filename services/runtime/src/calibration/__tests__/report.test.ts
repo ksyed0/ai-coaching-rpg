@@ -58,6 +58,43 @@ describe("report", () => {
     expect(lines.slice(25).join("\n")).toMatch(/## /);
   });
 
+  it("prints the both-unusable line only when some entry was unusable for both judges", () => {
+    const qwen = { label: "second", model: "qwen-3-32b", family: "qwen", provider };
+    const mk = (b: Observed) => buildRun({ scenario: { id: "esc-scope-creep-01", version: "1.2" }, rubrics: [], variant: "v1", startedAt: "2026-10-08T00:00:00.000Z", probes, lint: [],
+      judges: [buildJudgeReport(gemma, [out("a", 1, 1), out("d", 2, "failed")], DEFAULT_TARGETS, probes), buildJudgeReport(qwen, [out("a", 1, 2), out("d", 2, b)], DEFAULT_TARGETS, probes)] });
+    const none = mk(2);
+    expect(none.comparison?.bothUnusable).toBe(0);
+    expect(renderMarkdown(none)).not.toMatch(/unusable for both judges/);
+    expect(renderMarkdown(mk("invalid"))).toMatch(/1 entries were unusable for both judges/);
+  });
+  it("caps the summary's reasons and warnings at five each, with an 'and N more', so it stays one screen", () => {
+    const crits = ["c1", "c2", "c3", "c4", "c5", "c6", "c7"];
+    const jr = buildJudgeReport(gemma, crits.map((c, i) => ({ ...out(`p${i}`, 1, 1), criterion: c })), DEFAULT_TARGETS, probes);
+    expect(jr.warnings.length).toBe(8); // the thin set plus seven thin criteria
+    const lines = renderMarkdown({ ...run(), judges: [jr, jr] }).split("\n");
+    const head = lines.slice(0, 25).join("\n");
+    expect(head).toMatch(/; and 3 more \(see below\)/);
+    const warned = lines.filter((l) => l.startsWith("  - warnings: "));
+    expect(warned).toHaveLength(2);
+    for (const w of warned) { expect(w.match(/criterion c\d/g)).toHaveLength(4); expect(w).not.toContain("criterion c5"); }
+    expect(lines.slice(0, 25).some((l) => l.startsWith("- Lint:"))).toBe(true);
+  });
+  it("labels every criterion PASS, WARN or FAIL in the per-criterion table, from the same targets", () => {
+    const jr = buildJudgeReport(gemma, [out("a", 1, 1), out("b", 4, 4), { ...out("c", 1, 4), criterion: "listening" }, contrastOut("d", { x: 4, y: 1 })], DEFAULT_TARGETS, probes);
+    expect(jr.criterionLabels.discovery).toBe("PASS");
+    expect(jr.criterionLabels.listening).toBe("FAIL");
+    expect(Object.getPrototypeOf(jr.criterionLabels)).toBeNull();
+    const md = renderMarkdown({ ...run(), judges: [jr] });
+    expect(md).toMatch(/\| Criterion \| Label \|/);
+    expect(md).toMatch(/\| discovery \| PASS \|/);
+    expect(md).toMatch(/\| listening \| FAIL \|/);
+  });
+  it("shows the achieved contrast gap against the required gap", () => {
+    const jr = buildJudgeReport(gemma, [contrastOut("c1", { x: 4, y: 1 }), contrastOut("c2", { x: 3, y: 2 })], DEFAULT_TARGETS, probes);
+    expect(jr.metrics.contrast.meanGap).toBe(2);
+    const md = renderMarkdown({ ...run(), judges: [jr] });
+    expect(md).toMatch(/### Contrast\n\n- ordered 2 of 2 usable \(2 contrast probes\); player pairs ordered 2 of 2; required gap met 1 of 2; mean achieved gap 2\.00 against a required 2\.00/);
+  });
   it("shows a positive bias with its sign and an unmeasured bias as n/a", () => {
     const lenient = buildJudgeReport(gemma, [out("a", 1, 2)], DEFAULT_TARGETS, probes);
     const none = buildJudgeReport(gemma, [out("a", 1, "failed")], DEFAULT_TARGETS, probes);
@@ -121,7 +158,7 @@ describe("report", () => {
     expect(md).toMatch(/\\</);
     const lines = md.split("\n");
     for (const l of lines) expect(l.length).toBeLessThan(4000);
-    for (const l of lines) expect(l).not.toMatch(/^\s*(#{1,6} (?!Calibration|Judge|Per |By |Bias|Not observed|Stability|Usability|Cross-judge|Disagreements|Lint)|> )/);
+    for (const l of lines) expect(l).not.toMatch(/^\s*(#{1,6} (?!Calibration|Judge|Per |By |Contrast$|Bias|Not observed|Stability|Usability|Cross-judge|Disagreements|Lint)|> )/);
     // a table row keeps exactly its header's column count: every untrusted pipe is escaped
     const tables = md.split("\n\n").filter((blk) => blk.startsWith("|"));
     expect(tables.length).toBeGreaterThan(0);
@@ -199,7 +236,12 @@ describe("report", () => {
   it("leaves no temporary file behind when the final rename fails", async () => {
     const target = summaryFile(dir, "esc-scope-creep-01", "gemma-4-31b", "v1");
     await mkdir(path.join(target, "occupied"), { recursive: true }); // a non-empty directory where the file should go
-    await expect(writeSummaries(run(), dir)).rejects.toThrow();
+    let caught: Error | undefined;
+    try { await writeSummaries(run(), dir); } catch (e) { caught = e as Error; }
+    expect(caught?.message).toBe("calibration summary: could not replace esc-scope-creep-01/gemma-4-31b-v1.json");
+    expect(caught?.message).not.toContain(dir);
+    expect(caught?.message).not.toContain(String(process.pid));
+    expect((caught?.cause as NodeJS.ErrnoException | undefined)?.code).toMatch(/^E/);
     expect((await readdir(path.dirname(target))).filter((n) => n.endsWith(".tmp"))).toEqual([]);
   });
 
@@ -216,6 +258,22 @@ describe("report", () => {
     expect(path.basename(summaryFile(dir, "s", "x".repeat(10_000), "v1"))).toBe(`${"x".repeat(80)}-v1.json`);
   });
 
+  it("trims a dash left at the end by the 80-character cut", () => {
+    expect(path.basename(summaryFile(dir, "s", `${"a".repeat(79)}-bbbb`, "v1"))).toBe(`${"a".repeat(79)}-v1.json`);
+  });
+  it("renders before creating anything: a run that cannot be rendered leaves no directory behind", async () => {
+    const r = run();
+    const broken = { ...r, judges: [{ ...r.judges[0]!, metrics: undefined as unknown as CalibrationRun["judges"][number]["metrics"] }] };
+    await expect(writeRun(broken, dir)).rejects.toThrow();
+    expect(await readdir(dir)).toEqual([]);
+  });
+  it("a summary's contrast.of is the usable contrast count, not every contrast probe", async () => {
+    const jr = buildJudgeReport(gemma, [contrastOut("c1", { x: 4, y: 1 }), contrastOut("c2", { x: 4, y: "failed" }), contrastOut("c3", { x: 1, y: 4 })], DEFAULT_TARGETS, probes);
+    expect(jr.metrics.contrast.n).toBe(3);
+    expect(jr.metrics.contrast.usable).toBe(2);
+    const [file] = await writeSummaries({ ...run(), judges: [jr] }, dir);
+    expect(JSON.parse(await readFile(file!, "utf8")).contrast).toEqual({ ordered: 1, of: 2 });
+  });
   it("refuses an unsafe scenario id for a summary file", () => {
     for (const id of ["../x", "a/b", "..", "", "a b", "x".repeat(65)]) expect(() => summaryFile(dir, id, "m", "v1")).toThrow(/scenario id/);
   });
