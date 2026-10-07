@@ -31,6 +31,11 @@ const VoiceList = z.array(z.string().trim().min(1).max(VOICE_ITEM_MAX_CHARS)).ma
 /** A hidden fact is shown to the facilitator and, once released, goes into one prompt: keep both the count and the length bounded. The release command numbers facts 1..MAX_HIDDEN_FACTS. */
 export const MAX_HIDDEN_FACTS = 50;
 export const MAX_HIDDEN_FACT_CHARS = 1_000;
+/** US-0034: an `earned_when` condition goes into a Game Master prompt, like a scene's `gm_detects` condition: plain text, bounded. */
+export const MAX_EARNED_WHEN_CHARS = 500;
+const EarnedWhenCondition = z.string().trim().min(1, "must not be empty").max(MAX_EARNED_WHEN_CHARS, `is longer than ${MAX_EARNED_WHEN_CHARS} characters`);
+/** A hidden fact's 1-based number, as `release_hidden` and `/hidden` number them (no leading zero, so "01" and "1" cannot both name fact 1). */
+const FactNumberKey = z.string().regex(/^[1-9][0-9]?$/, "keys are hidden fact numbers (1 to 50)");
 
 export const NpcRoleSchema = z.object({
   id: Id, type: z.literal("npc"), name: z.string(), title: z.string().default(""),
@@ -48,6 +53,12 @@ export const NpcRoleSchema = z.object({
   defer_to: z.array(Id).max(VOICE_LIST_MAX).default([]),
   /** Optional replacement for the generic sentence that tells this character to leave a decision to the characters in `defer_to`. Own-prompt text only (at most 200 characters). */
   defers_text: z.string().trim().min(1).max(200).optional(),
+  /**
+   * US-0034: optional, by hidden fact number: a condition the Game Master judges on the dialogue; when it holds for a fact that is not yet
+   * released, the facilitator gets ONE suggestion to release it (`/release <role> <n>`). The condition is shown to the Game Master, never the fact.
+   * No default on purpose: a role without it loads exactly as before (the same object, so the same scenario hash).
+   */
+  earned_when: z.record(FactNumberKey, EarnedWhenCondition).optional(),
 });
 
 export const RoleSchema = z.discriminatedUnion("type", [PlayerRoleSchema, NpcRoleSchema]);

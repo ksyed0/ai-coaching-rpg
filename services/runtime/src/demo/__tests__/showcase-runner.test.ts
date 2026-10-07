@@ -302,7 +302,8 @@ describe("--showcase --live (an in-process OpenAI-compatible fake on loopback)",
     expect(showcase.npcs.every((n) => n.latencyMs !== null)).toBe(true);
     expect(showcase.gm.evaluations).toBe(2); // s4 and s5 reach three utterances
     expect(seen.npc).toBe(8); // 5 replies + 3 re-asks: the fake repeats one sentence, and a verbatim repeat of an own earlier reply is asked for once more
-    expect(seen.gm).toBe(2);
+    expect(seen.gm).toBe(4); // 2 exit-condition verdicts and (US-0034) 2 checks of the CFO's earned_when condition, both false
+    expect(showcase.gm.suggestions).toEqual([]); // the no-suggestion case
     expect(showcase.facilitatorAdvances).toBe(6);
     expect(showcase.observations).toHaveLength(6);
     expect(showcase.provider).toBe("local OpenAI-compatible server (custom endpoint: yes)");
@@ -366,8 +367,9 @@ describe("helpers", () => {
   it("counts the model calls a run can make and the lines a --max-lines cap leaves", async () => {
     const sc = await loadScenario(EXTENDED);
     const script = await loadShowcaseScript(EXTENDED, sc, { mode: "mock" });
-    expect(expectedModelCalls(sc, script, null)).toEqual({ npc: 20, gm: 16, player: 30 });
-    expect(expectedModelCalls(sc, script, 1)).toEqual({ npc: 5, gm: 2, player: 6 });
+    // gm: the exit-condition evaluations plus (US-0034) at most one earned_when check of the CFO per round in s4 and s5 (4 + 4; with one line 1 + 1)
+    expect(expectedModelCalls(sc, script, null)).toEqual({ npc: 20, gm: 24, player: 30 });
+    expect(expectedModelCalls(sc, script, 1)).toEqual({ npc: 5, gm: 4, player: 6 });
     expect(linesFor(script, "s1_huddle", 2)).toHaveLength(2);
     expect(linesFor(script, "s1_huddle", null)).toHaveLength(6);
   });

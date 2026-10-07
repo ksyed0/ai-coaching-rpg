@@ -1,8 +1,9 @@
 import path from "node:path";
-import { FileTooLargeError, readTextCapped, type Scene, type Scenario } from "@acr/script";
+import { FileTooLargeError, earnedWhenOf, readTextCapped, type Scene, type Scenario } from "@acr/script";
 import { parse } from "yaml";
 import { ZodError, z } from "zod";
 import { GM_EVERY_N_UTTERANCES } from "../agents/game-master.js";
+import { parseGmReply } from "../agents/gm-parse.js";
 
 export const SHOWCASE_FILE = "showcase.yaml";
 /** The server refuses a `say` longer than this (see the protocol), so a longer scripted line could never be spoken. */
@@ -39,12 +40,18 @@ const SceneScriptSchema = z.object({
     /** A reply is a string, or `{ reply, requires_release: n }`: the reply is only valid once hidden fact `n` of that character has been released (the loader checks that a facilitator step releases it earlier in the scene). */
     npc: z.record(z.array(z.union([z.string(), z.object({ reply: z.string(), requires_release: z.number().int().min(1).max(50) }).strict()]))).default({}),
     gm: z.array(z.union([z.string(), z.object({ kind: z.enum(["tolerant", "malformed", "forged"]), reply: z.string() })])).default([]),
+    /**
+     * US-0034: the Game Master's verdicts on a hidden fact's earned_when condition, per AI character and fact number, in the order it is asked
+     * (once per Game Master round while the fact is neither judged earned nor released). A true verdict is the release suggestion.
+     */
+    gm_earned: z.array(z.object({ role: z.string().min(1).max(128), fact: z.number().int().min(1).max(50), replies: z.array(z.string()).min(1).max(50) }).strict()).max(20).default([]),
   }).default({}).transform((m) => ({
     npc: Object.fromEntries(Object.entries(m.npc).map(([k, v]) => [k, v.map((r) => (typeof r === "string" ? r : r.reply))])) as Record<string, string[]>,
     /** Per character and reply index: the fact number the reply needs released first, or null. */
     npcNeeds: Object.fromEntries(Object.entries(m.npc).map(([k, v]) => [k, v.map((r) => (typeof r === "string" ? null : r.requires_release))])) as Record<string, (number | null)[]>,
     gm: m.gm.map((r) => (typeof r === "string" ? r : r.reply)),
     gmKinds: m.gm.map((r): "strict" | "tolerant" | "malformed" | "forged" => (typeof r === "string" ? "strict" : r.kind)),
+    gmEarned: m.gm_earned,
   })),
 });
 export const ShowcaseScriptSchema = z.object({ scenes: z.array(SceneScriptSchema).min(1) });
@@ -63,17 +70,26 @@ export type ShowcaseLoadOptions = {
   file?: string;
 };
 
-/** How many Game Master model calls a scene triggers if `lineCount` lines are spoken, each followed by `npcCount` replies and no scene exit. */
+/** The scripted lines (1-based) after which the Game Master judges, if `lineCount` lines are spoken, each followed by `npcCount` replies and no scene exit. */
+export function gmRoundLines(lineCount: number, npcCount: number, everyN: number = GM_EVERY_N_UTTERANCES): number[] {
+  const out: number[] = [];
+  let evaluated = 0;
+  for (let i = 1; i <= lineCount; i++) {
+    const count = i * (1 + npcCount);
+    if (count - evaluated >= everyN) { evaluated = count; out.push(i); }
+  }
+  return out;
+}
+
+/** How many Game Master model calls a scene triggers for its exit conditions if `lineCount` lines are spoken, each followed by `npcCount` replies and no scene exit. */
 export function expectedGmEvaluations(scene: Scene, lineCount: number, npcCount: number, everyN: number = GM_EVERY_N_UTTERANCES): number {
   const conditions = scene.exit_when.any_of.filter((c) => typeof c === "object").length;
   if (conditions === 0) return 0;
-  let evaluated = 0; let rounds = 0;
-  for (let i = 1; i <= lineCount; i++) {
-    const count = i * (1 + npcCount);
-    if (count - evaluated >= everyN) { evaluated = count; rounds++; }
-  }
-  return rounds * conditions;
+  return gmRoundLines(lineCount, npcCount, everyN).length * conditions;
 }
+
+/** A scripted earned_when verdict is a true one (read as the Game Master reads it, without a nonce). */
+const isTrueVerdict = (reply: string): boolean => { const p = parseGmReply(reply, { nonce: null }); return p.ok && p.verdict; };
 
 /**
  * Parses and validates the showcase script text against the scenario. Pure. Every failure is a ShowcaseScriptError whose
@@ -95,6 +111,8 @@ export function parseShowcaseScript(text: string, scenario: Scenario, o: Showcas
 
   const seen = new Set<string>();
   const released = new Set<string>();
+  // US-0034: facts the mock Game Master has already judged earned (a scripted true verdict) in an earlier scene: never asked again.
+  const earnedBefore = new Set<string>();
   for (const entry of script.scenes) {
     const scene = scenario.script.scenes.find((s) => s.id === entry.scene);
     if (!scene) bad(`scene '${entry.scene}' is not in the scenario`);
@@ -138,6 +156,34 @@ export function parseShowcaseScript(text: string, scenario: Scenario, o: Showcas
       }
       const need = expectedGmEvaluations(scene!, spoken, npcsHere.length);
       if (entry.mock.gm.length < need) bad(`${where}: the mock run needs ${need} Game Master verdict(s) but only ${entry.mock.gm.length} are scripted`);
+    }
+    // US-0034: the scripted earned_when verdicts. Each pending condition of a character here is judged once per Game Master round, until a true
+    // verdict (the suggestion) or a facilitator release of the fact in this scene (the round of that line still judges it, the release follows).
+    const listed = new Set<string>();
+    for (const g of entry.mock.gmEarned) {
+      const role = Object.hasOwn(scenario.roles, g.role) ? scenario.roles[g.role] : undefined;
+      if (role?.type !== "npc" || !npcsHere.includes(g.role)) bad(`${where}: mock gm_earned names '${g.role}', who is not an AI character in that scene`);
+      if (!earnedWhenOf(role as Extract<typeof role, { type: "npc" }>).some((c) => c.fact === g.fact)) bad(`${where}: mock gm_earned: hidden fact ${g.fact} of '${g.role}' has no earned_when condition`);
+      if (listed.has(`${g.role}#${g.fact}`)) bad(`${where}: mock gm_earned: hidden fact ${g.fact} of '${g.role}' is listed twice`);
+      listed.add(`${g.role}#${g.fact}`);
+    }
+    const spoken = Math.min(entry.lines.length, o.maxLines ?? entry.lines.length);
+    const rounds = gmRoundLines(spoken, npcsHere.length);
+    for (const id of npcsHere) {
+      const role = scenario.roles[id];
+      if (role?.type !== "npc") continue;
+      for (const c of earnedWhenOf(role)) {
+        const key = `${id}#${c.fact}`;
+        const releasedBefore = released.has(key) && !entry.facilitator.some((st) => st.role === id && st.fact === c.fact);
+        if (earnedBefore.has(key) || releasedBefore) continue;
+        const replies = entry.mock.gmEarned.find((g) => g.role === id && g.fact === c.fact)?.replies ?? [];
+        const stepAt = entry.facilitator.find((st) => st.role === id && st.fact === c.fact)?.afterLine;
+        const asked = stepAt === undefined ? rounds : rounds.filter((l) => l <= stepAt);
+        const firstTrue = replies.slice(0, asked.length).findIndex(isTrueVerdict);
+        const need = firstTrue >= 0 ? firstTrue + 1 : asked.length;
+        if (o.mode === "mock" && replies.length < need) bad(`${where}: the mock run needs ${need} earned_when verdict(s) for hidden fact ${c.fact} of '${id}' but ${replies.length} are scripted`);
+        if (firstTrue >= 0) earnedBefore.add(key);
+      }
     }
   }
   for (const s of scenario.script.scenes) if (!seen.has(s.id)) bad(`scene '${s.id}' has no entry (every scene needs scripted player lines)`);

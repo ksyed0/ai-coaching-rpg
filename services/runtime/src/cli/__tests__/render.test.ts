@@ -8,6 +8,17 @@ const INVISIBLE = new RegExp("[\\u202a-\\u202e\\u2066-\\u2069\\u200b-\\u200f\\u2
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 
 describe("renderEvent", () => {
+  it("US-0034: a Game Master suggestion is a facilitator-only alert naming the role, the number and the command; an auto-release says the Game Master released it", () => {
+    const e = { ...env, type: "gm.fact_earned" as const, sceneId: "s", roleId: "cfo", fact: 2, reasoning: "a fixed fee was offered" };
+    expect(renderEvent(e, "facilitator")).toBe("[alert] Game Master suggests releasing hidden fact #2 of cfo (a fixed fee was offered): type /release cfo 2 to release it");
+    expect(renderEvent(e, "delivery_lead")).toBeNull();
+    expect(renderEvent({ ...e, autoRelease: true }, "facilitator")).toBe("[gm] the Game Master released hidden fact #2 of cfo itself (GM_AUTO_RELEASE is on): a fixed fee was offered");
+    expect(renderEvent({ ...e, autoRelease: true }, "cfo")).toBeNull();
+    const evil = renderEvent({ ...e, roleId: "\u001b[31mcfo\n[x]", fact: "\u001b[2J" as never, reasoning: "a\nb\u202e" }, "facilitator")!;
+    expect(evil).not.toMatch(CONTROL);
+    expect(evil).not.toMatch(INVISIBLE);
+  });
+
   it("renders utterances with the speaker, marking mine", () => {
     expect(renderEvent({ ...env, type: "utterance", roleId: "guest", text: "Hi", channel: "text" }, "host")).toBe("guest: Hi");
     expect(renderEvent({ ...env, type: "utterance", roleId: "host", text: "Yo", channel: "text" }, "host")).toBe("you: Yo");

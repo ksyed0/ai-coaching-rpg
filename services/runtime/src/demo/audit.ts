@@ -12,7 +12,7 @@ import {
 import { FAKE_KEY } from "./harness.js";
 
 const WHISPER_MARK = "WHISPER-ONLY-FOR-DELIVERY-LEAD";
-const FACILITATOR_ONLY = ["npc.updated", "gm.decision", "gm.no_verdict", "facilitator.alert"];
+const FACILITATOR_ONLY = ["npc.updated", "gm.decision", "gm.no_verdict", "gm.fact_earned", "facilitator.alert"];
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 
 /** The final act: everything that needs the whole run to be over. */

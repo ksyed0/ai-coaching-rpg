@@ -24,6 +24,9 @@ export type Runtime = { port: number; host: SessionHost; stop(): Promise<void> }
 export type BootstrapResult = { ok: true; runtime: Runtime } | { ok: false; errors: string[] };
 
 /** Builds and starts one session. Never calls process.exit and never logs environment values (API keys). */
+/** US-0034: printed once at startup when GM_AUTO_RELEASE=1 (a constant: no value from the environment). */
+export const GM_AUTO_RELEASE_WARNING = "WARNING: GM_AUTO_RELEASE=1: the Game Master releases a hidden fact itself when it judges the fact's earned_when condition met (recorded as a Game Master action); a participant who persuades it releases the fact without the facilitator";
+
 export async function bootstrap(opts: {
   env: NodeJS.ProcessEnv; root?: string; now?: () => Date; log?: (m: string) => void; warn?: (m: string) => void; logDir?: string; tickMs?: number;
   /**
@@ -112,7 +115,7 @@ export async function bootstrap(opts: {
     // Never log the provider object, its name, an endpoint or any env-derived value: describeModelProvider returns a
     // fixed label plus a literal yes/no for "custom endpoint".
     log(`model provider: ${describeModelProvider(env)}`);
-    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmTrace });
+    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmAutoRelease: gmCfg.autoRelease, gmTrace });
     if (store.resume) host.resumeFrom(store.resume);
     // Fail-stop (US-0018): a lost lock stops the engine too; one log line (no paths or values), then the owner's onFatal.
     let fatalSeen = false;
@@ -140,6 +143,7 @@ export async function bootstrap(opts: {
   }
   if (security.config.facilitatorToken === undefined) warn(OPEN_SERVER_WARNING); // one line, no secret
   else log("facilitator token required (FACILITATOR_TOKEN is set)");
+  if (gmCfg.autoRelease) warn(GM_AUTO_RELEASE_WARNING); // US-0034: an operator opt-in; a constant line
   log(`scenario "${scenario.meta.title}" v${scenario.meta.version}; session "${sessionId}"; players: ${Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => r.id).join(", ")}`);
   if (store.resume) {
     const r = store.resume;

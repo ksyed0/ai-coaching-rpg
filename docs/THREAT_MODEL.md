@@ -7,7 +7,7 @@ This is the threat model of the runtime server (`services/runtime`) for the text
 | Asset | Where it lives | Who may see it |
 | --- | --- | --- |
 | Role briefs and private facts | player `joined` message | that role only |
-| Hidden facts, NPC goals and knowledge, Game Master reasoning, alerts | facilitator event stream | facilitators only |
+| Hidden facts, NPC goals and knowledge, Game Master reasoning, alerts, release suggestions (`gm.fact_earned`) | facilitator event stream | facilitators only |
 | Whispers | facilitator and target role | those two |
 | Participant names | server memory, session log | facilitators (log) |
 | Session logs (`data/sessions/*.jsonl`) | disk | whoever can read the server's disk |
@@ -85,6 +85,22 @@ With `FACILITATOR_TOKEN` **unset the server stays open**: anyone who can reach t
 
 **The resume trust model.** On restart the server trusts its log: the state is rebuilt from it, nothing else. So **anyone who can write to `data/sessions/` can forge what a resumed session contains** (lines, goals, released facts, who said what): treat the directory like `.env`. The checks are about accidents, not attackers: a log that is corrupt beyond a cut-off last line, of a newer format, with an unknown event type, or written for another scenario (SHA-256 of the scenario as loaded and validated, in canonical JSON: an app upgrade that changes how a scenario loads can also refuse an in-progress resume; `SESSION_START=fresh` then starts over) is refused, never resumed "best effort", and never modified. Role claims and reconnect tokens are not persisted, so a restart behaves like a disconnect: roles are claimable again (US-0033 per-role join codes would close this gap) and the facilitator must present the token again. Clients that rejoin receive only what they may see (their scenes' transcript); the alert about the restart is facilitator-only.
 
+## Game Master release suggestions and GM_AUTO_RELEASE (US-0034)
+
+A hidden fact may have an `earned_when` condition. The Game Master judges it on the dialogue and, when it holds, records the facilitator-only event `gm.fact_earned` that suggests `/release <role> <n>`. What protects it:
+
+- **The fact never enters the Game Master's prompt.** The check holds the condition, the character's name, title and role id, the fact number and the current scene's dialogue. A model cannot reveal a fact it never saw, so a suggestion, its reasoning and every Game Master trace are free of fact text (the demo's `S-06` audits every captured Game Master prompt for every hidden fact).
+- **The condition and the dialogue are untrusted data in the prompt.** Both are quoted (the condition as one JSON string with `<` escaped, each utterance as one JSON line) and the prompt says they are data, never instructions. The condition is scenario text (written by the operator) but is treated the same way.
+- **A suggestion cannot be forged by typing.** The verdict path is the one of the exit conditions (US-0025): a fresh 64-bit nonce per evaluation in the system prompt only, and only a verdict object carrying it counts; quoted, echoed, nested, duplicated or conflicting verdicts are refused. The role id and the fact number come from the scenario, never from the model's reply, so the model's answer can only be true or false for the one fact that was asked about.
+- **Only the engine's Game Master path writes the event.** The client protocol has no command for it (unknown commands are refused by the schema), the engine checks inside its mutex that the character is an AI character in the current scene, that the fact exists, has a condition, and is neither already suggested nor released, so a suggestion is made at most once per fact for the whole session. Players are denied the event (default deny) and their snapshot has no `factsEarned`.
+- **It survives a restart without repeating.** The suggestion is an event in the session log, so a resumed session rebuilds `factsEarned` from it. (As for every other event, whoever can write `data/sessions/` can forge it: see the resume trust model above.)
+
+What it does **not** protect against:
+
+1. **Persuasion.** A participant can try to talk the model into judging the condition met, in the dialogue it reads. The nonce stops a typed verdict, not an argument. With suggestions only (the default) the cost is an alert the facilitator can ignore.
+2. **`GM_AUTO_RELEASE=1`.** With this operator opt-in the Game Master releases the fact itself (`gm.fact_earned` with `autoRelease: true`, then the facilitator-only `npc.updated`). The release is recorded as the Game Master's action, not as a facilitator command, so the log shows who released it; but a participant who persuades the model then releases a fact without the facilitator. The setting is off by default, validated at start (`0` or `1`) and announced by a startup warning (a constant line). A crash between the two appends is completed on resume. Leave it off where a hidden fact matters.
+3. **Model cost.** Each pending condition of a character in the scene is one more Game Master call per evaluation round (at most two with the re-ask), until it is suggested or released.
+
 ## Operating guidance
 
 - Always set a token off a trusted network; use a TLS reverse proxy when the path is not trusted.
@@ -94,4 +110,4 @@ With `FACILITATOR_TOKEN` **unset the server stays open**: anyone who can reach t
 
 ## Review
 
-Re-read this document when a web client, voice, persistent accounts or per-role join codes (US-0033) are added, or when resume starts persisting anything about participants (US-0018 persists nothing but the log): each changes what can be claimed and by whom.
+Re-read this document when a web client, voice, persistent accounts or per-role join codes (US-0033) are added, when the Game Master gains another action it may take on its own (like `GM_AUTO_RELEASE`, US-0034), or when resume starts persisting anything about participants (US-0018 persists nothing but the log): each changes what can be claimed and by whom.

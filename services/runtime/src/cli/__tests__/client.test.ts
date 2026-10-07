@@ -150,6 +150,18 @@ describe("client core: facilitator /hidden and /release (US-0016)", () => {
     t.c.onLine("/hidden");
     expect(t.out.slice(-2)).toEqual(["cfo #1 [released] first", "cfo #2 [released] second"]);
   });
+  it("US-0034: shows a Game Master suggestion as an alert with the command, and marks the fact [suggested] in /hidden (also from the joined snapshot)", () => {
+    const t = fsetup(); t.c.onOpen(); t.c.onMessage(fjoined);
+    t.out.length = 0;
+    t.c.onMessage(JSON.stringify({ type: "event", event: { seq: 6, ts: 0, sessionId: "s", type: "gm.fact_earned", sceneId: "a", roleId: "cfo", fact: 1, reasoning: "fixed fee agreed" } }));
+    expect(t.out).toEqual(["[alert] Game Master suggests releasing hidden fact #1 of cfo (fixed fee agreed): type /release cfo 1 to release it"]);
+    t.c.onLine("/hidden");
+    expect(t.out.slice(-2)).toEqual(["cfo #1 [suggested by the Game Master] first", "cfo #2 [released] second"]);
+    const u = fsetup(); u.c.onOpen();
+    u.c.onMessage(JSON.stringify({ type: "joined", roleId: "facilitator", state: { npcs: {}, factsEarned: { cfo: [2, "x", 1.5] } }, hiddenFacts: { cfo: ["first", "second"] } }));
+    u.c.onLine("/hidden");
+    expect(u.out.slice(-2)).toEqual(["cfo #1 first", "cfo #2 [suggested by the Game Master] second"]);
+  });
   it("shows a server error such as already_released and a player never gets the commands", () => {
     const t = fsetup(); t.c.onOpen(); t.c.onMessage(fjoined);
     t.c.onMessage(err("already_released"));

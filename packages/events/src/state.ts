@@ -22,13 +22,15 @@ export type SessionState = {
   advanceRequested: boolean;
   /** GM verdicts for the CURRENT scene, keyed by condition text. */
   gmVerdicts: Record<string, boolean>;
+  /** US-0034: per AI character, the hidden fact numbers the Game Master has already judged earned (gm.fact_earned), ascending. For the whole session, so a suggestion is never repeated, also after a restart (it is rebuilt from the log). */
+  factsEarned: Record<string, number[]>;
 };
 
 export function initialState(): SessionState {
   return {
     status: "idle", lastSeq: 0, scenarioId: null, version: null, roles: {},
     currentScene: null, sceneHistory: [], paused: false, pausedSince: null, transcript: [], injectsFired: [], npcs: {},
-    advanceRequested: false, gmVerdicts: {},
+    advanceRequested: false, gmVerdicts: {}, factsEarned: {},
   };
 }
 
@@ -64,6 +66,12 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
     case "gm.decision":
       if (s.currentScene?.id !== e.sceneId) return s;
       return { ...s, gmVerdicts: { ...s.gmVerdicts, [e.condition]: e.verdict } };
+    case "gm.fact_earned": {
+      // Never an exit verdict (gmVerdicts is untouched), so an earned_when text that equals a gm_detects condition cannot end a scene.
+      const had = Object.hasOwn(s.factsEarned, e.roleId) ? s.factsEarned[e.roleId]! : [];
+      if (had.includes(e.fact)) return s;
+      return { ...s, factsEarned: { ...s.factsEarned, [e.roleId]: [...had, e.fact].sort((a, b) => a - b) } };
+    }
     case "facilitator.alert":
     case "gm.no_verdict":
       return s;

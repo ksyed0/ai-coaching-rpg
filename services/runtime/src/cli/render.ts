@@ -46,6 +46,12 @@ export function renderEvent(e: SessionEvent, me: string): string | null {
     case "gm.decision": return isFacilitator ? `[gm] ${s(e.condition)} => ${s(String(e.verdict))} (${s(e.reasoning)})` : null;
     case "gm.no_verdict": return isFacilitator ? `[gm] no verdict for ${JSON.stringify(s(e.condition))} (${s(e.reason)}${e.attempts > 1 ? " after re-ask" : ""})` : null;
     case "facilitator.alert": return isFacilitator ? `[alert] ${s(e.message)}` : null;
+    // US-0034: by role and number only (the event carries no fact text). A suggestion is the facilitator's alert; an auto-release says who released it.
+    case "gm.fact_earned":
+      if (!isFacilitator) return null;
+      return e.autoRelease
+        ? `[gm] the Game Master released hidden fact #${s(String(e.fact))} of ${s(e.roleId)} itself (GM_AUTO_RELEASE is on): ${s(e.reasoning)}`
+        : `[alert] Game Master suggests releasing hidden fact #${s(String(e.fact))} of ${s(e.roleId)} (${s(e.reasoning)}): type /release ${s(e.roleId)} ${s(String(e.fact))} to release it`;
     case "facilitator.command":
       // A release names the role and the fact NUMBER only: the event carries no fact text (it goes in the facilitator-only npc.updated).
       if (e.command === "release_hidden") return isFacilitator ? `[facilitator] released hidden fact #${s(String(e.fact))} of ${s(e.roleId)}` : null;
@@ -79,15 +85,29 @@ export function parseHiddenFacts(v: unknown): Map<string, string[]> {
   return out;
 }
 
-/** The facilitator's `/hidden` listing: `cfo #1 [released] text`, numbered as `/release <role> <n>` expects. Text goes through sanitizeText. */
-export function renderHidden(facts: Map<string, string[]>, released: Map<string, string[]>): string[] {
+/**
+ * The facilitator's `/hidden` listing: `cfo #1 [released] text`, numbered as `/release <role> <n>` expects. A fact the Game Master judged earned but
+ * that is not released yet is marked `[suggested by the Game Master]` (US-0034). Text goes through sanitizeText.
+ */
+export function renderHidden(facts: Map<string, string[]>, released: Map<string, string[]>, suggested: Map<string, number[]> = new Map()): string[] {
   const lines: string[] = [];
   for (const [role, list] of facts) {
     const done = released.get(role) ?? [];
-    list.forEach((text, i) => lines.push(`${s(role)} #${i + 1}${done.includes(text) ? " [released]" : ""} ${s(text)}`));
+    const hint = suggested.get(role) ?? [];
+    list.forEach((text, i) => lines.push(`${s(role)} #${i + 1}${done.includes(text) ? " [released]" : hint.includes(i + 1) ? " [suggested by the Game Master]" : ""} ${s(text)}`));
   }
   if (lines.length >= MAX_LISTED_TOTAL) lines.push(`(only the first ${MAX_LISTED_TOTAL} hidden facts are listed)`);
   return lines.length ? lines : ["no AI character has hidden facts"];
+}
+
+/** US-0034: the facts the Game Master judged earned, from a facilitator's `joined` snapshot (`state.factsEarned`), validated: role id -> whole numbers 1..50. */
+export function parseFactsEarned(v: unknown): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  for (const [role, list] of Object.entries(v as Record<string, unknown>).slice(0, MAX_LISTED_ROLES)) {
+    if (Array.isArray(list)) out.set(role, list.filter((n): n is number => Number.isInteger(n) && n >= 1 && n <= MAX_LISTED_FACTS).slice(0, MAX_LISTED_FACTS));
+  }
+  return out;
 }
 
 /** For the facilitator: a line for each fact an `npc.updated` newly released (not in `known`), with its number when the fact list is known. */

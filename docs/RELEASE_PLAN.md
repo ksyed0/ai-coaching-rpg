@@ -954,21 +954,21 @@ Notes: Closes the gap US-0017 leaves open: with only a facilitator token, any co
 US-0034 (EPIC-0006): As a facilitator, I want the Game Master to suggest releasing a hidden fact when a scenario `earned_when` condition is met (suggest-only, never auto-release by default), so that I do not have to watch for the moment a participant has earned it.
 Priority: Medium
 Estimate: M
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release
 Dependencies: US-0016, US-0025
 Acceptance Criteria:
-  - [ ] AC-0123: a scenario may give a hidden fact an optional `earned_when` condition (plain text, validated like a scene exit condition), and a scenario without it behaves exactly as before
-  - [ ] AC-0124: when the Game Master judges an `earned_when` condition true for a fact that is not yet released, the facilitator (only) receives one alert that names the role and the fact index and says how to release it (`/release <role> <n>`); the fact text never reaches players, and the same suggestion is not repeated
-  - [ ] AC-0125: nothing is released without the facilitator's `release_hidden` command, unless the operator explicitly sets an opt-in `GM_AUTO_RELEASE` option, which is off by default and records the release as a Game Master action
-  - [ ] AC-0126: the scripted mock provider covers the suggestion and the no-suggestion cases, the demo checks stay stable, and the README and CHANGELOG describe the feature
+  - [x] AC-0123: a scenario may give a hidden fact an optional `earned_when` condition (plain text, validated like a scene exit condition), and a scenario without it behaves exactly as before (role field `earned_when: {<fact number>: <condition>}`, trimmed, 1 to 500 characters, the validator refuses a number the character has no fact for; without it the role loads without the key, so the scenario hash, the Game Master calls and the events are unchanged; TC-0008)
+  - [x] AC-0124: when the Game Master judges an `earned_when` condition true for a fact that is not yet released, the facilitator (only) receives one alert that names the role and the fact index and says how to release it (`/release <role> <n>`); the fact text never reaches players, and the same suggestion is not repeated (the facilitator-only event `gm.fact_earned {sceneId, roleId, fact, reasoning, via}`, shown as `[alert] Game Master suggests releasing hidden fact #n of <role> (...): type /release <role> <n> to release it`; judged through the nonce-signed exit-condition path with a prompt that never holds the fact; at most once per fact per session, rebuilt from the log after a restart; players are denied the event and the snapshot state; TC-0009, TC-0010)
+  - [x] AC-0125: nothing is released without the facilitator's `release_hidden` command, unless the operator explicitly sets an opt-in `GM_AUTO_RELEASE` option, which is off by default and records the release as a Game Master action (`GM_AUTO_RELEASE` 0 or 1, default 0, validated, a startup warning; with 1 the event carries `autoRelease: true` and is followed by the facilitator-only `npc.updated`, no facilitator command; a crash between the two appends is completed on resume, tested at every event boundary; TC-0011)
+  - [x] AC-0126: the scripted mock provider covers the suggestion and the no-suggestion cases, the demo checks stay stable, and the README and CHANGELOG describe the feature (`showcase.yaml` `mock.gm_earned`: three false verdicts then the suggestion in scene 4, before the scripted release in scene 5; S-04, S-06 and S-07 extended, no new check: 29, 14, 15 and 42 with `--security --resume`; a live run on a real model is still to be recorded by the controller; TC-0012)
 ```
 
 ```
 TASK-0034 (US-0034): Add earned_when to the schema, have the Game Master evaluate it and alert the facilitator, add the opt-in auto release
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release
-Notes: Follow-up to the design notes for US-0016 and US-0025. US-0016 gives the facilitator the manual release command; this story only suggests it.
+Notes: Follow-up to the design notes for US-0016 and US-0025. US-0016 gives the facilitator the manual release command; this story only suggests it. Done 2026-10-07: packages/script (schema, validator, earnedWhenOf), packages/events (`gm.fact_earned`, `factsEarned`), engine (`pendingEarnedChecks`, `recordFactEarned`, repair `gm_release`), agents (`buildGmEarnedRequest`, GameMaster earned checks, `GM_AUTO_RELEASE`), host (viewFor, snapshotFor), terminal client, demo (showcase mock `gm_earned`, S-04/S-06/S-07). Test cases TC-0008..TC-0012. Not done here: a live showcase on a real model.
 ```
