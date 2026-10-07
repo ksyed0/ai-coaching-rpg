@@ -292,8 +292,8 @@ describe("generated players: waiting for the player's own stream", () => {
 describe("generated players: abort and audits", () => {
   it("the watchdog aborts a stalled player model call at once (the request is cancelled, the run is ended by the watchdog, not by the model deadlines)", async () => {
     const { env, seen } = await fakeModel(() => ({ stall: true }));
-    // The model deadlines are set far beyond the test limit: only the watchdog can end the run in time (no elapsed-time assertion).
-    const r = await run(ARGV, { ...env, NPC_FIRST_TOKEN_TIMEOUT_MS: "600000", NPC_REPLY_TIMEOUT_MS: "700000" }, { watchdogMs: 400 });
+    // The model deadlines are at their 600000 ms maximum (a larger value is a configuration error), far beyond the test limit: only the watchdog can end the run in time (no elapsed-time assertion).
+    const r = await run(ARGV, { ...env, NPC_FIRST_TOKEN_TIMEOUT_MS: "600000", NPC_REPLY_TIMEOUT_MS: "600000" }, { watchdogMs: 400 });
     expect(r.exitCode).toBe(1);
     expect(seen.player.length).toBe(1);
     expect(seen.aborted).toBe(1);
