@@ -59,3 +59,15 @@ Lesson Encoded: No
 ```
 
 `SessionEngine.doTick` returned early while paused, but the elapsed time it used afterwards was `clock.now() - enteredAt`, so the time spent paused counted against the scene. After a long pause, `/resume` fired every timed inject that had come due and could end the scene on its time box at the next tick. Decision by the product owner: pause freezes the scene time box and the inject clock; `/resume` continues with the remaining time. Fixed: the reducer records `pausedSince` (the timestamp of the pause event) and accumulates `currentScene.pausedMs` per scene on resume, and the exported pure function `activeElapsedMs(state, now)` (`now - enteredAt - pausedMs - open pause`) feeds the inject schedule and the exit check. The value is derived only from recorded event timestamps, so a replay of the log (US-0018) computes the same remaining time. A second pause or resume is ignored, a scene entered while paused starts frozen with a fresh clock, and a pending facilitator advance waits for resume. Unit tests cover the reducer and the engine (pending injects with a running time box, exact remaining time, repeated pause/resume, pause before the first inject, a pending advance, a fresh clock for the next scene, replay equality). Notes: the 'scene entered while paused' and 'session ended while paused' paths in the reducer are defensive and not reachable through the engine today (a scene only changes in `tick`, which does nothing while paused). A Game Master verdict recorded during a pause can still end the scene right after resume; that is known, legitimate and out of scope. The evaluator's 'Scene N, HH:MM:SS' times are wall-clock time since the session start (pauses included), not active scene time.
+
+```
+BUG-0006: Several tests assert wall-clock bounds or depend on the shared temp directory and fail under load, on slower machines and under coverage
+Severity: Medium
+Related Story: US-0021
+Related Task: TASK-0021
+Status: In Progress
+Fix Branch: chore/session-close-2026-10-07
+Lesson Encoded: Yes (L-0002)
+```
+
+Found by the session-close coverage check (`pnpm test:coverage`, run twice on the owner's Mac): four tests in `services/runtime` failed although all pass in CI. `npc-reply.test.ts` "handles very long input in linear time" took 13.5 s against a 5 s bound (and `npc-agent.silence.test.ts` "is linear on abusive input" 3.3 s against 3 s), `runner.test.ts` "aborts a hung run ... (watchdog)" compares the list of `acr-demo-*` directories in the shared `/tmp` and trips on any concurrent demo run, `security-room.test.ts` hit vitest's 5 s default, and `ws-server.security.test.ts` "idle TCP sockets from one address are capped" and `main.resume.test.ts` "survives a REAL crash (SIGKILL ...)" depend on real timers. Absolute elapsed-time assertions are not a valid way to test linear time (coverage instrumentation alone makes the code several times slower): assert the scaling between two input sizes, or count operations, and keep only a very generous absolute cap. Tests that count temp directories must use a private TMPDIR. Real-timer tests must use injected clocks or hooks, or explicit generous timeouts.
