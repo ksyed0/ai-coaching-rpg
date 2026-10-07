@@ -1,3 +1,15 @@
 # Test Cases
 
 Test cases are added as stories move to In Progress. Unit and simulation tests live beside the code; this file tracks manual and acceptance tests.
+
+## US-0033: per-role player join codes (test case ids not yet assigned)
+
+The cases below have no `TC-` id yet: no TC ids are reserved for this story and the implementer may not edit `docs/ID_REGISTRY.md`. The controller assigns ids (the next free id in the TC sequence, per the registry) when the story is merged. Each is also covered by automated tests, named in brackets.
+
+1. **Codes are issued and shown once (AC-0120).** Start the server on a new session (`./run.sh --dev --fresh`). Expected: one `PLAYER JOIN CODES` block with one `XXXX-XXXX-XXXX` code per player role; no code in any other output line, in `data/sessions/<id>.jsonl` or in `data/sessions/<id>.codes.json` (hashes only, mode 0600). [main.test.ts `test_bootstrap_issues_codes_...`, demo F-24 and F-28]
+2. **A player needs the code (AC-0120).** `pnpm play --role delivery_lead --name A`, type delivery_lead's code at the hidden prompt. Expected: joined with the brief; the code is not echoed. [ws-server.join-codes.test.ts, demo F-01]
+3. **One generic refusal (AC-0121, negative).** Join delivery_lead with no code, with a wrong code, with tech_lead's code; join `client_sponsor` and `no_such_role` with a valid code. Expected: each gets the same `unauthorized`, the connection closes, the client says to check the join code; a free role and a taken one answer alike. [ws-server.join-codes.test.ts, demo F-02]
+4. **Refusals count against the limits (AC-0121, edge).** Six wrong codes from one address within a minute. Expected: the next handshake from that address gets HTTP 429 for a minute; another address connects. [ws-server.join-codes.test.ts `test_join_repeated_wrong_codes_...`]
+5. **Credentials stay separate (AC-0122).** The facilitator joins without a code; a join code given as the facilitator token, and the token given as a join code, are refused. A player still connected cannot be replaced by someone holding its code (`role_taken`); a rejoin with the reconnect token needs no code. [ws-server.join-codes.test.ts, demo F-22]
+6. **Codes survive a restart (AC-0122, US-0018).** Start a session, kill the server, start it again. Expected: no codes are printed again (a line says the earlier codes still apply); the players rejoin with the same codes; a join without a code is refused. `./run.sh --fresh` prints new codes and the old ones are refused. Moving `<id>.codes.json` aside and restarting resumes the session with new codes (a warning says the old ones stopped working). A corrupt codes file stops the start with a message and changes nothing. [main.resume.test.ts (including a real SIGKILL), session-store.test.ts, demo F-37, F-40, F-41]
+7. **Demo against a running server.** `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` against a fresh server. Expected: the external checks pass and no code is printed; without `JOIN_CODES` F-01 fails with `unauthorized` and the notice says how to pass the codes. [runner.test.ts]
