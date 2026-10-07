@@ -62,7 +62,7 @@ describe("test_gm_prompt_transcript_window (AC-0059, TC-0020)", () => {
     await sayHost(engine, 0, 54);
     const req = buildGmRequest({ scene: engine.currentScene()!, condition: COND, state: engine.state, nonce: "0123456789abcdef" });
     expect(texts(req)).toEqual(["line 0", "line 1", "...13", ...range(15, 54)]);
-    expect(req.system).toContain(`Not every line of this scene is shown: 13 lines of 55 are left out. Shown are the scene's first 2 lines, the last 2 lines of each AI character and the latest lines, in order; a record {"omitted": n} marks where n lines are left out.`);
+    expect(req.system).toContain(`Not every line of this scene is shown: 13 lines of 55 are left out. Shown are the scene's first 2 lines, the last 2 lines of each AI character, each with the line just before it, and the latest lines, in order; a record {"omitted": n} marks where n lines are left out.`);
     // The note holds numbers and constants only; the nonce, the condition and the answer format are unchanged.
     expect(nonceOf(req)).toBe("0123456789abcdef");
     expect(JSON.stringify(req.messages)).not.toContain("0123456789abcdef");
@@ -86,7 +86,8 @@ describe("test_gm_prompt_transcript_window (AC-0059, TC-0020)", () => {
     await engine.say("host", "Yes, agreed.");
     const req = buildGmRequest({ scene: engine.currentScene()!, condition: COND, state: engine.state, nonce: null, window: 40 });
     const t = texts(req);
-    expect(t.slice(0, 5)).toEqual(["intro 0", "intro 1", "...1", "OBJECTION: I do not agree to that plan, it is not settled.", "...22"]);
+    // "intro 2" is kept as the line the objection answered (m-2), so the first group runs on without a marker.
+    expect(t.slice(0, 5)).toEqual(["intro 0", "intro 1", "intro 2", "OBJECTION: I do not agree to that plan, it is not settled.", "...22"]);
     expect(t.at(-1)).toBe("Yes, agreed.");
     expect(t).toHaveLength(5 + 40);
     // Without the window (500) the same scene is shown whole: the window only removes player filler.
@@ -98,8 +99,24 @@ describe("test_gm_prompt_transcript_window (AC-0059, TC-0020)", () => {
     expect(later).toContain("OBJECTION: I do not agree to that plan, it is not settled."); // still one of the guest's last 2 lines
     expect(later).toContain("I still object to the date.");
     const iObj = later.indexOf("I still object to the date.");
-    expect(later[iObj - 1]).toMatch(/^\.\.\.\d+$/);
+    expect(later[iObj - 1]).toBe("Yes, agreed."); // the line it answered
+    expect(later[iObj - 2]).toMatch(/^\.\.\.\d+$/);
     expect(later[iObj + 1]).toMatch(/^\.\.\.\d+$/);
+  });
+
+  it("m-2: a kept AI character line comes with the line it answered, so an approval of proposal A cannot read as an approval of B", async () => {
+    const { engine } = await setup();
+    await sayHost(engine, 0, 2, (i) => `intro ${i}`);
+    await engine.say("host", "Proposal A: phase one in May at the agreed fee.");
+    await engine.say("guest", "Fine, approved.");
+    await sayHost(engine, 0, 49, (i) => `filler ${i}`);
+    await engine.say("host", "So we agree on proposal B, the full module in March?");
+    const t = texts(buildGmRequest({ scene: engine.currentScene()!, condition: COND, state: engine.state, nonce: null, window: 40 }));
+    const i = t.indexOf("Fine, approved.");
+    expect(t.slice(i - 1, i + 2)).toEqual(["Proposal A: phase one in May at the agreed fee.", "Fine, approved.", "...11"]);
+    expect(t.slice(0, 3)).toEqual(["intro 0", "intro 1", "...1"]);
+    const sys = buildGmRequest({ scene: engine.currentScene()!, condition: COND, state: engine.state, nonce: null, window: 40 }).system;
+    expect(sys).toContain("the last 2 lines of each AI character, each with the line just before it,");
   });
 
   it("the omission counts and the kept lines add up to the scene, for any window (totality)", async () => {
@@ -219,6 +236,38 @@ describe("test_gm_prompt_transcript_window (AC-0059, TC-0020)", () => {
     expect(rec.filter((e) => !("omitted" in e))).toHaveLength(502); // the latest 500 plus the 2 opening lines (already judged)
     const alerts = (await of("facilitator.alert")).map((e) => (e as { message: string; level: string }));
     expect(alerts).toEqual([expect.objectContaining({ level: "warning", message: `GM: 10 lines of this scene that arrived since the last evaluation of "${COND}" were not shown to the Game Master (more than 500 new lines at once)` })]);
+  });
+
+  it("m-1: lines that arrive while the cap alert is being recorded are neither pushed out of the prompt nor counted as covered (no silent drop)", async () => {
+    const { engine } = await setup();
+    let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+    let n = 0;
+    const calls: ChatRequest[] = [];
+    const held: ModelProvider = { name: "held", async *stream(req) { calls.push(req); if (n++ === 0) await gate; yield FALSE; } };
+    const gm = new GameMaster({ engine, provider: stampNonce(held), everyNUtterances: 3, transcriptWindow: 10, reask: false });
+    // The cap alert is held, and 20 more lines arrive while it is being recorded.
+    const realAlert = engine.alert.bind(engine);
+    let alertGate: Promise<void> | null = null; let openAlert!: () => void;
+    const alerted: string[] = [];
+    engine.alert = (async (msg: string, level?: "info" | "warning", opts?: { expectSceneId?: string }) => {
+      alerted.push(msg);
+      if (msg.includes("were not shown") && alertGate === null) { alertGate = new Promise<void>((r) => { openAlert = r; }); await alertGate; }
+      return realAlert(msg, level, opts);
+    }) as typeof engine.alert;
+    await sayHost(engine, 0, 2);
+    const first = gm.tick();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    await sayHost(engine, 3, 522); // 520 new lines: more than the cap
+    release(); await first;
+    const second = gm.tick();
+    await vi.waitFor(() => expect(alertGate).not.toBeNull());
+    await sayHost(engine, 523, 542); // 20 lines during the alert
+    openAlert(); await second;
+    await gm.tick();
+    const seen = new Set(calls.flatMap((c) => texts(c)).filter((t) => t.startsWith("line ")));
+    const dropped = alerted.filter((m) => m.includes("were not shown")).map((m) => Number(/GM: (\d+) lines/.exec(m)![1])).reduce((a, b) => a + b, 0);
+    expect(seen.size + dropped).toBe(543); // every line was shown in some prompt or counted in the alert
+    expect(texts(calls[2]!).slice(-20)).toEqual(range(523, 542)); // the 20 late lines are in the next prompt
   });
 
   it("a model failure leaves the lines uncovered: the next prompt of the condition still holds them", async () => {

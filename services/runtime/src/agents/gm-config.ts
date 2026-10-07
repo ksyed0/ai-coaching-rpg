@@ -12,7 +12,7 @@ export const MAX_GM_EVERY_N = 20;
  * runs long, where the cost of every evaluation would otherwise keep growing. Never smaller than GM_EVERY_N_UTTERANCES. What is guaranteed (see
  * GameMaster.windowFor and selectGmLines): each prompt of a condition also holds every line that arrived since the last answered prompt of that
  * condition, up to MAX_GM_TRANSCRIPT_WINDOW (beyond it the facilitator gets an alert with the number left out), plus the scene's first 2 lines and
- * each AI character's last 2 lines; left-out runs are marked {"omitted": n} in place. It is not guaranteed that a line older than the window
+ * each AI character's last 2 lines, each with the line before it; left-out runs are marked {"omitted": n} in place. It is not guaranteed that a line older than the window
  * stays in view: a player's line that later lines push out is gone for the next prompts (docs/THREAT_MODEL.md, US-0019).
  */
 export const DEFAULT_GM_TRANSCRIPT_WINDOW = 40;

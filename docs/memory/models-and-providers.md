@@ -14,7 +14,7 @@
 | `NPC_TEMPERATURE`, `PLAYER_TEMPERATURE`, `GM_TEMPERATURE`, `EVAL_TEMPERATURE` | 0.8, 0.9, 0.2, 0.2 | sent only when set |
 | `MODEL_MAX_RETRIES`, `MODEL_RETRY_BASE_MS` | 2, 500 | worst case per Game Master evaluation: 2 x (1 + retries) requests inside `GM_TIMEOUT_MS` |
 | `GM_TIMEOUT_MS`, `GM_REASK`, `GM_EVERY_N_UTTERANCES`, `GM_TRACE_FILE` | max(reply timeout, 60 s), on, 3, off | trace file must not be a `*.jsonl` in the sessions dir |
-| `GM_TRANSCRIPT_WINDOW` | 40 (10..500, >= `GM_EVERY_N_UTTERANCES`) | US-0019: least number of latest scene lines in a Game Master prompt; widened to every line since the last answered prompt of that condition (cap 500, alert beyond), plus the first 2 scene lines and each AI character's last 2; `{"omitted": n}` markers in place |
+| `GM_TRANSCRIPT_WINDOW` | 40 (10..500, >= `GM_EVERY_N_UTTERANCES`) | US-0019: least number of latest scene lines in a Game Master prompt; widened to every line since the last answered prompt of that condition (cap 500, alert beyond), plus the first 2 scene lines and each AI character's last 2 with the line before each; `{"omitted": n}` markers in place |
 | `GM_AUTO_RELEASE` | 0 | US-0034: 1 lets the Game Master release an earned fact itself |
 | `EVAL_TIMEOUT_MS`, `EVAL_TRANSCRIPT_CHARS` | 180000 | evaluator calls, one per player plus one for the group |
 | `FACILITATOR_TOKEN`, `RUNTIME_HOST`, `ALLOWED_ORIGINS`, `TRUST_PROXY`, `WS_*` | token unset (server open, loud warning) | see `docs/THREAT_MODEL.md` |

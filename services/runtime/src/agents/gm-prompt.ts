@@ -17,8 +17,11 @@ export type GmDialogueEntry = { kind: "line"; u: Utterance } | { kind: "omitted"
  *   same condition, so a line can be left out of a condition's prompt only after a previous prompt for that condition showed it, or beyond the
  *   hard cap, which raises a facilitator alert);
  * - outside the cut, the scene's first GM_KEEP_OPENING_LINES lines and the last GM_KEEP_LAST_PER_AI lines of each AI character (role kind
- *   "npc" in the session): an AI character's objection then stays in view however many player lines follow it, unless that character spoke
- *   GM_KEEP_LAST_PER_AI times since;
+ *   "npc" in the session), each with the line just before it (m-2: what the character was answering, so a kept "Fine, approved" keeps
+ *   what it approved): an AI character's objection then stays in view however many player lines follow it, unless that character spoke
+ *   GM_KEEP_LAST_PER_AI times since (during a flood a character usually answers each flood line, so this protects only until its next two
+ *   replies unless it repeats the objection). The lines between kept groups are still left out, so a kept reply can lose the wider
+ *   context it answered (a residual risk, docs/THREAT_MODEL.md);
  * - in their original order, with one {"omitted": n} marker for each run of n lines left out between them.
  * Nothing is summarised (a summary would be a second model call or a lossy rewrite of participant text). Only transcript lines and
  * counts appear, so no hidden-fact text can enter. What a cut can still hide is described in docs/THREAT_MODEL.md (US-0019): mainly a
@@ -33,7 +36,8 @@ export function selectGmLines(all: Utterance[], roles: SessionState["roles"], wi
   const perAi = new Map<string, number>();
   for (let i = all.length - 1; i >= 0; i--) {
     const id = all[i]!.roleId;
-    if (Object.prototype.hasOwnProperty.call(roles, id) && roles[id]!.kind === "npc" && (perAi.get(id) ?? 0) < GM_KEEP_LAST_PER_AI) { keep.add(i); perAi.set(id, (perAi.get(id) ?? 0) + 1); }
+    // m-2: with the line just before it (what the character was answering), so a kept "Fine, approved" keeps what it approved.
+    if (Object.prototype.hasOwnProperty.call(roles, id) && roles[id]!.kind === "npc" && (perAi.get(id) ?? 0) < GM_KEEP_LAST_PER_AI) { keep.add(i); if (i > 0) keep.add(i - 1); perAi.set(id, (perAi.get(id) ?? 0) + 1); }
   }
   const out: GmDialogueEntry[] = [];
   let gap = 0;
@@ -61,7 +65,7 @@ const lines = (k: number): string => (k === 1 ? "1 line" : `${k} lines`);
 
 /** The system line that explains a cut dialogue (or [] when nothing was left out). Built from numbers and constants only. */
 const omittedLines = (d: { omitted: number; total: number }): string[] =>
-  d.omitted > 0 ? [`Not every line of this scene is shown: ${lines(d.omitted)} of ${d.total} ${d.omitted === 1 ? "is" : "are"} left out. Shown are the scene's first ${GM_KEEP_OPENING_LINES} lines, the last ${GM_KEEP_LAST_PER_AI} lines of each AI character and the latest lines, in order; a record {"omitted": n} marks where n lines are left out.`] : [];
+  d.omitted > 0 ? [`Not every line of this scene is shown: ${lines(d.omitted)} of ${d.total} ${d.omitted === 1 ? "is" : "are"} left out. Shown are the scene's first ${GM_KEEP_OPENING_LINES} lines, the last ${GM_KEEP_LAST_PER_AI} lines of each AI character, each with the line just before it, and the latest lines, in order; a record {"omitted": n} marks where n lines are left out.`] : [];
 
 /** The answer-format lines: with a nonce the verdict must carry it as "id" (the demo's mock stamps it after the `exact id, copied unchanged:` phrase). */
 function answerLines(nonce: string | null): string[] {

@@ -182,8 +182,10 @@ export class GameMaster {
     const { role, fact, condition } = check;
     const nonce = newGmNonce();
     const coverKey = `earned\n${role.id}#${fact}`;
-    const { window, covered } = await this.windowFor(scene, coverKey, `hidden fact ${fact} of ${role.id}`);
+    // m-1: the window, `covered` and the prompt come from ONE synchronous read of the state (no await in between); the alert follows.
+    const { window, covered, dropped } = this.windowFor(scene, coverKey);
     const request = buildGmEarnedRequest({ scene, role, fact, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, nonce, window });
+    await this.alertDropped(scene, dropped, `hidden fact ${fact} of ${role.id}`);
     const earned = { roleId: role.id, fact };
     const out = await runGmEvaluation({
       provider: this.provider, request, condition, timeoutMs: this.evaluationTimeoutMs, reask: this.reask, nonce,
@@ -198,20 +200,26 @@ export class GameMaster {
 
   /**
    * US-0019 (I-1): the window for the next prompt of one condition: at least GM_TRANSCRIPT_WINDOW, widened to every utterance of the scene after
-   * the last seq an answered prompt for this condition covered, capped at MAX_GM_TRANSCRIPT_WINDOW. When the cap leaves new lines out of the
-   * prompt, the facilitator gets one warning alert with their number (numbers and the condition only). `covered` is the last utterance seq now.
+   * the last seq an answered prompt for this condition covered, capped at MAX_GM_TRANSCRIPT_WINDOW. Synchronous on purpose (m-1): the caller
+   * builds the prompt from the same state right after it, so `covered` (the latest utterance seq, always shown) and `dropped` (new lines the
+   * cap leaves out) describe exactly the prompt that is sent; lines that arrive later are new for the next prompt.
    */
-  private async windowFor(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>, key: string, what: string): Promise<{ window: number; covered: number }> {
+  private windowFor(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>, key: string): { window: number; covered: number; dropped: number } {
     const lines = this.engine.state.transcript.filter((u) => u.sceneId === scene.id);
     const last = this.coveredSeq.get(key) ?? 0;
     const fresh = lines.filter((u) => u.seq > last).length;
     const window = Math.min(MAX_GM_TRANSCRIPT_WINDOW, Math.max(this.transcriptWindow, fresh));
+    let dropped = 0;
     if (fresh > window) {
       const shown = new Set(selectGmLines(lines, this.engine.state.roles, window).flatMap((e) => (e.kind === "line" ? [e.u.seq] : [])));
-      const dropped = lines.filter((u) => u.seq > last && !shown.has(u.seq)).length;
-      if (dropped > 0) await this.engine.alert(`GM: ${dropped === 1 ? "1 line" : `${dropped} lines`} of this scene that arrived since the last evaluation of ${what} ${dropped === 1 ? "was" : "were"} not shown to the Game Master (more than ${MAX_GM_TRANSCRIPT_WINDOW} new lines at once)`, "warning", { expectSceneId: scene.id });
+      dropped = lines.filter((u) => u.seq > last && !shown.has(u.seq)).length;
     }
-    return { window, covered: lines.at(-1)?.seq ?? last };
+    return { window, covered: lines.at(-1)?.seq ?? last, dropped };
+  }
+
+  /** The facilitator warning for new lines the cap left out of a prompt (numbers and the condition only), after the prompt was built. */
+  private async alertDropped(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>, dropped: number, what: string): Promise<void> {
+    if (dropped > 0) await this.engine.alert(`GM: ${dropped === 1 ? "1 line" : `${dropped} lines`} of this scene that arrived since the last evaluation of ${what} ${dropped === 1 ? "was" : "were"} not shown to the Game Master (more than ${MAX_GM_TRANSCRIPT_WINDOW} new lines at once)`, "warning", { expectSceneId: scene.id });
   }
 
   private report(err: unknown): void {
@@ -228,8 +236,9 @@ export class GameMaster {
     const seq = this.engine.state.lastSeq;
     const nonce = newGmNonce(); // per evaluation, in the system prompt only; never logged
     const coverKey = `exit\n${condition}`;
-    const { window, covered } = await this.windowFor(scene, coverKey, `"${condition}"`);
+    const { window, covered, dropped } = this.windowFor(scene, coverKey); // m-1: synchronous with the prompt build below
     const base = buildGmRequest({ scene, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, nonce, window });
+    await this.alertDropped(scene, dropped, `"${condition}"`);
     const out = await runGmEvaluation({
       provider: this.provider, request: base, condition, timeoutMs: this.evaluationTimeoutMs, reask: this.reask, nonce,
       onReply: (r) => this.traceRecord({ seq, sceneId: expectSceneId, condition, window, ...r }),
