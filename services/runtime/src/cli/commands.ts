@@ -1,11 +1,11 @@
 import { parseArgs as nodeParseArgs } from "node:util";
 import type { ClientMessage, ServerMessage } from "../host/protocol.js";
-import { MAX_UTTERANCE_CHARS } from "../host/protocol.js";
+import { MAX_HIDDEN_FACT_NUMBER, MAX_UTTERANCE_CHARS } from "../host/protocol.js";
 
 export const USAGE = "usage: pnpm play --role <roleId> --name <you> [--url ws://host:8080] [--session local]\n       pnpm play --facilitator [--url ws://host:8080] [--session local] [--token-file <path>]\n       (a server that sets FACILITATOR_TOKEN needs it: set the same variable, use --token-file, or type it at the hidden prompt)";
 export const TOKEN_ARGV_REFUSED = "error: --token is not supported: a value on the command line is visible to other users (ps) and stays in shell history. Set FACILITATOR_TOKEN, use --token-file <path>, or type it at the prompt";
 export const PLAYER_HELP = "type to speak to the room; /quit to leave";
-export const FACILITATOR_HELP = "commands: /start /pause /resume /advance /inject <id> /whisper <role> <text> /quit";
+export const FACILITATOR_HELP = "commands: /start /pause /resume /advance /inject <id> /whisper <role> <text> /hidden /release <role> <n> /quit";
 const MAX_NAME_CHARS = 64;
 const MAX_ID_CHARS = 128;
 
@@ -61,7 +61,7 @@ export function joinMessage(o: Options): ClientMessage {
     : { type: "join", sessionId: o.session, roleId: o.role!, participantId: o.name! };
 }
 
-export type Input = { kind: "none" } | { kind: "quit" } | { kind: "help"; message: string } | { kind: "send"; message: ClientMessage };
+export type Input = { kind: "none" } | { kind: "quit" } | { kind: "hidden" } | { kind: "help"; message: string } | { kind: "send"; message: ClientMessage };
 
 /** Parses one typed line. A mistyped slash command is never sent as in-character speech. */
 export function parseInput(line: string, isFacilitator: boolean): Input {
@@ -83,6 +83,15 @@ export function parseInput(line: string, isFacilitator: boolean): Input {
     case "start": return rest.length ? help("usage: /start") : { kind: "send", message: { type: "start" } };
     case "pause": case "resume": case "advance": return rest.length ? help(`usage: /${cmd}`) : cmdMsg({ command: cmd });
     case "inject": return rest.length === 1 ? cmdMsg({ command: "fire_inject", injectId: rest[0]! }) : help("usage: /inject <id>");
+    case "hidden": return rest.length ? help("usage: /hidden") : { kind: "hidden" };
+    case "release": {
+      const usage = `usage: /release <role> <n> (n is the fact's number from /hidden, 1 to ${MAX_HIDDEN_FACT_NUMBER})`;
+      if (rest.length !== 2) return help(usage);
+      const [role, num] = [rest[0]!, rest[1]!];
+      if (role.length > MAX_ID_CHARS || hasControl(role) || !/^[0-9]{1,3}$/.test(num)) return help(usage);
+      const fact = Number(num);
+      return fact >= 1 && fact <= MAX_HIDDEN_FACT_NUMBER ? cmdMsg({ command: "release_hidden", roleId: role, fact }) : help(usage);
+    }
     case "whisper": {
       const m = /^\/whisper\s+(\S+)\s+([\s\S]+)$/.exec(text);
       if (!m) return help("usage: /whisper <role> <text>");

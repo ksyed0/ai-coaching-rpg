@@ -315,6 +315,16 @@ describe("generated players: abort and audits", () => {
     }
   });
 
+  it("US-0016: S-15 fails when a hidden fact reaches a generated player's prompt, whether it was released to its character or not (a participant did not say it aloud)", async () => {
+    const PRIYA_HIDDEN = "Would accept a phased delivery after go-live if the risk is explained well";
+    for (const hidden of [CFO_HIDDEN, PRIYA_HIDDEN]) {
+      const { env } = await fakeModel(GEN);
+      const r = await run(ARGV, env, { showcaseHooks: tamper((g) => { g.generator.calls[0]!.system += `\n${hidden}`; }) as never });
+      expect(s15(r).status, hidden).toBe("failed");
+      expect(s15(r).details).toContain(hidden.slice(0, 20));
+    }
+  });
+
   it("S-15 fails when the recorded lines and the tags disagree", async () => {
     const { env } = await fakeModel(GEN);
     const r = await run(ARGV, env, { showcaseHooks: tamper((g) => { g.lines.records.splice(0, 1); }) as never });

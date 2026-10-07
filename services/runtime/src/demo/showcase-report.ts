@@ -2,6 +2,7 @@ import type { GmNoVerdictReason, GmVia, SessionEvent } from "@acr/events";
 import type { NpcRole, Scenario } from "@acr/script";
 import { sanitizeText } from "../cli/render.js";
 import { ECHO_THRESHOLD, findEchoes, type EchoPair } from "./echo.js";
+import { releaseNote } from "./release-note.js";
 import { playerSource, type PlayerLines } from "./player-lines.js";
 import { classifyGmDecision, classifyNpcReply, isFallbackReply, type Provenance } from "./provenance.js";
 
@@ -179,7 +180,7 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
         break;
       case "facilitator.command":
         if (e.command === "advance") advances++;
-        lines.push({ seq: e.seq, source: "system", tag: "system", sceneId: current, text: `facilitator command: ${e.command}` });
+        lines.push({ seq: e.seq, source: "system", tag: "system", sceneId: current, text: e.command === "release_hidden" ? releaseNote(e.roleId, e.fact) : `facilitator command: ${e.command}` });
         break;
       case "inject.fired":
         lines.push({ seq: e.seq, source: "system", tag: "system", sceneId: e.sceneId, text: `inject ${e.injectId} to ${e.to.join(", ")}` });

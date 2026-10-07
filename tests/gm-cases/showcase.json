@@ -358,7 +358,7 @@
         },
         {
           "role": "cfo",
-          "text": "A firm fee and a credit clause I can accept in principle. I also want acceptance tied to Finance signing off the daily tie-out, not to your own test."
+          "text": "A firm fee and a credit clause I can accept in principle, and because it is fixed and tied to a date I can approve this change request myself without escalating it. I also want acceptance tied to Finance signing off the daily tie-out, not to your own test."
         },
         {
           "role": "tech_lead",
@@ -419,7 +419,7 @@
         },
         {
           "role": "cfo",
-          "text": "A firm fee and a credit clause I can accept in principle. I also want acceptance tied to Finance signing off the daily tie-out, not to your own test."
+          "text": "A firm fee and a credit clause I can accept in principle, and because it is fixed and tied to a date I can approve this change request myself without escalating it. I also want acceptance tied to Finance signing off the daily tie-out, not to your own test."
         },
         {
           "role": "tech_lead",

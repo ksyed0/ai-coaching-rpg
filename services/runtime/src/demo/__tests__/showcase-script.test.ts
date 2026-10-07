@@ -131,3 +131,43 @@ describe("showcase.yaml size cap", () => {
     expect(parseShowcaseScript(valid, scenario, mock)).toBeDefined();
   });
 });
+
+describe("facilitator steps (US-0016)", () => {
+  const withFacts: Scenario = { ...scenario, roles: { ...scenario.roles, bot: { ...(scenario.roles.bot as object), hidden: ["fact one", "fact two"] } as Scenario["roles"][string] } };
+  const step = (extra: string, at = "two") => valid.replace(`    lines:\n      - { role: pa, text: "hey bot" }\n`, `    lines:\n      - { role: pa, text: "hey bot" }\n      - { role: pa, text: "again" }\n${extra}`)
+    .replace("bot: [\"hello there\"]", "bot: [\"hello there\", \"and again\"]").replace(/scene: two/, `scene: ${at}`);
+  const parse = (text: string, o: Parameters<typeof parseShowcaseScript>[2] = mock) => parseShowcaseScript(text, withFacts, o);
+  const fail = (text: string) => { try { parse(text); } catch (e) { expect(e).toBeInstanceOf(ShowcaseScriptError); return (e as Error).message; } throw new Error("expected an error"); };
+  const ok = "    facilitator:\n      - { after_line: 1, release_hidden: { role: bot, fact: 2 } }\n";
+
+  it("parses a release step and defaults to none", () => {
+    expect(parse(step(ok)).scenes[1]!.facilitator).toEqual([{ afterLine: 1, role: "bot", fact: 2 }]);
+    expect(parse(valid).scenes[0]!.facilitator).toEqual([]);
+  });
+  it("accepts the step with a --max-lines cap below its line (it is skipped when run), and in live mode", () => {
+    expect(parse(step(ok.replace("after_line: 1", "after_line: 2")), { mode: "mock", maxLines: 1 }).scenes[1]!.facilitator).toHaveLength(1);
+    expect(parse(step(ok), { mode: "live" })).toBeDefined();
+  });
+  it.each([
+    ["a player role", "role: pb", "player role"],
+    ["an unknown role", "role: ghost", "not a role in the scenario"],
+    ["a prototype key", "role: __proto__", "not a role in the scenario"],
+    ["fact 0", "fact: 0", "scenes.1.facilitator.0.release_hidden.fact"],
+    ["fact 51", "fact: 51", "scenes.1.facilitator.0.release_hidden.fact"],
+    ["a fact the role does not have", "fact: 3", "has 2 hidden fact(s)"],
+    ["a fractional fact", "fact: 1.5", "scenes.1.facilitator.0.release_hidden.fact"],
+  ])("refuses %s", (_name, edit, msg) => {
+    expect(fail(step(ok.replace("role: bot", edit.startsWith("role") ? edit : "role: bot").replace("fact: 2", edit.startsWith("fact") ? edit : "fact: 2")))).toContain(msg);
+  });
+  it("refuses a line the scene does not have, a duplicate release and unknown keys", () => {
+    expect(fail(step(ok.replace("after_line: 1", "after_line: 3")))).toContain("the scene has 2 scripted line(s)");
+    expect(fail(step(ok + "      - { after_line: 2, release_hidden: { role: bot, fact: 2 } }\n"))).toContain("a second time");
+    expect(fail(step(ok.replace("} }", "}, text: hi }")))).toMatch(/facilitator\.0/);
+    expect(fail(step("    facilitator:\n      - { after_line: 0, release_hidden: { role: bot, fact: 1 } }\n"))).toContain("facilitator.0.after_line");
+    expect(fail(step("    facilitator:\n      - { after_line: 1, whisper: { role: pa } }\n"))).toContain("facilitator.0");
+  });
+  it("refuses a character that is not in the scene", () => {
+    const away: Scenario = { ...withFacts, script: { scenes: [withFacts.script.scenes[0]!, { ...withFacts.script.scenes[1]!, participants: ["pa"] }] } };
+    expect(() => parseShowcaseScript(step(ok, "two").replace(/ {4}mock: \{ npc.*\n/, ""), away, { mode: "live" })).toThrow(/who is not in that scene/);
+  });
+});

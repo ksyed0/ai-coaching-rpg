@@ -486,4 +486,103 @@ describe("BUG-0005: pause freezes the scene clock", () => {
       expect(activeElapsedMs(replay, clock.now())).toBe(activeElapsedMs(eng.state, clock.now()));
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
+
+  describe("release_hidden (US-0016)", () => {
+    const FACT = "Sam is leaving the company next month";
+    it("records a text-free command and then the fact in a facilitator-only npc.updated", async () => {
+      await engine.command({ command: "release_hidden", roleId: "guest", fact: 1 });
+      const events = await log.all();
+      const cmd = events.find((e) => e.type === "facilitator.command" && e.command === "release_hidden")!;
+      expect(cmd).toMatchObject({ roleId: "guest", fact: 1 });
+      expect(JSON.stringify(cmd)).not.toContain(FACT);
+      const upd = events.at(-1)!;
+      expect(upd).toMatchObject({ type: "npc.updated", roleId: "guest", released: [FACT] });
+      expect(upd.seq).toBe(cmd.seq + 1);
+      expect(engine.state.npcs.guest!.released).toEqual([FACT]);
+      expect(engine.state.npcs.guest!.goals).toEqual(["Be welcomed"]);
+    });
+
+    it("is an error to release the same fact twice, and appends nothing", async () => {
+      await engine.command({ command: "release_hidden", roleId: "guest", fact: 1 });
+      const n = (await log.all()).length;
+      await expect(engine.command({ command: "release_hidden", roleId: "guest", fact: 1 })).rejects.toMatchObject({ code: "already_released" });
+      expect(await log.all()).toHaveLength(n);
+    });
+
+    it.each([[0], [2], [-1], [1.5], [51], [Number.NaN]])("refuses fact number %s (unknown_fact)", async (fact) => {
+      const n = (await log.all()).length;
+      await expect(engine.command({ command: "release_hidden", roleId: "guest", fact })).rejects.toMatchObject({ code: "unknown_fact" });
+      expect(await log.all()).toHaveLength(n);
+    });
+
+    it("refuses a player role, an unknown role and prototype keys as role ids", async () => {
+      const n = (await log.all()).length;
+      await expect(engine.command({ command: "release_hidden", roleId: "host", fact: 1 })).rejects.toMatchObject({ code: "npc_role" });
+      await expect(engine.command({ command: "release_hidden", roleId: "ghost", fact: 1 })).rejects.toMatchObject({ code: "unknown_role" });
+      for (const k of ["__proto__", "constructor", "toString", "hasOwnProperty"]) {
+        await expect(engine.command({ command: "release_hidden", roleId: k, fact: 1 })).rejects.toMatchObject({ code: "unknown_role" });
+        await expect(engine.command({ command: "whisper", roleId: k, text: "x" })).rejects.toMatchObject({ code: "unknown_role" });
+        await expect(engine.command({ command: "set_npc_stance", roleId: k, goals: [] })).rejects.toMatchObject({ code: "unknown_role" });
+      }
+      expect(await log.all()).toHaveLength(n);
+    });
+
+    it("works while paused (it takes effect on the next turn)", async () => {
+      await engine.command({ command: "pause" });
+      await engine.command({ command: "release_hidden", roleId: "guest", fact: 1 });
+      expect(engine.state.paused).toBe(true);
+      expect(engine.state.npcs.guest!.released).toEqual([FACT]);
+    });
+
+    it("keeps the released fact when an inject later updates the character", async () => {
+      await engine.command({ command: "release_hidden", roleId: "guest", fact: 1 });
+      clock.advance(61_000);
+      await engine.tick();
+      expect(engine.state.npcs.guest!.goals).toContain("Leave early");
+      expect(engine.state.npcs.guest!.released).toEqual([FACT]);
+    });
+
+    it("honours expectSceneId like every command", async () => {
+      await expect(engine.command({ command: "release_hidden", roleId: "guest", fact: 1 }, { expectSceneId: "s2_close" })).rejects.toMatchObject({ code: "stale_scene" });
+      expect(engine.state.npcs.guest!.released).toEqual([]);
+    });
+
+    it("a second concurrent release of the same fact loses with already_released", async () => {
+      const results = await Promise.allSettled([
+        engine.command({ command: "release_hidden", roleId: "guest", fact: 1 }),
+        engine.command({ command: "release_hidden", roleId: "guest", fact: 1 }),
+      ]);
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect((results.find((r) => r.status === "rejected") as PromiseRejectedResult).reason).toMatchObject({ code: "already_released" });
+      expect(engine.state.npcs.guest!.released).toEqual([FACT]);
+    });
+
+    it("M-1: a release is two appends; if the second fails the command is orphaned, nothing is released, and a retry is accepted", async () => {
+      class FlakyLog extends MemoryEventLog {
+        failNext = false;
+        override async append(body: Parameters<MemoryEventLog["append"]>[0], ts: number) {
+          if (this.failNext && body.type === "npc.updated") { this.failNext = false; throw new Error("disk full"); }
+          return super.append(body, ts);
+        }
+      }
+      const flaky = new FlakyLog("sess-flaky");
+      const eng = new SessionEngine({ scenario, log: flaky, clock });
+      await eng.start({ host: "participant-1" });
+      flaky.failNext = true;
+      await expect(eng.command({ command: "release_hidden", roleId: "guest", fact: 1 })).rejects.toThrow("disk full");
+      expect(eng.state.npcs.guest!.released).toEqual([]); // npc.updated is the source of truth
+      const orphan = (await flaky.all()).filter((e) => e.type === "facilitator.command" && e.command === "release_hidden");
+      expect(orphan).toHaveLength(1);
+      await eng.command({ command: "release_hidden", roleId: "guest", fact: 1 }); // the retry is not already_released
+      expect(eng.state.npcs.guest!.released).toEqual([FACT]);
+      await expect(eng.command({ command: "release_hidden", roleId: "guest", fact: 1 })).rejects.toMatchObject({ code: "already_released" });
+    });
+
+    it("replaying the log gives the same released facts", async () => {
+      await engine.command({ command: "release_hidden", roleId: "guest", fact: 1 });
+      let s = initialState();
+      for (const e of await log.all()) s = reduce(s, e);
+      expect(s.npcs.guest!.released).toEqual([FACT]);
+    });
+  });
 });

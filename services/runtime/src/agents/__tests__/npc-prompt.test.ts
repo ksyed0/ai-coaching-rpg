@@ -51,6 +51,37 @@ describe("buildNpcRequest", () => {
     expect(buildNpcRequest({ role, scene, state: s }).system).toContain("Would accept phasing");
   });
 
+  it("a released fact is in its own final section, not in What you know, and tells the character it may share it", () => {
+    let s = stateWith(["delivery_lead", "Hi Priya"]);
+    s = reduce(s, { ...env(s.lastSeq + 1), type: "npc.updated", roleId: "client_sponsor", goals: s.npcs.client_sponsor!.goals, knowledge: s.npcs.client_sponsor!.knowledge, released: ["Would accept phasing"] });
+    const system = buildNpcRequest({ role, scene, state: s }).system;
+    const know = system.slice(system.indexOf("## What you know"), system.indexOf("## Rules you must follow"));
+    expect(know).not.toContain("Would accept phasing");
+    const at = system.indexOf("## What you may now share");
+    expect(at).toBeGreaterThan(system.indexOf("## Your last lines")); // the last section: the cached prefix stays stable
+    expect(system.slice(at)).toContain("- Would accept phasing");
+    expect(system.slice(at)).toMatch(/rules above about hidden information no longer apply to the facts in this section: you have been cleared to share them\. Share them when they are relevant or when you are asked/);
+    expect(system.indexOf("## What you may now share", at + 1)).toBe(-1);
+  });
+
+  it("has no share section before a release", () => {
+    expect(buildNpcRequest({ role, scene, state: stateWith() }).system).not.toContain("What you may now share");
+  });
+
+  it("a released fact reaches only its owner's prompt: not another character's, nor the Game Master's", () => {
+    const other: NpcRole = { ...role, id: "cfo", name: "Helena Brandt", title: "CFO", hidden: ["HELENA_SECRET"] };
+    let s = stateWith(["delivery_lead", "Hi"]);
+    s = reduce(s, { ...env(s.lastSeq + 1), type: "npc.updated", roleId: "client_sponsor", goals: s.npcs.client_sponsor!.goals, knowledge: s.npcs.client_sponsor!.knowledge, released: ["Would accept phasing"] });
+    s = reduce(s, { ...env(s.lastSeq + 1), type: "npc.updated", roleId: "cfo", goals: ["x"], knowledge: ["y"], released: [] });
+    const peers = [{ id: "client_sponsor", name: role.name, title: role.title, seniority: 3 }, { id: "cfo", name: other.name, title: other.title, seniority: 3 }];
+    const sc: Scene = { ...scene, participants: ["delivery_lead", "client_sponsor", "cfo"] };
+    const cfoPrompt = buildNpcRequest({ role: other, scene: sc, state: s, peers });
+    expect(cfoPrompt.system + JSON.stringify(cfoPrompt.messages)).not.toContain("Would accept phasing");
+    expect(buildNpcRequest({ role, scene: sc, state: s, peers }).system).not.toContain("HELENA_SECRET");
+    const gm = buildGmRequest({ scene: sc, state: s, condition: "c", nonce: "abcdef12" });
+    expect(gm.system + JSON.stringify(gm.messages)).not.toContain("Would accept phasing");
+  });
+
   it("never leaks rubric, another role's brief/private_facts, unreleased hidden facts or display names (real scenario + engine)", async () => {
     const scenario = await loadScenario(fixture);
     const host = scenario.roles.host as PlayerRole;
