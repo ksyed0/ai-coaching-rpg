@@ -221,7 +221,7 @@ describe("event types", () => {
   it("lists every known type and rejects others", async () => {
     const { EVENT_TYPES, isKnownEventType, LOG_FORMAT } = await import("../index.js");
     expect(EVENT_TYPES).toContain("session.resumed");
-    expect(EVENT_TYPES).toHaveLength(12);
+    expect(EVENT_TYPES).toHaveLength(13); // US-0034 added gm.fact_earned
     expect(isKnownEventType("utterance")).toBe(true);
     expect(isKnownEventType("toString")).toBe(false);
     expect(isKnownEventType("session.future")).toBe(false);

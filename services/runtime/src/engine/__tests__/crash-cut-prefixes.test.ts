@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { initialState, reduce, type SessionEvent, type SessionState } from "@acr/events";
-import { loadScenario, type Scenario } from "@acr/script";
+import { loadScenario, type NpcRole, type Scenario } from "@acr/script";
 import { FakeClock } from "../clock.js";
 import { JsonlEventLog } from "../event-log.js";
 import { SessionEngine } from "../session-engine.js";
@@ -24,6 +24,8 @@ async function loadSc(): Promise<Scenario> {
   const inj = s2.injects!.find((i) => i.id === "cfo_ping")!;
   inj.to = ["client_sponsor", "delivery_lead", "cfo"];
   inj.effect = { goals_add: ["G-cfo-ping"], knowledge_add: ["K-cfo-ping"] };
+  // US-0034: a Game Master auto-release (two appends) is cut at every boundary too
+  (sc.roles["cfo"] as NpcRole).earned_when = { "1": "a player commits to a fixed fee tied to a firm date" };
   return sc;
 }
 
@@ -46,6 +48,7 @@ async function drive(engine: SessionEngine, clock: FakeClock, sc: Scenario): Pro
         await engine.command({ command: "whisper", roleId: "delivery_lead", text: "w" });
       }
       if (idx === 2) await engine.command({ command: "advance" });
+      if (idx === 3) expect(await engine.recordFactEarned("cfo", 1, "r", { autoRelease: true })).toBe("released");
     }
     clock.advance(MIN);
     await engine.tick();
@@ -74,6 +77,14 @@ function check(all: SessionEvent[], sc: Scenario): string[] {
     }
   }
   for (const [id, r] of Object.entries(sc.roles)) if (r.type === "npc" && !st.npcs[id]) probs.push(`npc ${id} never initialised`);
+  // US-0034: every Game Master auto-release reached its npc.updated, exactly once
+  for (const e of all) {
+    if (e.type !== "gm.fact_earned" || !e.autoRelease) continue;
+    const text = (sc.roles[e.roleId] as NpcRole).hidden[e.fact - 1]!;
+    if (!st.npcs[e.roleId]?.released.includes(text)) probs.push(`auto-release of ${e.roleId} #${e.fact} never completed`);
+    if (st.npcs[e.roleId]!.released.filter((t) => t === text).length !== 1) probs.push(`auto-release of ${e.roleId} #${e.fact} applied twice`);
+  }
+  if (all.filter((e) => e.type === "gm.fact_earned").length > 1) probs.push("a fact was judged earned twice");
   // nothing (but a final session.ended) between scene.exited and the next scene.entered other than resume bookkeeping
   return probs;
 }

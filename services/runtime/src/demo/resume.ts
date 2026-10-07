@@ -24,7 +24,7 @@ const NEVER = "This reply was still being generated when the server died.";
 const ANSWER_AFTER = "A manual report on day one could work. Put it in writing.";
 
 /** The parts of the state a crash must not change (the resume adds only the pause). */
-const durable = (s: SessionState) => ({ lastSeq: s.lastSeq, roles: s.roles, currentScene: s.currentScene, sceneHistory: s.sceneHistory, transcript: s.transcript, injectsFired: s.injectsFired, npcs: s.npcs, gmVerdicts: s.gmVerdicts, advanceRequested: s.advanceRequested });
+const durable = (s: SessionState) => ({ lastSeq: s.lastSeq, roles: s.roles, currentScene: s.currentScene, sceneHistory: s.sceneHistory, transcript: s.transcript, injectsFired: s.injectsFired, npcs: s.npcs, gmVerdicts: s.gmVerdicts, factsEarned: s.factsEarned, advanceRequested: s.advanceRequested });
 const lines = async (file: string) => (await readFile(file, "utf8")).split("\n").filter(Boolean);
 const evs = async (file: string) => (await lines(file)).map((l) => JSON.parse(l) as SessionEvent);
 

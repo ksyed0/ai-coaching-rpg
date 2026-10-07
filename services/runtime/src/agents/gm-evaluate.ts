@@ -72,7 +72,9 @@ function isReasoningOnly(err: unknown): boolean {
  */
 export async function runGmEvaluation(o: {
   provider: ModelProvider; request: ChatRequest; condition: string; timeoutMs: number; reask: boolean; /** The id the prompt asked for; null only for offline use, never from a production caller. */ nonce: string | null; onReply?: (r: GmReplyTrace) => void;
+  /** What the alerts name after "for" (default: the condition in quotes). US-0034: an earned_when check names the hidden fact by role and number. */ subject?: string;
 }): Promise<GmOutcome> {
+  const what = o.subject ?? `"${o.condition}"`;
   const evalAc = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let deadlineHit = false;
@@ -87,11 +89,11 @@ export async function runGmEvaluation(o: {
       const got = await call(o.provider, attempts === 1 ? o.request : buildGmReaskRequest(o.request, reply, o.nonce), evalAc, deadline);
       if (got.kind === "deadline") {
         if (attempts > 1) return { kind: "no_verdict", reason, attempts };
-        return { kind: "alert", message: `GM: model call exceeded its deadline of ${o.timeoutMs} ms for "${o.condition}"${describeRetryProgress(got.signal)}` };
+        return { kind: "alert", message: `GM: model call exceeded its deadline of ${o.timeoutMs} ms for ${what}${describeRetryProgress(got.signal)}` };
       }
       let error: string | undefined;
       if (got.kind === "error") {
-        if (!isReasoningOnly(got.err)) return { kind: "alert", message: `GM: ${describeModelFailure(got.err, ` for "${o.condition}"`)}` };
+        if (!isReasoningOnly(got.err)) return { kind: "alert", message: `GM: ${describeModelFailure(got.err, ` for ${what}`)}` };
         reply = ""; error = (got.err as ModelProviderError).kind;
       } else reply = got.text;
       const parsed = error ? ({ ok: false, reason: "reasoning_only", ignored: 0 } as const) : parseGmReply(reply, { nonce: o.nonce });

@@ -45,7 +45,7 @@ export class SessionHost {
   private readonly fatalListeners = new Set<(reason: string) => void>();
   private fatal: string | null = null;
 
-  constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number }) {
+  constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034, GM_AUTO_RELEASE (default off): the Game Master releases a hidden fact itself instead of only suggesting it. */ gmAutoRelease?: boolean; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
     this.scenario = opts.scenario; this.engine = opts.engine;
     this.log = opts.log ?? (() => {});
@@ -56,7 +56,7 @@ export class SessionHost {
     }
     // Fail-stop (US-0018): when the log fails or the lock is lost the engine refuses everything; stop the clock and tell the server.
     opts.engine.onFailure((reason) => this.onEngineFailure(reason));
-    this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), maxTokens: opts.gmMaxTokens, temperature: opts.gmTemperature, evaluationTimeoutMs: opts.gmTimeoutMs ?? gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS), reask: opts.gmReask, everyNUtterances: opts.gmEveryN, trace: opts.gmTrace });
+    this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), maxTokens: opts.gmMaxTokens, temperature: opts.gmTemperature, evaluationTimeoutMs: opts.gmTimeoutMs ?? gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS), reask: opts.gmReask, everyNUtterances: opts.gmEveryN, trace: opts.gmTrace, autoRelease: opts.gmAutoRelease });
   }
 
   private noteSilence(t: SilentTurn): void {
@@ -70,6 +70,9 @@ export class SessionHost {
 
   /** Calls `fn` for each silent turn from now on; returns the unsubscribe function. */
   onSilentTurn(fn: (t: SilentTurn) => void): () => void { this.silentListeners.add(fn); return () => { this.silentListeners.delete(fn); }; }
+
+  /** US-0034: whether the Game Master releases a hidden fact itself when it judges it earned (GM_AUTO_RELEASE), instead of only suggesting it. */
+  get gmAutoRelease(): boolean { return this.gm.autoRelease; }
 
   /** Why the session stopped for good (the log failed or the lock was lost), or null. */
   get fatalReason(): string | null { return this.fatal; }
@@ -241,7 +244,7 @@ export class SessionHost {
     // Same rule as viewFor: only scenes the player takes part in.
     const mine = s.sceneHistory.filter((sc) => sc.participants.includes(who));
     const currentScene = s.currentScene && s.currentScene.participants.includes(who) ? s.currentScene : null;
-    return { ...s, roles: redactRoles(s.roles), currentScene, sceneHistory: mine, transcript: visibleTranscript(s, who), npcs: {}, gmVerdicts: {}, injectsFired: [], advanceRequested: false };
+    return { ...s, roles: redactRoles(s.roles), currentScene, sceneHistory: mine, transcript: visibleTranscript(s, who), npcs: {}, gmVerdicts: {}, factsEarned: {}, injectsFired: [], advanceRequested: false };
   }
 
   /**
@@ -314,7 +317,8 @@ export class SessionHost {
       case "facilitator.command":
         return e.command === "pause" || e.command === "resume" || (e.command === "whisper" && e.roleId === who) ? e : null;
       // Never for players: NPC goals/knowledge and released hidden facts, GM reasoning, facilitator alerts.
-      case "npc.updated": case "gm.decision": case "gm.no_verdict": case "facilitator.alert": return null;
+      // US-0034: a Game Master release suggestion (or auto-release) names a hidden fact by number and is the facilitator's decision alone.
+      case "npc.updated": case "gm.decision": case "gm.no_verdict": case "gm.fact_earned": case "facilitator.alert": return null;
       default: {
         const _exhaustive: never = e; // compile time: a new EventBody member must be decided above
         void _exhaustive;

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { MockModelProvider } from "@acr/adapters";
 import type { SessionEvent } from "@acr/events";
-import { loadScenario } from "@acr/script";
+import { loadScenario, type NpcRole } from "@acr/script";
 import { FakeClock } from "../../engine/clock.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { JoinCodes } from "../../engine/join-codes.js";
@@ -50,6 +50,7 @@ async function open(port: number): Promise<Client> {
 
 async function setup(o: { token?: string; retainEvents?: number; authThrottle?: AuthThrottle } = {}) {
   const scenario = await loadScenario(friday);
+  (scenario.roles.client_sponsor as NpcRole).earned_when = { "1": "the team explains the go-live risk clearly" }; // US-0034 gm.fact_earned
   const clock = new FakeClock(1_000);
   const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock, retainEvents: o.retainEvents });
   const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider([]), gmProvider: new MockModelProvider([]), clock });
@@ -73,6 +74,7 @@ async function play(engine: SessionEngine, host: SessionHost) {
   await engine.command({ command: "whisper", roleId: "delivery_lead", text: "ZedForDeliveryLead" });
   await engine.alert("ZedFacilitatorAlert", "warning");
   await engine.command({ command: "advance" }); await engine.tick();
+  await engine.recordFactEarned("client_sponsor", 1, "ZedFactEarned"); // US-0034: facilitator-only
   await engine.command({ command: "release_hidden", roleId: "client_sponsor", fact: 1 });
   await engine.say("account_manager", "second scene");
   for (const r of PLAYERS) host.release(r, `${r}-person`);
@@ -106,6 +108,7 @@ describe("replay-from-seq over the WebSocket protocol (US-0013)", () => {
     expect(JSON.stringify(c.inbox)).toContain("ZedForDeliveryLead");
     expect(JSON.stringify(c.inbox)).not.toContain("ZedForTechLead");
     expect(JSON.stringify(c.inbox)).not.toContain("ZedFacilitatorAlert");
+    expect(JSON.stringify(c.inbox)).not.toContain("ZedFactEarned");
   });
 
   it("test_join_without_last_seq_behaves_as_before_no_replay", async () => {
@@ -275,6 +278,7 @@ describe("replay-from-seq over the WebSocket protocol (US-0013)", () => {
     await fence(engine, c, "tech_lead");
     expect(c.events().map((e) => e.seq)).toEqual(Array.from({ length: engine.state.lastSeq - 1 }, (_, i) => i + 2));
     expect(JSON.stringify(c.inbox)).toContain("ZedFacilitatorAlert");
+    expect(JSON.stringify(c.inbox)).toContain("ZedFactEarned");
   });
 
   it("test_a_client_further_behind_than_the_window_gets_no_partial_replay", async () => {

@@ -19,6 +19,8 @@ export type GmReliability = {
   reasks: number;
   via: { strict: number; tolerant: number; reask: number; unknown: number };
 };
+/** US-0034: a Game Master release suggestion (the facilitator-only gm.fact_earned), by role and fact number; never the fact text. */
+export type GmSuggestion = { seq: number; sceneId: string; roleId: string; fact: number; reasoning: string; /** The Game Master released it itself (GM_AUTO_RELEASE). */ autoRelease: boolean };
 export type SceneStats = { id: string; title: string; exitReason: string | null; playerLines: number; npcReplies: number; gmDecisions: number };
 export type PlayerStats = {
   mode: "generated";
@@ -55,7 +57,7 @@ export type ShowcaseReport = {
   watchdogMinutes: number;
   scenes: SceneStats[];
   npcs: NpcStats[];
-  gm: { evaluations: number; verdictsTrue: number; verdictsFalse: number; exitedScenes: string[]; decisions: GmDecision[] } & GmReliability;
+  gm: { evaluations: number; verdictsTrue: number; verdictsFalse: number; exitedScenes: string[]; decisions: GmDecision[]; /** US-0034: release suggestions, in order. */ suggestions: GmSuggestion[] } & GmReliability;
   playerLines: number;
   /** Only with `--players generated`: how the player lines were produced. Counted from the lines the server actually recorded. */
   players?: PlayerStats;
@@ -116,6 +118,7 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
   const lines: LineRecord[] = [];
   const decisions: GmDecision[] = [];
   const noVerdicts: GmNoVerdict[] = [];
+  const suggestions: GmSuggestion[] = [];
   const alerts: ShowcaseReport["alerts"] = [];
   const exited: string[] = [];
   let advances = 0; let playerLines = 0; let npcReplies = 0; let fallbackLines = 0;
@@ -174,6 +177,10 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
         noVerdicts.push({ seq: e.seq, sceneId: e.sceneId, condition: clip(e.condition, 300), reason: e.reason, attempts: e.attempts });
         lines.push({ seq: e.seq, source: "system", tag: "system", sceneId: e.sceneId, text: `Game Master gave no verdict (${e.reason}${e.attempts > 1 ? " after the re-ask" : ""})` });
         break;
+      case "gm.fact_earned":
+        suggestions.push({ seq: e.seq, sceneId: e.sceneId, roleId: e.roleId, fact: e.fact, reasoning: clip(e.reasoning, REASONING_CHARS), autoRelease: e.autoRelease === true });
+        lines.push({ seq: e.seq, source: "system", tag: "system", sceneId: e.sceneId, text: e.autoRelease ? `the Game Master released hidden fact number ${e.fact} of ${e.roleId} itself (GM_AUTO_RELEASE)` : `the Game Master suggested releasing hidden fact number ${e.fact} of ${e.roleId} (facilitator only: /release ${e.roleId} ${e.fact})` });
+        break;
       case "facilitator.alert":
         alerts.push({ seq: e.seq, level: e.level, message: clip(e.message, 300) });
         lines.push({ seq: e.seq, source: "system", tag: "system", sceneId: current, text: `alert (${e.level}): ${clip(e.message, 300)}` });
@@ -228,7 +235,7 @@ export function buildShowcaseReport(i: ReportInput): ShowcaseReport {
     npcs,
     gm: {
       evaluations: decisions.length, verdictsTrue: decisions.filter((d) => d.verdict).length, verdictsFalse: decisions.filter((d) => !d.verdict).length,
-      exitedScenes: exited, decisions,
+      exitedScenes: exited, decisions, suggestions,
       noVerdicts, noVerdictByReason: noVerdicts.reduce<Partial<Record<GmNoVerdictReason, number>>>((a, x) => ({ ...a, [x.reason]: (a[x.reason] ?? 0) + 1 }), {}),
       reasks: noVerdicts.filter((x) => x.attempts > 1).length + decisions.filter((d) => d.via === "reask").length,
       via: { strict: decisions.filter((d) => d.via === "strict").length, tolerant: decisions.filter((d) => d.via === "tolerant").length, reask: decisions.filter((d) => d.via === "reask").length, unknown: decisions.filter((d) => d.via === undefined).length },
@@ -253,6 +260,7 @@ export function formatAiSummary(r: ShowcaseReport): string[] {
   const exits = (id: string) => r.scenes.filter((s) => s.exitReason === id).length;
   out.push(`  Game Master: ${r.gm.evaluations} evaluations (${r.gm.verdictsTrue} true, ${r.gm.verdictsFalse} false); exited: ${r.gm.exitedScenes.join(", ") || "none"}`);
   out.push(`  Game Master reliability: no usable verdict ${gmx.noVerdicts.length}${reasons ? ` (${reasons})` : ""}; re-asks ${gmx.reasks}; verdicts read strictly ${gmx.via.strict}, tolerantly ${gmx.via.tolerant}, after a re-ask ${gmx.via.reask}`);
+  if (gmx.suggestions.length > 0) out.push(`  Game Master release suggestions (facilitator only): ${gmx.suggestions.map((x) => `hidden fact ${x.fact} of ${x.roleId} in ${x.sceneId}${x.autoRelease ? " (released by the Game Master)" : ""}`).join(", ")}`);
   out.push(`  Scenes played: ${r.scenes.length} (ended by Game Master ${exits("gm_detects")}, time box ${exits("time_box_elapsed")}, facilitator advance ${exits("facilitator_advance")})`);
   out.push(`  Player-bot lines: ${r.playerLines}; AI character replies: ${r.npcReplies} (${r.fallbackLines} canned fallback)`);
   if (r.players) {

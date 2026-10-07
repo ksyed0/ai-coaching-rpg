@@ -27,6 +27,7 @@ import type { ProviderKind } from "./provenance.js";
 import { Transcript } from "./transcript.js";
 import { createGmTraceWriter } from "../agents/gm-trace.js";
 import { parseGmConfig } from "../agents/gm-config.js";
+import { parseRetryEnv } from "../agents/retry-config.js";
 import { checkTranscriptTarget, writeTranscriptFile } from "./transcript-path.js";
 import { renderTranscript } from "./transcript-md.js";
 import { parseNpcTimeouts, DEFAULT_REPLY_TIMEOUT_MS } from "../agents/timeouts.js";
@@ -186,6 +187,14 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     }
   }
 
+  // US-0034: the mock showcase honours GM_AUTO_RELEASE from the runner's own environment (0 or 1, default 0), so an auto-release can run end to end offline.
+  let mockAutoRelease = false;
+  if (showcase && kind === "mock") {
+    const auto = parseRetryEnv({ name: "GM_AUTO_RELEASE", min: 0, max: 1, fallback: 0 }, deps.env.GM_AUTO_RELEASE);
+    if (!auto.ok) { deps.stderr.write(`error: ${scrubText(auto.error)}\n`); return { exitCode: 2 }; }
+    mockAutoRelease = auto.value === 1;
+  }
+
   // --gm-trace: every raw Game Master reply, in an owner-only file (it holds judgements about the whole conversation). Created now, so a bad path is a usage error before anything starts.
   let gmTrace: ReturnType<typeof createGmTraceWriter> | undefined;
   if (opts.gmTrace !== undefined) {
@@ -250,7 +259,8 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
     if (opts.gmTrace !== undefined) n.line(`The raw Game Master replies are written to ${scrubText(opts.gmTrace)} (owner-only file; it holds judgements about the whole conversation).`);
     const sys = kind === "live"
       ? await startLiveSystem({ ...base, env: liveEnv!, gmTrace })
-      : await startShowcaseMockSystem({ ...base, scenes: sc.script.scenes, gmTrace });
+      : await startShowcaseMockSystem({ ...base, scenes: sc.script.scenes, gmTrace, gmAutoRelease: mockAutoRelease });
+    if (mockAutoRelease) n.line("GM_AUTO_RELEASE=1: the Game Master releases a hidden fact itself when it judges it earned (recorded as a Game Master action).");
     register(() => sys.stop());
     register(() => gmTrace?.close());
     ctx.sys = sys; ctx.tmp = { root: t.root, dataDir: t.dataDir, scenarioDir: "", cleanup: t.cleanup }; ctx.wsUrl = `ws://127.0.0.1:${sys.port}`;
