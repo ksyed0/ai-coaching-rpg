@@ -42,3 +42,25 @@
 - US-0032 fix round (independent review): forced last speaker per round, silence markers folded and stripped before cleaning, roster tags, generic prompt wording and `defers_text`, echo metric limited to different roles and the same player line (`echoes / eligiblePairs`), participant-order ties, bounded silence memory, S-06 cross-character prompt audit.
 
 - US-0016 built on `feature/EPIC-0006-US-0016-release-hidden-facts`: `release_hidden` facilitator command (1-based fact number), engine rules, `joined.hiddenFacts`, the `## What you may now share` prompt section, `/hidden` and `/release`, a scripted s5 release in the extended showcase, S-06/S-07/S-15 audits and the S-07 observation fix. No live model call was made; the controller confirms live that scene 5 now ends by the Game Master on Gemma.
+
+## Session 6 — 2026-10-06/07 (close)
+
+**Completed and merged to `develop` (PRs #6 to #19, all CI-green, no PRs open):**
+- Planning and tooling: housekeeping (plan statuses reconciled, ID-registry unit test, stop-hook path fix, BUG-0001/2/3), US-0024 showcase and transcripts, US-0022 retry, US-0026 token budgets and reasoning-only replies, BUG-0004 (characters speaking for others, transcript line breaks), BUG-0005 (pause freezes the scene clock).
+- AI quality: US-0027 generated players with logged intents, US-0032 distinct AI voices (seniority, silence, junior-first), US-0025 Game Master reliability (nonce-signed verdicts, one re-ask, `gm-eval`), US-0016 hidden-fact release (the CFO now settles scene 5; the Game Master ended 5 of 6 scenes on Gemma).
+- Product: US-0028..US-0031 the evaluator (BARS rubrics, verified-evidence scoring, draft reports, `pnpm evaluate`, `--evaluate`).
+- Operations and safety: US-0017 facilitator token, caps and limits (open with a warning when unset), US-0018 resume after restart (auto-resume paused, fail-stop log, single-writer lock, crash-cut completion, `--resume` demo room).
+- Housekeeping at close: cost rows salvaged from the stale PR #4 into #19 and #4 discarded; finished worktrees and merged local branches removed; `MEMORY.md` and its topic files, `PROMPT_LOG.md` (77 prompts, secrets redacted), `MIGRATION_LOG.md`, 10 new lessons (L-0002..L-0011) added.
+- Local model decision: Gemma-4-31B for all demo and acceptance runs; Raptor-8B dropped; a Hugging Face survey produced candidate second models (see `docs/memory/models-and-providers.md`).
+
+**Findings worth keeping:** independent reviews found real Critical and Important bugs in the newest code (forged Game Master verdicts, a failed `fdatasync` splitting the engine from the log, a crash window leaving a resumed session with no scene, a Linux-only inode-reuse race in the lock takeover); CI caught two Linux-only problems the macOS runs hid (a `/proc` path that hung a job for 20 minutes, a timing-dependent lock test). See `docs/LESSONS.md` L-0002..L-0009.
+
+**Security incident (AGENTS.md section 11):** an OpenRouter API key was pasted into the chat prompt on 2026-10-02. It is stored only in the git-ignored `.env` files and is redacted in `PROMPT_LOG.md`; it appears in no committed file. **The owner must rotate it.**
+
+**Test status at close:** see the coverage block below. Last CI on `develop`: green (all 14 checks) for the merge of #19.
+
+**Open items / blockers:**
+- Owner actions: rotate the OpenRouter key; download a second local model if an independent judge is wanted (tell the agent its id); decide whether to delete merged remote branches and the old `chore/ai-cost-log-session-1` branch; `docs/pitch/` is an untracked folder in the main checkout that agents did not create.
+- Next stories: US-0033 per-role join codes, US-0034 Game Master suggests releases, US-0013 rejoin replay, evaluator moderation and calibration (EPIC-0005), US-0019 model cost. EPIC-0002/3/4 untouched.
+- Load-sensitive tests: a few tests assert wall-clock bounds or count `acr-demo-*` temp directories in the shared `/tmp` and fail under load (see the coverage block); tracked as BUG-0006.
+- The Stop hook records cumulative totals per snapshot in `docs/AI_COST_LOG.md`; do not sum its rows.

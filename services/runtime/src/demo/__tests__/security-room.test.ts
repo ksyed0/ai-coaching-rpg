@@ -1,12 +1,14 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { REPO_ROOT, bootstrap } from "../../main.js";
 import { parseDemoArgs } from "../args.js";
 import { CHECKS, CHECK_IDS, SECURITY_CHECKS } from "../checks.js";
 import { makeTempRoot, newSecurityToken } from "../harness.js";
 import { runDemo, type RunDeps } from "../runner.js";
+// Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 type Captured = { out: string[]; err: string[]; stdout: { write(s: string): void; isTTY?: boolean }; stderr: { write(s: string): void; isTTY?: boolean } };
 const capture = (): Captured => {

@@ -208,6 +208,17 @@ Every piece of code generated or updated must have corresponding unit tests writ
 - **Test location:** Parallel `tests/` directory mirroring source structure.
 - **Test naming:** `test_<module>_<behaviour>_<expected_outcome>`
 
+#### Writing tests (BUG-0006, L-0002)
+
+A test must give the same verdict on a busy laptop, under coverage instrumentation (several times slower) and on a loaded CI runner.
+
+- **No absolute time assertions.** Never `expect(Date.now() - t0).toBeLessThan(N)` (or `performance.now()`, `hrtime`). To test linear time, use `expectLinear` from `services/runtime/src/__tests__/scaling.ts`: it measures the same work at size n and at 8n (warm-up, best of 3) and asserts the growth ratio is far below the 64x of a quadratic implementation; its only absolute bound is a 60 s cap that catches hangs. Prove a new scaling test fails on a deliberately quadratic implementation (mutate a scratch copy, never commit it). Where it is honest, count operations instead of timing them.
+- **Inject clocks and delays.** Timers, windows and retries take an injected clock or hook (`FakeClock`, `now: () => t`, `sleep`, `vi.useFakeTimers()`); the test controls ORDER. No small real `setTimeout` to order events (`setTimeout(50)` flakes on a loaded runner). To wait for an effect, `await vi.waitFor(...)` on the effect itself. A real window that asserts that NOTHING happens may be long; it only gets safer the longer it is.
+- **Private temp directories.** The shared `os.tmpdir()` is also used by other tests, other agents and the owner's own runs. A test that counts or lists temp directories sets `process.env.TMPDIR` to its own `mkdtemp` directory in `beforeAll` (restoring it in `afterAll`), or injects the parent the way `showcase-gm.test.ts` does with `PARENT`. Never `readdir(os.tmpdir())` without that.
+- **Explicit generous timeouts for whole-demo, real-socket and real-process tests**: `vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 })` at the top of the file (or a per-test limit of 60 to 90 s), with no elapsed-time assertion. The default is 60 s (`vitest.config.ts`).
+- **Linux.** CI runs Ubuntu: no `/proc`, macOS-only paths or `stat -f`. Run new filesystem, lock, socket and process tests once in a container before pushing: `mkdir -p /tmp/x && git archive HEAD | tar -x -C /tmp/x; docker run --rm -v /tmp/x:/w -w /w node:22 bash -c 'corepack enable; corepack prepare pnpm@9 --activate; pnpm install --frozen-lockfile; timeout 300 pnpm -s vitest run <files>'` (add `--user node` for the non-root run).
+- **Gate.** Run `pnpm test:coverage` more than once, and once under load (`yes > /dev/null` x8). `services/runtime/src/__tests__/test-hygiene.test.ts` fails on a measured elapsed time passed to `toBeLessThan`/`toBeLessThanOrEqual`, and on listing the shared temp dir.
+
 ### 9. Release Planning & Backlog Management
 
 A detailed release plan must be created at project inception and maintained throughout the project lifecycle. This plan lives in `docs/RELEASE_PLAN.md` and must be updated whenever scope, priorities, or architecture change.

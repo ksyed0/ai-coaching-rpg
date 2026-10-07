@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { cleanNpcReply } from "../npc-reply.js";
+import { expectLinear } from "../../__tests__/scaling.js";
 
 const role = { id: "cfo", name: "Helena Brandt" };
 const others = [{ id: "client_sponsor", name: "Priya Raman" }, { id: "account_manager", name: "Sam Lee" }];
@@ -40,17 +41,19 @@ describe("cleanNpcReply", () => {
     expect(clean("Fine.\n[acc​ount]: No.")).toEqual({ text: "Fine.", cut: true });
     expect(clean("Fine.\n【xy】: no").text).toBe("Fine.");
   });
-  it("handles very long input in linear time", () => {
-    const long = "word ".repeat(400_000);
-    const t = Date.now();
-    expect(clean(long).cut).toBe(false);
-    expect(clean(`${long}\n[ab]: x`).text.length).toBe(long.trim().length);
-    expect(clean("[".repeat(300_000) + " ".repeat(300_000) + "[a]:").cut).toBe(false);
-    expect(clean(" ".repeat(500_000) + "[a]:" + " ".repeat(500_000)).cut).toBe(false);
-    expect(cleanNpcReply("ok. " + "x [y]: ".repeat(100_000), role, others).cut).toBe(false);
-    expect(cleanNpcReply("<think>" + "a ".repeat(500_000), role).text).toBe("");
-    expect(Date.now() - t).toBeLessThan(5_000);
-  });
+  it("handles very long input in linear time (the cost grows no faster than the input: 8x the input costs far less than 64x)", () => {
+    // The sizes below are the full workload at scale 8; scale 1 is an eighth of it. No absolute time bound: see __tests__/scaling.ts.
+    const n = (full: number, s: number) => Math.round((full * s) / 8);
+    expectLinear((s) => {
+      const long = "word ".repeat(n(400_000, s));
+      expect(clean(long).cut).toBe(false);
+      expect(clean(`${long}\n[ab]: x`).text.length).toBe(long.trim().length);
+      expect(clean("[".repeat(n(300_000, s)) + " ".repeat(n(300_000, s)) + "[a]:").cut).toBe(false);
+      expect(clean(" ".repeat(n(500_000, s)) + "[a]:" + " ".repeat(n(500_000, s))).cut).toBe(false);
+      expect(cleanNpcReply("ok. " + "x [y]: ".repeat(n(100_000, s)), role, others).cut).toBe(false);
+      expect(cleanNpcReply("<think>" + "a ".repeat(n(500_000, s)), role).text).toBe("");
+    });
+  }, 120_000);
 
   it("cuts at known roles by name or id, with or without brackets, spaces and quotes", () => {
     expect(clean("Fine.\nPriya Raman: no")).toEqual({ text: "Fine.", cut: true });

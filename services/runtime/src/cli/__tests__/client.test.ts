@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createClient, type Io, type Sock } from "../client.js";
 
 const opts = { facilitator: false, role: "host", name: "n", url: "ws://x", session: "s" };
@@ -14,7 +14,10 @@ function setup(idleMs = 30, joinWaitMs?: number) {
   const c = createClient({ opts, sock, io, idleMs, joinWaitMs });
   return { c, sent, out, errs, exits, state };
 }
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// The idle and join-wait windows are driven by fake timers: the tests advance the clock themselves, so a loaded machine cannot reorder them.
+afterEach(() => { vi.useRealTimers(); });
+const fake = () => { vi.useFakeTimers(); };
+const sleep = async (ms: number) => { await vi.advanceTimersByTimeAsync(ms); };
 
 describe("client core: join and pre-join input", () => {
   it("sends the join on open", () => {
@@ -73,20 +76,20 @@ describe("client core: EOF", () => {
     expect(t.exits).toEqual([1]); expect(t.errs[0]).toContain("before joining");
   });
   it("EOF before join with queued lines waits for the join, flushes in order, then idles out with 0", async () => {
-    const t = setup(30); t.c.onOpen(); t.c.onLine("/start-not-valid-for-player"); t.c.onLine("a"); t.c.onLine("b"); t.c.onEof();
+    fake(); const t = setup(30); t.c.onOpen(); t.c.onLine("/start-not-valid-for-player"); t.c.onLine("a"); t.c.onLine("b"); t.c.onEof();
     expect(t.exits).toEqual([]);
     t.c.onMessage(joinedMsg);
     expect(t.sent.slice(1)).toEqual([{ type: "say", text: "a" }, { type: "say", text: "b" }]);
     await sleep(70); expect(t.exits).toEqual([0]);
   });
   it("EOF before join with queued lines is fatal if the join never arrives or errors", async () => {
-    const a = setup(30, 10); a.c.onOpen(); a.c.onLine("a"); a.c.onEof(); await sleep(40);
+    fake(); const a = setup(30, 10); a.c.onOpen(); a.c.onLine("a"); a.c.onEof(); await sleep(40);
     expect(a.exits).toEqual([1]);
     const b = setup(); b.c.onOpen(); b.c.onLine("a"); b.c.onEof(); b.c.onMessage(err("unknown_role"));
     expect(b.exits).toEqual([1]);
   });
   it("EOF after join prints a late reply that arrives inside the idle window, then exits 0", async () => {
-    const t = setup(60); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onEof();
+    fake(); const t = setup(60); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onEof();
     expect(t.exits).toEqual([]);
     await sleep(30); t.c.onMessage(ev("late"));
     expect(t.out).toContain("guest: late");
@@ -98,7 +101,7 @@ describe("client core: EOF", () => {
     expect(t.exits).toEqual([0]);
   });
   it("sends nothing on EOF and exits once only", async () => {
-    const t = setup(10); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onEof(); await sleep(40); t.c.onClose();
+    fake(); const t = setup(10); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onEof(); await sleep(40); t.c.onClose();
     expect(t.sent).toHaveLength(1); expect(t.exits).toEqual([0]);
   });
 });

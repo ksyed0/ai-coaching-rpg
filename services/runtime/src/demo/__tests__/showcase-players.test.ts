@@ -4,11 +4,13 @@ import { mkdtemp, readFile, rm, writeFile, cp } from "node:fs/promises";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { REPO_ROOT } from "../../main.js";
 import { runDemo, type RunDeps } from "../runner.js";
 import { SHOWCASE_CHECKS, SHOWCASE_LIVE_CHECKS, SHOWCASE_PLAYER_CHECKS } from "../showcase.js";
 import type { ShowcaseReport } from "../showcase-report.js";
+// Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 type Captured = { out: string[]; err: string[]; stdout: { write(s: string): void; isTTY?: boolean }; stderr: { write(s: string): void; isTTY?: boolean } };
 const capture = (): Captured => {
@@ -258,12 +260,10 @@ describe("generated players: waiting for the player's own stream", () => {
     const edited = yaml.replace(/(- scene: s3_internal_huddle\n    lines:\n      - \{ role: )delivery_lead/, "$1tech_lead");
     expect(edited).not.toBe(yaml);
     await writeFile(f, edited);
-    const t0 = Date.now();
     const r = await run([...ARGV, "--scenario", dir], env);
     expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
     expect(r.exitCode).toBe(0);
-    expect(Date.now() - t0).toBeLessThan(10_000);
-  }, 20_000);
+  }, 90_000);
 
   it("a player whose connection lags still has the latest lines in its prompt (the bot waits for its own stream)", async () => {
     const { env, seen } = await fakeModel(GEN);
@@ -290,15 +290,14 @@ describe("generated players: waiting for the player's own stream", () => {
 });
 
 describe("generated players: abort and audits", () => {
-  it("the watchdog aborts a stalled player model call at once (the request is cancelled, the run ends long before the reply deadline)", async () => {
+  it("the watchdog aborts a stalled player model call at once (the request is cancelled, the run is ended by the watchdog, not by the model deadlines)", async () => {
     const { env, seen } = await fakeModel(() => ({ stall: true }));
-    const t0 = Date.now();
-    const r = await run(ARGV, { ...env, NPC_FIRST_TOKEN_TIMEOUT_MS: "50000", NPC_REPLY_TIMEOUT_MS: "60000" }, { watchdogMs: 400 });
-    expect(Date.now() - t0).toBeLessThan(8_000);
+    // The model deadlines are at their 600000 ms maximum (a larger value is a configuration error), far beyond the test limit: only the watchdog can end the run in time (no elapsed-time assertion).
+    const r = await run(ARGV, { ...env, NPC_FIRST_TOKEN_TIMEOUT_MS: "600000", NPC_REPLY_TIMEOUT_MS: "600000" }, { watchdogMs: 400 });
     expect(r.exitCode).toBe(1);
     expect(seen.player.length).toBe(1);
     expect(seen.aborted).toBe(1);
-  }, 20_000);
+  }, 90_000);
 
   const tamper = (fn: (g: NonNullable<Parameters<NonNullable<NonNullable<RunDeps["showcaseHooks"]>["beforeLine"]>>[0]["generated"]>) => void) => ({
     beforeLine: async ({ sceneId, index, generated }: { sceneId: string; index: number; generated?: never }) => { if (sceneId === "s2_priya_call" && index === 1) fn(generated!); },

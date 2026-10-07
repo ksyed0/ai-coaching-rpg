@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadScenario } from "@acr/script";
@@ -202,16 +202,15 @@ describe("evaluation lifecycle (M-a, M-i)", () => {
     } };
     const gm = new GameMaster({ engine, provider, everyNUtterances: 1, evaluationTimeoutMs: 40, reask: false });
     await engine.say("host", "hello"); await gm.tick();
-    await new Promise((r) => setTimeout(r, 30));
+    await vi.waitFor(() => expect(closed).toBe(true), { timeout: 30_000 }); // the abort resumes the generator; its finally runs on the next turns of the loop
     expect(await events("facilitator.alert")).toHaveLength(1);
-    expect(closed).toBe(true);
   });
   it("a deadline that fires between the first reply and the re-ask means the re-ask is never made", async () => {
     let calls = 0;
-    const provider: ModelProvider = { name: "late", async *stream() { calls++; await new Promise((r) => setTimeout(r, 60)); yield "garbage"; } };
-    const gm = new GameMaster({ engine, provider, everyNUtterances: 1, evaluationTimeoutMs: 100 });
+    const provider: ModelProvider = { name: "late", async *stream() { calls++; await new Promise((r) => setTimeout(r, 300)); yield "garbage"; } };
+    const gm = new GameMaster({ engine, provider, everyNUtterances: 1, evaluationTimeoutMs: 500 });
     await engine.say("host", "hello"); await gm.tick();
-    expect(calls).toBe(2); // the second ask starts at 60 ms and is cut at 100 ms: no_verdict with the first reason
+    expect(calls).toBe(2); // the second ask starts at 300 ms and is cut at 500 ms (wide margins: only the ORDER of the two timers matters): no_verdict with the first reason
     expect(await events("gm.no_verdict")).toEqual([expect.objectContaining({ reason: "no_json" })]);
   });
 });

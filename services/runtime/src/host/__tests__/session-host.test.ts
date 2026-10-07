@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, beforeEach, vi } from "vitest";
 import type { ChatRequest, ModelProvider } from "@acr/adapters";
 import type { SessionEvent } from "@acr/events";
 import path from "node:path";
@@ -95,10 +95,8 @@ describe("SessionHost ticker", () => {
     let n = 0;
     engine.tick = async () => { n++; if (n === 1) throw new Error("tick exploded"); return orig(); };
     h.startTicker(5);
-    await new Promise((r) => setTimeout(r, 60));
+    await vi.waitFor(() => { expect(logs.join("\n")).toMatch(/tick exploded/); expect(n).toBeGreaterThan(1); }, { timeout: 30_000 }); // the ticker keeps going after the failed tick
     h.stopTicker();
-    expect(logs.join("\n")).toMatch(/tick exploded/);
-    expect(n).toBeGreaterThan(1);
   });
 });
 

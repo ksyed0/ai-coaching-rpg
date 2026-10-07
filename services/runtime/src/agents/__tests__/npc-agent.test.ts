@@ -113,7 +113,7 @@ describe("NpcAgent", () => {
 
   it("uses the fallback line when the first token does not arrive in time", async () => {
     const slow: ModelProvider = { name: "slow", async *stream(_req: ChatRequest, signal?: AbortSignal) {
-      await new Promise((r) => setTimeout(r, 50)); if (signal?.aborted) return; yield "late"; } };
+      await new Promise<void>((r) => { if (signal?.aborted) r(); else signal?.addEventListener("abort", () => r(), { once: true }); }); if (signal?.aborted) return; yield "late"; } };
     const alerts = alertsOf();
     const agent = new NpcAgent({ role: guest, engine, provider: slow, firstTokenTimeoutMs: 10 });
     await agent.respond();

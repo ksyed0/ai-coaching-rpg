@@ -4,13 +4,15 @@ import { cp, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { loadScenario } from "@acr/script";
 import { REPO_ROOT, bootstrap } from "../../main.js";
 import type { Report } from "../report.js";
 import { runDemo, type RunDeps } from "../runner.js";
 import { Transcript } from "../transcript.js";
 import type { Bot, Inbound } from "../bots.js";
+// Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 type Captured = { out: string[]; err: string[]; stdout: { write(s: string): void; isTTY?: boolean }; stderr: { write(s: string): void; isTTY?: boolean } };
 const capture = (): Captured => {

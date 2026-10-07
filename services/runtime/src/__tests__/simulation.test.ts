@@ -1,5 +1,5 @@
 import { stampNonce } from "../demo/harness.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cp, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +14,8 @@ import { FakeClock } from "../engine/clock.js";
 import { SessionHost } from "../host/session-host.js";
 import { startServer } from "../host/ws-server.js";
 import { bootstrap, type Runtime } from "../main.js";
+// Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dir = path.join(here, "../../../../scenarios/friday-escalation");

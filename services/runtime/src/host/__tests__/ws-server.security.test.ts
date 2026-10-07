@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
@@ -13,6 +13,8 @@ import os from "node:os";
 import { readFileSync } from "node:fs";
 import { startServer, MAX_PAYLOAD_BYTES } from "../ws-server.js";
 import { AuthThrottle, type Limits } from "../security.js";
+// Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 /** A throttle that records how many failures were charged, so tests do not depend on how the OS splits TCP reads. */
 class CountingThrottle extends AuthThrottle {
@@ -176,8 +178,8 @@ describe("connection caps and Origin (AC-0054)", () => {
     expect((await handshake(port)).status).toBe(503);
     const closed = new Promise((r) => a.ws!.on("close", r));
     a.ws!.close(); await closed;
-    await new Promise((r) => setTimeout(r, 20));
-    expect((await handshake(port)).status).toBe(101);
+    // The server frees the slot when ITS side sees the close, which can be a moment after the client's: retry until it does.
+    await vi.waitFor(async () => { expect((await handshake(port)).status).toBe(101); }, { timeout: 30_000, interval: 20 });
   });
 
   it("the total cap holds against many addresses (trusted proxy header)", async () => {
@@ -259,13 +261,13 @@ describe("per-connection limits (AC-0054)", () => {
   });
 
   it("a connection that never joins is closed after the join timeout; one that joined stays", async () => {
-    const { port } = await setup({ limits: { joinTimeoutMs: 150 } });
+    const { port } = await setup({ limits: { joinTimeoutMs: 1_000 } }); // wide enough that a loaded machine still lets the player join in time
     const idle = open(port); await opened(idle);
     const player = open(port); await opened(player);
     player.send({ type: "join", sessionId: "local", roleId: "host", participantId: "p" });
     await player.next((m) => m.type === "joined");
     expect(await idle.closed).toBe(1008);
-    await new Promise((r) => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 1_200)); // longer than the join timeout: the joined player's timer was cleared and it must still be open
     expect(player.ws.readyState).toBe(WebSocket.OPEN);
   });
 
@@ -397,7 +399,8 @@ describe("raw socket limits (review M1)", () => {
     };
     const otherOk = other !== undefined && (await fromOther()) === 101;
     const socks = await Promise.all(Array.from({ length: 25 }, () => new Promise<net.Socket>((resolve) => { const s = net.connect(port, "127.0.0.1", () => resolve(s)); s.on("error", () => resolve(s)); s.on("close", () => resolve(s)); s.resume(); })));
-    await new Promise((r) => setTimeout(r, 200));
+    // The server destroys the sockets beyond the cap; wait until it has (no fixed sleep), then they must stay at most twice the per-address limit.
+    await vi.waitFor(() => { expect(socks.filter((s) => !s.destroyed).length).toBeLessThanOrEqual(4); }, { timeout: 30_000, interval: 20 });
     const alive = socks.filter((s) => !s.destroyed).length;
     expect(alive).toBeLessThanOrEqual(4);
     // the same address is fairly refused while it hogs its sockets
