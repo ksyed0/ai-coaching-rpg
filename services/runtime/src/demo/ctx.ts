@@ -1,4 +1,4 @@
-import type { SessionEvent } from "@acr/events";
+import { isClientRoleKey, type SessionEvent } from "@acr/events";
 import type { NpcRole, PlayerRole, Scenario } from "@acr/script";
 import { Bot, isEvent, type Inbound } from "./bots.js";
 import { ensure, type Markers, type Recorder, type RunKind } from "./checks.js";
@@ -136,7 +136,7 @@ export function parseJoinCodesEnv(raw: string | undefined): { ok: true; codes: R
     const eq = part.indexOf("=");
     const role = eq > 0 ? part.slice(0, eq).trim() : "";
     const code = eq > 0 ? part.slice(eq + 1).trim() : "";
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(role) || !isPlausibleJoinCode(code) || Object.hasOwn(codes, role)) {
+    if (!isClientRoleKey(role) || !isPlausibleJoinCode(code) || Object.hasOwn(codes, role)) {
       return { ok: false, error: "error: JOIN_CODES must be comma separated role=CODE pairs, one per player role, with the codes the server printed at start (the value is not shown)" };
     }
     codes[role] = code;

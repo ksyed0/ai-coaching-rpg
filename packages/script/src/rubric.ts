@@ -1,11 +1,12 @@
 import { z } from "zod";
+import { SAFE_ID_MAX_CHARS, SCENARIO_ID_MESSAGE, SCENARIO_ID_PATTERN } from "@acr/events";
 
 /** The scale: four proficiency levels, no midpoint (avoids central tendency). A criterion with no evidence either way is "Not observed" (no score). */
 export const LEVEL_LABELS = { 1: "Not yet demonstrated", 2: "Developing", 3: "Proficient", 4: "Advanced" } as const;
 export type Level = keyof typeof LEVEL_LABELS;
 export const LEVELS: readonly Level[] = [1, 2, 3, 4];
 
-const Id = z.string().regex(/^[a-z0-9_\-]+$/, "ids are lowercase letters, digits, _ or -").max(64);
+const Id = z.string().regex(SCENARIO_ID_PATTERN, SCENARIO_ID_MESSAGE).max(SAFE_ID_MAX_CHARS);
 const Text = (max: number) => z.string().trim().min(1, "must not be blank").max(max);
 
 /** The behavioural anchor of one level, written as observable behaviour; example phrases are required at levels 2 and 4. */
