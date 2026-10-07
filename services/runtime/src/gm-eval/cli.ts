@@ -63,7 +63,7 @@ export async function loadCorpus(file: string): Promise<CorpusEntry[]> {
 }
 
 /** Minimal scene and state for the production prompt builder, from a case. */
-export function requestFor(c: GmCase, o: { maxTokens?: number; temperature?: number; nonce?: string | null } = {}) {
+export function requestFor(c: GmCase, o: { maxTokens?: number; temperature?: number; nonce?: string | null; /** US-0019: GM_TRANSCRIPT_WINDOW (the production default when absent). */ window?: number } = {}) {
   const scene = { id: c.scene.id, title: c.scene.title, goal: c.scene.goal } as unknown as Scene;
   const state = { ...initialState(), transcript: c.dialogue.map((d, i) => ({ seq: i + 1, ts: 0, sceneId: c.scene.id, roleId: d.role, text: d.text, channel: "text" as const })) };
   return buildGmRequest({ scene, condition: c.condition, state, ...o, nonce: o.nonce ?? null });
@@ -177,7 +177,7 @@ export async function runGmEval(deps: GmEvalDeps): Promise<{ exitCode: number }>
       for (let k = 0; k < runs; k++) {
         const t0 = Date.now();
         const nonce = newGmNonce();
-        const out = await runGmEvaluation({ provider: provider!, request: requestFor(c, { maxTokens, temperature, nonce }), condition: c.condition, timeoutMs: gm.timeoutMs, reask: gm.reask, nonce });
+        const out = await runGmEvaluation({ provider: provider!, request: requestFor(c, { maxTokens, temperature, nonce, window: gm.transcriptWindow }), condition: c.condition, timeoutMs: gm.timeoutMs, reask: gm.reask, nonce });
         const latencyMs = Date.now() - t0;
         if (out.kind === "verdict") results.push({ caseId: c.id, verdict: out.verdict, attempts: out.attempts, latencyMs, via: out.via });
         else if (out.kind === "no_verdict") results.push({ caseId: c.id, verdict: null, attempts: out.attempts, latencyMs, reason: out.reason });

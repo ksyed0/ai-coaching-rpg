@@ -55,7 +55,8 @@ describe("buildNpcRequest", () => {
     let s = stateWith(["delivery_lead", "Hi Priya"]);
     s = reduce(s, { ...env(s.lastSeq + 1), type: "npc.updated", roleId: "client_sponsor", goals: s.npcs.client_sponsor!.goals, knowledge: s.npcs.client_sponsor!.knowledge, released: ["Would accept phasing"] });
     const system = buildNpcRequest({ role, scene, state: s }).system;
-    const know = system.slice(system.indexOf("## What you know"), system.indexOf("## Rules you must follow"));
+    const know = system.slice(system.indexOf("## What you know"), system.indexOf("## Current scene")); // US-0019: the next section after the reorder
+    expect(know).toContain("The CFO asked about cost");
     expect(know).not.toContain("Would accept phasing");
     const at = system.indexOf("## What you may now share");
     expect(at).toBeGreaterThan(system.indexOf("## Your last lines")); // the last section: the cached prefix stays stable

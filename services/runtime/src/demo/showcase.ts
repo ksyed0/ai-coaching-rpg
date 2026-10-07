@@ -671,6 +671,21 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       ensure(leaked.length === 0, `${owner.id}'s prompt contained another AI character's private text: ${leaked.map((x) => x.slice(0, 60)).join(" | ")}`);
       crossChecked++;
     }
+    // US-0019 (AC-0061): every prompt of one character starts with the same stable prefix (its cache breakpoint), byte for byte, through its
+    // npc.updated events, injects, releases and scene changes; the prefix holds none of its goals, knowledge or hidden facts.
+    const prefixes = new Map<string, string>();
+    for (const req of sys!.npc!.calls) {
+      const owner = npcRoles.find((r) => req.system.includes(npcIntro(r)));
+      if (!owner) continue;
+      const n = req.cachePrefixChars ?? 0;
+      ensure(n > 0 && n < req.system.length, `${owner.id}'s prompt marks no stable prefix to cache`);
+      const head = req.system.slice(0, n);
+      ensure((prefixes.get(owner.id) ?? head) === head, `${owner.id}'s stable prompt prefix changed during the run (its cached prefix would not survive)`);
+      prefixes.set(owner.id, head);
+      const inHead = [...owner.goals, ...owner.knowledge, ...owner.hidden].map((x) => x.trim()).filter((x) => x.length >= 12 && head.includes(x));
+      ensure(inHead.length === 0, `${owner.id}'s stable prompt prefix holds changing content: ${inHead.map((x) => x.slice(0, 60)).join(" | ")}`);
+    }
+    ensure(npcRoles.every((r) => !sys!.npc!.calls.some((c) => c.system.includes(npcIntro(r))) || prefixes.has(r.id)), "an AI character's stable prompt prefix was not audited (vacuous audit)");
     const npcs = npcRoles as { persona: string }[];
     ensure(npcs.every((p) => sys!.npc!.calls.some((c) => c.system.includes(p.persona.slice(0, 20)))), "an AI character's own persona is missing from its prompts (vacuous audit)");
     const conditions = scenario.script.scenes.flatMap((s) => s.exit_when.any_of).filter((c): c is { gm_detects: string } => typeof c === "object").map((c) => c.gm_detects);
@@ -680,7 +695,7 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
     const earnedCalls = sys!.gm!.calls.filter((c) => earnedCheckOf(c) !== null).length;
     if (mock) ensure(earnedConds.length === 0 || earnedCalls > 0, "the scenario has earned_when conditions but no earned_when check was captured (vacuous audit)");
     const nReleased = [...released.values()].reduce((a, v) => a + v.length, 0);
-    return `all ${calls.length} captured prompts (${sys!.npc!.calls.length} AI character, ${sys!.gm!.calls.length} Game Master${earnedCalls > 0 ? `, ${earnedCalls} of them earned_when checks` : ""}) were checked against ${banned.length} strings (and ${crossChecked} AI character prompts against the other characters' private text); none appeared, and the positive controls did${nReleased > 0 ? `; ${nReleased} released hidden fact(s) appeared only in the "What you may now share" section of their own character's prompt (${shared} prompt(s)), never in another character's, a player's or the Game Master's` : "; no hidden fact was released, so none appeared in any prompt"}`;
+    return `all ${calls.length} captured prompts (${sys!.npc!.calls.length} AI character, ${sys!.gm!.calls.length} Game Master${earnedCalls > 0 ? `, ${earnedCalls} of them earned_when checks` : ""}) were checked against ${banned.length} strings (and ${crossChecked} AI character prompts against the other characters' private text; each of ${prefixes.size} character(s) kept one stable cached prompt prefix); none appeared, and the positive controls did${nReleased > 0 ? `; ${nReleased} released hidden fact(s) appeared only in the "What you may now share" section of their own character's prompt (${shared} prompt(s)), never in another character's, a player's or the Game Master's` : "; no hidden fact was released, so none appeared in any prompt"}`;
   }, ["S-01"]);
 
   await rec.run("S-07", () => {

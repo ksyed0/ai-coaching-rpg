@@ -100,9 +100,13 @@ export class AnthropicModelProvider implements ModelProvider {
   }
 
   async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<string> {
+    const n = req.cachePrefixChars;
+    const split = n !== undefined && Number.isInteger(n) && n > 0 && n < req.system.length;
     const system = req.cacheSystem === false
       ? req.system
-      : [{ type: "text" as const, text: req.system, cache_control: { type: "ephemeral" as const } }];
+      : split // US-0019: the breakpoint after the stable prefix only; the changing rest follows uncached, and the two texts rebuild the prompt exactly
+        ? [{ type: "text" as const, text: req.system.slice(0, n), cache_control: { type: "ephemeral" as const } }, { type: "text" as const, text: req.system.slice(n) }]
+        : [{ type: "text" as const, text: req.system, cache_control: { type: "ephemeral" as const } }];
     try {
       const stream = this.client.messages.stream(
         { model: req.model ?? this.model, max_tokens: req.maxTokens, ...(req.temperature !== undefined ? { temperature: req.temperature } : {}), system, messages: req.messages },

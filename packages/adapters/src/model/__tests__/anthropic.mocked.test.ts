@@ -28,6 +28,31 @@ describe("AnthropicModelProvider (SDK mocked)", () => {
     expect(params.system).toEqual([{ type: "text", text: "sys", cache_control: { type: "ephemeral" } }]);
   });
 
+  it("US-0019: with cachePrefixChars, only the stable prefix carries the cache breakpoint and the two blocks rebuild the prompt exactly", async () => {
+    const p = new AnthropicModelProvider({ apiKey: "k", model: "m1" });
+    const system = "STABLE persona\nrules\n## Your current goals\n- changes";
+    const n = "STABLE persona\nrules".length;
+    for await (const _ of p.stream({ system, messages: [], maxTokens: 5, cachePrefixChars: n })) void _;
+    const blocks = streamMock.mock.calls[0]![0].system as { type: string; text: string; cache_control?: unknown }[];
+    expect(blocks).toEqual([
+      { type: "text", text: "STABLE persona\nrules", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "\n## Your current goals\n- changes" },
+    ]);
+    expect(blocks.map((b) => b.text).join("")).toBe(system);
+  });
+
+  it("US-0019: a cachePrefixChars of 0, the whole length, beyond it or not a whole number caches the whole system prompt as before; cacheSystem false still wins", async () => {
+    const p = new AnthropicModelProvider({ apiKey: "k", model: "m1" });
+    for (const n of [0, 3, 99, 1.5, -1, Number.NaN]) {
+      streamMock.mockClear();
+      for await (const _ of p.stream({ system: "sys", messages: [], maxTokens: 5, cachePrefixChars: n })) void _;
+      expect(streamMock.mock.calls[0]![0].system).toEqual([{ type: "text", text: "sys", cache_control: { type: "ephemeral" } }]);
+    }
+    streamMock.mockClear();
+    for await (const _ of p.stream({ system: "sys", messages: [], maxTokens: 5, cacheSystem: false, cachePrefixChars: 1 })) void _;
+    expect(streamMock.mock.calls[0]![0].system).toBe("sys");
+  });
+
   it("passes `temperature` only when the request sets it", async () => {
     const p = new AnthropicModelProvider({ apiKey: "k", model: "m1" });
     for await (const _ of p.stream({ system: "s", messages: [], maxTokens: 5, temperature: 0.4 })) void _;

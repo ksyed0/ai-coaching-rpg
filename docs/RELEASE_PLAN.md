@@ -605,22 +605,22 @@ Notes: The crash is simulated in process (connections cut, lock and log abandone
 US-0019 (EPIC-0006): As an operator, I want model calls to cost less per session, so that sessions stay affordable as they get longer.
 Priority: Low
 Estimate: S
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0006-US-0019-model-cost
 Dependencies: US-0008
 Acceptance Criteria:
-  - [ ] AC-0059: the Game Master prompt uses a bounded transcript window instead of the whole scene transcript
-  - [ ] AC-0060: the Game Master stops evaluating the remaining conditions of a scene after a condition is judged true
-  - [ ] AC-0061: the NPC persona prompt puts stable content before changing goals and knowledge so the cached prefix survives NPC updates
+  - [x] AC-0059: the Game Master prompt uses a bounded transcript window instead of the whole scene transcript (the latest `GM_TRANSCRIPT_WINDOW` utterances of the current scene, default 40, 10 to 500 and at least `GM_EVERY_N_UTTERANCES`, validated in the server, the demo and `gm-eval --live`; the oldest lines are cut first and the system prompt states how many were left out, numbers only; no summary; nonce, verdict format, parser, re-ask and escaping unchanged; exit and earned_when prompts alike; the trace records the window; the shipped scenes fit, so the demos make the same 19 Game Master calls; TC-0020; a live run on a real model is still to be recorded)
+  - [x] AC-0060: the Game Master stops evaluating the remaining conditions of a scene after a condition is judged true (once a true verdict is recorded in the round, for the tick and `finalEvaluation`; a stale refused verdict, a false, no verdict or a model error go on; the US-0034 earned_when checks were already skipped in such a round; TC-0021)
+  - [x] AC-0061: the NPC persona prompt puts stable content before changing goals and knowledge so the cached prefix survives NPC updates (`stableNpcPrefix`: instructions, persona, guardrails, voice; then goals, knowledge, scene, room, response rules, last lines, released facts last; `ChatRequest.cachePrefixChars` marks the prefix and the Anthropic adapter puts its cache breakpoint there; a test asserts byte-identical prefixes through goal, knowledge and release updates and a scene change; S-06 asserts it for every captured prompt; TC-0022; actual provider cache reads are not measured)
 ```
 
 ```
 TASK-0019 (US-0019): Bound the Game Master transcript, short-circuit after a true verdict, reorder the NPC prompt prefix
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0019-model-cost
-Notes: Deferred minor findings from Tasks 7 and 8 and the final review. Behavior must stay covered by the existing leak and guardrail tests.
+Notes: Deferred minor findings from Tasks 7 and 8 and the final review. Behavior must stay covered by the existing leak and guardrail tests. Done 2026-10-07: gm-config (`GM_TRANSCRIPT_WINDOW`), gm-prompt (window, omission line), game-master (window, short-circuit, trace `window`), session-host/main/demo/gm-eval wiring, adapters (`cachePrefixChars`, Anthropic two-block system), npc-prompt (`stableNpcPrefix`, reorder), S-06 extended (no new check: 29, 14, 15, 42). Test cases TC-0020..TC-0022. Not done here: a live run on a real model.
 ```
 
 ```

@@ -144,6 +144,24 @@ describe("the audits can fail (tampered captures)", () => {
     expect(result(r, "S-06").details).toContain("never reached that character's prompt");
   });
 
+  it("US-0019: S-06 fails when a character's stable prompt prefix changes during the run, holds one of its goals, or is not marked", async () => {
+    type Req = { system: string; cachePrefixChars?: number };
+    const cfo = (sys?: Sys) => (sys!.npc!.calls as Req[]).filter((x) => x.system.includes("You are playing Helena Brandt"));
+    // One byte near the end of the last CFO prompt's prefix (the intro stays intact, so the prompt is still hers).
+    const changed = await run(FAIL, { showcaseHooks: at("s6_wrap_up", 0, ({ sys }) => { const c = cfo(sys).at(-1)!; const n = c.cachePrefixChars!; c.system = `${c.system.slice(0, n - 2)}X${c.system.slice(n - 1)}`; }) as never });
+    expect(result(changed, "S-06").status).toBe("failed");
+    expect(result(changed, "S-06").details).toContain("stable prompt prefix changed during the run");
+    // Move the CFO's first goal line into her prefix, in every captured prompt (the same in all of them, so only the content check can catch it).
+    const holds = await run(FAIL, { showcaseHooks: at("s6_wrap_up", 0, ({ sys }) => {
+      for (const c of cfo(sys)) { const goal = c.system.slice(c.system.indexOf("## Your current goals")).split("\n")[1]!.slice(2); const n = c.cachePrefixChars!; c.system = `${c.system.slice(0, n)}\n${goal}${c.system.slice(n)}`; c.cachePrefixChars = n + goal.length + 1; }
+    }) as never });
+    expect(result(holds, "S-06").status).toBe("failed");
+    expect(result(holds, "S-06").details).toContain("stable prompt prefix holds changing content");
+    const unmarked = await run(FAIL, { showcaseHooks: at("s6_wrap_up", 0, ({ sys }) => { delete cfo(sys)[0]!.cachePrefixChars; }) as never });
+    expect(result(unmarked, "S-06").status).toBe("failed");
+    expect(result(unmarked, "S-06").details).toContain("marks no stable prefix");
+  });
+
   it("S-07 fails when a player receives the release command", async () => {
     const hooks = at("s6_wrap_up", 0, ({ players }) => { players!.delivery_lead!.inbox.push({ type: "event", event: { seq: 9_100, ts: 1, sessionId: "demo", type: "facilitator.command", command: "release_hidden", roleId: "cfo", fact: 1 } }); });
     const r = await run(FAIL, { showcaseHooks: hooks as never });

@@ -3,7 +3,7 @@ import type { SessionEngine } from "../engine/session-engine.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "./timeouts.js";
 import { buildGmEarnedRequest, buildGmRequest } from "./gm-prompt.js";
 import { newGmNonce, runGmEvaluation, type GmReplyTrace } from "./gm-evaluate.js";
-import { DEFAULT_GM_EVERY_N_UTTERANCES } from "./gm-config.js";
+import { DEFAULT_GM_EVERY_N_UTTERANCES, DEFAULT_GM_TRANSCRIPT_WINDOW } from "./gm-config.js";
 import { DEFAULT_GM_MAX_TOKENS } from "./token-budgets.js";
 
 /**
@@ -21,6 +21,8 @@ export type GmTraceRecord = {
   seq: number; sceneId: string; condition: string;
   /** US-0034: present when the evaluation judged a hidden fact's earned_when condition (by role id and fact number; never the fact text). */
   earned?: { roleId: string; fact: number };
+  /** US-0019: the transcript window of the prompt (its latest utterances of the scene up to `seq`), so the prompt can still be rebuilt from the log. Always set by the Game Master; absent in traces written before US-0019. */
+  window?: number;
 } & GmReplyTrace;
 
 export class GameMaster {
@@ -44,11 +46,14 @@ export class GameMaster {
   /** US-0034: when each earned_when condition (`role#fact`) was last judged, in evaluation rounds, for the round-robin. In memory only: a restart starts the rotation again. */
   private readonly earnedLastRound = new Map<string, number>();
   private earnedRound = 0;
+  /** US-0019, GM_TRANSCRIPT_WINDOW: how many of the scene's latest utterances each prompt holds; never fewer than `everyN`, so no line is skipped between two evaluations. */
+  readonly transcriptWindow: number;
 
-  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number; reask?: boolean; trace?: (rec: GmTraceRecord) => void; autoRelease?: boolean }) {
+  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number; reask?: boolean; trace?: (rec: GmTraceRecord) => void; autoRelease?: boolean; transcriptWindow?: number }) {
     this.reask = opts.reask ?? true; this.trace = opts.trace; this.autoRelease = opts.autoRelease ?? false;
     this.engine = opts.engine; this.provider = opts.provider; this.everyN = opts.everyNUtterances ?? GM_EVERY_N_UTTERANCES;
     this.maxTokens = opts.maxTokens ?? DEFAULT_GM_MAX_TOKENS;
+    this.transcriptWindow = Math.max(Math.floor(opts.transcriptWindow ?? DEFAULT_GM_TRANSCRIPT_WINDOW), this.everyN, 1);
     this.temperature = opts.temperature;
     this.evaluationTimeoutMs = opts.evaluationTimeoutMs ?? gmDeadlineMs(DEFAULT_REPLY_TIMEOUT_MS);
     this.onError = opts.onError ?? ((err) => console.error("[GameMaster] evaluation failed:", err));
@@ -124,20 +129,25 @@ export class GameMaster {
     return true;
   }
 
+  /** A recorded true exit verdict of the current scene: the scene exits at the next engine tick (gmVerdicts is reset on every scene entry). */
+  private exitVerdictTrue(): boolean { return Object.values(this.engine.state.gmVerdicts).some((v) => v); }
+
   /**
-   * One evaluation pass over a scene: each gm_detects exit condition, then (US-0034) each pending earned_when condition of the AI characters
-   * in it (pendingEarnedChecks: not yet judged earned, not released), at most MAX_EARNED_CHECKS_PER_ROUND of them, and none once an exit verdict
-   * of this scene came back true. Stops when the scene moves on. A scenario without earned_when makes
-   * exactly the calls it made before.
+   * One evaluation pass over a scene: each gm_detects exit condition in scenario order until one is recorded true (US-0019, AC-0060: the scene
+   * ends at the next engine tick, so judging the rest would only cost model calls), then (US-0034) each pending earned_when condition of the AI
+   * characters in it (pendingEarnedChecks: not yet judged earned, not released), at most MAX_EARNED_CHECKS_PER_ROUND of them, and none once an
+   * exit verdict of this scene came back true. Stops when the scene moves on. Only a verdict the engine RECORDED counts (a stale one it refused
+   * does not); false, no verdict and a model failure go on to the next condition. A scenario without earned_when makes no more calls than before.
    */
   private async evaluateScene(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>): Promise<void> {
     for (const cond of scene.exit_when.any_of) {
       if (typeof cond !== "object") continue;
       if (this.engine.state.currentScene?.id !== scene.id) return; // scene moved on mid-evaluation
+      if (this.exitVerdictTrue()) return; // AC-0060: a condition was judged true: no further exit or earned_when check this round
       await this.evaluate(scene, cond.gm_detects);
     }
     // The scene is ending on a true exit verdict (it exits at the next engine tick): no earned_when check this round.
-    if (Object.values(this.engine.state.gmVerdicts).some((v) => v)) return;
+    if (this.exitVerdictTrue()) return;
     this.earnedRound++;
     const key = (c: { role: { id: string }; fact: number }) => `${c.role.id}#${c.fact}`;
     const pending = this.engine.pendingEarnedChecks()
@@ -163,12 +173,13 @@ export class GameMaster {
     const seq = this.engine.state.lastSeq;
     const { role, fact, condition } = check;
     const nonce = newGmNonce();
-    const request = buildGmEarnedRequest({ scene, role, fact, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, nonce });
+    const window = this.transcriptWindow;
+    const request = buildGmEarnedRequest({ scene, role, fact, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, nonce, window });
     const earned = { roleId: role.id, fact };
     const out = await runGmEvaluation({
       provider: this.provider, request, condition, timeoutMs: this.evaluationTimeoutMs, reask: this.reask, nonce,
       subject: `hidden fact ${fact} of ${role.id} (earned_when "${condition}")`,
-      onReply: (r) => this.traceRecord({ seq, sceneId: expectSceneId, condition, earned, ...r }),
+      onReply: (r) => this.traceRecord({ seq, sceneId: expectSceneId, condition, earned, window, ...r }),
     });
     if (out.kind === "alert") await this.engine.alert(out.message, "warning", { expectSceneId });
     else if (out.kind === "no_verdict") await this.engine.alert(`GM: no usable verdict on whether hidden fact ${fact} of ${role.id} is earned (${out.reason}${out.attempts > 1 ? " after the re-ask" : ""})`, "info", { expectSceneId });
@@ -188,10 +199,11 @@ export class GameMaster {
     const expectSceneId = scene.id;
     const seq = this.engine.state.lastSeq;
     const nonce = newGmNonce(); // per evaluation, in the system prompt only; never logged
-    const base = buildGmRequest({ scene, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, nonce });
+    const window = this.transcriptWindow;
+    const base = buildGmRequest({ scene, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, nonce, window });
     const out = await runGmEvaluation({
       provider: this.provider, request: base, condition, timeoutMs: this.evaluationTimeoutMs, reask: this.reask, nonce,
-      onReply: (r) => this.traceRecord({ seq, sceneId: expectSceneId, condition, ...r }),
+      onReply: (r) => this.traceRecord({ seq, sceneId: expectSceneId, condition, window, ...r }),
     });
     if (out.kind === "alert") await this.engine.alert(out.message, "warning", { expectSceneId });
     else if (out.kind === "verdict") await this.engine.recordGmVerdict(condition, out.verdict, out.reasoning, { expectSceneId, via: out.via });
