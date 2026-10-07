@@ -47,6 +47,10 @@ export const ProbeSchema = z.discriminatedUnion("kind", [SingleProbeSchema, Cont
   if (p.source === "drafted" && (p.drafter === null || p.approved_by === null || p.approved_at === null)) {
     ctx.addIssue({ code: "custom", message: "a drafted probe needs drafter, approved_by and approved_at" });
   }
+  if (p.source === "excerpt") {
+    if (p.approved_by === null || p.approved_at === null) ctx.addIssue({ code: "custom", message: "an excerpt probe needs approved_by and approved_at (a human assigned its level)" });
+    if (p.drafter !== null) ctx.addIssue({ code: "custom", message: "an excerpt probe has no drafter (it is a real excerpt, not model-drafted)" });
+  }
   if (p.kind === "single" && p.acceptable !== undefined && !p.acceptable.includes(p.expected)) {
     ctx.addIssue({ code: "custom", message: "acceptable must include expected" });
   }

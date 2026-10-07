@@ -1060,7 +1060,7 @@ Notes: Implementation plan Tasks 4-8 (docs/superpowers/plans, evaluator calibrat
 US-0037 (EPIC-0005): Probe drafting, excerpts, approval, and the scaled Friday set
 Priority: Medium
 Estimate: M
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0005-US-0037-probe-drafting
 Dependencies: US-0036
 Acceptance Criteria:

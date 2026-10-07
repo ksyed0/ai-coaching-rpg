@@ -47,7 +47,8 @@ async function scenarioWith(probes: Record<string, string>): Promise<string> {
   for (const [name, text] of Object.entries(probes)) await writeFile(path.join(scn, "calibration", name), text);
   return scn;
 }
-const line = (role: string, text: string) => `  - { scene: s1_huddle, role: ${role}, text: "${text}" }`;
+// the scene must have the role as a participant: client_sponsor is only in s2_client_call, tech_lead only in s1_huddle
+const line = (role: string, text: string) => `  - { scene: ${role === "tech_lead" ? "s1_huddle" : "s2_client_call"}, role: ${role}, text: "${text}" }`;
 const single = (id: string, lines: string[], extra = "") => [`kind: single`, `id: ${id}`, `criterion: discovery`, `source: handwritten`, `split: tune`, `subject: delivery_lead`, `expected: 2`, extra, `transcript:`, ...lines].filter(Boolean).join("\n") + "\n";
 
 describe("pnpm calibrate: the mock refusal", () => {

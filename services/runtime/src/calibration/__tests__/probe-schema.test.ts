@@ -8,6 +8,11 @@ const base = {
   transcript: [line("client_sponsor", "Can you confirm by Friday?"), line("delivery_lead", "Yes, done.")],
 };
 
+const messages = (input: unknown): string => {
+  const r = ProbeSchema.safeParse(input);
+  return r.success ? "" : r.error.issues.map((i) => i.message).join("; ");
+};
+
 describe("ProbeSchema", () => {
   it("accepts a single probe and defaults drafter and approval to null, leaving acceptable unset", () => {
     const p = ProbeSchema.parse({ ...base, kind: "single", subject: "delivery_lead", expected: 1 });
@@ -36,6 +41,17 @@ describe("ProbeSchema", () => {
     expect(() => ProbeSchema.parse(draft)).toThrow();
     expect(() => ProbeSchema.parse({ ...draft, drafter: "m", approved_by: "kamal", approved_at: "2026-10-08T00:00:00Z" })).not.toThrow();
   });
+  it("requires approval on an excerpt probe (a human assigned the level) and keeps its drafter null", () => {
+    const ex = { ...base, source: "excerpt", kind: "single", subject: "delivery_lead", expected: 2 };
+    const approved = { approved_by: "kamal", approved_at: "2026-10-08T00:00:00Z" };
+    expect(ProbeSchema.safeParse({ ...ex, ...approved }).success).toBe(true);
+    expect(messages(ex)).toMatch(/excerpt.*approved_by.*approved_at/);
+    expect(messages({ ...ex, approved_by: "kamal" })).toMatch(/excerpt.*approved_by.*approved_at/);
+    expect(messages({ ...ex, approved_at: "2026-10-08T00:00:00Z" })).toMatch(/excerpt.*approved_by.*approved_at/);
+    expect(messages({ ...ex, ...approved, drafter: "m" })).toMatch(/excerpt.*drafter/);
+    // handwritten probes are unaffected
+    expect(ProbeSchema.safeParse({ ...base, kind: "single", subject: "delivery_lead", expected: 2 }).success).toBe(true);
+  });
   it("requires acceptable to include expected", () => {
     expect(() => ProbeSchema.parse({ ...base, kind: "single", subject: "delivery_lead", expected: 4, acceptable: [2, 3] })).toThrow();
   });
@@ -48,10 +64,6 @@ describe("ProbeSchema", () => {
     expect(ProbeSchema.parse({ ...base, kind: "single", subject: "delivery_lead", expected: "not_observed" }).kind).toBe("single");
   });
   const contrast = (players: Record<string, number>, min_gap: number) => ({ ...base, kind: "contrast", players, min_gap });
-  const messages = (input: unknown): string => {
-    const r = ProbeSchema.safeParse(input);
-    return r.success ? "" : r.error.issues.map((i) => i.message).join("; ");
-  };
   it("rejects a min_gap larger than the smallest difference between distinct expected levels", () => {
     expect(messages(contrast({ delivery_lead: 4, account_manager: 3 }, 3))).toMatch(/min_gap.*smallest/);
     expect(messages(contrast({ delivery_lead: 4, account_manager: 2, tech_lead: 1 }, 2))).toMatch(/min_gap.*smallest/);

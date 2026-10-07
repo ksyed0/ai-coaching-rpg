@@ -19,5 +19,11 @@ describe("Friday starter probe set", () => {
     expect(r.probes.filter((p) => p.kind === "contrast")).toHaveLength(2);
     expect(r.probes.every((p) => p.source === "handwritten")).toBe(true);
     expect(r.warnings.join("\n")).toMatch(/fewer than 20/);
+    // 10 expectations with a single level 2 and a single level 3 (10% each): the balance warning is legitimate for the thin starter set
+    expect(r.warnings.filter((w) => w.startsWith("expected levels are unbalanced")).map((w) => w.slice(0, 55))).toEqual([
+      "expected levels are unbalanced: level 2 has 1 of 10 exp",
+      "expected levels are unbalanced: level 3 has 1 of 10 exp",
+    ]);
+    expect(r.warnings.filter((w) => w.includes("not scored"))).toEqual([]);
   });
 });

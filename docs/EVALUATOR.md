@@ -127,7 +127,7 @@ Write anchors as **observable behaviour in the participant's OWN words**, for th
 kind: single                  # single | contrast
 id: disc-l1                   # 1 to 58 of a-z, 0-9, _ or -; must match the file name
 criterion: discovery          # an individual criterion of the scenario's rubrics
-source: handwritten           # handwritten | drafted | excerpt (drafted needs drafter, approved_by, approved_at)
+source: handwritten           # handwritten | drafted | excerpt (drafted needs drafter, approved_by, approved_at; excerpt needs approved_by, approved_at and no drafter)
 split: tune                   # tune | holdout (stored, never recomputed)
 subject: delivery_lead        # single: the player scored
 expected: 1                   # single: 1 to 4 or not_observed
@@ -141,6 +141,14 @@ transcript:                   # 2 to 80 lines; every scored player needs at leas
 #   players: { delivery_lead: 4, account_manager: 1 }
 #   min_gap: 2                # required level difference between adjacent players
 ```
+
+**Writing probes: rules the loader checks.**
+
+- An `excerpt` probe (a real, redacted session range) needs `approved_by` and `approved_at`, because a human assigned its level; its `drafter` stays empty. A `drafted` probe needs `drafter` too.
+- Every speaker of a line must be a participant of that line's scene in `script.yaml` (a role that is not in the scene is an error).
+- No line may contain a hidden fact of a role (a fact of 20 characters or more, compared ignoring case and spacing): the model would be judging a leak. The error names the role, never the fact.
+- Balance (warning): with 8 or more expectations, each of levels 1 to 4 should hold 15% to 40% of them (single probes' `expected` and every contrast player). The older mid-heavy warning stays.
+- Unscored speakers (warning): the evaluator scores every player with 2 or more lines, so a player who speaks twice but is not the subject or a contrast player costs a model call whose result is dropped; give them one line or make them a subject.
 
 An invalid probe fails the run with a list of every problem (exit 2), before any model call. Targets can be overridden per scenario in `calibration/targets.yaml` (`contrastOrdering`, default 0.8; `maxAbsBias`, 0.3; `exactAgreement`, unset; `minUsable`, 0.9).
 

@@ -13,6 +13,9 @@ export const MIN_HOLDOUT_PROBES = 10;
 export const MAX_PROBE_BYTES = 128 * 1024;
 const MAX_ALIASES = 10;
 const MAX_REPORTED_ISSUES = 5;
+const MIN_BALANCE_EXPECTATIONS = 8;
+const MIN_LEVEL_SHARE = 15;
+const MAX_LEVEL_SHARE = 40;
 
 export type LoadedProbes = { probes: Probe[]; errors: string[]; warnings: string[] };
 
@@ -99,7 +102,7 @@ export async function loadProbes(dir: string, scenario: Scenario, rubrics: Rubri
   for (const name of files) {
     const probe = await parseOne(path.join(calDir, name), name, out.errors);
     if (!probe) continue;
-    const problems = checkProbe(name, probe, scenario, individual);
+    const problems = checkProbe(name, probe, scenario, individual, out.warnings);
     if (seen.has(probe.id)) problems.push(`${printable(name)}: duplicate probe id ${probe.id}`);
     if (problems.length) { out.errors.push(...problems); continue; }
     seen.add(probe.id);
@@ -129,22 +132,48 @@ async function parseOne(file: string, name: string, errors: string[]): Promise<P
   return r.data;
 }
 
-function checkProbe(name: string, p: Probe, scenario: Scenario, individual: Map<string, Criterion>): string[] {
+/** Lower-case with every whitespace run collapsed to one space, so a hidden fact is found whatever the casing or spacing of the line. */
+function normalise(s: string): string {
+  return s.toLowerCase().split(/\s+/).filter((w) => w !== "").join(" ");
+}
+
+/** A hidden fact shorter than this is too generic to be told apart from ordinary speech. */
+const MIN_HIDDEN_FACT_CHARS = 20;
+
+function checkProbe(name: string, p: Probe, scenario: Scenario, individual: Map<string, Criterion>, warnings: string[]): string[] {
   const problems: string[] = [];
   const label = printable(name);
   if (`${p.id}.yaml` !== name) problems.push(`${label}: the id ${p.id} must match the file name`);
   if (!individual.has(p.criterion)) problems.push(`${label}: criterion ${p.criterion} is not an individual criterion of this scenario's rubrics`);
-  const sceneIds = new Set(scenario.script.scenes.map((s) => s.id));
+  const scenes = new Map(scenario.script.scenes.map((s) => [s.id, s]));
   const counts = new Map<string, number>();
+  const notParticipant = new Set<string>();
   for (const l of p.transcript) {
-    if (!sceneIds.has(l.scene)) problems.push(`${label}: unknown scene ${l.scene}`);
-    if (!Object.hasOwn(scenario.roles, l.role)) problems.push(`${label}: unknown role ${l.role}`);
+    const scene = scenes.get(l.scene);
+    if (!scene) problems.push(`${label}: unknown scene ${l.scene}`);
+    const known = Object.hasOwn(scenario.roles, l.role);
+    if (!known) problems.push(`${label}: unknown role ${l.role}`);
+    if (scene && known && !scene.participants.includes(l.role)) notParticipant.add(`${l.role} is not a participant of scene ${l.scene}`);
     counts.set(l.role, (counts.get(l.role) ?? 0) + 1);
   }
-  for (const role of scoredRoles(p)) {
+  for (const m of notParticipant) problems.push(`${label}: ${m}`);
+  const lines = p.transcript.map((l) => normalise(l.text));
+  for (const [role, def] of Object.entries(scenario.roles)) {
+    const facts = (def.type === "npc" ? def.hidden : []).map(normalise).filter((f) => f.length >= MIN_HIDDEN_FACT_CHARS);
+    if (facts.some((f) => lines.some((t) => t.includes(f)))) problems.push(`${label}: a transcript line contains a hidden fact of ${role}`);
+  }
+  const scored = new Set(scoredRoles(p));
+  for (const role of scored) {
     const def = Object.hasOwn(scenario.roles, role) ? scenario.roles[role] : undefined;
     if (def?.type !== "player") problems.push(`${label}: ${role} is not a player role`);
     else if ((counts.get(role) ?? 0) < MIN_UTTERANCES) problems.push(`${label}: ${role} needs at least ${MIN_UTTERANCES} lines to be scored`);
+  }
+  // evaluateSession scores every scenario player with at least MIN_UTTERANCES lines, so an unscored one costs a call whose result is dropped
+  for (const [role, n] of counts) {
+    const def = Object.hasOwn(scenario.roles, role) ? scenario.roles[role] : undefined;
+    if (def?.type === "player" && !scored.has(role) && n >= MIN_UTTERANCES) {
+      warnings.push(`${label}: ${role} speaks ${n} times but is not scored (costs a model call); give them one line or make them a subject`);
+    }
   }
   return problems;
 }
@@ -162,6 +191,15 @@ export function lintProbeSet(probes: Probe[]): string[] {
   const ends = expected.filter((l) => l === 1 || l === 4).length;
   if (expected.length > 0 && (!expected.includes(1) || !expected.includes(4) || ends / expected.length < 0.3)) {
     w.push("expected levels are mid-heavy: add probes at levels 1 and 4 (a judge that always answers 3 would otherwise go unnoticed)");
+  }
+  if (expected.length >= MIN_BALANCE_EXPECTATIONS) {
+    for (const level of [1, 2, 3, 4]) {
+      const n = expected.filter((l) => l === level).length;
+      // integer comparison: 15% and 40% exactly are inside the range
+      if (n * 100 < MIN_LEVEL_SHARE * expected.length || n * 100 > MAX_LEVEL_SHARE * expected.length) {
+        w.push(`expected levels are unbalanced: level ${level} has ${n} of ${expected.length} expectations (share ${Math.round((n * 100) / expected.length)}%); aim for ${MIN_LEVEL_SHARE}% to ${MAX_LEVEL_SHARE}% per level`);
+      }
+    }
   }
   return w;
 }
