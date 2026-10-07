@@ -1487,7 +1487,7 @@
         },
         {
           "id": "AC-0188",
-          "text": "the report is Markdown plus JSON with a one-screen summary, PASS/WARN/FAIL labels per criterion from `targets.yaml` over documented defaults, `--strict` exits non-zero on FAIL, output is exclusive-create under git-ignored `data/calibration/`, and `pnpm calibrate` never blocks `pnpm evaluate` (report.ts, cli.ts, .gitignore; report.test.ts, targets.test.ts, cli.test.ts; the evaluator does not read calibration output; TC-0032)",
+          "text": "the report is Markdown plus JSON with a one-screen summary, PASS/WARN/FAIL labels per criterion from `targets.yaml` over documented defaults, `--strict` exits non-zero on FAIL, output is exclusive-create under git-ignored `data/calibration/`, and `pnpm calibrate` never blocks `pnpm evaluate` (report.ts, cli.ts, .gitignore; report.test.ts, targets.test.ts, cli.test.ts; the per-judge summary file is created or replaced only by a complete run (all probes, `--criteria all`, no failure or abort, at least one usable answer), otherwise left untouched with \"summary for <model> not updated: <reason>\"; files on disk are secret-scrubbed; the evaluator does not read calibration output; TC-0032)",
           "done": true
         }
       ],
@@ -3275,9 +3275,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-07T16:30:50.942Z",
-  "commitSha": "9a6689b",
-  "buildNumber": "275",
+  "generatedAt": "2026-10-07T16:45:08.166Z",
+  "commitSha": "b450435",
+  "buildNumber": "278",
   "branch": "feature/EPIC-0005-US-0036-calibrate-command",
   "sessionTimeline": [
     {
@@ -3502,7 +3502,7 @@
       "2026-10-05T15:38:44.157Z",
       "2026-10-06T15:38:44.157Z",
       "2026-10-07T15:38:44.155Z",
-      "2026-10-07T16:30:51.034Z"
+      "2026-10-07T16:45:08.249Z"
     ],
     "doneCounts": [
       0,
