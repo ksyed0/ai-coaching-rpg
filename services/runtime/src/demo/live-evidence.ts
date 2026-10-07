@@ -98,7 +98,7 @@ function joinCodePatterns(secrets: readonly string[]): RegExp[] {
   return out;
 }
 
-const OPAQUE = /[A-Za-z0-9+=_-]{20,}/g; // '/' and '.' end a run, so each path segment of a URL or a model id such as meta-llama/llama-3.3-70b-instruct is judged on its own
+const OPAQUE = /[\p{L}\p{N}+=_-]{20,}/gu; // '/' and '.' end a run, so each path segment of a URL or a model id such as meta-llama/llama-3.3-70b-instruct is judged on its own
 const ID_PREFIX = /^(?:req|request|resp|msg|chatcmpl|gen|run|trace|span|org|proj)[-_]/i;
 /**
  * Whether a run of characters looks like a key or token rather than a readable identifier. Model ids (kebab or snake case made of short
@@ -124,7 +124,7 @@ export function sanitizeAlert(message: string, o: { secrets: readonly string[]; 
   let out = redactHidden(scrubText(message, [...o.secrets]), o.hidden); // first: later passes must not eat part of a fact and break the match
   out = out.replace(/\bBearer(?:[\s⏎]|\\+[nrt])+[^\s⏎"']+/gi, REDACTED);
   for (const re of joinCodePatterns(o.secrets)) out = out.replace(re, REDACTED);
-  out = out.replace(/\b(?:sk|pk|rk|xai|gsk|AIza)[-_][A-Za-z0-9_-]{12,}/g, REDACTED);
+  out = out.replace(/\b(?:sk|pk|rk|xai|gsk|AIza)[-_][\p{L}\p{N}_-]{12,}/gu, REDACTED);
   out = out.replace(OPAQUE, (m) => (looksOpaque(m) ? REDACTED : m));
   return clip(out, ALERT_CHARS);
 }
