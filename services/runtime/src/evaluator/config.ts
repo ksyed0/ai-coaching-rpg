@@ -14,6 +14,10 @@ export const MIN_EVAL_TRANSCRIPT_CHARS = 5_000;
 export const MAX_EVAL_TRANSCRIPT_CHARS = 400_000;
 export const MAX_EVAL_MODEL_CHARS = 200;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+-]*$/;
+/** The one rule for a model id (EVAL_MODEL, NPC_MODEL, a calibration judge): 1 to 200 characters of the MODEL_ID class, never a URL. */
+export function isValidModelId(m: string): boolean {
+  return m.length > 0 && m.length <= MAX_EVAL_MODEL_CHARS && MODEL_ID.test(m) && !m.includes("://");
+}
 
 export type EvalConfig = {
   /** EVAL_MODEL; undefined means "the NPC model". */
@@ -37,7 +41,7 @@ export type EvalConfigParse = ({ ok: true } & EvalConfig) | { ok: false; errors:
 export function parseEvalConfig(env: NodeJS.ProcessEnv): EvalConfigParse {
   const errors: string[] = [];
   const model = (env.EVAL_MODEL ?? "").trim();
-  if (model !== "" && (model.length > MAX_EVAL_MODEL_CHARS || !MODEL_ID.test(model) || model.includes("://"))) {
+  if (model !== "" && !isValidModelId(model)) {
     errors.push(`EVAL_MODEL is invalid: use a model id of 1 to ${MAX_EVAL_MODEL_CHARS} letters, digits and . _ : / + - (no spaces, no URL)`);
   }
   const tokens = parseRetryEnv({ name: "EVAL_MAX_TOKENS", min: MIN_EVAL_TOKENS, max: MAX_EVAL_TOKENS, fallback: DEFAULT_EVAL_MAX_TOKENS }, env.EVAL_MAX_TOKENS);
