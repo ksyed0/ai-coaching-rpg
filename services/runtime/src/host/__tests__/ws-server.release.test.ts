@@ -150,4 +150,17 @@ describe("release_hidden over the WebSocket server (US-0016)", () => {
     expect(JSON.stringify(host.snapshotFor("host"))).not.toContain(FACT);
     expect(JSON.stringify(host.snapshotFor("facilitator"))).toContain(FACT);
   });
+
+  it("M-4: joining as a prototype key is unknown_role, and so is speaking as one", async () => {
+    const { port, host, engine } = await setup();
+    for (const k of ["__proto__", "constructor", "toString", "hasOwnProperty", "prototype"]) {
+      const c = await open(port);
+      c.send({ type: "join", sessionId: "local", roleId: k, participantId: "p1" });
+      expect((await c.next((m) => m.type === "error")).code, k).toBe("unknown_role");
+      expect(() => host.join(k, "p")).toThrowError(expect.objectContaining({ code: "unknown_role" }));
+    }
+    await engine.start({ host: "p1" });
+    for (const k of ["__proto__", "constructor", "toString"]) await expect(engine.say(k, "x")).rejects.toMatchObject({ code: "unknown_role" });
+    await expect(engine.updateNpc("constructor", { goals: [] })).rejects.toMatchObject({ code: "unknown_role" });
+  });
 });

@@ -57,7 +57,8 @@ export class SessionHost {
   }
 
   join(roleId: string, participantId: string): { brief: string; privateFacts: string[] } {
-    const role = this.scenario.roles[roleId];
+    // Own properties only: `__proto__`, `constructor` or `toString` are not roles.
+    const role = Object.hasOwn(this.scenario.roles, roleId) ? this.scenario.roles[roleId] : undefined;
     if (!role) throw new HostError("unknown_role");
     if (role.type !== "player") throw new HostError("npc_role");
     if (this.assignments[roleId] && this.assignments[roleId] !== participantId) throw new HostError("role_taken");

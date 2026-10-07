@@ -36,10 +36,13 @@ const SceneScriptSchema = z.object({
    * The mock run's S-04 check holds the run to these declarations.
    */
   mock: z.object({
-    npc: z.record(z.array(z.string())).default({}),
+    /** A reply is a string, or `{ reply, requires_release: n }`: the reply is only valid once hidden fact `n` of that character has been released (the loader checks that a facilitator step releases it earlier in the scene). */
+    npc: z.record(z.array(z.union([z.string(), z.object({ reply: z.string(), requires_release: z.number().int().min(1).max(50) }).strict()]))).default({}),
     gm: z.array(z.union([z.string(), z.object({ kind: z.enum(["tolerant", "malformed", "forged"]), reply: z.string() })])).default([]),
   }).default({}).transform((m) => ({
-    npc: m.npc,
+    npc: Object.fromEntries(Object.entries(m.npc).map(([k, v]) => [k, v.map((r) => (typeof r === "string" ? r : r.reply))])) as Record<string, string[]>,
+    /** Per character and reply index: the fact number the reply needs released first, or null. */
+    npcNeeds: Object.fromEntries(Object.entries(m.npc).map(([k, v]) => [k, v.map((r) => (typeof r === "string" ? null : r.requires_release))])) as Record<string, (number | null)[]>,
     gm: m.gm.map((r) => (typeof r === "string" ? r : r.reply)),
     gmKinds: m.gm.map((r): "strict" | "tolerant" | "malformed" | "forged" => (typeof r === "string" ? "strict" : r.kind)),
   })),
@@ -118,6 +121,14 @@ export function parseShowcaseScript(text: string, scenario: Scenario, o: Showcas
     const npcsHere = scene!.participants.filter((p) => scenario.roles[p]?.type === "npc");
     for (const id of Object.keys(entry.mock.npc)) {
       if (!npcsHere.includes(id)) bad(`${where}: mock replies are given for '${id}', who is not an AI character in that scene`);
+    }
+    // A mock reply that needs a released fact must come after the facilitator step that releases it (reply i answers line i + 1).
+    for (const [id, needs] of Object.entries(entry.mock.npcNeeds)) {
+      needs.forEach((fact, i) => {
+        if (fact === null) return;
+        const ok = entry.facilitator.some((st) => st.role === id && st.fact === fact && st.afterLine <= i);
+        if (!ok) bad(`${where}: mock reply ${i + 1} of '${id}' requires hidden fact ${fact} of '${id}' to be released first, but no facilitator step of this scene releases it after line ${i} or earlier`);
+      });
     }
     if (o.mode === "mock") {
       const spoken = Math.min(entry.lines.length, o.maxLines ?? entry.lines.length);

@@ -557,6 +557,27 @@ describe("BUG-0005: pause freezes the scene clock", () => {
       expect(engine.state.npcs.guest!.released).toEqual([FACT]);
     });
 
+    it("M-1: a release is two appends; if the second fails the command is orphaned, nothing is released, and a retry is accepted", async () => {
+      class FlakyLog extends MemoryEventLog {
+        failNext = false;
+        override async append(body: Parameters<MemoryEventLog["append"]>[0], ts: number) {
+          if (this.failNext && body.type === "npc.updated") { this.failNext = false; throw new Error("disk full"); }
+          return super.append(body, ts);
+        }
+      }
+      const flaky = new FlakyLog("sess-flaky");
+      const eng = new SessionEngine({ scenario, log: flaky, clock });
+      await eng.start({ host: "participant-1" });
+      flaky.failNext = true;
+      await expect(eng.command({ command: "release_hidden", roleId: "guest", fact: 1 })).rejects.toThrow("disk full");
+      expect(eng.state.npcs.guest!.released).toEqual([]); // npc.updated is the source of truth
+      const orphan = (await flaky.all()).filter((e) => e.type === "facilitator.command" && e.command === "release_hidden");
+      expect(orphan).toHaveLength(1);
+      await eng.command({ command: "release_hidden", roleId: "guest", fact: 1 }); // the retry is not already_released
+      expect(eng.state.npcs.guest!.released).toEqual([FACT]);
+      await expect(eng.command({ command: "release_hidden", roleId: "guest", fact: 1 })).rejects.toMatchObject({ code: "already_released" });
+    });
+
     it("replaying the log gives the same released facts", async () => {
       await engine.command({ command: "release_hidden", roleId: "guest", fact: 1 });
       let s = initialState();

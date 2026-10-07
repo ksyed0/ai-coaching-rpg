@@ -60,13 +60,20 @@ export function renderEvent(e: SessionEvent, me: string): string | null {
 /** Most roles and facts per role the client will list: a hostile or broken server cannot make it print without bound. */
 const MAX_LISTED_ROLES = 100;
 const MAX_LISTED_FACTS = 50;
+/** Most facts (all roles together) and most characters of one fact the client keeps and lists; 1000 is the scenario limit for a fact. */
+export const MAX_LISTED_TOTAL = 200;
+export const MAX_LISTED_FACT_CHARS = 1_000;
 
 /** The hidden facts a `joined` message carries, validated: role id -> up to 50 strings (anything else is dropped). Facilitator connections only. */
 export function parseHiddenFacts(v: unknown): Map<string, string[]> {
   const out = new Map<string, string[]>();
   if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  let total = 0;
   for (const [role, facts] of Object.entries(v as Record<string, unknown>).slice(0, MAX_LISTED_ROLES)) {
-    if (Array.isArray(facts)) out.set(role, facts.filter((f): f is string => typeof f === "string").slice(0, MAX_LISTED_FACTS));
+    if (!Array.isArray(facts) || total >= MAX_LISTED_TOTAL) continue;
+    const kept = facts.filter((f): f is string => typeof f === "string").slice(0, Math.min(MAX_LISTED_FACTS, MAX_LISTED_TOTAL - total)).map((f) => f.slice(0, MAX_LISTED_FACT_CHARS));
+    total += kept.length;
+    out.set(role, kept);
   }
   return out;
 }
@@ -78,6 +85,7 @@ export function renderHidden(facts: Map<string, string[]>, released: Map<string,
     const done = released.get(role) ?? [];
     list.forEach((text, i) => lines.push(`${s(role)} #${i + 1}${done.includes(text) ? " [released]" : ""} ${s(text)}`));
   }
+  if (lines.length >= MAX_LISTED_TOTAL) lines.push(`(only the first ${MAX_LISTED_TOTAL} hidden facts are listed)`);
   return lines.length ? lines : ["no AI character has hidden facts"];
 }
 

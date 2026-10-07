@@ -95,7 +95,7 @@ describe("the scripted release in scene s5 (mock mode)", () => {
     const dir = await tmp();
     await cp(EXTENDED, dir, { recursive: true });
     const file = path.join(dir, "showcase.yaml");
-    await writeFile(file, (await readFile(file, "utf8")).replace("after_line: 1, release_hidden", "after_line: 3, release_hidden"));
+    await writeFile(file, (await readFile(file, "utf8")).replace("after_line: 1, release_hidden", "after_line: 3, release_hidden").replace(/- requires_release: 1\n\s+reply: /, "- "));
     const skipped = await run(["--showcase", "--fast", "--no-color", "--scenario", dir, "--max-lines", "2"]);
     expect(skipped.report!.results.filter((x) => x.status === "failed")).toEqual([]);
     expect(skipped.stdout).not.toContain(NOTE);
@@ -124,6 +124,13 @@ describe("the audits can fail (tampered captures)", () => {
     }
   });
 
+  it("I-1: S-06 fails when a CFO prompt built BEFORE the release already holds the fact in its share section (the mutation: releasedSection fed with role.hidden)", async () => {
+    // s4 precedes the release (s5, after line 1): the first CFO call of the run is far earlier than the release seq.
+    const r = await run(FAIL, { showcaseHooks: at("s5_final_terms", 0, ({ sys }) => { const c = sys!.npc!.calls.find((x) => x.system.includes("You are playing Helena Brandt"))!; c.system += `\n${SHARE}\n- ${FACT}`; }) as never });
+    expect(result(r, "S-06").status).toBe("failed");
+    expect(result(r, "S-06").details).toMatch(/before it was released|share section contained/);
+  });
+
   it("S-06 fails when the fact is placed outside the share section of the CFO's own prompt (for example under What you know)", async () => {
     const r = await run(FAIL, { showcaseHooks: at("s6_wrap_up", 0, ({ sys }) => { const c = sys!.npc!.calls.find((x) => x.system.includes("You are playing Helena Brandt") && !x.system.includes(FACT))!; c.system += `\n- ${FACT}`; }) as never });
     expect(result(r, "S-06").status).toBe("failed");
@@ -146,6 +153,35 @@ describe("the audits can fail (tampered captures)", () => {
     const hooks = at("s6_wrap_up", 0, ({ players }) => { players!.delivery_lead!.inbox.push({ type: "event", event: { seq: 9_100, ts: 1, sessionId: "demo", type: "inject.fired", injectId: "x", sceneId: "s5_final_terms", to: ["delivery_lead"], content: FACT } }); });
     const r = await run(FAIL, { showcaseHooks: hooks as never });
     expect(result(r, "S-07").status).toBe("failed");
+  });
+});
+
+describe("the owner saying the released fact aloud (M-2)", () => {
+  const variant = async (edit: (y: string) => string) => {
+    const dir = await tmp();
+    await cp(EXTENDED, dir, { recursive: true });
+    const file = path.join(dir, "showcase.yaml");
+    await writeFile(file, edit(await readFile(file, "utf8")));
+    return dir;
+  };
+  const S5_REPLY_2 = "because it is fixed and tied to a date I can approve this change request myself without escalating it.";
+  it("after the release: the checks pass (S-06 chat turns and S-07 utterances exempt it for its owner)", async () => {
+    const dir = await variant((y) => y.replace(S5_REPLY_2, `${FACT}.`));
+    const r = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
+    expect(r.report!.results.filter((x) => x.status !== "passed")).toEqual([]);
+    expect(r.exitCode).toBe(0);
+  });
+  it("before the release: S-07 and S-06 fail (mock strictness: it is a leak until it is released)", async () => {
+    const dir = await variant((y) => y.replace('"I have one question before adjectives:', `"${FACT}. I have one question before adjectives:`));
+    const r = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
+    expect(result(r, "S-07").status).toBe("failed");
+    expect(result(r, "S-06").status).toBe("failed");
+  });
+  it("a mock reply that needs the release is refused by the loader when the release step is removed", async () => {
+    const dir = await variant((y) => y.replace(/ {4}facilitator:\n.*\n/, ""));
+    const r = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr + r.stdout).toMatch(/requires hidden fact 1 of 'cfo' to be released/);
   });
 });
 
@@ -186,7 +222,10 @@ describe("hiddenFactMatches (the S-07 observation)", () => {
     ];
     expect(releasedFacts(events).get("cfo")).toEqual([FACT]);
     expect(releaseEvents(events)).toEqual([{ seq: 2, roleId: "cfo", fact: 1, text: FACT }]);
-    expect(releaseEvents(events.slice(0, 2))).toEqual([]);
+    expect(releaseEvents(events.slice(0, 2))).toEqual([{ seq: 2, roleId: "cfo", fact: 1, text: undefined }]); // an orphan command: no effect
+    // a command is paired only with the npc.updated right behind it (seq + 1)
+    const gap = [events[0]!, events[1]!, ev(3, { type: "inject.fired", injectId: "i", sceneId: "s", to: [], content: "x" }), ev(4, { type: "npc.updated", roleId: "cfo", goals: [], knowledge: [], released: [FACT] })];
+    expect(releaseEvents(gap)).toEqual([{ seq: 2, roleId: "cfo", fact: 1, text: undefined }]);
   });
 });
 

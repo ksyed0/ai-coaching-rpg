@@ -148,4 +148,23 @@ describe("defer_to warnings and defers_text (US-0032 fix round)", () => {
     expect(NpcRoleSchema.safeParse({ ...base, hidden: Array(MAX_HIDDEN_FACTS + 1).fill("x") }).success).toBe(false);
     expect(NpcRoleSchema.safeParse({ ...base, hidden: ["x".repeat(MAX_HIDDEN_FACT_CHARS + 1)] }).success).toBe(false);
   });
+
+  it("refuses an empty hidden fact, and two facts with the same text in one role (they would be released together)", async () => {
+    const { NpcRoleSchema } = await import("../index.js");
+    const s = await loadScenario(path.join(fixtures, "minimal"));
+    const base = { ...(s.roles["guest"] as object) } as Record<string, unknown>;
+    expect(NpcRoleSchema.safeParse({ ...base, hidden: ["  "] }).success).toBe(false);
+    expect(NpcRoleSchema.safeParse({ ...base, hidden: [""] }).success).toBe(false);
+    (s.roles["guest"] as { hidden: string[] }).hidden = ["a fact", "other", "a fact"];
+    expect(validateScenario(s).errors).toContain("role guest: hidden facts 1 and 3 have the same text");
+  });
+
+  it.each(["__proto__", "constructor", "prototype"])("refuses %s as a role id or a scene id", async (k) => {
+    const s = await loadScenario(path.join(fixtures, "minimal"));
+    s.script.scenes[0]!.id = k;
+    expect(validateScenario(s).errors).toContain(`scene id '${k}' is not allowed (it is a prototype key)`);
+    const t = await loadScenario(path.join(fixtures, "minimal"));
+    Object.defineProperty(t.roles, k, { value: { ...(t.roles["guest"] as object), id: k }, enumerable: true });
+    expect(validateScenario(t).errors).toContain(`role id '${k}' is not allowed (it is a prototype key)`);
+  });
 });

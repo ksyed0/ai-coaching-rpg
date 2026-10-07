@@ -145,15 +145,32 @@ export function releasedFacts(events: SessionEvent[]): Map<string, string[]> {
   return out;
 }
 
-/** Every release in the stream: the command's seq and its fact number, with the fact text taken from the facilitator-only npc.updated that follows it. */
-export function releaseEvents(events: SessionEvent[]): { seq: number; roleId: string; fact: number; text: string }[] {
-  const out: { seq: number; roleId: string; fact: number; text: string }[] = [];
-  events.forEach((e, i) => {
-    if (e.type !== "facilitator.command" || e.command !== "release_hidden") return;
-    const upd = events.slice(i + 1).find((x): x is Extract<SessionEvent, { type: "npc.updated" }> => x.type === "npc.updated" && x.roleId === e.roleId);
-    const text = upd?.released?.at(-1);
-    if (text !== undefined) out.push({ seq: e.seq, roleId: e.roleId, fact: e.fact, text });
-  });
+/**
+ * Every release command in the stream. A release is TWO appends (the text-free `facilitator.command`, then the facilitator-only `npc.updated` that carries the
+ * text), so the `npc.updated` is the source of truth: a command counts as effective only when the event right behind it (seq + 1) is that role's npc.updated;
+ * otherwise it is an orphan (`text` undefined: a crash or a failed second append) and the facilitator may simply release again.
+ */
+export function releaseEvents(events: SessionEvent[]): { seq: number; roleId: string; fact: number; text: string | undefined }[] {
+  const bySeq = new Map(events.map((e) => [e.seq, e] as const));
+  const out: { seq: number; roleId: string; fact: number; text: string | undefined }[] = [];
+  for (const e of events) {
+    if (e.type !== "facilitator.command" || e.command !== "release_hidden") continue;
+    const upd = bySeq.get(e.seq + 1);
+    const text = upd?.type === "npc.updated" && upd.roleId === e.roleId ? upd.released?.at(-1) : undefined;
+    out.push({ seq: e.seq, roleId: e.roleId, fact: e.fact, text });
+  }
+  return out;
+}
+
+/** The seq of the npc.updated that first lists each released fact, keyed `<role>\n<text>`: from then on the fact may be in its owner's prompt. */
+export function releaseSeqs(events: SessionEvent[]): Map<string, number> {
+  const out = new Map<string, number>(); const have = new Map<string, Set<string>>();
+  for (const e of events) {
+    if (e.type !== "npc.updated" || e.released === undefined) continue;
+    const prev = have.get(e.roleId) ?? new Set<string>();
+    for (const t of e.released) if (!prev.has(t)) out.set(`${e.roleId}\n${t}`, e.seq);
+    have.set(e.roleId, new Set(e.released));
+  }
   return out;
 }
 
@@ -558,29 +575,45 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
   await rec.run("S-06", () => {
     const calls = [...sys!.npc!.calls, ...sys!.gm!.calls];
     ensure(sys!.npc!.calls.length > 0 && sys!.gm!.calls.length > 0, "no model call was captured (the audit would be vacuous)");
+    ensure(sys!.npc!.callSeqs?.length === sys!.npc!.calls.length && sys!.gm!.callSeqs?.length === sys!.gm!.calls.length, "the captured model calls carry no timing (the audit would judge by the end of the run)");
     const banned = [...markers.rubric, ...markers.hidden, ...Object.values(markers.secretsByRole).flat(), ...PARTICIPANT_NAMES];
     const npcRoles = Object.values(scenario.roles).filter((r): r is NpcRole => r.type === "npc");
-    // A hidden fact is allowed in exactly one place: the "## What you may now share" section of the prompt of the character it was released to.
-    const released = releasedFacts(events());
+    // A hidden fact is allowed in exactly one place: the "## What you may now share" section of the prompt of the character it was released to, and only in a prompt
+    // built AFTER the release (each captured call is judged against what had been released by the seq it was made at). Once that character has SAID the fact aloud
+    // after the release, it is ordinary dialogue and may appear in conversation turns and in its own "last lines".
+    const evs = events();
+    const relSeq = releaseSeqs(evs);
+    const released = releasedFacts(evs);
+    const asOf = (role: string, seq: number) => [...relSeq].filter(([k, v]) => k.startsWith(`${role}\n`) && v <= seq).map(([k]) => k.slice(role.length + 1));
+    const saidAloud = (role: string, seq: number) => asOf(role, seq).filter((f) => evs.some((e) => e.type === "utterance" && e.roleId === role && e.seq > relSeq.get(`${role}\n${f}`)! && e.seq <= seq && e.text.includes(f)));
+    const allow = (list: string[], facts: string[]) => list.filter((b) => !facts.some((f) => f.includes(b)));
     let shared = 0;
-    for (const req of calls) {
-      const owner = npcRoles.find((r) => req.system.includes(npcIntro(r)));
+    const timed = [...sys!.npc!.calls.map((req, i) => ({ req, seq: sys!.npc!.callSeqs![i]!, isNpc: true })), ...sys!.gm!.calls.map((req, i) => ({ req, seq: sys!.gm!.callSeqs![i]!, isNpc: false }))];
+    for (const { req, seq, isNpc } of timed) {
+      const owner = isNpc ? npcRoles.find((r) => req.system.includes(npcIntro(r))) : undefined;
       const cut = owner ? req.system.indexOf(SHARE_SECTION) : -1;
       const head = cut >= 0 ? req.system.slice(0, cut) : req.system;
       const tail = cut >= 0 ? req.system.slice(cut) : "";
-      const mine = [...(owner ? released.get(owner.id) ?? [] : [])];
-      const found = findMarkers(`${head}\n${JSON.stringify(req.messages)}`, banned);
-      ensure(found.length === 0, `a model prompt contained: ${found.join(" | ")}`);
-      const foundShared = findMarkers(tail, banned.filter((b) => !mine.some((f) => f.includes(b))));
-      ensure(foundShared.length === 0, `${owner?.id}'s "What you may now share" section contained: ${foundShared.join(" | ")}`);
+      const mine = owner ? asOf(owner.id, seq) : [];
+      const spokenAny = npcRoles.flatMap((r) => saidAloud(r.id, seq));
+      const spokenMine = owner ? saidAloud(owner.id, seq) : [];
+      const found = [...findMarkers(head, allow(banned, spokenMine)), ...findMarkers(JSON.stringify(req.messages), allow(banned, spokenAny))];
+      ensure(found.length === 0, `a model prompt contained: ${[...new Set(found)].join(" | ")}`);
+      const foundShared = findMarkers(tail, allow(banned, mine));
+      ensure(foundShared.length === 0, `${owner?.id}'s "What you may now share" section contained a hidden fact before it was released: ${foundShared.join(" | ")}`);
       if (mine.some((f) => tail.includes(f))) shared++;
     }
     // Positive control: a fact that was released and whose character spoke afterwards must have reached that character's own prompt.
-    for (const rel of releaseEvents(events())) {
-      const spokeAfter = events().some((e) => e.type === "utterance" && e.roleId === rel.roleId && e.seq > rel.seq);
+    const effective = releaseEvents(evs).filter((r) => r.text !== undefined);
+    for (const rel of effective) {
+      const spokeAfter = evs.some((e) => e.type === "utterance" && e.roleId === rel.roleId && e.seq > rel.seq);
       const role = npcRoles.find((x) => x.id === rel.roleId)!;
-      const reached = sys!.npc!.calls.some((c) => { const at = c.system.indexOf(SHARE_SECTION); return c.system.includes(npcIntro(role)) && at >= 0 && c.system.slice(at).includes(rel.text); });
+      const reached = sys!.npc!.calls.some((c, i) => { const at = c.system.indexOf(SHARE_SECTION); return sys!.npc!.callSeqs![i]! > rel.seq && c.system.includes(npcIntro(role)) && at >= 0 && c.system.slice(at).includes(rel.text!); });
       ensure(!spokeAfter || reached, `hidden fact #${rel.fact} of ${rel.roleId} was released but never reached that character's prompt (vacuous audit)`);
+    }
+    for (const orphan of releaseEvents(evs).filter((r) => r.text === undefined)) {
+      const msg = `release command without effect: hidden fact number ${orphan.fact} of ${orphan.roleId} (event ${orphan.seq}) has no npc.updated right behind it; the facilitator may release it again`;
+      if (!observations.includes(msg)) observations.push(msg);
     }
     // Another AI character's persona, goals, knowledge, hidden facts, guardrails and voice lists must not be in a character's system prompt (only name, title and seniority are public). Text both characters hold is exempt.
     const privateOf = (r: NpcRole): string[] => [r.persona, ...r.goals, ...r.knowledge, ...r.hidden, ...r.guardrails, ...r.responds_with, ...r.only_you_say].map((x) => x.trim()).filter((x) => x.length >= 12);
@@ -604,6 +637,14 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
 
   await rec.run("S-07", () => {
     const by = new Map<string, string[]>();
+    // The one exemption to the mock run's strictness: a character may say a fact released to it, after the release, in its own lines (they are ordinary dialogue).
+    const relSeqs = releaseSeqs(events());
+    const withoutOwnerRecitals = (inbox: Inbound[]): string => JSON.stringify(inbox.map((m) => {
+      if (m.type !== "event" || m.event.type !== "utterance") return m;
+      const e = m.event; let t = e.text;
+      for (const [k, at] of relSeqs) { const cut = k.indexOf("\n"); if (k.slice(0, cut) === e.roleId && e.seq > at) t = t.split(k.slice(cut + 1)).join(""); }
+      return { ...m, event: { ...e, text: t } };
+    }));
     let audited = 0;
     for (const [role] of ROLE_PLAYERS) {
       const bot = st.players[role as PlayerId]!;
@@ -616,7 +657,7 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       ensure(names.length === 0, `${role} saw participant names: ${names.join(", ")}`);
       const others = Object.entries(markers.secretsByRole).filter(([r]) => r !== role).flatMap(([, v]) => v);
       let leaked: string[];
-      if (mock) leaked = findMarkers(text, [...others, ...markers.npcInternals, ...markers.hidden, ...markers.rubric]);
+      if (mock) leaked = findMarkers(withoutOwnerRecitals(bot.inbox), [...others, ...markers.npcInternals, ...markers.hidden, ...markers.rubric]);
       else {
         // A live model (an AI character or a generated player) may recite its OWN material aloud: that is its behaviour, not a server leak. So everything the server
         // sends apart from utterances is checked in full, and an utterance is checked for a string only when its speaker does not own that string.

@@ -201,6 +201,15 @@ describe("hidden facts in the terminal client (US-0016)", () => {
     expect(many.get("r")).toHaveLength(50);
     expect(parseHiddenFacts(JSON.parse('{"__proto__": ["x"]}')).get("__proto__")).toEqual(["x"]);
   });
+  it("M-5: clips a fact to 1000 characters and lists at most 200 facts in all", () => {
+    const m = parseHiddenFacts({ r: ["x".repeat(5_000)] });
+    expect(m.get("r")![0]).toHaveLength(1_000);
+    const many = parseHiddenFacts(Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`r${i}`, Array.from({ length: 50 }, (_, j) => `f${j}`)])));
+    expect([...many.values()].reduce((a, v) => a + v.length, 0)).toBe(200);
+    const lines = renderHidden(many, new Map());
+    expect(lines).toHaveLength(201);
+    expect(lines.at(-1)).toContain("only the first 200");
+  });
   it("renders only newly released facts of an npc.updated, with their number", () => {
     const facts = new Map([["cfo", ["a", "b"]]]);
     const e: Extract<SessionEvent, { type: "npc.updated" }> = { ...env, type: "npc.updated", roleId: "cfo", goals: [], knowledge: [], released: ["a", "b"] };

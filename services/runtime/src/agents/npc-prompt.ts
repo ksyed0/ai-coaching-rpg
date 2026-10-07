@@ -52,12 +52,11 @@ export const SHARE_SECTION = "## What you may now share";
 
 /**
  * The "## What you may now share" section: hidden facts the facilitator has released to THIS character, or [] when there are none.
- * It is the LAST section on purpose (the cacheable prefix before it stays stable) and it says the character has decided it may share the
- * fact, because the role's own guardrail ("never reveal hidden information unless...") would otherwise keep a small model withholding it.
+ * It is the LAST section on purpose (the cacheable prefix before it stays stable) and it says the facts are cleared and override the earlier rules, because the role's own guardrail ("never reveal hidden information unless...") would otherwise keep a small model withholding it.
  */
 export function releasedSection(released: string[]): string[] {
   if (released.length === 0) return [];
-  return ["", SHARE_SECTION, "You have decided you may share this when it is relevant or when you are asked:", bullets(released)];
+  return ["", SHARE_SECTION, "The rules above about hidden information no longer apply to the facts in this section: you have been cleared to share them. Share them when they are relevant or when you are asked:", bullets(released)];
 }
 
 export type SpokenLine = { roleId: string; text: string };

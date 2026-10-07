@@ -60,7 +60,7 @@ describe("buildNpcRequest", () => {
     const at = system.indexOf("## What you may now share");
     expect(at).toBeGreaterThan(system.indexOf("## Your last lines")); // the last section: the cached prefix stays stable
     expect(system.slice(at)).toContain("- Would accept phasing");
-    expect(system.slice(at)).toMatch(/you may share this when it is relevant or when you are asked/);
+    expect(system.slice(at)).toMatch(/rules above about hidden information no longer apply to the facts in this section: you have been cleared to share them\. Share them when they are relevant or when you are asked/);
     expect(system.indexOf("## What you may now share", at + 1)).toBe(-1);
   });
 
