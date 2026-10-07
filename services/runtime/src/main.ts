@@ -32,6 +32,8 @@ export async function bootstrap(opts: {
    * it; the restart resumes from the log. Default: nothing (bootstrap never exits the process).
    */
   onFatal?: () => void;
+  /** Tests only: runs right before bootstrap's own check that it still holds the session lock. */
+  testHooks?: { beforeLockCheck?: () => void };
 }): Promise<BootstrapResult> {
   // Validate the session id before ANY filesystem action: it becomes a file name under the data dir.
   const requestedId = (opts.env.SESSION_ID ?? "local");
@@ -113,8 +115,6 @@ export async function bootstrap(opts: {
     host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmTrace });
     if (store.resume) host.resumeFrom(store.resume);
     // Fail-stop (US-0018): a lost lock stops the engine too; one log line (no paths or values), then the owner's onFatal.
-    lost.halt = () => store.engine.halt("the session lock was lost");
-    if (store.lock.lost) lost.halt();
     let fatalSeen = false;
     host.onFatal(() => {
       if (fatalSeen) return;
@@ -122,6 +122,10 @@ export async function bootstrap(opts: {
       warn("FATAL: the session log can no longer be written safely (a write or sync failed, or the session lock was lost); the server stops accepting input and must be restarted, which resumes the session from its log");
       try { opts.onFatal?.(); } catch { /* the owner's handler must not throw into the engine */ }
     });
+    // Registered first, then checked: a lock lost (or found missing) before this point still ends in FATAL and the owner's exit.
+    lost.halt = () => store.engine.halt("the session lock was lost");
+    opts.testHooks?.beforeLockCheck?.();
+    if (store.lock.lost || !store.lock.verify()) lost.halt();
   } catch (err) { gmTrace?.close(); await store.close(); return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
 
   host.startTicker(opts.tickMs ?? 1_000);
@@ -151,6 +155,16 @@ export async function bootstrap(opts: {
 
 /** After a fatal log failure: how long the clients get to receive the notice before the process exits (non-zero) for a restart. */
 export const FATAL_DRAIN_MS = 2_000;
+/** Hard backstop: exit(1) this long after a fatal failure even if stopping hangs (for example on a log stuck in a failing write). */
+export const FATAL_HARD_EXIT_MS = 5_000;
+
+/** After a fatal failure: drain FATAL_DRAIN_MS, stop, exit(1); and exit(1) after FATAL_HARD_EXIT_MS whatever happens (timer unref'd). */
+export function scheduleFatalExit(o: { stop: () => Promise<void>; exit: (code: number) => void; drainMs?: number; hardMs?: number }): void {
+  let exited = false;
+  const exit = () => { if (!exited) { exited = true; o.exit(1); } };
+  setTimeout(exit, o.hardMs ?? FATAL_HARD_EXIT_MS).unref();
+  setTimeout(() => { void o.stop().catch(() => undefined).finally(exit); }, o.drainMs ?? FATAL_DRAIN_MS);
+}
 
 async function main(): Promise<void> {
   try { await run(); }
@@ -166,7 +180,7 @@ async function run(): Promise<void> {
   }
   const { runtime } = result;
   const shutdown = () => { void runtime.stop().then(() => process.exit(0)); };
-  fatal.handler = () => { setTimeout(() => { void runtime.stop().finally(() => process.exit(1)); }, FATAL_DRAIN_MS); };
+  fatal.handler = () => scheduleFatalExit({ stop: () => runtime.stop(), exit: (c) => process.exit(c) });
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }

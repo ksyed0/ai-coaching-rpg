@@ -3,7 +3,7 @@ import { mkdtemp, open, readdir, readFile, rm, utimes, writeFile } from "node:fs
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import type { SessionEvent } from "@acr/events";
 import { bootstrap, type Runtime } from "../main.js";
@@ -27,8 +27,8 @@ afterEach(async () => {
 
 const env = (extra: Record<string, string> = {}) => ({ SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "r1", MODEL_PROVIDER: "mock", ...extra });
 const dataDir = () => path.join(tmp, "data");
-async function boot(extra: Record<string, string> = {}, logs: string[] = [], onFatal?: () => void) {
-  const r = await bootstrap({ env: env(extra), root: tmp, logDir: dataDir(), tickMs: 60_000, log: (m) => logs.push(m), warn: (m) => logs.push(m), onFatal });
+async function boot(extra: Record<string, string> = {}, logs: string[] = [], onFatal?: () => void, beforeLockCheck?: () => void) {
+  const r = await bootstrap({ env: env(extra), root: tmp, logDir: dataDir(), tickMs: 60_000, log: (m) => logs.push(m), warn: (m) => logs.push(m), onFatal, testHooks: { beforeLockCheck } });
   if (r.ok) runtimes.push(r.runtime);
   return r;
 }
@@ -114,6 +114,38 @@ describe("bootstrap: fail-stop when the log cannot be written (US-0018)", () => 
       expect(after.subarray(before).toString().split("\n").filter(Boolean)).toHaveLength(1); // only the line whose sync failed
       expect(fac.inbox.filter(notice)).toHaveLength(1);
     } finally { proto.datasync = orig; fac.close(); p.close(); }
+  });
+
+  it("a lock lost WHILE bootstrap runs still ends in FATAL and the owner's exit", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-fatal-"));
+    const logs: string[] = []; let fatal = 0;
+    const { rmSync } = await import("node:fs");
+    const r = await boot({}, logs, () => { fatal++; }, () => rmSync(path.join(dataDir(), "r1.lock")));
+    expect(r.ok).toBe(true);
+    expect(fatal).toBe(1);
+    expect(logs.filter((l) => l.startsWith("FATAL"))).toHaveLength(1);
+  });
+
+  it("scheduleFatalExit: drains, stops and exits 1; a stop that hangs is cut by the hard backstop; exit is called once", async () => {
+    const { scheduleFatalExit } = await import("../main.js");
+    vi.useFakeTimers();
+    try {
+      const codes: number[] = [];
+      scheduleFatalExit({ stop: () => new Promise(() => {}), exit: (c) => codes.push(c), drainMs: 2_000, hardMs: 5_000 });
+      await vi.advanceTimersByTimeAsync(4_999);
+      expect(codes).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(codes).toEqual([1]);
+      const ok: number[] = []; let stopped = false;
+      scheduleFatalExit({ stop: async () => { stopped = true; }, exit: (c) => ok.push(c), drainMs: 2_000, hardMs: 5_000 });
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(stopped).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(stopped).toBe(true);
+      expect(ok).toEqual([1]);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(ok).toEqual([1]);
+    } finally { vi.useRealTimers(); }
   });
 
   it("a lost lock (removed under the running server) is fail-stop too", async () => {

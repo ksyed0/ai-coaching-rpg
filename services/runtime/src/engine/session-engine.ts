@@ -293,7 +293,9 @@ export class SessionEngine {
       catch (err) { throw new RestoreError("invalid_log", `event ${e.seq} cannot be applied: ${err instanceof Error ? err.message : String(err)}`); }
       if (e.type === "inject.fired") injectDue = { sceneId: e.sceneId, injectId: e.injectId, roles: e.to.filter((r) => own(npcsBefore, r) !== undefined) };
       else if (e.type === "npc.updated" && injectDue && injectDue.roles[0] === e.roleId) injectDue.roles.shift();
-      else injectDue = null;
+      // A restart's own bookkeeping (session.resumed and its alert) may sit between an inject and its updates when a crash cut the
+      // resume's completion short; live code never puts anything else there, so only those two keep the pending updates due.
+      else if (e.type !== "session.resumed" && e.type !== "facilitator.alert") injectDue = null;
       if (e.type === "scene.entered") lastGmSeq = null;
       else if ((e.type === "gm.decision" || e.type === "gm.no_verdict") && e.sceneId === s.currentScene?.id) lastGmSeq = e.seq;
       maxTs = Math.max(maxTs, e.ts);
@@ -342,8 +344,12 @@ export class SessionEngine {
         : `${notes.downSecs} s after the last recorded event`;
       const cut = info.partialTailBytes > 0 ? `; a cut-off last line (${info.partialTailBytes} bytes, an event that was never confirmed) was dropped` : "";
       const v0 = info.format === 0 ? "; this log predates log format 1, so it was matched on scenario id and version only" : "";
-      const fixed = notes.repairs.length > 0 ? `; the restart completed what the crash cut short: ${notes.repairs.join(", ")}` : "";
-      await this.emit({ type: "facilitator.alert", level: "warning", message: `session resumed after a server restart, ${down}${cut}${v0}${fixed}. It is paused: /resume to continue${info.pendingLine ? " (the last player line is then answered)" : ""}` });
+      // Written BEFORE the completion, so it says what is being completed, never that it is done; a crash during the completion is
+      // completed again by the next restart (which says so in its own alert).
+      const fixed = notes.repairs.length > 0 ? `; it now completes what the crash cut short: ${notes.repairs.join(", ")}` : "";
+      const ends = info.repairs.some((r) => r.kind === "end_session");
+      const next = ends ? ". The last scene had already ended, so the session ends now" : `. It is paused: /resume to continue${info.pendingLine ? " (the last player line is then answered)" : ""}`;
+      await this.emit({ type: "facilitator.alert", level: "warning", message: `session resumed after a server restart, ${down}${cut}${v0}${fixed}${next}` });
       for (const r of info.repairs) await this.applyRepair(r);
       return notes;
     });

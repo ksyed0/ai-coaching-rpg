@@ -85,10 +85,11 @@ const EMPTY_SCAN: ScanResult = { lastSeq: 0, goodBytes: 0, tail: "none", partial
 const notRegular = (name: string, isDir: boolean) => Object.assign(new Error(`${name} is not a regular file`), { code: isDir ? "EISDIR" : "EINVAL" });
 
 /** A log must be a regular file with one link, owned by this process's user (where the platform has uids). */
-function checkOwnFile(name: string, st: { isFile(): boolean; isDirectory(): boolean; nlink: number; uid: number }): void {
+function checkOwnFile(name: string, st: { isFile(): boolean; isDirectory(): boolean; nlink: number; uid: number }, o: { createdNow?: boolean } = {}): void {
   if (!st.isFile()) throw notRegular(name, st.isDirectory());
-  if (st.nlink > 1) throw new LogCorruptError(`${name} has other hard links; it is not used (move the extra links away)`);
-  if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new LogCorruptError(`${name} belongs to another user; it is not used`);
+  if (st.nlink > 1) throw new LogCorruptError(`${name} has other hard links (a rotation interrupted between its link and unlink leaves one); it is not used: move the extra links away`);
+  // A file this open just created (O_EXCL) is ours whatever uid a remapping mount reports; only a pre-existing file is checked.
+  if (!o.createdNow && typeof process.getuid === "function" && st.uid !== process.getuid()) throw new LogCorruptError(`${name} belongs to another user; chown it to the server's user (or move it away) and restart`);
 }
 
 /** fsyncs a directory so a new or removed entry survives a power cut; tolerated where directories cannot be synced. */
@@ -213,10 +214,18 @@ export class JsonlEventLog implements EventLog {
   private async writable(): Promise<FileHandle> {
     if (this.handle) return this.handle;
     await mkdir(this.dir, { recursive: true, mode: 0o700 });
-    const h = await open(this.file, fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
+    // Create exclusively first, so we know whether this open made the file (then it is ours even on a mount that remaps owners).
+    const base = fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_NOFOLLOW;
+    let h: FileHandle; let createdNow = true;
+    try { h = await open(this.file, base | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o600); }
+    catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      createdNow = false;
+      h = await open(this.file, base);
+    }
     try {
       const st = await h.stat();
-      checkOwnFile(path.basename(this.file), st);
+      checkOwnFile(path.basename(this.file), st, { createdNow });
       if ((st.mode & 0o077) !== 0) await h.chmod(0o600); // a log from before US-0018: owner-only from now on
       if (st.size === 0) await fsyncDir(this.dir); // a new (or empty) log: make its directory entry durable too
     } catch (err) { await h.close(); throw err; }

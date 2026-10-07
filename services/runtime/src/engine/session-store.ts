@@ -2,7 +2,7 @@ import path from "node:path";
 import type { Scenario } from "@acr/script";
 import type { Clock } from "./clock.js";
 import { JsonlEventLog, LogCorruptError } from "./event-log.js";
-import { DEFAULT_LOCK_STALE_MS, MAX_LOCK_STALE_MS, MIN_LOCK_STALE_MS, SessionLock, SessionLockError, ensurePrivateDir, rotateStaleLog, type LockOptions } from "./log-files.js";
+import { DEFAULT_LOCK_STALE_MS, MAX_LOCK_STALE_MS, MIN_LOCK_STALE_MS, SessionLock, SessionLockError, ensurePrivateDir, finishInterruptedRotation, rotateStaleLog, type LockOptions } from "./log-files.js";
 import { RestoreError, SessionEngine, type ResumeInfo, type ResumeNotes } from "./session-engine.js";
 
 export type StartMode = "resume" | "fresh";
@@ -70,6 +70,11 @@ export async function openSession(o: {
     if (err instanceof SessionLockError) throw new SessionStoreError("lock", `cannot open the session: ${err.message}`);
     throw new SessionStoreError("io", `cannot lock the session log in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? "error"}`);
   }
+  // A crash between a rotation's link and unlink leaves the log under two names: finish that rotation (the data stays rotated).
+  try {
+    const finished = finishInterruptedRotation(o.dataDir, o.sessionId);
+    if (finished) notes.push(`warning: an interrupted rotation was finished: the previous log stays aside as ${finished}`);
+  } catch (err) { lock.release(); throw new SessionStoreError("io", `cannot finish an interrupted log rotation in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? "error"}`); }
   const make = () => {
     const log = new JsonlEventLog(o.sessionId, o.dataDir, { guard: () => lock.assertHeld(), maxBytes: o.maxLogBytes });
     return { log, engine: new SessionEngine({ scenario: o.scenario, log, clock: o.clock }) };

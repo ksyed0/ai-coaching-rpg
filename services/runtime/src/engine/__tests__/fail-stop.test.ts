@@ -171,7 +171,7 @@ describe("I1: a crash between the appends of one operation is completed on resum
     await engine.command({ command: "resume" });
     await engine.command({ command: "advance" }); await engine.tick();
     expect(engine.state.currentScene?.id).toBe("s3_internal_wrap");
-    const alert = (await log.all()).find((e) => e.type === "facilitator.alert" && /completed what the crash cut short: entered scene s2_client_call/.test(e.message));
+    const alert = (await log.all()).find((e) => e.type === "facilitator.alert" && /now completes what the crash cut short: entered scene s2_client_call/.test(e.message));
     expect(alert).toBeTruthy();
   });
 
@@ -185,6 +185,9 @@ describe("I1: a crash between the appends of one operation is completed on resum
     if (r1.kind !== "running") throw new Error("not running");
     expect((await e1.markResumed(r1.info)).repairs).toEqual(["ended the session (the last scene had ended)"]);
     expect(e1.state.status).toBe("ended");
+    const endAlert = (await log.all()).filter((e) => e.type === "facilitator.alert").at(-1) as Extract<SessionEvent, { type: "facilitator.alert" }>;
+    expect(endAlert.message).toMatch(/session ends now/);
+    expect(endAlert.message).not.toMatch(/paused|\/resume/);
     const e2 = new SessionEngine({ scenario, log: new JsonlEventLog("x", dir, { sync: false }), clock: new FakeClock(T0 + 60_000) });
     const out = await e2.restore();
     expect(out.kind).toBe("ended");
@@ -291,5 +294,48 @@ describe("M7: a log or lock with extra hard links is refused", () => {
     await writeFile(path.join(dir, "s.lock"), "{}");
     await link(path.join(dir, "s.lock"), path.join(dir, "other"));
     expect(() => SessionLock.acquire(dir, "s")).toThrow(/other hard links/);
+  });
+});
+
+describe("Minor 5/7: ownership and interrupted rotations", () => {
+  it("a PRE-EXISTING log owned by another user is refused with an actionable message; a log this open creates is not checked", async () => {
+    if (typeof process.getuid !== "function") return;
+    const statProto = proto as unknown as { stat: (...a: unknown[]) => Promise<{ uid: number }> };
+    const origStat = statProto.stat;
+    statProto.stat = async function (this: unknown, ...a: unknown[]) { const st = await origStat.apply(this, a); return Object.assign(st, { uid: process.getuid!() + 1 }); };
+    try {
+      const fresh = new JsonlEventLog("new", dir);
+      expect((await fresh.append({ type: "session.ended", reason: "script_complete" }, 1)).seq).toBe(1); // created by this open: ours
+      await fresh.close();
+      await expect(new JsonlEventLog("new", dir).append({ type: "session.ended", reason: "script_complete" }, 2)).rejects.toThrow(/belongs to another user; chown it to the server's user/);
+      await expect(new JsonlEventLog("new", dir).all()).rejects.toThrow(/belongs to another user/);
+    } finally { statProto.stat = origStat; }
+  });
+
+  it("a crash between a rotation's link and unlink: the next start finishes the rotation (the data stays under the rotated name)", async () => {
+    const { openSession } = await import("../session-store.js");
+    const file = path.join(dir, "x.jsonl");
+    await writeFile(file, "", { mode: 0o600 });
+    const e1 = new SessionEngine({ scenario, log: new JsonlEventLog("x", dir, { sync: false }), clock: new FakeClock(T0) });
+    await e1.start({});
+    const before = await readFile(file);
+    await link(file, path.join(dir, "x.20300101T000000Z.jsonl")); // the link happened, the unlink did not
+    const o = await openSession({ scenario, sessionId: "x", dataDir: dir, clock: new FakeClock(T0), mode: "fresh" });
+    try {
+      expect(o.notes.join("\n")).toMatch(/interrupted rotation was finished.*x\.20300101T000000Z\.jsonl/);
+      expect(o.outcome).toBe("new");
+      expect((await readFile(path.join(dir, "x.20300101T000000Z.jsonl"))).equals(before)).toBe(true);
+      await o.engine.start({});
+      expect((await o.log.all())[0]!.seq).toBe(1);
+    } finally { await o.close(); }
+  });
+
+  it("an unrelated extra hard link is NOT treated as a rotation: the log is refused, naming the likely cause", async () => {
+    const { openSession } = await import("../session-store.js");
+    const file = path.join(dir, "x.jsonl");
+    const e1 = new SessionEngine({ scenario, log: new JsonlEventLog("x", dir, { sync: false }), clock: new FakeClock(T0) });
+    await e1.start({});
+    await link(file, path.join(dir, "elsewhere.jsonl"));
+    await expect(openSession({ scenario, sessionId: "x", dataDir: dir, clock: new FakeClock(T0), mode: "resume" })).rejects.toThrow(/other hard links \(a rotation interrupted/);
   });
 });

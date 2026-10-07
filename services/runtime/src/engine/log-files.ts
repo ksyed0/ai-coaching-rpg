@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
-  closeSync, constants as fsConstants, fstatSync, fsyncSync, futimesSync, fchmodSync, linkSync, mkdirSync, openSync, readSync,
+  closeSync, constants as fsConstants, fstatSync, readdirSync, fsyncSync, futimesSync, fchmodSync, linkSync, mkdirSync, openSync, readSync,
   renameSync, unlinkSync, writeSync,
 } from "node:fs";
 import os from "node:os";
@@ -30,7 +30,7 @@ export function ensurePrivateDir(dir: string): string | null {
     catch (err) {
       const code = (err as NodeJS.ErrnoException).code ?? "error";
       // Writable by others: anyone could forge what a resumed session contains, or swap the lock. Refuse rather than run on it.
-      if ((st.mode & 0o022) !== 0) throw Object.assign(new Error(`the data directory is writable by other users and could not be made private (${code}); fix its permissions (chmod 700) or use another directory`), { code: "EUNSAFE" });
+      if ((st.mode & 0o022) !== 0) throw Object.assign(new Error(`the data directory (data/sessions; in Docker ./data/sessions on the host) is writable by other users and could not be made private (${code}): chown it to the server's user (or chmod 700 it as its owner)`), { code: "EUNSAFE" });
       return `the data directory is readable by other users and its permissions could not be tightened (${code})`;
     }
   } finally { closeSync(fd); }
@@ -116,6 +116,34 @@ export function rotateStaleLog(dir: string, sessionId: string, now: Date): strin
     }
     throw new Error(`no free rotation name for ${file} after 1000 tries`);
   } finally { closeSync(fd); }
+}
+
+/**
+ * A crash between rotateStaleLog's link and its unlink leaves `<id>.jsonl` with a second name `<id>.<UTC time>[-n].jsonl` (same inode,
+ * nlink 2). Finishes that rotation: removes `<id>.jsonl` when one of the rotated names is the same file, so the data stays under the
+ * rotated name. Returns that name, or null when there is nothing to finish (the log is then left to the normal checks).
+ */
+export function finishInterruptedRotation(dir: string, sessionId: string): string | null {
+  const file = path.join(dir, `${sessionId}.jsonl`);
+  assertInside(dir, file);
+  let fd: number;
+  try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); }
+  catch { return null; }
+  let ident: Identity;
+  try { const st = fstatSync(fd); if (!st.isFile() || st.nlink < 2) return null; ident = { dev: st.dev, ino: st.ino }; }
+  finally { closeSync(fd); }
+  const rotated = new RegExp(`^${sessionId}\\.\\d{8}T\\d{6}Z(-\\d+)?\\.jsonl$`);
+  for (const name of readdirSync(dir).filter((n) => rotated.test(n))) {
+    const other = path.join(dir, name);
+    assertInside(dir, other);
+    let ofd: number;
+    try { ofd = openSync(other, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); } catch { continue; }
+    try { const st = fstatSync(ofd); if (!sameFile({ dev: st.dev, ino: st.ino }, ident)) continue; } finally { closeSync(ofd); }
+    unlinkSync(file);
+    fsyncDirSync(dir);
+    return name;
+  }
+  return null;
 }
 
 // ---- the single-writer lock ---------------------------------------------------------------------------------------------------
@@ -242,8 +270,8 @@ export class SessionLock {
     try {
       const st = fstatSync(fd);
       if (!st.isFile()) throw new SessionLockError("not_a_file", "the session lock is not a regular file; remove it by hand");
-      if (st.nlink > 1) throw new SessionLockError("not_a_file", "the session lock has other hard links; remove it by hand");
-      if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new SessionLockError("not_a_file", "the session lock belongs to another user; remove it by hand");
+      if (st.nlink > 1) throw new SessionLockError("not_a_file", "the session lock has other hard links; after confirming that no server runs on this session, remove the leftover lock and its extra links");
+      if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new SessionLockError("not_a_file", "the session lock belongs to another user; chown it to the server's user, or remove the leftover lock after confirming that no server runs on this session");
       const buf = Buffer.alloc(MAX_LOCK_INFO_BYTES);
       const n = readSync(fd, buf, 0, buf.length, 0);
       let info: { pid?: unknown; host?: unknown } = {};
@@ -258,7 +286,10 @@ export class SessionLock {
     } finally { closeSync(fd); }
   }
 
-  /** Renames the lock aside and removes it only when it is still the file that was judged (dev + inode); otherwise restores it. */
+  /**
+   * Renames the lock aside, then unlinks that aside copy only when it is the very file that was judged stale (dev + inode); otherwise
+   * links it back under the lock name (never overwriting) and removes the aside name.
+   */
   private static removeIfSame(file: string, ident: Identity): boolean {
     const aside = `${file}.stale-${randomBytes(6).toString("hex")}`;
     try { renameSync(file, aside); }
