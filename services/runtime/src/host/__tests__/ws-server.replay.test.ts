@@ -11,7 +11,7 @@ import { JoinCodes } from "../../engine/join-codes.js";
 import { SessionEngine } from "../../engine/session-engine.js";
 import { AuthThrottle } from "../security.js";
 import { SessionHost } from "../session-host.js";
-import { startServer } from "../ws-server.js";
+import { MAX_BUFFERED_BYTES, startServer } from "../ws-server.js";
 // Real-socket tests: a generous explicit limit. Nothing here measures elapsed time; waits are on the effect itself.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
@@ -31,7 +31,7 @@ class CountingThrottle extends AuthThrottle {
   override fail(ip: string): void { this.calls++; super.fail(ip); }
 }
 
-type Client = { inbox: any[]; closed: Promise<number>; send(m: unknown): void; sendRaw(s: string): void; next(pred: (m: any) => boolean, from?: number): Promise<any>; events(from?: number): SessionEvent[] };
+type Client = { ws: WebSocket; inbox: any[]; closed: Promise<number>; send(m: unknown): void; sendRaw(s: string): void; next(pred: (m: any) => boolean, from?: number): Promise<any>; events(from?: number): SessionEvent[] };
 async function open(port: number): Promise<Client> {
   const ws = new WebSocket(`ws://127.0.0.1:${port}`);
   sockets.push(ws);
@@ -45,7 +45,7 @@ async function open(port: number): Promise<Client> {
   const closed = new Promise<number>((r) => ws.on("close", (code) => r(code)));
   const next = (pred: (m: any) => boolean, from = 0) => new Promise<any>((resolve) => { const hit = inbox.slice(from).find(pred); if (hit) return resolve(hit); waiters.push({ pred, from, resolve }); });
   await new Promise<void>((resolve, reject) => { ws.once("open", () => resolve()); ws.once("error", reject); });
-  return { inbox, closed, next, send: (m) => ws.send(JSON.stringify(m)), sendRaw: (s) => ws.send(s), events: (from = 0) => inbox.slice(from).filter((m) => m.type === "event").map((m) => m.event) };
+  return { ws, inbox, closed, next, send: (m) => ws.send(JSON.stringify(m)), sendRaw: (s) => ws.send(s), events: (from = 0) => inbox.slice(from).filter((m) => m.type === "event").map((m) => m.event) };
 }
 
 async function setup(o: { token?: string; retainEvents?: number; authThrottle?: AuthThrottle } = {}) {
@@ -79,10 +79,12 @@ async function play(engine: SessionEngine, host: SessionHost) {
 }
 
 /** A live event after the join: once it has arrived, every replay frame before it has too (frames are in order on one socket). */
+let fences = 0;
 async function fence(engine: SessionEngine, c: Client, role: string): Promise<number> {
-  await engine.command({ command: "whisper", roleId: role, text: "fence" });
-  await c.next((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.text === "fence");
-  return c.inbox.findIndex((m) => m.type === "event" && m.event.text === "fence");
+  const text = `fence ${++fences}`; // unique: an earlier fence may be in this client's replay
+  await engine.command({ command: "whisper", roleId: role, text });
+  await c.next((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.text === text);
+  return c.inbox.findIndex((m) => m.type === "event" && m.event.text === text);
 }
 
 describe("replay-from-seq over the WebSocket protocol (US-0013)", () => {
@@ -159,7 +161,7 @@ describe("replay-from-seq over the WebSocket protocol (US-0013)", () => {
     const end = await fence(engine, c, "delivery_lead");
     const got = c.inbox.slice(1, end + 1).map((m) => m.event);
     expect(got).toEqual(live.delivery_lead!.filter((e) => e.seq > 1));
-    expect(got.filter((e) => e.seq > j.replay.toSeq).map((e) => e.text)).toEqual(["during the join", "right after the replay", "fence"]);
+    expect(got.filter((e) => e.seq > j.replay.toSeq).map((e) => e.text.replace(/^fence \d+$/, "fence"))).toEqual(["during the join", "right after the replay", "fence"]);
   });
 
   it("test_last_seq_that_is_not_a_whole_number_is_a_bad_message_and_the_connection_may_still_join", async () => {
@@ -284,5 +286,107 @@ describe("replay-from-seq over the WebSocket protocol (US-0013)", () => {
     expect(j.replay).toEqual({ afterSeq: 0, toSeq: engine.state.lastSeq, events: 0, complete: false });
     expect(j.state.transcript.length).toBeGreaterThan(0); // the snapshot is the fallback
     expect(await fence(engine, c, "delivery_lead")).toBe(1);
+  });
+});
+
+/** The first `joined` (or error), or a rejection naming the close code if the server closes the connection first. */
+const joinedOrClosed = (c: Client) => Promise.race([c.next(isJoined), c.closed.then((code) => { throw new Error(`connection closed (${code}) after ${c.inbox.length} messages`); })]);
+
+describe("replay and the per-client send buffer (US-0013 I2)", () => {
+  /** A long session: the facilitator's snapshot alone is about 800 KB. */
+  async function longSession() {
+    const t = await setup();
+    for (const r of PLAYERS) t.host.join(r, `${r}-person`);
+    await t.host.start();
+    for (let i = 0; i < 400; i++) await t.engine.say("delivery_lead", `${String(i).padStart(4, "0")} ${"x".repeat(1_990)}`);
+    for (const r of PLAYERS) t.host.release(r, `${r}-person`);
+    return t;
+  }
+
+  it("test_replay_budget_leaves_room_for_the_snapshot_sent_in_the_same_burst", async () => {
+    const { port, engine, host } = await longSession();
+    const spy = vi.spyOn(host, "replayFor");
+    const c = await open(port);
+    c.send({ type: "join_facilitator", sessionId: "local", lastSeq: engine.state.lastSeq - 120 });
+    const j = await joinedOrClosed(c);
+    expect(j.type).toBe("joined");
+    const snapshotBytes = Buffer.byteLength(JSON.stringify(host.snapshotFor("facilitator")));
+    expect(snapshotBytes).toBeGreaterThan(MAX_BUFFERED_BYTES * 0.7);
+    const budget = spy.mock.calls[0]![2]?.maxBytes;
+    expect(budget).toBeDefined();
+    expect(budget! + snapshotBytes).toBeLessThan(MAX_BUFFERED_BYTES);
+    // 120 lines of 2 KB do not fit beside an 800 KB snapshot: no partial replay, the snapshot is the fallback.
+    expect(j.replay).toMatchObject({ complete: false, events: 0 });
+    expect(j.state.transcript.length).toBe(400);
+  });
+
+  it("test_a_slow_client_rejoining_with_last_seq_is_not_cut_off_by_its_own_replay", async () => {
+    const { port, engine, host } = await longSession();
+    const subscribed = vi.spyOn(host, "subscribe");
+    const c = await open(port);
+    (c.ws as unknown as { _socket: { pause(): void; resume(): void } })._socket.pause(); // the client stops reading: the server's buffer fills
+    c.send({ type: "join_facilitator", sessionId: "local", lastSeq: engine.state.lastSeq - 120 });
+    await vi.waitFor(() => expect(subscribed).toHaveBeenCalled(), { timeout: 60_000 }); // the server has sent the whole join burst
+    (c.ws as unknown as { _socket: { resume(): void } })._socket.resume();
+    const j = await joinedOrClosed(c);
+    expect(j.type).toBe("joined");
+    await fence(engine, c, "tech_lead"); // still connected: a live event arrives after the join
+  });
+});
+
+describe("a malformed lastSeq with a wrong code (US-0013 M4)", () => {
+  it("test_malformed_last_seq_with_a_wrong_code_is_a_bad_message_not_a_charged_refusal", async () => {
+    const throttle = new CountingThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => 0 });
+    const { port, engine, host } = await setup({ authThrottle: throttle });
+    await play(engine, host);
+    const c = await open(port);
+    c.send(join("delivery_lead", "0000-0000-0000", { lastSeq: -1 }));
+    expect((await c.next((m) => m.type === "error")).code).toBe("bad_message");
+    expect(throttle.calls).toBe(0);
+    // Still open: the same connection's next (well-formed, wrong-code) join is the one that is refused and charged.
+    c.send(join("delivery_lead", "0000-0000-0000", { lastSeq: 0 }));
+    expect(await c.closed).toBe(1008);
+    expect(c.inbox.map((m) => m.code)).toEqual(["bad_message", "unauthorized"]);
+    expect(throttle.calls).toBe(1);
+  });
+});
+
+describe("ordering on the facilitator branch (US-0013 I3)", () => {
+  it("test_facilitator_join_events_emitted_while_joining_arrive_exactly_once_in_order", async () => {
+    const { port, engine, host, live } = await setup({ token: TOKEN });
+    await play(engine, host);
+    for (const k of [0, 4, 9]) {
+      const c = await open(port);
+      const burst = (async () => { for (let n = 0; n < 60; n++) { await engine.command({ command: "whisper", roleId: "tech_lead", text: `fburst ${n}` }); await new Promise((r) => setImmediate(r)); } })();
+      c.send({ type: "join_facilitator", sessionId: "local", token: TOKEN, lastSeq: k });
+      const j = await c.next(isJoined);
+      expect(j.type).toBe("joined");
+      await burst;
+      const end = await fence(engine, c, "tech_lead");
+      const got = c.inbox.slice(1, end + 1).map((m) => m.event);
+      const want = live.facilitator!.filter((e) => e.seq > k);
+      expect(got.map((e) => e.seq)).toEqual(want.map((e) => e.seq));
+      expect(got).toEqual(want);
+      expect(j.replay.toSeq).toBe(j.state.lastSeq);
+    }
+  });
+
+  it("test_facilitator_join_an_append_started_during_the_join_is_delivered_live_exactly_once", async () => {
+    const { port, engine, host, live } = await setup({ token: TOKEN });
+    await play(engine, host);
+    const replayFor = host.replayFor.bind(host);
+    vi.spyOn(host, "replayFor").mockImplementation((who, after, o) => {
+      void engine.command({ command: "whisper", roleId: "tech_lead", text: "during the facilitator join" });
+      const r = replayFor(who, after, o);
+      void engine.command({ command: "whisper", roleId: "tech_lead", text: "right after the facilitator replay" });
+      return r;
+    });
+    const c = await open(port);
+    c.send({ type: "join_facilitator", sessionId: "local", token: TOKEN, lastSeq: 1 });
+    const j = await c.next(isJoined);
+    const end = await fence(engine, c, "tech_lead");
+    const got = c.inbox.slice(1, end + 1).map((m) => m.event);
+    expect(got).toEqual(live.facilitator!.filter((e) => e.seq > 1));
+    expect(got.filter((e) => e.seq > j.replay.toSeq).map((e) => e.text.replace(/^fence \d+$/, "fence"))).toEqual(["during the facilitator join", "right after the facilitator replay", "fence"]);
   });
 });
