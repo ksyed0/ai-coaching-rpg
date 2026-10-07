@@ -10,7 +10,8 @@ import {
 import { MIN, type System } from "./harness.js";
 import { gmDeadlineMs } from "../agents/timeouts.js";
 import { MAX_CONSECUTIVE_SILENT_TURNS, type SilentTurn } from "../agents/npc-agent.js";
-import { npcIntro } from "../agents/npc-prompt.js";
+import { SHARE_SECTION, npcIntro } from "../agents/npc-prompt.js";
+import { releaseNote } from "./release-note.js";
 import { fallbackReason, isFallbackReply } from "./provenance.js";
 import { scrubText } from "./report.js";
 import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from "./showcase-report.js";
@@ -137,6 +138,52 @@ export function showcaseMarkers(scenario: Scenario): Markers {
   };
 }
 
+/** Each AI character's released hidden facts at the end of the stream (the last `released` list of its npc.updated events). */
+export function releasedFacts(events: SessionEvent[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const e of events) if (e.type === "npc.updated" && e.released !== undefined) out.set(e.roleId, [...e.released]);
+  return out;
+}
+
+/** Every release in the stream: the command's seq and its fact number, with the fact text taken from the facilitator-only npc.updated that follows it. */
+export function releaseEvents(events: SessionEvent[]): { seq: number; roleId: string; fact: number; text: string }[] {
+  const out: { seq: number; roleId: string; fact: number; text: string }[] = [];
+  events.forEach((e, i) => {
+    if (e.type !== "facilitator.command" || e.command !== "release_hidden") return;
+    const upd = events.slice(i + 1).find((x): x is Extract<SessionEvent, { type: "npc.updated" }> => x.type === "npc.updated" && x.roleId === e.roleId);
+    const text = upd?.released?.at(-1);
+    if (text !== undefined) out.push({ seq: e.seq, roleId: e.roleId, fact: e.fact, text });
+  });
+  return out;
+}
+
+/**
+ * Lines of the stream that contain scenario text which looks like hidden material, counted per speaker as whole hidden facts and as shorter phrases
+ * (rubric text and the fragment the player script itself uses). Not counted: a fact released to a character (it is meant to be said), and a string a
+ * player already said earlier in the same scene (an echo of that player, not a recital: an unreleased hidden fact never enters any prompt).
+ */
+export function hiddenFactMatches(events: SessionEvent[], scenario: Scenario, markers: Markers): Map<string, { facts: number; phrases: number }> {
+  const wholeFacts = new Set(Object.values(scenario.roles).filter((r): r is NpcRole => r.type === "npc").flatMap((r) => r.hidden));
+  const phrases = [...markers.hidden, ...markers.rubric].filter((x) => x && !wholeFacts.has(x));
+  const matched = new Map<string, { facts: number; phrases: number }>();
+  const released = new Set<string>();
+  let playerSaid: string[] = [];
+  for (const e of events) {
+    if (e.type === "scene.entered") playerSaid = [];
+    if (e.type === "npc.updated") for (const t of e.released ?? []) released.add(t);
+    if (e.type !== "utterance") continue;
+    const echoed = (x: string) => playerSaid.some((t) => t.includes(x));
+    const fresh = (x: string) => x !== "" && e.text.includes(x) && !echoed(x) && !released.has(x) && ![...released].some((f) => f.includes(x));
+    const facts = [...wholeFacts].filter(fresh).length;
+    const shared = new Set(phrases.filter(fresh)).size;
+    if (scenario.roles[e.roleId]?.type === "player") playerSaid.push(e.text);
+    if (facts + shared === 0) continue;
+    const cur = matched.get(e.roleId) ?? { facts: 0, phrases: 0 };
+    matched.set(e.roleId, { facts: cur.facts + facts, phrases: cur.phrases + shared });
+  }
+  return matched;
+}
+
 /** The scene an event with sequence number `seq` happened in (null between scenes), from a complete stream. */
 export function sceneAt(events: SessionEvent[], seq: number): string | null {
   let cur: string | null = null;
@@ -198,7 +245,8 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
       }
       case "scene.exited": await n.tagged("system", "yellow", "", `scene ended: ${describeExit(e.reason)}`); break;
       case "inject.fired": await n.tagged("system", "dim", "", `inject ${e.injectId} to ${e.to.join(", ")}: ${clip(e.content, 200)}`); break;
-      case "npc.updated": await n.tagged("system", "dim", "", `${e.roleId} updated: ${e.goals.length} goals, ${e.knowledge.length} knowledge items`); break;
+      // Counts only: a released fact's text never goes into the narration (a demo transcript is a file people share).
+      case "npc.updated": await n.tagged("system", "dim", "", `${e.roleId} updated: ${e.goals.length} goals, ${e.knowledge.length} knowledge items${(e.released?.length ?? 0) > 0 ? `, ${e.released!.length} released hidden fact(s)` : ""}`); break;
       case "utterance": {
         const role = scenario.roles[e.roleId];
         if (role?.type === "npc") {
@@ -218,7 +266,7 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         await n.tagged("alert", e.level === "warning" ? "red" : "yellow", "", why !== null ? `${e.message.split(":")[0]!.replace(/^NPC /, "AI character ")} fell back to its canned line: ${why}` : clip(e.message, 300));
         break;
       }
-      case "facilitator.command": await n.tagged("system", "dim", "", `facilitator: ${e.command}`); break;
+      case "facilitator.command": await n.tagged("system", "dim", "", e.command === "release_hidden" ? `${releaseNote(e.roleId, e.fact)} (its text is facilitator-only and is not shown here)` : `facilitator: ${e.command}`); break;
       case "session.ended": await n.tagged("system", "yellow", "", `session ended (${e.reason})`); break;
       default: break;
     }
@@ -353,6 +401,19 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
       await waitSettled(npcCount, gmConditions);
       const echo = fac.events().find((e) => e.type === "utterance" && e.roleId === line.role && e.text === text && e.seq > lastSeqBefore);
       ensure(!echo || sceneAt(fac.events(), echo.seq) === scene.id, `${line.role}'s line ${i + 1} landed in a different scene than ${scene.id}`);
+      // The scripted facilitator steps of this scene that come after this line (a hidden-fact release).
+      for (const step of o.script.scenes.find((x) => x.scene === scene.id)!.facilitator.filter((x) => x.afterLine === i + 1)) {
+        const what = `hidden fact #${step.fact} of ${step.role}`;
+        if (exited(scene.id)) { observations.push(`facilitator step skipped: ${scene.id} had already ended, so ${what} was not released`); continue; }
+        const fromStep = fac.mark();
+        fac.send({ type: "command", command: { command: "release_hidden", roleId: step.role, fact: step.fact }, expectSceneId: scene.id });
+        const sent = await fac.waitFor((m) => m.type === "error" || isEvent("npc.updated", (e) => e.roleId === step.role && (e.released?.length ?? 0) > 0)(m), { from: fromStep, timeoutMs: 15_000, what: `the release of ${what}` });
+        if (sent.type === "error") {
+          if (sent.code === "stale_scene") { observations.push(`scene changed under us: the release of ${what} was refused (stale_scene); it was not released`); continue; }
+          throw new Error(`the release of ${what} was refused: ${errCode(sent)}`);
+        }
+        await waitSettled(npcCount, gmConditions);
+      }
     }
     if (spoken < lines.length && exited(scene.id)) {
       const reason = exitReasonOf(scene.id) ?? "an exit";
@@ -498,12 +559,30 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
     const calls = [...sys!.npc!.calls, ...sys!.gm!.calls];
     ensure(sys!.npc!.calls.length > 0 && sys!.gm!.calls.length > 0, "no model call was captured (the audit would be vacuous)");
     const banned = [...markers.rubric, ...markers.hidden, ...Object.values(markers.secretsByRole).flat(), ...PARTICIPANT_NAMES];
+    const npcRoles = Object.values(scenario.roles).filter((r): r is NpcRole => r.type === "npc");
+    // A hidden fact is allowed in exactly one place: the "## What you may now share" section of the prompt of the character it was released to.
+    const released = releasedFacts(events());
+    let shared = 0;
     for (const req of calls) {
-      const found = findMarkers(`${req.system}\n${JSON.stringify(req.messages)}`, banned);
+      const owner = npcRoles.find((r) => req.system.includes(npcIntro(r)));
+      const cut = owner ? req.system.indexOf(SHARE_SECTION) : -1;
+      const head = cut >= 0 ? req.system.slice(0, cut) : req.system;
+      const tail = cut >= 0 ? req.system.slice(cut) : "";
+      const mine = [...(owner ? released.get(owner.id) ?? [] : [])];
+      const found = findMarkers(`${head}\n${JSON.stringify(req.messages)}`, banned);
       ensure(found.length === 0, `a model prompt contained: ${found.join(" | ")}`);
+      const foundShared = findMarkers(tail, banned.filter((b) => !mine.some((f) => f.includes(b))));
+      ensure(foundShared.length === 0, `${owner?.id}'s "What you may now share" section contained: ${foundShared.join(" | ")}`);
+      if (mine.some((f) => tail.includes(f))) shared++;
+    }
+    // Positive control: a fact that was released and whose character spoke afterwards must have reached that character's own prompt.
+    for (const rel of releaseEvents(events())) {
+      const spokeAfter = events().some((e) => e.type === "utterance" && e.roleId === rel.roleId && e.seq > rel.seq);
+      const role = npcRoles.find((x) => x.id === rel.roleId)!;
+      const reached = sys!.npc!.calls.some((c) => { const at = c.system.indexOf(SHARE_SECTION); return c.system.includes(npcIntro(role)) && at >= 0 && c.system.slice(at).includes(rel.text); });
+      ensure(!spokeAfter || reached, `hidden fact #${rel.fact} of ${rel.roleId} was released but never reached that character's prompt (vacuous audit)`);
     }
     // Another AI character's persona, goals, knowledge, hidden facts, guardrails and voice lists must not be in a character's system prompt (only name, title and seniority are public). Text both characters hold is exempt.
-    const npcRoles = Object.values(scenario.roles).filter((r): r is NpcRole => r.type === "npc");
     const privateOf = (r: NpcRole): string[] => [r.persona, ...r.goals, ...r.knowledge, ...r.hidden, ...r.guardrails, ...r.responds_with, ...r.only_you_say].map((x) => x.trim()).filter((x) => x.length >= 12);
     let crossChecked = 0;
     for (const req of sys!.npc!.calls) {
@@ -519,7 +598,8 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
     ensure(npcs.every((p) => sys!.npc!.calls.some((c) => c.system.includes(p.persona.slice(0, 20)))), "an AI character's own persona is missing from its prompts (vacuous audit)");
     const conditions = scenario.script.scenes.flatMap((s) => s.exit_when.any_of).filter((c): c is { gm_detects: string } => typeof c === "object").map((c) => c.gm_detects);
     ensure(sys!.gm!.calls.every((c) => conditions.some((cond) => c.system.includes(cond))), "a Game Master prompt lacks the scene's condition (vacuous audit)");
-    return `all ${calls.length} captured prompts (${sys!.npc!.calls.length} AI character, ${sys!.gm!.calls.length} Game Master) were checked against ${banned.length} strings (and ${crossChecked} AI character prompts against the other characters' private text); none appeared, and the positive controls did`;
+    const nReleased = [...released.values()].reduce((a, v) => a + v.length, 0);
+    return `all ${calls.length} captured prompts (${sys!.npc!.calls.length} AI character, ${sys!.gm!.calls.length} Game Master) were checked against ${banned.length} strings (and ${crossChecked} AI character prompts against the other characters' private text); none appeared, and the positive controls did${nReleased > 0 ? `; ${nReleased} released hidden fact(s) appeared only in the "What you may now share" section of their own character's prompt (${shared} prompt(s)), never in another character's, a player's or the Game Master's` : "; no hidden fact was released, so none appeared in any prompt"}`;
   }, ["S-01"]);
 
   await rec.run("S-07", () => {
@@ -530,6 +610,7 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       const text = JSON.stringify(bot.inbox);
       audited += bot.inbox.length;
       for (const e of bot.events()) ensure(!["npc.updated", "gm.decision", "gm.no_verdict", "facilitator.alert"].includes(e.type), `${role} received a ${e.type} event`);
+      ensure(!bot.events().some((e) => e.type === "facilitator.command" && e.command === "release_hidden"), `${role} received a hidden-fact release command`);
       ensure(!text.includes("participantId"), `${role} received a participantId`);
       const names = findMarkers(text, PARTICIPANT_NAMES);
       ensure(names.length === 0, `${role} saw participant names: ${names.join(", ")}`);
@@ -556,20 +637,9 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       by.set(role, others);
     }
     if (!mock) {
-      // Observation only. A match is NOT a recital: an unreleased hidden fact never enters any prompt (the character's prompt holds only its released facts), so a line that
-      // matches scenario text is an echo of what a player said earlier, or common wording. Whole hidden facts and the shorter phrases (rubric text and the fragment the
-      // player script itself uses) are counted apart, so the count says exactly what matched.
-      const wholeFacts = new Set(Object.values(scenario.roles).filter((r): r is NpcRole => r.type === "npc").flatMap((r) => r.hidden));
-      const phrases = [...markers.hidden, ...markers.rubric].filter((x) => x && !wholeFacts.has(x));
-      const matched = new Map<string, { facts: number; phrases: number }>();
-      for (const e of events()) {
-        if (e.type !== "utterance") continue;
-        const facts = [...wholeFacts].filter((x) => x && e.text.includes(x)).length;
-        const shared = new Set(phrases.filter((x) => e.text.includes(x))).size;
-        if (facts + shared === 0) continue;
-        const cur = matched.get(e.roleId) ?? { facts: 0, phrases: 0 };
-        matched.set(e.roleId, { facts: cur.facts + facts, phrases: cur.phrases + shared });
-      }
+      // Observation only. A match is NOT a recital: an unreleased hidden fact never enters any prompt, a released one is meant to be said, and a string a player said earlier in the
+      // same scene is an echo of that player. See hiddenFactMatches for what is counted.
+      const matched = hiddenFactMatches(events(), scenario, markers);
       for (const [r, c] of matched) {
         const parts = [
           ...(c.phrases > 0 ? [`${c.phrases} phrase(s) shared with the scenario's hidden-fact or rubric text`] : []),
@@ -679,7 +749,7 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       const claimed = playerLines.records.filter((r) => r.source === "generated").length;
       ensure(generated === claimed, `${generated} lines are tagged generated but the runner recorded ${claimed} generated lines`);
       ensure(spoken.every((l) => l.tag === "generated" || l.tag === "scripted"), "a player line has a tag other than generated or scripted");
-      return `${generator.calls.length} player prompts checked against ${base.length} shared strings and each role's other-role secrets: none appeared; ${generated} generated and ${spoken.length - generated} scripted player lines are tagged as recorded`;
+      return `${generator.calls.length} player prompts checked against ${base.length} shared strings (every hidden fact, released or not, unless a participant said it aloud) and each role's other-role secrets: none appeared; ${generated} generated and ${spoken.length - generated} scripted player lines are tagged as recorded`;
     }, ["S-01"]);
   }
 

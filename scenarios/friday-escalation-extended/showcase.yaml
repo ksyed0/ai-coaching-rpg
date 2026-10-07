@@ -83,6 +83,11 @@ scenes:
       - { role: delivery_lead, text: "It is firm. No time and materials. The change request is signed by me and by the account lead, and the credit applies if we miss the date." }
       - { role: tech_lead, text: "Agreed. Acceptance is Finance's sign-off on three consecutive daily tie-outs, so you decide when it is done." }
       - { role: account_manager, text: "Our norm would be half on signature, but we can agree half on acceptance and the balance 30 days after." }
+    # A scripted facilitator step: right after line 1 (the quantified fixed fee and firm date) has been answered, the facilitator releases the CFO's hidden fact number 1
+    # (the number `/hidden` shows; the fact itself lives only in cfo.yaml). It reaches only the CFO's next prompts,
+    # in the "What you may now share" section, so she can settle. The demo's narration and transcript say "facilitator released hidden fact #1 of cfo", never the text.
+    facilitator:
+      - { after_line: 1, release_hidden: { role: cfo, fact: 1 } }
     mock:
       npc:
         client_sponsor:
@@ -92,7 +97,7 @@ scenes:
           - "That works for me. Helena?"
         cfo:
           - "Closer. Before I agree: is 45 firm, with no extras, and who signs the change request on your side?"
-          - "A firm fee and a credit clause I can accept in principle. I also want acceptance tied to Finance signing off the daily tie-out, not to your own test."
+          - "A firm fee and a credit clause I can accept in principle, and because it is fixed and tied to a date I can approve this change request myself without escalating it. I also want acceptance tied to Finance signing off the daily tie-out, not to your own test."
           - "Then the open point is payment. I want half on acceptance, not on signature."
           - "Then we have terms: 45 thousand fixed, three weeks after go-live, Finance sign-off, a credit if late, half on acceptance. Send the change request on Monday and I will sign it."
       gm:

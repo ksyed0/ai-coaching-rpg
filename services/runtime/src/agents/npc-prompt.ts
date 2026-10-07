@@ -47,6 +47,9 @@ export function respondSection(role: { name: string; seniority?: number; respond
   ];
 }
 
+/** The heading of the section that holds the hidden facts released to a character. The demo audits prompts by it. */
+export const SHARE_SECTION = "## What you may now share";
+
 /**
  * The "## What you may now share" section: hidden facts the facilitator has released to THIS character, or [] when there are none.
  * It is the LAST section on purpose (the cacheable prefix before it stays stable) and it says the character has decided it may share the
@@ -54,7 +57,7 @@ export function respondSection(role: { name: string; seniority?: number; respond
  */
 export function releasedSection(released: string[]): string[] {
   if (released.length === 0) return [];
-  return ["", "## What you may now share", "You have decided you may share this when it is relevant or when you are asked:", bullets(released)];
+  return ["", SHARE_SECTION, "You have decided you may share this when it is relevant or when you are asked:", bullets(released)];
 }
 
 export type SpokenLine = { roleId: string; text: string };

@@ -4,6 +4,7 @@ import type { NpcRole, Scenario } from "@acr/script";
 import type { Bot, Inbound } from "./bots.js";
 import type { PlayerLines } from "./player-lines.js";
 import { playerSource } from "./player-lines.js";
+import { releaseNote } from "./release-note.js";
 import { classifyGmDecision, classifyNpcReply, fallbackReason, isFallbackReply, type Provenance, type ProviderKind } from "./provenance.js";
 
 /** One structured line of a run. Produced where the story knows who produced it; the Markdown file is rendered from these, never from narration text. */
@@ -81,6 +82,7 @@ export class Transcript {
         }
         case "facilitator.command":
           if (e.command === "whisper") this.add({ kind: "dialogue", source: "scripted", speaker: `facilitator (whisper to ${e.roleId})`, text: e.text, scene });
+          else if (e.command === "release_hidden") this.add({ kind: "log", source: "system", text: releaseNote(e.roleId, e.fact), scene }); // by number: the transcript never holds the fact text
           else this.add({ kind: "log", source: "system", text: `facilitator: ${e.command}`, scene });
           break;
         case "inject.fired": this.add({ kind: "log", source: "system", text: `inject ${e.injectId} to ${e.to.join(", ")}: ${e.content}`, scene }); break;
