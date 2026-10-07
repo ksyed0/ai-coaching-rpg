@@ -176,7 +176,7 @@ Every prompt template and model binding is versioned in the repo. A session reco
 
 ### Guardrails enforced in code
 
-- The NPC adapter is never given the rubric, other roles' private briefs, or hidden information the Game Master has not explicitly released.
+- The NPC adapter is never given the rubric, other roles' private briefs, or hidden information the facilitator has not released (`release_hidden`, US-0016).
 - Participant names are replaced with role names in all prompts; the mapping stays in Postgres.
 - A model call that exceeds the first-token timeout (10 s by default, configurable with `NPC_FIRST_TOKEN_TIMEOUT_MS`) without a first token triggers the persona's scripted fallback line and a facilitator alert; the session never stalls on a model.
 - Evaluator quotes are verified verbatim against the transcript in a second pass; a score without a verifiable quote is flagged for facilitator review (Spec §7.3).
