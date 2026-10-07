@@ -25,6 +25,8 @@ Check counts are pinned by tests: add a new check only in an opt-in room or by e
 ## Reference results (Gemma, 2026-10-06/07)
 Game Master ended 5 of 6 scenes (4 before US-0016 released the CFO's fact; scene 2 still ends by facilitator advance); `gm-eval --live` x3: 100% usable verdicts, 0 `no_nonce`, 0 of 24 false exits on the negative controls. Evaluator: 3 of 3 players scored, 36 to 42 verbatim quotes, 0 dropped; scores are lenient and close together (needs calibration).
 
+Live Gemma showcase (generated players, `--evaluate`), 2026-10-07: after US-0033 (develop@cb6a479) 15 passed / 0 failed / 2 skipped, 1449 s, 16 of 16 AI replies real (0 fallbacks, median 17 to 18 s), the Game Master ended 4 of 6 scenes (scenes 2 and 5 by facilitator advance), 14 evaluations with 0 unusable verdicts; after US-0034 (develop@70b3f21) 15 / 0 / 2, 1078 s, 10 of 10 replies real, the Game Master ended 5 of 6 scenes, 11 evaluations, 0 re-asks, and in scene 4 it suggested `/release cfo 1` to the facilitator only (the CFO's `earned_when` condition: a fixed fee tied to a firm date). The scene count varies between runs because the generated players differ; compare over several runs, not one.
+
 ## CI (GitHub Actions)
 Required for merge: Lint, Test & Coverage Gate, Build, Orchestrator Validation, Dependency Audit, Secret Scanning, Analyze JavaScript. Also run: Workspace Tests / Typecheck / Audit, SDK Import Guard, Docker Build, Demo Run, CodeQL. Branch protection on `main` and `develop`: PR required, 0 approvals, strict. Merge with `gh pr merge N --merge`. A required check can sit "pending" for a long time when a test hangs: cancel it and read the partial log. "The job was not acquired by Runner" is infrastructure: rerun the failed jobs.
 

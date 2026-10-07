@@ -1,15 +1,15 @@
 # Backlog and decisions
 
 ## State on 2026-10-07 (session 7)
-`develop` holds everything built so far (through PR #23). Delivered stories: US-0001..US-0012 (Slice 1), US-0014..US-0018, US-0021, US-0022, US-0024..US-0033, bugs BUG-0001..BUG-0006. US-0034 is in build on its own branch (not pushed).
+`develop` holds everything built so far (through PR #26). Delivered stories: US-0001..US-0012 (Slice 1), US-0014..US-0018, US-0021, US-0022, US-0024..US-0034, US-0013 (protocol slice; the web lobby of EPIC-0002 is still untouched), bugs BUG-0001..BUG-0006.
 
 ## Open work, in the order I would take it
-1. **US-0034** the Game Master suggests hidden-fact releases when a scenario `earned_when` condition holds (suggest-only, never auto-release by default). Depends on US-0016 and US-0025 (both done).
-2. **US-0013** a rejoining client receives the injects and whispers it missed (replay-from-seq); today it gets only its filtered transcript. EPIC-0002 (web lobby) depends on it.
-3. **EPIC-0005 remainder:** facilitator moderation and release of reports (ASM-04), participant self-assessment (ASM-07), per-participant visibility (ASM-09), calibration with a second judge (ASM-08). The evaluator is lenient and its three players score alike; a judge from a different model family is the plan.
-4. **US-0019** model cost per session; **US-0020** shared id rules; **US-0023** demo live-mode fallback evidence.
-5. Tooling: a lint rule or contributor note against short real timers and `/proc` in tests (three CI rounds were lost to them); a Linux test that forces real inode reuse in the lock takeover; a restart policy outside Docker.
-6. Epics 2, 3, 4 (web lobby, voice over LiveKit, 3D) are all Planned and untouched.
+1. **EPIC-0005 remainder:** facilitator moderation and release of reports (ASM-04), participant self-assessment (ASM-07), per-participant visibility (ASM-09), calibration with a second judge (ASM-08). The evaluator is lenient and its three players score alike; a judge from a different model family is the plan.
+2. **US-0019** model cost per session; **US-0020** shared id rules; **US-0023** demo live-mode fallback evidence.
+3. Tooling: a lint rule or contributor note against short real timers and `/proc` in tests (three CI rounds were lost to them); a Linux test that forces real inode reuse in the lock takeover; a restart policy outside Docker.
+4. Epics 2, 3, 4 (web lobby, voice over LiveKit, 3D) are all Planned and untouched.
+
+Follow-ups from the US-0013 and US-0034 reviews (not filed as stories): announce the text of an auto-released fact found in a replay (N1); tests for a one-microtask yield in the join block and for the replay margin (N2); a log identity in `joined` so a pre-`fresh` `lastSeq` is detected; a per-address join rate limit; per-viewer event numbering (players see seq gaps for facilitator-only events); earned checks in the showcase reliability numbers; the terminal client does not reconnect by itself; a live `gm-eval` set for `earned_when`; a flaky real-timer watchdog test in `runner.test.ts` and an `atomic-write` concurrency test (seen to flake once under load).
 
 ## Decisions taken (and why)
 - Local model default Gemma-4-31B; Raptor dropped (repetition, echoing). 2026-10-06, owner.
