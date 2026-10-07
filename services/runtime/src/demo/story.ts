@@ -76,10 +76,12 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       const dlCode = codeFor(ctx, "delivery_lead");
       const claim = async (label: string, roleId: string, joinCode: string | undefined) => {
         const imp = await connectBot(ctx, `imposter (${label})`);
-        const r = await imp.call(playerJoin(ctx, roleId, "ZedMalloryParticipant", { joinCode }), isJoinedMsg, { what: `the claim of ${roleId}` });
+        // US-0013: the claim also asks for a replay from the very first event; a refused join gets the refusal and nothing else.
+        const r = await imp.call(playerJoin(ctx, roleId, "ZedMalloryParticipant", { joinCode, lastSeq: 0 }), isJoinedMsg, { what: `the claim of ${roleId}` });
         ensure(JSON.stringify(r) === GENERIC, `claiming ${roleId} ${label} gave ${errCode(r)}, expected the generic unauthorized`);
         const closeCode = await withTimeout(imp.closed, 5_000, `the server to close the connection after a claim ${label}`);
         ensure(closeCode === 1008, `a refused claim closed with ${closeCode}, expected 1008`);
+        ensure(imp.inbox.length === 1, `a refused claim ${label} received ${imp.inbox.length} messages, expected only the refusal`);
         await n.step(`someone claims ${roleId} ${label}: refused (unauthorized) and disconnected`);
       };
       await claim("without a join code", "delivery_lead", undefined);
@@ -94,7 +96,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       ensure(dl.isOpen, "the holder's connection was dropped by a refused claim");
       if (sys) ensure(sys.host.assignments.delivery_lead === "ZedAlphaParticipant", "the role holder changed after a refused claim");
       leak.close();
-      return "claims without a code, with a wrong code, and of an AI character's or an unknown role all got the same generic unauthorized and a 1008 close; with the right (leaked) code a live role still needs its reconnect token (role_taken); the holder kept delivery_lead";
+      return "claims without a code, with a wrong code, and of an AI character's or an unknown role (each also asking for a replay from seq 0) all got the same generic unauthorized and nothing else, and a 1008 close; with the right (leaked) code a live role still needs its reconnect token (role_taken); the holder kept delivery_lead";
     });
 
     await rec.run("F-03", async () => {
@@ -337,20 +339,41 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       await claimer("imposter-wrong-token", "ZedMalloryParticipant", "not-the-token", "an imposter with a wrong token");
       await claimer("same-name-no-token", "ZedAlphaParticipant", undefined, "the right name without the token");
       await n.step("while delivery_lead's old connection is still up, three takeover attempts with the role's join code but without the real reconnect token are refused");
+      // US-0013: the rejoin says which event it saw last (here: the one before scene 1's opening inject), so it is replayed what came after.
+      const sawBefore = old.events();
+      const injectSeq = sawBefore.find((e) => e.type === "inject.fired")?.seq;
+      ensure(injectSeq !== undefined, "delivery_lead never received an inject (the replay check would be vacuous)");
+      const lastSeq = injectSeq - 1;
       const fresh = await connectBot(ctx, "delivery_lead (rejoined)", { inbox: old.inbox });
       // The live rejoin needs only the reconnect token, not the join code again (US-0033 keeps the reconnect token separate).
-      const back = await fresh.call(playerJoin(ctx, "delivery_lead", "ZedAlphaParticipant", { joinCode: undefined, reconnectToken: j.reconnectToken }), isJoinedMsg, { what: "the rejoin" });
+      const back = await fresh.call(playerJoin(ctx, "delivery_lead", "ZedAlphaParticipant", { joinCode: undefined, reconnectToken: j.reconnectToken, lastSeq }), isJoinedMsg, { what: "the rejoin" });
       ensure(isJoinedMsg(back), `the rejoin with the token was refused: ${errCode(back)}`);
       ensure(back.roleId === "delivery_lead", "the rejoin did not return the same role");
       ensure(back.reconnectToken !== j.reconnectToken, "the reconnect token was not rotated");
       await withTimeout(old.closed, 5_000, "the server to close the old connection");
-      const lines = renderJoined(back);
+      const r = back.replay;
+      ensure(r && r.complete && r.afterSeq === lastSeq && r.toSeq === back.state.lastSeq, `the rejoin with lastSeq ${lastSeq} got no complete replay: ${JSON.stringify(r)}`);
+      const at = fresh.inbox.indexOf(back);
+      await fresh.waitFor(() => fresh.inbox.length >= at + 1 + r.events, { from: at, what: `the ${r.events} replayed events` });
+      const replayed = fresh.inbox.slice(at + 1, at + 1 + r.events).flatMap((m) => (m.type === "event" ? [m.event] : []));
+      ensure(replayed.length === r.events, `${r.events} replayed events were announced, ${replayed.length} event frames followed`);
+      ensure(replayed.every((e, i) => e.seq > lastSeq && e.seq <= r.toSeq && (i === 0 || e.seq > replayed[i - 1]!.seq)), "the replayed events are not in order, or outside the range");
+      // Exactly what this role received live after lastSeq (the old connection saw everything it may see): no gap, no extra, no duplicate.
+      const missed = sawBefore.filter((e) => e.seq > lastSeq && e.seq <= r.toSeq);
+      if (sys) ensure(JSON.stringify(replayed) === JSON.stringify(missed), `the replay (${replayed.length} events) differs from what delivery_lead received live after seq ${lastSeq} (${missed.length})`);
+      else ensure(missed.every((e) => replayed.some((x) => x.seq === e.seq)), "the replay lacks an event delivery_lead received live");
+      ensure(replayed.some((e) => e.type === "inject.fired") && replayed.some((e) => e.type === "facilitator.command" && e.command === "whisper" && e.text === WHISPER), "the replay lacks the inject or the whisper");
+      ensure(!replayed.some((e) => e.type === "npc.updated" || e.type === "gm.decision" || e.type === "gm.no_verdict" || e.type === "facilitator.alert"), "the replay carried facilitator-only events");
+      st.ev.rejoinReplay = { ok: true, value: { at, toSeq: r.toSeq } };
+      await n.step(`delivery_lead's rejoin says the last event it saw was seq ${lastSeq}: it is replayed the ${r.events} events after it that it may see (the inject and the whisper among them), exactly what it had received live, in order`);
+      // What the terminal client shows: the history up to lastSeq, then the replayed events.
+      const lines = [...renderJoined(back), ...replayed.flatMap((e) => renderEvent(e, "delivery_lead") ?? [])];
       ensure((back.state.transcript.length) >= heard, `the rejoin history has ${back.state.transcript.length} lines, ${heard} were heard`);
       ensure(lines.some((l) => l.includes(S1_LINES[0]![1])), "the rendered history lacks an early line of the session");
       await n.step(`delivery_lead rejoins with the reconnect token (no join code needed): role kept, ${back.state.transcript.length} lines of history rendered, old connection closed by the server`);
       await claimer("imposter-after-rejoin", "ZedMalloryParticipant", undefined, "an imposter after the rejoin");
       st.players.delivery_lead = fresh; st.joined.delivery_lead = back;
-      return `rejoin with the reconnect token alone kept the role and replayed ${back.state.transcript.length} history lines; the old socket was closed; imposters and the same name holding the join code but not the reconnect token were refused`;
+      return `rejoin with the reconnect token alone kept the role and replayed ${back.state.transcript.length} history lines plus, from its last-seen seq, the ${r.events} missed events it may see (inject and whisper included, nothing facilitator-only); the old socket was closed; imposters and the same name holding the join code but not the reconnect token were refused`;
     });
 
     // Hostile and malformed frames.
@@ -361,18 +384,24 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       await spare.expectError({ type: "say", text: "x".repeat(2_001) }, "bad_message");
       await spare.expectError({ type: "join", sessionId: ctx.sessionId, roleId: "", participantId: "x" }, "bad_message");
       await spare.expectError({ type: "say", text: "hello" }, "not_joined");
-      await n.step("bad JSON, an unknown type, an over-long line, an empty id and speech before joining all get an error message");
+      // US-0013: a last-seen seq must be a whole number from 0; it is checked before anything else (bad_message, nothing claimed).
+      for (const lastSeq of [-1, 2.5, "7", null]) await spare.expectError({ ...facilitatorJoin(ctx), lastSeq }, "bad_message");
+      await spare.expectError(JSON.stringify(facilitatorJoin(ctx)).replace(/}$/, ',"lastSeq":1e999}'), "bad_message");
+      await n.step("bad JSON, an unknown type, an over-long line, an empty id, speech before joining and a last-seen seq that is negative, a fraction, a string, null or infinite all get an error message");
       const big = await connectBot(ctx, "oversize");
       big.sendRaw("x".repeat(70_000));
       const code = await withTimeout(big.closed, 5_000, "the server to drop the oversized frame's connection");
       ensure(code === 1009, `an oversized frame closed the socket with ${code}, expected 1009`);
       await n.step("a 70 kB frame is refused at the socket (close code 1009)");
       const after = await connectBot(ctx, "probe");
+      // A last-seen seq past the session's last event is refused once the join is authorised; the same connection may then join.
+      const beyond = await after.call({ ...facilitatorJoin(ctx), lastSeq: Number.MAX_SAFE_INTEGER }, isJoinedMsg, { what: "a join with a seq past the log" });
+      ensure(beyond.type === "error" && beyond.code === "bad_message", `a lastSeq past the log gave ${errCode(beyond)}, expected bad_message`);
       const r = await after.call(facilitatorJoin(ctx), isJoinedMsg, { what: "a fresh connection" });
       ensure(isJoinedMsg(r), "the server did not accept a new connection after the hostile frames");
       ensure(fac.isOpen, "the facilitator's connection was affected");
       spare.close(); after.close();
-      return "bad_json, bad_message (unknown type, over-long line, empty id) and not_joined returned errors; a 70 kB frame closed with 1009; the server kept serving";
+      return "bad_json, bad_message (unknown type, over-long line, empty id, a malformed or out-of-range last-seen seq) and not_joined returned errors; a 70 kB frame closed with 1009; the server kept serving";
     });
 
     const dl = st.players.delivery_lead!;
@@ -415,6 +444,13 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       const ended = fac.events().find((e): e is Extract<SessionEvent, { type: "session.ended" }> => e.type === "session.ended");
       ensure(ended && ended.reason === "script_complete", `the session ended with ${ended?.reason ?? "no session.ended"}`);
       for (const [role] of ROLE_PLAYERS) await st.players[role]!.waitFor(isEvent("session.ended"), { what: `${role} to see the end` });
+      // US-0013: the rejoined delivery_lead got its replay and then every live event once, in order, up to the end.
+      const rj = st.ev.rejoinReplay?.ok ? (st.ev.rejoinReplay.value as { at: number; toSeq: number }) : null;
+      if (rj) {
+        const after = st.players.delivery_lead!.inbox.slice(rj.at + 1).flatMap((m) => (m.type === "event" ? [m.event.seq] : []));
+        ensure(after.every((q, i) => i === 0 || q > after[i - 1]!), "the rejoined delivery_lead received an event twice or out of order");
+        ensure(after.some((q) => q > rj.toSeq), "the rejoined delivery_lead received no live event after its replay");
+      }
       await st.players.delivery_lead!.expectError({ type: "say", text: "Is anyone still there?" }, "ended");
       await fac.expectError({ type: "command", command: { command: "resume" } }, "ended");
       await n.step("speech and commands after the end are refused (ended)");

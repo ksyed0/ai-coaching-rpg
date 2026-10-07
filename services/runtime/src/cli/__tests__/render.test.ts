@@ -235,3 +235,23 @@ describe("hidden facts in the terminal client (US-0016)", () => {
     expect(renderJoined({ type: "joined", roleId: "host", state: {} as never, hiddenFacts: { cfo: ["x"] } }).join("\n")).not.toContain("hidden facts");
   });
 });
+
+describe("renderJoined with a replay (US-0013)", () => {
+  const u = (seq: number, text: string) => ({ seq, ts: 0, sceneId: "s1", roleId: "guest", text, channel: "text" as const });
+  const joined = (replay: unknown) => renderJoined({ type: "joined", roleId: "host", state: { transcript: [u(1, "seen before"), u(5, "missed")] } as never, replay: replay as never });
+  it("test_render_joined_complete_replay_shows_history_up_to_last_seq_then_says_it_catches_up", () => {
+    const lines = joined({ afterSeq: 3, toSeq: 6, events: 2, complete: true });
+    expect(lines).toContain("guest: seen before");
+    expect(lines).not.toContain("guest: missed"); // it arrives as a replayed event right after
+    expect(lines.at(-1)).toBe("(catching up: 2 missed events follow)");
+  });
+  it("test_render_joined_incomplete_replay_keeps_the_whole_history_and_says_so", () => {
+    const lines = joined({ afterSeq: 0, toSeq: 6000, events: 0, complete: false });
+    expect(lines).toContain("guest: missed");
+    expect(lines.at(-1)).toBe("(too much was missed to replay it: the history above is what you may see; earlier injects and whispers are not shown)");
+  });
+  it("test_render_joined_ignores_a_malformed_replay_summary", () => {
+    expect(joined({ afterSeq: "x", complete: true })).toContain("guest: missed");
+    expect(joined(null)).toContain("guest: missed");
+  });
+});

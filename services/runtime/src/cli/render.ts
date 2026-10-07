@@ -112,15 +112,28 @@ export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>): str
     for (const f of m.privateFacts ?? []) lines.push(`  - ${s(f)}`);
     lines.push("");
   }
+  // US-0013: after a complete replay the lines after lastSeq arrive as replayed events right after this message; show the rest here.
+  const replay = validReplay(m.replay);
+  const all = m.state?.transcript ?? [];
   // The server already filtered the transcript to what this viewer may see; it still goes through sanitizeText (R26).
-  const transcript = m.state?.transcript ?? [];
+  const transcript = replay?.complete ? all.filter((u) => u.seq <= replay.afterSeq) : all;
   if (transcript.length > 0) {
     const shown = transcript.slice(-MAX_HISTORY_LINES);
     lines.push("--- history ---");
     if (transcript.length > shown.length) lines.push(`(+${transcript.length - shown.length} earlier lines)`);
     for (const u of shown) lines.push(`${u.roleId === m.roleId ? "you" : s(u.roleId)}: ${s(u.text)}`);
   }
+  if (replay?.complete) lines.push(`(catching up: ${replay.events} missed event${replay.events === 1 ? "" : "s"} follow)`);
+  else if (replay) lines.push("(too much was missed to replay it: the history above is what you may see; earlier injects and whispers are not shown)");
   return lines;
+}
+
+/** The `joined` message's replay summary (US-0013), or null when absent or malformed (a broken server cannot make the client misbehave). */
+export function validReplay(v: unknown): { afterSeq: number; toSeq: number; events: number; complete: boolean } | null {
+  if (typeof v !== "object" || v === null) return null;
+  const r = v as Record<string, unknown>;
+  const n = (x: unknown): x is number => typeof x === "number" && Number.isSafeInteger(x) && x >= 0;
+  return n(r.afterSeq) && n(r.toSeq) && n(r.events) && typeof r.complete === "boolean" ? { afterSeq: r.afterSeq, toSeq: r.toSeq, events: r.events, complete: r.complete } : null;
 }
 
 export function renderError(code: string, message: string, asPlayer = false): string {

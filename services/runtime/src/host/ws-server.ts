@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import http from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
-import { ClientMessageSchema, type ServerMessage } from "./protocol.js";
-import { HostError, type SessionHost } from "./session-host.js";
+import { ClientMessageSchema, type ReplaySummary, type ServerMessage } from "./protocol.js";
+import { HostError, type Replay, type SessionHost } from "./session-host.js";
 import { EngineError } from "../engine/session-engine.js";
 import { JoinCodes } from "../engine/join-codes.js";
 import { AuthThrottle, DEFAULT_LIMITS, OPEN_SERVER_NOTICE, TokenBucket, WindowCounter, clientIp, ipKey, isValidToken, normalizeOrigin, secretsMatch, type Limits } from "./security.js";
@@ -11,6 +11,11 @@ import { AuthThrottle, DEFAULT_LIMITS, OPEN_SERVER_NOTICE, TokenBucket, WindowCo
 /** A 2,000 character utterance is at most about 8 KiB of JSON, so 16 KiB leaves room and bounds what one frame can cost. */
 export const MAX_PAYLOAD_BYTES = 16 * 1024;
 const CLOSE_POLICY = 1008;
+/** US-0013: the answer to a `lastSeq` past the session's last event (sent only once the join is authorised, so it probes nothing). */
+const BEYOND_HEAD = "lastSeq: after the last event of this session";
+const beyondHead = (h: SessionHost, lastSeq: number | undefined): boolean => lastSeq !== undefined && lastSeq > h.engine.state.lastSeq;
+const summary = (r: Replay | null): { replay?: ReplaySummary } =>
+  r ? { replay: { afterSeq: r.afterSeq, toSeq: r.toSeq, events: r.events.length, complete: r.complete } } : {};
 const MAX_BUFFERED_BYTES = 1024 * 1024; // a client this far behind is dropped rather than buffered forever
 
 const DEFAULT_HEARTBEAT_MS = 15_000;
@@ -191,6 +196,8 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
       } catch (err) { log(`send failed: ${(err as Error).message}`); }
     };
     const fail = (code: string, message: string) => send({ type: "error", code, message });
+    /** US-0013: the replayed events go out right after `joined`, before the subscription can deliver anything newer. */
+    const sendReplay = (r: Replay | null) => { for (const event of r?.events ?? []) send({ type: "event", event }); };
 
     async function handle(raw: string): Promise<void> {
       if (closing || ws.readyState !== ws.OPEN) return dropAfterClose(raw);
@@ -229,22 +236,30 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             }
             // A role held by a live socket can only be taken over with that role's reconnect token (C1).
             if (prevLive && !byReconnect) return fail("role_taken", "role_taken");
+            if (beyondHead(h, m.lastSeq)) return fail("bad_message", BEYOND_HEAD); // authorised, but nothing is claimed or taken over
+            // US-0013: from here to the subscribe below there is no await, so no event can fall between the replay and the live stream.
+            const replay = m.lastSeq === undefined ? null : h.replayFor(m.roleId, m.lastSeq);
             const { brief, privateFacts } = h.join(m.roleId, m.participantId);
             const token = randomUUID();
             holders.set(key, { ws, token });
             holderKey = key; participantId = m.participantId; who = m.roleId;
             if (prevLive) prev.ws.terminate();
-            send({ type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId) });
+            send({ type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId), ...summary(replay) });
+            sendReplay(replay);
           } else {
             if (!h) return fail("unknown_session", "no such session");
+            if (beyondHead(h, m.lastSeq)) return fail("bad_message", BEYOND_HEAD);
+            const replay = m.lastSeq === undefined ? null : h.replayFor("facilitator", m.lastSeq);
             // With FACILITATOR_TOKEN set the token was checked above. Without it this branch is open to anyone who can reach
             // the port (bootstrap prints a warning at startup); see docs/THREAT_MODEL.md. Player roles have their own join codes (US-0033).
             who = "facilitator"; isFacilitator = true;
             // Facilitator-only reminder when the server is open (never sent to players).
-            send({ type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator"), hiddenFacts: h.hiddenFacts(), ...(token === undefined ? { notice: OPEN_SERVER_NOTICE } : {}) });
+            send({ type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator"), hiddenFacts: h.hiddenFacts(), ...(token === undefined ? { notice: OPEN_SERVER_NOTICE } : {}), ...summary(replay) });
+            sendReplay(replay);
           }
           host = h;
           const viewer = who;
+          // Subscribed in the same synchronous step as the snapshot and the replay: every later event has a seq above replay.toSeq.
           unsubscribe = h.subscribe((e) => { const view = h.viewFor(viewer, e); if (view) send({ type: "event", event: view }); });
           return;
         }

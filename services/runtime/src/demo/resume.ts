@@ -62,15 +62,15 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
     /** The join codes the operator was shown when the session started (life 1); a restart keeps them and shows none (US-0033). */
     let handedOut: Record<string, string> = {};
     const url = (s: ResumableSystem) => `ws://127.0.0.1:${s.port}`;
-    const joinFac = async (s: ResumableSystem, label: string) => {
+    const joinFac = async (s: ResumableSystem, label: string, lastSeq?: number) => {
       const fac = await connectBot(ctx, label, { url: url(s) });
-      const j = await fac.call({ type: "join_facilitator", sessionId: SID }, isJoinedMsg, { what: `${label} to join` });
+      const j = await fac.call({ type: "join_facilitator", sessionId: SID, ...(lastSeq !== undefined ? { lastSeq } : {}) }, isJoinedMsg, { what: `${label} to join` });
       ensure(isJoinedMsg(j), `${label} could not join`);
       return { fac, joined: j };
     };
-    const joinPlayer = async (s: ResumableSystem, role: string, who: string): Promise<{ bot: Bot; joined: Joined }> => {
+    const joinPlayer = async (s: ResumableSystem, role: string, who: string, lastSeq?: number): Promise<{ bot: Bot; joined: Joined }> => {
       const bot = await connectBot(ctx, `resume ${role}`, { url: url(s) });
-      const j = await bot.call(playerJoin(ctx, role, who, { sessionId: SID, codes: handedOut }), isJoinedMsg, { what: `${role} to join` });
+      const j = await bot.call(playerJoin(ctx, role, who, { sessionId: SID, codes: handedOut, lastSeq }), isJoinedMsg, { what: `${role} to join` });
       ensure(isJoinedMsg(j), `${role} could not join: ${j.type === "error" ? j.code : j.type}`);
       return { bot, joined: j };
     };
@@ -100,6 +100,10 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
     await facA.waitFor(isEvent("utterance", (e) => e.text === PENDING_LINE), { what: "the line that will go unanswered" });
     await npcA.holding;
     const before = structuredClone(a.engine.state);
+    // US-0013: the last event each client had received when the server died (they rejoin from there). Both players have the last line.
+    for (const p of [dlA, amA]) await p.bot.waitFor(isEvent("utterance", (e) => e.text === PENDING_LINE), { what: `${p.bot.label} to hear the last line` });
+    const lastSeen = (b: Bot) => b.events().at(-1)?.seq ?? 0;
+    const seenAtCrash = { facilitator: lastSeen(facA), delivery_lead: lastSeen(dlA.bot), account_manager: lastSeen(amA.bot) };
     const activeBefore = activeElapsedMs(before, clockA.now());
     await n.step(`scene 2 is ${CRASH_AT_MS / MIN} minutes in; account_manager has just spoken and ${npc.name} is still thinking about it`);
     await a.crash();
@@ -127,12 +131,19 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       const active = activeElapsedMs(b.engine.state, clockB.now());
       ensure(active === activeBefore, `the scene clock moved during the downtime: ${active} ms active, ${activeBefore} ms at the crash`);
       ensure(b.store.lock.verify(), "the restarted server does not hold the session lock");
-      const { fac, joined } = await joinFac(b, "resume facilitator (after restart)");
+      const { fac, joined } = await joinFac(b, "resume facilitator (after restart)", seenAtCrash.facilitator);
       ensure(joined.state?.paused === true, "the facilitator's snapshot does not show the session paused");
+      // US-0013: rejoining from the last event it saw before the crash, the facilitator is replayed exactly what the restart added.
+      const r = joined.replay;
+      ensure(r?.complete === true && r.afterSeq === seenAtCrash.facilitator && r.toSeq === b.engine.state.lastSeq, `the facilitator's rejoin got no complete replay: ${JSON.stringify(r)}`);
+      await fac.waitFor(() => fac.inbox.length >= 1 + r.events, { what: "the facilitator's replay" });
+      const replayed = fac.events().slice(0, r.events);
+      ensure(seenAtCrash.facilitator === before.lastSeq, `the facilitator had seen up to seq ${seenAtCrash.facilitator} of ${before.lastSeq} before the crash`);
+      ensure(JSON.stringify(replayed.map((e) => [e.seq, e.type])) === JSON.stringify([[before.lastSeq + 1, "session.resumed"], [before.lastSeq + 2, "facilitator.alert"]]), `the facilitator's replay after the restart was ${JSON.stringify(replayed.map((e) => [e.seq, e.type]))}`);
       ensure(fac.inbox.length > 0, "no answer");
       st.ev.resumeFac = { ok: true, value: fac };
       await n.step(`restart: the session is rebuilt from its log, PAUSED, with ${Math.round((timeBoxMs - active) / 1000)} s of scene 2 left (as at the crash); the dead server's lock was taken over`);
-      return `restored from ${before.lastSeq} logged events to the same state, byte-identical log prefix, then session.resumed + a facilitator alert; paused with ${(active / MIN).toFixed(0)} of ${scene2.time_box_minutes} minutes used, as at the crash, after ${RESUME_DOWNTIME_MS / MIN} minutes of downtime; the stale lock of the dead server was taken over`;
+      return `restored from ${before.lastSeq} logged events to the same state, byte-identical log prefix, then session.resumed + a facilitator alert (replayed to the rejoining facilitator from its last-seen seq, the same seqs as before the crash); paused with ${(active / MIN).toFixed(0)} of ${scene2.time_box_minutes} minutes used, as at the crash, after ${RESUME_DOWNTIME_MS / MIN} minutes of downtime; the stale lock of the dead server was taken over`;
     });
     const facB = (st.ev.resumeFac?.ok ? st.ev.resumeFac.value : null) as Bot | null;
 
@@ -142,9 +153,32 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       const stranger = await connectBot(ctx, "resume stranger", { url: url(b) });
       const refused = await stranger.call(playerJoin(ctx, "delivery_lead", "ZedMalloryParticipant", { sessionId: SID, codes: {} }), isJoinedMsg, { what: "a claim without a code after the restart" });
       ensure(refused.type === "error" && refused.code === "unauthorized", `a claim without a code after the restart gave ${refused.type === "error" ? refused.code : refused.type}`);
-      const dl = await joinPlayer(b, "delivery_lead", "ZedAlphaParticipant");
-      const am = await joinPlayer(b, "account_manager", "ZedCharlieParticipant");
-      const tl = await joinPlayer(b, "tech_lead", "ZedDeltaParticipant"); // someone else: claims are not kept across a restart
+      // US-0013: a seq past the restarted log is refused once the code is checked (nothing claimed), then the real rejoins.
+      const ahead = await connectBot(ctx, "resume ahead", { url: url(b) });
+      const far = await ahead.call(playerJoin(ctx, "delivery_lead", "ZedAlphaParticipant", { sessionId: SID, codes: handedOut, lastSeq: b.engine.state.lastSeq + 1 }), isJoinedMsg, { what: "a rejoin from past the log" });
+      ensure(far.type === "error" && far.code === "bad_message", `a rejoin from past the log gave ${far.type === "error" ? far.code : far.type}`);
+      ensure(b.host.assignments.delivery_lead === undefined, "a refused rejoin claimed the role");
+      ahead.close();
+      const dl = await joinPlayer(b, "delivery_lead", "ZedAlphaParticipant", seenAtCrash.delivery_lead);
+      const am = await joinPlayer(b, "account_manager", "ZedCharlieParticipant", seenAtCrash.account_manager);
+      const tl = await joinPlayer(b, "tech_lead", "ZedDeltaParticipant", 0); // someone else (claims are not kept across a restart), asking for everything
+      const replayOf = async (p: { bot: Bot; joined: Joined }) => {
+        const r = p.joined.replay;
+        ensure(r?.complete === true, `${p.bot.label} got no complete replay: ${JSON.stringify(r)}`);
+        await p.bot.waitFor(() => p.bot.inbox.length >= 1 + r.events, { what: `${p.bot.label}'s replay` });
+        return p.bot.events().slice(0, r.events);
+      };
+      for (const p of [dl, am]) {
+        const got = (await replayOf(p)).map((e) => e.type);
+        // They saw everything up to the crash: what they missed is that the session came back paused (the restart alert is the facilitator's).
+        ensure(JSON.stringify(got) === JSON.stringify(["session.resumed"]), `${p.bot.label} was replayed ${JSON.stringify(got)} after the restart`);
+      }
+      const tlReplay = await replayOf(tl);
+      const tlTypes = tlReplay.map((e) => e.type);
+      ensure(tlReplay.some((e) => e.type === "inject.fired") && tlReplay.some((e) => e.type === "utterance" && e.text === HISTORY_LINE), "tech_lead's replay from seq 0 lacks scene 1's inject or line");
+      ensure(!tlReplay.some((e) => (e.type === "scene.entered" && e.sceneId === s2) || (e.type === "utterance" && e.text !== HISTORY_LINE)), "tech_lead was replayed scene 2, which it is not in");
+      ensure(!tlTypes.some((t) => t === "npc.updated" || t === "facilitator.alert" || t === "gm.decision" || t === "gm.no_verdict"), `tech_lead was replayed facilitator-only events: ${tlTypes.join(", ")}`);
+      ensure(tlTypes.at(-1) === "session.resumed", "tech_lead's replay does not end with the restart's session.resumed");
       const texts = (j: Joined) => (j.state?.transcript ?? []).map((u) => u.text);
       for (const p of [dl, am]) {
         const t = texts(p.joined);
@@ -159,7 +193,7 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       }
       st.ev.resumePlayers = { ok: true, value: [dl.bot, am.bot] };
       await n.step("the players rejoin with the join codes they were given before the crash (a claim without a code is refused; no new codes were shown) and each gets the history it may see: tech_lead, who was not on the call, gets none of it");
-      return "a claim without a code was refused after the restart; with the join codes from before the crash (kept as hashes, none re-issued) delivery_lead and account_manager rejoined with their 4 visible lines (scene 1 and the call); tech_lead, claimed by a new participant holding its code, got only scene 1; no facilitator-only data or hidden-fact text reached a player";
+      return "a claim without a code was refused after the restart; with the join codes from before the crash (kept as hashes, none re-issued) delivery_lead and account_manager rejoined with their 4 visible lines (scene 1 and the call) and, from their last-seen seq, were replayed only session.resumed; tech_lead, claimed by a new participant holding its code and asking from seq 0, got only scene 1 (its inject and line) and session.resumed; a rejoin from past the log was refused as bad_message; no facilitator-only data or hidden-fact text reached a player";
     }, ["F-34"]);
 
     await rec.run("F-36", async () => {

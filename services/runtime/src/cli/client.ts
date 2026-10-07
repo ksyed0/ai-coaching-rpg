@@ -1,6 +1,6 @@
 import type { Options } from "./commands.js";
 import { isFatalError, joinMessage, parseInput, parseServerMessage } from "./commands.js";
-import { parseHiddenFacts, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, sanitizeText } from "./render.js";
+import { parseHiddenFacts, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, sanitizeText, validReplay } from "./render.js";
 
 export const MAX_PREJOIN_LINES = 100;
 export const DEFAULT_IDLE_MS = 1_500;
@@ -32,6 +32,10 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
   // Facilitator only: the hidden facts the server listed at join, and which of them are released (from the snapshot and the live npc.updated events).
   let hiddenFacts = new Map<string, string[]>();
   const released = new Map<string, string[]>();
+  // US-0013: the highest seq this client has state for (the join snapshot or a later event): printed on a drop for `--last-seq`.
+  let seen: number | null = null;
+  // After a join with `lastSeq`, event frames at or below this seq are duplicates and dropped (the server sends none; defence in depth).
+  let dedupeUpTo: number | null = null;
 
   function finish(code: number, message?: string, polite = false): void {
     if (done) return;
@@ -57,7 +61,7 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
     onClose(): void {
       if (done) return;
       if (eof && joined) return finish(0);
-      finish(1, "disconnected from server");
+      finish(1, seen === null ? "disconnected from server" : `disconnected from server; to receive what you missed, run pnpm play again with --last-seq ${seen}`);
     },
     onMessage(raw: string): void {
       if (done) return;
@@ -66,6 +70,10 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
       if (eof && joined) armIdle();
       if (m.type === "joined") {
         joined = true;
+        const snap = (m.state as { lastSeq?: unknown } | undefined)?.lastSeq;
+        if (typeof snap === "number" && Number.isSafeInteger(snap) && snap >= 0) seen = snap;
+        const replay = validReplay(m.replay);
+        if (replay) dedupeUpTo = replay.complete ? replay.afterSeq : replay.toSeq;
         if (opts.facilitator) {
           hiddenFacts = parseHiddenFacts(m.hiddenFacts);
           const npcs = (m.state as { npcs?: unknown } | undefined)?.npcs;
@@ -78,6 +86,11 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
         for (const queued of pending.splice(0)) send(queued);
         if (eof) armIdle();
       } else if (m.type === "event") {
+        const seq = (m.event as { seq?: unknown }).seq;
+        if (typeof seq === "number" && Number.isSafeInteger(seq)) {
+          if (dedupeUpTo !== null) { if (seq <= dedupeUpTo) return; dedupeUpTo = seq; }
+          if (seen === null || seq > seen) seen = seq;
+        }
         const line = renderEvent(m.event, opts.facilitator ? "facilitator" : opts.role!);
         if (line) io.print(line);
         if (opts.facilitator && m.event.type === "npc.updated") {

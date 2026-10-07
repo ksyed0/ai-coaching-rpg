@@ -174,3 +174,33 @@ describe("client core: join codes (US-0033)", () => {
     expect(t.errs.join("\n")).not.toMatch(/FACILITATOR_TOKEN/);
   });
 });
+
+describe("client: replay-from-seq (US-0013)", () => {
+  const evAt = (seq: number, text: string) => JSON.stringify({ type: "event", event: { seq, ts: 0, sessionId: "s", type: "utterance", roleId: "guest", text, channel: "text" } });
+  const joinedReplay = (replay: unknown, lastSeq = 10) => JSON.stringify({ type: "joined", roleId: "host", reconnectToken: "TOK", state: { lastSeq, transcript: [] }, replay });
+  it("test_client_drops_an_event_it_has_already_received_during_a_replay", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedReplay({ afterSeq: 7, toSeq: 10, events: 2, complete: true }));
+    t.c.onMessage(evAt(8, "eight")); t.c.onMessage(evAt(10, "ten")); t.c.onMessage(evAt(10, "ten again")); t.c.onMessage(evAt(7, "old")); t.c.onMessage(evAt(11, "eleven"));
+    expect(t.out.filter((l) => l.startsWith("guest:"))).toEqual(["guest: eight", "guest: ten", "guest: eleven"]);
+  });
+  it("test_client_without_a_replay_prints_every_event_as_before", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedMsg);
+    t.c.onMessage(ev("a")); t.c.onMessage(ev("b"));
+    expect(t.out.filter((l) => l.startsWith("guest:"))).toEqual(["guest: a", "guest: b"]);
+  });
+  it("test_client_on_disconnect_says_which_last_seq_to_rejoin_with", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedReplay(undefined, 10));
+    t.c.onMessage(evAt(12, "twelve"));
+    t.c.onClose();
+    expect(t.exits).toEqual([1]);
+    expect(t.errs.join("\n")).toContain("run pnpm play again with --last-seq 12");
+  });
+  it("test_client_on_disconnect_before_any_event_uses_the_join_snapshot", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedReplay(undefined, 9)); t.c.onClose();
+    expect(t.errs.join("\n")).toContain("--last-seq 9");
+    const u = setup(); u.c.onOpen(); u.c.onClose(); // never joined: nothing to resume from
+    expect(u.errs.join("\n")).not.toContain("--last-seq");
+  });
+});

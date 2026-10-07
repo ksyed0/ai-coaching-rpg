@@ -119,7 +119,7 @@ export const facilitatorJoin = (ctx: Ctx): { type: "join_facilitator"; sessionId
 export const codeFor = (ctx: Ctx, role: string): string | undefined => (ctx.sys ? ctx.sys.joinCodes[role] : ctx.urlJoinCodes?.[role]);
 
 /** A player's join message, carrying the role's join code (US-0033) unless `extra` overrides it. */
-export function playerJoin(ctx: Ctx, role: string, participantId: string, extra: { joinCode?: string; reconnectToken?: string; codes?: Record<string, string>; sessionId?: string } = {}): Record<string, unknown> {
+export function playerJoin(ctx: Ctx, role: string, participantId: string, extra: { joinCode?: string; reconnectToken?: string; codes?: Record<string, string>; sessionId?: string; lastSeq?: number } = {}): Record<string, unknown> {
   const { codes, sessionId, ...rest } = extra;
   const code = codes ? codes[role] : codeFor(ctx, role);
   return { type: "join", sessionId: sessionId ?? ctx.sessionId, roleId: role, participantId, ...(code !== undefined ? { joinCode: code } : {}), ...rest };
