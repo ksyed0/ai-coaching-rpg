@@ -1,4 +1,4 @@
-import { lstat, stat, writeFile } from "node:fs/promises";
+import { readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { isSafeId } from "@acr/events";
@@ -121,8 +121,12 @@ export async function runCalibrate(deps: CalibrateDeps): Promise<{ exitCode: num
   const say = (m: string) => (toErr ? deps.stderr : deps.stdout).write(`${clean(m)}\n`);
   const base = deps.cwd ?? deps.env.INIT_CWD ?? process.cwd();
   const jsonFile = values.json !== undefined && !toErr ? path.resolve(base, values.json) : undefined;
-  if (jsonFile && (await lstat(jsonFile).then(() => true, () => false))) return fail("--json: the file already exists (results are never overwritten)");
-  if (jsonFile && !(await stat(path.dirname(jsonFile)).catch(() => null))?.isDirectory()) return fail("--json: the directory for the file does not exist");
+  // Preflight from a listing of the parent directory, never a check on the target itself (the exclusive create at the end is the real guard).
+  if (jsonFile) {
+    const names = await readdir(path.dirname(jsonFile)).catch(() => null);
+    if (names === null) return fail("--json: the directory for the file does not exist");
+    if (names.includes(path.basename(jsonFile))) return fail("--json: the file already exists (results are never overwritten)");
+  }
 
   // The scenario: relative to the current directory, else to the repository.
   const local = path.resolve(base, values.scenario);

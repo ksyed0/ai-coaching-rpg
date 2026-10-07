@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,7 +29,14 @@ const run = (argv: string[], extra: Extra = {}, env: NodeJS.ProcessEnv = {}) => 
   return runCalibrate({ argv, stdout: o.stdout, stderr: o.stderr, env, repoRoot: REPO, cwd: dir, ...extra }).then((r) => ({ ...r, ...o, outText: o.out.join(""), errText: o.err.join("") }));
 };
 const SCN = ["--scenario", "scenarios/friday-escalation"];
-const exists = (p: string) => stat(p).then(() => true, () => false);
+/** Whether `p` exists, from a listing of its parent (no stat-then-read on the same path: CodeQL js/file-system-race). */
+const exists = (p: string) => readdir(path.dirname(p)).then((names) => names.includes(path.basename(p)), () => false);
+/** Mode and content of a file from ONE open descriptor (no check-then-use on the path: CodeQL js/file-system-race). */
+async function readWithMode(file: string): Promise<{ mode: number; text: string }> {
+  const fh = await open(file, "r");
+  try { return { mode: (await fh.stat()).mode & 0o777, text: await fh.readFile("utf8") }; } finally { await fh.close(); }
+}
+
 
 /** A copy of the Friday scenario whose calibration directory holds exactly these probe files. */
 async function scenarioWith(probes: Record<string, string>): Promise<string> {
@@ -218,8 +225,9 @@ describe("pnpm calibrate: output", () => {
     const file = path.join(dir, "run.json");
     const r = await run([...SCN, "--out", dir, "--only", "disc-l1", "--json", file], { judges: [judge(good())] });
     expect(r.exitCode).toBe(0);
-    expect(JSON.parse(await readFile(file, "utf8")).schema).toBe("acr.calibration/1");
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    const written = await readWithMode(file);
+    expect(JSON.parse(written.text).schema).toBe("acr.calibration/1");
+    expect(written.mode).toBe(0o600);
     const again = await run([...SCN, "--out", dir, "--only", "disc-l1", "--json", file], { judges: [judge(good())] });
     expect(again.exitCode).toBe(2);
     expect(again.errText).toMatch(/already exists/);

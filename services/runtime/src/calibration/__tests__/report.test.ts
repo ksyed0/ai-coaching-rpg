@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, open, readFile, readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { buildJudgeReport, buildRun, renderMarkdown, summaryFile, writeRun, writeSummaries, type CalibrationRun } from "../report.js";
@@ -11,6 +11,12 @@ import type { ContrastOutcome, Evidence, Observed, SingleOutcome } from "../type
 let dir: string;
 beforeEach(async () => { dir = await mkdtemp(path.join(os.tmpdir(), "acr-cal-")); });
 afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+/** Mode and content of a file from ONE open descriptor (no check-then-use on the path: CodeQL js/file-system-race). */
+async function readWithMode(file: string): Promise<{ mode: number; text: string }> {
+  const fh = await open(file, "r");
+  try { return { mode: (await fh.stat()).mode & 0o777, text: await fh.readFile("utf8") }; } finally { await fh.close(); }
+}
 
 const out = (id: string, expected: 1 | 2 | 3 | 4, run: SingleOutcome["runs"][number]): SingleOutcome =>
   ({ probeId: id, criterion: "discovery", split: "tune", source: "handwritten", drafter: null, capped: 0, dropped: 0, evidence: [], kind: "single", subject: "p", expected, acceptable: [expected], runs: [run] });
@@ -154,8 +160,14 @@ describe("report", () => {
     const r = buildRun({ scenario: { id: "esc-scope-creep-01", version: `1|${evil}` }, rubrics: [], variant: "v1", startedAt: "2026-10-08T00:00:00.000Z", probes, lint: [evil], judges: [a, b] });
     const md = renderMarkdown(r);
     expect(md).not.toMatch(HIDDEN);
-    expect(md).not.toMatch(/<script>/);
-    expect(md).toMatch(/\\</);
+    // plain substring checks (no regexp that tries to recognise HTML): the hostile tag only survives in its escaped form
+    expect(md.includes("<script>")).toBe(false);
+    expect(md.toLowerCase().includes("<script>")).toBe(false);
+    expect(md.includes("\\<script\\>")).toBe(true);
+    // every angle bracket in the whole report is escaped, so no tag of any case or spelling can form
+    for (const bracket of ["<", ">"]) {
+      for (let i = md.indexOf(bracket); i !== -1; i = md.indexOf(bracket, i + 1)) expect(md[i - 1], `unescaped ${bracket} at ${i}`).toBe("\\");
+    }
     const lines = md.split("\n");
     for (const l of lines) expect(l.length).toBeLessThan(4000);
     for (const l of lines) expect(l).not.toMatch(/^\s*(#{1,6} (?!Calibration|Judge|Per |By |Contrast$|Bias|Not observed|Stability|Usability|Cross-judge|Disagreements|Lint)|> )/);
@@ -185,12 +197,13 @@ describe("report", () => {
   it("writes the run exclusively under the data dir with private modes and never overwrites", async () => {
     const r = run();
     const w = await writeRun(r, dir);
-    expect((await stat(w.markdown)).mode & 0o777).toBe(0o600);
-    expect((await stat(w.json)).mode & 0o777).toBe(0o600);
+    const markdown = await readWithMode(w.markdown), json = await readWithMode(w.json);
+    expect(markdown.mode).toBe(0o600);
+    expect(json.mode).toBe(0o600);
     expect((await stat(w.dir)).mode & 0o777).toBe(0o700);
     expect(path.basename(w.dir)).toBe("2026-10-08T00-00-00-000Z");
-    expect(JSON.parse(await readFile(w.json, "utf8")).schema).toBe("acr.calibration/1");
-    expect(await readFile(w.markdown, "utf8")).toBe(renderMarkdown(r));
+    expect(JSON.parse(json.text).schema).toBe("acr.calibration/1");
+    expect(markdown.text).toBe(renderMarkdown(r));
     await expect(writeRun(r, dir)).resolves.toBeDefined(); // a second run gets its own directory
     expect((await readdir(path.join(dir, "esc-scope-creep-01"))).filter((n) => !n.endsWith(".json")).length).toBe(2);
   });
@@ -215,9 +228,9 @@ describe("report", () => {
     const [file] = await writeSummaries(r, dir);
     expect(file).toBe(summaryFile(dir, "esc-scope-creep-01", "gemma-4-31b", "v1"));
     expect(path.basename(file!)).toBe("gemma-4-31b-v1.json");
-    const s = JSON.parse(await readFile(file!, "utf8"));
-    expect(s).toMatchObject({ schema: "acr.calibration.summary/1", rubricHash: "abc123", variant: "v1", exact: { n: 1, of: 2 } });
-    expect((await stat(file!)).mode & 0o777).toBe(0o600);
+    const read = await readWithMode(file!);
+    expect(JSON.parse(read.text)).toMatchObject({ schema: "acr.calibration.summary/1", rubricHash: "abc123", variant: "v1", exact: { n: 1, of: 2 } });
+    expect(read.mode).toBe(0o600);
     await writeSummaries(r, dir);
     expect(await readdir(path.join(dir, "esc-scope-creep-01"))).toEqual(["gemma-4-31b-v1.json"]);
   });
