@@ -117,4 +117,21 @@ describe("compareJudges", () => {
     expect(r.disagreements[0]!.aEvidence).toBeUndefined();
     expect(r.disagreements[0]!.bEvidence).toEqual({ role: "p", rationale: "B says", quotes: ["q"] });
   });
+
+  it("carries the probe's expected level for the role, from the outcomes: a single's expected (and a wider acceptable set), a contrast player's level", () => {
+    const wide = { ...single("w", 1, "r"), expected: 3 as const, acceptable: [3 as const, 4 as const] };
+    const wideB = { ...wide, runs: [2 as const] };
+    const r = compareJudges([single("s", 1), wide, contrast("c", { x: 4, y: 1 })], [single("s", 2), wideB, contrast("c", { x: 4, y: 2 })]);
+    const by = (id: string) => r.disagreements.find((d) => d.probeId === id)!;
+    expect(by("s")).toMatchObject({ expected: 3 });
+    expect(by("s")).not.toHaveProperty("acceptable");
+    expect(by("w")).toMatchObject({ expected: 3, acceptable: [3, 4] });
+    expect(by("c")).toMatchObject({ role: "y", expected: 4 });
+  });
+  it("leaves the field out of the disagreement (not undefined) when the outcomes do not say", () => {
+    const noExpected = { ...single("s", 1), expected: undefined } as unknown as SingleOutcome;
+    const r = compareJudges([noExpected], [single("s", 2)]);
+    expect(Object.keys(r.disagreements[0]!)).not.toContain("expected");
+    expect(JSON.stringify(r.disagreements[0])).not.toContain("undefined");
+  });
 });

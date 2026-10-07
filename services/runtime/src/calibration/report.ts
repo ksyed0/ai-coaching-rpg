@@ -180,15 +180,21 @@ function evidenceCells(e: Evidence | undefined): [string, string] {
   return [md(e.rationale, 300), quotes];
 }
 
+/** The expected level for the role; a single probe with a wider acceptable set also lists it. Empty when unknown. */
+function expectedCell(d: Disagreement): string {
+  if (d.expected === undefined) return "";
+  return md(d.acceptable ? `${d.expected} (acceptable ${d.acceptable.join(", ")})` : String(d.expected), 60);
+}
+
 function comparisonDetail(c: Comparison, a: JudgeReport, b: JudgeReport): string[] {
   const la = md(a.judge.label, 64), lb = md(b.judge.label, 64);
-  const rows = c.disagreements.map((d: Disagreement) => [md(d.probeId, 80), md(d.role, 64), observed(d.a), observed(d.b), ...evidenceCells(d.aEvidence), ...evidenceCells(d.bEvidence)]);
+  const rows = c.disagreements.map((d: Disagreement) => [md(d.probeId, 80), md(d.role, 64), expectedCell(d), observed(d.a), observed(d.b), ...evidenceCells(d.aEvidence), ...evidenceCells(d.bEvidence)]);
   return [
     `## Cross-judge comparison (${la} vs ${lb})`, "",
     `- ${c.pairs} numeric pairs; mean absolute difference ${fixed(c.meanAbsDiff)}; within one level ${c.withinOne} of ${c.pairs}`,
     ...(c.bothUnusable > 0 ? [`- ${c.bothUnusable} entries were unusable for both judges`] : []), "",
     "### Disagreements", "",
-    ...(rows.length ? table(["Probe", "Role", la, lb, `${la} rationale`, `${la} quotes`, `${lb} rationale`, `${lb} quotes`], rows) : ["None."]), "",
+    ...(rows.length ? table(["Probe", "Role", "Expected", la, lb, `${la} rationale`, `${la} quotes`, `${lb} rationale`, `${lb} quotes`], rows) : ["None."]), "",
   ];
 }
 
