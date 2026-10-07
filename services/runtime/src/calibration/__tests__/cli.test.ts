@@ -387,7 +387,7 @@ describe("pnpm calibrate: summary files are replaced only by a complete run", ()
   ] as [string, string[], () => Extra][])("leaves the summary untouched when the run is %s, and still writes the run", async (reason, argv, extra) => {
     const before = await baseline();
     const r = await run([...SCN, "--out", dir, ...argv], extra());
-    expect(r.errText + r.outText).toContain(`summary for fake-model-primary not updated: ${reason}`);
+    expect(r.errText + r.outText).toContain(`summary for primary (fake-model-primary) not updated: ${reason}`);
     expect(await readFile(summary(), "utf8")).toBe(before);
     expect(await runDirs()).toBe(2);
   });
@@ -400,7 +400,7 @@ describe("pnpm calibrate: summary files are replaced only by a complete run", ()
   it("updates the complete judge's summary and skips only the other one", async () => {
     const down = fakeJudge(criteria, () => ({ discovery: 3 }), () => true);
     const r = await run([...SCN, "--out", dir], { judges: [judge(good()), judge(down, "second")] });
-    expect(r.errText + r.outText).toContain("summary for fake-model-second not updated: no usable answers");
+    expect(r.errText + r.outText).toContain("summary for second (fake-model-second) not updated: no usable answers");
     expect(await exists(summary())).toBe(true);
     expect(await exists(path.join(dir, "esc-scope-creep-01", "fake-model-second-v1.json"))).toBe(false);
   });
@@ -464,20 +464,30 @@ describe("pnpm calibrate: a judge that degrades mid-run", () => {
     const r = await run(["--scenario", scn, "--out", dir], { judges: [judge(flaky())] });
     expect(r.exitCode).toBe(0);
     expect(r.run!.judges[0]!.metrics.usability).toMatchObject({ slots: 10, unusable: 2 });
-    expect(r.outText).toContain("summary for fake-model-primary not updated: too few usable answers (8 of 10)");
+    expect(r.outText).toContain("summary for primary (fake-model-primary) not updated: too few usable answers (8 of 10)");
     expect(r.outText).not.toMatch(/summaries updated/);
     expect(await readFile(summary(), "utf8")).toBe(before);
   });
+  // 8 of 10 answers usable, with one of the two contrast probes still fully usable (losing every contrast answer is a different skip reason).
+  const half = (): FakeJudge => {
+    const inner = fakeJudge(criteria, () => ({ discovery: 3, listening: 3, negotiation: 3 }));
+    return { ...inner, stream: (req) => {
+      const text = req.messages.map((m) => m.content).join("\n");
+      const role = /score only the participant with role id "([a-z0-9_-]+)"/i.exec(req.system)?.[1];
+      if ((role === "account_manager" && text.includes("Yes, no problem, we will do the whole module")) || (role === "delivery_lead" && text.includes("consider it done"))) throw new Error("down");
+      return inner.stream(req);
+    } };
+  };
   it("replaces it when the usable fraction is exactly minUsable, and keeps it just below", async () => {
     const at = await friday(0.8);
     const before = await baseline(at);
-    const r = await run(["--scenario", at, "--out", dir], { judges: [judge(flaky())] });
+    const r = await run(["--scenario", at, "--out", dir], { judges: [judge(half())] });
     expect(r.outText).toMatch(/summaries updated: fake-model-primary-v1\.json/);
     const after = await readFile(summary(), "utf8");
     expect(after).not.toBe(before);
     expect(JSON.parse(after).usable).toEqual({ n: 8, of: 10 });
     await writeFile(path.join(at, "calibration", "targets.yaml"), "minUsable: 0.81\n");
-    const below = await run(["--scenario", at, "--out", dir], { judges: [judge(flaky())] });
+    const below = await run(["--scenario", at, "--out", dir], { judges: [judge(half())] });
     expect(below.outText).toContain("not updated: too few usable answers (8 of 10)");
     expect(await readFile(summary(), "utf8")).toBe(after);
   });
@@ -496,7 +506,8 @@ describe("pnpm calibrate: two judges with one model id", () => {
   it("keeps the first judge's summary when the second is skipped", async () => {
     const down = fakeJudge(criteria, () => ({ discovery: 3 }), () => true);
     const r = await run([...SCN, "--out", dir], { judges: [judge(good()), same(down)] });
-    expect(r.outText).toContain("summary for fake-model-primary not updated: no usable answers");
+    expect(r.outText).toContain("summary for second (fake-model-primary) not updated: no usable answers");
+    expect(r.outText).not.toContain("summary for primary");
     expect(JSON.parse(await readFile(file(), "utf8")).judge.label).toBe("primary");
   });
 });
@@ -513,5 +524,78 @@ describe("pnpm calibrate: --json <file> write failure after the run", () => {
     expect(r.exitCode).toBe(1);
     expect(r.errText).toMatch(/error: --json: cannot write the file: it already exists/);
     expect(await readFile(target, "utf8")).toBe("someone else");
+  });
+});
+
+describe("pnpm calibrate: --only naming every probe", () => {
+  const summary = () => path.join(dir, "esc-scope-creep-01", "fake-model-primary-v1.json");
+  const ALL = "disc-l1,disc-l2,disc-l3,disc-l4,listening-contrast-01,neg-l1,neg-l4,negotiation-contrast-01";
+  it("replaces the summary like a full run, while a smaller --only does not", async () => {
+    const all = await run([...SCN, "--out", dir, "--only", ALL], { judges: [judge(good())] });
+    expect(all.outText).toMatch(/summaries updated: fake-model-primary-v1\.json/);
+    expect(all.outText).not.toContain("subset");
+    const before = await readFile(summary(), "utf8");
+    const part = await run([...SCN, "--out", dir, "--only", "disc-l1"], { judges: [judge(good())] });
+    expect(part.outText).toContain("not updated: subset (--only)");
+    expect(await readFile(summary(), "utf8")).toBe(before);
+  });
+});
+
+describe("pnpm calibrate: contrast thinly measured on a larger set", () => {
+  const summary = () => path.join(dir, "esc-scope-creep-01", "fake-model-primary-v1.json");
+  /** 18 single probes (copies of disc-l1) and the two contrast probes: 22 answer slots. */
+  async function big(): Promise<string> {
+    const disc = await readFile(path.join(FRIDAY, "calibration", "disc-l1.yaml"), "utf8");
+    const files: Record<string, string> = {
+      "listening-contrast-01.yaml": await readFile(path.join(FRIDAY, "calibration", "listening-contrast-01.yaml"), "utf8"),
+      "negotiation-contrast-01.yaml": await readFile(path.join(FRIDAY, "calibration", "negotiation-contrast-01.yaml"), "utf8"),
+    };
+    for (let i = 1; i <= 18; i++) files[`s-${i}.yaml`] = disc.replace("id: disc-l1", `id: s-${i}`);
+    return scenarioWith(files);
+  }
+  /** The judge, except that account_manager's answers fail in every contrast probe whose transcript holds one of `marks`. */
+  const failingIn = (marks: string[]): Judge => {
+    const inner = good();
+    const p = { ...inner, stream: (req: Parameters<typeof inner.stream>[0]) => {
+      const text = req.messages.map((m) => m.content).join("\n");
+      if (/score only the participant with role id "account_manager"/i.test(req.system) && marks.some((m) => text.includes(m))) throw new Error("down");
+      return inner.stream(req);
+    } };
+    return judge(p as FakeJudge);
+  };
+  const LISTEN = "Anyway, I think we should just say yes to Priya";
+  const NEGOTIATE = "Yes, no problem, we will do the whole module";
+
+  it("keeps the old summary and prints the reason when no contrast probe is usable, though 20 of 22 answers are", async () => {
+    const scn = await big();
+    expect((await run(["--scenario", scn, "--out", dir], { judges: [judge(good())] })).exitCode).toBe(0);
+    const before = await readFile(summary(), "utf8");
+    const r = await run(["--scenario", scn, "--out", dir], { judges: [failingIn([LISTEN, NEGOTIATE])] });
+    expect(r.run!.judges[0]!.metrics.usability).toMatchObject({ slots: 22, unusable: 2 });
+    expect(r.outText).toContain("summary for primary (fake-model-primary) not updated: contrast thinly measured (0 of 2 contrast probes usable)");
+    expect(await readFile(summary(), "utf8")).toBe(before);
+  });
+  it("replaces the summary when exactly half of the contrast probes are usable", async () => {
+    const scn = await big();
+    await run(["--scenario", scn, "--out", dir], { judges: [judge(good())] });
+    const before = await readFile(summary(), "utf8");
+    const r = await run(["--scenario", scn, "--out", dir], { judges: [failingIn([NEGOTIATE])] });
+    expect(r.run!.judges[0]!.metrics.contrast).toMatchObject({ n: 2, usable: 1 });
+    expect(r.outText).not.toContain("not updated");
+    expect(r.outText).toMatch(/summaries updated: fake-model-primary-v1\.json/);
+    expect(await readFile(summary(), "utf8")).not.toBe(before);
+  });
+  it("does not use this reason when there are no contrast probes (the WARN covers it)", async () => {
+    const disc = await readFile(path.join(FRIDAY, "calibration", "disc-l1.yaml"), "utf8");
+    const scn = await scenarioWith(Object.fromEntries([1, 2, 3].map((i) => [`s-${i}.yaml`, disc.replace("id: disc-l1", `id: s-${i}`)])));
+    const r = await run(["--scenario", scn, "--out", dir], { judges: [judge(good())] });
+    expect(r.run!.judges[0]!.metrics.contrast.n).toBe(0);
+    expect(r.outText).not.toContain("contrast thinly measured (");
+    expect(r.outText).toMatch(/summaries updated/);
+  });
+  it("reports no usable answers ahead of the contrast reason", async () => {
+    const scn = await big();
+    const r = await run(["--scenario", scn, "--out", dir, "--only", "s-1,s-2,s-3,s-4,s-5,s-6,s-7,s-8,s-9,s-10,s-11,s-12,s-13,s-14,s-15,s-16,s-17,s-18,listening-contrast-01,negotiation-contrast-01"], { judges: [judge(fakeJudge(criteria, () => ({ discovery: 3 }), () => true))] });
+    expect(r.outText).toContain("not updated: no usable answers");
   });
 });

@@ -18,7 +18,7 @@ export type CalibrationSummary = {
   probes: { total: number; tune: number; holdout: number }; exact: { n: number; of: number }; bias: number | null;
   /** `of` is the usable contrast probes (the denominator of ordering); `probes` is every contrast probe of the run. */
   contrast: { ordered: number; of: number; probes: number };
-  /** Usable answer slots of all slots (a scored role in a probe's first run). */
+  /** Usable answer slots of all slots (a scored role in every run of a probe: --repeat 5 gives five slots per role). */
   usable: { n: number; of: number };
   label: "PASS" | "WARN" | "FAIL";
 };

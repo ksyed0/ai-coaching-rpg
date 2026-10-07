@@ -8,6 +8,7 @@ import { loadEvaluationInput, secretValues, type Out } from "../evaluator/cli.js
 import { parseEvalConfig } from "../evaluator/config.js";
 import { MIN_UTTERANCES } from "../evaluator/evaluate.js";
 import { buildJudge, buildPrimaryJudge, CalibrationInputError, parseJudgeSpec, type Judge, type JudgeSpec } from "./judge.js";
+import { CONTRAST_MIN_USABLE_SHARE, usableFraction } from "./metrics.js";
 import { loadProbes, printable } from "./probe-load.js";
 import type { Probe } from "./probe-schema.js";
 import { buildJudgeReport, buildRun, renderMarkdown, writeRun, writeSummaries, type CalibrationRun, type JudgeReport } from "./report.js";
@@ -173,10 +174,16 @@ export async function runCalibrate(deps: CalibrateDeps): Promise<{ exitCode: num
     if (deps.signal?.aborted) err(`run aborted: judge ${judge.label} has results for ${got.length} of ${chosen.length} probes`);
     const report = buildJudgeReport(judge, got, targets, chosen);
     const us = report.metrics.usability;
-    const reason = deps.signal?.aborted ? "aborted" : threw ? "run failed" : only ? "subset (--only)" : criteria !== "all" ? "one criterion (--criteria probe)"
+    const usable = usableFraction(report.metrics);
+    const ct = report.metrics.contrast;
+    // A subset is fewer probes than the scenario has: --only naming every probe is a full run.
+    const subset = chosen.length < loaded.probes.length;
+    const reason = deps.signal?.aborted ? "aborted" : threw ? "run failed" : subset ? "subset (--only)" : criteria !== "all" ? "one criterion (--criteria probe)"
       : us.slots - us.unusable === 0 ? "no usable answers"
       // A judge that degraded mid-run (provider errors become "failed" slots, not a throw) must not replace a good summary.
-      : (us.slots - us.unusable) / us.slots < targets.minUsable ? `too few usable answers (${us.slots - us.unusable} of ${us.slots})` : null;
+      : usable !== null && usable < targets.minUsable ? `too few usable answers (${us.slots - us.unusable} of ${us.slots})`
+      // Overall usability can stay high while a judge loses most of the contrast answers, which is what the headline metric rests on.
+      : ct.n > 0 && ct.usable / ct.n < CONTRAST_MIN_USABLE_SHARE ? `contrast thinly measured (${ct.usable} of ${ct.n} contrast probes usable)` : null;
     if (reason) skipped.set(report, reason);
     reports.push(report);
   }
@@ -190,7 +197,7 @@ export async function runCalibrate(deps: CalibrateDeps): Promise<{ exitCode: num
   const complete = run.judges.filter((_j, i) => !skipped.has(built.judges[i]!));
   for (const [i, j] of built.judges.entries()) {
     const reason = skipped.get(j);
-    if (reason) say(`summary for ${run.judges[i]!.judge.model} not updated: ${reason}`);
+    if (reason) say(`summary for ${run.judges[i]!.judge.label} (${run.judges[i]!.judge.model}) not updated: ${reason}`);
   }
   let written;
   try { written = await writeRun(run, dataDir); }

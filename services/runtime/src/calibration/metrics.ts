@@ -119,6 +119,11 @@ export function computeMetrics(os: Outcome[]) {
 }
 export type JudgeMetrics = ReturnType<typeof computeMetrics>;
 
+/** The share of answer slots that were usable, null with no slots. The one rule behind the usability WARN and the summary-replace decision. */
+export const usableFraction = (m: JudgeMetrics): number | null => (m.usability.slots === 0 ? null : (m.usability.slots - m.usability.unusable) / m.usability.slots);
+/** Under this share of usable contrast probes, discrimination counts as thinly measured (a WARN, and a summary is not replaced). */
+export const CONTRAST_MIN_USABLE_SHARE = 0.5;
+
 export function splitMetrics(os: Outcome[], key: "split" | "source" | "drafter"): Record<string, JudgeMetrics> {
   // A null value (e.g. a handwritten probe has no drafter) is grouped as "(none)"; a drafter literally named "(none)" would merge with it.
   const groups = new Map<string, Outcome[]>();
@@ -137,9 +142,10 @@ export function labelFor(m: JudgeMetrics, t: Targets): { label: "PASS" | "WARN" 
   const needed = Math.min(3, m.expectedLevels);
   if (m.expectedLevels >= 2 && m.spread < needed && (m.bias.n > 0 || m.contrast.usable > 0)) fail.push(`flat judge: uses only ${m.spread} distinct level(s) but the probes expect ${m.expectedLevels}`);
   if (m.contrast.n === 0) warn.push("discrimination not measured: no contrast probes");
-  else if (m.contrast.usable / m.contrast.n < 0.5) warn.push(`discrimination thinly measured: only ${m.contrast.usable} of ${m.contrast.n} contrast probes were usable`);
+  else if (m.contrast.usable / m.contrast.n < CONTRAST_MIN_USABLE_SHARE) warn.push(`discrimination thinly measured: only ${m.contrast.usable} of ${m.contrast.n} contrast probes were usable`);
   if (m.bias.n === 0 && m.contrast.usable === 0) warn.push("no usable evidence");
-  if (m.usability.slots > 0 && 1 - m.usability.unusable / m.usability.slots < t.minUsable) warn.push(`only ${m.usability.slots - m.usability.unusable} of ${m.usability.slots} answers were usable`);
+  const usable = usableFraction(m);
+  if (usable !== null && usable < t.minUsable) warn.push(`only ${m.usability.slots - m.usability.unusable} of ${m.usability.slots} answers were usable`);
   if (t.exactAgreement !== null && m.agreement.n > 0 && m.agreement.exact / m.agreement.n < t.exactAgreement) warn.push(`exact agreement ${m.agreement.exact} of ${m.agreement.n} is below ${Math.round(t.exactAgreement * 100)}%`);
   return fail.length ? { label: "FAIL", reasons: [...fail, ...warn] } : warn.length ? { label: "WARN", reasons: warn } : { label: "PASS", reasons: [] };
 }
