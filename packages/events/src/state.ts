@@ -69,6 +69,11 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
       return s;
     case "session.ended":
       return { ...s, status: "ended", currentScene: null };
+    case "session.resumed":
+      // Back paused after a restart. A session that was already paused keeps its pause start; otherwise the downtime counts as paused
+      // time from the last recorded event (never after this event's own ts, so the paused interval is never negative).
+      if (s.status !== "running") return s;
+      return s.paused ? s : { ...s, paused: true, pausedSince: Number.isFinite(e.downFromTs) ? Math.min(e.downFromTs, e.ts) : e.ts };
   }
 }
 

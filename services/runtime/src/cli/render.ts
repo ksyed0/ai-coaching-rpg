@@ -49,6 +49,7 @@ export function renderEvent(e: SessionEvent, me: string): string | null {
     case "facilitator.command": return e.command === "whisper" ? `[whisper] ${s(e.text)}` : `[facilitator] ${s(e.command)}`;
     case "session.started": return `session started: ${s(e.scenarioId)} v${s(e.version)}`;
     case "session.ended": return `=== session ended (${s(e.reason)}) ===`;
+    case "session.resumed": return isFacilitator ? "=== session paused (server restarted): /resume to continue ===" : "=== session paused (server restarted); the facilitator will resume it ===";
     case "npc.updated": return isFacilitator ? `[npc ${s(e.roleId)}] goals: ${(e.goals ?? []).map(s).join("; ")}` : null;
     default: return null;
   }

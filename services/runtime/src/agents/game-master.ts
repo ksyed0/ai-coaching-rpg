@@ -42,6 +42,16 @@ export class GameMaster {
   }
 
   /**
+   * US-0018: after a restart, continue counting from what the log shows. `evaluatedCount`: the scene's utterances before its last
+   * recorded decision (0 when none), so an evaluation that was in flight when the server stopped simply runs again at the next
+   * cadence tick. Nothing else of the Game Master is state.
+   */
+  restore(sceneId: string | null, evaluatedCount: number): void {
+    this.lastSceneId = sceneId;
+    this.evaluatedCount = Math.max(0, Math.floor(evaluatedCount));
+  }
+
+  /**
    * Called by the host about once a second. Always runs engine.tick (timers, injects, exits). Every N new
    * utterances it also evaluates each gm_detects condition. A tick that arrives while an evaluation is in
    * flight skips evaluation (no duplicate model calls or decisions). Never throws on model problems: a model

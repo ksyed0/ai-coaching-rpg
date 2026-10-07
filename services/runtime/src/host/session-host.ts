@@ -2,7 +2,7 @@ import { visibleTranscript, type SessionEvent, type SessionState } from "@acr/ev
 import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
-import { type SessionEngine } from "../engine/session-engine.js";
+import { type ResumeInfo, type SessionEngine } from "../engine/session-engine.js";
 import { NpcAgent, type SilentTurn } from "../agents/npc-agent.js";
 import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
@@ -24,6 +24,8 @@ export class SessionHost {
   private ticker: NodeJS.Timeout | null = null;
   private tickPending = false;
   private roundQueued = false;
+  /** US-0018: the scene whose last player line went unanswered when the server stopped; answered once, on the facilitator's /resume. */
+  private pendingAnswer: string | null = null;
   private readonly silences: SilentTurn[] = [];
   private readonly maxSilencesKept: number;
   private readonly silentListeners = new Set<(t: SilentTurn) => void>();
@@ -70,6 +72,21 @@ export class SessionHost {
     if (this.assignments[roleId] === participantId) delete this.assignments[roleId];
   }
 
+  /**
+   * US-0018: adopts a session the engine restored from its log (call before the server accepts connections). Role claims start empty,
+   * as after any disconnect; the Game Master continues from the log; one unanswered player line is answered on the facilitator's /resume.
+   */
+  resumeFrom(info: ResumeInfo): void {
+    this.started = true;
+    const scene = info.sceneId;
+    const evaluated = info.lastGmSeq === null ? 0 : this.engine.state.transcript.filter((u) => u.sceneId === scene && u.seq < info.lastGmSeq!).length;
+    this.gm.restore(scene, evaluated);
+    this.pendingAnswer = info.pendingLine ? scene : null;
+  }
+
+  /** The scene whose unanswered player line waits for /resume (null when none). */
+  get pendingAnswerScene(): string | null { return this.pendingAnswer; }
+
   /** `started` is set only after engine.start succeeds, so a failed start can be retried (never wedged). */
   async start(): Promise<void> {
     if (this.started) return;
@@ -101,7 +118,12 @@ export class SessionHost {
   async onPlayerUtterance(roleId: string, text: string, opts: { expectSceneId?: string } = {}): Promise<void> {
     if (!this.started) throw new HostError("not_started");
     await this.engine.say(roleId, text, "text", opts); // throws EngineError (paused, ended, ...) before any NPC turn can start
-    // R25: at most one round waits behind the running one; it reads the then-current transcript anyway.
+    this.pendingAnswer = null; // a new line supersedes the one from before a restart: the round below answers the conversation as it now stands
+    this.scheduleRound();
+  }
+
+  /** One NPC round (then a GM tick) in the background. R25: at most one round waits behind the running one; it reads the then-current transcript anyway. */
+  private scheduleRound(): void {
     if (this.roundQueued) return;
     this.roundQueued = true;
     this.schedule("npc round", async () => {
@@ -134,6 +156,16 @@ export class SessionHost {
 
   async command(cmd: Parameters<SessionEngine["command"]>[0], opts: { expectSceneId?: string } = {}): Promise<void> {
     await this.engine.command(cmd, opts);
+    if (cmd.command === "resume" && this.pendingAnswer !== null && !this.engine.state.paused) {
+      const sceneId = this.pendingAnswer;
+      this.pendingAnswer = null; // exactly once, whatever happens next
+      // Not when the facilitator has already asked to leave this scene (the advance takes effect at the next tick).
+      if (this.engine.currentScene()?.id === sceneId && this.engine.state.status === "running" && !this.engine.state.advanceRequested) {
+        await this.engine.alert("answering the last player line from before the restart", "info", { expectSceneId: sceneId });
+        this.scheduleRound();
+        return; // the round ends with a Game Master tick
+      }
+    }
     this.schedule("gm tick", () => this.gm.tick());
   }
 
@@ -191,6 +223,8 @@ export class SessionHost {
       // Redacted copy: roles -> kinds only (participant ids/names are other people's display names).
       case "session.started": return { ...e, roles: redactRoles(e.roles) };
       case "session.ended": return e;
+      // Like a pause: every participant learns the session came back paused after a restart.
+      case "session.resumed": return e;
       // Only for scenes the player takes part in.
       case "scene.entered": return e.participants.includes(who) ? e : null;
       case "scene.exited": return inScene(e.sceneId) ? e : null;

@@ -1,0 +1,184 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { afterEach, describe, expect, it } from "vitest";
+import WebSocket from "ws";
+import type { SessionEvent } from "@acr/events";
+import { bootstrap, type Runtime } from "../main.js";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const fixture = path.join(here, "../../../../packages/script/src/__tests__/fixtures/minimal");
+const runtimeDir = path.resolve(here, "../..");
+const tsx = path.join(runtimeDir, "node_modules", ".bin", "tsx");
+
+/** tsx runs the script in a node grandchild: the whole process group must die (spawned detached, so it has its own group). */
+const killGroup = (c: ChildProcess) => { if (c.pid === undefined) return; try { process.kill(-c.pid, "SIGKILL"); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e; } };
+let tmp = "";
+const runtimes: Runtime[] = [];
+const children: ChildProcess[] = [];
+afterEach(async () => {
+  for (const c of children.splice(0)) killGroup(c);
+  for (const r of runtimes.splice(0)) await r.stop();
+  if (tmp) await rm(tmp, { recursive: true, force: true });
+  tmp = "";
+});
+
+const env = (extra: Record<string, string> = {}) => ({ SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "r1", MODEL_PROVIDER: "mock", ...extra });
+const dataDir = () => path.join(tmp, "data");
+async function boot(extra: Record<string, string> = {}, logs: string[] = []) {
+  const r = await bootstrap({ env: env(extra), root: tmp, logDir: dataDir(), tickMs: 60_000, log: (m) => logs.push(m), warn: (m) => logs.push(m) });
+  if (r.ok) runtimes.push(r.runtime);
+  return r;
+}
+
+type Msg = { type: string; event?: SessionEvent; state?: { paused: boolean; transcript: { text: string }[] }; code?: string };
+class Client {
+  readonly inbox: Msg[] = [];
+  private waiters: { pred: (m: Msg) => boolean; resolve: (m: Msg) => void }[] = [];
+  private constructor(readonly ws: WebSocket) {
+    ws.on("message", (d) => {
+      const m = JSON.parse(d.toString()) as Msg;
+      this.inbox.push(m);
+      this.waiters = this.waiters.filter((w) => { if (w.pred(m)) { w.resolve(m); return false; } return true; });
+    });
+  }
+  static open(port: number): Promise<Client> {
+    return new Promise((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.on("open", () => res(new Client(w))); w.on("error", rej); });
+  }
+  waitFor(pred: (m: Msg) => boolean, what: string): Promise<Msg> {
+    const hit = this.inbox.find(pred);
+    if (hit) return Promise.resolve(hit);
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), 20_000);
+      this.waiters.push({ pred, resolve: (m) => { clearTimeout(t); resolve(m); } });
+    });
+  }
+  send(m: unknown): void { this.ws.send(JSON.stringify(m)); }
+  close(): void { this.ws.close(); }
+}
+const isEv = (type: string, f: (e: SessionEvent) => boolean = () => true) => (m: Msg) => m.type === "event" && m.event?.type === type && f(m.event);
+
+async function playUntilALine(port: number) {
+  const fac = await Client.open(port);
+  fac.send({ type: "join_facilitator", sessionId: "r1" });
+  await fac.waitFor((m) => m.type === "joined", "facilitator joined");
+  const p = await Client.open(port);
+  p.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice" });
+  await p.waitFor((m) => m.type === "joined", "player joined");
+  fac.send({ type: "start" });
+  await fac.waitFor(isEv("scene.entered"), "scene 1");
+  p.send({ type: "say", text: "a line before the crash" });
+  await fac.waitFor(isEv("utterance", (e) => e.type === "utterance" && e.roleId === "guest"), "the AI character's reply");
+  return { fac, p };
+}
+
+describe("bootstrap: resume after a restart (US-0018)", () => {
+  it("a restart RESUMES a running session from its log (no rotation), paused; a rejoining player gets its history; /resume continues", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-resume-"));
+    const first = await boot();
+    if (!first.ok) throw new Error(first.errors.join("; "));
+    const { fac, p } = await playUntilALine(first.runtime.port);
+    fac.close(); p.close();
+    await first.runtime.stop(); runtimes.pop();
+    const before = (await readFile(path.join(dataDir(), "r1.jsonl"), "utf8")).split("\n").filter(Boolean);
+
+    const logs: string[] = [];
+    const second = await boot({}, logs);
+    if (!second.ok) throw new Error(second.errors.join("; "));
+    expect(logs.join("\n")).toMatch(/session RESUMED from its log/);
+    expect(logs.join("\n")).not.toMatch(/moved aside/);
+    expect((await readdir(dataDir())).filter((f) => f.endsWith(".jsonl"))).toEqual(["r1.jsonl"]);
+    const after = (await readFile(path.join(dataDir(), "r1.jsonl"), "utf8")).split("\n").filter(Boolean);
+    expect(after.slice(0, before.length)).toEqual(before); // the old events are untouched
+    expect(after.slice(before.length).map((l) => (JSON.parse(l) as SessionEvent).type)).toEqual(["session.resumed", "facilitator.alert"]);
+
+    const port = second.runtime.port;
+    const fac2 = await Client.open(port);
+    fac2.send({ type: "join_facilitator", sessionId: "r1" });
+    const fj = await fac2.waitFor((m) => m.type === "joined", "facilitator rejoined");
+    expect(fj.state?.paused).toBe(true);
+    const p2 = await Client.open(port);
+    p2.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice" });
+    const pj = await p2.waitFor((m) => m.type === "joined", "player rejoined");
+    expect(pj.state?.transcript.map((u) => u.text)).toContain("a line before the crash");
+    p2.send({ type: "say", text: "too early" });
+    expect((await p2.waitFor((m) => m.type === "error", "the paused refusal")).code).toBe("paused");
+    fac2.send({ type: "command", command: { command: "resume" } });
+    await p2.waitFor(isEv("facilitator.command", (e) => e.type === "facilitator.command" && e.command === "resume"), "resume");
+    p2.send({ type: "say", text: "after the restart" });
+    await fac2.waitFor(isEv("utterance", (e) => e.type === "utterance" && e.text === "after the restart"), "a line after the restart");
+    fac2.close(); p2.close();
+  });
+
+  it("refuses a second server on the same session log while the first runs, and changes nothing", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-resume-"));
+    const first = await boot();
+    if (!first.ok) throw new Error(first.errors.join("; "));
+    const second = await boot({ SESSION_START: "fresh" });
+    expect(second.ok).toBe(false);
+    if (!second.ok) expect(second.errors.join("\n")).toMatch(/locked by another server process|already open in this server process/);
+  });
+
+  it("refuses a corrupt log with a message that names SESSION_START=fresh, then SESSION_START=fresh moves it aside", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-resume-"));
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(dataDir(), { recursive: true });
+    await writeFile(path.join(dataDir(), "r1.jsonl"), "{garbage\n{more garbage\n");
+    const r = await boot();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join("\n")).toMatch(/cannot resume the session from its log: malformed event in r1\.jsonl at line 1.*SESSION_START=fresh/);
+    expect(await readFile(path.join(dataDir(), "r1.jsonl"), "utf8")).toBe("{garbage\n{more garbage\n");
+    const logs: string[] = [];
+    const fresh = await boot({ SESSION_START: "fresh" }, logs);
+    expect(fresh.ok).toBe(true);
+    expect(logs.join("\n")).toMatch(/moved aside/);
+  });
+
+  it.each([["SESSION_START", "later", /SESSION_START must be resume or fresh/], ["SESSION_LOCK_STALE_MS", "10", /SESSION_LOCK_STALE_MS must be/]])("an invalid %s is refused before any filesystem action, without echoing it", async (name, value, msg) => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-resume-"));
+    const r = await boot({ [name]: value });
+    expect(r.ok).toBe(false);
+    if (!r.ok) { expect(r.errors.join("\n")).toMatch(msg); expect(r.errors.join("\n")).not.toContain(`"${value}"`); }
+    expect(await readdir(tmp)).toEqual([]);
+  });
+
+  it("survives a REAL crash (SIGKILL of the server process): the restart takes the dead process's lock over and resumes every event", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-crash-"));
+    const child = path.join(tmp, "child.mts");
+    await writeFile(child, [
+      `import { bootstrap } from ${JSON.stringify(pathToFileURL(path.join(runtimeDir, "src", "main.ts")).href)};`,
+      `const r = await bootstrap({ env: ${JSON.stringify(env())}, root: ${JSON.stringify(tmp)}, logDir: ${JSON.stringify(dataDir())}, tickMs: 60000, log: () => {}, warn: () => {} });`,
+      `if (!r.ok) { console.log("FAILED " + r.errors.join("; ")); process.exit(1); }`,
+      `console.log("PORT " + r.runtime.port);`,
+    ].join("\n"));
+    const proc = spawn(tsx, [child], { cwd: runtimeDir, detached: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, NO_COLOR: "1" } });
+    children.push(proc);
+    const port = await new Promise<number>((resolve, reject) => {
+      let out = "";
+      const t = setTimeout(() => reject(new Error(`the server process did not start: ${out}`)), 60_000);
+      proc.stdout!.on("data", (d) => { out += d; const m = /PORT (\d+)/.exec(out); if (m) { clearTimeout(t); resolve(Number(m[1])); } if (out.includes("FAILED")) { clearTimeout(t); reject(new Error(out)); } });
+      proc.once("exit", (c) => { clearTimeout(t); reject(new Error(`the server process exited (${c}): ${out}`)); });
+    });
+    const { fac, p } = await playUntilALine(port);
+    const seen = fac.inbox.filter((m) => m.type === "event").map((m) => m.event!.seq);
+    const exited = new Promise((r) => proc.once("exit", r));
+    const serverPid = (JSON.parse(await readFile(path.join(dataDir(), "r1.lock"), "utf8")) as { pid: number }).pid;
+    killGroup(proc);
+    await exited;
+    // The server (tsx's node grandchild) must really be gone before the restart: poll its pid (no fixed sleep).
+    for (let i = 0; i < 400; i++) { try { process.kill(serverPid, 0); await new Promise((r) => setTimeout(r, 25)); } catch { break; } }
+    fac.close(); p.close();
+    expect(await readdir(dataDir())).toContain("r1.lock"); // the dead process left its lock behind
+
+    const logs: string[] = [];
+    const r = await boot({}, logs);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(logs.join("\n")).toMatch(/session RESUMED/);
+    const events = (await readFile(path.join(dataDir(), "r1.jsonl"), "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as SessionEvent);
+    for (const seq of seen) expect(events.some((e) => e.seq === seq)).toBe(true); // every event a client saw survived the crash
+    expect(events.at(-2)).toMatchObject({ type: "session.resumed" });
+    expect(JSON.parse(await readFile(path.join(dataDir(), "r1.lock"), "utf8"))).toMatchObject({ pid: process.pid });
+  }, 90_000);
+});

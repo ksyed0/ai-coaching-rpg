@@ -234,8 +234,9 @@ describe("bootstrap", () => {
     });
   });
 
-  describe("stale session log rotation", () => {
-    const env = (extra: Record<string, string> = {}) => ({ SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "local", MODEL_PROVIDER: "mock", ...extra });
+  describe("stale session log rotation (SESSION_START=fresh)", () => {
+    // US-0018: rotation is the explicit fresh start (AC-0058); the default resumes a running session (main.resume.test.ts).
+    const env = (extra: Record<string, string> = {}) => ({ SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "local", MODEL_PROVIDER: "mock", SESSION_START: "fresh", ...extra });
     const wsOpen = (port: number) => new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.on("open", () => res(w)); w.on("error", rej); });
     const waitMsg = (w: WebSocket, pred: (m: any) => boolean) => new Promise<any>((res) => { w.on("message", (d) => { const m = JSON.parse(d.toString()); if (pred(m)) res(m); }); });
     const dataDir = () => path.join(tmp, "data", "sessions");
@@ -424,7 +425,7 @@ describe("bootstrap", () => {
       const r = await bootstrap({ env: env(), root: tmp, log: () => {} });
       if (!r.ok) throw new Error(r.errors.join("; "));
       runtime = r.runtime;
-      expect(await readdir(dataDir())).toEqual(["local.jsonl"]);
+      expect((await readdir(dataDir())).filter((f) => !f.endsWith(".lock"))).toEqual(["local.jsonl"]); // the running server holds local.lock
     });
   });
 });

@@ -206,10 +206,13 @@ export async function buildSystem(o: {
   /** The Game Master settings (GM_TIMEOUT_MS, GM_REASK, GM_EVERY_N_UTTERANCES) and its raw-reply trace; defaults when absent. */
   gmConfig?: GmConfig; gmTrace?: (rec: GmTraceRecord) => void;
   facilitatorToken?: string; limits?: Partial<Limits>; allowedOrigins?: string[]; trustProxy?: boolean;
+  /** An engine opened elsewhere (the resume room's openSession), and what to close with the system (its log and lock). */
+  engine?: SessionEngine; onStop?: () => Promise<void> | void;
 }): Promise<System> {
   const hostLog: string[] = []; const serverLog: string[] = [];
-  const log = o.log ?? new JsonlEventLog(o.sessionId, o.dataDir);
-  const engine = new SessionEngine({ scenario: o.scenario, log, clock: o.clock });
+  // A throwaway temp log: no fdatasync (see JsonlLogOptions.sync); the server and the resume room always sync.
+  const log = o.engine ? undefined : (o.log ?? new JsonlEventLog(o.sessionId, o.dataDir, { sync: false }));
+  const engine = o.engine ?? new SessionEngine({ scenario: o.scenario, log: log!, clock: o.clock });
   const host = new SessionHost({
     scenario: o.scenario, engine, npcProvider: o.npcProvider, gmProvider: o.gmProvider, clock: o.clock,
     log: (m) => hostLog.push(m), firstTokenTimeoutMs: o.firstTokenTimeoutMs, replyTimeoutMs: o.replyTimeoutMs,
@@ -223,7 +226,7 @@ export async function buildSystem(o: {
   return {
     port: server.port, host, engine, clock: o.clock, fakeClock: o.fakeClock, npc: o.npc, gm: o.gm, hostLog, serverLog,
     logFile: path.join(o.dataDir, `${o.sessionId}.jsonl`),
-    stop: async () => { host.stopTicker(); await server.close(); },
+    stop: async () => { host.stopTicker(); await server.close(); await log?.close?.(); await o.onStop?.(); },
   };
 }
 
