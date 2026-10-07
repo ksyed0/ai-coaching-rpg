@@ -30,5 +30,7 @@ Osaurus at `http://127.0.0.1:1337/v1`. Models served on 2026-10-06: `foundation`
 - Free OpenRouter Nemotron: about 40% overload errors; the retry layer gave 0 of 20 fallbacks (single run).
 - Candidate second models (surveyed on Hugging Face 2026-10-06, not yet downloaded): Ministral-3-14B-Instruct-2512 (non-reasoning, Mistral family), gpt-oss-20b MXFP4 (reasoning, fast), Qwen3.6-35B-A3B 4-bit (thinking on by default; `chat_template_kwargs.enable_thinking=false` is not sent by our provider yet), Nemotron-3.5-Lightning-30B-A3B. A different family from Gemma is wanted as an independent Game Master and evaluator.
 
+- **Second judge for calibration (added 2026-10-07 by the owner): `holo3-35b-a3b-jangtq4`** (OsaurusAI/Holo3-35B-A3B-JANGTQ4, an agent-tuned model; its usability as a judge is unknown until the baseline run measures it). Use it as `pnpm calibrate --judge second,holo3-35b-a3b-jangtq4,http://127.0.0.1:1337/v1`; the primary judge stays Gemma (`EVAL_MODEL=gemma-4-31b-it-qat-mxfp4`).
+
 ## Cost
 `docs/AI_COST_LOG.md` is appended by the Stop hook with running totals per snapshot: do not sum rows; take the latest row per session.

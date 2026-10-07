@@ -120,3 +120,19 @@ _Learned when the demo watchdog test failed intermittently under coverage (BUG-0
 _Learned when two starter probes labelled "level 4" for negotiation validated, passed every test and were level 3 by the rubric's anchor (no recommendation, no held condition, no stated-back next steps); only the content review caught it._
 **Date:** 2026-10-07
 
+## L-0016 — A quality label must require its headline measure, and a fix can create the next hole
+
+@agent: all
+
+**Rule:** If a label (PASS/WARN/FAIL) is supposed to certify a property, make the label impossible to earn without measuring that property: a rule that is silently skipped when its inputs are missing (no contrast probes, all answers unusable) turns "not measured" into "passed". After closing such a hole, re-test the neighbouring failure modes: the first fix made an outage read as a flat judge, and the second made a mid-run failure replace a good result. Give every rule a test for "no data", "partial data" and "all data bad".
+_Learned when the calibration label let a judge that answered 3 to everything PASS (no contrast probes, or every contrast probe unusable), then labelled an outage as a flat judge, then let a judge that died mid-run replace a good summary file._
+**Date:** 2026-10-07
+
+## L-0017 — CodeQL scans test files, and a failed run must never overwrite the last good result
+
+@agent: all
+
+**Rule:** (1) In tests as well as production code, never check a path and then use it (`stat`/`lstat`/`access`/`exists` then `open`/`read`/`stat` of the same path): open once and read the mode and contents from that file handle; never assert HTML escaping with a regexp that filters tags: use substring checks. (2) A command that writes a "latest result" file that other tools read (a calibration summary the report stamp trusts) must replace it only after a complete, healthy run; a failed, aborted, partial or degraded run writes its own dated output and leaves the old file untouched.
+_Learned when PR #36 failed the CodeQL check with three high alerts in a test file, and when review reproduced that an outage, a Ctrl-C, `--only` and a mid-run judge failure each replaced a good summary._
+**Date:** 2026-10-07
+
