@@ -112,3 +112,11 @@ _Learned when a port in use, a missing API key or a bad trace-file path left joi
 _Learned when the demo watchdog test failed intermittently under coverage (BUG-0007): the 100 ms watchdog fired while the run's temp directory was being made, `runDemo` returned, and the directory was registered and removed fire-and-forget later, or recreated by the run that was still going._
 **Date:** 2026-10-07
 
+## L-0015 — Review ground-truth data against the rubric, not only the schema
+
+@agent: all
+
+**Rule:** When data is the oracle (calibration probes, golden files, expected scores), have a reviewer judge each item against the rule that defines it (the rubric's own level anchors and its "choose the lower level when the higher anchor's key behaviour is missing" rule) and ask whether a careful rater could defend a different answer. A file that loads and validates can still carry a wrong label, and a wrong label silently biases every metric computed from it (bias, exact agreement, tuning).
+_Learned when two starter probes labelled "level 4" for negotiation validated, passed every test and were level 3 by the rubric's anchor (no recommendation, no held condition, no stated-back next steps); only the content review caught it._
+**Date:** 2026-10-07
+
