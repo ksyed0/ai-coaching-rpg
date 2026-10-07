@@ -61,6 +61,14 @@ describe("earned_when (scenario schema)", () => {
       expect(earnedWhenOf(s.roles["guest"] as NpcRole)).toEqual([{ fact: 1, condition: "a player asks whether Sam is staying" }]);
       await writeFile(file, `${yaml}earned_when:\n  first: a player asks\n`);
       await expect(loadScenario(dir)).rejects.toThrow(/roles\/guest\.yaml: earned_when\.first/);
+      // Two YAML keys that both become fact 1 (an integer and a string, a hex integer): YAML sees two keys, JavaScript one, and the second would silently win.
+      for (const dup of ['  1: first\n  "1": second\n', "  '1': first\n  0x1: second\n"]) {
+        await writeFile(file, `${yaml}earned_when:\n${dup}`);
+        await expect(loadScenario(dir), dup).rejects.toThrow("roles/guest.yaml: earned_when names hidden fact 1 more than once");
+      }
+      // 1 and 1.0 are the same YAML key: the YAML parser itself refuses them.
+      await writeFile(file, `${yaml}earned_when:\n  1: first\n  1.0: second\n`);
+      await expect(loadScenario(dir)).rejects.toThrow(/Map keys must be unique/);
     } finally { await rm(dir, { recursive: true, force: true }); }
   });
 });

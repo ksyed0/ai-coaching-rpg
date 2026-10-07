@@ -23,10 +23,10 @@ export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url
 export type Runtime = { port: number; host: SessionHost; stop(): Promise<void> };
 export type BootstrapResult = { ok: true; runtime: Runtime } | { ok: false; errors: string[] };
 
-/** Builds and starts one session. Never calls process.exit and never logs environment values (API keys). */
 /** US-0034: printed once at startup when GM_AUTO_RELEASE=1 (a constant: no value from the environment). */
 export const GM_AUTO_RELEASE_WARNING = "WARNING: GM_AUTO_RELEASE=1: the Game Master releases a hidden fact itself when it judges the fact's earned_when condition met (recorded as a Game Master action); a participant who persuades it releases the fact without the facilitator";
 
+/** Builds and starts one session. Never calls process.exit and never logs environment values (API keys). */
 export async function bootstrap(opts: {
   env: NodeJS.ProcessEnv; root?: string; now?: () => Date; log?: (m: string) => void; warn?: (m: string) => void; logDir?: string; tickMs?: number;
   /**

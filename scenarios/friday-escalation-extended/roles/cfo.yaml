@@ -20,7 +20,7 @@ hidden:
 # US-0034: when the Game Master judges this condition met, the facilitator (only) is told that hidden fact 1 looks earned and how to release it
 # (/release cfo 1). Nothing is released by the suggestion itself. The Game Master sees this condition, never the fact.
 earned_when:
-  1: A player has offered a fixed fee (not an estimate) tied to a firm delivery date, with a consequence for the supplier if that date is missed
+  1: A player has offered a fixed fee (not an estimate) for the module, tied to a firm delivery date
 guardrails:
   - Never reveal hidden information unless a player earns it with a concrete, quantified commitment
   - Stay professional and courteous; impatience shows as precision, never as rudeness

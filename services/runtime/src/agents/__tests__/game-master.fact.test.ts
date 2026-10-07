@@ -6,7 +6,7 @@ import { ModelProviderError, type ChatRequest, type ModelProvider } from "@acr/a
 import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
-import { GameMaster, type GmTraceRecord } from "../game-master.js";
+import { GameMaster, MAX_EARNED_CHECKS_PER_ROUND, type GmTraceRecord } from "../game-master.js";
 import { FORGED_MARKER, nonceOf, stampNonce } from "../../demo/harness.js";
 import { EARNED_CHECK_MARKER, buildGmEarnedRequest, earnedCheckOf } from "../gm-prompt.js";
 
@@ -162,6 +162,43 @@ describe("the Game Master and earned_when", () => {
     expect(await ctx.of("gm.fact_earned")).toEqual([expect.objectContaining({ roleId: "guest", fact: 1, autoRelease: true })]);
     expect(ctx.engine.state.npcs["guest"]!.released).toEqual([FACT]);
     expect(await ctx.of("facilitator.command")).toEqual([]);
+  });
+
+  it("checks at most MAX_EARNED_CHECKS_PER_ROUND conditions per round, least recently checked first, so 50 conditions cost 1 + K calls a round and every one is still checked", async () => {
+    const K = MAX_EARNED_CHECKS_PER_ROUND;
+    expect(K).toBe(2);
+    const facts = Array.from({ length: 50 }, (_, i) => `fact number ${i + 1}`);
+    const c = await setup(Object.fromEntries(facts.map((_, i) => [String(i + 1), `condition ${i + 1}`])), { hidden: facts });
+    const p = new Routed([], []);
+    const gm = new GameMaster({ engine: c.engine, provider: stampNonce(p), everyNUtterances: 1 });
+    const perRound: number[] = [];
+    const rounds = Math.ceil(50 / K);
+    for (let i = 0; i < rounds + 1; i++) {
+      const before = p.calls.length;
+      await c.engine.say("host", `line ${i}`); await gm.tick();
+      perRound.push(p.calls.length - before);
+    }
+    expect(perRound.every((n) => n === 1 + K)).toBe(true); // never 51
+    const checked = p.of("fact").map((x) => earnedCheckOf(x.req)!.fact);
+    expect(new Set(checked.slice(0, 50)).size).toBe(50); // the first 25 rounds check each fact exactly once
+    expect(checked.slice(50)).toEqual([1, 2]); // then the rotation starts again with the least recently checked
+  });
+
+  it("skips the earned_when checks in a round whose exit verdict came back true (the scene is ending)", async () => {
+    const p = new Routed([TRUE], [TRUE]);
+    const gm = new GameMaster({ engine: ctx.engine, provider: stampNonce(p), everyNUtterances: 1 });
+    await ctx.engine.say("host", "hello"); await gm.tick();
+    expect(p.calls.map((x) => x.kind)).toEqual(["exit"]);
+    expect(await ctx.of("gm.fact_earned")).toEqual([]);
+  });
+
+  it("a model failure alert names the hidden fact by role and number, never its text", async () => {
+    const p = new Routed([FALSE], [new ModelProviderError("down", { kind: "server_error", transient: true })]);
+    const gm = new GameMaster({ engine: ctx.engine, provider: stampNonce(p), everyNUtterances: 1 });
+    await ctx.engine.say("host", "hello"); await gm.tick();
+    const [a] = await ctx.of("facilitator.alert");
+    expect(a).toMatchObject({ level: "warning", message: expect.stringContaining("for hidden fact 1 of guest (earned_when") });
+    expect(JSON.stringify(a)).not.toContain(FACT);
   });
 
   it("is off by default", () => {

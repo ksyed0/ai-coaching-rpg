@@ -10,9 +10,9 @@ Type: Functional
 Preconditions: The minimal fixture scenario and the extended Friday Escalation scenario.
 Steps:
   1. Load a role without `earned_when`, then the same role with `earned_when: { 1: <condition> }`.
-  2. Try an empty, a 501-character and a non-numeric key condition, and a number the character has no fact for.
+  2. Try an empty, a 501-character and a non-numeric key condition, a number the character has no fact for, and two YAML keys for one fact (`1` and `"1"`).
   3. Run `pnpm demo --fast` (a scenario without earned_when).
-Expected Result: A role without the key loads without it (same object, same scenario hash); a valid condition loads trimmed; the bad ones are refused with the path or the validator error `earned_when names hidden fact 3, but the role has 1 hidden fact(s)`; the default demo still passes 29 of 29 with the same Game Master calls.
+Expected Result: A role without the key loads without it (same object, same scenario hash); a valid condition loads trimmed; the bad ones are refused with the path, the validator error `earned_when names hidden fact 3, but the role has 1 hidden fact(s)` or the load error `earned_when names hidden fact 1 more than once`; the default demo still passes 29 of 29 with the same Game Master calls.
 Actual Result: As expected (packages/script earned-when.test.ts; game-master.fact.test.ts "makes exactly the calls it made before"; demo 29/29).
 Status: [x] Pass
 Defect Raised: None
@@ -74,7 +74,7 @@ Preconditions: The repository at this branch; no model key.
 Steps:
   1. Run `pnpm demo --fast`, `pnpm demo --fast --security --resume`, `pnpm demo --showcase --fast` and `pnpm demo --showcase --fast --evaluate`.
   2. Read the scene 4 narration and checks S-04, S-06 and S-07.
-Expected Result: 29, 42, 14 and 15 checks, all passing; in scene 4 the mock Game Master answers the CFO's condition false three times (no suggestion) and then true (`[Game Master] suggests releasing hidden fact number 1 of cfo (to the facilitator only: /release cfo 1)`), before the facilitator's scripted release in scene 5; S-04 reports `1 release suggestion(s) to the facilitator only (cfo #1 in s4_escalation_call)`; the fact text is in no narration, transcript or report.
+Expected Result: 29, 42, 14 and 15 checks, all passing; in scene 4 the mock Game Master answers the CFO's condition false after line 1 (no suggestion) and then true after line 2 (`[Game Master] suggests releasing hidden fact number 1 of cfo (to the facilitator only: /release cfo 1)`), before the facilitator's scripted release in scene 5; S-04 reports `1 release suggestion(s) to the facilitator only (cfo #1 in s4_escalation_call)`; the fact text is in no narration, transcript or report.
 Actual Result: As expected (showcase-suggest.test.ts and the demo runs on 2026-10-07).
 Status: [x] Pass
 Defect Raised: None

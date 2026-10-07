@@ -159,6 +159,7 @@ export function parseShowcaseScript(text: string, scenario: Scenario, o: Showcas
     }
     // US-0034: the scripted earned_when verdicts. Each pending condition of a character here is judged once per Game Master round, until a true
     // verdict (the suggestion) or a facilitator release of the fact in this scene (the round of that line still judges it, the release follows).
+    // This is an upper bound: a round whose exit verdict is true, or the per-round cap (MAX_EARNED_CHECKS_PER_ROUND) with more pending conditions, asks fewer.
     const listed = new Set<string>();
     for (const g of entry.mock.gmEarned) {
       const role = Object.hasOwn(scenario.roles, g.role) ? scenario.roles[g.role] : undefined;

@@ -159,7 +159,7 @@ export class SceneRoutedMock implements RecordingProvider {
  * The showcase's mock system: scripted AI characters and Game Master (per scene), a fake clock, a real JSONL log on disk and
  * a real WebSocket server on port 0.
  */
-export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId: string; dataDir: string; scenes: { scene: string; mock: MockScenePlan }[]; gmTrace?: (rec: GmTraceRecord) => void }): Promise<System> {
+export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId: string; dataDir: string; scenes: { scene: string; mock: MockScenePlan }[]; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034: GM_AUTO_RELEASE for the mock run (default off). */ gmAutoRelease?: boolean }): Promise<System> {
   const ref: { engine?: SessionEngine } = {};
   const sceneId = () => ref.engine?.currentScene()?.id;
   const npcRoles = Object.values(o.scenario.roles).filter((r): r is NpcRole => r.type === "npc");
@@ -173,7 +173,7 @@ export async function startShowcaseMockSystem(o: { scenario: Scenario; sessionId
   const npc = new SceneRoutedMock({ sceneId, seq, plan: npcPlan, exhausted: "[mock reply]", keyOf: (req) => npcRoles.find((r) => req.system.includes(npcIntro(r)))?.id });
   const gm = new SceneRoutedMock({ sceneId, seq, plan: gmPlan, kinds: gmKinds, exhausted: '{"verdict": false, "reasoning": "no scripted verdict left"}', keyOf: gmQueueKey });
   const fakeClock = new FakeClock(T0);
-  const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: stampNonce(gm), gmTrace: o.gmTrace });
+  const sys = await buildSystem({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: fakeClock, fakeClock, npc, gm, npcProvider: npc, gmProvider: stampNonce(gm), gmTrace: o.gmTrace, gmAutoRelease: o.gmAutoRelease });
   ref.engine = sys.engine;
   return sys;
 }
@@ -218,7 +218,7 @@ export async function buildSystem(o: {
   scenario: Scenario; sessionId: string; dataDir: string; clock: Clock; fakeClock?: FakeClock; npc?: RecordingProvider; gm?: RecordingProvider;
   npcProvider: ModelProvider; gmProvider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; log?: EventLog; heartbeatMs?: number;
   /** The Game Master settings (GM_TIMEOUT_MS, GM_REASK, GM_EVERY_N_UTTERANCES, GM_AUTO_RELEASE) and its raw-reply trace; defaults when absent. */
-  gmConfig?: GmConfig; gmTrace?: (rec: GmTraceRecord) => void;
+  gmConfig?: GmConfig; gmTrace?: (rec: GmTraceRecord) => void; /** Overrides `gmConfig.autoRelease` (the mock showcase reads GM_AUTO_RELEASE itself). */ gmAutoRelease?: boolean;
   facilitatorToken?: string; limits?: Partial<Limits>; allowedOrigins?: string[]; trustProxy?: boolean;
   /** An engine opened elsewhere (the resume room's openSession), and what to close with the system (its log and lock). */
   engine?: SessionEngine; onStop?: () => Promise<void> | void;
@@ -231,7 +231,7 @@ export async function buildSystem(o: {
     scenario: o.scenario, engine, npcProvider: o.npcProvider, gmProvider: o.gmProvider, clock: o.clock,
     log: (m) => hostLog.push(m), firstTokenTimeoutMs: o.firstTokenTimeoutMs, replyTimeoutMs: o.replyTimeoutMs,
     npcMaxTokens: o.npcMaxTokens, gmMaxTokens: o.gmMaxTokens, npcTemperature: o.npcTemperature, gmTemperature: o.gmTemperature,
-    gmTimeoutMs: o.gmConfig?.timeoutMs, gmReask: o.gmConfig?.reask, gmEveryN: o.gmConfig?.everyNUtterances, gmAutoRelease: o.gmConfig?.autoRelease, gmTrace: o.gmTrace,
+    gmTimeoutMs: o.gmConfig?.timeoutMs, gmReask: o.gmConfig?.reask, gmEveryN: o.gmConfig?.everyNUtterances, gmAutoRelease: o.gmAutoRelease ?? o.gmConfig?.autoRelease, gmTrace: o.gmTrace,
   });
   const server = await startServer({
     port: 0, hosts: new Map([[o.sessionId, host]]), log: (m) => serverLog.push(m), heartbeatMs: o.heartbeatMs, host: "127.0.0.1",

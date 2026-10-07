@@ -259,15 +259,6 @@ export class SessionEngine {
   }
 
   /**
-   * US-0034: the Game Master judged the `earned_when` condition of hidden fact `fact` (1-based) of AI character `roleId` true. Appends ONE
-   * facilitator-only gm.fact_earned (no fact text) and returns "suggested"; with `autoRelease` (the operator's GM_AUTO_RELEASE) it is recorded
-   * as the Game Master's own action and directly followed by the facilitator-only npc.updated that releases the fact ("released"). Returns null,
-   * appending nothing and never throwing on these, when the session is not running, there is no current scene or `expectSceneId` no longer
-   * matches it, the role is not an AI character in the current scene, the fact does not exist or has no earned_when condition, or it was already
-   * judged earned (never twice in a session, also across a restart: the state is rebuilt from the log) or released. Checked inside the mutex.
-   * Only the Game Master calls this; no client message reaches it (the protocol has no such command).
-   */
-  /**
    * US-0034: the earned_when conditions the Game Master should judge now: those of the AI characters in the current scene whose fact is neither
    * judged earned yet nor released, in scene participant order and then fact order. Empty with no current scene (and for every scenario without earned_when).
    */
@@ -288,6 +279,15 @@ export class SessionEngine {
     return out;
   }
 
+  /**
+   * US-0034: the Game Master judged the `earned_when` condition of hidden fact `fact` (1-based) of AI character `roleId` true. Appends ONE
+   * facilitator-only gm.fact_earned (no fact text) and returns "suggested"; with `autoRelease` (the operator's GM_AUTO_RELEASE) it is recorded
+   * as the Game Master's own action and directly followed by the facilitator-only npc.updated that releases the fact ("released"). Returns null,
+   * appending nothing and never throwing on these, when the session is not running, there is no current scene or `expectSceneId` no longer
+   * matches it, the role is not an AI character in the current scene, the fact does not exist or has no earned_when condition, or it was already
+   * judged earned (never twice in a session, also across a restart: the state is rebuilt from the log) or released. Checked inside the mutex.
+   * Only the Game Master calls this; no client message reaches it (the protocol has no such command).
+   */
   recordFactEarned(roleId: string, fact: number, reasoning: string, opts: { expectSceneId?: string; via?: GmVia; autoRelease?: boolean } = {}): Promise<"suggested" | "released" | null> {
     return this.mutex.run(async () => {
       const scene = this.currentScene();

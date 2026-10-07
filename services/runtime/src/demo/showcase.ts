@@ -9,6 +9,7 @@ import {
 } from "./ctx.js";
 import { MIN, type System } from "./harness.js";
 import { gmDeadlineMs } from "../agents/timeouts.js";
+import { MAX_EARNED_CHECKS_PER_ROUND } from "../agents/game-master.js";
 import { MAX_CONSECUTIVE_SILENT_TURNS, type SilentTurn } from "../agents/npc-agent.js";
 import { SHARE_SECTION, npcIntro } from "../agents/npc-prompt.js";
 import { earnedCheckOf } from "../agents/gm-prompt.js";
@@ -120,9 +121,9 @@ export function expectedModelCalls(scenario: Scenario, script: ShowcaseScript, m
     const lines = linesFor(script, scene.id, maxLines).length;
     npc += n * lines; player += lines;
     gm += expectedGmEvaluations(scene, lines, n, everyN);
-    // US-0034: each earned_when condition of a character here is judged once per round at most (fewer once it is suggested or released).
+    // US-0034: at most MAX_EARNED_CHECKS_PER_ROUND earned_when conditions of the characters here are judged per round (fewer once suggested or released).
     const earned = scene.participants.reduce((a, p) => { const r = scenario.roles[p]; return a + (r?.type === "npc" ? earnedWhenOf(r).length : 0); }, 0);
-    gm += earned * gmRoundLines(lines, n, everyN).length;
+    gm += Math.min(earned, MAX_EARNED_CHECKS_PER_ROUND) * gmRoundLines(lines, n, everyN).length;
   }
   return { npc, gm, player };
 }
@@ -375,9 +376,9 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
     if (scene.opening_inject) await fac.waitFor(isEvent("inject.fired", (e) => e.injectId === scene.opening_inject), { timeoutMs: 15_000, what: `the opening inject of ${scene.id}` });
     await flush();
     const npcCount = scene.participants.filter((p) => scenario.roles[p]?.type === "npc").length;
-    // Exit conditions plus (US-0034) the earned_when conditions of the AI characters here: each is one more Game Master call per round at most.
+    // Exit conditions plus (US-0034) at most MAX_EARNED_CHECKS_PER_ROUND earned_when checks of the AI characters here: Game Master evaluations per round.
     const gmConditions = scene.exit_when.any_of.filter((c) => typeof c === "object").length
-      + scene.participants.reduce((a, p) => { const r = scenario.roles[p]; return a + (r?.type === "npc" ? earnedWhenOf(r).length : 0); }, 0);
+      + Math.min(MAX_EARNED_CHECKS_PER_ROUND, scene.participants.reduce((a, p) => { const r = scenario.roles[p]; return a + (r?.type === "npc" ? earnedWhenOf(r).length : 0); }, 0));
     const timedAt = Math.max(0, ...(scene.injects ?? []).filter((i) => i.at_minute !== undefined && i.at_minute < scene.time_box_minutes).map((i) => i.at_minute!));
     const lines = linesFor(o.script, scene.id, o.maxLines);
     let spoken = 0;

@@ -9,11 +9,11 @@ import type { ShowcaseReport } from "../showcase-report.js";
 // Whole-demo tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
-// US-0034 (AC-0124, AC-0126): the showcase's mock Game Master judges the CFO's earned_when condition: three no-suggestion verdicts in s4, then the
+// US-0034 (AC-0124, AC-0126): the showcase's mock Game Master judges the CFO's earned_when condition: a no-suggestion verdict in s4, then the
 // suggestion (facilitator only), which the scripted facilitator release in s5 follows.
 const EXTENDED = path.join(REPO_ROOT, "scenarios", "friday-escalation-extended");
 const FACT = "Can approve a priced change request without escalation if it is fixed-fee and tied to a firm date";
-const CONDITION = "A player has offered a fixed fee (not an estimate) tied to a firm delivery date, with a consequence for the supplier if that date is missed";
+const CONDITION = "A player has offered a fixed fee (not an estimate) for the module, tied to a firm delivery date";
 const SUGGESTED = "suggests releasing hidden fact number 1 of cfo (to the facilitator only: /release cfo 1)";
 
 type Captured = { out: string[]; err: string[]; stdout: { write(s: string): void; isTTY?: boolean }; stderr: { write(s: string): void; isTTY?: boolean } };
@@ -56,10 +56,26 @@ describe("the Game Master's release suggestion in the showcase (mock mode)", () 
     expect(r.stdout).toContain(SUGGESTED);
     expect(r.stdout.indexOf(SUGGESTED)).toBeLessThan(r.stdout.indexOf("facilitator released hidden fact number 1 of cfo"));
     expect(result(r, "S-04").details).toContain("1 release suggestion(s) to the facilitator only (cfo #1 in s4_escalation_call)");
-    expect(result(r, "S-06").details).toContain("4 of them earned_when checks");
+    expect(result(r, "S-06").details).toContain("2 of them earned_when checks");
     const md = readFileSync(path.join(dir, "t.md"), "utf8");
     expect(md).toContain("the Game Master suggested releasing hidden fact number 1 of cfo (facilitator only: /release cfo 1)");
     for (const hay of [r.stdout, md, JSON.stringify(r.report)]) expect(hay).not.toContain(FACT);
+  });
+
+  it("GM_AUTO_RELEASE=1 in the mock run: the Game Master releases the fact itself in s4, the scripted release in s5 is skipped, and the 14 checks pass", async () => {
+    const r = await run(["--showcase", "--fast", "--no-color"], { env: { PATH: "/usr/bin", GM_AUTO_RELEASE: "1" } });
+    expect(r.exitCode).toBe(0);
+    expect(r.report!.results).toHaveLength(14);
+    expect(r.report!.results.filter((x) => x.status !== "passed")).toEqual([]);
+    expect(r.showcase.gm.suggestions).toEqual([expect.objectContaining({ sceneId: "s4_escalation_call", roleId: "cfo", fact: 1, autoRelease: true })]);
+    expect(r.stdout).toContain("released hidden fact number 1 of cfo itself (GM_AUTO_RELEASE)");
+    expect(r.stdout).not.toContain("facilitator released hidden fact number 1 of cfo");
+    expect(r.showcase.observations).toContain("facilitator step skipped: hidden fact #1 of cfo was already released (by the Game Master, GM_AUTO_RELEASE)");
+    expect(result(r, "S-04").details).toContain("cfo #1 in s4_escalation_call, released by the Game Master");
+    expect(r.stdout).not.toContain(FACT);
+    const bad = await run(["--showcase", "--fast", "--no-color"], { env: { PATH: "/usr/bin", GM_AUTO_RELEASE: "yes" } });
+    expect(bad.exitCode).toBe(2);
+    expect(bad.stderr).toContain("GM_AUTO_RELEASE");
   });
 
   it("S-04 fails when the suggestions differ from the scripted true verdicts", async () => {

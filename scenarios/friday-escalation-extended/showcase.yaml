@@ -76,17 +76,15 @@ scenes:
         - '{"verdict": false, "reasoning": "The CFO challenged the price but has stated no acceptance conditions."}'
         - '{"verdict": false, "reasoning": "The CFO is still asking questions about scope and consequences."}'
         - '{"verdict": true, "reasoning": "The CFO said the price is above her expectation and asked for terms she can defend, which states what she needs."}'
-      # US-0034: the Game Master also judges the CFO's earned_when condition (hidden fact 1) once per round, until it is true. Three no-suggestion
-      # verdicts, then the suggestion after line 4 (fee, date and a credit if late), which only the facilitator sees: "/release cfo 1". The release
-      # itself is the facilitator's scripted step in scene 5; once suggested, the condition is never judged again.
+      # US-0034: the Game Master also judges the CFO's earned_when condition (hidden fact 1) after the exit condition, once per round until it is
+      # true (and not in a round whose exit verdict is true). After line 1 there is no price yet (no suggestion); line 2 offers the fixed fee and the
+      # date, so the facilitator (only) is told "/release cfo 1". Nothing is released by that: the facilitator's scripted step in scene 5 does it.
       gm_earned:
         - role: cfo
           fact: 1
           replies:
             - '{"verdict": false, "reasoning": "A phased module was proposed, but no price has been offered yet."}'
-            - '{"verdict": false, "reasoning": "A fixed fee and a delivery date were offered, but nothing was said about a missed date."}'
-            - '{"verdict": false, "reasoning": "The tech lead explained the risk; there is still no consequence for a missed date."}'
-            - '{"verdict": true, "reasoning": "A fixed fee of 48 thousand three weeks after go-live was offered, with a proportional credit if that date is missed."}'
+            - '{"verdict": true, "reasoning": "A fixed fee of 48 thousand, delivered three weeks after go-live, was offered."}'
 
   - scene: s5_final_terms
     lines:
@@ -118,14 +116,13 @@ scenes:
         - '{"verdict": false, "reasoning": "Firm price and credit were accepted in principle but acceptance and payment are not settled."}'
         - '{"verdict": false, "reasoning": "Acceptance is agreed but the payment term is still open."}'
         - '{"verdict": true, "reasoning": "The CFO restated scope, 45 thousand, three weeks after go-live, acceptance and payment, and committed to sign."}'
-      # US-0034: used only when a --max-lines cap stops scene 4 before the suggestion: the CFO's condition is then still pending here and is judged
-      # once per round until the facilitator's release step (after line 1, before the release). In a full run the fact was suggested in scene 4 and is never judged again.
+      # US-0034: used only when a --max-lines cap of 1 stops scene 4 before the suggestion: the CFO's condition is then still pending here and is
+      # judged after line 1 (before the facilitator's release step). In a full run the fact was suggested in scene 4 and is never judged again.
       gm_earned:
         - role: cfo
           fact: 1
           replies:
-            - '{"verdict": false, "reasoning": "A fixed fee and a date were offered in this scene, but no consequence for a missed date."}'
-            - '{"verdict": true, "reasoning": "The fee is firm and fixed, tied to three weeks after go-live, and a credit applies if that date is missed."}'
+            - '{"verdict": true, "reasoning": "A fixed fee of 45 thousand, delivered three weeks after go-live, was offered."}'
 
   - scene: s6_wrap_up
     lines:
