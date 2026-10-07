@@ -192,7 +192,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       ensure(m.noVerdict.length === 1 && m.noVerdict[0]!.attempts === 2, `expected one gm.no_verdict after 2 attempts, saw ${JSON.stringify(m.noVerdict)}`);
       ensure(m.noVerdict[0]!.reason === "no_json", `the no-verdict reason was ${m.noVerdict[0]!.reason}, expected no_json`);
       const loud = alerts(st).filter((a) => a.message.startsWith("GM:"));
-      ensure(loud.length === 0, `an unusable reply raised an alert instead of gm.no_verdict: ${loud[0]?.message}`);
+      ensure(loud.length === 0, `an unusable reply raised an alert instead of gm.no_verdict: ${loud[0] ? sanitizeAlert(loud[0].message, { secrets: ctx.secretValues, hidden: ctx.markers.hidden }) : ""}`);
       return "an unparseable Game Master reply was re-asked once, then recorded as gm.no_verdict (no_json, 2 attempts) with no gm.decision";
     });
   });

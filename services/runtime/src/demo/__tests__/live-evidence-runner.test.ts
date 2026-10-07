@@ -130,4 +130,16 @@ describe("live mode (US-0023): fallback lines and alert reasons", () => {
       expect(c.err.join("")).toContain("error: --max-fallbacks must be a whole number from 0 to 1000");
     }
   });
+
+  it("the showcase's alert narration, report and transcript are sanitized too (M1)", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "acr-live-evidence-sc-")); cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    const secret = "TOPSECRETKEYVALUE0123456789";
+    const hiddenText = "P\u200bhased delivery after go-live if the risk is accepted";
+    const base = await leakyErrors(secret, `${hiddenText} Bearer\nshortTok456`);
+    const { report, text } = await run(["--showcase", "--live", "--max-lines", "1", "--fast", "--no-color", "--transcript", "t.md", "--json", "r.json"], { cwd: dir, resolveLiveEnv: () => ({ ...liveEnv(base), LOCAL_API_KEY: secret }) });
+    expect(report!.showcase!.fallbackLines).toBeGreaterThan(0);
+    const all = [text, await readFile(path.join(dir, "t.md"), "utf8"), await readFile(path.join(dir, "r.json"), "utf8")].join("\n");
+    for (const bad of [secret, "shortTok456", "hased delivery after go-live", base]) expect(all).not.toContain(bad);
+    expect(all).toContain("[redacted]");
+  });
 });

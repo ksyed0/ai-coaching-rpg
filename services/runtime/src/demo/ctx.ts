@@ -190,7 +190,7 @@ export async function awaitNpc(ctx: Ctx, st: Story, from: number): Promise<Utter
   const canned = isFallbackReply(npc, e, evs[evs.findIndex((x) => x.seq === e.seq) - 1], { legacy: ctx.kind === "url" });
   await ctx.n.say(`${npc.name} (${npc.id})${canned ? ", canned fallback line" : ""}`, e.text);
   // US-0023: the (sanitized) alerts that belong to this reply, right next to it: why it is canned, or what was cut from it.
-  for (const a of alertsForReply(evs, e, { secrets: ctx.secretValues, hidden: ctx.markers.hidden })) {
+  for (const a of alertsForReply(evs, e, { secrets: ctx.secretValues, hidden: ctx.markers.hidden, scenario: ctx.scenario, legacy: ctx.kind === "url" })) {
     await ctx.n.note(`alert (${a.level}) for this reply: ${a.fallback ? `fell back to its canned line: ${a.reason}` : a.reason}`);
   }
   return e;

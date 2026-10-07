@@ -1,6 +1,7 @@
 import { Bot, isEvent, type Inbound } from "./bots.js";
 import { ensure } from "./checks.js";
 import { act, attempt, codeSecrets, connectBot, errCode, isJoinedMsg, npcRole, playerJoin, sceneIds, utterancesOf, withTimeout, type Ctx, type Story, type Utter } from "./ctx.js";
+import { sanitizeAlert } from "./live-evidence.js";
 import { LAB_FIRST_TOKEN_MS, LAB_HEARTBEAT_MS, startLabSystem } from "./harness.js";
 
 /** The server terminates a silent socket at the second heartbeat tick after its last answer, so a 3 period limit has room for scheduling slack. */
@@ -27,6 +28,7 @@ export async function playLab(ctx: Ctx, st: Story): Promise<void> {
   if (!ctx.rec.applicable("F-10")) return;
   const { rec, n } = ctx;
   const npc = npcRole(ctx.scenario);
+  const safe = (m: string) => sanitizeAlert(m, { secrets: ctx.secretValues, hidden: ctx.markers.hidden });
   const [s1, s2] = sceneIds(ctx.scenario) as [string, string];
 
   await act(ctx, st, 6, "Side room: a stalled model, an empty reply and a dead client", async () => {
@@ -90,7 +92,7 @@ export async function playLab(ctx: Ctx, st: Story): Promise<void> {
     const stall = await reply(dl, "delivery_lead", "Hello Priya, can you hear us?");
     await rec.run("F-10", () => {
       ensure(stall.utterance.text === npc.fallback_line, "the NPC did not speak its fallback line");
-      ensure(stall.alert && stall.alert.level === "warning" && /no first token/.test(stall.alert.message), `the alert was not the first-token warning: ${stall.alert?.message ?? "none"}`);
+      ensure(stall.alert && stall.alert.level === "warning" && /no first token/.test(stall.alert.message), `the alert was not the first-token warning: ${stall.alert ? safe(stall.alert.message) : "none"}`);
       ensure(lab.npcProvider.calls.length === 1, "the stalled model was not called exactly once");
       return `the model stalled past ${LAB_FIRST_TOKEN_MS} ms: the NPC said its scripted fallback line and the facilitator got a warning alert`;
     });
@@ -100,7 +102,7 @@ export async function playLab(ctx: Ctx, st: Story): Promise<void> {
     await lab.host.idle();
     await rec.run("F-11", () => {
       ensure(empty.utterance.text === npc.fallback_line, "an empty reply did not produce the fallback line");
-      ensure(empty.alert && /empty reply/.test(empty.alert.message), `the alert was not about an empty reply: ${empty.alert?.message ?? "none"}`);
+      ensure(empty.alert && /empty reply/.test(empty.alert.message), `the alert was not about an empty reply: ${empty.alert ? safe(empty.alert.message) : "none"}`);
       const blank = utterancesOf(fac.events()).filter((u) => u.text.trim() === "");
       ensure(blank.length === 0, `${blank.length} empty utterance(s) were appended`);
       return "an empty model reply produced the fallback line and an alert; no empty utterance was ever appended";

@@ -266,7 +266,7 @@ Related Story: US-0023
 Related Task: TASK-0023
 Related AC: AC-0073
 Type: Functional
-Preconditions: A configured real provider in `.env` (or, in the automated test, a loopback fake model whose characters never answer).
+Preconditions: Automated only (live-evidence-runner.test.ts): a loopback fake model whose characters never answer. A manual run needs a configured real provider in `.env` and has not been made.
 Steps:
   1. Run `pnpm -s demo --live --json out.json`.
   2. Read the narration after Priya's replies, the end-of-run "Run summary", check F-08 and `liveEvidence` in `out.json`.
@@ -286,8 +286,8 @@ Preconditions: As TC-0017; for the automated test a fake model whose error messa
 Steps:
   1. Run the live demo against it with `--transcript t.md --json r.json`.
   2. Read the alert lines under Priya's replies, the summary, `liveEvidence.alerts` and the transcript.
-  3. Search every output for the key, the token, the key-shaped string, the hidden-fact text, the provider URL and the join codes.
-Expected Result: Each fallback reply is followed by "alert (warning) for this reply: fell back to its canned line: model error ... (kind)"; the secrets are replaced by `[redacted]` in the narration, the report and the transcript; control characters are removed and each alert is clipped to 300 characters.
+  3. Search the narration, the report and the transcript for the key, the token (also after a line break), the key-shaped string, the hidden-fact text (also with zero-width characters or other case), the provider URL; the unit tests also feed join codes in lower case, without hyphens and spaced, and check that ordinary prose and model ids are not changed.
+Expected Result: An alert that is not the cause of a reply (for example one whose reply was refused as stale) is not narrated under a later reply and has `replySeq: null`. Each fallback reply is followed by "alert (warning) for this reply: fell back to its canned line: model error ... (kind)"; the secrets are replaced by `[redacted]` in the narration, the report and the transcript; control characters are replaced by `·` and each alert is clipped to 300 characters.
 Actual Result: As expected (live-evidence.test.ts, live-evidence-runner.test.ts) on 2026-10-07.
 Status: [x] Pass
 Defect Raised: None
@@ -298,7 +298,7 @@ Related Story: US-0023
 Related Task: TASK-0023
 Related AC: AC-0075
 Type: Functional
-Preconditions: As TC-0017.
+Preconditions: Automated only (live-evidence-runner.test.ts, args-showcase.test.ts): a loopback fake model that never answers. No manual run has been made.
 Steps:
   1. With a model that never answers (2 replies in the live run), run `pnpm demo --live --max-fallbacks 1`, then `--max-fallbacks 2`.
   2. Run `pnpm demo --fast --max-fallbacks 0`.
