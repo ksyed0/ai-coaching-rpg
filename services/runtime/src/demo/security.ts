@@ -1,10 +1,10 @@
 import { Bot, isEvent } from "./bots.js";
 import { ensure } from "./checks.js";
-import { act, connectBot, isJoinedMsg, sceneIds, utterancesOf, withTimeout, type Ctx, type Story } from "./ctx.js";
+import { act, codeSecrets, connectBot, isJoinedMsg, playerJoin, sceneIds, utterancesOf, withTimeout, type Ctx, type Story } from "./ctx.js";
 import { newSecurityToken, startSecuritySystem } from "./harness.js";
 
 /** The rates the security room runs with: a tight message budget and a short join timeout, so abuse is visible in milliseconds. */
-export const ROOM_LIMITS = { msgRate: 1, msgBurst: 10, joinTimeoutMs: 1_000, maxConnections: 100, maxConnectionsPerIp: 100 };
+export const ROOM_LIMITS = { msgRate: 1, msgBurst: 10, joinTimeoutMs: 1_000, maxConnections: 100, maxConnectionsPerIp: 100, maxAuthFailures: 5 };
 const CAP_LIMITS = { maxConnections: 4, maxConnectionsPerIp: 2, joinTimeoutMs: 700 };
 const ALLOWED_ORIGIN = "https://play.example.com";
 const FLOOD_MESSAGES = 60;
@@ -34,6 +34,7 @@ export async function playSecurityRoom(ctx: Ctx, st: Story): Promise<void> {
   await act(ctx, st, "6b", "Security room: the token, the rate limit, the caps and the Origin check", async () => {
     const room = await startSecuritySystem({ scenario: ctx.scenario, sessionId: "secure", token: SECURITY_TOKEN, limits: ROOM_LIMITS });
     const caps = await startSecuritySystem({ scenario: ctx.scenario, sessionId: "secure", token: SECURITY_TOKEN, limits: CAP_LIMITS, allowedOrigins: [ALLOWED_ORIGIN] });
+    ctx.secretValues.push(...codeSecrets(room.joinCodes), ...codeSecrets(caps.joinCodes));
     let stopped = false;
     const stop = async () => { if (!stopped) { stopped = true; await Promise.all([room.stop(), caps.stop()]); } };
     ctx.register(stop);
@@ -90,8 +91,8 @@ export async function playSecurityRoom(ctx: Ctx, st: Story): Promise<void> {
       ensure(fac?.isOpen, "no authenticated facilitator in the security room (F-31 must pass first)");
       const dl = await connectBot(ctx, "secure delivery_lead", { url });
       const am = await connectBot(ctx, "secure account_manager", { url });
-      ensure(isJoinedMsg(await dl.call({ type: "join", sessionId: "secure", roleId: "delivery_lead", participantId: "ZedAlphaParticipant" }, isJoinedMsg)), "the bystander could not join");
-      ensure(isJoinedMsg(await am.call({ type: "join", sessionId: "secure", roleId: "account_manager", participantId: "ZedCharlieParticipant" }, isJoinedMsg)), "the flooder could not join");
+      ensure(isJoinedMsg(await dl.call(playerJoin(ctx, "delivery_lead", "ZedAlphaParticipant", { sessionId: "secure", codes: room.joinCodes }), isJoinedMsg)), "the bystander could not join");
+      ensure(isJoinedMsg(await am.call(playerJoin(ctx, "account_manager", "ZedCharlieParticipant", { sessionId: "secure", codes: room.joinCodes }), isJoinedMsg)), "the flooder could not join");
       fac.send({ type: "start" });
       await fac.waitFor(isEvent("scene.entered", (e) => e.sceneId === s1), { what: "the security room's scene 1" });
       const lines = ["A line before the flood.", "A line after the flood."];

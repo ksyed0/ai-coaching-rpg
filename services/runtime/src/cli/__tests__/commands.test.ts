@@ -146,3 +146,24 @@ describe("parseInput: /release and /hidden (US-0016)", () => {
     expect(parseInput("/release cfo 1", false)).not.toMatchObject({ kind: "send" });
   });
 });
+
+describe("join code options (US-0033)", () => {
+  it("test_parseArgs_code_on_the_command_line_is_refused_without_repeating_it", () => {
+    for (const argv of [["--role", "a", "--name", "b", "--code", "ABCD-EFGH-JKMN"], ["--role", "a", "--name", "b", "--code=ABCD-EFGH-JKMN"], ["--role", "a", "--name", "b", "--join-code", "ABCD-EFGH-JKMN"]]) {
+      const r = parseArgs(argv);
+      expect(r.ok).toBe(false);
+      if (!r.ok) { expect(r.error).toContain("JOIN_CODE"); expect(r.error).toContain("--code-file"); expect(JSON.stringify(r)).not.toContain("ABCD"); }
+    }
+  });
+  it("test_parseArgs_code_file_is_for_players_only", () => {
+    expect(parseArgs(["--role", "a", "--name", "b", "--code-file", "/tmp/c"])).toMatchObject({ ok: true, opts: { role: "a", codeFile: "/tmp/c" } });
+    expect(parseArgs(["--facilitator", "--code-file", "/tmp/c"])).toMatchObject({ ok: false, error: "error: --code-file only applies to a player (--role)" });
+    expect(parseArgs(["--role", "a", "--name", "b", "--code-file", ""])).toMatchObject({ ok: false, error: "error: --code-file must be a file path" });
+    expect(parseArgs(["--role", "a", "--name", "b", "--code-file", "/a", "--code-file", "/b"])).toMatchObject({ ok: false, error: "error: --code-file was given more than once" });
+  });
+  it("test_joinMessage_carries_the_code_for_a_player_only", () => {
+    expect(joinMessage({ facilitator: false, role: "r", name: "n", url: "ws://x", session: "s", joinCode: "ABCD-EFGH-JKMN" })).toEqual({ type: "join", sessionId: "s", roleId: "r", participantId: "n", joinCode: "ABCD-EFGH-JKMN" });
+    expect(joinMessage({ facilitator: true, url: "ws://x", session: "s", joinCode: "ABCD-EFGH-JKMN" })).toEqual({ type: "join_facilitator", sessionId: "s" });
+    expect(USAGE).toContain("--code-file");
+  });
+});

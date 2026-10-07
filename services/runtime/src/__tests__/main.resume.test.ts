@@ -18,19 +18,23 @@ const killGroup = (c: ChildProcess) => { if (c.pid === undefined) return; try { 
 // Every test here starts real servers (and one a real child process): give a loaded CI runner room; nothing measures elapsed time.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 let tmp = "";
+/** US-0033: the join codes the last start that issued codes showed (kept across restarts, like the codes on a facilitator's sheet). */
+let codes: Record<string, string> = {};
+let shownTimes = 0;
 const runtimes: Runtime[] = [];
 const children: ChildProcess[] = [];
 afterEach(async () => {
   for (const c of children.splice(0)) killGroup(c);
   for (const r of runtimes.splice(0)) await r.stop();
   if (tmp) await rm(tmp, { recursive: true, force: true });
-  tmp = "";
+  tmp = ""; codes = {}; shownTimes = 0;
 });
 
 const env = (extra: Record<string, string> = {}) => ({ SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "r1", MODEL_PROVIDER: "mock", ...extra });
 const dataDir = () => path.join(tmp, "data");
 async function boot(extra: Record<string, string> = {}, logs: string[] = [], onFatal?: () => void, beforeLockCheck?: () => void) {
-  const r = await bootstrap({ env: env(extra), root: tmp, logDir: dataDir(), tickMs: 60_000, log: (m) => logs.push(m), warn: (m) => logs.push(m), onFatal, testHooks: { beforeLockCheck } });
+  const r = await bootstrap({ env: env(extra), root: tmp, logDir: dataDir(), tickMs: 60_000, log: (m) => logs.push(m), warn: (m) => logs.push(m), onFatal, testHooks: { beforeLockCheck },
+    showJoinCodes: (list) => { shownTimes++; codes = Object.fromEntries(list.map((c) => [c.roleId, c.code])); } });
   if (r.ok) runtimes.push(r.runtime);
   return r;
 }
@@ -67,7 +71,7 @@ async function playUntilALine(port: number) {
   fac.send({ type: "join_facilitator", sessionId: "r1" });
   await fac.waitFor((m) => m.type === "joined", "facilitator joined");
   const p = await Client.open(port);
-  p.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice" });
+  p.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice", joinCode: codes.host });
   await p.waitFor((m) => m.type === "joined", "player joined");
   fac.send({ type: "start" });
   await fac.waitFor(isEv("scene.entered"), "scene 1");
@@ -82,7 +86,7 @@ describe("bootstrap: fail-stop when the log cannot be written (US-0018)", () => 
     fac.send({ type: "join_facilitator", sessionId: "r1" });
     await fac.waitFor((m) => m.type === "joined", "facilitator joined");
     const p = await Client.open(port);
-    p.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice" });
+    p.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice", joinCode: codes.host });
     await p.waitFor((m) => m.type === "joined", "player joined");
     fac.send({ type: "start" });
     await fac.waitFor(isEv("scene.entered"), "scene 1");
@@ -192,7 +196,13 @@ describe("bootstrap: resume after a restart (US-0018)", () => {
     const fj = await fac2.waitFor((m) => m.type === "joined", "facilitator rejoined");
     expect(fj.state?.paused).toBe(true);
     const p2 = await Client.open(port);
-    p2.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice" });
+    expect(shownTimes).toBe(1); // US-0033: the restart keeps the codes that were handed out and does not show them again
+    expect(logs.join("\n")).toMatch(/codes issued earlier for this session still apply/);
+    expect(logs.join("\n")).not.toContain(codes.host!);
+    const stranger = await Client.open(port);
+    stranger.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "mallory" });
+    expect((await stranger.waitFor((m) => m.type === "error", "the refusal without a code")).code).toBe("unauthorized"); // a restart frees no role
+    p2.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice", joinCode: codes.host });
     const pj = await p2.waitFor((m) => m.type === "joined", "player rejoined");
     expect(pj.state?.transcript.map((u) => u.text)).toContain("a line before the crash");
     p2.send({ type: "say", text: "too early" });
@@ -241,7 +251,7 @@ describe("bootstrap: resume after a restart (US-0018)", () => {
     const child = path.join(tmp, "child.mts");
     await writeFile(child, [
       `import { bootstrap } from ${JSON.stringify(pathToFileURL(path.join(runtimeDir, "src", "main.ts")).href)};`,
-      `const r = await bootstrap({ env: ${JSON.stringify(env())}, root: ${JSON.stringify(tmp)}, logDir: ${JSON.stringify(dataDir())}, tickMs: 60000, log: () => {}, warn: () => {} });`,
+      `const r = await bootstrap({ env: ${JSON.stringify(env())}, root: ${JSON.stringify(tmp)}, logDir: ${JSON.stringify(dataDir())}, tickMs: 60000, log: () => {}, warn: () => {}, showJoinCodes: (c) => console.log("CODES " + JSON.stringify(c)) });`,
       `if (!r.ok) { console.log("FAILED " + r.errors.join("; ")); process.exit(1); }`,
       `console.log("PORT " + r.runtime.port);`,
     ].join("\n"));
@@ -250,7 +260,11 @@ describe("bootstrap: resume after a restart (US-0018)", () => {
     const port = await new Promise<number>((resolve, reject) => {
       let out = "";
       const t = setTimeout(() => reject(new Error(`the server process did not start: ${out}`)), 60_000);
-      proc.stdout!.on("data", (d) => { out += d; const m = /PORT (\d+)/.exec(out); if (m) { clearTimeout(t); resolve(Number(m[1])); } if (out.includes("FAILED")) { clearTimeout(t); reject(new Error(out)); } });
+      proc.stdout!.on("data", (d) => {
+        out += d;
+        const c = /CODES (\[.*\])/.exec(out); if (c) codes = Object.fromEntries((JSON.parse(c[1]!) as { roleId: string; code: string }[]).map((x) => [x.roleId, x.code]));
+        const m = /PORT (\d+)/.exec(out); if (m) { clearTimeout(t); resolve(Number(m[1])); } if (out.includes("FAILED")) { clearTimeout(t); reject(new Error(out)); }
+      });
       proc.once("exit", (c) => { clearTimeout(t); reject(new Error(`the server process exited (${c}): ${out}`)); });
     });
     const { fac, p } = await playUntilALine(port);
@@ -276,5 +290,11 @@ describe("bootstrap: resume after a restart (US-0018)", () => {
     for (const seq of seen) expect(events.some((e) => e.seq === seq)).toBe(true); // every event a client saw survived the crash
     expect(events.at(-2)).toMatchObject({ type: "session.resumed" });
     expect(JSON.parse(await readFile(path.join(dataDir(), "r1.lock"), "utf8"))).toMatchObject({ pid: process.pid });
+    // US-0033: the code the dead process issued still opens the role after the real crash; no new codes were shown.
+    expect(shownTimes).toBe(0);
+    const p2 = await Client.open(r.runtime.port);
+    p2.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice", joinCode: codes.host });
+    expect((await p2.waitFor((m) => m.type === "joined" || m.type === "error", "the rejoin after the crash")).type).toBe("joined");
+    p2.close();
   }, 90_000);
 });

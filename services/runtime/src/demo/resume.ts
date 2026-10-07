@@ -6,7 +6,7 @@ import { FakeClock } from "../engine/clock.js";
 import { SessionStoreError } from "../engine/session-store.js";
 import { isEvent, type Bot } from "./bots.js";
 import { ensure } from "./checks.js";
-import { act, connectBot, isJoinedMsg, npcRole, sceneIds, type Ctx, type Joined, type Story } from "./ctx.js";
+import { act, codeSecrets, connectBot, isJoinedMsg, npcRole, playerJoin, sceneIds, type Ctx, type Joined, type Story } from "./ctx.js";
 import { GatedProvider, MIN, T0, startResumableSystem, type ResumableSystem } from "./harness.js";
 
 /** How long the server stays down in the room: longer than what is left of the scene's time box, and past its timed inject. */
@@ -56,8 +56,11 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
     const start = async (o: Omit<Parameters<typeof startResumableSystem>[0], "scenario" | "sessionId" | "dataDir"> & { scenario?: Scenario; dataDir?: string }) => {
       const s = await startResumableSystem({ scenario, sessionId: SID, dataDir: dir, now: () => new Date("2030-03-04T05:06:07Z"), ...o });
       systems.push(s);
+      ctx.secretValues.push(...codeSecrets(s.joinCodes)); // US-0033: no join code may ever be printed or reach a client
       return s;
     };
+    /** The join codes the operator was shown when the session started (life 1); a restart keeps them and shows none (US-0033). */
+    let handedOut: Record<string, string> = {};
     const url = (s: ResumableSystem) => `ws://127.0.0.1:${s.port}`;
     const joinFac = async (s: ResumableSystem, label: string) => {
       const fac = await connectBot(ctx, label, { url: url(s) });
@@ -67,7 +70,7 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
     };
     const joinPlayer = async (s: ResumableSystem, role: string, who: string): Promise<{ bot: Bot; joined: Joined }> => {
       const bot = await connectBot(ctx, `resume ${role}`, { url: url(s) });
-      const j = await bot.call({ type: "join", sessionId: SID, roleId: role, participantId: who }, isJoinedMsg, { what: `${role} to join` });
+      const j = await bot.call(playerJoin(ctx, role, who, { sessionId: SID, codes: handedOut }), isJoinedMsg, { what: `${role} to join` });
       ensure(isJoinedMsg(j), `${role} could not join: ${j.type === "error" ? j.code : j.type}`);
       return { bot, joined: j };
     };
@@ -76,7 +79,9 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
     const clockA = new FakeClock(T0);
     const npcA = new GatedProvider([REPLY_1, NEVER], 2);
     const a = await start({ clock: clockA, npcProvider: npcA });
-    await n.step("a server starts on a fresh session log (the real session store: lock, fsync after each event, owner-only files)");
+    handedOut = { ...a.joinCodes };
+    ensure(Object.keys(handedOut).length === 3, "the first server issued no join codes");
+    await n.step("a server starts on a fresh session log (the real session store: lock, fsync after each event, owner-only files) and issues one join code per player role (only their hashes are stored)");
     const { fac: facA } = await joinFac(a, "resume facilitator");
     const dlA = await joinPlayer(a, "delivery_lead", "ZedAlphaParticipant");
     await joinPlayer(a, "tech_lead", "ZedBravoParticipant");
@@ -132,6 +137,11 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
     const facB = (st.ev.resumeFac?.ok ? st.ev.resumeFac.value : null) as Bot | null;
 
     await rec.run("F-37", async () => {
+      // US-0033: a restart frees no role. The codes handed out before the crash still work, nothing new is shown, and a claim without one is refused.
+      ensure(b.store.joinCodes?.issued === null, "the restart issued new join codes instead of keeping the ones handed out");
+      const stranger = await connectBot(ctx, "resume stranger", { url: url(b) });
+      const refused = await stranger.call(playerJoin(ctx, "delivery_lead", "ZedMalloryParticipant", { sessionId: SID, codes: {} }), isJoinedMsg, { what: "a claim without a code after the restart" });
+      ensure(refused.type === "error" && refused.code === "unauthorized", `a claim without a code after the restart gave ${refused.type === "error" ? refused.code : refused.type}`);
       const dl = await joinPlayer(b, "delivery_lead", "ZedAlphaParticipant");
       const am = await joinPlayer(b, "account_manager", "ZedCharlieParticipant");
       const tl = await joinPlayer(b, "tech_lead", "ZedDeltaParticipant"); // someone else: claims are not kept across a restart
@@ -148,8 +158,8 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
         for (const h of npc.hidden) ensure(!raw.includes(h), `${p.bot.label} received hidden-fact text`);
       }
       st.ev.resumePlayers = { ok: true, value: [dl.bot, am.bot] };
-      await n.step("the players rejoin (anyone may claim a role again, as after any disconnect) and each gets the history it may see: tech_lead, who was not on the call, gets none of it");
-      return "delivery_lead and account_manager rejoined with their 4 visible lines (scene 1 and the call); tech_lead, claimed by a new participant, got only scene 1; no facilitator-only data or hidden-fact text reached a player";
+      await n.step("the players rejoin with the join codes they were given before the crash (a claim without a code is refused; no new codes were shown) and each gets the history it may see: tech_lead, who was not on the call, gets none of it");
+      return "a claim without a code was refused after the restart; with the join codes from before the crash (kept as hashes, none re-issued) delivery_lead and account_manager rejoined with their 4 visible lines (scene 1 and the call); tech_lead, claimed by a new participant holding its code, got only scene 1; no facilitator-only data or hidden-fact text reached a player";
     }, ["F-34"]);
 
     await rec.run("F-36", async () => {
@@ -262,6 +272,10 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       ensure(f.store.outcome === "rotated" && f.store.rotatedBecause === "fresh" && f.store.rotatedTo, `SESSION_START=fresh did not move the log aside (${f.store.outcome})`);
       ensure((await readFile(f.store.rotatedTo!)).equals(atRefusal), "the rotated log differs from the old one");
       ensure(!(await readdir(dir)).includes(`${SID}.jsonl`), "a log remained in place");
+      ensure(f.store.joinCodes?.issued, "SESSION_START=fresh did not issue new join codes");
+      const old = await connectBot(ctx, "resume old code", { url: url(f) });
+      const oldR = await old.call(playerJoin(ctx, "delivery_lead", "ZedAlphaParticipant", { sessionId: SID, codes: handedOut }), isJoinedMsg, { what: "a join with the old session's code" });
+      ensure(oldR.type === "error" && oldR.code === "unauthorized", "the previous session's join code opened the fresh session");
       const { fac } = await joinFac(f, "fresh facilitator");
       fac.send({ type: "start" });
       const startedMsg = await fac.waitFor(isEvent("session.started"), { what: "the fresh session" });
@@ -275,7 +289,7 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       fac.close();
       await f.stop();
       await n.step(`SESSION_START=fresh moves the running session's log aside byte for byte (${path.basename(f.store.rotatedTo!)}) and starts a new session at seq 1`);
-      return `SESSION_START=fresh rotated the old log byte-identical to ${path.basename(f.store.rotatedTo!).replace(/\d{8}T\d{6}Z/, "<UTC time>")}; the new session began at seq 1 (and was played to its end for F-41)`;
+      return `SESSION_START=fresh rotated the old log byte-identical to ${path.basename(f.store.rotatedTo!).replace(/\d{8}T\d{6}Z/, "<UTC time>")} and issued new join codes (the old ones were refused); the new session began at seq 1 (and was played to its end for F-41)`;
     }, ["F-34"]);
 
     await rec.run("F-41", async () => {
@@ -285,6 +299,7 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       ensure(g.store.outcome === "rotated" && g.store.rotatedBecause === "ended", `a restart over an ended session did not move its log aside (${g.store.outcome})`);
       ensure((await readFile(g.store.rotatedTo!)).equals(endedBytes), "the ended session's log changed when it was moved aside");
       ensure(g.engine.state.status === "idle", "the restart did not start fresh");
+      ensure(g.store.joinCodes?.issued, "the fresh session after an ended one did not get new join codes");
       st.ev.resumeHolder = { ok: true, value: g };
       await n.step("a restart over a session that had ENDED moves its log aside and starts fresh (there is nothing to resume)");
       return "the default restart (resume) over an ended session's log moved it aside byte-identical and started a fresh, idle session";

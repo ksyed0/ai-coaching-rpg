@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { SessionEvent, SessionState } from "@acr/events";
+import { MAX_JOIN_CODE_INPUT_CHARS } from "../engine/join-codes.js";
 
 export const MAX_UTTERANCE_CHARS = 2_000;
 const Id = z.string().min(1).max(128);
@@ -15,7 +16,8 @@ const FacilitatorCommandSchema = z.discriminatedUnion("command", [
 ]);
 
 export const ClientMessageSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("join"), sessionId: Id, roleId: Id, participantId: Id, reconnectToken: z.string().min(1).max(128).optional() }),
+  // US-0033: joinCode is the role's code (required when the server issues codes); a live rejoin may present the reconnect token instead.
+  z.object({ type: z.literal("join"), sessionId: Id, roleId: Id, participantId: Id, reconnectToken: z.string().min(1).max(128).optional(), joinCode: z.string().max(MAX_JOIN_CODE_INPUT_CHARS).optional() }),
   z.object({ type: z.literal("join_facilitator"), sessionId: Id, token: z.string().max(256).optional() }),
   z.object({ type: z.literal("start") }),
   z.object({ type: z.literal("say"), text: z.string().min(1).max(MAX_UTTERANCE_CHARS), expectSceneId: Id.optional() }),

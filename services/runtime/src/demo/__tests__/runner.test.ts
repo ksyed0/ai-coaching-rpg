@@ -330,16 +330,18 @@ describe("--live", () => {
 });
 
 describe("--url (smoke test of a running server)", () => {
+  /** US-0033: the join codes the target printed at start, as `pnpm demo --url` reads them (JOIN_CODES). */
+  let codesEnv = "";
   it("passes the externally observable checks against a real in-process server and skips the rest", async () => {
     const tmp = await makeTempRoot(REPO_ROOT);
     cleanups.push(() => tmp.cleanup());
     const boot = await bootstrap({
-      env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root: tmp.root, logDir: tmp.dataDir, log: () => {}, warn: () => {}, tickMs: 60_000,
+      env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root: tmp.root, logDir: tmp.dataDir, log: () => {}, warn: () => {}, tickMs: 60_000, showJoinCodes: (c) => { codesEnv = c.map((x) => `${x.roleId}=${x.code}`).join(","); },
     });
     if (!boot.ok) throw new Error(boot.errors.join("; "));
     cleanups.push(() => boot.runtime.stop());
     const c = capture();
-    const { exitCode, report } = await runDemo(deps(c, ["--url", `ws://127.0.0.1:${boot.runtime.port}`, "--session", "smoke", "--fast", "--no-color"]));
+    const { exitCode, report } = await runDemo(deps(c, ["--url", `ws://127.0.0.1:${boot.runtime.port}`, "--session", "smoke", "--fast", "--no-color"], { env: { PATH: "/usr/bin", JOIN_CODES: codesEnv } }));
     expect(report!.results.filter((r) => r.status === "failed")).toEqual([]);
     expect(exitCode).toBe(0);
     expect(report!.mode).toBe("url");
@@ -351,6 +353,29 @@ describe("--url (smoke test of a running server)", () => {
     const text = c.out.join("");
     expect(text).toContain("no authentication");
     expect(text).toContain("Structure is checked, not model content");
+    expect(text).toContain("codes from the JOIN_CODES environment variable (never printed)");
+    for (const pair of codesEnv.split(",")) { const code = pair.split("=")[1]!; expect(text + JSON.stringify(report)).not.toContain(code); expect(text).not.toContain(code.replace(/-/g, "")); }
+  });
+
+  it("test_url_without_JOIN_CODES_the_players_are_refused_and_the_output_says_how_to_pass_the_codes", async () => {
+    const tmp = await makeTempRoot(REPO_ROOT);
+    cleanups.push(() => tmp.cleanup());
+    const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root: tmp.root, logDir: tmp.dataDir, log: () => {}, warn: () => {}, tickMs: 60_000, showJoinCodes: () => {} });
+    if (!boot.ok) throw new Error(boot.errors.join("; "));
+    cleanups.push(() => boot.runtime.stop());
+    const c = capture();
+    const { exitCode, report } = await runDemo(deps(c, ["--url", `ws://127.0.0.1:${boot.runtime.port}`, "--session", "smoke", "--fast", "--no-color"], { watchdogMs: 20_000 }));
+    expect(exitCode).toBe(1);
+    expect(report!.results.find((r) => r.id === "F-01")).toMatchObject({ status: "failed", details: expect.stringContaining("unauthorized") });
+    expect(c.out.join("")).toContain("export JOIN_CODES=");
+  });
+
+  it("test_url_malformed_JOIN_CODES_is_a_usage_error_that_does_not_echo_it", async () => {
+    const c = capture();
+    const { exitCode } = await runDemo(deps(c, ["--url", "ws://127.0.0.1:9", "--fast"], { env: { PATH: "/usr/bin", JOIN_CODES: "delivery_lead=NOT-A-CODE-SECRETISH" } }));
+    expect(exitCode).toBe(2);
+    expect(c.err.join("")).toContain("JOIN_CODES must be");
+    expect(c.err.join("") + c.out.join("")).not.toContain("SECRETISH");
   });
 
   it("reports a server that is not there as a failure, not a hang, after telling the user exactly what it will send", async () => {
@@ -362,7 +387,7 @@ describe("--url (smoke test of a running server)", () => {
     for (const phrase of [
       "TARGET server's real session and writes to its permanent event log", "throwaway server with a FRESH session", "ADVANCES THE SESSION TO ITS END (script_complete)",
       "cannot be resumed", "a facilitator join and the commands start, pause, resume, advance and whisper", "scripted player lines", "escape sequence and a forged newline",
-      "speech while the session is paused", "role-claim attempts (a taken, an NPC and an unknown role)", "forged-token takeover attempts", "rejoin with the real token",
+      "speech while the session is paused", "role-claim attempts (no or a wrong join code, an NPC and an unknown role, a taken role with its code)", "forged-token takeover attempts", "rejoin with the real token",
       "player-issued start and pause", "a facilitator say", "speech from a role that is absent from the scene", "speech and a resume command after the session ends", "speech before joining", "a whisper to the NPC role", "malformed frames", "an over-long line", "oversized (~70 kB) frame", "allow facilitator joins", "no authentication",
     ]) expect(text, phrase).toContain(phrase);
   });
@@ -370,11 +395,11 @@ describe("--url (smoke test of a running server)", () => {
   it("a bypassed check is a failure in --url mode too, while the intended mode skips stay allowed", async () => {
     const tmp = await makeTempRoot(REPO_ROOT);
     cleanups.push(() => tmp.cleanup());
-    const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root: tmp.root, logDir: tmp.dataDir, log: () => {}, warn: () => {}, tickMs: 60_000 });
+    const boot = await bootstrap({ env: { RUNTIME_PORT: "0", SESSION_ID: "smoke", MODEL_PROVIDER: "mock" }, root: tmp.root, logDir: tmp.dataDir, log: () => {}, warn: () => {}, tickMs: 60_000, showJoinCodes: (c) => { codesEnv = c.map((x) => `${x.roleId}=${x.code}`).join(","); } });
     if (!boot.ok) throw new Error(boot.errors.join("; "));
     cleanups.push(() => boot.runtime.stop());
     const c = capture();
-    const { exitCode, report } = await runDemo(deps(c, ["--url", `ws://127.0.0.1:${boot.runtime.port}`, "--session", "smoke", "--fast"], { bypass: ["F-17"] }));
+    const { exitCode, report } = await runDemo(deps(c, ["--url", `ws://127.0.0.1:${boot.runtime.port}`, "--session", "smoke", "--fast"], { bypass: ["F-17"], env: { PATH: "/usr/bin", JOIN_CODES: codesEnv } }));
     expect(exitCode).toBe(1);
     expect(report!.results.find((r) => r.id === "F-17")).toMatchObject({ status: "failed", details: expect.stringContaining("did not run") });
     expect(report!.results.filter((r) => r.status === "skipped").every((r) => r.details === "skipped (needs in-process server)")).toBe(true);

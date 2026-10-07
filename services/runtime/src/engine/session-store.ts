@@ -4,6 +4,9 @@ import type { Clock } from "./clock.js";
 import { JsonlEventLog, LogCorruptError } from "./event-log.js";
 import { DEFAULT_LOCK_STALE_MS, MAX_LOCK_STALE_MS, MIN_LOCK_STALE_MS, SessionLock, SessionLockError, ensurePrivateDir, finishInterruptedRotation, rotateStaleLog, type LockOptions } from "./log-files.js";
 import { RestoreError, SessionEngine, type ResumeInfo, type ResumeNotes } from "./session-engine.js";
+import { JoinCodeRecordError, JoinCodes } from "./join-codes.js";
+import { codesFileName, readJoinCodesFile, removeJoinCodesFile, writeJoinCodesFile } from "./join-code-file.js";
+import { scenarioHash } from "./scenario-hash.js";
 
 export type StartMode = "resume" | "fresh";
 
@@ -35,12 +38,17 @@ export type OpenedSession = {
   resumeNotes?: ResumeNotes;
   /** Operator notes (no secrets, no paths from the environment). */
   notes: string[];
+  /**
+   * US-0033 (with `joinCodes: true`): the verifier for the player roles' join codes, and `issued`, the plain codes when they were
+   * issued by THIS start (show them to the operator once, then drop them), or null when the codes handed out earlier still apply.
+   */
+  joinCodes?: { codes: JoinCodes; issued: Record<string, string> | null };
   /** Closes the log handle and releases the lock. Never throws. */
   close(): Promise<void>;
 };
 
 export class SessionStoreError extends Error {
-  constructor(readonly code: "lock" | "resume_refused" | "io", message: string) { super(message); this.name = "SessionStoreError"; }
+  constructor(readonly code: "lock" | "resume_refused" | "io" | "join_codes", message: string) { super(message); this.name = "SessionStoreError"; }
 }
 
 const FRESH_HINT = "start a fresh session with SESSION_START=fresh (the old log is moved aside, never deleted)";
@@ -53,9 +61,15 @@ const FRESH_HINT = "start a fresh session with SESSION_START=fresh (the old log 
  *    (AC-0056), moves an ENDED session's log aside and starts fresh, and starts fresh on a missing or empty log. A log that cannot be
  *    resumed (corruption beyond a cut-off last line, another scenario, a newer format) is refused and left untouched.
  * The engine's appends refuse to run once the lock is lost.
+ * 4. With `joinCodes` (US-0033): a session that starts over (fresh, or after an ended one) gets new player join codes; otherwise the
+ *    codes in `<id>.codes.json` are kept when they were issued for this session, scenario and set of player roles, and new ones are
+ *    issued when there are none (or they are for another scenario). Only hashes are written, under the lock, before any client can
+ *    connect. A codes file that cannot be read is refused like a corrupt log: nothing is changed and the start fails.
  */
 export async function openSession(o: {
   scenario: Scenario; sessionId: string; dataDir: string; clock: Clock; mode: StartMode; now?: () => Date; lock?: LockOptions; maxLogBytes?: number;
+  /** US-0033: manage the player roles' join codes (the server and the demo's resume room). Off by default. */
+  joinCodes?: boolean;
 }): Promise<OpenedSession> {
   const notes: string[] = [];
   const now = o.now ?? (() => new Date());
@@ -79,20 +93,49 @@ export async function openSession(o: {
     const log = new JsonlEventLog(o.sessionId, o.dataDir, { guard: () => lock.assertHeld(), maxBytes: o.maxLogBytes });
     return { log, engine: new SessionEngine({ scenario: o.scenario, log, clock: o.clock }) };
   };
+  const playerRoles = Object.values(o.scenario.roles).filter((r) => r.type === "player").map((r) => r.id);
+  const bind = { sessionId: o.sessionId, scenarioSha256: scenarioHash(o.scenario), roleIds: playerRoles };
+  /** Decides the session's join codes: keep the ones on disk (`keep`) when they fit this session, or issue and persist new ones. */
+  const settleCodes = (keep: boolean, warnIfNew: boolean): OpenedSession["joinCodes"] => {
+    if (!o.joinCodes) return undefined;
+    if (keep) {
+      let existing: JoinCodes | null;
+      try { existing = readJoinCodesFile(o.dataDir, o.sessionId); }
+      catch (err) {
+        if (err instanceof JoinCodeRecordError) throw new SessionStoreError("join_codes", `cannot use the join codes file: ${err.message}. Nothing was changed; to issue new codes (the old ones stop working), move ${codesFileName(o.sessionId)} aside and start again`);
+        throw new SessionStoreError("io", `cannot read the join codes file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`);
+      }
+      if (existing && existing.matches(bind)) return { codes: existing, issued: null };
+      if (warnIfNew) notes.push(existing
+        ? "warning: the join codes on file were issued for other scenario files or roles: new join codes were issued, and the old ones no longer work"
+        : "warning: no join codes from before the restart were found: new join codes were issued, and any old ones no longer work; hand out the new codes");
+    }
+    if (playerRoles.length === 0) return undefined; // nothing to protect
+    const { codes, plain } = JoinCodes.issue(playerRoles, bind);
+    try { writeJoinCodesFile(o.dataDir, o.sessionId, codes, () => lock.assertHeld()); }
+    catch (err) { throw new SessionStoreError("io", `cannot write the join codes file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
+    return { codes, issued: plain };
+  };
   const rotate = (because: "fresh" | "ended") => {
+    // The old codes go first: a crash between the two steps must never let the old session's codes open the new one.
+    if (o.joinCodes) {
+      try { removeJoinCodesFile(o.dataDir, o.sessionId); }
+      catch (err) { throw new SessionStoreError("io", `cannot remove the previous join codes file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
+    }
     try { return rotateStaleLog(o.dataDir, o.sessionId, now()); }
     catch (err) { throw new SessionStoreError("io", `cannot rotate the previous session log in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}${because === "ended" ? " (it holds a session that had ended)" : ""}`); }
   };
   let opened: { log: JsonlEventLog; engine: SessionEngine } | null = null;
   try {
-    const done = (x: { log: JsonlEventLog; engine: SessionEngine }, rest: Pick<OpenedSession, "outcome" | "rotatedTo" | "rotatedBecause" | "resume" | "resumeNotes">): OpenedSession => ({
+    const done = (x: { log: JsonlEventLog; engine: SessionEngine }, rest: Pick<OpenedSession, "outcome" | "rotatedTo" | "rotatedBecause" | "resume" | "resumeNotes" | "joinCodes">): OpenedSession => ({
       ...x, lock, notes, ...rest,
       close: async () => { try { await x.log.close(); } catch { /* best effort */ } lock.release(); },
     });
     if (o.mode === "fresh") {
       const rotatedTo = rotate("fresh");
       opened = make();
-      return done(opened, rotatedTo ? { outcome: "rotated", rotatedTo, rotatedBecause: "fresh" } : { outcome: "new" });
+      const joinCodes = settleCodes(false, false);
+      return done(opened, rotatedTo ? { outcome: "rotated", rotatedTo, rotatedBecause: "fresh", joinCodes } : { outcome: "new", joinCodes });
     }
     opened = make();
     let restored;
@@ -103,15 +146,17 @@ export async function openSession(o: {
       if (code === "ELOOP" || code === "EMLINK") throw new SessionStoreError("resume_refused", `the session log is a symbolic link and is not followed; move ${path.basename(opened.log.file)} away and retry`);
       throw new SessionStoreError("io", `cannot read the session log in ${o.dataDir}: ${code ?? (err as Error).message}`);
     }
-    if (restored.kind === "empty") return done(opened, { outcome: "new" });
+    if (restored.kind === "empty") return done(opened, { outcome: "new", joinCodes: settleCodes(true, false) });
     if (restored.kind === "ended") {
       await opened.log.close();
       const rotatedTo = rotate("ended");
       opened = make();
-      return done(opened, rotatedTo ? { outcome: "rotated", rotatedTo, rotatedBecause: "ended" } : { outcome: "new" });
+      const joinCodes = settleCodes(false, false);
+      return done(opened, rotatedTo ? { outcome: "rotated", rotatedTo, rotatedBecause: "ended", joinCodes } : { outcome: "new", joinCodes });
     }
+    const joinCodes = settleCodes(true, true); // before anything is appended: a refused codes file leaves the log untouched
     const resumeNotes = await opened.engine.markResumed(restored.info);
-    return done(opened, { outcome: "resumed", resume: restored.info, resumeNotes });
+    return done(opened, { outcome: "resumed", resume: restored.info, resumeNotes, joinCodes });
   } catch (err) {
     if (opened) { try { await opened.log.close(); } catch { /* best effort */ } }
     lock.release();

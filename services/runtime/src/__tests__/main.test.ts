@@ -9,9 +9,10 @@ import { bootstrap, type Runtime } from "../main.js";
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
 // Seam: lets a test make linkSync / unlinkSync fail like a bind mount without hard-link support. Passthrough by default.
-const fsHooks = vi.hoisted(() => ({ link: null as null | ((src: string, dst: string) => void), unlink: null as null | ((p: string) => void) }));
+const fsHooks = vi.hoisted(() => ({ link: null as null | ((src: string, dst: string) => void), unlink: null as null | ((p: string) => void), realUnlink: null as null | ((p: string) => void) }));
 vi.mock("node:fs", async (orig) => {
   const actual = await orig<typeof import("node:fs")>();
+  fsHooks.realUnlink = actual.unlinkSync;
   return {
     ...actual,
     linkSync: (s: string, d: string) => (fsHooks.link ? fsHooks.link(s, d) : actual.linkSync(s, d)),
@@ -352,7 +353,7 @@ describe("bootstrap", () => {
       it("unlink failing after a successful copy returns ok:false saying a copy exists and the stale file needs manual handling", async () => {
         await seed("old-a\n");
         fsHooks.link = () => { throw errno("EPERM"); };
-        fsHooks.unlink = () => { throw errno("EACCES"); };
+        fsHooks.unlink = (p) => { if (p.endsWith(".jsonl")) throw errno("EACCES"); fsHooks.realUnlink!(p); }; // the log only (US-0033: the codes file is removed first)
         const r = await bootstrap({ env: env(), root: tmp, now, log: () => {} });
         expect(r.ok).toBe(false);
         if (r.ok) return;
@@ -427,7 +428,76 @@ describe("bootstrap", () => {
       const r = await bootstrap({ env: env(), root: tmp, log: () => {} });
       if (!r.ok) throw new Error(r.errors.join("; "));
       runtime = r.runtime;
-      expect((await readdir(dataDir())).filter((f) => !f.endsWith(".lock"))).toEqual(["local.jsonl"]); // the running server holds local.lock
+      expect((await readdir(dataDir())).filter((f) => !f.endsWith(".lock") && !f.endsWith(".codes.json"))).toEqual(["local.jsonl"]); // the running server holds local.lock (and its join codes file)
     });
+  });
+});
+
+describe("bootstrap: player join codes (US-0033)", () => {
+  const env = (extra: Record<string, string> = {}) => ({ SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "jc", MODEL_PROVIDER: "mock", ...extra });
+  const ask = (port: number, m: Record<string, unknown>) => new Promise<any>((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    ws.on("open", () => ws.send(JSON.stringify(m)));
+    ws.on("message", (d) => { resolve(JSON.parse(d.toString())); ws.close(); });
+    ws.on("error", reject);
+  });
+
+  it("test_bootstrap_issues_codes_shows_them_once_outside_the_log_and_requires_them", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
+    const logs: string[] = []; const shown: { roleId: string; code: string }[][] = [];
+    const r = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: (m) => logs.push(m), warn: (m) => logs.push(m), showJoinCodes: (c) => shown.push(c) });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    runtime = r.runtime;
+    expect(shown).toHaveLength(1);
+    expect(shown[0]!.map((c) => c.roleId)).toEqual(["host"]);
+    const code = shown[0]![0]!.code;
+    expect(code).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/);
+    const norm = code.replace(/-/g, "");
+    expect(logs.join("\n")).not.toContain(norm);
+    expect(await readFile(path.join(tmp, "jc.codes.json"), "utf8")).not.toContain(norm);
+    expect((await ask(runtime.port, { type: "join", sessionId: "jc", roleId: "host", participantId: "a" })).code).toBe("unauthorized");
+    expect((await ask(runtime.port, { type: "join", sessionId: "jc", roleId: "guest", participantId: "a", joinCode: code })).code).toBe("unauthorized");
+    expect((await ask(runtime.port, { type: "join", sessionId: "jc", roleId: "host", participantId: "a", joinCode: code })).type).toBe("joined");
+    expect((await ask(runtime.port, { type: "join_facilitator", sessionId: "jc" })).type).toBe("joined"); // the facilitator does not need a code
+  });
+
+  it("test_bootstrap_restart_keeps_the_codes_without_showing_them_and_fresh_issues_new_ones", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
+    const shown: { roleId: string; code: string }[][] = [];
+    const show = (c: { roleId: string; code: string }[]) => shown.push(c);
+    const a = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: show });
+    if (!a.ok) throw new Error(a.errors.join("; "));
+    await a.runtime.stop();
+    const logs: string[] = [];
+    const b = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: (m) => logs.push(m), warn: (m) => logs.push(m), showJoinCodes: show });
+    if (!b.ok) throw new Error(b.errors.join("; "));
+    expect(shown).toHaveLength(1);
+    expect(logs.join("\n")).toMatch(/codes issued earlier for this session still apply/);
+    const code = shown[0]![0]!.code;
+    expect((await ask(b.runtime.port, { type: "join", sessionId: "jc", roleId: "host", participantId: "a", joinCode: code })).type).toBe("joined");
+    await b.runtime.stop();
+    const c = await bootstrap({ env: env({ SESSION_START: "fresh" }), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: show });
+    if (!c.ok) throw new Error(c.errors.join("; "));
+    runtime = c.runtime;
+    expect(shown).toHaveLength(2);
+    expect((await ask(c.runtime.port, { type: "join", sessionId: "jc", roleId: "host", participantId: "a", joinCode: code })).code).toBe("unauthorized");
+  });
+
+  it("test_bootstrap_unusable_codes_file_stops_startup_with_a_remedy", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
+    await writeFile(path.join(tmp, "jc.codes.json"), "{ broken", { mode: 0o600 });
+    const r = await bootstrap({ env: env(), root: tmp, logDir: tmp, log: () => {}, warn: () => {}, showJoinCodes: () => {} });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.join("\n")).toMatch(/join codes file.*move jc\.codes\.json aside/);
+  });
+
+  it("test_printJoinCodes_lists_each_role_once_with_a_hint_and_nothing_else", async () => {
+    const { printJoinCodes } = await import("../main.js");
+    let out = "";
+    printJoinCodes([{ roleId: "delivery_lead", code: "ABCD-EFGH-JKMN" }, { roleId: "tl", code: "0000-1111-2222" }], (t) => { out += t; });
+    expect(out).toMatch(/PLAYER JOIN CODES/);
+    expect(out).toContain("  delivery_lead  ABCD-EFGH-JKMN\n");
+    expect(out).toContain("  tl             0000-1111-2222\n");
+    expect(out).toMatch(/JOIN_CODE/);
   });
 });

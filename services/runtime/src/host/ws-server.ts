@@ -5,6 +5,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { ClientMessageSchema, type ServerMessage } from "./protocol.js";
 import { HostError, type SessionHost } from "./session-host.js";
 import { EngineError } from "../engine/session-engine.js";
+import type { JoinCodes } from "../engine/join-codes.js";
 import { AuthThrottle, DEFAULT_LIMITS, OPEN_SERVER_NOTICE, TokenBucket, WindowCounter, clientIp, ipKey, isValidToken, normalizeOrigin, secretsMatch, type Limits } from "./security.js";
 
 /** A 2,000 character utterance is at most about 8 KiB of JSON, so 16 KiB leaves room and bounds what one frame can cost. */
@@ -31,6 +32,13 @@ export type ServerOptions = {
   now?: () => number;
   /** The failed-login throttle (tests inject one to observe its counters). */
   authThrottle?: AuthThrottle;
+  /**
+   * US-0033: each session's player join codes. When set, a player `join` must present its role's code (or, to take over a role its
+   * own live connection still holds, that role's reconnect token); anything else, including an unknown session, role or AI character,
+   * gets one generic `unauthorized`, is closed like a refused facilitator token and counts against the address's failed-login budget.
+   * Unset: player roles are open, as before (tests and embedders only; the server always sets it).
+   */
+  joinCodes?: Map<string, JoinCodes>;
 };
 
 export async function startServer(opts: ServerOptions): Promise<{ port: number; close(): Promise<void> }> {
@@ -153,9 +161,23 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
     const dropAfterClose = (raw?: string) => {
       if (dropCounted) return;
       if (authFailed) { dropCounted = true; authThrottle.fail(ip); return; }
-      if (token === undefined || raw === undefined || dropParses >= 3 || !raw.includes("join_facilitator")) return;
+      if (raw === undefined || dropParses >= 3) return;
+      const facLogin = token !== undefined && raw.includes("join_facilitator");
+      const playerLogin = opts.joinCodes !== undefined && raw.includes('"join"');
+      if (!facLogin && !playerLogin) return;
       dropParses++;
-      try { if ((JSON.parse(raw) as { type?: unknown } | null)?.type === "join_facilitator") { dropCounted = true; authThrottle.fail(ip); } } catch { /* not JSON: not a login attempt */ }
+      try {
+        const t = (JSON.parse(raw) as { type?: unknown } | null)?.type;
+        if ((t === "join_facilitator" && token !== undefined) || (t === "join" && opts.joinCodes !== undefined)) { dropCounted = true; authThrottle.fail(ip); }
+      } catch { /* not JSON: not a login attempt */ }
+    };
+    /** One generic answer for every refused login (token or join code); the connection is closed and the address charged. */
+    const refuseLogin = (what: string) => {
+      authFailed = true;
+      authThrottle.fail(ip);
+      log(`${what} join refused: unauthorized`);
+      fail("unauthorized", "unauthorized");
+      shut(CLOSE_POLICY, "unauthorized");
     };
     // Slowloris and idle sockets: a connection that has not joined in time is closed.
     const joinTimer = setTimeout(() => { if (!host) shut(CLOSE_POLICY, "join timeout"); }, limits.joinTimeoutMs);
@@ -186,24 +208,26 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
           if (m.type === "join_facilitator" && token !== undefined) {
             // One attempt per connection. The answer is generic (it does not say whether the token or the session was wrong) and
             // the token is compared as two SHA-256 digests in constant time. It is never logged or echoed.
-            if (!secretsMatch(m.token ?? "", token)) {
-              authFailed = true;
-              authThrottle.fail(ip);
-              log("facilitator join refused: unauthorized");
-              fail("unauthorized", "unauthorized");
-              shut(CLOSE_POLICY, "unauthorized");
-              return;
-            }
+            if (!secretsMatch(m.token ?? "", token)) return refuseLogin("facilitator");
           }
           const h = opts.hosts.get(m.sessionId);
-          if (!h) return fail("unknown_session", "no such session");
           if (m.type === "join") {
-            if (m.roleId === "facilitator") return fail("unknown_role", "unknown_role"); // reserved: never a player role
             const key = `${m.sessionId}:${m.roleId}`;
             const prev = holders.get(key);
             const prevLive = !!prev && prev.ws !== ws && prev.ws.readyState === prev.ws.OPEN;
+            const byReconnect = !!prev && prevLive && !!m.reconnectToken && secretsMatch(m.reconnectToken, prev.token);
+            if (opts.joinCodes !== undefined) {
+              // US-0033: the role's code (constant-time, against a hash), or the reconnect token of the live connection that holds it.
+              // Every other case (no or a wrong code, an unknown session or role, an AI character, `facilitator`) gets the same answer,
+              // so a refusal never tells whether the role exists or is taken. Only someone with the right code can learn `role_taken`.
+              const byCode = opts.joinCodes.get(m.sessionId)?.verify(m.roleId, m.joinCode) ?? false;
+              if (!h || !(byCode || byReconnect)) return refuseLogin("player");
+            } else {
+              if (!h) return fail("unknown_session", "no such session");
+              if (m.roleId === "facilitator") return fail("unknown_role", "unknown_role"); // reserved: never a player role
+            }
             // A role held by a live socket can only be taken over with that role's reconnect token (C1).
-            if (prevLive && !(m.reconnectToken && secretsMatch(m.reconnectToken, prev.token))) return fail("role_taken", "role_taken");
+            if (prevLive && !byReconnect) return fail("role_taken", "role_taken");
             const { brief, privateFacts } = h.join(m.roleId, m.participantId);
             const token = randomUUID();
             holders.set(key, { ws, token });
@@ -211,8 +235,9 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             if (prevLive) prev.ws.terminate();
             send({ type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId) });
           } else {
+            if (!h) return fail("unknown_session", "no such session");
             // With FACILITATOR_TOKEN set the token was checked above. Without it this branch is open to anyone who can reach
-            // the port (bootstrap prints a warning at startup); see docs/THREAT_MODEL.md. Player roles are not token-protected.
+            // the port (bootstrap prints a warning at startup); see docs/THREAT_MODEL.md. Player roles have their own join codes (US-0033).
             who = "facilitator"; isFacilitator = true;
             // Facilitator-only reminder when the server is open (never sent to players).
             send({ type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator"), hiddenFacts: h.hiddenFacts(), ...(token === undefined ? { notice: OPEN_SERVER_NOTICE } : {}) });
