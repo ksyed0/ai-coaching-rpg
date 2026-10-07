@@ -15,7 +15,7 @@
       "title": "Slice 2 — web lobby, session view and reconnect",
       "description": "Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect.",
       "releaseTarget": "MVP",
-      "status": "Planned",
+      "status": "In Progress",
       "startDate": null,
       "doneDate": null,
       "dependencies": [
@@ -507,17 +507,70 @@
       "title": "As a participant, I want to reconnect and receive the events I missed, so that a dropped connection does not lose the session.",
       "priority": "Medium",
       "estimate": "M",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0002-US-0013-reconnect",
       "acs": [
         {
           "id": "AC-0039",
-          "text": "a client sending a last-seen seq receives the events after it",
-          "done": false
+          "text": "a client sending a last-seen seq receives the events after it (optional `lastSeq` on `join` and `join_facilitator`; `joined.replay` then the event frames; ws-server.replay.test.ts, demo F-22)",
+          "done": true
+        },
+        {
+          "id": "AC-0170",
+          "text": "the replay goes through the same default-deny `viewFor` as live delivery: for every role and every seq it is exactly what that role received live after it, so a whisper to another role, NPC goals and released hidden facts, Game Master verdicts and reasoning, `gm.no_verdict`, facilitator alerts, participant names and join codes are never replayed to a player (session-host-replay.test.ts, every role x every seq; demo F-22, F-37)",
+          "done": true
+        },
+        {
+          "id": "AC-0171",
+          "text": "no event is lost or duplicated between the replay and the live stream: the replay is read from the engine's in-memory window and the subscription is made in the same synchronous step as the snapshot, while every event is applied, retained and delivered in one synchronous step of the engine's emit; `toSeq` equals the snapshot's `lastSeq` and every later frame has a higher seq (ws-server.replay.test.ts: an append started inside the replay, and appends interleaved with the join; demo F-25)",
+          "done": true
+        },
+        {
+          "id": "AC-0172",
+          "text": "replay volume is bounded: the engine keeps the last 4096 events (`MAX_RETAINED_EVENTS`), one rejoin returns at most 1000 events and 256 KiB of JSON (`MAX_REPLAY_EVENTS`, `MAX_REPLAY_BYTES`) and never more than fits in the 1 MiB send buffer beside the join snapshot (review fix I2), a rejoin never reads the log from disk; a range that is older or larger gets `complete: false` and no events (never a partial list with a gap) and the client relies on its join snapshot",
+          "done": true
+        },
+        {
+          "id": "AC-0173",
+          "text": "a `lastSeq` that is negative, a fraction, a string, null, infinite or above 2^53-1 is a `bad_message` before authentication (also with a wrong join code: a malformed message is rejected before the code is checked); one past the session's last event is a `bad_message` only after the join is authorised, and claims and takes over nothing; neither crashes the server or closes the connection",
+          "done": true
+        },
+        {
+          "id": "AC-0174",
+          "text": "a refused or unauthenticated join with `lastSeq` gets nothing but the refusal: the single generic `unauthorized` (US-0033: no or a wrong code, an AI or unknown role, an unknown session, a wrong facilitator token) or `role_taken`; the head of the log is not revealed before authorisation (demo F-02)",
+          "done": true
+        },
+        {
+          "id": "AC-0175",
+          "text": "after a restart (US-0018) the window is rebuilt from the log, so a client's `lastSeq` from before the crash replays the same seqs plus what the restart added (`session.resumed` for players; with the facilitator-only alert for the facilitator); an event on disk that no client saw before a fail-stop is replayed; the facilitator rejoins the same way (demo F-34, F-37)",
+          "done": true
+        },
+        {
+          "id": "AC-0176",
+          "text": "backward compatible: a join without `lastSeq` behaves exactly as before (snapshot then live events, no `replay` field); the protocol is documented for future clients in `MIGRATION_LOG.md` and the README",
+          "done": true
+        },
+        {
+          "id": "AC-0177",
+          "text": "the terminal client takes `--last-seq <n>`, prints on a dropped connection the value to rejoin with (after a complete replay: its `afterSeq`, advanced by each frame that arrives, so a drop mid-replay loses nothing; review fix I1), names a hidden fact released in the replayed range (M1), shows the history up to `lastSeq` then the replayed events, and drops a duplicate event frame (cli tests)",
+          "done": true
+        },
+        {
+          "id": "AC-0178",
+          "text": "demo checks F-02, F-20, F-22, F-25, F-34 and F-37 are extended (no new check): `pnpm demo --fast` keeps 29, `--security --resume` 42 and `--showcase --fast` 14, offline and deterministic",
+          "done": true
+        },
+        {
+          "id": "AC-0179",
+          "text": "README, CHANGELOG, `docs/THREAT_MODEL.md` (what replay may and may not reveal, the bounds) and `docs/TEST_CASES.md` (TC-0013 to TC-0016) are updated",
+          "done": true
         }
       ],
       "dependencies": [
-        "US-0012"
+        "US-0012",
+        "US-0017 (limits)",
+        "US-0018 (resume rebuilds the replay window from the log)",
+        "US-0033 (one generic refusal)"
       ]
     },
     {
@@ -1519,9 +1572,39 @@
       "title": "Add replay-from-seq to the protocol (slice 2)",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0013-reconnect",
-      "notes": "See the implementation plan task of the same number. Deferred to slice 2."
+      "notes": "See the implementation plan task of the same number. Delivered by TASK-0052 to TASK-0054. Story stays In Progress until the independent review and the controller's checks."
+    },
+    {
+      "id": "TASK-0052",
+      "storyId": "US-0013",
+      "title": "Retained event window in the engine, SessionHost.replayFor and the lastSeq join in the WebSocket server",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0013-reconnect",
+      "notes": "engine/recent-events.ts (ring of 4096, contiguous seqs), SessionEngine.eventsAfter (filled in emit after the reducer and before the subscribers; rebuilt by restore and adopted only for a running session), SessionHost.replayFor (the same viewFor, utterance scene by binary search, caps), protocol `lastSeq` and `joined.replay`, ws-server (beyond-head check after authorisation, replay and subscribe in one synchronous step). Tests: recent-events, session-engine-replay, session-host-replay, ws-server.replay."
+    },
+    {
+      "id": "TASK-0053",
+      "storyId": "US-0013",
+      "title": "Terminal client --last-seq, rejoin hint and duplicate guard",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0013-reconnect",
+      "notes": "cli/commands.ts (`--last-seq`, joinMessage), cli/client.ts (last seen seq, dedupe after a replay, hint on disconnect), cli/render.ts (history up to lastSeq, catching-up line, validated replay summary). The client does not reconnect by itself: it exits and prints the `--last-seq` to rejoin with."
+    },
+    {
+      "id": "TASK-0054",
+      "storyId": "US-0013",
+      "title": "Demo checks, threat model, README, CHANGELOG, migration log and test cases",
+      "type": "Test",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0013-reconnect",
+      "notes": "F-02 (a refused claim with lastSeq gets one message), F-20 (malformed and beyond-head lastSeq), F-22 (replay equals what the old connection received live, inject and whisper included), F-25 (live after the replay, once, in order), F-34 (facilitator replay after the restart), F-37 (players after the restart; tech_lead from seq 0 gets only scene 1). Counts unchanged."
     },
     {
       "id": "TASK-0016",
@@ -1953,6 +2036,46 @@
       "relatedAC": "AC-0126",
       "type": "Regression",
       "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0013",
+      "title": "A player who drops out rejoins with --last-seq and receives the inject and whisper it missed",
+      "relatedStory": "US-0013",
+      "relatedTask": "TASK-0052",
+      "relatedAC": "AC-0039",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0014",
+      "title": "Replay never crosses roles or reveals facilitator-only data",
+      "relatedStory": "US-0013",
+      "relatedTask": "TASK-0052",
+      "relatedAC": "AC-0170",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0015",
+      "title": "A malformed, out-of-range or unauthorised lastSeq gets nothing extra",
+      "relatedStory": "US-0013",
+      "relatedTask": "TASK-0052",
+      "relatedAC": "AC-0173",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0016",
+      "title": "Rejoining with the last seq after a server restart, as a player and as the facilitator",
+      "relatedStory": "US-0013",
+      "relatedTask": "TASK-0054",
+      "relatedAC": "AC-0175",
+      "type": "Functional",
+      "status": "Not Run",
       "defect": "None"
     }
   ],
@@ -2396,11 +2519,11 @@
       "isAtRisk": true
     },
     "US-0013": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0016": {
       "missingTCs": true,
@@ -2682,10 +2805,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-07T04:50:39.144Z",
-  "commitSha": "3aee17a",
-  "buildNumber": "207",
-  "branch": "feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release",
+  "generatedAt": "2026-10-07T05:21:46.690Z",
+  "commitSha": "8c588aa",
+  "buildNumber": "214",
+  "branch": "feature/EPIC-0002-US-0013-reconnect",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2809,13 +2932,13 @@
     }
   },
   "budget": {
-    "totalBudget": 2412.8098,
+    "totalBudget": 1612.8098,
     "totalSpent": 412.8098,
     "totalProjected": 28400,
-    "percentUsed": 17,
+    "percentUsed": 26,
     "burnRate": 13.30164911111111,
-    "daysRemaining": 150,
-    "projectedExhaustion": 150,
+    "daysRemaining": 90,
+    "projectedExhaustion": 90,
     "thresholds": [
       50,
       75,
@@ -2829,6 +2952,14 @@
         "title": "Slice 1 — script package and text-only runtime",
         "budget": 169.98051,
         "spent": 169.98051,
+        "remaining": 0,
+        "percentUsed": 100
+      },
+      {
+        "id": "EPIC-0002",
+        "title": "Slice 2 — web lobby, session view and reconnect",
+        "budget": 12.141465,
+        "spent": 12.141465,
         "remaining": 0,
         "percentUsed": 100
       },
@@ -2847,14 +2978,6 @@
         "spent": 182.12197500000002,
         "remaining": 1200,
         "percentUsed": 13
-      },
-      {
-        "id": "EPIC-0002",
-        "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 812.141465,
-        "spent": 12.141465,
-        "remaining": 800,
-        "percentUsed": 1
       },
       {
         "id": "EPIC-0003",
@@ -2878,37 +3001,37 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-07T04:50:39.205Z",
-      "2026-09-08T04:50:39.205Z",
-      "2026-09-09T04:50:39.205Z",
-      "2026-09-10T04:50:39.205Z",
-      "2026-09-11T04:50:39.205Z",
-      "2026-09-12T04:50:39.205Z",
-      "2026-09-13T04:50:39.205Z",
-      "2026-09-14T04:50:39.205Z",
-      "2026-09-15T04:50:39.205Z",
-      "2026-09-16T04:50:39.205Z",
-      "2026-09-17T04:50:39.205Z",
-      "2026-09-18T04:50:39.205Z",
-      "2026-09-19T04:50:39.205Z",
-      "2026-09-20T04:50:39.205Z",
-      "2026-09-21T04:50:39.205Z",
-      "2026-09-22T04:50:39.205Z",
-      "2026-09-23T04:50:39.205Z",
-      "2026-09-24T04:50:39.205Z",
-      "2026-09-25T04:50:39.205Z",
-      "2026-09-26T04:50:39.205Z",
-      "2026-09-27T04:50:39.205Z",
-      "2026-09-28T04:50:39.205Z",
-      "2026-09-29T04:50:39.205Z",
-      "2026-09-30T04:50:39.205Z",
-      "2026-10-01T04:50:39.205Z",
-      "2026-10-02T04:50:39.205Z",
-      "2026-10-03T04:50:39.205Z",
-      "2026-10-04T04:50:39.205Z",
-      "2026-10-05T04:50:39.205Z",
-      "2026-10-06T04:50:39.205Z",
-      "2026-10-07T04:50:39.204Z"
+      "2026-09-07T05:21:46.764Z",
+      "2026-09-08T05:21:46.764Z",
+      "2026-09-09T05:21:46.764Z",
+      "2026-09-10T05:21:46.764Z",
+      "2026-09-11T05:21:46.764Z",
+      "2026-09-12T05:21:46.764Z",
+      "2026-09-13T05:21:46.764Z",
+      "2026-09-14T05:21:46.764Z",
+      "2026-09-15T05:21:46.764Z",
+      "2026-09-16T05:21:46.764Z",
+      "2026-09-17T05:21:46.764Z",
+      "2026-09-18T05:21:46.764Z",
+      "2026-09-19T05:21:46.764Z",
+      "2026-09-20T05:21:46.764Z",
+      "2026-09-21T05:21:46.764Z",
+      "2026-09-22T05:21:46.764Z",
+      "2026-09-23T05:21:46.764Z",
+      "2026-09-24T05:21:46.764Z",
+      "2026-09-25T05:21:46.764Z",
+      "2026-09-26T05:21:46.764Z",
+      "2026-09-27T05:21:46.764Z",
+      "2026-09-28T05:21:46.764Z",
+      "2026-09-29T05:21:46.764Z",
+      "2026-09-30T05:21:46.764Z",
+      "2026-10-01T05:21:46.764Z",
+      "2026-10-02T05:21:46.764Z",
+      "2026-10-03T05:21:46.764Z",
+      "2026-10-04T05:21:46.764Z",
+      "2026-10-05T05:21:46.764Z",
+      "2026-10-06T05:21:46.764Z",
+      "2026-10-07T05:21:46.763Z"
     ],
     "doneCounts": [
       0,
@@ -3208,37 +3331,37 @@
       2858005
     ],
     "avgRisk": [
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1352941176470592,
-      1.135294117647059
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.135294117647059,
+      1.144117647058824
     ],
     "velocityByWeek": {
       "labels": [
