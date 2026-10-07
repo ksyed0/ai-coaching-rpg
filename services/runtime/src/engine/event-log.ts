@@ -2,7 +2,7 @@ import { constants as fsConstants } from "node:fs";
 import { mkdir, open, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { Mutex } from "./mutex.js";
-import { isKnownEventType, type EventBody, type SessionEvent } from "@acr/events";
+import { isKnownEventType, isValidSessionId, type EventBody, type SessionEvent } from "@acr/events";
 
 /** What a replay of the whole log found: how many events, and how many bytes of a cut-off last line the next append drops (0: none). */
 export type ReplayResult = { events: number; partialTailBytes: number };
@@ -34,10 +34,6 @@ export class MemoryEventLog implements EventLog {
     return { events: this.events.length, partialTailBytes: 0 };
   }
 }
-
-const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
-/** The single source of truth for what a session id may be (it becomes a file name). */
-export const isValidSessionId = (id: string): boolean => SESSION_ID.test(id);
 
 /** A session log is a few hundred KiB to a few MiB; refuse anything far larger rather than exhaust memory (the evaluator's cap too). */
 export const MAX_SESSION_LOG_BYTES = 64 * 1024 * 1024;

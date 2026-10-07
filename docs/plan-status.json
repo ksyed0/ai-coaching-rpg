@@ -841,18 +841,18 @@
       "title": "As a developer, I want one shared definition of identifier rules and accurate plan text, so that scenario ids, protocol ids, session ids and the docs cannot drift apart.",
       "priority": "Low",
       "estimate": "S",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0020-shared-id-rules",
       "acs": [
         {
           "id": "AC-0062",
-          "text": "scenario, protocol, terminal client and session-id validation use one exported set of identifier rules",
-          "done": false
+          "text": "scenario, protocol, terminal client and session-id validation use one exported set of identifier rules (`packages/events/src/ids.ts`, imported by the scenario and rubric schemas, the validator, the rubric loader, the protocol, the terminal client, the demo, the session log, the lock, the join-codes file and the evaluator's report names; every accepted and refused value unchanged, pinned by characterisation tests written first; session ids are refused by every function that turns one into a file name, before anything is created; property-style tests over hostile ids; a test fails if another source spells an id character class; TC-0023, TC-0024)",
+          "done": true
         },
         {
           "id": "AC-0063",
-          "text": "the Slice 1 plan's self-review text is corrected (`SessionEngine.alert()` replaced the planned public `emit`) and records where later rulings changed the plan",
-          "done": false
+          "text": "the Slice 1 plan's self-review text is corrected (`SessionEngine.alert()` replaced the planned public `emit`) and records where later rulings changed the plan (inline *Built differently* notes in Tasks 7 and 8, the corrected Interfaces bullet and a Revision notes table of ten rulings; plan-text.test.ts keeps it true; TC-0024)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -1742,9 +1742,9 @@
       "title": "Extract shared identifier rules and correct the Slice 1 plan text",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0020-shared-id-rules",
-      "notes": "Three id rules currently live in schema.ts, protocol.ts, commands.ts and event-log.ts. Mismatches are harmless today but easy to drift."
+      "notes": "Three id rules currently live in schema.ts, protocol.ts, commands.ts and event-log.ts. Mismatches are harmless today but easy to drift. Delivered: packages/events/src/ids.ts (scenario ids: lower case, any length; file-safe ids: lower case, 1 to 64; safe and session ids: either case, 1 to 64; client ids: 1 to 128 and no control character; reserved ids; the JOIN_CODES role key), consumers updated, `assertSessionId` in log-files.ts and a first-line check in `openSession`; tests id-rules.characterisation (script and runtime), ids.test.ts, id-rules.files.test.ts, plan-text.test.ts. Known, unchanged difference: a scenario id has no length limit while a role id used as a report file name is limited to 64 (refused when reports are written). The story stays In Progress until review. Test cases TC-0023, TC-0024."
     },
     {
       "id": "TASK-0021",
@@ -2077,6 +2077,26 @@
       "type": "Functional",
       "status": "Not Run",
       "defect": "None"
+    },
+    {
+      "id": "TC-0023",
+      "title": "One set of identifier rules decides every scenario, protocol, client and session id",
+      "relatedStory": "US-0020",
+      "relatedTask": "TASK-0020",
+      "relatedAC": "AC-0062",
+      "type": "Regression",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0024",
+      "title": "A hostile session id never reaches the file system, and the Slice 1 plan text matches the engine",
+      "relatedStory": "US-0020",
+      "relatedTask": "TASK-0020",
+      "relatedAC": "AC-0062, AC-0063",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -2156,212 +2176,212 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 800,
-      "costUsd": 12.141465,
+      "costUsd": 12.395471,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 412.8098,
-      "inputTokens": 18833554,
-      "outputTokens": 2858005
+      "costUsd": 421.44599999999997,
+      "inputTokens": 19040320,
+      "outputTokens": 2944083
     },
     "_bugs": {
       "BUG-0001": {
@@ -2554,11 +2574,11 @@
       "isAtRisk": true
     },
     "US-0020": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0021": {
       "missingTCs": true,
@@ -2805,10 +2825,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-07T05:21:46.690Z",
-  "commitSha": "8c588aa",
-  "buildNumber": "214",
-  "branch": "feature/EPIC-0002-US-0013-reconnect",
+  "generatedAt": "2026-10-07T06:17:27.028Z",
+  "commitSha": "a42d221",
+  "buildNumber": "224",
+  "branch": "feature/EPIC-0006-US-0020-shared-id-rules",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2828,7 +2848,7 @@
     },
     {
       "date": "2026-10-07",
-      "cumCost": 412.8098
+      "cumCost": 421.446
     }
   ],
   "costHistory": {
@@ -2855,11 +2875,11 @@
       },
       {
         "date": "2026-10-07",
-        "costUsd": 3.8032
+        "costUsd": 12.4394
       }
     ]
   },
-  "deltaSpend": 3.8,
+  "deltaSpend": 12.44,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
@@ -2932,13 +2952,13 @@
     }
   },
   "budget": {
-    "totalBudget": 1612.8098,
-    "totalSpent": 412.8098,
+    "totalBudget": 1221.446,
+    "totalSpent": 421.44599999999997,
     "totalProjected": 28400,
-    "percentUsed": 26,
-    "burnRate": 13.30164911111111,
-    "daysRemaining": 90,
-    "projectedExhaustion": 90,
+    "percentUsed": 35,
+    "burnRate": 13.589522444444443,
+    "daysRemaining": 58,
+    "projectedExhaustion": 58,
     "thresholds": [
       50,
       75,
@@ -2950,34 +2970,34 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 169.98051,
-        "spent": 169.98051,
+        "budget": 173.53659399999998,
+        "spent": 173.53659399999998,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 12.141465,
-        "spent": 12.141465,
+        "budget": 12.395471,
+        "spent": 12.395471,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 48.56586,
-        "spent": 48.56586,
+        "budget": 49.581884,
+        "spent": 49.581884,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 1382.121975,
-        "spent": 182.12197500000002,
-        "remaining": 1200,
-        "percentUsed": 13
+        "budget": 985.932065,
+        "spent": 185.93206499999997,
+        "remaining": 800,
+        "percentUsed": 19
       },
       {
         "id": "EPIC-0003",
@@ -3001,37 +3021,37 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-07T05:21:46.764Z",
-      "2026-09-08T05:21:46.764Z",
-      "2026-09-09T05:21:46.764Z",
-      "2026-09-10T05:21:46.764Z",
-      "2026-09-11T05:21:46.764Z",
-      "2026-09-12T05:21:46.764Z",
-      "2026-09-13T05:21:46.764Z",
-      "2026-09-14T05:21:46.764Z",
-      "2026-09-15T05:21:46.764Z",
-      "2026-09-16T05:21:46.764Z",
-      "2026-09-17T05:21:46.764Z",
-      "2026-09-18T05:21:46.764Z",
-      "2026-09-19T05:21:46.764Z",
-      "2026-09-20T05:21:46.764Z",
-      "2026-09-21T05:21:46.764Z",
-      "2026-09-22T05:21:46.764Z",
-      "2026-09-23T05:21:46.764Z",
-      "2026-09-24T05:21:46.764Z",
-      "2026-09-25T05:21:46.764Z",
-      "2026-09-26T05:21:46.764Z",
-      "2026-09-27T05:21:46.764Z",
-      "2026-09-28T05:21:46.764Z",
-      "2026-09-29T05:21:46.764Z",
-      "2026-09-30T05:21:46.764Z",
-      "2026-10-01T05:21:46.764Z",
-      "2026-10-02T05:21:46.764Z",
-      "2026-10-03T05:21:46.764Z",
-      "2026-10-04T05:21:46.764Z",
-      "2026-10-05T05:21:46.764Z",
-      "2026-10-06T05:21:46.764Z",
-      "2026-10-07T05:21:46.763Z"
+      "2026-09-07T06:17:27.161Z",
+      "2026-09-08T06:17:27.161Z",
+      "2026-09-09T06:17:27.161Z",
+      "2026-09-10T06:17:27.161Z",
+      "2026-09-11T06:17:27.161Z",
+      "2026-09-12T06:17:27.161Z",
+      "2026-09-13T06:17:27.161Z",
+      "2026-09-14T06:17:27.161Z",
+      "2026-09-15T06:17:27.161Z",
+      "2026-09-16T06:17:27.161Z",
+      "2026-09-17T06:17:27.161Z",
+      "2026-09-18T06:17:27.161Z",
+      "2026-09-19T06:17:27.161Z",
+      "2026-09-20T06:17:27.161Z",
+      "2026-09-21T06:17:27.161Z",
+      "2026-09-22T06:17:27.161Z",
+      "2026-09-23T06:17:27.161Z",
+      "2026-09-24T06:17:27.161Z",
+      "2026-09-25T06:17:27.161Z",
+      "2026-09-26T06:17:27.161Z",
+      "2026-09-27T06:17:27.161Z",
+      "2026-09-28T06:17:27.161Z",
+      "2026-09-29T06:17:27.161Z",
+      "2026-09-30T06:17:27.161Z",
+      "2026-10-01T06:17:27.161Z",
+      "2026-10-02T06:17:27.161Z",
+      "2026-10-03T06:17:27.161Z",
+      "2026-10-04T06:17:27.161Z",
+      "2026-10-05T06:17:27.161Z",
+      "2026-10-06T06:17:27.161Z",
+      "2026-10-07T06:17:27.159Z"
     ],
     "doneCounts": [
       0,
@@ -3130,7 +3150,7 @@
       385.2891466666667,
       399.0494733333333,
       412.8098,
-      412.8098
+      421.44599999999997
     ],
     "coverage": [
       0,
@@ -3295,7 +3315,7 @@
       0,
       0,
       0,
-      18833554
+      19040320
     ],
     "outputTokens": [
       0,
@@ -3328,40 +3348,40 @@
       0,
       0,
       0,
-      2858005
+      2944083
     ],
     "avgRisk": [
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.135294117647059,
-      1.144117647058824
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.144117647058824,
+      1.1529411764705886
     ],
     "velocityByWeek": {
       "labels": [

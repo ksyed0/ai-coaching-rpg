@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { closeSync, constants as fsConstants, fchmodSync, fstatSync, fsyncSync, openSync, readdirSync, readSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import path from "node:path";
 import { JoinCodeRecordError, JoinCodes } from "./join-codes.js";
-import { assertInside, fsyncDirSync } from "./log-files.js";
+import { assertInside, assertSessionId, fsyncDirSync } from "./log-files.js";
 
 /**
  * US-0033: the session's join codes file, `<id>.codes.json` next to its log. It holds the salted SHA-256 of each player role's code
@@ -10,7 +10,7 @@ import { assertInside, fsyncDirSync } from "./log-files.js";
  * holds the session lock, before any client can connect: write a new file (O_EXCL, O_NOFOLLOW, 0600), fsync, rename over the old one,
  * fsync the directory. Read through one descriptor that was opened without following links and judged by fstat.
  */
-export const codesFileName = (sessionId: string): string => `${sessionId}.codes.json`;
+export const codesFileName = (sessionId: string): string => { assertSessionId(sessionId); return `${sessionId}.codes.json`; };
 export const MAX_CODES_FILE_BYTES = 64 * 1024;
 
 /** The session's codes, or null when there is no codes file. Throws JoinCodeRecordError (no values quoted) for anything unusable. */
@@ -94,6 +94,7 @@ export function removeJoinCodesFile(dir: string, sessionId: string): void {
  * Returns how many were removed. A missing directory is fine.
  */
 export function sweepJoinCodesTemps(dir: string, sessionId: string): number {
+  assertSessionId(sessionId); // first: a hostile id is refused even when the directory is missing
   let entries: import("node:fs").Dirent[];
   try { entries = readdirSync(dir, { withFileTypes: true }); } catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return 0; throw err; }
   const prefix = `${codesFileName(sessionId)}.`;

@@ -1,3 +1,4 @@
+import { isScenarioId } from "@acr/events";
 import { TAGS } from "./provenance.js";
 import { scrubText, type CheckResult } from "./report.js";
 import type { ShowcaseReport } from "./showcase-report.js";
@@ -70,10 +71,9 @@ export function safeMdLines(text: string, max: number, secrets: string[] = []): 
   }
   return out;
 }
-const ID = /^[a-z0-9_-]+$/;
 const who = (speaker: string, role: string | undefined, secrets: string[]): string => {
-  const name = ID.test(speaker) ? speaker : safeMd(speaker, 80, secrets);
-  return role && role !== speaker && ID.test(role) ? `${name} (${role})` : name;
+  const name = isScenarioId(speaker) ? speaker : safeMd(speaker, 80, secrets);
+  return role && role !== speaker && isScenarioId(role) ? `${name} (${role})` : name;
 };
 
 export type TranscriptInput = {

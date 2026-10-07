@@ -1,4 +1,4 @@
-import type { SessionState } from "@acr/events";
+import { SCENARIO_ID_CLASS, type SessionState } from "@acr/events";
 import type { NpcRole, Scene } from "@acr/script";
 import type { ChatRequest } from "@acr/adapters";
 import { DEFAULT_GM_MAX_TOKENS } from "./token-budgets.js";
@@ -44,7 +44,7 @@ export function buildGmRequest(opts: { scene: Scene; condition: string; state: S
 
 /** US-0034: the line that tells an earned_when check apart from an exit-condition check (and names what it is about, by role id and fact number only). */
 export const EARNED_CHECK_MARKER = "Earned-fact check:";
-const EARNED_CHECK_RE = /^Earned-fact check: role ([a-z0-9_-]+), fact ([0-9]{1,2})\.$/m;
+const EARNED_CHECK_RE = new RegExp(`^Earned-fact check: role (${SCENARIO_ID_CLASS}+), fact ([0-9]{1,2})\\.$`, "m");
 
 /** The role id and fact number of an earned_when check request, or null for any other request (the demo's mock routes on it; tests use it). */
 export function earnedCheckOf(req: Pick<ChatRequest, "system">): { roleId: string; fact: number } | null {

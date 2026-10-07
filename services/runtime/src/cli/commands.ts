@@ -1,5 +1,6 @@
 import { parseArgs as nodeParseArgs } from "node:util";
 import type { ClientMessage, ServerMessage } from "../host/protocol.js";
+import { hasControlCharacters, isClientSuppliedId } from "@acr/events";
 import { MAX_HIDDEN_FACT_NUMBER, MAX_UTTERANCE_CHARS } from "../host/protocol.js";
 
 export const USAGE = "usage: pnpm play --role <roleId> --name <you> [--url ws://host:8080] [--session local] [--code-file <path>] [--last-seq <n>]\n       pnpm play --facilitator [--url ws://host:8080] [--session local] [--token-file <path>] [--last-seq <n>]\n       (--last-seq: after a dropped connection, the number the client printed, to receive the events you missed)\n       (a player needs the join code of their role from the facilitator: set JOIN_CODE, use --code-file, or type it at the hidden prompt;\n        a server that sets FACILITATOR_TOKEN needs it: set the same variable, use --token-file, or type it at the hidden prompt)";
@@ -8,7 +9,6 @@ export const TOKEN_ARGV_REFUSED = "error: --token is not supported: a value on t
 export const PLAYER_HELP = "type to speak to the room; /quit to leave";
 export const FACILITATOR_HELP = "commands: /start /pause /resume /advance /inject <id> /whisper <role> <text> /hidden /release <role> <n> /quit";
 const MAX_NAME_CHARS = 64;
-const MAX_ID_CHARS = 128;
 
 export type Options = { facilitator: boolean; role?: string; name?: string; url: string; session: string; /** Where to read the facilitator token from (never the token itself on the command line). */ tokenFile?: string; /** The resolved facilitator token; set by the launcher, never printed. */ token?: string;
   /** US-0033: where to read the player's join code from (never the code itself on the command line). */ codeFile?: string; /** The resolved join code; set by the launcher, never printed. */ joinCode?: string;
@@ -17,7 +17,7 @@ export type ArgsResult = { ok: true; opts: Options } | { ok: false; error: strin
 
 const fail = (error: string): ArgsResult => ({ ok: false, error, usage: USAGE });
 const FLAGS = ["role", "name", "url", "session", "facilitator", "token-file", "code-file", "last-seq"];
-const hasControl = (v: string) => new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]").test(v);
+const hasControl = hasControlCharacters;
 
 /** Pure argv parser (argv excludes node and the script). Callers print `error` and exit with code 2. */
 export function parseArgs(argv: string[]): ArgsResult {
@@ -56,12 +56,12 @@ export function parseArgs(argv: string[]): ArgsResult {
   if (protocol !== "ws:" && protocol !== "wss:") return fail("error: --url must be a ws:// or wss:// URL");
 
   const session = values.session ?? "local";
-  if (!session || session.length > MAX_ID_CHARS || hasControl(session)) return fail("error: --session must be 1-128 printable characters");
+  if (!isClientSuppliedId(session)) return fail("error: --session must be 1-128 printable characters");
 
   if (facilitator) return { ok: true, opts: { facilitator, role: undefined, name: undefined, url, session, lastSeq, ...(tokenFile !== undefined ? { tokenFile } : {}) } };
   const role = values.role!;
   const name = values.name!.trim();
-  if (!role || role.length > MAX_ID_CHARS || hasControl(role)) return fail("error: --role must be 1-128 printable characters");
+  if (!isClientSuppliedId(role)) return fail("error: --role must be 1-128 printable characters");
   if (!name || name.length > MAX_NAME_CHARS || hasControl(name)) return fail(`error: --name must be 1-${MAX_NAME_CHARS} printable characters`);
   return { ok: true, opts: { facilitator, role, name, url, session, lastSeq, ...(codeFile !== undefined ? { codeFile } : {}) } };
 }
@@ -100,7 +100,7 @@ export function parseInput(line: string, isFacilitator: boolean): Input {
       const usage = `usage: /release <role> <n> (n is the fact's number from /hidden, 1 to ${MAX_HIDDEN_FACT_NUMBER})`;
       if (rest.length !== 2) return help(usage);
       const [role, num] = [rest[0]!, rest[1]!];
-      if (role.length > MAX_ID_CHARS || hasControl(role) || !/^[0-9]{1,3}$/.test(num)) return help(usage);
+      if (!isClientSuppliedId(role) || !/^[0-9]{1,3}$/.test(num)) return help(usage);
       const fact = Number(num);
       return fact >= 1 && fact <= MAX_HIDDEN_FACT_NUMBER ? cmdMsg({ command: "release_hidden", roleId: role, fact }) : help(usage);
     }

@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { CLIENT_ID_MAX_CHARS, SAFE_ID_MAX_CHARS, isReservedRoleId } from "@acr/events";
 
 /**
  * US-0033: one random join code per player role. A code is 12 symbols of Crockford's base32 (no I, L, O or U, so nothing is
@@ -43,7 +44,6 @@ export class JoinCodeRecordError extends Error {
 
 const HEX64 = /^[0-9a-f]{64}$/;
 const HEX32 = /^[0-9a-f]{32}$/;
-const RESERVED = new Set(["facilitator", "__proto__", "constructor", "prototype"]);
 
 function digest(salt: Buffer, roleId: string, normalized: string): Buffer {
   return createHash("sha256").update(salt).update("\u0000").update(roleId, "utf8").update("\u0000").update(normalized, "utf8").digest();
@@ -71,7 +71,7 @@ export class JoinCodes {
     const hashes = new Map<string, Buffer>();
     const plain: Record<string, string> = {};
     for (const roleId of roleIds) {
-      if (RESERVED.has(roleId)) throw new Error("a reserved id cannot be a player role");
+      if (isReservedRoleId(roleId)) throw new Error("a reserved id cannot be a player role");
       let code = newJoinCode(pick);
       for (let i = 0; Object.values(plain).includes(code) && i < 10; i++) code = newJoinCode(pick); // distinct codes (a clash is ~2^-60)
       plain[roleId] = code;
@@ -87,14 +87,14 @@ export class JoinCodes {
     const keys = Object.keys(r).sort().join(",");
     if (keys !== "roles,salt,scenarioSha256,sessionId,v") throw new JoinCodeRecordError("the join codes file has missing or unexpected fields");
     if (r.v !== JOIN_CODE_RECORD_VERSION) throw new JoinCodeRecordError("the join codes file has an unknown format version");
-    if (typeof r.sessionId !== "string" || r.sessionId.length === 0 || r.sessionId.length > 64) throw new JoinCodeRecordError("the join codes file has an invalid session id");
+    if (typeof r.sessionId !== "string" || r.sessionId.length === 0 || r.sessionId.length > SAFE_ID_MAX_CHARS) throw new JoinCodeRecordError("the join codes file has an invalid session id");
     if (typeof r.scenarioSha256 !== "string" || !HEX64.test(r.scenarioSha256)) throw new JoinCodeRecordError("the join codes file has an invalid scenario hash");
     if (typeof r.salt !== "string" || !HEX32.test(r.salt)) throw new JoinCodeRecordError("the join codes file has an invalid salt");
     const roles = r.roles;
     if (typeof roles !== "object" || roles === null || Array.isArray(roles)) throw new JoinCodeRecordError("the join codes file has no role table");
     const hashes = new Map<string, Buffer>();
     for (const [roleId, h] of Object.entries(roles as Record<string, unknown>)) {
-      if (RESERVED.has(roleId) || roleId.length === 0 || roleId.length > 128) throw new JoinCodeRecordError("the join codes file names an invalid role");
+      if (isReservedRoleId(roleId) || roleId.length === 0 || roleId.length > CLIENT_ID_MAX_CHARS) throw new JoinCodeRecordError("the join codes file names an invalid role");
       if (typeof h !== "string" || !HEX64.test(h)) throw new JoinCodeRecordError("the join codes file holds an invalid hash");
       hashes.set(roleId, Buffer.from(h, "hex"));
     }

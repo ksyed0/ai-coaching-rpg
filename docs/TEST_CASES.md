@@ -259,5 +259,37 @@ Status: [ ] Not Run
 Defect Raised: None
 Notes: Automated: session-host-replay.test.ts (restart), session-engine-replay.test.ts (window rebuilt by restore; an event on disk that no client saw), demo F-34 and F-37 (`pnpm demo --fast --resume`).
 
+TC-0023: One set of identifier rules decides every scenario, protocol, client and session id
+Related Story: US-0020
+Related Task: TASK-0020
+Related AC: AC-0062
+Type: Regression
+Preconditions: A checkout of the branch; no server needed.
+Steps:
+  1. Run `pnpm -s vitest run packages/script/src/__tests__/id-rules.characterisation.test.ts services/runtime/src/__tests__/id-rules.characterisation.test.ts` (the tables of ids written before the rules were moved).
+  2. Run `pnpm -s vitest run packages/events/src/__tests__/ids.test.ts services/runtime/src/__tests__/id-rules.files.test.ts`.
+  3. In a scratch copy, add a line such as `const X = /^[a-z0-9_-]+$/;` to `services/runtime/src/main.ts` and rerun step 2.
+Expected Result: 1 and 2 pass: scenario, role, scene, inject, rubric, criterion, learning-objective, protocol, terminal-client, demo, session, report-role and join-code ids are accepted and refused exactly as before (lower case only for scenario ids, no upper limit for them; 1 to 64 for session and file-safe ids; 1 to 128 and no control character for client ids). 3 fails with the file name listed: no source outside `packages/events/src/ids.ts` may spell an id character class.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated as above plus the existing suites (validate, rubric, protocol, commands, args, event-log, session-store, join-codes). Never run step 3 in the working tree.
+
+TC-0024: A hostile session id never reaches the file system, and the Slice 1 plan text matches the engine
+Related Story: US-0020
+Related Task: TASK-0020
+Related AC: AC-0062, AC-0063
+Type: Negative
+Preconditions: An empty private data directory.
+Steps:
+  1. Start the server with `SESSION_ID` set to `..`, `../x`, `a/b`, `a.b`, `.hidden`, `x.lock`, `(a|.*)` and a 65-character name (`SESSION_ID=... pnpm --filter @acr/runtime start`; a NUL cannot be passed in an environment variable and a newline is covered by the automated tests), and run `pnpm demo --fast --session ../x`.
+  2. Start it with `SESSION_ID=__proto__`, then `SESSION_ID=A-b_9`, and list the data directory.
+  3. Read the self-review notes at the end of `docs/superpowers/plans/2026-10-01-slice-1-script-and-text-runtime.md` and `SessionEngine` in `services/runtime/src/engine/session-engine.ts`.
+Expected Result: 1: every start fails with `SESSION_ID ... is invalid: use 1 to 64 letters, digits, '_' or '-'` (the demo says `--session must be ...`) before any file or directory is created. 2: both start; every file in the data directory is named `<id>.<something>` directly inside it. 3: the plan says `SessionEngine.alert()` replaced the planned public `emit` and lists the later rulings; the engine has `private emit`, `private readonly log` and a public `alert()`.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: id-rules.files.test.ts (every function that takes a session id, with an existing and a missing directory), id-rules.characterisation.test.ts (bootstrap, demo args, openSession), plan-text.test.ts.
+
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 

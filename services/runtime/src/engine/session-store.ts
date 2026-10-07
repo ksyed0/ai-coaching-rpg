@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isValidSessionId } from "@acr/events";
 import type { Scenario } from "@acr/script";
 import type { Clock } from "./clock.js";
 import { JsonlEventLog, LogCorruptError } from "./event-log.js";
@@ -77,6 +78,8 @@ export async function openSession(o: {
   /** US-0033: manage the player roles' join codes (the server and the demo's resume room). Off by default. */
   joinCodes?: boolean;
 }): Promise<OpenedSession> {
+  // US-0020: the id becomes file names, so it is refused before ANY file system action (not after the directory and the lock exist).
+  if (!isValidSessionId(o.sessionId)) throw new Error(`invalid session id: ${JSON.stringify(String(o.sessionId).slice(0, 40))}`);
   const notes: string[] = [];
   const now = o.now ?? (() => new Date());
   try { const w = ensurePrivateDir(o.dataDir); if (w) notes.push(`warning: ${w}`); }
