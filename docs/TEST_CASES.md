@@ -114,4 +114,70 @@ Status: [ ] Not Run
 Defect Raised: None
 Notes: Automated: main.test.ts `test_bootstrap_listen_fails_...`, `test_bootstrap_missing_api_key_...`, `..._withdraws_reissued_codes_...`, `..._display_that_throws_...`.
 
+## US-0013: replay-from-seq on rejoin
+
+TC-0013: A player who drops out rejoins with --last-seq and receives the inject and whisper it missed
+Related Story: US-0013
+Related Task: TASK-0052
+Related AC: AC-0039
+Type: Functional
+Preconditions: A running server and session; delivery_lead, tech_lead and the facilitator connected with the terminal client.
+Steps:
+  1. Kill delivery_lead's client (close the terminal); note the `--last-seq <n>` it printed (or, if killed hard, the seq of the last event it showed).
+  2. As facilitator, `/whisper delivery_lead psst` and `/whisper tech_lead only-for-tech`; let a timed inject or an `/inject` reach delivery_lead; say a line as tech_lead.
+  3. Run `pnpm play --role delivery_lead --name A --last-seq <n>` with the role's join code.
+Expected Result: The client shows the history up to seq n, `(catching up: N missed events follow)`, then exactly the missed lines, the inject and `psst` in order, then live events; never `only-for-tech`, an alert, Game Master text or NPC goals. Without `--last-seq` it shows only the history, as before.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: ws-server.replay.test.ts, session-host-replay.test.ts (every role x every seq equals the live view), cli tests, demo F-22 and F-25.
+
+TC-0014: Replay never crosses roles or reveals facilitator-only data
+Related Story: US-0013
+Related Task: TASK-0052
+Related AC: AC-0170
+Type: Negative
+Preconditions: A session with whispers to two different roles, a released hidden fact, a Game Master decision and a facilitator alert.
+Steps:
+  1. Rejoin each player role with `--last-seq 0`.
+  2. Search each client's output (or the raw frames) for the other role's whisper, the hidden fact, the Game Master reasoning, the alert text and other participants' names.
+Expected Result: Nothing found; each player sees only its scenes, its injects, pause and resume and its own whispers. The facilitator rejoining with `--last-seq 0` sees everything retained.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: session-host-replay.test.ts `test_replay_never_gives_a_player_another_roles_whisper_or_facilitator_only_data`, ws-server.replay.test.ts, demo F-18, F-22, F-37.
+
+TC-0015: A malformed, out-of-range or unauthorised lastSeq gets nothing extra
+Related Story: US-0013
+Related Task: TASK-0052
+Related AC: AC-0173
+Type: Negative
+Preconditions: A running server with join codes and a facilitator token.
+Steps:
+  1. Send `join` with `lastSeq` -1, 1.5, "7", null and 1e999 (raw JSON).
+  2. Send a correctly authorised `join` with `lastSeq` one past the last event, then the same join without it on the same connection.
+  3. Send `join` with `lastSeq: 0` and a wrong code, an AI role, an unknown session; `join_facilitator` with a wrong token and `lastSeq: 0`.
+  4. Rejoin from seq 0 a session of more than 1000 events visible to the role (or with a smaller retained window in a test build).
+Expected Result: 1: `bad_message`, the connection stays open. 2: `bad_message` and no role claimed, then the join succeeds. 3: exactly one `unauthorized` frame and a 1008 close, nothing else (the session length is not revealed). 4: `replay.complete` is false with 0 events and the client says earlier injects and whispers are not shown; the server does no work beyond its caps.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: ws-server.replay.test.ts (bad values, beyond head, refusals, the window), session-host-replay.test.ts (caps), recent-events.test.ts, demo F-02 and F-20.
+
+TC-0016: Rejoining with the last seq after a server restart, as a player and as the facilitator
+Related Story: US-0013
+Related Task: TASK-0054
+Related AC: AC-0175
+Type: Functional
+Preconditions: A running session with a player and the facilitator connected.
+Steps:
+  1. Note each client's last seq; stop the server (Ctrl-C or kill) and start it again (`SESSION_START=resume`).
+  2. Rejoin the player with its join code and `--last-seq <n>`, and the facilitator with its token and `--last-seq <m>`.
+  3. Rejoin a second player that was not in the current scene with `--last-seq 0`.
+Expected Result: The player is replayed what it missed before the crash, then that the session came back paused (no restart alert); the facilitator also gets the restart alert; the second player gets only its own scenes. Seqs continue from before the restart. After `SESSION_START=fresh` the old seq is refused as `bad_message` and a rejoin without `--last-seq` works.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Automated: session-host-replay.test.ts (restart), session-engine-replay.test.ts (window rebuilt by restore; an event on disk that no client saw), demo F-34 and F-37 (`pnpm demo --fast --resume`).
+
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
