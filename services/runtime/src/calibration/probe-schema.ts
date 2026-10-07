@@ -7,11 +7,11 @@ export type Expected = Level | "not_observed";
 export const LevelSchema = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
 export const ExpectedSchema = z.union([LevelSchema, z.literal("not_observed")]);
 
-const FILE_ID_MESSAGE = "must be 1 to 64 characters of lower-case letters, digits, '_' or '-'";
-const FileId = z.string().refine(isFileSafeId, FILE_ID_MESSAGE);
+const idMessage = (max: number): string => `must be 1 to ${max} characters of lower-case letters, digits, '_' or '-'`;
+const FileId = z.string().refine(isFileSafeId, idMessage(64));
 /** The probe id becomes the session id probe-<id>, which is capped at 64 characters. */
 export const MAX_PROBE_ID = 58;
-const ProbeId = z.string().max(MAX_PROBE_ID, `must be at most ${MAX_PROBE_ID} characters (it becomes the session id probe-<id>)`).refine(isFileSafeId, FILE_ID_MESSAGE);
+const ProbeId = z.string().max(MAX_PROBE_ID, `must be at most ${MAX_PROBE_ID} characters (it becomes the session id probe-<id>)`).refine(isFileSafeId, idMessage(MAX_PROBE_ID));
 const RoleId = z.string().max(64).refine(isScenarioId, "must be a scenario id");
 
 export const LineSchema = z.object({ scene: RoleId, role: RoleId, text: z.string().min(1).max(2000) }).strict();

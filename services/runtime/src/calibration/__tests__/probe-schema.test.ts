@@ -73,6 +73,11 @@ describe("ProbeSchema", () => {
     const r = ProbeSchema.safeParse({ ...single, id: tooLong });
     expect(r.success).toBe(false);
     expect(messages({ ...single, id: tooLong })).toMatch(/58/);
+    // the id's character message states the id's own cap (58); the criterion keeps 64
+    const badId = messages({ ...single, id: "Bad Id" });
+    expect(badId).toMatch(/1 to 58 characters/);
+    expect(badId).not.toMatch(/64/);
+    expect(messages({ ...single, criterion: "Bad Criterion" })).toMatch(/1 to 64 characters/);
     // the criterion is not capped by this rule
     expect(ProbeSchema.safeParse({ ...single, criterion: tooLong }).success).toBe(true);
   });

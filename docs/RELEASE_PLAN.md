@@ -38,7 +38,7 @@ Dependencies: EPIC-0002
 
 ```
 EPIC-0005: Slice 5 — evaluator and reports
-Description: Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), per-participant visibility and access control (ASM-09; reports are visible to all participants for now) and calibration (ASM-08). The calibration slice (US-0035..US-0039: probes, `pnpm calibrate`, a calibration stamp on reports) is planned.
+Description: Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), and per-participant visibility and access control (ASM-09; reports are visible to all participants for now). Calibration (ASM-08) has started: the probe format, loader, log adapter and Friday starter probes are built (US-0035); `pnpm calibrate`, metrics, probe drafting and the calibration stamp on reports are planned (US-0036..US-0039).
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0003
@@ -1014,22 +1014,22 @@ Notes: Follow-up to the design notes for US-0016 and US-0025. US-0016 gives the 
 US-0035 (EPIC-0005): Calibration probe format, validator, log adapter and Friday starter set
 Priority: High
 Estimate: M
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0005-US-0035-calibration-probes
 Acceptance Criteria:
-  - [ ] AC-0180: a probe is a validated YAML file (`single` or `contrast`, `source`, `drafter`, `approved_by`, `split`, `acceptable`) in `scenarios/<id>/calibration/`
-  - [ ] AC-0181: loading reports every problem in one list (unknown criterion, non-player subject, a scored player with fewer than 2 lines, bad ids, hostile YAML, drafted without approval)
-  - [ ] AC-0182: a probe becomes a synthetic session log the real evaluator accepts, quote verification included
-  - [ ] AC-0183: the Friday scenario ships 8 starter probes (4 discovery levels, 2 negotiation levels, 2 contrast groups) that validate against its rubric, and the linter reports the set as thin
+  - [x] AC-0180: a probe is a validated YAML file (`single` or `contrast`, `source`, `drafter`, `approved_by`, `split`, `acceptable`) in `scenarios/<id>/calibration/` (probe-schema.ts; probe-schema.test.ts; TC-0025)
+  - [x] AC-0181: loading reports every problem in one list (unknown criterion, non-player subject, a scored player with fewer than 2 lines, bad ids, hostile YAML, drafted without approval) (probe-load.ts; probe-load.test.ts; TC-0025)
+  - [x] AC-0182: a probe becomes a synthetic session log the real evaluator accepts, quote verification included (probe-events.ts; probe-events.test.ts and probe-evaluate.test.ts run the eight starter probes through the real `evaluateSession` with a scripted judge; TC-0026)
+  - [x] AC-0183: the Friday scenario ships 8 starter probes (4 discovery levels, 2 negotiation levels, 2 contrast groups) that validate against its rubric, and the linter reports the set as thin (scenarios/friday-escalation/calibration; starter-set.test.ts; TC-0027)
 ```
 
 ```
 TASK-0055 (US-0035): File the probe format, its validator, the log adapter and the Friday starter set
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0005-US-0035-calibration-probes
-Notes: Implementation plan Tasks 1-3 (docs/superpowers/plans, evaluator calibration, 2026-10-07).
+Notes: Implementation plan Tasks 0-3b (docs/superpowers/plans, evaluator calibration, 2026-10-07): probe schema, loader, validator and linter, the events adapter, the eight Friday starter probes, and the fix rounds (rubric-example paraphrases, loader hardening, the package guard). Done 2026-10-07; test cases TC-0025..TC-0027. Not done here: `pnpm calibrate`, metrics, drafting and the stamp (US-0036..US-0039).
 ```
 
 ```

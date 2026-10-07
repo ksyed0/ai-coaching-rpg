@@ -13,4 +13,4 @@ transcript:
   - { scene: s2_client_call, role: account_manager, text: "Fine, we will do the whole module before go-live at the same fee." }
   - { scene: s2_client_call, role: delivery_lead, text: "I cannot do the whole module at that fee without moving the date, so the phased option stands, and I need a signed change request for phase two to commit to it." }
   - { scene: s2_client_call, role: client_sponsor, text: "All right, the phased option then." }
-  - { scene: s2_client_call, role: delivery_lead, text: "So to confirm: you sign the change request by Friday and I send it to you today. Is that right?" }
+  - { scene: s2_client_call, role: delivery_lead, text: "Let me repeat what we agreed: I send you the change request today and you sign it by Friday. Is that an accurate summary?" }

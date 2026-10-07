@@ -398,5 +398,53 @@ Status: [ ] Not Run
 Defect Raised: None
 Notes: Automated: id-rules.files.test.ts (every function that takes a session id, with an existing and a missing directory), id-rules.characterisation.test.ts (bootstrap, demo args, openSession), plan-text.test.ts.
 
+
+## US-0035: calibration probe format, loader, adapter and Friday starter set
+
+TC-0025: A probe is a validated YAML file, every problem is reported in one list, and hostile YAML is refused
+Related Story: US-0035
+Related Task: TASK-0055
+Related AC: AC-0180, AC-0181
+Type: Negative
+Preconditions: A checkout of the branch; no server and no model needed.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/probe-schema.test.ts src/calibration/__tests__/probe-load.test.ts`.
+  2. Read the cases: a valid single probe and a valid contrast probe load; a directory with an unknown criterion, a non-player subject, a scored player with fewer than 2 lines, a bad id, a drafted probe without approval, an alias bomb, an oversized file and a `__proto__` key is loaded once and every problem comes back in one list with nothing loaded silently.
+Expected Result: Both files pass. Valid probes load with their split, source and acceptable levels; every problem is listed (file and reason) in a single errors list; hostile YAML is refused and never partly loaded; the probe id is capped at 58 characters so `probe-<id>` stays a valid session id.
+Actual Result: As expected (probe-schema.test.ts, probe-load.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. The loader never weakens its checks to accept a probe: a bad probe is fixed.
+
+TC-0026: A probe becomes a synthetic session log the real evaluator accepts, quote verification included
+Related Story: US-0035
+Related Task: TASK-0055
+Related AC: AC-0182
+Type: Functional
+Preconditions: A checkout of the branch; the evaluator is driven by a scripted model written in the test (no live model call).
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/probe-events.test.ts src/calibration/__tests__/probe-evaluate.test.ts`.
+  2. Read probe-evaluate.test.ts: each of the 8 starter probes is turned into events with `buildProbeEvents` and run through the real `evaluateSession` with the individual rubrics only; a second case quotes an invented sentence.
+Expected Result: The events pass the real log reader and transcript builder. For every scored role of every probe the evaluation is `ok`, the criterion has exactly 1 verified evidence item and 0 dropped quotes. An invented quote is dropped (1 dropped, flag "could not be verified").
+Actual Result: As expected (probe-events.test.ts, probe-evaluate.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. No live model was called; how a real judge scores the probes is measured by US-0036.
+
+TC-0027: The 8 Friday starter probes validate against the rubric and the linter reports the set as thin
+Related Story: US-0035
+Related Task: TASK-0055
+Related AC: AC-0183
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/starter-set.test.ts src/demo/__tests__/showcase-scenario.test.ts`.
+  2. List `scenarios/friday-escalation/calibration/`.
+Expected Result: 1: no errors; 8 probes (discovery levels 1 to 4, negotiation levels 1 and 4, 2 contrast groups), all `handwritten`; the warnings say the set has fewer than 20 probes; the original scenario package only gained `calibration/` (YAML probe files only). 2: eight `.yaml` files.
+Actual Result: As expected (starter-set.test.ts, showcase-scenario.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. The set is deliberately thin until US-0037 scales it.
+
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 

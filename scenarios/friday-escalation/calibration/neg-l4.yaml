@@ -12,4 +12,4 @@ transcript:
   - { scene: s2_client_call, role: client_sponsor, text: "That sounds reasonable. Can we skip the paperwork for phase two and just shake on it?" }
   - { scene: s2_client_call, role: delivery_lead, text: "I understand, but I need the signed change request to commit phase two, otherwise I cannot protect the date for the report." }
   - { scene: s2_client_call, role: client_sponsor, text: "Okay, fair enough. What happens next?" }
-  - { scene: s2_client_call, role: delivery_lead, text: "So to confirm: you sign the change request by Friday, I send it to you this afternoon, and Finance agrees the report layout by Wednesday. Is that right?" }
+  - { scene: s2_client_call, role: delivery_lead, text: "Let me repeat what we agreed: I send you the change request this afternoon, you sign it by Friday, and Finance confirms the report layout by Wednesday. Is that an accurate summary?" }
