@@ -41,6 +41,17 @@ describe("AnthropicModelProvider (SDK mocked)", () => {
     expect(blocks.map((b) => b.text).join("")).toBe(system);
   });
 
+  it("US-0019: a split never cuts a UTF-16 surrogate pair (it moves back to the previous boundary), and a pair at the very start caches the whole prompt", async () => {
+    const p = new AnthropicModelProvider({ apiKey: "k", model: "m1" });
+    const system = "ab\u{1F600}cd"; // "ab", the emoji as two UTF-16 units, "cd"
+    for await (const _ of p.stream({ system, messages: [], maxTokens: 5, cachePrefixChars: 3 })) void _; // 3 would cut inside the emoji
+    const blocks = streamMock.mock.calls[0]![0].system as { text: string }[];
+    expect(blocks.map((b) => b.text)).toEqual(["ab", "\u{1F600}cd"]);
+    streamMock.mockClear();
+    for await (const _ of p.stream({ system: "\u{1F600}x", messages: [], maxTokens: 5, cachePrefixChars: 1 })) void _;
+    expect(streamMock.mock.calls[0]![0].system).toEqual([{ type: "text", text: "\u{1F600}x", cache_control: { type: "ephemeral" } }]);
+  });
+
   it("US-0019: a cachePrefixChars of 0, the whole length, beyond it or not a whole number caches the whole system prompt as before; cacheSystem false still wins", async () => {
     const p = new AnthropicModelProvider({ apiKey: "k", model: "m1" });
     for (const n of [0, 3, 99, 1.5, -1, Number.NaN]) {

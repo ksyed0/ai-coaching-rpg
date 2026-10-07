@@ -100,7 +100,9 @@ export class AnthropicModelProvider implements ModelProvider {
   }
 
   async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<string> {
-    const n = req.cachePrefixChars;
+    let n = req.cachePrefixChars;
+    // Never cut a UTF-16 surrogate pair: a cut right after a high surrogate moves back to the previous boundary.
+    if (n !== undefined && Number.isInteger(n) && n > 0 && n < req.system.length) { const c = req.system.charCodeAt(n - 1); if (c >= 0xd800 && c <= 0xdbff) n -= 1; }
     const split = n !== undefined && Number.isInteger(n) && n > 0 && n < req.system.length;
     const system = req.cacheSystem === false
       ? req.system

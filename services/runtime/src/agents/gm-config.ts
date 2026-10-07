@@ -7,10 +7,13 @@ export const MIN_GM_EVERY_N = 1;
 export const MAX_GM_EVERY_N = 20;
 
 /**
- * US-0019, GM_TRANSCRIPT_WINDOW: the Game Master prompt holds the LAST this many utterances of the current scene, not the whole scene. Generous on
- * purpose: the shipped showcase scenes run 6 to 12 lines (mock) and about 10 to 25 live, so the window only cuts a scene that runs long, where the
- * cost of every evaluation would otherwise keep growing. Never smaller than GM_EVERY_N_UTTERANCES, so every line is in the prompt of at least one
- * evaluation. A cut drops the OLDEST lines only, and the prompt says how many were left out (see gm-prompt.ts for the policy).
+ * US-0019, GM_TRANSCRIPT_WINDOW: the least number of the current scene's latest utterances a Game Master prompt holds, instead of the whole
+ * scene. Generous on purpose: the shipped showcase scenes run 6 to 12 lines (mock) and about 10 to 25 live, so the window only cuts a scene that
+ * runs long, where the cost of every evaluation would otherwise keep growing. Never smaller than GM_EVERY_N_UTTERANCES. What is guaranteed (see
+ * GameMaster.windowFor and selectGmLines): each prompt of a condition also holds every line that arrived since the last answered prompt of that
+ * condition, up to MAX_GM_TRANSCRIPT_WINDOW (beyond it the facilitator gets an alert with the number left out), plus the scene's first 2 lines and
+ * each AI character's last 2 lines; left-out runs are marked {"omitted": n} in place. It is not guaranteed that a line older than the window
+ * stays in view: a player's line that later lines push out is gone for the next prompts (docs/THREAT_MODEL.md, US-0019).
  */
 export const DEFAULT_GM_TRANSCRIPT_WINDOW = 40;
 export const MIN_GM_TRANSCRIPT_WINDOW = 10;

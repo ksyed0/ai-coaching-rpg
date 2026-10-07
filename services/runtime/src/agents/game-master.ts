@@ -1,9 +1,9 @@
 import type { ModelProvider } from "@acr/adapters";
 import type { SessionEngine } from "../engine/session-engine.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "./timeouts.js";
-import { buildGmEarnedRequest, buildGmRequest } from "./gm-prompt.js";
+import { buildGmEarnedRequest, buildGmRequest, selectGmLines } from "./gm-prompt.js";
 import { newGmNonce, runGmEvaluation, type GmReplyTrace } from "./gm-evaluate.js";
-import { DEFAULT_GM_EVERY_N_UTTERANCES, DEFAULT_GM_TRANSCRIPT_WINDOW } from "./gm-config.js";
+import { DEFAULT_GM_EVERY_N_UTTERANCES, DEFAULT_GM_TRANSCRIPT_WINDOW, MAX_GM_TRANSCRIPT_WINDOW } from "./gm-config.js";
 import { DEFAULT_GM_MAX_TOKENS } from "./token-budgets.js";
 
 /**
@@ -21,7 +21,7 @@ export type GmTraceRecord = {
   seq: number; sceneId: string; condition: string;
   /** US-0034: present when the evaluation judged a hidden fact's earned_when condition (by role id and fact number; never the fact text). */
   earned?: { roleId: string; fact: number };
-  /** US-0019: the transcript window of the prompt (its latest utterances of the scene up to `seq`), so the prompt can still be rebuilt from the log. Always set by the Game Master; absent in traces written before US-0019. */
+  /** US-0019: the window the prompt was built with (see selectGmLines; the latest utterances of the scene up to `seq` plus the kept opening and AI character lines), so the prompt can still be rebuilt from the log. Always set by the Game Master; absent in traces written before US-0019. */
   window?: number;
 } & GmReplyTrace;
 
@@ -46,14 +46,22 @@ export class GameMaster {
   /** US-0034: when each earned_when condition (`role#fact`) was last judged, in evaluation rounds, for the round-robin. In memory only: a restart starts the rotation again. */
   private readonly earnedLastRound = new Map<string, number>();
   private earnedRound = 0;
-  /** US-0019, GM_TRANSCRIPT_WINDOW: how many of the scene's latest utterances each prompt holds; never fewer than `everyN`, so no line is skipped between two evaluations. */
+  /**
+   * US-0019, GM_TRANSCRIPT_WINDOW: the least number of the scene's latest utterances a prompt holds (never fewer than `everyN`). A prompt is
+   * widened to every line that arrived since the last prompt for the same condition was answered (`coveredSeq`), up to MAX_GM_TRANSCRIPT_WINDOW;
+   * beyond that cap the lines left out are reported in a facilitator alert. So no line escapes every prompt of a condition silently, also when
+   * lines arrive while a slow evaluation round is in flight.
+   */
   readonly transcriptWindow: number;
+  /** US-0019: per condition of the current scene (`exit\n<condition>` or `earned\n<role>#<fact>`), the last utterance seq that an answered prompt covered. In memory only: after a restart the first prompt of each condition covers the whole scene (up to the cap). */
+  private readonly coveredSeq = new Map<string, number>();
 
   constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number; reask?: boolean; trace?: (rec: GmTraceRecord) => void; autoRelease?: boolean; transcriptWindow?: number }) {
     this.reask = opts.reask ?? true; this.trace = opts.trace; this.autoRelease = opts.autoRelease ?? false;
     this.engine = opts.engine; this.provider = opts.provider; this.everyN = opts.everyNUtterances ?? GM_EVERY_N_UTTERANCES;
     this.maxTokens = opts.maxTokens ?? DEFAULT_GM_MAX_TOKENS;
-    this.transcriptWindow = Math.max(Math.floor(opts.transcriptWindow ?? DEFAULT_GM_TRANSCRIPT_WINDOW), this.everyN, 1);
+    const w = opts.transcriptWindow;
+    this.transcriptWindow = Math.min(MAX_GM_TRANSCRIPT_WINDOW, Math.max(Math.floor(w !== undefined && Number.isFinite(w) ? w : DEFAULT_GM_TRANSCRIPT_WINDOW), this.everyN, 1));
     this.temperature = opts.temperature;
     this.evaluationTimeoutMs = opts.evaluationTimeoutMs ?? gmDeadlineMs(DEFAULT_REPLY_TIMEOUT_MS);
     this.onError = opts.onError ?? ((err) => console.error("[GameMaster] evaluation failed:", err));
@@ -83,7 +91,7 @@ export class GameMaster {
     if (this.evaluating) return;
     const scene = this.engine.currentScene();
     if (!scene || this.engine.state.paused || this.engine.state.status !== "running") return;
-    if (scene.id !== this.lastSceneId) { this.lastSceneId = scene.id; this.evaluatedCount = 0; }
+    if (scene.id !== this.lastSceneId) { this.lastSceneId = scene.id; this.evaluatedCount = 0; this.coveredSeq.clear(); }
     const count = this.engine.state.transcript.filter((u) => u.sceneId === scene.id).length;
     if (count === 0 || count - this.evaluatedCount < this.everyN) return;
     this.evaluatedCount = count;
@@ -173,7 +181,8 @@ export class GameMaster {
     const seq = this.engine.state.lastSeq;
     const { role, fact, condition } = check;
     const nonce = newGmNonce();
-    const window = this.transcriptWindow;
+    const coverKey = `earned\n${role.id}#${fact}`;
+    const { window, covered } = await this.windowFor(scene, coverKey, `hidden fact ${fact} of ${role.id}`);
     const request = buildGmEarnedRequest({ scene, role, fact, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, nonce, window });
     const earned = { roleId: role.id, fact };
     const out = await runGmEvaluation({
@@ -181,9 +190,28 @@ export class GameMaster {
       subject: `hidden fact ${fact} of ${role.id} (earned_when "${condition}")`,
       onReply: (r) => this.traceRecord({ seq, sceneId: expectSceneId, condition, earned, window, ...r }),
     });
+    if (out.kind !== "alert") this.coveredSeq.set(coverKey, covered); // the model answered this prompt (a model failure or deadline leaves the lines uncovered)
     if (out.kind === "alert") await this.engine.alert(out.message, "warning", { expectSceneId });
     else if (out.kind === "no_verdict") await this.engine.alert(`GM: no usable verdict on whether hidden fact ${fact} of ${role.id} is earned (${out.reason}${out.attempts > 1 ? " after the re-ask" : ""})`, "info", { expectSceneId });
     else if (out.verdict) await this.engine.recordFactEarned(role.id, fact, out.reasoning, { expectSceneId, via: out.via, autoRelease: this.autoRelease });
+  }
+
+  /**
+   * US-0019 (I-1): the window for the next prompt of one condition: at least GM_TRANSCRIPT_WINDOW, widened to every utterance of the scene after
+   * the last seq an answered prompt for this condition covered, capped at MAX_GM_TRANSCRIPT_WINDOW. When the cap leaves new lines out of the
+   * prompt, the facilitator gets one warning alert with their number (numbers and the condition only). `covered` is the last utterance seq now.
+   */
+  private async windowFor(scene: NonNullable<ReturnType<SessionEngine["currentScene"]>>, key: string, what: string): Promise<{ window: number; covered: number }> {
+    const lines = this.engine.state.transcript.filter((u) => u.sceneId === scene.id);
+    const last = this.coveredSeq.get(key) ?? 0;
+    const fresh = lines.filter((u) => u.seq > last).length;
+    const window = Math.min(MAX_GM_TRANSCRIPT_WINDOW, Math.max(this.transcriptWindow, fresh));
+    if (fresh > window) {
+      const shown = new Set(selectGmLines(lines, this.engine.state.roles, window).flatMap((e) => (e.kind === "line" ? [e.u.seq] : [])));
+      const dropped = lines.filter((u) => u.seq > last && !shown.has(u.seq)).length;
+      if (dropped > 0) await this.engine.alert(`GM: ${dropped === 1 ? "1 line" : `${dropped} lines`} of this scene that arrived since the last evaluation of ${what} ${dropped === 1 ? "was" : "were"} not shown to the Game Master (more than ${MAX_GM_TRANSCRIPT_WINDOW} new lines at once)`, "warning", { expectSceneId: scene.id });
+    }
+    return { window, covered: lines.at(-1)?.seq ?? last };
   }
 
   private report(err: unknown): void {
@@ -199,12 +227,14 @@ export class GameMaster {
     const expectSceneId = scene.id;
     const seq = this.engine.state.lastSeq;
     const nonce = newGmNonce(); // per evaluation, in the system prompt only; never logged
-    const window = this.transcriptWindow;
+    const coverKey = `exit\n${condition}`;
+    const { window, covered } = await this.windowFor(scene, coverKey, `"${condition}"`);
     const base = buildGmRequest({ scene, condition, state: this.engine.state, maxTokens: this.maxTokens, temperature: this.temperature, nonce, window });
     const out = await runGmEvaluation({
       provider: this.provider, request: base, condition, timeoutMs: this.evaluationTimeoutMs, reask: this.reask, nonce,
       onReply: (r) => this.traceRecord({ seq, sceneId: expectSceneId, condition, window, ...r }),
     });
+    if (out.kind !== "alert") this.coveredSeq.set(coverKey, covered);
     if (out.kind === "alert") await this.engine.alert(out.message, "warning", { expectSceneId });
     else if (out.kind === "verdict") await this.engine.recordGmVerdict(condition, out.verdict, out.reasoning, { expectSceneId, via: out.via });
     else await this.engine.recordGmNoVerdict(condition, out.reason, out.attempts, { expectSceneId });

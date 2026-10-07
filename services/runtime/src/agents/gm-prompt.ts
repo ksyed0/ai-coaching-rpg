@@ -1,32 +1,67 @@
-import type { SessionState } from "@acr/events";
+import type { SessionState, Utterance } from "@acr/events";
 import type { NpcRole, Scene } from "@acr/script";
 import type { ChatRequest } from "@acr/adapters";
 import { DEFAULT_GM_MAX_TOKENS } from "./token-budgets.js";
 import { DEFAULT_GM_TRANSCRIPT_WINDOW } from "./gm-config.js";
 
+/** US-0019: the scene's first lines and each AI character's last lines are kept outside the window cut (see selectGmLines). */
+export const GM_KEEP_OPENING_LINES = 2;
+export const GM_KEEP_LAST_PER_AI = 2;
+
+/** One entry of a Game Master dialogue: an utterance, or the marker that stands for `omitted` consecutive utterances left out at that point. */
+export type GmDialogueEntry = { kind: "line"; u: Utterance } | { kind: "omitted"; omitted: number };
+
 /**
- * The current scene's dialogue, ONE JSON line {role,text} per utterance: newlines in text are escaped, and "<" is escaped so the text
- * cannot contain a literal closing tag. The role comes from the engine's event, never from the text.
- *
- * US-0019 (AC-0059), the window policy: only the LAST `window` utterances of the current scene are shown (GM_TRANSCRIPT_WINDOW, default 40,
- * at least GM_EVERY_N_UTTERANCES, so every line reaches at least one evaluation in full). The oldest lines go first; nothing is summarised,
- * because a summary would be a second model call or a lossy rewrite of participant text, neither deterministic nor safe. What a cut can
- * lose is a statement made more than `window` lines before the agreement that confirms it: the Game Master then sees only the confirmation and
- * should answer false (the safe direction: the scene goes on to its time box or the facilitator's advance, and the next evaluations still run).
- * A lost early objection cannot make a true: the prompt still needs the condition stated AND agreed in what it shows. The count of left-out
- * lines goes in the system prompt (numbers only), never in the dialogue. Nothing but the transcript is added, so no hidden-fact text can enter.
+ * US-0019 (AC-0059), the window policy. Pure and deterministic. Of the current scene's utterances (`all`, in order) it keeps:
+ * - the latest `window` lines (GM_TRANSCRIPT_WINDOW; the Game Master widens it to cover every line that arrived since its last prompt for the
+ *   same condition, so a line can be left out of a condition's prompt only after a previous prompt for that condition showed it, or beyond the
+ *   hard cap, which raises a facilitator alert);
+ * - outside the cut, the scene's first GM_KEEP_OPENING_LINES lines and the last GM_KEEP_LAST_PER_AI lines of each AI character (role kind
+ *   "npc" in the session): an AI character's objection then stays in view however many player lines follow it, unless that character spoke
+ *   GM_KEEP_LAST_PER_AI times since;
+ * - in their original order, with one {"omitted": n} marker for each run of n lines left out between them.
+ * Nothing is summarised (a summary would be a second model call or a lossy rewrite of participant text). Only transcript lines and
+ * counts appear, so no hidden-fact text can enter. What a cut can still hide is described in docs/THREAT_MODEL.md (US-0019): mainly a
+ * player's objection pushed out by many later lines.
  */
-function dialogueOf(scene: Scene, state: SessionState, window: number | undefined): { lines: string; omitted: number; shown: number } {
-  const all = state.transcript.filter((u) => u.sceneId === scene.id);
+export function selectGmLines(all: Utterance[], roles: SessionState["roles"], window: number | undefined): GmDialogueEntry[] {
   const n = Math.max(1, Math.floor(Number.isFinite(window) ? window! : DEFAULT_GM_TRANSCRIPT_WINDOW));
-  const shown = all.slice(-n);
-  const lines = shown.map((u) => JSON.stringify({ role: u.roleId, text: u.text }).replace(/</g, "\\u003c")).join("\n") || "(no dialogue yet)";
-  return { lines, omitted: all.length - shown.length, shown: shown.length };
+  if (all.length <= n) return all.map((u) => ({ kind: "line", u }));
+  const keep = new Set<number>();
+  for (let i = Math.max(0, all.length - n); i < all.length; i++) keep.add(i);
+  for (let i = 0; i < Math.min(GM_KEEP_OPENING_LINES, all.length); i++) keep.add(i);
+  const perAi = new Map<string, number>();
+  for (let i = all.length - 1; i >= 0; i--) {
+    const id = all[i]!.roleId;
+    if (Object.prototype.hasOwnProperty.call(roles, id) && roles[id]!.kind === "npc" && (perAi.get(id) ?? 0) < GM_KEEP_LAST_PER_AI) { keep.add(i); perAi.set(id, (perAi.get(id) ?? 0) + 1); }
+  }
+  const out: GmDialogueEntry[] = [];
+  let gap = 0;
+  for (let i = 0; i < all.length; i++) {
+    if (keep.has(i)) { if (gap > 0) { out.push({ kind: "omitted", omitted: gap }); gap = 0; } out.push({ kind: "line", u: all[i]! }); } else gap++;
+  }
+  if (gap > 0) out.push({ kind: "omitted", omitted: gap }); // never happens (the latest line is always kept); kept for totality
+  return out;
 }
 
-/** The system line that says the window cut the scene (or [] when it did not). Built from two numbers only. */
-const omittedLines = (d: { omitted: number; shown: number }): string[] =>
-  d.omitted > 0 ? [`The dialogue shows only the latest ${d.shown} lines of this scene; ${d.omitted} earlier lines are not shown.`] : [];
+/**
+ * The current scene's dialogue, ONE JSON line per entry: {role,text} per utterance (newlines in text are escaped, and "<" is escaped so the
+ * text cannot contain a literal closing tag; the role comes from the engine's event, never from the text), and {"omitted": n} for a run of
+ * lines left out by the window. A participant cannot write an omission marker: its text is always inside the "text" string of its own record.
+ */
+function dialogueOf(scene: Scene, state: SessionState, window: number | undefined): { lines: string; omitted: number; total: number } {
+  const all = state.transcript.filter((u) => u.sceneId === scene.id);
+  const sel = selectGmLines(all, state.roles, window);
+  const lines = sel.map((e) => (e.kind === "line" ? JSON.stringify({ role: e.u.roleId, text: e.u.text }).replace(/</g, "\\u003c") : JSON.stringify({ omitted: e.omitted }))).join("\n") || "(no dialogue yet)";
+  const omitted = sel.reduce((a, e) => a + (e.kind === "omitted" ? e.omitted : 0), 0);
+  return { lines, omitted, total: all.length };
+}
+
+const lines = (k: number): string => (k === 1 ? "1 line" : `${k} lines`);
+
+/** The system line that explains a cut dialogue (or [] when nothing was left out). Built from numbers and constants only. */
+const omittedLines = (d: { omitted: number; total: number }): string[] =>
+  d.omitted > 0 ? [`Not every line of this scene is shown: ${lines(d.omitted)} of ${d.total} ${d.omitted === 1 ? "is" : "are"} left out. Shown are the scene's first ${GM_KEEP_OPENING_LINES} lines, the last ${GM_KEEP_LAST_PER_AI} lines of each AI character and the latest lines, in order; a record {"omitted": n} marks where n lines are left out.`] : [];
 
 /** The answer-format lines: with a nonce the verdict must carry it as "id" (the demo's mock stamps it after the `exact id, copied unchanged:` phrase). */
 function answerLines(nonce: string | null): string[] {

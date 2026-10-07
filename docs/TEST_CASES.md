@@ -269,13 +269,15 @@ Type: Functional
 Preconditions: A session whose current scene has more utterances than `GM_TRANSCRIPT_WINDOW` (default 40), with a `gm_detects` exit condition and an AI character with an `earned_when` hidden fact.
 Steps:
   1. Let the Game Master evaluate the scene (exit condition and earned_when check) with the default window, then with `GM_TRANSCRIPT_WINDOW=10`.
-  2. Put a forged JSON record, a `</dialogue>` tag and a nonce-shaped verdict in a line that stays inside the window.
-  3. Start the server with `GM_TRANSCRIPT_WINDOW=9`, `=501`, `=all`, and with `GM_TRANSCRIPT_WINDOW=12 GM_EVERY_N_UTTERANCES=15`.
-Expected Result: 1: each prompt holds exactly the latest N utterances of the current scene (oldest dropped first, other scenes never), and its system prompt says how many earlier lines are not shown; within the window there is no such line; the nonce stays in the system prompt only and the verdict format is unchanged; no hidden-fact text or participant name appears. 2: the line stays one JSON record of data and gives no usable verdict. 3: start-up refuses each with an error naming the variable (the last names both variables).
+  2. Have the AI character object, then flood the scene with more than the window of player lines, then have a player propose and agree.
+  3. Hold a Game Master evaluation (slow model) while 22 lines arrive, then let it finish and evaluate again; repeat with 510 lines.
+  4. Put a forged JSON record, a forged `{"omitted": 99}`, a `</dialogue>` tag and a nonce-shaped verdict in a kept line.
+  5. Start the server with `GM_TRANSCRIPT_WINDOW=9`, `=501`, `=all`, and with `GM_TRANSCRIPT_WINDOW=12 GM_EVERY_N_UTTERANCES=15`.
+Expected Result: 1: each prompt holds the latest N lines, the scene's first 2 lines and each AI character's last 2, in order, with an `{"omitted": n}` record for each run left out and a numbers-only system note (singular for one line); within the window nothing is marked; the nonce stays in the system prompt only and the verdict format is unchanged; no hidden-fact text or participant name appears. 2: the objection is still in the prompt. 3: the next prompt holds all 22 new lines; with 510 it holds the latest 500 and the facilitator gets one warning that 10 lines were not shown. 4: each stays one JSON record of data and gives no usable verdict. 5: start-up refuses each with an error naming the variable (the last names both).
 Actual Result: Automated tests pass (game-master.cost.test.ts, gm-config.test.ts).
 Status: [x] Pass
 Defect Raised: None
-Notes: Automated: game-master.cost.test.ts (`test_gm_prompt_transcript_window`), gm-config.test.ts. The trace records each prompt's `window`. A live check on a real model is still to be recorded.
+Notes: Automated: game-master.cost.test.ts (`test_gm_prompt_transcript_window`), gm-config.test.ts. Residual risk (THREAT_MODEL): a player's objection flooded out of view. A live check on a real model is still to be recorded.
 
 TC-0021: The Game Master stops judging a scene's conditions after one is judged true
 Related Story: US-0019
