@@ -46,4 +46,10 @@ describe("loadTargets", () => {
     const err = await loadTargets(dir).catch((e: Error) => e);
     expect((err as Error).message).not.toMatch(/[\u0000-\u001f\u007f]/);
   });
+  it("never cuts an astral character in half when truncating an echoed key", async () => {
+    await write(`${"x".repeat(100)}${"😀".repeat(150)}: 1\n`);
+    const err = (await loadTargets(dir).catch((e: Error) => e)) as Error;
+    expect(err.message).toMatch(/…$/);
+    expect(err.message).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/);
+  });
 });

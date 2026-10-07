@@ -185,5 +185,6 @@ describe("printable", () => {
     expect(printable("plain text")).toBe("plain text");
     expect(printable("x".repeat(100), 10)).toBe("xxxxxxxxxx…");
     expect(printable("x".repeat(80))).toBe("x".repeat(80));
+    expect(printable("ab\u{1F600}cd", 3)).toBe("ab\u{1F600}…");
   });
 });

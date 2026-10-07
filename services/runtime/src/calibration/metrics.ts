@@ -2,7 +2,7 @@ import type { Expected, Level } from "./probe-schema.js";
 import type { Targets } from "./targets.js";
 import type { ContrastOutcome, Observed, Outcome, SingleOutcome } from "./types.js";
 
-export const isUsable = (o: Observed): o is Expected => o !== "invalid" && o !== "failed";
+export const isUsable = (o: Observed): o is Expected => o === 1 || o === 2 || o === 3 || o === 4 || o === "not_observed";
 const isLevel = (o: Observed | Expected): o is Level => typeof o === "number";
 const singles = (o: Outcome[]): SingleOutcome[] => o.filter((x): x is SingleOutcome => x.kind === "single");
 const contrasts = (o: Outcome[]): ContrastOutcome[] => o.filter((x): x is ContrastOutcome => x.kind === "contrast");
@@ -80,6 +80,7 @@ export function usability(os: Outcome[]): { slots: number; unusable: number; cap
   let slots = 0, unusable = 0, capped = 0, dropped = 0;
   for (const o of os) {
     capped += o.capped; dropped += o.dropped;
+    if (o.runs.length === 0) { slots++; unusable++; continue; }
     if (o.kind === "single") for (const r of o.runs) { slots++; if (!isUsable(r)) unusable++; }
     else for (const run of o.runs) for (const r of Object.values(run)) { slots++; if (!isUsable(r)) unusable++; }
   }
@@ -97,16 +98,27 @@ export function stability(ss: SingleOutcome[]): number | null {
   return mean(vars);
 }
 
+/** Distinct numeric levels the probes expect, over singles and contrast players. */
+function expectedLevelCount(ss: SingleOutcome[], cs: ContrastOutcome[]): number {
+  const seen = new Set<number>();
+  for (const s of ss) if (isLevel(s.expected)) seen.add(s.expected);
+  for (const c of cs) for (const l of Object.values(c.expected)) seen.add(l);
+  return seen.size;
+}
+
 export function computeMetrics(os: Outcome[]) {
   const ss = singles(os), cs = contrasts(os);
-  return { probes: os.length, agreement: agreement(ss), bias: bias(ss), biasByExpected: biasByExpected(ss), spread: spread(ss, cs), notObserved: notObserved(ss), contrast: contrast(cs), usability: usability(os), stability: stability(ss) };
+  return { probes: os.length, expectedLevels: expectedLevelCount(ss, cs), agreement: agreement(ss), bias: bias(ss), biasByExpected: biasByExpected(ss), spread: spread(ss, cs), notObserved: notObserved(ss), contrast: contrast(cs), usability: usability(os), stability: stability(ss) };
 }
 export type JudgeMetrics = ReturnType<typeof computeMetrics>;
 
 export function splitMetrics(os: Outcome[], key: "split" | "source" | "drafter"): Record<string, JudgeMetrics> {
+  // A null value (e.g. a handwritten probe has no drafter) is grouped as "(none)"; a drafter literally named "(none)" would merge with it.
   const groups = new Map<string, Outcome[]>();
-  for (const o of os) { const k = String(o[key] ?? "none"); groups.set(k, [...(groups.get(k) ?? []), o]); }
-  return Object.fromEntries([...groups].map(([k, v]) => [k, computeMetrics(v)]));
+  for (const o of os) { const k = String(o[key] ?? "(none)"); groups.set(k, [...(groups.get(k) ?? []), o]); }
+  const out: Record<string, JudgeMetrics> = Object.create(null) as Record<string, JudgeMetrics>;
+  for (const [k, v] of groups) out[k] = computeMetrics(v);
+  return out;
 }
 
 export function labelFor(m: JudgeMetrics, t: Targets): { label: "PASS" | "WARN" | "FAIL"; reasons: string[] } {
@@ -115,6 +127,11 @@ export function labelFor(m: JudgeMetrics, t: Targets): { label: "PASS" | "WARN" 
     fail.push(`contrast ordering ${m.contrast.ordered} of ${m.contrast.usable} is below ${Math.round(t.contrastOrdering * 100)}%`);
   }
   if (m.bias.mean !== null && Math.abs(m.bias.mean) > t.maxAbsBias) fail.push(`bias ${m.bias.mean.toFixed(2)} levels exceeds ${t.maxAbsBias}`);
+  const needed = Math.min(3, m.expectedLevels);
+  if (m.expectedLevels >= 2 && m.spread < needed) fail.push(`flat judge: uses only ${m.spread} distinct level(s) but the probes expect ${m.expectedLevels}`);
+  if (m.contrast.n === 0) warn.push("discrimination not measured: no contrast probes");
+  else if (m.contrast.usable / m.contrast.n < 0.5) warn.push(`discrimination thinly measured: only ${m.contrast.usable} of ${m.contrast.n} contrast probes were usable`);
+  if (m.bias.n === 0 && m.contrast.usable === 0) warn.push("no usable evidence");
   if (m.usability.slots > 0 && 1 - m.usability.unusable / m.usability.slots < t.minUsable) warn.push(`only ${m.usability.slots - m.usability.unusable} of ${m.usability.slots} answers were usable`);
   if (t.exactAgreement !== null && m.agreement.n > 0 && m.agreement.exact / m.agreement.n < t.exactAgreement) warn.push(`exact agreement ${m.agreement.exact} of ${m.agreement.n} is below ${Math.round(t.exactAgreement * 100)}%`);
   return fail.length ? { label: "FAIL", reasons: [...fail, ...warn] } : warn.length ? { label: "WARN", reasons: warn } : { label: "PASS", reasons: [] };
