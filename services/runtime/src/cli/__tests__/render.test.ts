@@ -174,3 +174,11 @@ describe("renderJoined notice (US-0017)", () => {
     expect(lines.join("")).not.toContain("\x1b");
   });
 });
+
+describe("session.resumed (US-0018)", () => {
+  const e = { seq: 9, ts: 1, sessionId: "s", type: "session.resumed", downFromTs: 0 } as const;
+  it("tells the facilitator to /resume and a player that the facilitator will", () => {
+    expect(renderEvent(e, "facilitator")).toBe("=== session paused (server restarted): /resume to continue ===");
+    expect(renderEvent(e, "delivery_lead")).toBe("=== session paused (server restarted); the facilitator will resume it ===");
+  });
+});

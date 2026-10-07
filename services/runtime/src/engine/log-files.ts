@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
-  closeSync, constants as fsConstants, copyFileSync, fstatSync, fsyncSync, futimesSync, fchmodSync, linkSync, lstatSync, mkdirSync, openSync, readSync,
+  closeSync, constants as fsConstants, fstatSync, fsyncSync, futimesSync, fchmodSync, linkSync, mkdirSync, openSync, readSync,
   renameSync, unlinkSync, writeSync,
 } from "node:fs";
 import os from "node:os";
@@ -33,42 +33,74 @@ export function ensurePrivateDir(dir: string): string | null {
 /** linkSync errors that mean "this filesystem has no hard links": fall back to a copy. */
 const NO_HARDLINK_CODES = new Set(["EPERM", "ENOTSUP", "EXDEV", "EOPNOTSUPP"]);
 
+/** Copies the open source descriptor into a NEW file (O_EXCL: an existing target is never overwritten; EEXIST is thrown). */
+function copyFromFd(src: number, target: string): void {
+  const out = openSync(target, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_NOFOLLOW, 0o600);
+  try {
+    const buf = Buffer.alloc(64 * 1024);
+    let pos = 0;
+    for (;;) {
+      const n = readSync(src, buf, 0, buf.length, pos);
+      if (n === 0) break;
+      let off = 0;
+      while (off < n) off += writeSync(out, buf, off, n - off);
+      pos += n;
+    }
+    fsyncSync(out);
+  } catch (err) {
+    closeSync(out);
+    try { unlinkSync(target); } catch { /* best effort: never leave a half copy */ }
+    throw err;
+  }
+  closeSync(out);
+}
+
 /**
  * Moves a non-empty regular `<id>.jsonl` aside (never deleted) to `<id>.<UTC timestamp>.jsonl`, with a numeric suffix on collision.
- * Used for SESSION_START=fresh and for the log of a session that had already ended. The move is link + unlink (or, where hard links
- * are unsupported, an exclusive copy + unlink), never a bare rename, so an existing target can never be overwritten (EEXIST -> next
- * suffix). Missing or empty files are left alone; a directory or symlink in that place is an error and is not touched.
+ * Used for SESSION_START=fresh and for the log of a session that had already ended. The log is opened once (O_NOFOLLOW) and judged
+ * through that descriptor; the move is link + unlink (or, where hard links are unsupported, an exclusive copy from the open
+ * descriptor + unlink), never a bare rename, so an existing target can never be overwritten (EEXIST -> next suffix). Missing or empty
+ * files are left alone; a directory or symlink in that place is an error and is not touched.
  */
 export function rotateStaleLog(dir: string, sessionId: string, now: Date): string | null {
   const file = path.join(dir, `${sessionId}.jsonl`);
   assertInside(dir, file);
-  let st;
-  try { st = lstatSync(file); } catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return null; throw err; }
-  if (!st.isFile()) throw new Error(`${file} is not a regular file; move it away and retry`);
-  if (st.size === 0) return null;
-  const stamp = now.toISOString().replace(/\.\d+Z$/, "Z").replace(/[-:]/g, "");
-  for (let n = 0; n < 1_000; n++) {
-    const target = path.join(dir, `${sessionId}.${stamp}${n === 0 ? "" : `-${n}`}.jsonl`);
-    assertInside(dir, target);
-    let copied = false;
-    try { linkSync(file, target); }
-    catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === "EEXIST") continue;
-      if (!code || !NO_HARDLINK_CODES.has(code)) throw err;
-      // This filesystem cannot hard-link (some bind mounts, NFS/SMB): copy instead, still never overwriting.
-      try { copyFileSync(file, target, fsConstants.COPYFILE_EXCL); }
-      catch (cerr) { if ((cerr as NodeJS.ErrnoException).code === "EEXIST") continue; throw cerr; }
-      copied = true;
-    }
-    try { unlinkSync(file); }
-    catch (uerr) {
-      // The source is only ever removed after the target exists; if that last step fails, say so, so nobody retries blindly.
-      throw new Error(`${copied ? "a copy of" : "a second hard link to"} the old log was made at ${path.basename(target)} but ${path.basename(file)} could not be removed (${(uerr as NodeJS.ErrnoException).code ?? "error"}); remove or move ${path.basename(file)} by hand and start again`);
-    }
-    return target;
+  let fd: number;
+  try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); }
+  catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return null;
+    if (code === "ELOOP" || code === "EMLINK") throw new Error(`${file} is not a regular file; move it away and retry`);
+    throw err;
   }
-  throw new Error(`no free rotation name for ${file} after 1000 tries`);
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) throw new Error(`${file} is not a regular file; move it away and retry`);
+    if (st.size === 0) return null;
+    const stamp = now.toISOString().replace(/\.\d+Z$/, "Z").replace(/[-:]/g, "");
+    for (let n = 0; n < 1_000; n++) {
+      const target = path.join(dir, `${sessionId}.${stamp}${n === 0 ? "" : `-${n}`}.jsonl`);
+      assertInside(dir, target);
+      let copied = false;
+      try { linkSync(file, target); }
+      catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "EEXIST") continue;
+        if (!code || !NO_HARDLINK_CODES.has(code)) throw err;
+        // This filesystem cannot hard-link (some bind mounts, NFS/SMB): copy what we opened instead, still never overwriting.
+        try { copyFromFd(fd, target); }
+        catch (cerr) { if ((cerr as NodeJS.ErrnoException).code === "EEXIST") continue; throw cerr; }
+        copied = true;
+      }
+      try { unlinkSync(file); }
+      catch (uerr) {
+        // The source is only ever removed after the target exists; if that last step fails, say so, so nobody retries blindly.
+        throw new Error(`${copied ? "a copy of" : "a second hard link to"} the old log was made at ${path.basename(target)} but ${path.basename(file)} could not be removed (${(uerr as NodeJS.ErrnoException).code ?? "error"}); remove or move ${path.basename(file)} by hand and start again`);
+      }
+      return target;
+    }
+    throw new Error(`no free rotation name for ${file} after 1000 tries`);
+  } finally { closeSync(fd); }
 }
 
 // ---- the single-writer lock ---------------------------------------------------------------------------------------------------
