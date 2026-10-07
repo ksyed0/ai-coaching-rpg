@@ -627,21 +627,21 @@ Notes: Deferred minor findings from Tasks 7 and 8 and the final review. Behavior
 US-0020 (EPIC-0006): As a developer, I want one shared definition of identifier rules and accurate plan text, so that scenario ids, protocol ids, session ids and the docs cannot drift apart.
 Priority: Low
 Estimate: S
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0006-US-0020-shared-id-rules
 Dependencies: US-0012
 Acceptance Criteria:
-  - [ ] AC-0062: scenario, protocol, terminal client and session-id validation use one exported set of identifier rules
-  - [ ] AC-0063: the Slice 1 plan's self-review text is corrected (`SessionEngine.alert()` replaced the planned public `emit`) and records where later rulings changed the plan
+  - [x] AC-0062: scenario, protocol, terminal client and session-id validation use one exported set of identifier rules (`packages/events/src/ids.ts`, imported by the scenario and rubric schemas, the validator, the rubric loader, the protocol, the terminal client, the demo, the session log, the lock, the join-codes file and the evaluator's report names; every accepted and refused value unchanged, pinned by characterisation tests written first; session ids are refused by every function that turns one into a file name, before anything is created; property-style tests over hostile ids; a test fails if another source spells an id character class; TC-0023, TC-0024)
+  - [x] AC-0063: the Slice 1 plan's self-review text is corrected (`SessionEngine.alert()` replaced the planned public `emit`) and records where later rulings changed the plan (inline *Built differently* notes in Tasks 7 and 8, the corrected Interfaces bullet and a Revision notes table of ten rulings; plan-text.test.ts keeps it true; TC-0024)
 ```
 
 ```
 TASK-0020 (US-0020): Extract shared identifier rules and correct the Slice 1 plan text
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0020-shared-id-rules
-Notes: Three id rules currently live in schema.ts, protocol.ts, commands.ts and event-log.ts. Mismatches are harmless today but easy to drift.
+Notes: Three id rules currently live in schema.ts, protocol.ts, commands.ts and event-log.ts. Mismatches are harmless today but easy to drift. Delivered: packages/events/src/ids.ts (scenario ids: lower case, any length; file-safe ids: lower case, 1 to 64; safe and session ids: either case, 1 to 64; client ids: 1 to 128 and no control character; reserved ids; the JOIN_CODES role key), consumers updated, `assertSessionId` in log-files.ts and a first-line check in `openSession`; tests id-rules.characterisation (script and runtime), ids.test.ts, id-rules.files.test.ts, plan-text.test.ts. Known, unchanged difference: a scenario id has no length limit while a role id used as a report file name is limited to 64 (refused when reports are written). The story stays In Progress until review. Test cases TC-0023, TC-0024.
 ```
 
 ```

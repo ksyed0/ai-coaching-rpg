@@ -181,9 +181,9 @@ describe("PlayerBotGenerator", () => {
     expect(p.calls).toHaveLength(0);
     const ac2 = new AbortController();
     let sawAbort = false;
-    const hang: ModelProvider = { name: "h", stream(_r, signal) { signal?.addEventListener("abort", () => { sawAbort = true; }); return (async function* () { await new Promise<void>(() => undefined); yield "x"; })(); } };
+    // The run aborts once the model call is under way (the stream was opened), not after a small real timer.
+    const hang: ModelProvider = { name: "h", stream(_r, signal) { signal?.addEventListener("abort", () => { sawAbort = true; }); queueMicrotask(() => ac2.abort()); return (async function* () { await new Promise<void>(() => undefined); yield "x"; })(); } };
     const pending = speak(await gen(hang, { firstTokenTimeoutMs: 5_000, replyTimeoutMs: 5_000, signal: ac2.signal }));
-    setTimeout(() => ac2.abort(), 20);
     expect(await pending).toMatchObject({ source: "scripted", reason: "run aborted" });
     expect(sawAbort).toBe(true);
   });

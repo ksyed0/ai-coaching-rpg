@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { describeModelProvider, selectModelProvider, type ModelProvider } from "@acr/adapters";
-import { initialState } from "@acr/events";
+import { hasControlCharacters, initialState } from "@acr/events";
 import { loadScenario, validateScenario, type Scene } from "@acr/script";
 import { buildGmRequest } from "../agents/gm-prompt.js";
 import { parseGmReply } from "../agents/gm-parse.js";
@@ -45,7 +45,7 @@ export type GmEvalDeps = {
 const DEFAULT_CASES = "tests/gm-cases";
 const DEFAULT_CORPUS = "tests/gm-cases/parser-corpus.json";
 const DEFAULT_SCENARIO = "scenarios/friday-escalation-extended";
-const hasControl = (v: string) => new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]").test(v);
+const hasControl = hasControlCharacters;
 
 /** The parser corpus: raw replies as real models write them, each with the parse the tolerant parser must give. */
 export type CorpusEntry = { id: string; raw: string; /** The nonce the reply was asked to carry (omit to read every shape, as the offline rules do). */ nonce?: string; expect: { ok: true; verdict: boolean; via?: "strict" | "tolerant" } | { ok: false; reason: string } };

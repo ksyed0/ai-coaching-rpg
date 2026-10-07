@@ -1,6 +1,6 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { isValidSessionId } from "../engine/event-log.js";
+import { isFileSafeId, isValidSessionId } from "@acr/events";
 import { safeMd } from "../demo/transcript-md.js";
 import { EvaluatorInputError, type EvaluationResult } from "./evaluate.js";
 import { DRAFT_BANNER, VISIBILITY_LINE } from "./method.js";
@@ -8,12 +8,11 @@ import { buildMethod } from "./method.js";
 import { id, renderGroupMarkdown, renderMethodMarkdown, renderParticipantMarkdown } from "./report-md.js";
 import { DEMO_NOTE, buildGroupReport, buildParticipantReport, loScoreText, type EvaluatorInfo, type GroupReport, type ParticipantReport } from "./report-model.js";
 
-const SAFE_ROLE = /^[a-z0-9_-]{1,64}$/;
 /** File names the reports use themselves; a role with one of these ids would overwrite them. */
 export const RESERVED_NAMES = new Set(["group", "index", "method"]);
 
 export function checkRoleId(roleId: string): string {
-  if (!SAFE_ROLE.test(roleId)) throw new EvaluatorInputError(`role id ${JSON.stringify(roleId.slice(0, 40))} is not a safe file name (use 1 to 64 lowercase letters, digits, _ or -)`);
+  if (!isFileSafeId(roleId)) throw new EvaluatorInputError(`role id ${JSON.stringify(roleId.slice(0, 40))} is not a safe file name (use 1 to 64 lowercase letters, digits, _ or -)`);
   if (RESERVED_NAMES.has(roleId)) throw new EvaluatorInputError(`role id '${roleId}' is reserved for the report files (group, index, method)`);
   return roleId;
 }

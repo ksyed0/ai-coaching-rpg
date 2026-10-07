@@ -5,6 +5,15 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isValidSessionId } from "@acr/events";
+
+/**
+ * A session id becomes file names (`<id>.jsonl`, `<id>.lock`, `<id>.codes.json`, rotated `<id>.<time>.jsonl`) and is placed in a regular
+ * expression: every function here that takes one refuses an invalid id first (US-0020), whoever the caller is.
+ */
+export function assertSessionId(sessionId: string): void {
+  if (!isValidSessionId(sessionId)) throw new Error(`invalid session id: ${JSON.stringify(String(sessionId).slice(0, 40))}`);
+}
 
 /** Both paths must stay inside `dir`: defense in depth on top of the session id check. */
 export function assertInside(dir: string, file: string): void {
@@ -77,6 +86,7 @@ function copyFromFd(src: number, target: string): void {
  * files are left alone; a directory or symlink in that place is an error and is not touched.
  */
 export function rotateStaleLog(dir: string, sessionId: string, now: Date): string | null {
+  assertSessionId(sessionId);
   const file = path.join(dir, `${sessionId}.jsonl`);
   assertInside(dir, file);
   let fd: number;
@@ -124,6 +134,7 @@ export function rotateStaleLog(dir: string, sessionId: string, now: Date): strin
  * rotated name. Returns that name, or null when there is nothing to finish (the log is then left to the normal checks).
  */
 export function finishInterruptedRotation(dir: string, sessionId: string): string | null {
+  assertSessionId(sessionId);
   const file = path.join(dir, `${sessionId}.jsonl`);
   assertInside(dir, file);
   let fd: number;
@@ -179,6 +190,16 @@ export class SessionLockError extends Error {
 
 /** Lock paths this process holds: a second lock on the same session inside one process is refused like one from another process. */
 const HELD = new Set<string>();
+/** The same locks by device and inode: on a case-insensitive file system (macOS APFS, Windows) `LOCAL.lock` and `local.lock` are one file under two spellings. */
+const HELD_IDENT = new Set<string>();
+const identKey = (i: { dev: number; ino: number }): string => `${i.dev}:${i.ino}`;
+/** Is this lock file one this process holds, under any spelling of its path? Opens it once and judges the descriptor. */
+function heldHere(file: string): boolean {
+  if (HELD.has(file)) return true;
+  let fd: number;
+  try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); } catch { return false; }
+  try { const st = fstatSync(fd); return HELD_IDENT.has(identKey(st)); } finally { closeSync(fd); }
+}
 
 function processAlive(pid: number): boolean {
   try { process.kill(pid, 0); return true; }
@@ -219,12 +240,13 @@ export class SessionLock {
   private constructor(file: string, fd: number, ident: Identity, now: () => number, heartbeatMs: number, onLost?: () => void, recheckDelay?: () => Promise<void>) {
     this.file = file; this.fd = fd; this.ident = ident; this.now = now; this.onLost = onLost;
     this.recheckDelay = recheckDelay ?? (() => new Promise((r) => setTimeout(r, LOCK_RECHECK_MS)));
-    HELD.add(file);
+    HELD.add(file); HELD_IDENT.add(identKey(ident));
     this.timer = setInterval(() => { void this.heartbeat(); }, heartbeatMs);
     this.timer.unref();
   }
 
   static acquire(dir: string, sessionId: string, opts: LockOptions = {}): SessionLock {
+    assertSessionId(sessionId);
     const file = path.resolve(dir, `${sessionId}.lock`);
     assertInside(dir, file);
     const staleMs = opts.staleMs ?? DEFAULT_LOCK_STALE_MS;
@@ -238,7 +260,7 @@ export class SessionLock {
       try { fd = openSync(file, createFlags, 0o600); }
       catch (err) {
         if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-        if (HELD.has(file)) throw new SessionLockError("locked", "this session log is already open in this server process");
+        if (heldHere(file)) throw new SessionLockError("locked", "this session log is already open in this server process");
         const verdict = SessionLock.judge(file, { staleMs, now, host, pid, isAlive });
         if (verdict === "gone") continue;
         if (verdict.stale === false) throw new SessionLockError("locked", verdict.message);
@@ -361,7 +383,7 @@ export class SessionLock {
   release(): void {
     this.released = true;
     this.stopTimer();
-    HELD.delete(this.file);
+    HELD.delete(this.file); HELD_IDENT.delete(identKey(this.ident));
     if (this.fd === null) return;
     const ours = this.verify();
     try { closeSync(this.fd); } catch { /* already closed */ }
@@ -373,7 +395,7 @@ export class SessionLock {
   abandon(): void {
     this.released = true;
     this.stopTimer();
-    HELD.delete(this.file);
+    HELD.delete(this.file); HELD_IDENT.delete(identKey(this.ident));
     if (this.fd !== null) { try { closeSync(this.fd); } catch { /* already closed */ } }
     this.fd = null;
   }

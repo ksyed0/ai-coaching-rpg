@@ -1,5 +1,5 @@
 import { parseArgs as nodeParseArgs } from "node:util";
-import { isValidSessionId } from "../engine/event-log.js";
+import { SESSION_ID_RULE_TEXT, hasControlCharacters, isValidSessionId } from "@acr/events";
 
 export const MIN_SPEED = 0.1;
 export const MAX_SPEED = 20;
@@ -73,7 +73,7 @@ export type DemoArgsResult = { ok: true; opts: DemoOptions } | { ok: false; erro
 
 const fail = (error: string): DemoArgsResult => ({ ok: false, error, usage: DEMO_USAGE });
 const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript", "players", "player-model", "no-intents", "evaluate", "eval-out", "gm-trace", "min-gm-exits", "max-false-exits", "security", "resume"];
-const hasControl = (v: string) => new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]").test(v);
+const hasControl = hasControlCharacters;
 
 /** Validates a --url value. The error never echoes the value (it may carry credentials). */
 export function checkWsUrl(raw: string): string | null {
@@ -118,7 +118,7 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
   if (values.json !== undefined && (values.json === "" || hasControl(values.json))) return fail("error: --json needs a file path, or - for stdout");
   if (values.transcript !== undefined && (values.transcript === "" || hasControl(values.transcript))) return fail("error: --transcript needs a file path");
   if (values.url !== undefined) { const bad = checkWsUrl(values.url); if (bad) return fail(bad); }
-  if (values.session !== undefined && !isValidSessionId(values.session)) return fail("error: --session must be 1 to 64 letters, digits, '_' or '-'");
+  if (values.session !== undefined && !isValidSessionId(values.session)) return fail(`error: --session must be ${SESSION_ID_RULE_TEXT}`);
 
   if (values.showcase && values.url !== undefined) return fail("error: --showcase cannot be combined with --url (the showcase starts its own in-process server)");
   for (const [flag, given] of [["scenario", values.scenario], ["max-lines", values["max-lines"]]] as const) {

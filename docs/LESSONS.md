@@ -104,3 +104,11 @@ _Learned when `lock.assertHeld()` (async) was used as a synchronous pre-rename c
 _Learned when a port in use, a missing API key or a bad trace-file path left join codes on disk that nobody had seen, so the next start kept them silently and no player could join._
 **Date:** 2026-10-07
 
+## L-0014 — An abort must wait for the work it cancelled, and every resource is owned from the moment it exists
+
+@agent: all
+
+**Rule:** A timeout or abort that reports and returns without waiting for the work it cancelled leaks whatever that work creates next (temp directories, servers, files) and lets it keep running after the result is out. After aborting, wait for the work to unwind with a bounded grace, then clean up; hand each resource to the cleanup list the moment it exists (right after `mkdtemp`, not after it is filled) and have the code that makes it remove it if it is aborted half-way; check the abort signal after each await on the start-up path. Test abort paths deterministically: inject the timer and fire it by hand at the exact point (a hook between creation and registration), never with a small real timeout.
+_Learned when the demo watchdog test failed intermittently under coverage (BUG-0007): the 100 ms watchdog fired while the run's temp directory was being made, `runDemo` returned, and the directory was registered and removed fire-and-forget later, or recreated by the run that was still going._
+**Date:** 2026-10-07
+

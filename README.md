@@ -226,7 +226,7 @@ All settings are environment variables (read from `.env` at the repository root;
 | `MODEL_MAX_RETRIES` | `2` | How many times a transient model error is retried (so up to 3 attempts) before the NPC speaks its fallback line. Whole number, `0` to `5`; `0` turns retrying off |
 | `MODEL_RETRY_BASE_MS` | `500` | First retry delay in milliseconds; it doubles per retry (capped at 4 s) with +/-25% jitter. Whole number, `100` to `10000` |
 | `SCENARIO_DIR` | `scenarios/friday-escalation` | Scenario folder (relative paths resolve from the repository root) |
-| `SESSION_ID` | `local` | Session id clients join (`--session`) |
+| `SESSION_ID` | `local` | Session id clients join (`--session`). 1 to 64 letters, digits, `_` or `-` (it becomes the file names `<id>.jsonl`, `<id>.lock` and `<id>.codes.json`, so no dot, slash or space) |
 | `SESSION_START` | `resume` | `resume`: a session that was running when the server stopped is restored from its log, paused (an ended session's log is moved aside). `fresh`: the old log is always moved aside and a new session starts (`./run.sh --fresh`). See [Resuming a session](#resuming-a-session) |
 | `SESSION_LOCK_STALE_MS` | `30000` | How long a session lock may go without a heartbeat before another server may take it over. Whole number, `10000` to `600000`; the heartbeat runs every sixth of it (at least every second) |
 | `DEPLOYMENT_STAGE` | `local` | Present in `.env.example` but not read by the code yet |
@@ -461,7 +461,7 @@ The default test run never calls a real model or touches the network.
 ### Layout
 
 ```
-packages/events     session event types and the state reducer
+packages/events     session event types, the state reducer and the shared identifier rules (`src/ids.ts`: one definition used by the scenario schema, protocol, client and session files)
 packages/script     scenario schema, loader, validator, scene state machine
 packages/adapters   model provider adapters (mock, Anthropic, OpenAI-compatible)
 services/runtime    session engine, NPC agents, Game Master, WebSocket server, terminal client, demo runner (src/demo), post-session evaluator (src/evaluator)

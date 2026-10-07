@@ -1,9 +1,11 @@
 import type { ChatRequest } from "@acr/adapters";
-import type { SessionEvent } from "@acr/events";
+import { SCENARIO_ID_CLASS, type SessionEvent } from "@acr/events";
 import type { Criterion, Rubric, Scenario } from "@acr/script";
 import { buildTranscript, type UtteranceRec } from "../evaluator/transcript.js";
 
 /** The offline evaluator's replies are produced from the recorded session itself, so every quote is real and verifiable. */
+/** The role id the evaluator prompt names ("score ONLY the participant with role id ..."), read back by the scripted evaluator. */
+const SCORED_ROLE_RE = new RegExp(`score ONLY the participant with role id "(${SCENARIO_ID_CLASS}+)"`, "i");
 export const SCRIPTED_EVALUATOR_NAME = "demo-scripted-evaluator";
 
 /** A sentence-sized piece of a line that is safe to quote: the first sentence, at most 120 characters, cut at a word boundary. */
@@ -56,7 +58,7 @@ export function createScriptedEvaluator(events: SessionEvent[], scenario: Scenar
     calls,
     async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<string> {
       calls.push(req);
-      const who = /score ONLY the participant with role id "([a-z0-9_-]+)"/i.exec(req.system)?.[1] ?? "";
+      const who = SCORED_ROLE_RE.exec(req.system)?.[1] ?? "";
       const key = who || "group";
       const nth = (seen.get(key) ?? 0) + 1; seen.set(key, nth);
       let body: unknown;

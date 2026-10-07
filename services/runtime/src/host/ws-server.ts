@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import http from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
+import { isReservedRoleId } from "@acr/events";
 import { ClientMessageSchema, type ReplaySummary, type ServerMessage } from "./protocol.js";
 import { HostError, MAX_REPLAY_BYTES, type Replay, type SessionHost } from "./session-host.js";
 import { EngineError } from "../engine/session-engine.js";
@@ -246,7 +247,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
               if (!h || !(byCode || byReconnect)) return refuseLogin("player");
             } else {
               if (!h) return fail("unknown_session", "no such session");
-              if (m.roleId === "facilitator") return fail("unknown_role", "unknown_role"); // reserved: never a player role
+              if (isReservedRoleId(m.roleId)) return fail("unknown_role", "unknown_role"); // reserved: never a player role
             }
             // A role held by a live socket can only be taken over with that role's reconnect token (C1).
             if (prevLive && !byReconnect) return fail("role_taken", "role_taken");
