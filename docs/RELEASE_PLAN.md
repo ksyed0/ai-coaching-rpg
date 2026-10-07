@@ -472,22 +472,59 @@ Notes: demo/security.ts behind `pnpm demo --security`; the default 29-check run 
 US-0018 (EPIC-0006): As a facilitator, I want a session to resume from its event log after a server restart, so that a crash does not lose a session in progress.
 Priority: Medium
 Estimate: L
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0006-US-0018-resume-after-restart
-Dependencies: US-0006, US-0013
+Dependencies: US-0006, BUG-0005 (pause freezes the scene clock). US-0013 is no longer a blocker: AC-0057 is met by the per-viewer join snapshot.
 Acceptance Criteria:
-  - [ ] AC-0056: starting the server with an existing session log replays it into the engine state instead of rotating it aside
-  - [ ] AC-0057: clients that rejoin receive their visible history (builds on the replay-from-seq protocol in US-0013)
-  - [ ] AC-0058: starting a fresh session over an old log stays possible through an explicit option, with the old log rotated aside
+  - [x] AC-0056: starting the server with an existing session log replays it into the engine state instead of rotating it aside
+  - [x] AC-0057: clients that rejoin receive their visible history (delivered through the per-viewer `joined` snapshot: the transcript of the scenes the role took part in; replay-from-seq of injects and whispers stays with US-0013)
+  - [x] AC-0058: starting a fresh session over an old log stays possible through an explicit option, with the old log rotated aside
+  - [x] AC-0160: a resumed session comes back paused, with a `session.resumed` event (players see it) and a facilitator alert giving the downtime; `/resume` continues it; the downtime counts as paused time, so no overdue inject fires and no time box ends on resume
+  - [x] AC-0161: the log records `logFormat` 1 and the scenario's SHA-256 in `session.started`; resume is refused, with the log untouched and a message naming `SESSION_START=fresh`, for corruption beyond a cut-off last line (seq gap, duplicate or reordering, another session's event, unknown event type, malformed middle line), a newer log format, or other scenario files; a format-0 log resumes on a matching scenario id and version
+  - [x] AC-0162: a cut-off last line is cut before the first append, with its size in the restart alert; nothing else in a log is ever rewritten
+  - [x] AC-0163: a player line left unanswered by the crash is answered exactly once, after `/resume`; a Game Master evaluation lost in the crash runs again at its next cadence; nothing else is re-run
+  - [x] AC-0164: a session lock `<id>.lock` (exclusive create, no symlinks, mode 0600, heartbeat) refuses a second server even with `SESSION_START=fresh`; documented stale-lock takeover (no heartbeat for `SESSION_LOCK_STALE_MS`, or a dead process or reused pid on this host); a server whose lock was lost stops writing
+  - [x] AC-0165: every append is followed by fdatasync; logs and locks are created 0600 and the data directory 0700 (never widened); reads stream the log with a 64 MiB cap
+  - [x] AC-0166: a restart over an ENDED session moves its log aside and starts fresh (demo check F-24 stays valid)
+  - [x] AC-0167: replaying a log gives exactly the live engine state (property test over random sessions); timestamps never go backwards across a restart and paused and active time are never negative
+  - [x] AC-0168: `pnpm demo --fast --resume` runs the resume room, checks F-34 to F-42, offline and deterministic (38 checks); the default run keeps 29; CI runs it
+  - [x] AC-0169: README (Resuming a session, `SESSION_START`, `SESSION_LOCK_STALE_MS`, `./run.sh --fresh`), `.env.example`, CHANGELOG and `docs/THREAT_MODEL.md` (logs at rest, the lock, the resume trust model) are updated
 ```
 
 ```
 TASK-0018 (US-0018): Rebuild engine and host state from the JSONL log on startup and add an explicit fresh-session option
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0006-US-0018-resume-after-restart
-Notes: Slice 1 rotates a stale log aside (US-0009 rotation) and never resumes. NPC agent, Game Master and ticker state must be reconstructed from events only.
+Notes: Slice 1 rotates a stale log aside (US-0009 rotation) and never resumes. NPC agent, Game Master and ticker state must be reconstructed from events only. Delivered by TASK-0049 to TASK-0051.
+```
+
+```
+TASK-0049 (US-0018): Log format 1, session.resumed, restore() with fail-closed refusals, a durable owner-only log and the session lock
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0018-resume-after-restart
+Notes: packages/events (LOG_FORMAT, EVENT_TYPES, session.resumed reducer), engine/event-log.ts (one handle, fdatasync, 0600, streaming validated scan, tail repair), engine/log-files.ts (SessionLock, rotation, private dir), SessionEngine.restore/markResumed, ts clamping. Property test: replay equals live state.
+```
+
+```
+TASK-0050 (US-0018): Host and Game Master reconstruction, the pending line on /resume, SESSION_START modes and ./run.sh --fresh
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0018-resume-after-restart
+Notes: engine/session-store.ts openSession (lock, resume, ended and fresh rotation), bootstrap wiring, SessionHost.resumeFrom, GameMaster.restore, SESSION_LOCK_STALE_MS. A real SIGKILL crash and restart is a unit test.
+```
+
+```
+TASK-0051 (US-0018): Demo resume room (pnpm demo --resume, F-34 to F-42), CI step and documentation
+Type: Test
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0006-US-0018-resume-after-restart
+Notes: The crash is simulated in process (connections cut, lock and log abandoned). README, CHANGELOG, .env.example and THREAT_MODEL updated.
 ```
 
 ```

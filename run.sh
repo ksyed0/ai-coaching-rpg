@@ -2,16 +2,20 @@
 # One-command local start.
 #   ./run.sh         run the server in Docker on port 8080
 #   ./run.sh --dev   run the server with tsx watch, no Docker (needs Node >= 22 and pnpm)
+#   ./run.sh --fresh (with or without --dev) start a NEW session: the previous session log is moved aside instead of resumed
 #   ./run.sh --help  show this help
 set -euo pipefail
 cd "$(dirname "$0")"
 
 usage() {
   cat <<'USAGE'
-usage: ./run.sh [--dev | --help]
+usage: ./run.sh [--dev] [--fresh] | --help
 
   (no flag)  build and run the server in Docker (docker compose), port 8080
   --dev      run the server directly with tsx watch (needs Node >= 22 and pnpm)
+  --fresh    start a new session (SESSION_START=fresh): the previous session log is moved aside, never deleted.
+             Without it a session that was running when the server stopped is RESUMED from its log, paused.
+             With --dev it applies to every reload of that run.
   --help     show this help
 
 Environment: HOST_PORT changes the host-side port for the Docker start (default 8080).
@@ -22,13 +26,16 @@ USAGE
 die() { echo "error: $*" >&2; exit 1; }
 
 mode="docker"
-case "${1:-}" in
-  "") ;;
-  --dev) mode="dev" ;;
-  -h|--help) usage; exit 0 ;;
-  *) usage >&2; die "unknown argument: $1" ;;
-esac
-[ "$#" -le 1 ] || { usage >&2; die "too many arguments"; }
+fresh=0
+[ "$#" -le 2 ] || { usage >&2; die "too many arguments"; }
+for arg in "$@"; do
+  case "$arg" in
+    --dev) [ "$mode" = "docker" ] || die "--dev was given twice"; mode="dev" ;;
+    --fresh) [ "$fresh" = 0 ] || die "--fresh was given twice"; fresh=1 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage >&2; die "unknown argument: $arg" ;;
+  esac
+done
 
 # A random facilitator token, 48 hex characters. Prefers openssl; falls back to /dev/urandom. Never printed.
 generate_token() {
@@ -65,6 +72,7 @@ if [ "$mode" = "dev" ]; then
   [ "$node_major" -ge 22 ] || die "Node 22 or newer is required (found $(node -v))"
   command -v pnpm >/dev/null 2>&1 || die "pnpm is not installed; run: npm install -g pnpm@9"
   pnpm install
+  if [ "$fresh" = 1 ]; then echo "starting a fresh session: the previous session log (if any) is moved aside"; export SESSION_START=fresh; fi
   exec pnpm dev:runtime
 fi
 
@@ -83,4 +91,10 @@ fi
 HOST_UID="${HOST_UID:-$uid}"
 HOST_GID="${HOST_GID:-$gid}"
 export HOST_UID HOST_GID
+if [ "$fresh" = 1 ]; then
+  # A one-off container with SESSION_START=fresh (it overrides .env for this start only); the published ports are the same.
+  echo "starting a fresh session: the previous session log (if any) is moved aside"
+  docker compose -f deploy/compose/docker-compose.yml build
+  exec docker compose -f deploy/compose/docker-compose.yml run --rm --service-ports -e SESSION_START=fresh runtime
+fi
 exec docker compose -f deploy/compose/docker-compose.yml up --build

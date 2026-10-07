@@ -161,6 +161,7 @@ jobs:
       - run: bash scripts/check-sdk-imports.test.sh
       - run: bash scripts/run-sh-uid.test.sh
       - run: bash scripts/run-sh-token.test.sh
+      - run: bash scripts/run-sh-fresh.test.sh
 
   ws-audit:
     name: Workspace Audit
@@ -199,6 +200,8 @@ jobs:
       # US-0021: plays the whole scenario with scripted bots and the mock model (offline, no secrets) and checks every feature.
       - run: pnpm demo --fast --json demo-report.json
       - run: pnpm demo --fast --security
+      # US-0018: the resume room (F-34 to F-42): a crash mid-scene and a restart on the log, the refusals and the rotations (offline, no secrets).
+      - run: pnpm demo --fast --resume
       # US-0024: the longer scenario with scripted AI characters and Game Master (mock mode: offline, no secrets); also writes the Markdown transcript.
       - run: pnpm demo --showcase --fast --json demo-showcase-report.json --transcript demo-transcript.md
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

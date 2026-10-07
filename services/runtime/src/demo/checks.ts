@@ -46,6 +46,19 @@ export const SECURITY_CHECKS: readonly CheckDef[] = [
   { id: "F-33", title: "Connection caps (total and per address), the Origin check and the join timeout refuse abusers at the handshake", kind: "inproc" },
 ] as const;
 
+/** Opt-in (`pnpm demo --resume`): the in-process resume room for US-0018. The default run keeps its 29 checks. */
+export const RESUME_CHECKS: readonly CheckDef[] = [
+  { id: "F-34", title: "A server killed mid-scene restarts into the same state from its log, paused, with the scene time it had", kind: "inproc" },
+  { id: "F-35", title: "Nothing that came due during the downtime fires on /resume; a timed inject fires once, at its minute of active time", kind: "inproc" },
+  { id: "F-36", title: "The player line left unanswered by the crash is answered exactly once, after /resume", kind: "inproc" },
+  { id: "F-37", title: "After a restart players claim their roles again and each gets only the history it may see", kind: "inproc" },
+  { id: "F-38", title: "A restart against changed scenario files is refused and the log is left untouched", kind: "inproc" },
+  { id: "F-39", title: "A log corrupt in the middle is refused untouched; a cut-off last line is cut and the session resumes", kind: "inproc" },
+  { id: "F-40", title: "SESSION_START=fresh moves the log aside byte for byte and starts a new session at seq 1", kind: "inproc" },
+  { id: "F-41", title: "A restart over a session that had ended moves its log aside and starts fresh", kind: "inproc" },
+  { id: "F-42", title: "While one server holds a session log, a second one is refused by the lock and changes nothing", kind: "inproc" },
+] as const;
+
 export const CHECK_IDS: readonly string[] = CHECKS.map((c) => c.id);
 export const def = (id: string): CheckDef => {
   const d = CHECKS.find((c) => c.id === id);

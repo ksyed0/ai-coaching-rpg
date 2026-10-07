@@ -17,6 +17,8 @@ import { parseTemperatures } from "../agents/temperatures.js";
 import { parseModelRetry, withModelRetry } from "../agents/retry-config.js";
 import { parseGmConfig, type GmConfig } from "../agents/gm-config.js";
 import type { GmTraceRecord } from "../agents/game-master.js";
+import { openSession, type OpenedSession, type StartMode } from "../engine/session-store.js";
+import type { LockOptions } from "../engine/log-files.js";
 
 /** A distinctive fake key set in the runner's own env object. It is never used to call anything; the audit proves it never leaks. */
 export const FAKE_KEY = "sk-ant-demo-FAKE-DO-NOT-USE-0123456789abcdefghijklmnop";
@@ -279,4 +281,59 @@ export async function startSecuritySystem(o: { scenario: Scenario; sessionId: st
     npcProvider: new MockModelProvider(), gmProvider: new MockModelProvider(),
     facilitatorToken: o.token, limits: o.limits, allowedOrigins: o.allowedOrigins, trustProxy: true,
   });
+}
+
+/**
+ * An NPC model for the resume room: replies come from the script in order, except that the call numbered `holdCall` (1-based) waits
+ * for `release()` before it answers, so the room can "crash" the server while that reply is still being generated.
+ */
+export class GatedProvider implements ModelProvider {
+  readonly name = "demo-gated";
+  readonly calls: ChatRequest[] = [];
+  private gate: (() => void) | null = null;
+  private readonly opened: Promise<void>;
+  /** Resolves when the held call has started (the model is "thinking"). */
+  readonly holding: Promise<void>;
+  private markHolding!: () => void;
+  constructor(private readonly script: string[], private readonly holdCall: number | null = null) {
+    this.opened = new Promise<void>((r) => { this.gate = r; });
+    this.holding = new Promise<void>((r) => { this.markHolding = r; });
+  }
+  release(): void { this.gate?.(); }
+  async *stream(req: ChatRequest, signal?: AbortSignal): AsyncIterable<string> {
+    this.calls.push(req);
+    const n = this.calls.length;
+    if (n === this.holdCall) {
+      this.markHolding();
+      await Promise.race([this.opened, new Promise<void>((r) => signal?.addEventListener("abort", () => r(), { once: true }))]);
+    }
+    yield this.script[n - 1] ?? "[mock reply]";
+  }
+}
+
+export type ResumableSystem = System & { store: OpenedSession; npcProvider: ModelProvider;
+  /** A crash: the server goes away (clients are cut off) and the lock and the log are abandoned, never cleaned up. */
+  crash(): Promise<void> };
+
+/**
+ * The resume room's server (US-0018): the real openSession (lock, resume or rotation, fsync) on a data dir, a fake clock, scripted
+ * models and a real WebSocket server. A resumed session is handed to the host as bootstrap does. The Game Master judges every 20 lines
+ * (the room never reaches that), so no verdict moves a scene by surprise.
+ */
+export async function startResumableSystem(o: {
+  scenario: Scenario; sessionId: string; dataDir: string; clock: FakeClock; mode?: StartMode; npcProvider?: ModelProvider; lock?: LockOptions; now?: () => Date;
+}): Promise<ResumableSystem> {
+  const store = await openSession({ scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: o.clock, mode: o.mode ?? "resume", lock: o.lock, now: o.now });
+  let crashed = false;
+  const npcProvider = o.npcProvider ?? new MockModelProvider();
+  let sys: System;
+  try {
+    sys = await buildSystem({
+      scenario: o.scenario, sessionId: o.sessionId, dataDir: o.dataDir, clock: o.clock, fakeClock: o.clock, engine: store.engine,
+      npcProvider, gmProvider: stampNonce(new MockModelProvider()), gmConfig: { timeoutMs: 60_000, reask: false, everyNUtterances: 20 },
+      onStop: async () => { if (crashed) { store.lock.abandon(); await store.log.close(); } else await store.close(); },
+    });
+  } catch (err) { await store.close(); throw err; }
+  if (store.resume) sys.host.resumeFrom(store.resume);
+  return Object.assign(sys, { store, npcProvider, crash: async () => { crashed = true; await sys.stop(); } });
 }
