@@ -4,6 +4,9 @@ services:
       context: ../..
       dockerfile: deploy/compose/Dockerfile.runtime
     init: true
+    # US-0018: the server exits non-zero when it can no longer write its session log safely (fail-stop); restart it so it resumes the
+    # session from its log. At most 5 tries: a failure that repeats (a full disk) stops here instead of restarting forever.
+    restart: on-failure:5
     # Secrets are passed at runtime from the git-ignored .env; they are never baked into the image.
     # run.sh creates .env from .env.example when it is missing.
     env_file: ../../.env
