@@ -5,7 +5,9 @@ import { loadRubrics, loadScenario } from "@acr/script";
 import { parseEvalConfig } from "../../evaluator/config.js";
 import { loadProbes } from "../probe-load.js";
 import { runJudge, MAX_REPEAT } from "../runner.js";
-import { fakeJudge } from "./fake-judge.js";
+import type { ChatRequest } from "@acr/adapters";
+import { fakeJudge, UNREACHABLE, type FakeJudge } from "./fake-judge.js";
+import type { Probe } from "../probe-schema.js";
 import type { Judge } from "../judge.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
@@ -46,6 +48,10 @@ describe("runJudge", () => {
     const out = await runJudge(judgeOf(provider), probes.filter((p) => p.id === "disc-l1"), scenario, rubrics, cfg, { repeat: 1, allCriteria: true });
     const o = out[0]!;
     expect(o.kind === "single" && o.runs[0]).toBe("failed");
+    // failed for the right reason: the judge threw its own error, not a prompt-format break
+    expect(provider.unreachable.length).toBeGreaterThan(0);
+    expect(provider.unreachable[0]).toBe(UNREACHABLE);
+    expect(provider.unexpected).toEqual([]);
   });
   it("repeats, filters with --only and caps repeat", async () => {
     const { scenario, rubrics, probes, ids } = await setup();
@@ -71,5 +77,113 @@ describe("runJudge", () => {
     const provider = fakeJudge(ids, () => ({ discovery: 2 }));
     await runJudge(judgeOf(provider), probes.filter((p) => p.id === "disc-l2"), scenario, rubrics, cfg, { repeat: 1, allCriteria: true });
     for (const id of ids) expect(provider.calls[0]!.system).toContain(`Criterion id "${id}"`);
+  });
+
+  it("never sends a group request, even when the rubrics include the group rubric", async () => {
+    const { scenario, rubrics, probes, ids } = await setup();
+    expect(rubrics.some((r) => r.scope === "group")).toBe(true);
+    const provider = fakeJudge(ids, () => ({ discovery: 2 }));
+    await runJudge(judgeOf(provider), probes.filter((p) => p.id === "disc-l2"), scenario, rubrics, cfg, { repeat: 1, allCriteria: true });
+    expect(provider.unexpected).toEqual([]);
+    expect(provider.calls.length).toBeGreaterThan(0);
+  });
+
+  it("rejects --only that selects nothing", async () => {
+    const { scenario, rubrics, probes, ids } = await setup();
+    const provider = fakeJudge(ids, () => ({ discovery: 2 }));
+    await expect(runJudge(judgeOf(provider), probes, scenario, rubrics, cfg, { repeat: 1, only: [], allCriteria: true })).rejects.toThrow(/selected no probes/);
+    expect(provider.calls).toHaveLength(0);
+  });
+
+  describe("capped and dropped", () => {
+    it("counts a 4 backed only by a short quote as capped, summed over roles and repeats", async () => {
+      const { scenario, rubrics, probes, ids } = await setup();
+      const provider = fakeJudge(ids, () => ({ listening: 4 }), undefined, (l) => l.slice(0, 9));
+      const out = await runJudge(judgeOf(provider), probes.filter((p) => p.id === "listening-contrast-01"), scenario, rubrics, cfg, { repeat: 2, allCriteria: true });
+      const o = out[0]!;
+      expect(o.kind === "contrast" && o.runs).toEqual([{ delivery_lead: 2, account_manager: 2 }, { delivery_lead: 2, account_manager: 2 }]);
+      expect(o.capped).toBe(4); // 2 roles x 2 repeats
+      expect(o.dropped).toBe(0);
+      expect(provider.unexpected).toEqual([]);
+    });
+    it("counts an invented quote as dropped, summed over roles and repeats", async () => {
+      const { scenario, rubrics, probes, ids } = await setup();
+      const provider = fakeJudge(ids, () => ({ listening: 1 }), undefined, () => "an invented sentence nobody ever said in this call");
+      const out = await runJudge(judgeOf(provider), probes.filter((p) => p.id === "listening-contrast-01"), scenario, rubrics, cfg, { repeat: 2, allCriteria: true });
+      expect(out[0]!.dropped).toBe(4);
+      expect(out[0]!.capped).toBe(0);
+    });
+    it("counts nothing when quotes are real and strong", async () => {
+      const { scenario, rubrics, probes, ids } = await setup();
+      const provider = fakeJudge(ids, () => ({ discovery: 2 }));
+      const out = await runJudge(judgeOf(provider), probes.filter((p) => p.id === "disc-l2"), scenario, rubrics, cfg, { repeat: 1, allCriteria: true });
+      expect([out[0]!.capped, out[0]!.dropped]).toEqual([0, 0]);
+    });
+  });
+
+  describe("planned call count", () => {
+    it("is the players with at least 2 lines in the transcript times repeat, scored or not", async () => {
+      const { scenario, rubrics, probes, ids } = await setup();
+      const base = probes.find((p) => p.id === "disc-l1")!;
+      const scene = base.transcript[0]!.scene;
+      const probe: Probe = { ...base, transcript: [...base.transcript, { scene, role: "account_manager", text: "I am here as well." }, { scene, role: "account_manager", text: "And I have a second line." }] };
+      const speakers = new Set(["delivery_lead", "account_manager"].filter((r) => probe.transcript.filter((l) => l.role === r).length >= 2));
+      expect(speakers.has("account_manager")).toBe(true);
+      const provider = fakeJudge(ids, () => ({ discovery: 2 }));
+      await runJudge(judgeOf(provider), [probe], scenario, rubrics, cfg, { repeat: 2, allCriteria: true });
+      expect(provider.calls).toHaveLength(speakers.size * 2);
+    });
+  });
+
+  describe("abort", () => {
+    /** Wraps a judge so the signal aborts while the call chosen by `at` is in flight. */
+    function abortAt(inner: FakeJudge, ctrl: AbortController, at: (req: ChatRequest, n: number) => boolean): FakeJudge {
+      let n = 0;
+      return { ...inner, stream: (req: ChatRequest) => { n++; if (at(req, n)) ctrl.abort(); return inner.stream(req); } };
+    }
+    async function callsPerRun(probe: Probe): Promise<number> {
+      const { scenario, rubrics, ids } = await setup();
+      const p = fakeJudge(ids, () => ({ discovery: 2, listening: 2 }));
+      await runJudge(judgeOf(p), [probe], scenario, rubrics, cfg, { repeat: 1, allCriteria: true });
+      return p.calls.length;
+    }
+
+    it("drops a half-finished contrast probe instead of recording failed slots", async () => {
+      const { scenario, rubrics, probes, ids } = await setup();
+      const probe = probes.find((p) => p.id === "listening-contrast-01")!;
+      const ctrl = new AbortController();
+      const provider = abortAt(fakeJudge(ids, () => ({ listening: 3 })), ctrl, (_r, n) => n === 1);
+      const out = await runJudge(judgeOf(provider), [probe], scenario, rubrics, cfg, { repeat: 1, allCriteria: true, signal: ctrl.signal });
+      expect(out).toEqual([]);
+    });
+    it("keeps probes finished before the abort and drops the one in flight", async () => {
+      const { scenario, rubrics, probes, ids } = await setup();
+      const [first, second] = [probes.find((p) => p.id === "disc-l1")!, probes.find((p) => p.id === "disc-l2")!];
+      const marker = second.transcript[0]!.text;
+      expect(first.transcript.some((l) => l.text === marker)).toBe(false);
+      const ctrl = new AbortController();
+      const provider = abortAt(fakeJudge(ids, () => ({ discovery: 3 })), ctrl, (r) => r.messages.some((m) => m.content.includes(marker)));
+      const out = await runJudge(judgeOf(provider), [first, second], scenario, rubrics, cfg, { repeat: 1, allCriteria: true, signal: ctrl.signal });
+      expect(out.map((o) => o.probeId)).toEqual(["disc-l1"]);
+      expect(out[0]!.kind === "single" && out[0]!.runs).toEqual([3]);
+    });
+    it("drops the probe when the abort lands in repeat 2 of 2", async () => {
+      const { scenario, rubrics, probes, ids } = await setup();
+      const probe = probes.find((p) => p.id === "disc-l1")!;
+      const n = await callsPerRun(probe);
+      const ctrl = new AbortController();
+      const provider = abortAt(fakeJudge(ids, () => ({ discovery: 3 })), ctrl, (_r, i) => i === n + 1);
+      const out = await runJudge(judgeOf(provider), [probe], scenario, rubrics, cfg, { repeat: 2, allCriteria: true, signal: ctrl.signal });
+      expect(out).toEqual([]);
+    });
+    it("drops the probe when the abort lands during the last call of the last repeat", async () => {
+      const { scenario, rubrics, probes, ids } = await setup();
+      const probe = probes.find((p) => p.id === "disc-l1")!;
+      const n = await callsPerRun(probe);
+      const ctrl = new AbortController();
+      const provider = abortAt(fakeJudge(ids, () => ({ discovery: 3 })), ctrl, (_r, i) => i === 2 * n);
+      const out = await runJudge(judgeOf(provider), [probe], scenario, rubrics, cfg, { repeat: 2, allCriteria: true, signal: ctrl.signal });
+      expect(out).toEqual([]);
+    });
   });
 });

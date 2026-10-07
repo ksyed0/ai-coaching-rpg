@@ -31,7 +31,12 @@ function rubricsFor(all: Rubric[], probe: Probe, allCriteria: boolean): Rubric[]
     .filter((r) => r.criteria.length > 0);
 }
 
-/** Runs every probe through the real evaluator with this judge, `repeat` times each, one participant call per scored role per run. */
+/**
+ * Runs every probe through the real evaluator with this judge, `repeat` times each.
+ * Model calls per run = the scenario players with at least 2 lines in the probe transcript (scored or not; evaluateSession scores each of them), so a
+ * probe costs that count x `repeat` calls, plus one re-ask for each unusable reply.
+ * On abort the probe in flight is dropped entirely; probes completed before it are returned.
+ */
 export async function runJudge(judge: Judge, probes: Probe[], scenario: Scenario, rubrics: Rubric[], cfg: EvalConfig, opts: RunOptions): Promise<Outcome[]> {
   if (!Number.isInteger(opts.repeat) || opts.repeat < 1 || opts.repeat > MAX_REPEAT) {
     throw new CalibrationInputError(`--repeat must be a whole number from 1 to ${MAX_REPEAT}`);
@@ -43,6 +48,7 @@ export async function runJudge(judge: Judge, probes: Probe[], scenario: Scenario
     const unknown = opts.only.filter((id) => !known.has(id));
     if (unknown.length) throw new CalibrationInputError(`--only names unknown probes: ${unknown.join(", ")}`);
     chosen = probes.filter((p) => wanted.has(p.id));
+    if (chosen.length === 0) throw new CalibrationInputError("--only selected no probes");
   }
   const out: Outcome[] = [];
   for (const probe of chosen) {
@@ -58,6 +64,8 @@ export async function runJudge(judge: Judge, probes: Probe[], scenario: Scenario
     for (let i = 0; i < opts.repeat; i++) {
       if (opts.signal?.aborted) return out;
       const result = await evaluateSession({ events, scenario, rubrics: used, provider: judge.provider, config: cfg, signal: opts.signal });
+      // An abort turns unfinished participants into "run aborted" failures, which are not the judge failing: drop the whole probe.
+      if (opts.signal?.aborted) return out;
       const run: Record<string, Observed> = {};
       for (const role of roles) {
         const o = observedOf(result.participants.find((p) => p.roleId === role), probe.criterion);
