@@ -57,6 +57,7 @@ export const RESUME_CHECKS: readonly CheckDef[] = [
   { id: "F-40", title: "SESSION_START=fresh moves the log aside byte for byte and starts a new session at seq 1", kind: "inproc" },
   { id: "F-41", title: "A restart over a session that had ended moves its log aside and starts fresh", kind: "inproc" },
   { id: "F-42", title: "While one server holds a session log, a second one is refused by the lock and changes nothing", kind: "inproc" },
+  { id: "F-43", title: "A log cut between the events of one operation (a scene exit, an inject and its effect) is completed on restart, and the completion is logged", kind: "inproc" },
 ] as const;
 
 export const CHECK_IDS: readonly string[] = CHECKS.map((c) => c.id);

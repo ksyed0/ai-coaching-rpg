@@ -3,7 +3,7 @@ import type { Scenario } from "@acr/script";
 import type { Clock } from "./clock.js";
 import { JsonlEventLog, LogCorruptError } from "./event-log.js";
 import { DEFAULT_LOCK_STALE_MS, MAX_LOCK_STALE_MS, MIN_LOCK_STALE_MS, SessionLock, SessionLockError, ensurePrivateDir, rotateStaleLog, type LockOptions } from "./log-files.js";
-import { RestoreError, SessionEngine, type ResumeInfo } from "./session-engine.js";
+import { RestoreError, SessionEngine, type ResumeInfo, type ResumeNotes } from "./session-engine.js";
 
 export type StartMode = "resume" | "fresh";
 
@@ -31,6 +31,8 @@ export type OpenedSession = {
   /** Where the old log went (rotated only), and why. */
   rotatedTo?: string; rotatedBecause?: "fresh" | "ended";
   resume?: ResumeInfo;
+  /** What the resume found worth telling the operator (downtime, a clock that went backwards, completed steps). */
+  resumeNotes?: ResumeNotes;
   /** Operator notes (no secrets, no paths from the environment). */
   notes: string[];
   /** Closes the log handle and releases the lock. Never throws. */
@@ -58,7 +60,10 @@ export async function openSession(o: {
   const notes: string[] = [];
   const now = o.now ?? (() => new Date());
   try { const w = ensurePrivateDir(o.dataDir); if (w) notes.push(`warning: ${w}`); }
-  catch (err) { throw new SessionStoreError("io", `cannot create the data directory ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? "error"}`); }
+  catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EUNSAFE") throw new SessionStoreError("io", `cannot use the data directory: ${(err as Error).message}`);
+    throw new SessionStoreError("io", `cannot create the data directory ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? "error"}`);
+  }
   let lock: SessionLock;
   try { lock = SessionLock.acquire(o.dataDir, o.sessionId, o.lock); }
   catch (err) {
@@ -75,7 +80,7 @@ export async function openSession(o: {
   };
   let opened: { log: JsonlEventLog; engine: SessionEngine } | null = null;
   try {
-    const done = (x: { log: JsonlEventLog; engine: SessionEngine }, rest: Pick<OpenedSession, "outcome" | "rotatedTo" | "rotatedBecause" | "resume">): OpenedSession => ({
+    const done = (x: { log: JsonlEventLog; engine: SessionEngine }, rest: Pick<OpenedSession, "outcome" | "rotatedTo" | "rotatedBecause" | "resume" | "resumeNotes">): OpenedSession => ({
       ...x, lock, notes, ...rest,
       close: async () => { try { await x.log.close(); } catch { /* best effort */ } lock.release(); },
     });
@@ -100,8 +105,8 @@ export async function openSession(o: {
       opened = make();
       return done(opened, rotatedTo ? { outcome: "rotated", rotatedTo, rotatedBecause: "ended" } : { outcome: "new" });
     }
-    await opened.engine.markResumed(restored.info);
-    return done(opened, { outcome: "resumed", resume: restored.info });
+    const resumeNotes = await opened.engine.markResumed(restored.info);
+    return done(opened, { outcome: "resumed", resume: restored.info, resumeNotes });
   } catch (err) {
     if (opened) { try { await opened.log.close(); } catch { /* best effort */ } }
     lock.release();

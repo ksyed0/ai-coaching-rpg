@@ -14,7 +14,8 @@ export function assertInside(dir: string, file: string): void {
 
 /**
  * Creates the data directory owner-only (0700) and removes group and other permissions from an existing one (it holds session
- * logs). Never adds a permission, so a read-only directory stays read-only. Returns a warning when the bits could not be removed.
+ * logs). Never adds a permission, so a read-only directory stays read-only. Returns a warning when read bits could not be removed;
+ * THROWS (code EUNSAFE) when the directory stays writable by group or others.
  */
 export function ensurePrivateDir(dir: string): string | null {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -26,8 +27,21 @@ export function ensurePrivateDir(dir: string): string | null {
     if (!st.isDirectory()) throw Object.assign(new Error("the data directory is not a directory"), { code: "ENOTDIR" });
     if ((st.mode & 0o077) === 0) return null;
     try { fchmodSync(fd, st.mode & 0o700); return null; }
-    catch (err) { return `the data directory is readable by other users and its permissions could not be tightened (${(err as NodeJS.ErrnoException).code ?? "error"})`; }
+    catch (err) {
+      const code = (err as NodeJS.ErrnoException).code ?? "error";
+      // Writable by others: anyone could forge what a resumed session contains, or swap the lock. Refuse rather than run on it.
+      if ((st.mode & 0o022) !== 0) throw Object.assign(new Error(`the data directory is writable by other users and could not be made private (${code}); fix its permissions (chmod 700) or use another directory`), { code: "EUNSAFE" });
+      return `the data directory is readable by other users and its permissions could not be tightened (${code})`;
+    }
   } finally { closeSync(fd); }
+}
+
+/** fsyncs a directory (sync) so a created, linked or removed entry survives a power cut; tolerated where unsupported. */
+export function fsyncDirSync(dir: string): void {
+  let fd: number | null = null;
+  try { fd = openSync(dir, fsConstants.O_RDONLY); fsyncSync(fd); }
+  catch (err) { if (!["EISDIR", "EINVAL", "EPERM", "EBADF", "ENOTSUP", "EACCES"].includes((err as NodeJS.ErrnoException).code ?? "")) throw err; }
+  finally { if (fd !== null) closeSync(fd); }
 }
 
 /** linkSync errors that mean "this filesystem has no hard links": fall back to a copy. */
@@ -97,6 +111,7 @@ export function rotateStaleLog(dir: string, sessionId: string, now: Date): strin
         // The source is only ever removed after the target exists; if that last step fails, say so, so nobody retries blindly.
         throw new Error(`${copied ? "a copy of" : "a second hard link to"} the old log was made at ${path.basename(target)} but ${path.basename(file)} could not be removed (${(uerr as NodeJS.ErrnoException).code ?? "error"}); remove or move ${path.basename(file)} by hand and start again`);
       }
+      fsyncDirSync(dir); // the new name and the removed one are durable before a new log is created
       return target;
     }
     throw new Error(`no free rotation name for ${file} after 1000 tries`);
@@ -106,7 +121,9 @@ export function rotateStaleLog(dir: string, sessionId: string, now: Date): strin
 // ---- the single-writer lock ---------------------------------------------------------------------------------------------------
 
 export const DEFAULT_LOCK_STALE_MS = 30_000;
-export const MIN_LOCK_STALE_MS = 3_000;
+export const MIN_LOCK_STALE_MS = 10_000;
+/** How long a holder waits before re-checking a lock that looked missing or replaced (a takeover race puts it back within microseconds). */
+export const LOCK_RECHECK_MS = 50;
 export const MAX_LOCK_STALE_MS = 600_000;
 /** The heartbeat refreshes the lock's mtime this often: a sixth of the stale age, at least once a second (5 s by default). */
 export const heartbeatFor = (staleMs: number): number => Math.max(1_000, Math.floor(staleMs / 6));
@@ -125,7 +142,7 @@ export type LockOptions = {
   onLost?: () => void;
 };
 
-export type LockErrorCode = "locked" | "not_a_file" | "contention" | "lost";
+export type LockErrorCode = "locked" | "not_a_file" | "contention" | "lost" | "closed";
 export class SessionLockError extends Error {
   constructor(readonly code: LockErrorCode, message: string) { super(message); this.name = "SessionLockError"; }
 }
@@ -165,10 +182,13 @@ export class SessionLock {
   private readonly now: () => number;
   private readonly onLost: (() => void) | undefined;
 
+  /** Test seam: runs between the rename and the identity check of a takeover (to make a two-starter race deterministic). */
+  static testHooks: { afterRename?: () => void } = {};
+
   private constructor(file: string, fd: number, ident: Identity, now: () => number, heartbeatMs: number, onLost?: () => void) {
     this.file = file; this.fd = fd; this.ident = ident; this.now = now; this.onLost = onLost;
     HELD.add(file);
-    this.timer = setInterval(() => this.heartbeat(), heartbeatMs);
+    this.timer = setInterval(() => { void this.heartbeat(); }, heartbeatMs);
     this.timer.unref();
   }
 
@@ -198,6 +218,7 @@ export class SessionLock {
         writeSync(fd, info, 0, info.length, 0);
         fsyncSync(fd);
         const st = fstatSync(fd);
+        fsyncDirSync(path.dirname(file));
         return new SessionLock(file, fd, { dev: st.dev, ino: st.ino }, now, heartbeatFor(staleMs), opts.onLost);
       } catch (err) {
         try { closeSync(fd); unlinkSync(file); } catch { /* best effort: the half-made lock is stale at once (our pid, not held) */ }
@@ -221,6 +242,8 @@ export class SessionLock {
     try {
       const st = fstatSync(fd);
       if (!st.isFile()) throw new SessionLockError("not_a_file", "the session lock is not a regular file; remove it by hand");
+      if (st.nlink > 1) throw new SessionLockError("not_a_file", "the session lock has other hard links; remove it by hand");
+      if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new SessionLockError("not_a_file", "the session lock belongs to another user; remove it by hand");
       const buf = Buffer.alloc(MAX_LOCK_INFO_BYTES);
       const n = readSync(fd, buf, 0, buf.length, 0);
       let info: { pid?: unknown; host?: unknown } = {};
@@ -240,6 +263,7 @@ export class SessionLock {
     const aside = `${file}.stale-${randomBytes(6).toString("hex")}`;
     try { renameSync(file, aside); }
     catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return true; throw err; }
+    SessionLock.testHooks.afterRename?.();
     let moved: Identity | null = null;
     try {
       const fd = openSync(aside, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
@@ -263,13 +287,20 @@ export class SessionLock {
 
   get lost(): boolean { return this.lostFlag; }
 
-  /** Throws SessionLockError("lost") when the lock is no longer ours (checked before every log append). */
-  assertHeld(): void {
-    if (this.released) throw new SessionLockError("lost", "the session was closed; nothing more is written to its log");
-    if (this.lostFlag || !this.verify()) {
-      this.markLost();
-      throw new SessionLockError("lost", "the session lock was removed or taken over by another process; this server stops writing the log");
-    }
+  /**
+   * Resolves while the lock is ours; rejects with SessionLockError "lost" (after one re-check LOCK_RECHECK_MS later, since a takeover
+   * race may move a live lock aside for an instant and put it back) or "closed" after release(). Checked around every log append.
+   */
+  async assertHeld(): Promise<void> {
+    if (this.released) throw new SessionLockError("closed", "the session was closed; nothing more is written to its log");
+    if (!this.lostFlag && (this.verify() || await this.recheck())) return;
+    this.markLost();
+    throw new SessionLockError("lost", "the session lock was removed or taken over by another process; this server stops writing the log");
+  }
+
+  private async recheck(): Promise<boolean> {
+    await new Promise((r) => setTimeout(r, LOCK_RECHECK_MS));
+    return !this.released && this.verify();
   }
 
   private markLost(): void {
@@ -279,10 +310,10 @@ export class SessionLock {
   }
 
   /** Refreshes the mtime through the held descriptor, then checks the path still names our file. */
-  heartbeat(): void {
+  async heartbeat(): Promise<void> {
     if (this.fd === null || this.lostFlag) return;
     try { const t = this.now() / 1000; futimesSync(this.fd, t, t); } catch { /* a failed touch is caught by verify below or by the next one */ }
-    if (!this.verify()) this.markLost();
+    if (!this.verify() && !(await this.recheck()) && !this.released) this.markLost();
   }
 
   private stopTimer(): void { if (this.timer) clearInterval(this.timer); this.timer = null; }

@@ -229,3 +229,26 @@ describe("event types", () => {
     expect(LOG_FORMAT).toBe(1);
   });
 });
+
+describe("reduceReplay (US-0018: linear restore)", () => {
+  it("gives the same state as reduce, appends in place, and checks the seq", async () => {
+    const { reduceReplay } = await import("../index.js");
+    const evs: SessionEvent[] = [
+      started,
+      { ...env(2), type: "scene.entered", sceneId: "s1", participants: ["delivery_lead"] },
+      { ...env(3), type: "utterance", roleId: "delivery_lead", text: "a", channel: "text" },
+      { ...env(4), type: "inject.fired", injectId: "i1", sceneId: "s1", to: ["delivery_lead"], content: "c" },
+      { ...env(5), type: "utterance", roleId: "delivery_lead", text: "b", channel: "voice" },
+      { ...env(6), type: "scene.exited", sceneId: "s1", reason: "facilitator_advance" },
+      { ...env(7), type: "utterance", roleId: "delivery_lead", text: "between scenes", channel: "text" },
+    ];
+    const pure = evs.reduce((s, e) => reduce(s, e), initialState());
+    const fresh = initialState();
+    const fast = evs.reduce((s, e) => reduceReplay(s, e), fresh);
+    expect(fast).toEqual(pure);
+    expect(fast.transcript).toBe(fresh.transcript);
+    expect(fast.injectsFired).toBe(fresh.injectsFired);
+    expect(() => reduceReplay(fast, { ...env(99), type: "utterance", roleId: "x", text: "x", channel: "text" })).toThrow(/out of order/);
+    expect(() => reduceReplay(fast, { ...env(99), type: "inject.fired", injectId: "x", sceneId: "s", to: [], content: "" })).toThrow(/out of order/);
+  });
+});

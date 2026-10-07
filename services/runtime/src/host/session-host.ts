@@ -29,6 +29,8 @@ export class SessionHost {
   private readonly silences: SilentTurn[] = [];
   private readonly maxSilencesKept: number;
   private readonly silentListeners = new Set<(t: SilentTurn) => void>();
+  private readonly fatalListeners = new Set<(reason: string) => void>();
+  private fatal: string | null = null;
 
   constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
@@ -39,6 +41,8 @@ export class SessionHost {
     for (const role of Object.values(opts.scenario.roles)) {
       if (role.type === "npc") this.npcs.set(role.id, new NpcAgent({ role: role as NpcRole, engine: opts.engine, provider: opts.npcProvider, firstTokenTimeoutMs: opts.firstTokenTimeoutMs, replyTimeoutMs: opts.replyTimeoutMs, maxTokens: opts.npcMaxTokens, temperature: opts.npcTemperature, peers, onSilent: (t) => this.noteSilence(t) }));
     }
+    // Fail-stop (US-0018): when the log fails or the lock is lost the engine refuses everything; stop the clock and tell the server.
+    opts.engine.onFailure((reason) => this.onEngineFailure(reason));
     this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), maxTokens: opts.gmMaxTokens, temperature: opts.gmTemperature, evaluationTimeoutMs: opts.gmTimeoutMs ?? gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS), reask: opts.gmReask, everyNUtterances: opts.gmEveryN, trace: opts.gmTrace });
   }
 
@@ -53,6 +57,19 @@ export class SessionHost {
 
   /** Calls `fn` for each silent turn from now on; returns the unsubscribe function. */
   onSilentTurn(fn: (t: SilentTurn) => void): () => void { this.silentListeners.add(fn); return () => { this.silentListeners.delete(fn); }; }
+
+  /** Why the session stopped for good (the log failed or the lock was lost), or null. */
+  get fatalReason(): string | null { return this.fatal; }
+
+  /** Calls `fn` once if the session stops for good (see fatalReason). */
+  onFatal(fn: (reason: string) => void): () => void { this.fatalListeners.add(fn); return () => { this.fatalListeners.delete(fn); }; }
+
+  private onEngineFailure(reason: string): void {
+    if (this.fatal !== null) return;
+    this.fatal = reason;
+    this.stopTicker();
+    for (const fn of this.fatalListeners) { try { fn(reason); } catch (err) { this.report("fatal listener", err); } }
+  }
 
   private report(what: string, err: unknown): void {
     try { this.log(`${what}: ${err instanceof Error ? err.stack ?? err.message : String(err)}`); } catch { /* logging must never throw */ }
@@ -181,6 +198,7 @@ export class SessionHost {
 
   startTicker(ms: number): void {
     this.stopTicker();
+    if (this.fatal !== null) return;
     this.ticker = setInterval(() => {
       if (this.tickPending) return; // a slow tick must not pile up behind itself
       this.tickPending = true;

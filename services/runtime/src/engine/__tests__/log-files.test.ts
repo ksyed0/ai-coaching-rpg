@@ -94,32 +94,32 @@ describe("SessionLock", () => {
     let now = Date.now();
     const l = take({ now: () => now });
     now += 3_600_000;
-    l.heartbeat();
+    await l.heartbeat();
     expect(Math.abs((await stat(lockFile())).mtimeMs - now)).toBeLessThan(2_000);
     expect(heartbeatFor(30_000)).toBe(5_000);
-    expect(heartbeatFor(3_000)).toBe(1_000);
+    expect(heartbeatFor(10_000)).toBe(1_666);
   });
 
   it("notices when the lock file is replaced or removed: lost, appends refused, onLost called once, release leaves the other file alone", async () => {
     let lostCalls = 0;
     const l = take({ onLost: () => { lostCalls++; } });
-    l.assertHeld();
+    await l.assertHeld();
     await rename(lockFile(), path.join(dir, "moved"));
     await writeFile(lockFile(), "someone else's lock");
-    l.heartbeat();
+    await l.heartbeat();
     expect(l.lost).toBe(true);
-    expect(() => l.assertHeld()).toThrow(/taken over/);
-    l.heartbeat();
+    await expect(l.assertHeld()).rejects.toThrow(/taken over/);
+    await l.heartbeat();
     expect(lostCalls).toBe(1);
     l.release();
     expect(await readFile(lockFile(), "utf8")).toBe("someone else's lock");
   });
 
-  it("after release, assertHeld refuses without reporting a loss", () => {
+  it("after release, assertHeld refuses (code closed) without reporting a loss", async () => {
     let lostCalls = 0;
     const l = take({ onLost: () => { lostCalls++; } });
     l.release();
-    expect(() => l.assertHeld()).toThrow(/was closed/);
+    await expect(l.assertHeld()).rejects.toMatchObject({ code: "closed", message: expect.stringMatching(/was closed/) });
     expect(lostCalls).toBe(0);
   });
 

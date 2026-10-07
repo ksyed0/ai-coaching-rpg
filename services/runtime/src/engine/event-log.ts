@@ -45,6 +45,19 @@ export const MAX_SESSION_LOG_BYTES = 64 * 1024 * 1024;
 export const MAX_EVENT_LINE_BYTES = 1024 * 1024;
 const CHUNK = 64 * 1024;
 
+/**
+ * The log FAILED while being written (a write, an fdatasync or a tail repair failed, or the session lock was lost): fail-stop. The log
+ * refuses every later append, because the file may now hold an event the engine never applied; the server must stop and be restarted,
+ * and the restart resumes from what the file holds (the log is the source of truth: an event may be on disk that no client saw).
+ */
+export class LogFailedError extends Error {
+  readonly code = "log_failed";
+  constructor(readonly reason: string) {
+    super(`the session log could not be written (${reason}); this server stopped writing it. Restart the server: the session resumes from its log`);
+    this.name = "LogFailedError";
+  }
+}
+
 /** The log cannot be read as a valid event sequence (corruption beyond a cut-off last line, an unknown event type, a seq gap, ...). */
 export class LogCorruptError extends Error {
   readonly code = "log_corrupt";
@@ -54,8 +67,11 @@ export class LogCorruptError extends Error {
 export type JsonlLogOptions = {
   /** Refuse a log larger than this many bytes (default MAX_SESSION_LOG_BYTES). */
   maxBytes?: number;
-  /** Runs before every append; throws to refuse it (the session lock's assertHeld). */
-  guard?: () => void;
+  /**
+   * Runs before every append, again right before the bytes are written and once more after they are synced (the session lock's
+   * assertHeld); throws to refuse. A throw whose `code` is "closed" only refuses this append; any other throw makes the log fail-stop.
+   */
+  guard?: () => void | Promise<void>;
   /**
    * fdatasync after every append (default true: what the server always uses). Only the demo's throwaway in-process systems turn it off,
    * since macOS implements it as a full device flush (F_FULLFSYNC) that serialises parallel test runs; durability is the same code path.
@@ -68,13 +84,30 @@ const EMPTY_SCAN: ScanResult = { lastSeq: 0, goodBytes: 0, tail: "none", partial
 
 const notRegular = (name: string, isDir: boolean) => Object.assign(new Error(`${name} is not a regular file`), { code: isDir ? "EISDIR" : "EINVAL" });
 
+/** A log must be a regular file with one link, owned by this process's user (where the platform has uids). */
+function checkOwnFile(name: string, st: { isFile(): boolean; isDirectory(): boolean; nlink: number; uid: number }): void {
+  if (!st.isFile()) throw notRegular(name, st.isDirectory());
+  if (st.nlink > 1) throw new LogCorruptError(`${name} has other hard links; it is not used (move the extra links away)`);
+  if (typeof process.getuid === "function" && st.uid !== process.getuid()) throw new LogCorruptError(`${name} belongs to another user; it is not used`);
+}
+
+/** fsyncs a directory so a new or removed entry survives a power cut; tolerated where directories cannot be synced. */
+export async function fsyncDir(dir: string): Promise<void> {
+  let d: FileHandle | null = null;
+  try { d = await open(dir, fsConstants.O_RDONLY); await d.sync(); }
+  catch (err) { if (!["EISDIR", "EINVAL", "EPERM", "EBADF", "ENOTSUP", "EACCES"].includes((err as NodeJS.ErrnoException).code ?? "")) throw err; }
+  finally { await d?.close().catch(() => undefined); }
+}
+
 /**
  * The session log on disk: one JSON event per line, `<dir>/<sessionId>.jsonl`.
  *
  * - One append handle (O_APPEND, O_NOFOLLOW), created mode 0600 (an older, wider file is narrowed to 0600) in a 0700 directory;
  *   every append is followed by fdatasync, so an event a client has seen survives a crash or a power cut.
  * - Reads stream the file in 64 KiB chunks through one descriptor (fstat'd; never a path checked and then opened), capped at
- *   `maxBytes`, so memory and time stay bounded.
+ *   `maxBytes` (memory is bounded by the cap; a scan is linear in the file size).
+ * - FAIL-STOP: once a write, an fdatasync or a tail repair fails, or the guard (the session lock) refuses, the log refuses every later
+ *   append (LogFailedError). It never continues past an event the engine may not have applied.
  * - Every line is checked: JSON, an integer seq exactly one more than the previous, a finite ts, this session's id and a known event
  *   type. Anything else is a LogCorruptError naming the line. The one exception is a cut-off LAST line (no newline, not JSON): a crash
  *   mid-write. It is ignored on read and cut (ftruncate) before the next append. A complete last event that lacks only its newline
@@ -85,10 +118,12 @@ export class JsonlEventLog implements EventLog {
   readonly file: string;
   private readonly dir: string;
   private readonly maxBytes: number;
-  private readonly guard: (() => void) | undefined;
+  private readonly guard: (() => void | Promise<void>) | undefined;
   private readonly sync: boolean;
   private handle: FileHandle | null = null;
   private closed = false;
+  /** Set once writing failed: every later append is refused (fail-stop). */
+  private broken: string | null = null;
   private readonly mutex = new Mutex();
   constructor(readonly sessionId: string, dir = "data/sessions", opts: JsonlLogOptions = {}) {
     if (!isValidSessionId(sessionId)) throw new Error(`invalid session id: ${JSON.stringify(sessionId)}`);
@@ -99,29 +134,55 @@ export class JsonlEventLog implements EventLog {
     this.sync = opts.sync ?? true;
   }
 
+  /** Why the log failed (fail-stop), or null. */
+  get failure(): string | null { return this.broken; }
+
   append(body: EventBody, ts: number): Promise<SessionEvent> {
     return this.mutex.run(async () => {
       if (this.closed) throw Object.assign(new Error("the session log is closed"), { code: "ECLOSED" });
-      try {
-        this.guard?.();
-        const h = await this.writable();
-        if (this.seq === null) {
-          const scan = await this.scan(h, null);
+      if (this.broken) throw new LogFailedError(this.broken);
+      await this.checkGuard();
+      let h: FileHandle;
+      try { h = await this.writable(); }
+      catch (err) { await this.dropHandle(); throw err; } // nothing was written: an open failure may be retried
+      if (this.seq === null) {
+        const scan = await this.scan(h, null); // corruption throws here, before anything is written
+        try {
           if (scan.tail === "cut") await h.truncate(scan.goodBytes);
           else if (scan.tail === "newline") await writeAll(h, Buffer.from("\n"));
-          this.seq = scan.lastSeq;
-        }
-        const e = { ...body, seq: this.seq + 1, ts, sessionId: this.sessionId } as SessionEvent;
-        await writeAll(h, Buffer.from(JSON.stringify(e) + "\n", "utf8"));
-        if (this.sync) await h.datasync();
-        this.seq = e.seq; // commit only after a successful, synced write
-        return e;
-      } catch (err) {
-        this.seq = null; // a failed write may have left a partial line: re-scan and repair before the next append
-        await this.dropHandle();
-        throw err;
+          if (scan.tail !== "none" && this.sync) await h.datasync();
+        } catch (err) { throw await this.fail(err); }
+        this.seq = scan.lastSeq;
       }
+      const e = { ...body, seq: this.seq + 1, ts, sessionId: this.sessionId } as SessionEvent;
+      const line = Buffer.from(JSON.stringify(e) + "\n", "utf8");
+      await this.checkGuard(); // a server frozen while its lock was taken over must not write after the takeover
+      try {
+        await writeAll(h, line);
+        if (this.sync) await h.datasync();
+      } catch (err) { throw await this.fail(err); }
+      this.seq = e.seq;
+      await this.checkGuard(); // lost while writing: the event is on disk, but nothing more may follow it
+      return e;
     });
+  }
+
+  /** Runs the guard; a refusal other than "closed" makes the log fail-stop. */
+  private async checkGuard(): Promise<void> {
+    if (!this.guard) return;
+    try { await this.guard(); }
+    catch (err) {
+      if ((err as { code?: unknown }).code === "closed") throw err;
+      throw await this.fail(err, "the session lock was lost");
+    }
+  }
+
+  /** Fail-stop: remembers why, closes the handle and returns the error to throw. */
+  private async fail(err: unknown, reason?: string): Promise<LogFailedError> {
+    this.broken ??= reason ?? `${(err as NodeJS.ErrnoException).code ?? "I/O error"} while writing`;
+    this.seq = null;
+    await this.dropHandle();
+    return new LogFailedError(this.broken);
   }
 
   all(): Promise<SessionEvent[]> {
@@ -155,8 +216,9 @@ export class JsonlEventLog implements EventLog {
     const h = await open(this.file, fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_NOFOLLOW, 0o600);
     try {
       const st = await h.stat();
-      if (!st.isFile()) throw notRegular(path.basename(this.file), st.isDirectory());
+      checkOwnFile(path.basename(this.file), st);
       if ((st.mode & 0o077) !== 0) await h.chmod(0o600); // a log from before US-0018: owner-only from now on
+      if (st.size === 0) await fsyncDir(this.dir); // a new (or empty) log: make its directory entry durable too
     } catch (err) { await h.close(); throw err; }
     this.handle = h;
     return h;
@@ -172,8 +234,7 @@ export class JsonlEventLog implements EventLog {
       throw err;
     }
     try {
-      const st = await h.stat();
-      if (!st.isFile()) throw notRegular(path.basename(this.file), st.isDirectory());
+      checkOwnFile(path.basename(this.file), await h.stat());
       return await this.scan(h, fn);
     } finally { await h.close(); }
   }

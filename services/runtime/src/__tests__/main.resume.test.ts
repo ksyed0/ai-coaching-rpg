@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -27,8 +27,8 @@ afterEach(async () => {
 
 const env = (extra: Record<string, string> = {}) => ({ SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "r1", MODEL_PROVIDER: "mock", ...extra });
 const dataDir = () => path.join(tmp, "data");
-async function boot(extra: Record<string, string> = {}, logs: string[] = []) {
-  const r = await bootstrap({ env: env(extra), root: tmp, logDir: dataDir(), tickMs: 60_000, log: (m) => logs.push(m), warn: (m) => logs.push(m) });
+async function boot(extra: Record<string, string> = {}, logs: string[] = [], onFatal?: () => void) {
+  const r = await bootstrap({ env: env(extra), root: tmp, logDir: dataDir(), tickMs: 60_000, log: (m) => logs.push(m), warn: (m) => logs.push(m), onFatal });
   if (r.ok) runtimes.push(r.runtime);
   return r;
 }
@@ -73,6 +73,64 @@ async function playUntilALine(port: number) {
   await fac.waitFor(isEv("utterance", (e) => e.type === "utterance" && e.roleId === "guest"), "the AI character's reply");
   return { fac, p };
 }
+
+describe("bootstrap: fail-stop when the log cannot be written (US-0018)", () => {
+  async function joined(port: number) {
+    const fac = await Client.open(port);
+    fac.send({ type: "join_facilitator", sessionId: "r1" });
+    await fac.waitFor((m) => m.type === "joined", "facilitator joined");
+    const p = await Client.open(port);
+    p.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice" });
+    await p.waitFor((m) => m.type === "joined", "player joined");
+    fac.send({ type: "start" });
+    await fac.waitFor(isEv("scene.entered"), "scene 1");
+    return { fac, p };
+  }
+  const notice = (m: Msg) => m.type === "error" && m.code === "log_failed" && /stopping/.test((m as { message?: string }).message ?? "");
+
+  it("a failed sync: every client gets an unlogged notice, input is refused, onFatal runs once, one FATAL line (no path)", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-fatal-"));
+    const logs: string[] = []; let fatal = 0;
+    const r = await boot({}, logs, () => { fatal++; });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    const { fac, p } = await joined(r.runtime.port);
+    const fh = await open(path.join(tmp, "probe"), "w"); const proto = Object.getPrototypeOf(fh) as { datasync: () => Promise<void> }; await fh.close();
+    const orig = proto.datasync; let failNext = true;
+    proto.datasync = function (this: unknown) { if (failNext) { failNext = false; return Promise.reject(Object.assign(new Error("EIO"), { code: "EIO" })); } return orig.call(this); };
+    try {
+      const before = (await readFile(path.join(dataDir(), "r1.jsonl"))).length;
+      p.send({ type: "say", text: "this write fails" });
+      await fac.waitFor(notice, "the facilitator's notice");
+      await p.waitFor(notice, "the player's notice");
+      p.send({ type: "say", text: "refused" });
+      await p.waitFor((m) => m.type === "error" && m.code === "log_failed" && !notice(m), "the refusal");
+      fac.send({ type: "command", command: { command: "advance" } });
+      await fac.waitFor((m) => m.type === "error" && m.code === "log_failed" && !notice(m), "the facilitator's refusal");
+      expect(fatal).toBe(1);
+      const fatalLines = logs.filter((l) => l.startsWith("FATAL"));
+      expect(fatalLines).toHaveLength(1);
+      expect(fatalLines[0]).not.toContain(tmp);
+      const after = await readFile(path.join(dataDir(), "r1.jsonl"));
+      expect(after.subarray(before).toString().split("\n").filter(Boolean)).toHaveLength(1); // only the line whose sync failed
+      expect(fac.inbox.filter(notice)).toHaveLength(1);
+    } finally { proto.datasync = orig; fac.close(); p.close(); }
+  });
+
+  it("a lost lock (removed under the running server) is fail-stop too", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-fatal-"));
+    let fatal = 0;
+    const r = await boot({}, [], () => { fatal++; });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    const { fac, p } = await joined(r.runtime.port);
+    await rm(path.join(dataDir(), "r1.lock"));
+    p.send({ type: "say", text: "after the lock was removed" });
+    await fac.waitFor(notice, "the notice");
+    expect(fatal).toBe(1);
+    const events = (await readFile(path.join(dataDir(), "r1.jsonl"), "utf8")).split("\n").filter(Boolean).map((l) => JSON.parse(l) as SessionEvent);
+    expect(events.some((e) => e.type === "utterance" && e.text === "after the lock was removed")).toBe(false);
+    fac.close(); p.close();
+  });
+});
 
 describe("bootstrap: resume after a restart (US-0018)", () => {
   it("a restart RESUMES a running session from its log (no rotation), paused; a rejoining player gets its history; /resume continues", async () => {

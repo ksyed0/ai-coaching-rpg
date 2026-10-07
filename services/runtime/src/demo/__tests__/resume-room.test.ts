@@ -36,9 +36,9 @@ describe("--resume option", () => {
 });
 
 describe("the resume checks are opt-in and leave the default catalogue alone", () => {
-  it("F-34 to F-42 are separate from the 29 default checks and from the security room", () => {
+  it("F-34 to F-43 are separate from the 29 default checks and from the security room", () => {
     expect(CHECKS.length).toBe(29);
-    expect(RESUME_CHECKS.map((c) => c.id)).toEqual(["F-34", "F-35", "F-36", "F-37", "F-38", "F-39", "F-40", "F-41", "F-42"]);
+    expect(RESUME_CHECKS.map((c) => c.id)).toEqual(["F-34", "F-35", "F-36", "F-37", "F-38", "F-39", "F-40", "F-41", "F-42", "F-43"]);
     expect(CHECK_IDS).not.toContain("F-34");
     expect(RESUME_CHECKS.every((c) => c.kind === "inproc")).toBe(true);
     expect(SECURITY_CHECKS.some((c) => RESUME_CHECKS.some((r) => r.id === c.id))).toBe(false);
@@ -46,7 +46,7 @@ describe("the resume checks are opt-in and leave the default catalogue alone", (
 });
 
 describe("pnpm demo --resume", () => {
-  it("passes all 38 checks in mock mode, offline and deterministically, and leaves no socket behind", async () => {
+  it("passes all 39 checks in mock mode, offline and deterministically, and leaves no socket behind", async () => {
     const tcp = () => process.getActiveResourcesInfo().filter((r) => r === "TCPServerWrap" || r === "TCPSocketWrap").length;
     const t0 = tcp();
     const c = capture();
@@ -54,7 +54,7 @@ describe("pnpm demo --resume", () => {
     expect(report!.results.filter((r) => r.status !== "passed")).toEqual([]);
     expect(exitCode).toBe(0);
     expect(report!.results.map((r) => r.id)).toEqual([...CHECK_IDS, ...RESUME_CHECKS.map((r) => r.id)]);
-    expect(report!.summary).toEqual({ passed: 38, failed: 0, skipped: 0 });
+    expect(report!.summary).toEqual({ passed: 39, failed: 0, skipped: 0 });
     const out = c.out.join("");
     expect(out).toContain("ACT 6c");
     expect(out).not.toMatch(/acr-resume-room-|acr-demo-/); // no temp path in the narration
@@ -62,10 +62,10 @@ describe("pnpm demo --resume", () => {
     expect(tcp()).toBe(t0);
   });
 
-  it("runs together with --security: 41 checks", async () => {
+  it("runs together with --security: 42 checks", async () => {
     const { exitCode, report } = await runDemo(deps(capture(), ["--fast", "--no-color", "--security", "--resume"]));
     expect(exitCode).toBe(0);
-    expect(report!.summary).toEqual({ passed: 41, failed: 0, skipped: 0 });
+    expect(report!.summary).toEqual({ passed: 42, failed: 0, skipped: 0 });
   });
 
   it("a failing resume check fails the run; a bypassed one is a failure, never a quiet skip", async () => {

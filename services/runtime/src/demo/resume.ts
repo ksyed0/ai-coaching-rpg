@@ -99,7 +99,7 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
     npcA.release(); // the model answers after the crash: that reply can never be recorded
     await a.host.idle();
     const bytesAtCrash = await readFile(logFile);
-    await n.step(`the server dies (simulated in this process: its connections are cut, its lock and log are abandoned, nothing is cleaned up) and stays down for ${RESUME_DOWNTIME_MS / MIN} minutes`);
+    await n.step(`SIMULATED crash, in this process: the connections are cut and the lock and log abandoned without cleanup (unlike a real kill, writes already in flight finish first; a real SIGKILL is covered by the unit tests); the server stays down for ${RESUME_DOWNTIME_MS / MIN} minutes`);
     ensure(!(await lines(logFile)).some((l) => l.includes(NEVER)), "a reply generated after the crash reached the log");
 
     // ---- life 2: the restart -----------------------------------------------------------------------------------------------------
@@ -226,6 +226,33 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       await c.stop();
       await n.step("a log broken in the middle is refused (line 5) and left as it is; a cut-off LAST line (a crash mid-write) is cut, with a warning, and the session resumes");
       return `corruption at line 5 was refused and the file left byte-identical; a ${tail.length}-byte cut-off last line was cut (and reported) and that session resumed`;
+    }, ["F-34"]);
+
+    await rec.run("F-43", async () => {
+      const all = await lines(logFile);
+      const at = (pred: (e: SessionEvent) => boolean) => all.findIndex((l) => pred(JSON.parse(l) as SessionEvent));
+      const cuts = [
+        { name: "cut-exit", upTo: at((e) => e.type === "scene.exited" && e.sceneId === s1), want: `entered scene ${s2}` },
+        { name: "cut-inject", upTo: at((e) => e.type === "inject.fired" && e.injectId === timed.id), want: `applied inject ${timed.id} to ${npc.id}` },
+      ];
+      const evidence: string[] = [];
+      for (const c of cuts) {
+        ensure(c.upTo >= 0, `the log has no event to cut after for ${c.name}`);
+        const d = path.join(root, c.name);
+        await mkdir(d, { recursive: true, mode: 0o700 });
+        await writeFile(path.join(d, `${SID}.jsonl`), all.slice(0, c.upTo + 1).join("\n") + "\n", { mode: 0o600 });
+        const r = await start({ clock: new FakeClock(clockB.now()), dataDir: d });
+        const repairs = r.store.resumeNotes?.repairs ?? [];
+        ensure(JSON.stringify(repairs) === JSON.stringify([c.want]), `${c.name}: the restart completed ${JSON.stringify(repairs)}`);
+        const alert = (await evs(path.join(d, `${SID}.jsonl`))).filter((e) => e.type === "facilitator.alert").at(-1);
+        ensure(alert?.type === "facilitator.alert" && alert.message.includes(c.want), `${c.name}: the repair was not logged in the restart alert`);
+        if (c.name === "cut-exit") ensure(r.engine.state.currentScene?.id === s2 && r.engine.state.paused, "the next scene was not entered (paused)");
+        else ensure((r.engine.state.npcs[npc.id]?.goals ?? []).some((g) => (timed.effect?.goals_add ?? []).includes(g)), "the inject's effect on the AI character was not applied");
+        evidence.push(`${c.name}: ${c.want}`);
+        await r.stop();
+      }
+      await n.step(`a log cut between the events of one operation (after a scene exit; after an inject, before its effect) is completed on restart, deterministically, and the completion is logged`);
+      return `logs cut mid-operation were completed on resume and the completion logged in the restart alert (${evidence.join("; ")})`;
     }, ["F-34"]);
 
     await rec.run("F-40", async () => {

@@ -26,6 +26,12 @@ export type BootstrapResult = { ok: true; runtime: Runtime } | { ok: false; erro
 /** Builds and starts one session. Never calls process.exit and never logs environment values (API keys). */
 export async function bootstrap(opts: {
   env: NodeJS.ProcessEnv; root?: string; now?: () => Date; log?: (m: string) => void; warn?: (m: string) => void; logDir?: string; tickMs?: number;
+  /**
+   * Called once when the session stops for good (the log could not be written, or the session lock was lost): the ticker is already
+   * stopped and the clients told. The process owner should drain briefly, stop the runtime and exit non-zero so a supervisor restarts
+   * it; the restart resumes from the log. Default: nothing (bootstrap never exits the process).
+   */
+  onFatal?: () => void;
 }): Promise<BootstrapResult> {
   // Validate the session id before ANY filesystem action: it becomes a file name under the data dir.
   const requestedId = (opts.env.SESSION_ID ?? "local");
@@ -84,7 +90,8 @@ export async function bootstrap(opts: {
   // US-0018: take the session lock, then resume the log (default), or move it aside (SESSION_START=fresh, or a session that had ended).
   const clock = new SystemClock();
   let store: OpenedSession;
-  try { store = await openSession({ scenario, sessionId, dataDir, clock, mode: startMode.mode, now: opts.now, lock: { staleMs: lockStale.staleMs, onLost: () => warn("ERROR: the session lock was removed or taken over by another process; this server no longer writes the session log") } }); }
+  const lost: { halt?: () => void } = {};
+  try { store = await openSession({ scenario, sessionId, dataDir, clock, mode: startMode.mode, now: opts.now, lock: { staleMs: lockStale.staleMs, onLost: () => lost.halt?.() } }); }
   catch (err) { return { ok: false, errors: [err instanceof SessionStoreError ? err.message : `cannot open the session log: ${err instanceof Error ? err.message : String(err)}`] }; }
   for (const note of store.notes) warn(note);
   if (store.rotatedTo) log(`previous session log moved aside${store.rotatedBecause === "ended" ? " (that session had ended)" : ""}: ${store.rotatedTo}`);
@@ -105,6 +112,16 @@ export async function bootstrap(opts: {
     log(`model provider: ${describeModelProvider(env)}`);
     host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmTrace });
     if (store.resume) host.resumeFrom(store.resume);
+    // Fail-stop (US-0018): a lost lock stops the engine too; one log line (no paths or values), then the owner's onFatal.
+    lost.halt = () => store.engine.halt("the session lock was lost");
+    if (store.lock.lost) lost.halt();
+    let fatalSeen = false;
+    host.onFatal(() => {
+      if (fatalSeen) return;
+      fatalSeen = true;
+      warn("FATAL: the session log can no longer be written safely (a write or sync failed, or the session lock was lost); the server stops accepting input and must be restarted, which resumes the session from its log");
+      try { opts.onFatal?.(); } catch { /* the owner's handler must not throw into the engine */ }
+    });
   } catch (err) { gmTrace?.close(); await store.close(); return { ok: false, errors: [err instanceof Error ? err.message : String(err)] }; }
 
   host.startTicker(opts.tickMs ?? 1_000);
@@ -125,9 +142,15 @@ export async function bootstrap(opts: {
     log(`session RESUMED from its log after a restart (${r.events} events${r.sceneId ? `, scene ${r.sceneId}` : ""}); it is PAUSED until the facilitator sends /resume${r.pendingLine ? ", which also answers the last player line" : ""}. Participants rejoin and claim their roles again`);
     if (r.partialTailBytes > 0) warn(`warning: the session log ended in a cut-off line (${r.partialTailBytes} bytes, an event that was never confirmed); it is dropped`);
     if (r.format === 0) warn("warning: the session log predates log format 1 (no scenario hash); it was resumed on a matching scenario id and version only");
+    const notes = store.resumeNotes;
+    if (notes && notes.clockBehindSecs > 0) warn(`warning: the system clock is ${notes.clockBehindSecs} s behind the last event in the session log (it moved backwards); the downtime is unknown and counted as 0 s, and new events keep the last recorded time until the clock catches up`);
+    if (notes && notes.repairs.length > 0) log(`the restart completed what the crash cut short: ${notes.repairs.join(", ")}`);
   }
   return { ok: true, runtime: { port: server.port, host, stop: async () => { host.stopTicker(); await server.close(); gmTrace?.close(); await store.close(); } } };
 }
+
+/** After a fatal log failure: how long the clients get to receive the notice before the process exits (non-zero) for a restart. */
+export const FATAL_DRAIN_MS = 2_000;
 
 async function main(): Promise<void> {
   try { await run(); }
@@ -135,13 +158,15 @@ async function main(): Promise<void> {
 }
 
 async function run(): Promise<void> {
-  const result = await bootstrap({ env: process.env });
+  const fatal: { handler?: () => void } = {};
+  const result = await bootstrap({ env: process.env, onFatal: () => fatal.handler?.() });
   if (!result.ok) {
     for (const e of result.errors) console.error(`error: ${e}`);
     process.exit(1);
   }
   const { runtime } = result;
   const shutdown = () => { void runtime.stop().then(() => process.exit(0)); };
+  fatal.handler = () => { setTimeout(() => { void runtime.stop().finally(() => process.exit(1)); }, FATAL_DRAIN_MS); };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }

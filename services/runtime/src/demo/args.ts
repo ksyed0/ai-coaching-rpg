@@ -24,7 +24,7 @@ export const DEMO_USAGE = [
   "                    export the same variable (never a command-line value)",
   "  --security        also run the security room (F-31 to F-33): a facilitator token, rate limit, connection caps and Origin check",
   "                    on two extra in-process servers (not with --url or --showcase)",
-  "  --resume          also run the resume room (F-34 to F-42): a server killed mid-scene and restarted on its log, what a restart",
+  "  --resume          also run the resume room (F-34 to F-43): a server killed mid-scene and restarted on its log, what a restart",
   "                    refuses (another scenario, a corrupt log, a log another server holds) and the fresh and ended rotations (not with --url or --showcase)",
   "  --session <id>    session id (default: demo, or local with --url)",
   "  --no-color        plain output (also: NO_COLOR, or output that is not a terminal)",
@@ -66,7 +66,7 @@ export type DemoOptions = {
   maxFalseExits?: number;
   /** Only set with `--security`: adds the security room checks F-31 to F-33 to the default run. */
   security?: true;
-  /** Only set with `--resume`: adds the resume room checks F-34 to F-42 to the default run. */
+  /** Only set with `--resume`: adds the resume room checks F-34 to F-43 to the default run. */
   resume?: true;
 };
 export type DemoArgsResult = { ok: true; opts: DemoOptions } | { ok: false; error: string; usage: string };

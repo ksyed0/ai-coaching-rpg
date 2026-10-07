@@ -31,10 +31,10 @@ describe("config parsing", () => {
     const bad = parseStartMode("restart-secret");
     expect(bad).toEqual({ ok: false, error: "SESSION_START must be resume or fresh" });
   });
-  it("SESSION_LOCK_STALE_MS: 3000 to 600000, default 30000", () => {
+  it("SESSION_LOCK_STALE_MS: 10000 to 600000, default 30000", () => {
     expect(parseLockStaleMs(undefined)).toEqual({ ok: true, staleMs: 30_000 });
-    expect(parseLockStaleMs("5000")).toEqual({ ok: true, staleMs: 5_000 });
-    for (const v of ["2999", "600001", "1e4", "-5", "abc", "5000.5"]) expect(parseLockStaleMs(v)).toMatchObject({ ok: false, error: expect.stringContaining("SESSION_LOCK_STALE_MS") });
+    expect(parseLockStaleMs("10000")).toEqual({ ok: true, staleMs: 10_000 });
+    for (const v of ["9999", "5000", "600001", "1e4", "-5", "abc", "5000.5"]) expect(parseLockStaleMs(v)).toMatchObject({ ok: false, error: expect.stringContaining("SESSION_LOCK_STALE_MS") });
   });
 });
 
@@ -121,7 +121,9 @@ describe("openSession", () => {
     const a = await openIt("resume");
     await a.engine.start({ host: "p" });
     await rm(path.join(dir, "s.lock"));
-    await expect(a.engine.say("host", "x")).rejects.toThrow(/taken over/);
+    await expect(a.engine.say("host", "x")).rejects.toMatchObject({ code: "log_failed", message: expect.stringMatching(/session lock was lost/) });
+    expect(a.engine.failed).toMatch(/lock was lost/);
+    await expect(a.engine.alert("anything")).rejects.toMatchObject({ code: "log_failed" }); // fail-stop: nothing more is accepted
   });
 
   it("a symlink at the log path is refused and not followed", async () => {

@@ -172,8 +172,9 @@ describe("format 0 logs (written before US-0018)", () => {
     expect(out).toMatchObject({ kind: "running", info: { format: 0, sceneId: "s1_open", pendingLine: true } });
     if (out.kind !== "running") return;
     await engine.markResumed(out.info);
-    const alert = (await log.all()).at(-1) as Extract<SessionEvent, { type: "facilitator.alert" }>;
+    const alert = (await log.all()).find((e) => e.type === "facilitator.alert") as Extract<SessionEvent, { type: "facilitator.alert" }>;
     expect(alert.message).toMatch(/predates log format 1/);
+    expect(alert.message).toMatch(/set up AI character guest/); // this hand-made log never initialised the AI character: completed
   });
 });
 
@@ -247,7 +248,7 @@ describe("resume: paused, downtime counted as paused time, no overdue timer", ()
     expect(activeElapsedMs(engine.state, events.at(-1)!.ts)).toBe(30_000); // the engine reads time as max(clock, last ts)
     expect(activeElapsedMs(engine.state, clock2.now())).toBe(0); // and a raw earlier clock never gives a negative value
     const alert = events.find((e) => e.type === "facilitator.alert") as Extract<SessionEvent, { type: "facilitator.alert" }>;
-    expect(alert.message).toMatch(/ 0 s after the last recorded event/);
+    expect(alert.message).toMatch(/clock is 3630 s BEHIND the last recorded event \(it moved backwards\), so the downtime is unknown and counted as 0 s/);
     clock2.advance(3_600_000 + 60_000); await engine.tick(); // the clock catches up to 30 s after the last event: 60 s active, the inject is due
     expect(engine.state.injectsFired).toEqual(["late_inject"]);
   });

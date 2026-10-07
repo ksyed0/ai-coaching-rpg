@@ -51,14 +51,25 @@ describe("JsonlEventLog at rest (US-0018)", () => {
     expect((await log.all()).map((e) => e.seq)).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it("runs the guard before every append and appends nothing when it throws", async () => {
+  it("runs the guard before every append: a lost lock makes the log fail-stop (nothing appended, then or later)", async () => {
     let ok = true;
     const log = new JsonlEventLog("s", dir, { guard: () => { if (!ok) throw new Error("lock lost"); } });
     await log.append(body, 1);
     ok = false;
-    await expect(log.append(body, 2)).rejects.toThrow("lock lost");
+    await expect(log.append(body, 2)).rejects.toMatchObject({ code: "log_failed", message: expect.stringMatching(/session lock was lost.*Restart the server/) });
     ok = true;
-    expect((await log.append(body, 3)).seq).toBe(2);
+    await expect(log.append(body, 3)).rejects.toMatchObject({ code: "log_failed" });
+    expect((await log.all()).map((e) => e.seq)).toEqual([1]);
+    expect(log.failure).toMatch(/lock was lost/);
+  });
+
+  it("a guard refusal coded 'closed' (the session was closed) only refuses that append", async () => {
+    let closed = true;
+    const log = new JsonlEventLog("s", dir, { guard: () => { if (closed) throw Object.assign(new Error("closed"), { code: "closed" }); } });
+    await expect(log.append(body, 1)).rejects.toMatchObject({ code: "closed" });
+    closed = false;
+    expect((await log.append(body, 2)).seq).toBe(1);
+    expect(log.failure).toBeNull();
     await log.close();
   });
 

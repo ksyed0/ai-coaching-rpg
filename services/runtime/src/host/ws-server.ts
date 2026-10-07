@@ -113,6 +113,13 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
   }, heartbeatMs);
   heartbeat.unref();
 
+  // Fail-stop (US-0018): tell every connected client, in a frame that is NOT a session event (nothing more is logged), then the
+  // process owner (bootstrap's onFatal) drains and exits so a supervisor restarts it; the restart resumes from the log.
+  const fatalNotice = JSON.stringify({ type: "error", code: "log_failed", message: "the server can no longer record this session and is stopping; when it is restarted the session resumes, paused, from its log" });
+  const unsubscribeFatal = [...opts.hosts.values()].map((h) => (h as Partial<SessionHost>).onFatal?.(() => {
+    for (const c of wss.clients) { if (c.readyState === c.OPEN) { try { c.send(fatalNotice); } catch { /* the peer is gone */ } } }
+  }) ?? (() => undefined)); // (a stand-in host in a test may not offer onFatal)
+
   /** Which connection currently holds each player role, so a stale socket closing cannot free a rejoined role. */
   const holders = new Map<string, { ws: WebSocket; token: string }>();
 
@@ -264,6 +271,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
   return {
     port,
     close: () => new Promise<void>((resolve) => {
+      for (const u of unsubscribeFatal) u();
       clearInterval(heartbeat);
       for (const c of wss.clients) c.terminate();
       wss.close();
