@@ -187,4 +187,13 @@ describe("printable", () => {
     expect(printable("x".repeat(80))).toBe("x".repeat(80));
     expect(printable("ab\u{1F600}cd", 3)).toBe("ab\u{1F600}…");
   });
+
+  it("also replaces bidi controls, zero-width characters and the Unicode line and paragraph separators", () => {
+    for (const c of [0x200b, 0x200c, 0x200d, 0x200e, 0x200f, 0x2028, 0x2029, 0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069, 0x061c, 0xfeff]) {
+      expect(printable(`a${String.fromCodePoint(c)}b`), c.toString(16)).toBe("a·b");
+    }
+    // neighbours of the ranges are ordinary text
+    for (const c of [0x200a, 0x2010, 0x2027, 0x202f, 0x2065, 0x206a]) expect(printable(`a${String.fromCodePoint(c)}b`), c.toString(16)).toBe(`a${String.fromCodePoint(c)}b`);
+    expect(printable("é ü 日本 \u{1F600}")).toBe("é ü 日本 \u{1F600}");
+  });
 });

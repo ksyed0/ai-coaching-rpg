@@ -24,14 +24,22 @@ function hasPrototypeKey(v: unknown, depth = 0): boolean {
   return false;
 }
 
-/** Make untrusted text safe for a one-line message: control characters become a dot, long text is cut. */
+/**
+ * Characters that must never reach a terminal or a rendered report from untrusted text: C0 and C1 controls, zero-width characters and
+ * direction marks (U+200B..U+200F), the line and paragraph separators and bidi embeddings and overrides (U+2028..U+202E), the bidi
+ * isolates (U+2066..U+2069), the Arabic letter mark (U+061C) and the zero-width no-break space (U+FEFF).
+ */
+function isHidden(c: number): boolean {
+  return c <= 0x1f || (c >= 0x7f && c <= 0x9f) || (c >= 0x200b && c <= 0x200f) || (c >= 0x2028 && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069) || c === 0x061c || c === 0xfeff;
+}
+
+/** Make untrusted text safe for a one-line message: control, bidi and zero-width characters become a dot, long text is cut. */
 export function printable(s: string, max = 80): string {
   let out = "";
   let n = 0;
   for (const ch of s) {
     if (n === max) return `${out}…`;
-    const c = ch.codePointAt(0)!;
-    out += c <= 0x1f || (c >= 0x7f && c <= 0x9f) ? "·" : ch;
+    out += isHidden(ch.codePointAt(0)!) ? "·" : ch;
     n++;
   }
   return out;

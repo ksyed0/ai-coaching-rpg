@@ -78,6 +78,32 @@ describe("compareJudges", () => {
     expect(Object.getPrototypeOf(r.disagreements[0])).toBe(Object.prototype);
   });
 
+  it("reads a contrast role missing from one judge's run as failed, never the inherited member, even when the other judge gave a level", () => {
+    const a = [contrast("c", { x: 4 }, ["x", "constructor"])];
+    const b = [contrast("c", { x: 4, constructor: 2 as const }, ["x", "constructor"])];
+    const r = compareJudges(a, b);
+    expect(r.pairs).toBe(1);
+    expect(r.disagreements).toHaveLength(1);
+    expect(r.disagreements[0]).toMatchObject({ probeId: "c", role: "constructor", a: "failed", b: 2 });
+  });
+
+  it("does not pair entries whose probe id and role only collide when joined with a separator", () => {
+    const r = compareJudges([single("a/b", 1, "r", "c")], [single("a", 4, "r", "b/c")]);
+    expect(r.pairs).toBe(0);
+    expect(r.disagreements).toEqual([]);
+    expect(r.bothUnusable).toBe(0);
+  });
+
+  it("counts the entries both judges left unusable, in any mix of invalid and failed", () => {
+    const r = compareJudges(
+      [single("a", "failed"), single("b", "invalid"), single("c", "invalid"), single("d", "failed"), single("e", "not_observed"), single("f", 2)],
+      [single("a", "failed"), single("b", "failed"), single("c", "invalid"), single("d", 3), single("e", "not_observed"), single("f", 2)],
+    );
+    expect(r.bothUnusable).toBe(3);
+    expect(r.disagreements.map((d) => d.probeId)).toEqual(["d"]);
+    expect(compareJudges([], []).bothUnusable).toBe(0);
+  });
+
   it("orders disagreements by probe id then role, whatever order the judges produced them", () => {
     const a = [contrast("b", { x: 1, y: 1 }), single("c", 1), contrast("a", { x: 1, y: 1 })];
     const b = [single("c", 4), contrast("a", { x: 4, y: 4 }), contrast("b", { x: 4, y: 4 })];
