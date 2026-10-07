@@ -167,3 +167,21 @@ describe("join code options (US-0033)", () => {
     expect(USAGE).toContain("--code-file");
   });
 });
+
+describe("--last-seq (US-0013)", () => {
+  it("test_parseArgs_last_seq_is_a_whole_number_for_players_and_the_facilitator", () => {
+    expect(parseArgs(["--role", "a", "--name", "b", "--last-seq", "42"])).toMatchObject({ ok: true, opts: { lastSeq: 42 } });
+    expect(parseArgs(["--facilitator", "--last-seq=0"])).toMatchObject({ ok: true, opts: { facilitator: true, lastSeq: 0 } });
+    expect(parseArgs(["--role", "a", "--name", "b"])).toMatchObject({ ok: true, opts: { lastSeq: undefined } });
+    for (const bad of ["-1", "1.5", "abc", "", "1e3", "9999999999999999"]) {
+      expect(parseArgs(["--role", "a", "--name", "b", `--last-seq=${bad}`])).toMatchObject({ ok: false, error: "error: --last-seq must be a whole number (the seq of the last event you saw)" });
+    }
+    expect(parseArgs(["--facilitator", "--last-seq", "1", "--last-seq", "2"])).toMatchObject({ ok: false, error: "error: --last-seq was given more than once" });
+    expect(USAGE).toContain("--last-seq");
+  });
+  it("test_joinMessage_carries_last_seq_only_when_given", () => {
+    expect(joinMessage({ facilitator: false, role: "r", name: "n", url: "ws://x", session: "s", lastSeq: 7 })).toEqual({ type: "join", sessionId: "s", roleId: "r", participantId: "n", lastSeq: 7 });
+    expect(joinMessage({ facilitator: true, url: "ws://x", session: "s", lastSeq: 0 })).toEqual({ type: "join_facilitator", sessionId: "s", lastSeq: 0 });
+    expect(joinMessage({ facilitator: true, url: "ws://x", session: "s" })).toEqual({ type: "join_facilitator", sessionId: "s" });
+  });
+});

@@ -1,6 +1,6 @@
 import type { Options } from "./commands.js";
 import { isFatalError, joinMessage, parseInput, parseServerMessage } from "./commands.js";
-import { parseFactsEarned, parseHiddenFacts, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, sanitizeText } from "./render.js";
+import { parseFactsEarned, parseHiddenFacts, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, sanitizeText, validReplay } from "./render.js";
 
 export const MAX_PREJOIN_LINES = 100;
 export const DEFAULT_IDLE_MS = 1_500;
@@ -32,6 +32,13 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
   // Facilitator only: the hidden facts the server listed at join, and which of them are released (from the snapshot and the live npc.updated events).
   let hiddenFacts = new Map<string, string[]>();
   const released = new Map<string, string[]>();
+  // US-0013: the highest seq this client has state for, printed on a drop for `--last-seq`: the join snapshot's lastSeq (no replay, or an
+  // incomplete one), or after a complete replay its afterSeq, advanced only by the frames that really arrived (a drop mid-replay loses none).
+  let seen: number | null = null;
+  // After a complete replay, the seq it ends at: a hidden-fact release in that range is shown with its text (the snapshot already holds it).
+  let replayedUpTo: number | null = null;
+  // After a join with `lastSeq`, event frames at or below this seq are duplicates and dropped (the server sends none; defence in depth).
+  let dedupeUpTo: number | null = null;
   // US-0034: the facts the Game Master suggested releasing (joined snapshot, then live gm.fact_earned events).
   let suggested = new Map<string, number[]>();
 
@@ -59,7 +66,7 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
     onClose(): void {
       if (done) return;
       if (eof && joined) return finish(0);
-      finish(1, "disconnected from server");
+      finish(1, seen === null ? "disconnected from server" : `disconnected from server; to receive what you missed, run pnpm play again with --last-seq ${seen}`);
     },
     onMessage(raw: string): void {
       if (done) return;
@@ -68,6 +75,11 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
       if (eof && joined) armIdle();
       if (m.type === "joined") {
         joined = true;
+        const snap = (m.state as { lastSeq?: unknown } | undefined)?.lastSeq;
+        const replay = validReplay(m.replay);
+        if (replay?.complete) { seen = replay.afterSeq; replayedUpTo = replay.toSeq; }
+        else if (typeof snap === "number" && Number.isSafeInteger(snap) && snap >= 0) seen = snap;
+        if (replay) dedupeUpTo = replay.complete ? replay.afterSeq : replay.toSeq;
         if (opts.facilitator) {
           hiddenFacts = parseHiddenFacts(m.hiddenFacts);
           suggested = parseFactsEarned((m.state as { factsEarned?: unknown } | undefined)?.factsEarned);
@@ -81,8 +93,19 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
         for (const queued of pending.splice(0)) send(queued);
         if (eof) armIdle();
       } else if (m.type === "event") {
+        const seq = (m.event as { seq?: unknown }).seq;
+        if (typeof seq === "number" && Number.isSafeInteger(seq)) {
+          if (dedupeUpTo !== null) { if (seq <= dedupeUpTo) return; dedupeUpTo = seq; }
+          if (seen === null || seq > seen) seen = seq;
+        }
         const line = renderEvent(m.event, opts.facilitator ? "facilitator" : opts.role!);
         if (line) io.print(line);
+        // US-0013 M1: a release that happened while away arrives as its replayed command; its npc.updated adds nothing new to the
+        // snapshot's released list, so name the fact here (the facilitator's own hidden-fact list holds the text).
+        if (opts.facilitator && replayedUpTo !== null && typeof seq === "number" && seq <= replayedUpTo && m.event.type === "facilitator.command" && m.event.command === "release_hidden") {
+          const text = hiddenFacts.get(m.event.roleId)?.[m.event.fact - 1];
+          if (typeof text === "string") io.print(`[npc ${sanitizeText(m.event.roleId)}] released #${m.event.fact}: ${sanitizeText(text)}`);
+        }
         if (opts.facilitator && m.event.type === "gm.fact_earned" && Number.isInteger(m.event.fact)) {
           const had = suggested.get(m.event.roleId) ?? [];
           if (!had.includes(m.event.fact)) suggested.set(m.event.roleId, [...had, m.event.fact]);

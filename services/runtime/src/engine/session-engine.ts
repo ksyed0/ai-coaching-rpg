@@ -4,6 +4,7 @@ import type { Clock } from "./clock.js";
 import { LogFailedError, type EventLog } from "./event-log.js";
 import { Mutex } from "./mutex.js";
 import { scenarioHash } from "./scenario-hash.js";
+import { MAX_RETAINED_EVENTS, RecentEvents } from "./recent-events.js";
 
 /** Why a log cannot be resumed (US-0018). The message never contains event text. */
 export type RestoreErrorCode = "not_a_session" | "scenario_mismatch" | "log_format" | "invalid_log";
@@ -72,9 +73,24 @@ export class SessionEngine {
   /** Set when the log failed or the engine diverged from it (fail-stop): every later operation that would append is refused. */
   private failure: string | null = null;
   private readonly failureListeners = new Set<(reason: string) => void>();
+  /** US-0013: the most recent events (live and restored), for replay-from-seq. Its head is always state.lastSeq. */
+  private recent: RecentEvents;
+  private readonly retainEvents: number;
 
-  constructor(opts: { scenario: Scenario; log: EventLog; clock: Clock }) {
+  /** `retainEvents`: how many recent events to keep for replay (default MAX_RETAINED_EVENTS). */
+  constructor(opts: { scenario: Scenario; log: EventLog; clock: Clock; retainEvents?: number }) {
     this.scenario = opts.scenario; this.log = opts.log; this.clock = opts.clock;
+    this.retainEvents = opts.retainEvents ?? MAX_RETAINED_EVENTS;
+    this.recent = new RecentEvents(this.retainEvents);
+  }
+
+  /**
+   * US-0013: the recorded events with seq > afterSeq, oldest first, from the in-memory window (never from disk), or `complete: false`
+   * when that range is not fully retained (evicted, or outside the log). Synchronous: called from the same tick as a subscribe, no event
+   * can fall between the two (every event is applied, retained and delivered to subscribers in one synchronous step of emit).
+   */
+  eventsAfter(afterSeq: number): { complete: true; events: Iterable<SessionEvent> } | { complete: false } {
+    return this.recent.covers(afterSeq) ? { complete: true, events: this.recent.after(afterSeq) } : { complete: false };
   }
 
   subscribe(fn: (e: SessionEvent) => void): () => void { this.listeners.add(fn); return () => this.listeners.delete(fn); }
@@ -121,6 +137,9 @@ export class SessionEngine {
     // The event is on disk. If the state cannot take it, the engine and the log disagree: never append anything after it.
     try { this.state = reduce(this.state, e); }
     catch (err) { this.halt(`the state rejected event ${e.seq}: ${err instanceof Error ? err.message : String(err)}`); throw this.refused(); }
+    // Retained and delivered in the same synchronous step as the state change: a join that reads the window and subscribes in one
+    // tick sees each event exactly once (in the replay or live).
+    this.recent.push(e);
     for (const l of this.listeners) l(e);
     return e;
   }
@@ -325,6 +344,7 @@ export class SessionEngine {
     let count = 0; let maxTs = Number.NEGATIVE_INFINITY; let format = 0; let lastGmSeq: number | null = null;
     // An inject's AI character updates follow its inject.fired directly; this tracks the ones still due if the log ends here.
     let injectDue: { sceneId: string; injectId: string; roles: string[] } | null = null;
+    const recent = new RecentEvents(this.retainEvents); // adopted only when the session is resumed
     // US-0034: Game Master auto-releases in the log; one whose fact is not released at the end was cut short by a crash.
     const autoReleases: { roleId: string; fact: number }[] = [];
     const fold = (e: SessionEvent) => {
@@ -355,6 +375,7 @@ export class SessionEngine {
       else if ((e.type === "gm.decision" || e.type === "gm.no_verdict" || e.type === "gm.fact_earned") && e.sceneId === s.currentScene?.id) lastGmSeq = e.seq;
       if (e.type === "gm.fact_earned" && e.autoRelease) autoReleases.push({ roleId: e.roleId, fact: e.fact });
       maxTs = Math.max(maxTs, e.ts);
+      recent.push(e);
       count++;
     };
     let partialTailBytes = 0;
@@ -363,6 +384,7 @@ export class SessionEngine {
     if (count === 0) return { kind: "empty" };
     if (s.status === "ended") return { kind: "ended", events: count };
     this.state = s;
+    this.recent = recent;
     this.lastTs = maxTs;
     const cur = s.currentScene;
     const last = s.transcript.at(-1);

@@ -7,6 +7,19 @@ import { NpcAgent, type SilentTurn } from "../agents/npc-agent.js";
 import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
 
+/** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
+export const MAX_REPLAY_EVENTS = 1000;
+/** US-0013: at most this many bytes of replayed events (as JSON) per rejoin, well under the server's 1 MiB per-client send buffer. */
+export const MAX_REPLAY_BYTES = 256 * 1024;
+
+/**
+ * What a rejoining client missed (US-0013): the events with seq in (afterSeq, toSeq] that this viewer may see, oldest first. toSeq is
+ * the session's last event when the replay was taken (the join snapshot's lastSeq). `complete: false` means the range could not be
+ * replayed in full (older than the retained window, or over MAX_REPLAY_EVENTS / MAX_REPLAY_BYTES): then `events` is empty, never a
+ * partial list with a gap, and the client relies on its join snapshot.
+ */
+export type Replay = { afterSeq: number; toSeq: number; complete: boolean; events: SessionEvent[] };
+
 export class HostError extends Error {
   constructor(readonly code: "role_taken" | "unknown_role" | "npc_role" | "not_started") { super(code); this.name = "HostError"; }
 }
@@ -234,6 +247,45 @@ export class SessionHost {
     return { ...s, roles: redactRoles(s.roles), currentScene, sceneHistory: mine, transcript: visibleTranscript(s, who), npcs: {}, gmVerdicts: {}, factsEarned: {}, injectsFired: [], advanceRequested: false };
   }
 
+  /**
+   * US-0013: the events after `afterSeq` that `who` may see, through the SAME viewFor as live delivery (default-deny), from the engine's
+   * in-memory window. Synchronous: a caller that takes the replay and subscribes in the same tick gets every later event exactly once.
+   * Bounded: at most the retained window is scanned, and at most `maxEvents` / `maxBytes` are returned (else `complete: false`, no events).
+   * Throws RangeError when `afterSeq` is not a whole number from 0 to the last event's seq (callers validate input first).
+   */
+  replayFor(who: string | "facilitator", afterSeq: number, o: { maxEvents?: number; maxBytes?: number } = {}): Replay {
+    const toSeq = this.engine.state.lastSeq;
+    if (!Number.isSafeInteger(afterSeq) || afterSeq < 0 || afterSeq > toSeq) throw new RangeError("afterSeq must be a whole number from 0 to the last event's seq");
+    const maxEvents = o.maxEvents ?? MAX_REPLAY_EVENTS;
+    const maxBytes = o.maxBytes ?? MAX_REPLAY_BYTES;
+    const incomplete: Replay = { afterSeq, toSeq, complete: false, events: [] };
+    const src = this.engine.eventsAfter(afterSeq);
+    if (!src.complete) return incomplete;
+    const events: SessionEvent[] = [];
+    let bytes = 0;
+    for (const e of src.events) {
+      const view = this.viewFor(who, e);
+      if (!view) continue;
+      bytes += Buffer.byteLength(JSON.stringify(view));
+      if (events.length >= maxEvents || bytes > maxBytes) return incomplete; // never a partial replay: that would leave a gap
+      events.push(view);
+    }
+    return { afterSeq, toSeq, complete: true, events };
+  }
+
+  /** The scene an utterance was spoken in (binary search: the transcript is in seq order), or undefined for an unknown seq. */
+  private utteranceScene(seq: number): string | null | undefined {
+    const t = this.engine.state.transcript;
+    let lo = 0; let hi = t.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >>> 1;
+      const u = t[mid]!;
+      if (u.seq === seq) return u.sceneId;
+      if (u.seq < seq) lo = mid + 1; else hi = mid - 1;
+    }
+    return undefined;
+  }
+
   filterFor(who: string | "facilitator"): (e: SessionEvent) => boolean {
     return (e) => this.viewFor(who, e) !== null;
   }
@@ -241,6 +293,8 @@ export class SessionHost {
   /**
    * What `who` may see of `e`, or null. Default-DENY for players: an explicit decision per event type, and the
    * `never` check below makes a new EventBody member a compile error until it is decided here.
+   * Also the filter of replay-from-seq (US-0013). It reads the current state, which only grows (scenes are appended to sceneHistory,
+   * lines to the transcript), so a past event gets the same answer now as when it was delivered live.
    */
   viewFor(who: string | "facilitator", e: SessionEvent): SessionEvent | null {
     if (who === "facilitator") return e;
@@ -255,7 +309,7 @@ export class SessionHost {
       // Only for scenes the player takes part in.
       case "scene.entered": return e.participants.includes(who) ? e : null;
       case "scene.exited": return inScene(e.sceneId) ? e : null;
-      case "utterance": return inScene(this.engine.state.transcript.find((x) => x.seq === e.seq)?.sceneId) ? e : null;
+      case "utterance": return inScene(this.utteranceScene(e.seq)) ? e : null;
       // Only when addressed to this role.
       case "inject.fired": return e.to.includes(who) ? e : null;
       // Facilitator controls: players learn of pause/resume and of whispers addressed to them; everything else

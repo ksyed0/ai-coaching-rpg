@@ -186,3 +186,73 @@ describe("client core: join codes (US-0033)", () => {
     expect(t.errs.join("\n")).not.toMatch(/FACILITATOR_TOKEN/);
   });
 });
+
+describe("client: replay-from-seq (US-0013)", () => {
+  const evAt = (seq: number, text: string) => JSON.stringify({ type: "event", event: { seq, ts: 0, sessionId: "s", type: "utterance", roleId: "guest", text, channel: "text" } });
+  const joinedReplay = (replay: unknown, lastSeq = 10) => JSON.stringify({ type: "joined", roleId: "host", reconnectToken: "TOK", state: { lastSeq, transcript: [] }, replay });
+  it("test_client_drops_an_event_it_has_already_received_during_a_replay", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedReplay({ afterSeq: 7, toSeq: 10, events: 2, complete: true }));
+    t.c.onMessage(evAt(8, "eight")); t.c.onMessage(evAt(10, "ten")); t.c.onMessage(evAt(10, "ten again")); t.c.onMessage(evAt(7, "old")); t.c.onMessage(evAt(11, "eleven"));
+    expect(t.out.filter((l) => l.startsWith("guest:"))).toEqual(["guest: eight", "guest: ten", "guest: eleven"]);
+  });
+  it("test_client_without_a_replay_prints_every_event_as_before", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedMsg);
+    t.c.onMessage(ev("a")); t.c.onMessage(ev("b"));
+    expect(t.out.filter((l) => l.startsWith("guest:"))).toEqual(["guest: a", "guest: b"]);
+  });
+  it("test_client_on_disconnect_says_which_last_seq_to_rejoin_with", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedReplay(undefined, 10));
+    t.c.onMessage(evAt(12, "twelve"));
+    t.c.onClose();
+    expect(t.exits).toEqual([1]);
+    expect(t.errs.join("\n")).toContain("run pnpm play again with --last-seq 12");
+  });
+  it("test_client_on_disconnect_before_any_event_uses_the_join_snapshot", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedReplay(undefined, 9)); t.c.onClose();
+    expect(t.errs.join("\n")).toContain("--last-seq 9");
+    const u = setup(); u.c.onOpen(); u.c.onClose(); // never joined: nothing to resume from
+    expect(u.errs.join("\n")).not.toContain("--last-seq");
+  });
+});
+
+describe("client: replay review fixes (US-0013 I1, M1)", () => {
+  const inject = (seq: number) => JSON.stringify({ type: "event", event: { seq, ts: 0, sessionId: "s", type: "inject.fired", injectId: "i", sceneId: "s1", to: ["host"], content: "missed inject" } });
+  const joinedAt = (replay: unknown) => JSON.stringify({ type: "joined", roleId: "host", reconnectToken: "TOK", state: { lastSeq: 10, transcript: [] }, replay });
+  it("test_client_dropped_mid_replay_hints_the_last_replayed_seq_not_the_snapshot_head", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedAt({ afterSeq: 5, toSeq: 10, events: 3, complete: true }));
+    t.c.onMessage(inject(6));
+    t.c.onClose();
+    expect(t.errs.join("\n")).toContain("--last-seq 6");
+  });
+  it("test_client_dropped_before_any_replayed_frame_hints_after_seq", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedAt({ afterSeq: 5, toSeq: 10, events: 3, complete: true }));
+    t.c.onClose();
+    expect(t.errs.join("\n")).toContain("--last-seq 5");
+  });
+  it("test_client_incomplete_replay_hints_the_snapshot_head", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedAt({ afterSeq: 0, toSeq: 10, events: 0, complete: false }));
+    t.c.onClose();
+    expect(t.errs.join("\n")).toContain("--last-seq 10");
+  });
+  it("test_facilitator_is_told_the_text_of_a_hidden_fact_released_in_the_replayed_range", () => {
+    const out: string[] = [];
+    const io: Io = { print: (l) => out.push(l), err: () => {}, closeInput: () => {}, exit: () => {} };
+    const c = createClient({ opts: { facilitator: true, url: "ws://x", session: "s" }, sock: { send: () => {}, close: () => {}, terminate: () => {} }, io, idleMs: 30 });
+    c.onOpen();
+    // The snapshot already shows the fact released (it happened while the facilitator was away).
+    c.onMessage(JSON.stringify({ type: "joined", roleId: "facilitator", state: { lastSeq: 9, npcs: { cfo: { goals: [], knowledge: [], released: ["first"] } } }, hiddenFacts: { cfo: ["first", "second"] }, replay: { afterSeq: 7, toSeq: 9, events: 2, complete: true } }));
+    c.onMessage(JSON.stringify({ type: "event", event: { seq: 8, ts: 0, sessionId: "s", type: "facilitator.command", command: "release_hidden", roleId: "cfo", fact: 1 } }));
+    c.onMessage(JSON.stringify({ type: "event", event: { seq: 9, ts: 0, sessionId: "s", type: "npc.updated", roleId: "cfo", goals: [], knowledge: [], released: ["first"] } }));
+    expect(out.filter((l) => l.includes("released"))).toEqual(["[facilitator] released hidden fact #1 of cfo", "[npc cfo] released #1: first"]);
+    // A live release after the replay is still shown once, by its npc.updated, as before.
+    out.length = 0;
+    c.onMessage(JSON.stringify({ type: "event", event: { seq: 10, ts: 0, sessionId: "s", type: "facilitator.command", command: "release_hidden", roleId: "cfo", fact: 2 } }));
+    c.onMessage(JSON.stringify({ type: "event", event: { seq: 11, ts: 0, sessionId: "s", type: "npc.updated", roleId: "cfo", goals: [], knowledge: [], released: ["first", "second"] } }));
+    expect(out.filter((l) => l.includes("released"))).toEqual(["[facilitator] released hidden fact #2 of cfo", "[npc cfo] released #2: second"]);
+  });
+});
