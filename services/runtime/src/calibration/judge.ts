@@ -54,7 +54,7 @@ export function scopedJudgeEnv(spec: JudgeSpec, env: NodeJS.ProcessEnv): NodeJS.
   return scoped;
 }
 
-function provider(env: NodeJS.ProcessEnv, build: () => ModelProvider): ModelProvider {
+function provider(build: () => ModelProvider): ModelProvider {
   try { return build(); } catch (e) {
     if (e instanceof CalibrationInputError) throw e;
     throw new CalibrationInputError(e instanceof Error ? e.message : "the judge provider could not be configured");
@@ -66,7 +66,7 @@ export function buildJudge(spec: JudgeSpec, env: NodeJS.ProcessEnv): Judge {
   const scoped = scopedJudgeEnv(spec, env);
   const retry = parseModelRetry(env);
   if (!retry.ok) throw new CalibrationInputError(retry.errors.join("; "));
-  const p = provider(scoped, () => withModelRetry(selectModelProvider(scoped, "npc", { sdkRetries: false }), retry, "EVAL"));
+  const p = provider(() => withModelRetry(selectModelProvider(scoped, "npc", { sdkRetries: false }), retry, "EVAL"));
   return { label: spec.label, model: spec.model, family: modelFamily(spec.model), provider: p };
 }
 
@@ -80,6 +80,6 @@ export function buildPrimaryJudge(env: NodeJS.ProcessEnv, cfg: EvalConfig): Judg
   const model = cfg.model ?? npc;
   if (model === "") throw new CalibrationInputError("no judge model id: set EVAL_MODEL or NPC_MODEL so the judge can be named");
   if (!isValidModelId(model)) throw new CalibrationInputError("the judge model id (EVAL_MODEL or NPC_MODEL) is invalid: use 1 to 200 letters, digits and . _ : / + - (no spaces, no URL)");
-  const p = provider(env, () => startEvaluatorProvider({ ...env, NPC_MODEL: model }, cfg));
+  const p = provider(() => startEvaluatorProvider({ ...env, NPC_MODEL: model }, cfg));
   return { label: "primary", model, family: modelFamily(model), provider: p };
 }
