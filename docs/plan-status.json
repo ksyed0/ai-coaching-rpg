@@ -1312,27 +1312,28 @@
       "title": "As an operator, I want each player role to have its own join code, so that a person cannot claim a role that was meant for someone else.",
       "priority": "Medium",
       "estimate": "M",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0033-player-join-codes",
       "acs": [
         {
           "id": "AC-0120",
-          "text": "when the server starts a session it creates one random join code per player role (stored only as a hash, never written to the event log), the operator can see the codes once at start, and a `join` for a player role must present that role's code",
-          "done": false
+          "text": "when the server starts a session it creates one random join code per player role (stored only as a hash, never written to the event log), the operator can see the codes once at start, and a `join` for a player role must present that role's code (engine/join-codes.ts: 12 Crockford base32 symbols, salted SHA-256, timingSafeEqual; printed once by bootstrap's `showJoinCodes`, never through log/warn; hashes in `<id>.codes.json`; demo F-01, F-24, F-28)",
+          "done": true
         },
         {
           "id": "AC-0121",
-          "text": "a `join` with a missing or wrong code is refused with one generic error that does not say whether the role exists or is taken, and the refusals count towards the existing connection and rate limits",
-          "done": false
+          "text": "a `join` with a missing or wrong code is refused with one generic error that does not say whether the role exists or is taken, and the refusals count towards the existing connection and rate limits (one `unauthorized` for no or a wrong code, unknown, AI and reserved roles and an unknown session; 1008 close; charged in the failed-login throttle shared with the facilitator token; ws-server.join-codes.test.ts, demo F-02)",
+          "done": true
         },
         {
           "id": "AC-0122",
-          "text": "the facilitator token (US-0017) remains separate, a rejoining player keeps using the reconnect token for a live session, and the README documents how to hand the codes out",
-          "done": false
+          "text": "the facilitator token (US-0017) remains separate, a rejoining player keeps using the reconnect token for a live session, and the README documents how to hand the codes out (a code never opens the facilitator stream nor the token a role; a live takeover needs the reconnect token and no code; codes survive a restart as hashes, US-0018; README \"Player join codes\" and \"Handing out the join codes\"; demo F-22, F-37, F-40, F-41)",
+          "done": true
         }
       ],
       "dependencies": [
-        "US-0017"
+        "US-0017",
+        "US-0018 (the codes must survive a restart)"
       ]
     },
     {
@@ -1818,9 +1819,9 @@
       "title": "Generate and verify per-role join codes, add the code to the join message and the terminal client, document it",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0033-player-join-codes",
-      "notes": "Closes the gap US-0017 leaves open: with only a facilitator token, any connection can still claim an unclaimed player role. Also needed so that US-0018 (resume after restart) can keep roles protected across a restart (hashed codes only)."
+      "notes": "Closes the gap US-0017 leaves open: with only a facilitator token, any connection can still claim an unclaimed player role. Also needed so that US-0018 (resume after restart) can keep roles protected across a restart (hashed codes only). Delivered: engine/join-codes.ts (issue, verify, record), engine/join-code-file.ts (`<id>.codes.json`: O_EXCL temp + fsync + rename under the lock, read through one fstat-judged descriptor), openSession `joinCodes` (kept on resume and on an empty log, new on fresh or after an ended session, the old file removed before the log is rotated, a malformed file refused like a corrupt log), ws-server `joinCodes` (generic refusal, throttle), bootstrap `showJoinCodes`/`printJoinCodes`, protocol `joinCode`, terminal client `JOIN_CODE`/`--code-file`/hidden prompt, demo servers and checks (counts unchanged), `pnpm demo --url` with `JOIN_CODES`. Test cases TC-0001 to TC-0007. Review fix round (I-1, M-1 to M-6): unseen codes are withdrawn when a start fails and an empty log always gets new codes, Crockford folding and an ASCII-only check, the same digest work for an unknown session, stale temp files swept, docs on the shared per-address throttle. Story stays In Progress until the re-review and the controller's checks."
     },
     {
       "id": "TASK-0034",
@@ -1833,7 +1834,78 @@
       "notes": "Follow-up to the design notes for US-0016 and US-0025. US-0016 gives the facilitator the manual release command; this story only suggests it."
     }
   ],
-  "testCases": [],
+  "testCases": [
+    {
+      "id": "TC-0001",
+      "title": "Join codes are issued per player role and shown once",
+      "relatedStory": "US-0033",
+      "relatedTask": "TASK-0033",
+      "relatedAC": "AC-0120",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0002",
+      "title": "A player joins with their role's code",
+      "relatedStory": "US-0033",
+      "relatedTask": "TASK-0033",
+      "relatedAC": "AC-0120",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0003",
+      "title": "Missing, wrong or misdirected codes get one generic refusal",
+      "relatedStory": "US-0033",
+      "relatedTask": "TASK-0033",
+      "relatedAC": "AC-0121",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0004",
+      "title": "Refused joins count against the per-address limits",
+      "relatedStory": "US-0033",
+      "relatedTask": "TASK-0033",
+      "relatedAC": "AC-0121",
+      "type": "Edge Case",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0005",
+      "title": "The facilitator token, join codes and reconnect token stay separate",
+      "relatedStory": "US-0033",
+      "relatedTask": "TASK-0033",
+      "relatedAC": "AC-0122",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0006",
+      "title": "Join codes across a restart",
+      "relatedStory": "US-0033",
+      "relatedTask": "TASK-0033",
+      "relatedAC": "AC-0122",
+      "type": "Regression",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0007",
+      "title": "A start that fails before showing the codes withdraws them",
+      "relatedStory": "US-0033",
+      "relatedTask": "TASK-0033",
+      "relatedAC": "AC-0120",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
+    }
+  ],
   "bugs": [
     {
       "id": "BUG-0001",
@@ -1901,7 +1973,7 @@
       "severity": "Medium",
       "relatedStory": "US-0021",
       "relatedTask": "TASK-0021",
-      "status": "In Progress",
+      "status": "Fixed (see git log for BUG-0006)",
       "fixBranch": "chore/session-close-2026-10-07",
       "lessonEncoded": "Yes (L-0002)",
       "estimatedCostUsd": 0,
@@ -1911,212 +1983,212 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 800,
-      "costUsd": 11.162924,
+      "costUsd": 12.141465,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 379.5394,
-      "inputTokens": 17682561,
-      "outputTokens": 2646608
+      "costUsd": 412.8098,
+      "inputTokens": 18833554,
+      "outputTokens": 2858005
     },
     "_bugs": {
       "BUG-0001": {
@@ -2400,11 +2472,11 @@
       "isAtRisk": true
     },
     "US-0033": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0034": {
       "missingTCs": true,
@@ -2542,12 +2614,28 @@
       "context": "",
       "date": "2026-10-07",
       "bugIds": []
+    },
+    {
+      "id": "L-0012",
+      "title": "Never pass an async function where a synchronous check is expected",
+      "rule": "A guard or pre-commit hook typed `() => void` silently accepts an `async` function in TypeScript, so the check never runs and a rejection goes unhandled. Type such hooks as `() => undefined` (or reject a returned promise at run time and attach a catch), use the synchronous check (`lock.lost || !lock.verify()`) for file operations, and grep every use of an `async` function in a void-callback position.\n_Learned when `lock.assertHeld()` (async) was used as a synchronous pre-rename check in the join-code file: the lock was never actually checked, a lost lock still committed or deleted the file, and the rejected promise would have crashed Node 22. Two review passes caught it only by running a probe._",
+      "context": "",
+      "date": "2026-10-07",
+      "bugIds": []
+    },
+    {
+      "id": "L-0013",
+      "title": "Secrets shown once must survive a failed start",
+      "rule": "If a value is persisted before it is shown to the operator (join codes, tokens), every failure path between the write and the display must undo the write, and a start with nothing recorded yet must issue and show new values instead of silently keeping unseen ones. Test it: make the start fail, restart, and assert the value is shown.\n_Learned when a port in use, a missing API key or a bad trace-file path left join codes on disk that nobody had seen, so the next start kept them silently and no player could join._",
+      "context": "",
+      "date": "2026-10-07",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-07T01:34:29.913Z",
-  "commitSha": "0cf8f6f",
-  "buildNumber": "186",
-  "branch": "chore/session-close-2026-10-07",
+  "generatedAt": "2026-10-07T04:14:11.679Z",
+  "commitSha": "2c2eeff",
+  "buildNumber": "201",
+  "branch": "chore/session-close-us-0033",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2559,7 +2647,15 @@
     },
     {
       "date": "2026-10-07",
-      "cumCost": 379.5394
+      "cumCost": 401.8218
+    },
+    {
+      "date": "2026-10-07",
+      "cumCost": 409.0066
+    },
+    {
+      "date": "2026-10-07",
+      "cumCost": 412.8098
     }
   ],
   "costHistory": {
@@ -2578,11 +2674,19 @@
     "develop": [
       {
         "date": "2026-10-07",
-        "costUsd": 302.4565
+        "costUsd": 324.7389
+      },
+      {
+        "date": "2026-10-07",
+        "costUsd": 7.1848
+      },
+      {
+        "date": "2026-10-07",
+        "costUsd": 3.8032
       }
     ]
   },
-  "deltaSpend": 302.46,
+  "deltaSpend": 3.8,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
@@ -2655,13 +2759,13 @@
     }
   },
   "budget": {
-    "totalBudget": 3979.5394,
-    "totalSpent": 379.5394,
+    "totalBudget": 3212.8098,
+    "totalSpent": 412.8098,
     "totalProjected": 28400,
-    "percentUsed": 10,
-    "burnRate": 11.807892444444445,
-    "daysRemaining": 304,
-    "projectedExhaustion": 304,
+    "percentUsed": 13,
+    "burnRate": 67.77378333333333,
+    "daysRemaining": 41,
+    "projectedExhaustion": 41,
     "thresholds": [
       50,
       75,
@@ -2673,32 +2777,32 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 156.28093600000003,
-        "spent": 156.28093600000003,
+        "budget": 169.98051,
+        "spent": 169.98051,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 44.651696,
-        "spent": 44.651696,
+        "budget": 48.56586,
+        "spent": 48.56586,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 2967.44386,
-        "spent": 167.44386000000003,
-        "remaining": 2800,
-        "percentUsed": 6
+        "budget": 2182.121975,
+        "spent": 182.12197500000002,
+        "remaining": 2000,
+        "percentUsed": 8
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 811.162924,
-        "spent": 11.162924,
+        "budget": 812.141465,
+        "spent": 12.141465,
         "remaining": 800,
         "percentUsed": 1
       },
@@ -2724,390 +2828,59 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-07T01:32:25.491Z",
-      "2026-09-08T01:32:25.491Z",
-      "2026-09-09T01:32:25.491Z",
-      "2026-09-10T01:32:25.491Z",
-      "2026-09-11T01:32:25.491Z",
-      "2026-09-12T01:32:25.491Z",
-      "2026-09-13T01:32:25.491Z",
-      "2026-09-14T01:32:25.491Z",
-      "2026-09-15T01:32:25.491Z",
-      "2026-09-16T01:32:25.491Z",
-      "2026-09-17T01:32:25.491Z",
-      "2026-09-18T01:32:25.491Z",
-      "2026-09-19T01:32:25.491Z",
-      "2026-09-20T01:32:25.491Z",
-      "2026-09-21T01:32:25.491Z",
-      "2026-09-22T01:32:25.491Z",
-      "2026-09-23T01:32:25.491Z",
-      "2026-09-24T01:32:25.491Z",
-      "2026-09-25T01:32:25.491Z",
-      "2026-09-26T01:32:25.491Z",
-      "2026-09-27T01:32:25.491Z",
-      "2026-09-28T01:32:25.491Z",
-      "2026-09-29T01:32:25.491Z",
-      "2026-09-30T01:32:25.491Z",
-      "2026-10-01T01:32:25.491Z",
-      "2026-10-02T01:32:25.491Z",
-      "2026-10-03T01:32:25.491Z",
-      "2026-10-04T01:32:25.491Z",
-      "2026-10-05T01:32:25.491Z",
-      "2026-10-06T01:32:25.491Z",
-      "2026-10-07T01:34:30.022Z"
+      "2026-10-01T21:38:39.527Z",
+      "2026-10-07T04:14:11.747Z"
     ],
     "doneCounts": [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
       0,
       0
     ],
     "totalStories": [
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
-      34,
+      13,
       34
     ],
     "aiCosts": [
-      12.651313333333333,
-      25.302626666666665,
-      37.95394,
-      50.60525333333333,
-      63.256566666666664,
-      75.90788,
-      88.55919333333334,
-      101.21050666666666,
-      113.86182,
-      126.51313333333333,
-      139.16444666666666,
-      151.81576,
-      164.46707333333333,
-      177.11838666666668,
-      189.7697,
-      202.42101333333332,
-      215.07232666666667,
-      227.72364,
-      240.3749533333333,
-      253.02626666666666,
-      265.67758,
-      278.3288933333333,
-      290.9802066666667,
-      303.63152,
-      316.2828333333334,
-      328.93414666666666,
-      341.58546,
-      354.23677333333336,
-      366.88808666666665,
-      379.5394,
-      379.5394
+      6.1671,
+      412.8098
     ],
     "coverage": [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
+      null,
       null
     ],
     "velocity": [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
       0,
       0
     ],
     "openBugs": [
       0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      1
+      0
     ],
     "atRisk": [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
       0,
       0
     ],
     "inputTokens": [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      17682561
+      522440,
+      18833554
     ],
     "outputTokens": [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      2646608
+      69480,
+      2858005
     ],
     "avgRisk": [
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1176470588235299,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1264705882352946,
-      1.1352941176470592
+      1.0999999999999999,
+      1.1264705882352946
     ],
     "velocityByWeek": {
       "labels": [
-        "2026-W36",
-        "2026-W37",
-        "2026-W38",
-        "2026-W39",
         "2026-W40",
         "2026-W41"
       ],
       "points": [
         0,
-        0,
-        0,
-        0,
-        0,
         0
       ],
       "rollingAvg": [
-        0,
-        0,
-        0,
-        0,
         0,
         0
       ]

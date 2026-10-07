@@ -10,3 +10,4 @@ There are none pending. Only one platform exists today: the text-only terminal r
 - the `log_failed` notice a client gets when the server fail-stops;
 - the `notice` field on the facilitator's `joined` message when the server is open;
 - the draft evaluation reports and their prototype visibility setting.
+- player join codes (US-0033): a `join` for a player role must carry `joinCode` (at most 64 characters, Crockford base32, case, spaces and hyphens ignored, O/I/L folded); a refusal is one generic `unauthorized` and the connection closes (1008), so a web or voice client needs a code-entry step and must not echo the code; the facilitator needs no code; a live takeover needs the reconnect token. The terminal client takes the code from `JOIN_CODE`, `--code-file` or a hidden prompt, never argv.
