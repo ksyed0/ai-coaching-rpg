@@ -1019,7 +1019,7 @@ Branch: feature/EPIC-0005-US-0035-calibration-probes
 Acceptance Criteria:
   - [x] AC-0180: a probe is a validated YAML file (`single` or `contrast`, `source`, `drafter`, `approved_by`, `split`, `acceptable`) in `scenarios/<id>/calibration/` (probe-schema.ts; probe-schema.test.ts; TC-0025)
   - [x] AC-0181: loading reports every problem in one list (unknown criterion, non-player subject, a scored player with fewer than 2 lines, bad ids, hostile YAML, drafted without approval) (probe-load.ts; probe-load.test.ts; TC-0025)
-  - [x] AC-0182: a probe becomes a synthetic session log the real evaluator accepts, quote verification included (probe-events.ts; probe-events.test.ts and probe-evaluate.test.ts run the eight starter probes through the real `evaluateSession` with a scripted judge; TC-0026)
+  - [x] AC-0182: a probe becomes a synthetic session log the real evaluator accepts, quote verification included (probe-events.ts; probe-evaluate.test.ts runs the eight starter probes through the real `evaluateSession` with a scripted judge, quoting from the probe source; probe-events.test.ts uses a hand-built probe and only goes through the log reader and transcript builder; TC-0026)
   - [x] AC-0183: the Friday scenario ships 8 starter probes (4 discovery levels, 2 negotiation levels, 2 contrast groups) that validate against its rubric, and the linter reports the set as thin (scenarios/friday-escalation/calibration; starter-set.test.ts; TC-0027)
 ```
 

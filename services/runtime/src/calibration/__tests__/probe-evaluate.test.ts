@@ -25,7 +25,7 @@ async function setup(): Promise<{ scenario: Scenario; rubrics: Rubric[]; probes:
 }
 
 /** A scripted judge: scores the probe's criterion 1 and quotes either the role's own first line or an invented sentence. */
-function judge(probe: Probe, rubrics: Rubric[], quoteOf: (ownFirstLine: string) => string) {
+function judge(probe: Probe, rubrics: Rubric[], quoteOf: (role: string, ownFirstLine: string) => string) {
   const individual = rubrics.filter((r) => r.scope === "individual").flatMap((r) => r.criteria.map((c) => c.id));
   return {
     name: "scripted",
@@ -37,7 +37,7 @@ function judge(probe: Probe, rubrics: Rubric[], quoteOf: (ownFirstLine: string) 
       if (!line) throw new Error(`no line of ${role} in the request`);
       const criteria = individual.map((id) =>
         id === probe.criterion
-          ? { id, score: 1, rationale: "The participant's own first line.", confidence: "high", evidence: [{ seq: Number(line[1]), quote: quoteOf(line[2]!.slice(0, 60)) }] }
+          ? { id, score: 1, rationale: "The participant's own first line.", confidence: "high", evidence: [{ seq: Number(line[1]), quote: quoteOf(role, line[2]!.slice(0, 60)) }] }
           : { id, score: null, rationale: "", confidence: "low", evidence: [] },
       );
       yield JSON.stringify({ criteria, strengths: [], development_points: [], next_actions: [] });
@@ -50,7 +50,7 @@ describe("starter probes through the real evaluator", () => {
     const { scenario, rubrics, probes } = await setup();
     expect(probes).toHaveLength(8);
     for (const probe of probes) {
-      const r = await evaluateSession({ events: buildProbeEvents(probe, scenario), scenario, rubrics, provider: judge(probe, rubrics, (q) => q), config, nonce: "abc123" });
+      const r = await evaluateSession({ events: buildProbeEvents(probe, scenario), scenario, rubrics, provider: judge(probe, rubrics, (role) => probe.transcript.find((l) => l.role === role)!.text.slice(0, 60)), config, nonce: "abc123" });
       expect(r.failures, probe.id).toEqual([]);
       for (const role of scoredRoles(probe)) {
         const p = r.participants.find((x) => x.roleId === role);

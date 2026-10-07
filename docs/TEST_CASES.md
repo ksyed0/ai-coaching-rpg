@@ -398,7 +398,6 @@ Status: [ ] Not Run
 Defect Raised: None
 Notes: Automated: id-rules.files.test.ts (every function that takes a session id, with an existing and a missing directory), id-rules.characterisation.test.ts (bootstrap, demo args, openSession), plan-text.test.ts.
 
-
 ## US-0035: calibration probe format, loader, adapter and Friday starter set
 
 TC-0025: A probe is a validated YAML file, every problem is reported in one list, and hostile YAML is refused
