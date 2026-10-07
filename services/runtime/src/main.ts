@@ -161,7 +161,11 @@ export async function bootstrap(opts: {
   if (store.joinCodes?.issued) {
     const issued = Object.entries(store.joinCodes.issued).map(([roleId, code]) => ({ roleId, code }));
     // Codes nobody saw lock everyone out: a display that fails stops the start (and withdraws them), never silently.
-    try { (opts.showJoinCodes ?? printJoinCodes)(issued); }
+    try {
+      const r: unknown = (opts.showJoinCodes ?? printJoinCodes)(issued);
+      // review I-A: an async display could fail after the start reported success; refuse it (and never leave its rejection unhandled).
+      if (r !== undefined && typeof (r as { then?: unknown }).then === "function") { (r as Promise<unknown>).then(undefined, () => undefined); throw new Error("async display"); }
+    }
     catch { host.stopTicker(); await server.close(); gmTrace?.close(); return failOpened(["could not show the player join codes (the start was stopped and the codes withdrawn; start again)"]); }
   } else if (store.joinCodes) {
     log("player join codes: the codes issued earlier for this session still apply (they are not shown again; to issue new ones, stop the server, move the session's .codes.json file in the data directory aside and start it again)");

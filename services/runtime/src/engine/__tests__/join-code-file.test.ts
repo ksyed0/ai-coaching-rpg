@@ -95,3 +95,14 @@ describe("join codes file (US-0033)", () => {
     expect(await readdir(dir)).toEqual([]);
   });
 });
+
+describe("stale codes temp files (US-0033 review m-2)", () => {
+  it("test_sweepJoinCodesTemps_skips_a_directory_with_the_exact_temp_name_and_removes_regular_ones", async () => {
+    const { sweepJoinCodesTemps } = await import("../join-code-file.js");
+    await mkdir(path.join(dir, "s.codes.json.0123456789ab.tmp"));
+    await writeFile(path.join(dir, "s.codes.json.ffffffffffff.tmp"), "half", { mode: 0o600 });
+    expect(sweepJoinCodesTemps(dir, "s")).toBe(1);
+    expect((await readdir(dir)).sort()).toEqual(["s.codes.json.0123456789ab.tmp"]);
+    expect(sweepJoinCodesTemps(path.join(dir, "missing"), "s")).toBe(0);
+  });
+});

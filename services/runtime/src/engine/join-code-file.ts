@@ -42,10 +42,16 @@ export function readJoinCodesFile(dir: string, sessionId: string): JoinCodes | n
 }
 
 /**
- * Replaces the codes file with `codes` (hashes only). `beforeCommit` runs right before the rename (the session store checks that it
- * still holds the session lock there). Never leaves a temp file behind on failure.
+ * A check that must run synchronously and throw to refuse. Typed to return `undefined`, so an async function (whose rejection would
+ * be ignored, and left unhandled) is a compile error; a returned promise is also refused at run time.
  */
-export function writeJoinCodesFile(dir: string, sessionId: string, codes: JoinCodes, beforeCommit?: () => void): void {
+export type SyncCheck = () => undefined;
+
+/**
+ * Replaces the codes file with `codes` (hashes only). `beforeCommit` runs right before the rename (the session store checks there,
+ * synchronously, that it still holds the session lock); a throw leaves the old file in place. Never leaves a temp file behind on failure.
+ */
+export function writeJoinCodesFile(dir: string, sessionId: string, codes: JoinCodes, beforeCommit?: SyncCheck): void {
   const file = path.join(dir, codesFileName(sessionId));
   const tmp = path.join(dir, `${codesFileName(sessionId)}.${randomBytes(6).toString("hex")}.tmp`);
   assertInside(dir, file); assertInside(dir, tmp);
@@ -61,7 +67,14 @@ export function writeJoinCodesFile(dir: string, sessionId: string, codes: JoinCo
     try { unlinkSync(tmp); } catch { /* best effort */ }
     throw err;
   }
-  try { beforeCommit?.(); renameSync(tmp, file); }
+  try {
+    const r: unknown = beforeCommit?.();
+    if (r !== undefined) {
+      if (typeof (r as { then?: unknown }).then === "function") (r as Promise<unknown>).then(undefined, () => undefined); // never left unhandled
+      throw new Error("the pre-commit check of the join codes file must be synchronous");
+    }
+    renameSync(tmp, file);
+  }
   catch (err) { try { unlinkSync(tmp); } catch { /* best effort */ } throw err; }
   fsyncDirSync(dir);
 }
@@ -76,20 +89,23 @@ export function removeJoinCodesFile(dir: string, sessionId: string): void {
 }
 
 /**
- * Removes `<id>.codes.json.<12 hex>.tmp` files a crash left behind while writing (review M-5). Call only while holding the session
+ * Removes `<id>.codes.json.<12 hex>.tmp` regular files a crash left behind while writing (review M-5); anything else is skipped. Call only while holding the session
  * lock: no other process can be writing one then. Matches exactly the names writeJoinCodesFile makes; unlink never follows a link.
  * Returns how many were removed. A missing directory is fine.
  */
 export function sweepJoinCodesTemps(dir: string, sessionId: string): number {
-  let names: string[];
-  try { names = readdirSync(dir); } catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return 0; throw err; }
+  let entries: import("node:fs").Dirent[];
+  try { entries = readdirSync(dir, { withFileTypes: true }); } catch (err) { if ((err as NodeJS.ErrnoException).code === "ENOENT") return 0; throw err; }
   const prefix = `${codesFileName(sessionId)}.`;
   let n = 0;
-  for (const name of names) {
+  for (const e of entries) {
+    const name = e.name;
     if (!name.startsWith(prefix) || !/^[0-9a-f]{12}\.tmp$/.test(name.slice(prefix.length))) continue;
+    if (!e.isFile()) continue; // review m-2: a directory (or anything else) with that name is not ours and must not stop the start
     const file = path.join(dir, name);
     assertInside(dir, file);
-    try { unlinkSync(file); n++; } catch (err) { if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err; }
+    // EISDIR/EPERM: it became a directory since the listing; leave it alone as well.
+    try { unlinkSync(file); n++; } catch (err) { if (!["ENOENT", "EISDIR", "EPERM"].includes((err as NodeJS.ErrnoException).code ?? "")) throw err; }
   }
   if (n > 0) fsyncDirSync(dir);
   return n;

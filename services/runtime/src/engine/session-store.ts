@@ -104,6 +104,14 @@ export async function openSession(o: {
     const log = new JsonlEventLog(o.sessionId, o.dataDir, { guard: () => lock.assertHeld(), maxBytes: o.maxLogBytes });
     return { log, engine: new SessionEngine({ scenario: o.scenario, log, clock: o.clock }) };
   };
+  /**
+   * The SYNCHRONOUS lock check for the codes file (review I-A): `lock.assertHeld()` is async and must never be used in a void callback,
+   * where its rejection would be ignored (and left unhandled). Throws when the lock was lost, removed or replaced.
+   */
+  const holdLockNow = (): undefined => {
+    if (lock.lost || !lock.verify()) throw new SessionLockError("lost", "the session lock was removed or taken over by another process");
+    return undefined;
+  };
   const playerRoles = Object.values(o.scenario.roles).filter((r) => r.type === "player").map((r) => r.id);
   const bind = { sessionId: o.sessionId, scenarioSha256: scenarioHash(o.scenario), roleIds: playerRoles };
   /** Decides the session's join codes: keep the ones on disk (`keep`) when they fit this session, or issue and persist new ones. */
@@ -123,7 +131,7 @@ export async function openSession(o: {
     }
     if (playerRoles.length === 0) return undefined; // nothing to protect
     const { codes, plain } = JoinCodes.issue(playerRoles, bind);
-    try { writeJoinCodesFile(o.dataDir, o.sessionId, codes, () => lock.assertHeld()); }
+    try { writeJoinCodesFile(o.dataDir, o.sessionId, codes, holdLockNow); }
     catch (err) { throw new SessionStoreError("io", `cannot write the join codes file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
     return { codes, issued: plain };
   };
@@ -142,7 +150,8 @@ export async function openSession(o: {
       ...x, lock, notes, ...rest,
       discardIssuedCodes: () => {
         if (!rest.joinCodes?.issued) return true;
-        try { lock.assertHeld(); removeJoinCodesFile(o.dataDir, o.sessionId); return true; } catch { return false; }
+        try { holdLockNow(); } catch { return false; } // lost: the file may be another server's now, never touch it
+        try { removeJoinCodesFile(o.dataDir, o.sessionId); return true; } catch { return false; }
       },
       close: async () => { try { await x.log.close(); } catch { /* best effort */ } lock.release(); },
     });

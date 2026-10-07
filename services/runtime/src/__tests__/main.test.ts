@@ -546,6 +546,13 @@ describe("bootstrap: player join codes (US-0033)", () => {
     expect(await exists(path.join(tmp, "jc.lock"))).toBe(false); // the lock was released: the next start is not blocked
   });
 
+  it("test_bootstrap_an_async_display_is_refused_like_a_failing_one_review_I_A", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
+    const r = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: (async () => { throw new Error("later"); }) as unknown as () => void });
+    expect(r.ok).toBe(false);
+    expect(await exists(codesFile())).toBe(false);
+  });
+
   it("test_bootstrap_unusable_codes_file_stops_startup_with_a_remedy", async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
     const a = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: () => {} });
