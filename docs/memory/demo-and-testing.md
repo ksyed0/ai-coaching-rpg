@@ -28,6 +28,8 @@ Game Master ended 5 of 6 scenes (4 before US-0016 released the CFO's fact; scene
 
 Live Gemma showcase (generated players, `--evaluate`), 2026-10-07: after US-0033 (develop@cb6a479) 15 passed / 0 failed / 2 skipped, 1449 s, 16 of 16 AI replies real (0 fallbacks, median 17 to 18 s), the Game Master ended 4 of 6 scenes (scenes 2 and 5 by facilitator advance), 14 evaluations with 0 unusable verdicts; after US-0034 (develop@70b3f21) 15 / 0 / 2, 1078 s, 10 of 10 replies real, the Game Master ended 5 of 6 scenes, 11 evaluations, 0 re-asks, and in scene 4 it suggested `/release cfo 1` to the facilitator only (the CFO's `earned_when` condition: a fixed fee tied to a firm date). The scene count varies between runs because the generated players differ; compare over several runs, not one.
 
+US-0019 comparison (Gemma, live showcase with generated players, no evaluator, one run at a time, 2026-10-07): Game Master scenes ended per run: `develop` 4, 4, 4 (always scenes 1, 3, 4, 6; scenes 2 and 5 by facilitator advance); branch `feature/EPIC-0006-US-0019-model-cost` 5, 4, 4; 0 canned fallbacks in all six; 640 to 822 s per run. Compare over several runs: one run varies by about one scene.
+
 ## CI (GitHub Actions)
 Required for merge: Lint, Test & Coverage Gate, Build, Orchestrator Validation, Dependency Audit, Secret Scanning, Analyze JavaScript. Also run: Workspace Tests / Typecheck / Audit, SDK Import Guard, Docker Build, Demo Run, CodeQL. Branch protection on `main` and `develop`: PR required, 0 approvals, strict. Merge with `gh pr merge N --merge`. A required check can sit "pending" for a long time when a test hangs: cancel it and read the partial log. "The job was not acquired by Runner" is infrastructure: rerun the failed jobs.
 

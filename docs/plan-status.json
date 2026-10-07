@@ -812,23 +812,23 @@
       "title": "As an operator, I want model calls to cost less per session, so that sessions stay affordable as they get longer.",
       "priority": "Low",
       "estimate": "S",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0006-US-0019-model-cost",
       "acs": [
         {
           "id": "AC-0059",
-          "text": "the Game Master prompt uses a bounded transcript window instead of the whole scene transcript",
-          "done": false
+          "text": "the Game Master prompt uses a bounded transcript window instead of the whole scene transcript (at least the latest `GM_TRANSCRIPT_WINDOW` utterances of the current scene, default 40, 10 to 500 and at least `GM_EVERY_N_UTTERANCES`, validated in the server, the demo and `gm-eval --live`; widened per condition to every line since its last answered prompt, also when lines arrive during a slow round, capped at 500 with a facilitator alert; the scene's first 2 lines and each AI character's last 2 lines, each with the line before it, kept outside the cut; window, coverage and alert count taken synchronously with the prompt build (re-review m-1); `{\"omitted\": n}` records in place and a numbers-only system note; no summary; nonce, verdict format, parser, re-ask and escaping unchanged; exit and earned_when prompts alike; the trace records the window; the shipped scenes fit, so the demo Game Master prompts are byte-identical to develop apart from the nonce; residual risk documented in THREAT_MODEL: a player's objection flooded out of view can allow a false exit; review fix round I-1, I-2, M-2, M-3; TC-0020; a live run on a real model is still to be recorded)",
+          "done": true
         },
         {
           "id": "AC-0060",
-          "text": "the Game Master stops evaluating the remaining conditions of a scene after a condition is judged true",
-          "done": false
+          "text": "the Game Master stops evaluating the remaining conditions of a scene after a condition is judged true (once a true verdict is recorded in the round, for the tick and `finalEvaluation`; a stale refused verdict, a false, no verdict or a model error go on; the US-0034 earned_when checks were already skipped in such a round; TC-0021)",
+          "done": true
         },
         {
           "id": "AC-0061",
-          "text": "the NPC persona prompt puts stable content before changing goals and knowledge so the cached prefix survives NPC updates",
-          "done": false
+          "text": "the NPC persona prompt puts stable content before changing goals and knowledge so the cached prefix survives NPC updates (`stableNpcPrefix`: instructions, persona, guardrails, voice; then goals, knowledge, scene, room, response rules, last lines, released facts last; `ChatRequest.cachePrefixChars` marks the prefix and the Anthropic adapter puts its cache breakpoint there, never inside a surrogate pair; a test asserts byte-identical prefixes through goal, knowledge and release updates and a scene change; S-06 asserts it for every captured prompt; TC-0022. Caveat: the shipped prefixes are about 420 to 520 tokens, probably below the minimum cacheable length (512 for claude-sonnet-5-5), so the saving is not measured; the story stays In Progress until `cache_read_input_tokens` is recorded on a real run)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -1891,9 +1891,9 @@
       "title": "Bound the Game Master transcript, short-circuit after a true verdict, reorder the NPC prompt prefix",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0006-US-0019-model-cost",
-      "notes": "Deferred minor findings from Tasks 7 and 8 and the final review. Behavior must stay covered by the existing leak and guardrail tests."
+      "notes": "Deferred minor findings from Tasks 7 and 8 and the final review. Behavior must stay covered by the existing leak and guardrail tests. Done 2026-10-07: gm-config (`GM_TRANSCRIPT_WINDOW`), gm-prompt (window, omission line), game-master (window, short-circuit, trace `window`), session-host/main/demo/gm-eval wiring, adapters (`cachePrefixChars`, Anthropic two-block system), npc-prompt (`stableNpcPrefix`, reorder), S-06 extended (no new check: 29, 14, 15, 42). Test cases TC-0020..TC-0022. Review fix round (2026-10-07): I-1 per-condition coverage of new lines (cap 500 with an alert), I-2 opening and AI character lines kept outside the cut with `{\"omitted\": n}` markers, M-1 caching caveat, M-2 singular wording, M-3 non-finite window, M-6 surrogate-safe split, stale-verdict test relabelled. Not done here: a live run on a real model; the live check of the reordered NPC prompt (M-4) is pending with the controller"
     },
     {
       "id": "TASK-0020",
@@ -2318,6 +2318,36 @@
       "defect": "None"
     },
     {
+      "id": "TC-0020",
+      "title": "The Game Master prompt holds a bounded window of the scene's latest lines",
+      "relatedStory": "US-0019",
+      "relatedTask": "TASK-0019",
+      "relatedAC": "AC-0059",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0021",
+      "title": "The Game Master stops judging a scene's conditions after one is judged true",
+      "relatedStory": "US-0019",
+      "relatedTask": "TASK-0019",
+      "relatedAC": "AC-0060",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0022",
+      "title": "The AI character prompt keeps a stable cached prefix through NPC updates",
+      "relatedStory": "US-0019",
+      "relatedTask": "TASK-0019",
+      "relatedAC": "AC-0061",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
       "id": "TC-0023",
       "title": "One set of identifier rules decides every scenario, protocol, client and session id",
       "relatedStory": "US-0020",
@@ -2427,242 +2457,242 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 1600,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 800,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 400,
-      "costUsd": 11.317697,
+      "costUsd": 12.374108,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 441.3902,
-      "inputTokens": 19379404,
-      "outputTokens": 3096134
+      "costUsd": 482.5902,
+      "inputTokens": 20326329,
+      "outputTokens": 3533307
     },
     "_bugs": {
       "BUG-0001": {
@@ -2856,11 +2886,11 @@
       "isAtRisk": true
     },
     "US-0019": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0020": {
       "missingTCs": false,
@@ -3155,11 +3185,19 @@
       "context": "",
       "date": "2026-10-07",
       "bugIds": []
+    },
+    {
+      "id": "L-0015",
+      "title": "Review ground-truth data against the rubric, not only the schema",
+      "rule": "When data is the oracle (calibration probes, golden files, expected scores), have a reviewer judge each item against the rule that defines it (the rubric's own level anchors and its \"choose the lower level when the higher anchor's key behaviour is missing\" rule) and ask whether a careful rater could defend a different answer. A file that loads and validates can still carry a wrong label, and a wrong label silently biases every metric computed from it (bias, exact agreement, tuning).\n_Learned when two starter probes labelled \"level 4\" for negotiation validated, passed every test and were level 3 by the rubric's anchor (no recommendation, no held condition, no stated-back next steps); only the content review caught it._",
+      "context": "",
+      "date": "2026-10-07",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-07T14:03:37.472Z",
-  "commitSha": "694b5a6",
-  "buildNumber": "246",
+  "generatedAt": "2026-10-07T14:41:40.300Z",
+  "commitSha": "c5526f1",
+  "buildNumber": "250",
   "branch": "feature/EPIC-0005-US-0035-calibration-probes",
   "sessionTimeline": [
     {
@@ -3180,7 +3218,7 @@
     },
     {
       "date": "2026-10-07",
-      "cumCost": 441.3902
+      "cumCost": 482.5902
     }
   ],
   "costHistory": {
@@ -3207,11 +3245,11 @@
       },
       {
         "date": "2026-10-07",
-        "costUsd": 32.3836
+        "costUsd": 73.5836
       }
     ]
   },
-  "deltaSpend": 32.38,
+  "deltaSpend": 73.58,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
@@ -3284,13 +3322,13 @@
     }
   },
   "budget": {
-    "totalBudget": 5241.3902,
-    "totalSpent": 441.3902,
+    "totalBudget": 4882.5902,
+    "totalSpent": 482.5902,
     "totalProjected": 32800,
-    "percentUsed": 8,
-    "burnRate": 13.776459999999998,
-    "daysRemaining": 348,
-    "projectedExhaustion": 348,
+    "percentUsed": 10,
+    "burnRate": 15.149793333333331,
+    "daysRemaining": 290,
+    "projectedExhaustion": 290,
     "thresholds": [
       50,
       75,
@@ -3302,32 +3340,32 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 158.447758,
-        "spent": 158.447758,
+        "budget": 173.23751200000004,
+        "spent": 173.23751200000004,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 11.317697,
-        "spent": 11.317697,
+        "budget": 12.374108,
+        "spent": 12.374108,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 569.765455,
-        "spent": 169.765455,
-        "remaining": 400,
-        "percentUsed": 30
+        "budget": 185.61162000000004,
+        "spent": 185.61162000000004,
+        "remaining": 0,
+        "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 4501.859273,
-        "spent": 101.85927299999999,
+        "budget": 4511.366972,
+        "spent": 111.366972,
         "remaining": 4400,
         "percentUsed": 2
       },
@@ -3383,9 +3421,11 @@
       "2026-10-04T13:54:32.711Z",
       "2026-10-05T13:54:32.711Z",
       "2026-10-06T13:54:32.711Z",
-      "2026-10-07T14:03:37.544Z"
+      "2026-10-07T14:03:37.544Z",
+      "2026-10-07T14:41:40.367Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -3449,6 +3489,7 @@
       34,
       34,
       34,
+      39,
       39
     ],
     "aiCosts": [
@@ -3482,7 +3523,8 @@
       393.34959999999995,
       407.39779999999996,
       421.44599999999997,
-      441.3902
+      441.3902,
+      482.5902
     ],
     "coverage": [
       0,
@@ -3515,9 +3557,11 @@
       0,
       0,
       0,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -3581,9 +3625,11 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -3647,7 +3693,8 @@
       0,
       0,
       0,
-      19379404
+      19379404,
+      20326329
     ],
     "outputTokens": [
       0,
@@ -3680,7 +3727,8 @@
       0,
       0,
       0,
-      3096134
+      3096134,
+      3533307
     ],
     "avgRisk": [
       1.1617647058823533,
@@ -3713,7 +3761,8 @@
       1.1617647058823533,
       1.1617647058823533,
       1.1617647058823533,
-      1.1538461538461542
+      1.1538461538461542,
+      1.1615384615384619
     ],
     "velocityByWeek": {
       "labels": [

@@ -251,7 +251,7 @@ export function startPlayerProvider(env: NodeJS.ProcessEnv, model?: string): Mod
 export async function buildSystem(o: {
   scenario: Scenario; sessionId: string; dataDir: string; clock: Clock; fakeClock?: FakeClock; npc?: RecordingProvider; gm?: RecordingProvider;
   npcProvider: ModelProvider; gmProvider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; log?: EventLog; heartbeatMs?: number;
-  /** The Game Master settings (GM_TIMEOUT_MS, GM_REASK, GM_EVERY_N_UTTERANCES, GM_AUTO_RELEASE) and its raw-reply trace; defaults when absent. */
+  /** The Game Master settings (GM_TIMEOUT_MS, GM_REASK, GM_EVERY_N_UTTERANCES, GM_AUTO_RELEASE, GM_TRANSCRIPT_WINDOW) and its raw-reply trace; defaults when absent. */
   gmConfig?: GmConfig; gmTrace?: (rec: GmTraceRecord) => void; /** Overrides `gmConfig.autoRelease` (the mock showcase reads GM_AUTO_RELEASE itself). */ gmAutoRelease?: boolean;
   facilitatorToken?: string; limits?: Partial<Limits>; allowedOrigins?: string[]; trustProxy?: boolean;
   /** An engine opened elsewhere (the resume room's openSession), and what to close with the system (its log and lock). */
@@ -267,7 +267,7 @@ export async function buildSystem(o: {
     scenario: o.scenario, engine, npcProvider: o.npcProvider, gmProvider: o.gmProvider, clock: o.clock,
     log: (m) => hostLog.push(m), firstTokenTimeoutMs: o.firstTokenTimeoutMs, replyTimeoutMs: o.replyTimeoutMs,
     npcMaxTokens: o.npcMaxTokens, gmMaxTokens: o.gmMaxTokens, npcTemperature: o.npcTemperature, gmTemperature: o.gmTemperature,
-    gmTimeoutMs: o.gmConfig?.timeoutMs, gmReask: o.gmConfig?.reask, gmEveryN: o.gmConfig?.everyNUtterances, gmAutoRelease: o.gmAutoRelease ?? o.gmConfig?.autoRelease, gmTrace: o.gmTrace,
+    gmTimeoutMs: o.gmConfig?.timeoutMs, gmReask: o.gmConfig?.reask, gmEveryN: o.gmConfig?.everyNUtterances, gmAutoRelease: o.gmAutoRelease ?? o.gmConfig?.autoRelease, gmTranscriptWindow: o.gmConfig?.transcriptWindow, gmTrace: o.gmTrace,
   });
   // Every demo server requires player join codes, as the real one does (US-0033).
   const playerRoles = Object.values(o.scenario.roles).filter((r) => r.type === "player").map((r) => r.id);
