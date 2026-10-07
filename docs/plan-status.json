@@ -49,7 +49,7 @@
     {
       "id": "EPIC-0005",
       "title": "Slice 5 — evaluator and reports",
-      "description": "Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), per-participant visibility and access control (ASM-09; reports are visible to all participants for now) and calibration (ASM-08).",
+      "description": "Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), per-participant visibility and access control (ASM-09; reports are visible to all participants for now) and calibration (ASM-08). The calibration slice (US-0035..US-0039: probes, `pnpm calibrate`, a calibration stamp on reports) is planned.",
       "releaseTarget": "MVP",
       "status": "In Progress",
       "startDate": null,
@@ -1423,6 +1423,165 @@
         "US-0016",
         "US-0025"
       ]
+    },
+    {
+      "id": "US-0035",
+      "epicId": "EPIC-0005",
+      "title": "Calibration probe format, validator, log adapter and Friday starter set",
+      "priority": "High",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0035-calibration-probes",
+      "acs": [
+        {
+          "id": "AC-0180",
+          "text": "a probe is a validated YAML file (`single` or `contrast`, `source`, `drafter`, `approved_by`, `split`, `acceptable`) in `scenarios/<id>/calibration/`",
+          "done": false
+        },
+        {
+          "id": "AC-0181",
+          "text": "loading reports every problem in one list (unknown criterion, non-player subject, a scored player with fewer than 2 lines, bad ids, hostile YAML, drafted without approval)",
+          "done": false
+        },
+        {
+          "id": "AC-0182",
+          "text": "a probe becomes a synthetic session log the real evaluator accepts, quote verification included",
+          "done": false
+        },
+        {
+          "id": "AC-0183",
+          "text": "the Friday scenario ships 8 starter probes (4 discovery levels, 2 negotiation levels, 2 contrast groups) that validate against its rubric, and the linter reports the set as thin",
+          "done": false
+        }
+      ],
+      "dependencies": []
+    },
+    {
+      "id": "US-0036",
+      "epicId": "EPIC-0005",
+      "title": "`pnpm calibrate`: judges, runner, metrics, report, second-judge comparison",
+      "priority": "High",
+      "estimate": "L",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0036-calibrate-command",
+      "acs": [
+        {
+          "id": "AC-0184",
+          "text": "judges are configuration (`--judge label,model[,baseUrl]`, primary defaults to the evaluator settings) and a mock provider is refused",
+          "done": false
+        },
+        {
+          "id": "AC-0185",
+          "text": "the runner feeds each probe to `evaluateSession` unchanged, supports `--repeat` (max 5), `--only`, and records unreachable or garbage judges as unusable",
+          "done": false
+        },
+        {
+          "id": "AC-0186",
+          "text": "metrics: agreement (exact and within-one as counts), signed bias overall and per expected level, contrast ordering and gap, spread, not-observed precision and recall, usability, stability, split by source, drafter and tune/holdout, with same-family drafter warnings",
+          "done": false
+        },
+        {
+          "id": "AC-0187",
+          "text": "a blind second-judge comparison lists every disagreement with both judges' levels, rationale and quotes",
+          "done": false
+        },
+        {
+          "id": "AC-0188",
+          "text": "the report is Markdown plus JSON with a one-screen summary, PASS/WARN/FAIL labels per criterion from `targets.yaml` over documented defaults, `--strict` exits non-zero on FAIL, output is exclusive-create under git-ignored `data/calibration/`, and `pnpm calibrate` never blocks `pnpm evaluate`",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0035"
+      ]
+    },
+    {
+      "id": "US-0037",
+      "epicId": "EPIC-0005",
+      "title": "Probe drafting, excerpts, approval, and the scaled Friday set",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0037-probe-drafting",
+      "acs": [
+        {
+          "id": "AC-0189",
+          "text": "`--draft-probes` writes candidate probes to `calibration/drafts/` using a drafter of a different model family from the primary judge unless `--allow-same-family`, and a run never reads drafts",
+          "done": false
+        },
+        {
+          "id": "AC-0190",
+          "text": "`approve` validates a draft, records approver and time, assigns a split, and moves it into `calibration/`; `excerpt` drafts a probe from a real session log range for a human to rate",
+          "done": false
+        },
+        {
+          "id": "AC-0191",
+          "text": "the Friday set reaches at least 20 approved probes, balanced across levels, with at least 5 real excerpts rated by a human and at least 10 holdout probes",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0036"
+      ]
+    },
+    {
+      "id": "US-0038",
+      "epicId": "EPIC-0005",
+      "title": "Evaluator prompt variants and the acceptance report (conditional on the baseline)",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0038-prompt-variants",
+      "acs": [
+        {
+          "id": "AC-0192",
+          "text": "the evaluator takes a named prompt variant, `v1` is byte-identical to today's prompt, and reports record the variant",
+          "done": false
+        },
+        {
+          "id": "AC-0193",
+          "text": "`v2` (evidence-first, lower-level tie-break) and `v3` (next-level challenge) exist behind the variant name with the output schema, parser and quote verification unchanged",
+          "done": false
+        },
+        {
+          "id": "AC-0194",
+          "text": "a variant becomes the default only through a PR carrying the holdout before/after table that meets the spec's acceptance rule",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0036",
+        "US-0037"
+      ]
+    },
+    {
+      "id": "US-0039",
+      "epicId": "EPIC-0005",
+      "title": "Calibration stamp on evaluation reports",
+      "priority": "High",
+      "estimate": "S",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0039-calibration-stamp",
+      "acs": [
+        {
+          "id": "AC-0195",
+          "text": "every evaluation's JSON and Markdown records the judge, model, prompt variant and rubric hash",
+          "done": false
+        },
+        {
+          "id": "AC-0196",
+          "text": "a one-line calibration stamp (footer, `index.md`, each personal report) states measured numbers and never claims accuracy, with states not calibrated, stale (rubric hash or variant changed) and thin",
+          "done": false
+        },
+        {
+          "id": "AC-0197",
+          "text": "a corrupt or missing calibration file never breaks a report",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0036"
+      ]
     }
   ],
   "tasks": [
@@ -1915,6 +2074,56 @@
       "status": "Done",
       "branch": "feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release",
       "notes": "Follow-up to the design notes for US-0016 and US-0025. US-0016 gives the facilitator the manual release command; this story only suggests it. Done 2026-10-07: packages/script (schema, validator, earnedWhenOf), packages/events (`gm.fact_earned`, `factsEarned`), engine (`pendingEarnedChecks`, `recordFactEarned`, repair `gm_release`), agents (`buildGmEarnedRequest`, GameMaster earned checks, `GM_AUTO_RELEASE`), host (viewFor, snapshotFor), terminal client, demo (showcase mock `gm_earned`, S-04/S-06/S-07). Test cases TC-0008..TC-0012. Not done here: a live showcase on a real model."
+    },
+    {
+      "id": "TASK-0055",
+      "storyId": "US-0035",
+      "title": "File the probe format, its validator, the log adapter and the Friday starter set",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0005-US-0035-calibration-probes",
+      "notes": "Implementation plan Tasks 1-3 (docs/superpowers/plans, evaluator calibration, 2026-10-07)."
+    },
+    {
+      "id": "TASK-0056",
+      "storyId": "US-0036",
+      "title": "Build the calibrate command: judges, runner, metrics, report and second-judge comparison",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0005-US-0036-calibrate-command",
+      "notes": "Implementation plan Tasks 4-8 (docs/superpowers/plans, evaluator calibration, 2026-10-07)."
+    },
+    {
+      "id": "TASK-0057",
+      "storyId": "US-0037",
+      "title": "Add probe drafting, excerpts and approval, and scale the Friday set",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0005-US-0037-probe-drafting",
+      "notes": "Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07)."
+    },
+    {
+      "id": "TASK-0058",
+      "storyId": "US-0038",
+      "title": "Add evaluator prompt variants and the acceptance report",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0005-US-0038-prompt-variants",
+      "notes": "Implementation plan Task 12 (docs/superpowers/plans, evaluator calibration, 2026-10-07)."
+    },
+    {
+      "id": "TASK-0059",
+      "storyId": "US-0039",
+      "title": "Stamp evaluation reports with the calibration state",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0005-US-0039-calibration-stamp",
+      "notes": "Implementation plan Task 13 (docs/superpowers/plans, evaluator calibration, 2026-10-07)."
     }
   ],
   "testCases": [
@@ -2218,212 +2427,242 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 800,
-      "costUsd": 12.395471,
+      "costUsd": 11.317697,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0035": {
+      "projectedUsd": 800,
+      "costUsd": 11.317697,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0036": {
+      "projectedUsd": 1600,
+      "costUsd": 11.317697,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0037": {
+      "projectedUsd": 800,
+      "costUsd": 11.317697,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0038": {
+      "projectedUsd": 800,
+      "costUsd": 11.317697,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0039": {
+      "projectedUsd": 400,
+      "costUsd": 11.317697,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 421.44599999999997,
-      "inputTokens": 19040320,
-      "outputTokens": 2944083
+      "costUsd": 441.3902,
+      "inputTokens": 19379404,
+      "outputTokens": 3096134
     },
     "_bugs": {
       "BUG-0001": {
@@ -2727,6 +2966,41 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": false
+    },
+    "US-0035": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0036": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0037": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0038": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0039": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -2883,10 +3157,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-07T06:27:18.073Z",
-  "commitSha": "cdc668a",
-  "buildNumber": "219",
-  "branch": "feature/EPIC-0006-US-0023-demo-live-evidence",
+  "generatedAt": "2026-10-07T13:54:32.639Z",
+  "commitSha": "b72b76e",
+  "buildNumber": "243",
+  "branch": "feature/EPIC-0005-US-0035-calibration-probes",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -2906,7 +3180,7 @@
     },
     {
       "date": "2026-10-07",
-      "cumCost": 421.446
+      "cumCost": 441.3902
     }
   ],
   "costHistory": {
@@ -2933,11 +3207,11 @@
       },
       {
         "date": "2026-10-07",
-        "costUsd": 12.4394
+        "costUsd": 32.3836
       }
     ]
   },
-  "deltaSpend": 12.44,
+  "deltaSpend": 32.38,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
@@ -3010,54 +3284,52 @@
     }
   },
   "budget": {
-    "totalBudget": 821.4459999999999,
-    "totalSpent": 421.44599999999997,
-    "totalProjected": 28400,
-    "percentUsed": 51,
-    "burnRate": 13.579926666666665,
-    "daysRemaining": 29,
-    "projectedExhaustion": 29,
+    "totalBudget": 5241.3902,
+    "totalSpent": 441.3902,
+    "totalProjected": 32800,
+    "percentUsed": 8,
+    "burnRate": 14.244733333333333,
+    "daysRemaining": 336,
+    "projectedExhaustion": 336,
     "thresholds": [
       50,
       75,
       90,
       100
     ],
-    "crossedThresholds": [
-      50
-    ],
+    "crossedThresholds": [],
     "epicBudgets": [
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 173.53659399999998,
-        "spent": 173.53659399999998,
+        "budget": 158.447758,
+        "spent": 158.447758,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 12.395471,
-        "spent": 12.395471,
-        "remaining": 0,
-        "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0005",
-        "title": "Slice 5 — evaluator and reports",
-        "budget": 49.581884,
-        "spent": 49.581884,
+        "budget": 11.317697,
+        "spent": 11.317697,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 585.932065,
-        "spent": 185.93206499999997,
+        "budget": 569.765455,
+        "spent": 169.765455,
         "remaining": 400,
-        "percentUsed": 32
+        "percentUsed": 30
+      },
+      {
+        "id": "EPIC-0005",
+        "title": "Slice 5 — evaluator and reports",
+        "budget": 4501.859273,
+        "spent": 101.85927299999999,
+        "remaining": 4400,
+        "percentUsed": 2
       },
       {
         "id": "EPIC-0003",
@@ -3081,37 +3353,37 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-07T06:27:18.147Z",
-      "2026-09-08T06:27:18.147Z",
-      "2026-09-09T06:27:18.147Z",
-      "2026-09-10T06:27:18.147Z",
-      "2026-09-11T06:27:18.147Z",
-      "2026-09-12T06:27:18.147Z",
-      "2026-09-13T06:27:18.147Z",
-      "2026-09-14T06:27:18.147Z",
-      "2026-09-15T06:27:18.147Z",
-      "2026-09-16T06:27:18.147Z",
-      "2026-09-17T06:27:18.147Z",
-      "2026-09-18T06:27:18.147Z",
-      "2026-09-19T06:27:18.147Z",
-      "2026-09-20T06:27:18.147Z",
-      "2026-09-21T06:27:18.147Z",
-      "2026-09-22T06:27:18.147Z",
-      "2026-09-23T06:27:18.147Z",
-      "2026-09-24T06:27:18.147Z",
-      "2026-09-25T06:27:18.147Z",
-      "2026-09-26T06:27:18.147Z",
-      "2026-09-27T06:27:18.147Z",
-      "2026-09-28T06:27:18.147Z",
-      "2026-09-29T06:27:18.147Z",
-      "2026-09-30T06:27:18.147Z",
-      "2026-10-01T06:27:18.147Z",
-      "2026-10-02T06:27:18.147Z",
-      "2026-10-03T06:27:18.147Z",
-      "2026-10-04T06:27:18.147Z",
-      "2026-10-05T06:27:18.147Z",
-      "2026-10-06T06:27:18.147Z",
-      "2026-10-07T06:27:18.145Z"
+      "2026-09-07T13:54:32.711Z",
+      "2026-09-08T13:54:32.711Z",
+      "2026-09-09T13:54:32.711Z",
+      "2026-09-10T13:54:32.711Z",
+      "2026-09-11T13:54:32.711Z",
+      "2026-09-12T13:54:32.711Z",
+      "2026-09-13T13:54:32.711Z",
+      "2026-09-14T13:54:32.711Z",
+      "2026-09-15T13:54:32.711Z",
+      "2026-09-16T13:54:32.711Z",
+      "2026-09-17T13:54:32.711Z",
+      "2026-09-18T13:54:32.711Z",
+      "2026-09-19T13:54:32.711Z",
+      "2026-09-20T13:54:32.711Z",
+      "2026-09-21T13:54:32.711Z",
+      "2026-09-22T13:54:32.711Z",
+      "2026-09-23T13:54:32.711Z",
+      "2026-09-24T13:54:32.711Z",
+      "2026-09-25T13:54:32.711Z",
+      "2026-09-26T13:54:32.711Z",
+      "2026-09-27T13:54:32.711Z",
+      "2026-09-28T13:54:32.711Z",
+      "2026-09-29T13:54:32.711Z",
+      "2026-09-30T13:54:32.711Z",
+      "2026-10-01T13:54:32.711Z",
+      "2026-10-02T13:54:32.711Z",
+      "2026-10-03T13:54:32.711Z",
+      "2026-10-04T13:54:32.711Z",
+      "2026-10-05T13:54:32.711Z",
+      "2026-10-06T13:54:32.711Z",
+      "2026-10-07T13:54:32.709Z"
     ],
     "doneCounts": [
       0,
@@ -3177,7 +3449,7 @@
       34,
       34,
       34,
-      34
+      39
     ],
     "aiCosts": [
       14.0482,
@@ -3210,7 +3482,7 @@
       393.34959999999995,
       407.39779999999996,
       421.44599999999997,
-      421.44599999999997
+      441.3902
     ],
     "coverage": [
       0,
@@ -3375,7 +3647,7 @@
       0,
       0,
       0,
-      19040320
+      19379404
     ],
     "outputTokens": [
       0,
@@ -3408,40 +3680,40 @@
       0,
       0,
       0,
-      2944083
+      3096134
     ],
     "avgRisk": [
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1529411764705886,
-      1.1617647058823533
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1617647058823533,
+      1.1538461538461542
     ],
     "velocityByWeek": {
       "labels": [
