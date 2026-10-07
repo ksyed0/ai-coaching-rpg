@@ -19,7 +19,8 @@ const MAX_LEVEL_SHARE = 40;
 
 export type LoadedProbes = { probes: Probe[]; errors: string[]; warnings: string[] };
 
-function hasPrototypeKey(v: unknown, depth = 0): boolean {
+/** True when a parsed YAML/JSON value holds a prototype-like key at any depth (up to 8 levels). */
+export function hasPrototypeKey(v: unknown, depth = 0): boolean {
   if (v === null || typeof v !== "object" || depth > 8) return false;
   for (const k of Object.keys(v as object)) {
     if (isPrototypeKey(k) || hasPrototypeKey((v as Record<string, unknown>)[k], depth + 1)) return true;
@@ -88,8 +89,7 @@ export async function loadProbes(dir: string, scenario: Scenario, rubrics: Rubri
     out.errors.push(`calibration directory cannot be read: ${printable((e as Error).message.split("\n")[0] ?? "", 200)}`);
     return out;
   }
-  const individual = new Map<string, Criterion>();
-  for (const r of rubrics) if (r.scope === "individual") for (const c of r.criteria) individual.set(c.id, c);
+  const individual = individualCriteria(rubrics);
   const files: string[] = [];
   for (const e of [...entries].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
     if (e.isDirectory() || e.name === "targets.yaml") continue;
@@ -142,6 +142,37 @@ function normalise(s: string): string {
 /** A hidden fact shorter than this is too generic to be told apart from ordinary speech. */
 const MIN_HIDDEN_FACT_CHARS = 20;
 
+/** The individual criteria of the rubrics by id (probes target only these). */
+export function individualCriteria(rubrics: Rubric[]): Map<string, Criterion> {
+  const individual = new Map<string, Criterion>();
+  for (const r of rubrics) if (r.scope === "individual") for (const c of r.criteria) individual.set(c.id, c);
+  return individual;
+}
+
+/**
+ * The AI characters one of whose hidden facts appears in one of `texts` (after normalising case and spacing; facts under 20 characters are
+ * ignored as too generic). Returns role ids only: the fact text is never part of a message.
+ */
+export function hiddenFactRoles(texts: string[], scenario: Scenario): string[] {
+  const lines = texts.map(normalise);
+  const out: string[] = [];
+  for (const [role, def] of Object.entries(scenario.roles)) {
+    const facts = (def.type === "npc" ? def.hidden : []).map(normalise).filter((f) => f.length >= MIN_HIDDEN_FACT_CHARS);
+    if (facts.some((f) => lines.some((t) => t.includes(f)))) out.push(role);
+  }
+  return out;
+}
+
+/**
+ * The loader's semantic checks of one probe against its scenario and rubrics (file name, criterion, scenes, roles, participants, hidden
+ * facts, scored roles), for callers outside the loader (the approve command). `name` is the file name the probe has or will have.
+ */
+export function checkProbeAgainstScenario(name: string, p: Probe, scenario: Scenario, rubrics: Rubric[]): { problems: string[]; warnings: string[] } {
+  const warnings: string[] = [];
+  const problems = checkProbe(name, p, scenario, individualCriteria(rubrics), warnings);
+  return { problems, warnings: problems.length ? [] : warnings };
+}
+
 /** The problems of one probe; its warnings go to `warnings`, which the caller keeps only for a probe without problems. */
 function checkProbe(name: string, p: Probe, scenario: Scenario, individual: Map<string, Criterion>, warnings: string[]): string[] {
   const problems: string[] = [];
@@ -160,11 +191,7 @@ function checkProbe(name: string, p: Probe, scenario: Scenario, individual: Map<
     counts.set(l.role, (counts.get(l.role) ?? 0) + 1);
   }
   for (const m of notParticipant) problems.push(`${label}: ${m}`);
-  const lines = p.transcript.map((l) => normalise(l.text));
-  for (const [role, def] of Object.entries(scenario.roles)) {
-    const facts = (def.type === "npc" ? def.hidden : []).map(normalise).filter((f) => f.length >= MIN_HIDDEN_FACT_CHARS);
-    if (facts.some((f) => lines.some((t) => t.includes(f)))) problems.push(`${label}: a transcript line contains a hidden fact of ${role}`);
-  }
+  for (const role of hiddenFactRoles(p.transcript.map((l) => l.text), scenario)) problems.push(`${label}: a transcript line contains a hidden fact of ${role}`);
   const scored = new Set(scoredRoles(p));
   for (const role of scored) {
     const def = Object.hasOwn(scenario.roles, role) ? scenario.roles[role] : undefined;
