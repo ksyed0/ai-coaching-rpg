@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { agreement, bias, biasByExpected, computeMetrics, contrast, isUsable, labelFor, notObserved, splitMetrics, spread, stability, usability } from "../metrics.js";
 import { DEFAULT_TARGETS } from "../targets.js";
-import type { ContrastOutcome, Observed, SingleOutcome } from "../types.js";
+import type { ContrastOutcome, Observed, Outcome, SingleOutcome } from "../types.js";
 
 const base = { criterion: "discovery", split: "tune" as const, source: "handwritten" as const, drafter: null, capped: 0, dropped: 0, evidence: [] };
 const single = (id: string, expected: SingleOutcome["expected"], runs: Observed[], acceptable = [expected]): SingleOutcome =>
@@ -147,8 +147,8 @@ describe("splitMetrics", () => {
   });
 });
 
+const T = DEFAULT_TARGETS;
 describe("labelFor discrimination rules", () => {
-  const T = DEFAULT_TARGETS;
   const flat = (e: SingleOutcome["expected"][]) => e.map((x, i) => single(`f${i}`, x, [3]));
   it("fails a judge that always answers 3 on singles expecting 2 and 4", () => {
     const r = labelFor(computeMetrics(flat([2, 4, 2, 4, 2, 4, 2, 4, 2, 4])), T);
@@ -206,5 +206,61 @@ describe("labelFor discrimination rules", () => {
     const r = labelFor(m, { ...T, exactAgreement: 0.9 });
     expect(r.label).toBe("WARN");
     expect(r.reasons.join(" ")).toMatch(/exact agreement 2 of 4/);
+  });
+
+  describe("outages and boundaries", () => {
+    const allAs = (o: Observed): Outcome[] => perfect().map((x) => (x.kind === "single" ? { ...x, runs: [o] } : { ...x, runs: [Object.fromEntries(Object.keys(x.expected).map((r) => [r, o]))] }));
+    it.each(["failed", "invalid"] as const)("warns no usable evidence, not a flat judge, when every answer is %s", (o) => {
+      const m = computeMetrics(allAs(o));
+      expect(m.expectedLevels).toBe(0);
+      const r = labelFor(m, T);
+      expect(r.label).toBe("WARN");
+      expect(r.reasons).toContain("no usable evidence");
+      expect(r.reasons.join(" ")).not.toMatch(/flat/);
+    });
+    it("does not call one usable answer among failures a flat judge (WARN: thin contrast, usability, no flatness)", () => {
+      const os = allAs("failed");
+      os[0] = single("p1", 1, [1]);
+      const r = labelFor(computeMetrics(os), T);
+      expect(r.label).toBe("WARN");
+      expect(r.reasons.join(" ")).not.toMatch(/flat/);
+      expect(r.reasons.join(" ")).toMatch(/thinly measured/);
+    });
+    it("only warns about usability when a perfect judge has 2 of 8 singles fail", () => {
+      const ss = [1, 2, 3, 4, 1, 2, 3, 4].map((l, i) => single(`s${i}`, l as 1 | 2 | 3 | 4, [i < 2 ? "failed" : l as 1 | 2 | 3 | 4]));
+      const r = labelFor(computeMetrics([...ss, cont("c", { x: 4, y: 1 }, { x: 4, y: 1 }, 2)]), T);
+      expect(r.label).toBe("WARN");
+      expect(r.reasons).toHaveLength(1);
+      expect(r.reasons[0]).toMatch(/usable/);
+    });
+    it("warns no usable evidence, not a flat judge, when the judge says not_observed to everything", () => {
+      const r = labelFor(computeMetrics([single("a", 1, ["not_observed"]), single("b", 4, ["not_observed"])]), T);
+      expect(r.label).toBe("WARN");
+      expect(r.reasons).toContain("no usable evidence");
+      expect(r.reasons.join(" ")).not.toMatch(/flat/);
+    });
+    it("counts only the usable players of a contrast probe toward expected levels", () => {
+      expect(computeMetrics([cont("c", { x: 4, y: 1 }, { x: 4, y: "failed" })]).expectedLevels).toBe(1);
+      expect(computeMetrics([cont("c", { x: 4, y: 1 }, { x: 3, y: "not_observed" })]).expectedLevels).toBe(2);
+    });
+    it("fails a judge using exactly 2 of 4 expected levels", () => {
+      const r = labelFor(computeMetrics([single("a", 1, [2]), single("b", 2, [2]), single("c", 3, [3]), single("d", 4, [3]), cont("e", { x: 4, y: 1 }, { x: 3, y: 2 }, 1)]), T);
+      expect(r.label).toBe("FAIL");
+      expect(r.reasons.join(" ")).toMatch(/uses only 2 distinct level\(s\) but the probes expect 4/);
+    });
+    it("does not fail for flatness when every probe expects one level and the judge gives it", () => {
+      const r = labelFor(computeMetrics([single("a", 3, [3]), single("b", 3, [3]), cont("c", { x: 3, y: 3 }, { x: 3, y: 3 }, 0)]), T);
+      expect(r.reasons.join(" ")).not.toMatch(/flat/);
+    });
+    it("counts contrast players' expected levels toward what the set expects", () => {
+      const r = labelFor(computeMetrics([single("a", 2, [2]), single("b", 3, [3]), cont("c", { x: 4, y: 1 }, { x: 3, y: 2 }, 1)]), T);
+      expect(r.label).toBe("FAIL");
+      expect(r.reasons.join(" ")).toMatch(/expect 4/);
+    });
+    it("does not warn about thin measurement when exactly half the contrast probes are usable", () => {
+      const cs = [cont("c1", { x: 4, y: 1 }, { x: 4, y: 1 }), cont("c2", { x: 4, y: 1 }, { x: 4, y: "failed" })];
+      const r = labelFor(computeMetrics([...perfect().slice(0, 4), ...cs]), { ...T, minUsable: 0 });
+      expect(r.reasons.join(" ")).not.toMatch(/thinly/);
+    });
   });
 });

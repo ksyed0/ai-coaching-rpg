@@ -98,11 +98,18 @@ export function stability(ss: SingleOutcome[]): number | null {
   return mean(vars);
 }
 
-/** Distinct numeric levels the probes expect, over singles and contrast players. */
+/**
+ * Distinct numeric levels the probes expect, counted only where the first-run answer is usable (a level or "not_observed"), so a judge
+ * outage is not mistaken for a flat judge. A single probe counts when its answer is usable; a contrast probe counts the expected level
+ * of each player whose answer is usable and ignores its failed or invalid players.
+ */
 function expectedLevelCount(ss: SingleOutcome[], cs: ContrastOutcome[]): number {
   const seen = new Set<number>();
-  for (const s of ss) if (isLevel(s.expected)) seen.add(s.expected);
-  for (const c of cs) for (const l of Object.values(c.expected)) seen.add(l);
+  for (const s of ss) { const o = s.runs[0]; if (o !== undefined && isUsable(o) && isLevel(s.expected)) seen.add(s.expected); }
+  for (const c of cs) {
+    const run = c.runs[0] ?? {};
+    for (const [role, l] of Object.entries(c.expected)) { const o = run[role]; if (o !== undefined && isUsable(o)) seen.add(l); }
+  }
   return seen.size;
 }
 
@@ -128,7 +135,7 @@ export function labelFor(m: JudgeMetrics, t: Targets): { label: "PASS" | "WARN" 
   }
   if (m.bias.mean !== null && Math.abs(m.bias.mean) > t.maxAbsBias) fail.push(`bias ${m.bias.mean.toFixed(2)} levels exceeds ${t.maxAbsBias}`);
   const needed = Math.min(3, m.expectedLevels);
-  if (m.expectedLevels >= 2 && m.spread < needed) fail.push(`flat judge: uses only ${m.spread} distinct level(s) but the probes expect ${m.expectedLevels}`);
+  if (m.expectedLevels >= 2 && m.spread < needed && (m.bias.n > 0 || m.contrast.usable > 0)) fail.push(`flat judge: uses only ${m.spread} distinct level(s) but the probes expect ${m.expectedLevels}`);
   if (m.contrast.n === 0) warn.push("discrimination not measured: no contrast probes");
   else if (m.contrast.usable / m.contrast.n < 0.5) warn.push(`discrimination thinly measured: only ${m.contrast.usable} of ${m.contrast.n} contrast probes were usable`);
   if (m.bias.n === 0 && m.contrast.usable === 0) warn.push("no usable evidence");
