@@ -116,7 +116,7 @@
         },
         {
           "role": "client_sponsor",
-          "text": "Right after launch is not what I asked for. Walk me through the risk, because I have to explain this upstairs."
+          "text": "I hear the ingestion risk, but right after launch is not what I asked for, and I have to explain this upstairs."
         },
         {
           "role": "delivery_lead",
@@ -161,7 +161,7 @@
         },
         {
           "role": "client_sponsor",
-          "text": "Right after launch is not what I asked for. Walk me through the risk, because I have to explain this upstairs."
+          "text": "I hear the ingestion risk, but right after launch is not what I asked for, and I have to explain this upstairs."
         }
       ],
       "label": false,

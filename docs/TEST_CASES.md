@@ -565,5 +565,136 @@ Status: [x] Pass
 Defect Raised: None
 Notes: Automated only. Approval is the owner's command: an agent never approves on the owner's behalf (Ruling R4).
 
+## US-0040: showcase script for the Friday Escalation scenario
+
+TC-0040: `scenarios/friday-escalation/showcase.yaml` covers every scene and leaks no secret
+Related Story: US-0040
+Related Task: TASK-0060
+Related AC: AC-0198
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/showcase-friday.test.ts -t "covers every scene|tolerant|private fact"`.
+Expected Result: The script loads in mock and live mode, has an entry for each of the 3 scenes (6, 4 and 6 lines), replies only for Priya in scene 2, a tolerant and a malformed Game Master reply, and no line recites another role's private fact before its owner stated it in play, nor an AI character's hidden fact (a lexical overlap rule, so paraphrases count).
+Actual Result: As expected (showcase-friday.test.ts) on 2026-10-08.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
+TC-0041: The mock showcase of the Friday Escalation scenario passes every check
+Related Story: US-0040
+Related Task: TASK-0060
+Related AC: AC-0199
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm demo --showcase --fast --scenario scenarios/friday-escalation` (and again with `--evaluate`).
+  2. Run `pnpm demo --fast`, `pnpm demo --fast --security --resume` and `pnpm demo --showcase --fast`.
+Expected Result: 14 checks pass (15 with `--evaluate`) with 16 player lines, 4 AI replies and 6 Game Master evaluations (one re-ask); the other runs keep 29, 42 and 14 checks.
+Actual Result: As expected on 2026-10-08 (14, 15, 29, 42, 14).
+Status: [x] Pass
+Defect Raised: None
+Notes: Also covered by showcase-friday.test.ts.
+
+TC-0042: S-14 accepts the advance only in a scene with no Game Master condition
+Related Story: US-0040
+Related Task: TASK-0061
+Related AC: AC-0200
+Type: Edge Case
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/showcase-friday.test.ts src/demo/__tests__/showcase-runner.test.ts`.
+Expected Result: In a copy of the original scenario whose scene 3 has no Game Master condition, that scene ends by the facilitator advance with the observation "s3_internal_wrap has no Game Master exit condition; ..." and S-14 passes (the shipped scene 3 now has a condition, TC-0045); a Game Master verdict changed to false in scene 1 still fails S-14, naming only s1_huddle; the extended scenario's behaviour is unchanged.
+Actual Result: As expected on 2026-10-08.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
+TC-0043: Negative controls for the original scenario and the CLI accepting `--scenario`
+Related Story: US-0040
+Related Task: TASK-0061
+Related AC: AC-0201
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/showcase-friday.test.ts -t "negative controls"`.
+  2. Parse `pnpm demo --showcase --live --players generated --scenario scenarios/friday-escalation` arguments (args tests; no live call is made).
+Expected Result: `NEGATIVE_CUTS["esc-scope-creep-01"]` is s1 at 3 and 4 lines, s2 at 2 and s3 at 1 and 3; eight cases are built. The CLI accepts the flags with this scenario.
+Actual Result: As expected on 2026-10-08.
+Status: [x] Pass
+Defect Raised: None
+Notes: `--max-false-exits` compares `tests/gm-cases`, built from the extended scenario, so it is not usable with this scenario; `--min-gm-exits` can reach at most 3 here.
+
+TC-0048: Live and generated-player runs of the original scenario
+Related Story: US-0040
+Related Task: TASK-0060
+Related AC: AC-0202
+Type: Functional
+Preconditions: The owner's machine with the local model server and `.env`.
+Steps:
+  1. Run `pnpm demo --showcase --live --players generated --scenario scenarios/friday-escalation --gm-trace <file> --transcript <file> --json <file>` (see docs/memory/demo-and-testing.md for the recipe); also scripted live (omit `--players`) and `--player-model <id>` for weaker players.
+Expected Result: The run completes, the AI replies are real, and the session log yields excerpts for `pnpm calibrate excerpt`.
+Actual Result: As expected on 2026-10-08 (Gemma `gemma-4-31b-it-qat-mxfp4` for the AI characters and the Game Master; all runs exit 0, 14 passed, 0 failed, 2 skipped (S-06 and S-14, live mode), S-07 and S-15 found no leaks). (A) original scenario, generated players (Gemma): 234 s, 13 generated lines, 0 canned, the Game Master ended 2 of 3 scenes (s2_client_call by facilitator advance), 5 verdicts (2 true, 3 false), one scene 1 reply with no usable verdict (no_json, 2 attempts) recovered, one release suggestion for Priya's fact (facilitator only, nothing released). (B) extended scenario, generated (Gemma): 794 s, 29 generated lines, the Game Master ended 4 of 6 (s2_priya_call and s5_final_terms by facilitator advance), 14 verdicts, none unusable. (C) original, scripted live: 121 s, 2 of 3 by the Game Master (s2 by advance). (D) original, players `nemotron-3-nano-omni-30b-a3b-jangtq4` via `--player-model`: 436 s, 16 generated, the Game Master ended 1 of 3 (s2 and s3 by advance). (E) original, players `foundation` via `--player-model`: 185 s, 16 generated, 1 of 3.
+Status: [x] Pass
+Defect Raised: None
+Notes: Scene 2 (the call with Priya) ended by the facilitator advance in every live run: not a bug. The only TRUE verdicts in scene 2 were the earned_when checks of Priya's fact (traces: A seq 19, B 25, C 19, E 24); both exit verdicts were FALSE because the live Priya did not agree a concrete next step (for example she rejected the manual tie-out workaround), so the harness, after the scripted lines were used up and a final evaluation, advanced the scene (the safety net, with the observation "GM did not exit; facilitator advanced"). Weaker players (D, E) end fewer scenes. Logs: the demo deletes its temp data, so copy the log while the run is going.
+
+TC-0044: Scenario content pass: pricing anchor, briefs, versions, duration and rubrics
+Related Story: US-0040
+Related Task: TASK-0063
+Related AC: AC-0204, AC-0205, AC-0207
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/scenario-content-us0040.test.ts`.
+Expected Result: Both scenarios validate with no errors or warnings; the cost fact is only in delivery_lead.yaml; the briefs state ownership and hold no hidden fact; the rubric files are byte-identical; versions are 1.3 and 1.1; the extended duration is 55.
+Actual Result: As expected (11 tests) on 2026-10-08.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. The 8 approved starter probes still load and validate (calibration tests).
+
+TC-0045: The original scenario's scene 3 is ended by the Game Master in the mock run
+Related Story: US-0040
+Related Task: TASK-0063
+Related AC: AC-0203
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm demo --showcase --fast --scenario scenarios/friday-escalation` (and with `--evaluate`).
+  2. Run `pnpm demo --fast`.
+Expected Result: 14 checks pass (15 with `--evaluate`): 6 Game Master evaluations, all 3 scenes ended by the Game Master, no facilitator advance, no observation; the 29-check story passes with one extra scripted false verdict for Priya's check.
+Actual Result: As expected on 2026-10-08.
+Status: [x] Pass
+Defect Raised: None
+Notes: Also showcase-friday.test.ts (including a copy of the scenario without the condition, where S-14 still passes).
+
+TC-0046: Priya's earned_when is suggested to the facilitator only
+Related Story: US-0040
+Related Task: TASK-0063
+Related AC: AC-0206
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/showcase-suggest.test.ts src/demo/__tests__/showcase-gm.test.ts src/demo/__tests__/showcase-friday.test.ts`.
+Expected Result: In both scenarios the mock suggests `/release client_sponsor 1` once, in scene 2; the extended run also suggests the CFO's fact in scene 4; GM_AUTO_RELEASE releases both; a copy without any earned_when asks no earned check; players never get the event; the checks stay at 14.
+Actual Result: As expected on 2026-10-08.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
+TC-0047: No scripted line leaks another role's private fact or a hidden fact
+Related Story: US-0040
+Related Task: TASK-0064
+Related AC: AC-0208
+Type: Negative
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/showcase-friday.test.ts -t "leaks no secret|detector"`.
+Expected Result: For both showcase scripts, no line recites (60 percent of the content words, so paraphrases count) another role's private fact before its owner stated it in play, or an AI character's hidden fact; the detector flags a paraphrase and ignores an unrelated line. One accepted paraphrase in the extended script (the launch date at risk, raised by the tech lead in the huddle in other words) is listed in the test.
+Actual Result: As expected on 2026-10-08.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 

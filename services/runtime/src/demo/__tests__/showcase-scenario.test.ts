@@ -19,7 +19,7 @@ describe("scenarios/friday-escalation-extended", () => {
     expect(roles.filter((r) => r.type === "player").map((r) => r.id).sort()).toEqual(["account_manager", "delivery_lead", "tech_lead"]);
     expect(roles.filter((r) => r.type === "npc").map((r) => r.id).sort()).toEqual(["cfo", "client_sponsor"]);
     expect(s.script.scenes.map((x) => x.id)).toEqual(["s1_huddle", "s2_priya_call", "s3_internal_huddle", "s4_escalation_call", "s5_final_terms", "s6_wrap_up"]);
-    expect(s.meta.duration_minutes).toBe(50);
+    expect(s.meta.duration_minutes).toBe(55);
     expect(s.script.scenes.reduce((n, x) => n + x.time_box_minutes, 0)).toBeGreaterThanOrEqual(45);
     expect(s.script.scenes.reduce((n, x) => n + x.time_box_minutes, 0)).toBeLessThanOrEqual(55);
   });
@@ -96,9 +96,9 @@ describe("scenarios/friday-escalation-extended", () => {
     }
   });
 
-  it("the original Friday Escalation package only gained the rubric files its scenario.yaml names (US-0028) and the calibration probes (US-0035)", () => {
+  it("the original Friday Escalation package only gained the rubric files its scenario.yaml names (US-0028), the calibration probes (US-0035) and a showcase script (US-0040)", () => {
     // calibration/ holds the evaluator calibration probes (US-0035); the loaders never read it as scenario content.
-    expect(readdirSync(path.join(REPO_ROOT, "scenarios", "friday-escalation")).sort()).toEqual(["calibration", "roles", "rubrics", "scenario.yaml", "script.yaml"]);
+    expect(readdirSync(path.join(REPO_ROOT, "scenarios", "friday-escalation")).sort()).toEqual(["calibration", "roles", "rubrics", "scenario.yaml", "script.yaml", "showcase.yaml"]);
     const calibration = readdirSync(path.join(REPO_ROOT, "scenarios", "friday-escalation", "calibration"), { withFileTypes: true });
     for (const e of calibration) {
       if (e.isDirectory()) expect(e.name).toBe("drafts");

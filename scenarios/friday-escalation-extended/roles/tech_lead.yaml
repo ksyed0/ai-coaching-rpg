@@ -1,8 +1,9 @@
 id: tech_lead
 type: player
 brief: >-
-  You own the architecture. A reconciliation module touches the ingestion
-  layer that is still being hardened for go-live.
+  You own the architecture, the estimate and the technical risk. A
+  reconciliation module touches the ingestion layer that is still being
+  hardened for go-live.
 private_facts:
   - Adding the module before go-live puts the go-live date at real risk
   - A phased version after go-live would be about half the effort

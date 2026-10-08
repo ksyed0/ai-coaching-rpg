@@ -165,9 +165,9 @@ export type Markers = {
 
 /** Distinctive fragments of the shipped scenario (they must exist in it: assertMarkersExist proves it). */
 const FRAGMENTS: Record<string, string[]> = {
-  delivery_lead: ["6 person-weeks", "You run the programme day to day"],
+  delivery_lead: ["6 person-weeks", "You run the programme day to day", "2,400 per person-day"],
   tech_lead: ["half the effort", "puts the go-live date at", "ingestion layer", "You own the architecture"],
-  account_manager: ["three times this programme", "renewal decision maker", "You own the commercial relationship"],
+  account_manager: ["three times this programme", "renewal decision maker", "You own price, commercial terms"],
 };
 const RUBRIC_FRAGMENTS = ["individual_delivery_v2", "group_collaboration_v1", "commercial_judgement", "team_alignment", "role_clarity",
   "Protect scope and margin while preserving the relationship", "agreeing to the module in scene 2 without pricing it"];

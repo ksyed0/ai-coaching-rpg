@@ -38,4 +38,8 @@ scenes:
     goal: Capture decisions, owners and the message to the wider team
     participants: [delivery_lead, tech_lead, account_manager]
     time_box_minutes: 8
-    exit_when: { any_of: [time_box_elapsed, facilitator_advance] }
+    exit_when:
+      any_of:
+        - time_box_elapsed
+        - facilitator_advance
+        - gm_detects: "the team has assigned an owner and a next action for each follow-up"

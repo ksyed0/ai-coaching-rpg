@@ -27,7 +27,7 @@ const NEVER_IN_PROMPTS = {
     "Protect scope and margin while preserving the relationship", "agreeing to the module in scene 2 without pricing it"],
   hiddenFact: ["phased delivery after go-live if the risk"],
   otherRolesBriefs: ["6 person-weeks", "three times this programme", "renewal decision maker", "ingestion layer", "half the effort", "puts the go-live date at",
-    "You run the programme day to day", "You own the architecture", "You own the commercial relationship"],
+    "You run the programme day to day", "You own the architecture", "You own price, commercial terms", "2,400 per person-day"],
   participantNames: ["ZedAlphaParticipant", "ZedBravoParticipant", "ZedCharlieParticipant"],
   facilitatorWhisper: ["WHISPER-ONLY-FOR-DELIVERY-LEAD"],
 };
@@ -111,6 +111,7 @@ describe("The Friday Escalation, simulated end to end", () => {
       '{"verdict": false, "reasoning": "still discussing"}',
       '{"verdict": true, "reasoning": "delivery lead summarised one position and the others agreed"}',
       '{"verdict": false, "reasoning": "no next step yet"}',
+      '{"verdict": false, "reasoning": "no phased delivery offered yet"}', // Priya's earned_when check (US-0040), asked after the false exit verdict
       '{"verdict": true, "reasoning": "a phased plan by Monday was agreed"}',
     ]);
     const logs: string[] = [];
@@ -237,7 +238,7 @@ describe("The Friday Escalation, simulated end to end", () => {
     expect(all.at(-1)).toMatchObject({ type: "session.ended", reason: "script_complete" });
 
     // Guardrails: nothing secret ever reached a model prompt, in any captured request.
-    expect(npc.calls.length + gm.calls.length).toBe(8);
+    expect(npc.calls.length + gm.calls.length).toBe(9);
     for (const req of [...npc.calls, ...gm.calls]) {
       const text = promptText(req);
       for (const marker of allMarkers) expect(text, `prompt leaked ${marker}`).not.toContain(marker);

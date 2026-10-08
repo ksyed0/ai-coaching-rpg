@@ -259,7 +259,10 @@ describe("usage errors (exit 2, nothing started)", () => {
     const missing = await run(["--showcase", "--scenario", "scenarios/no-such-scenario"]);
     expect(missing.exitCode).toBe(2);
     expect(missing.stderr).toContain("error: --showcase cannot use that scenario: the scenario directory does not exist");
-    const plain = await run(["--showcase", "--scenario", "scenarios/friday-escalation"]);
+    // (the original Friday Escalation has a script since US-0040, so a copy of it without the file stands in for "no script")
+    const noScript = await variant((y) => y);
+    await rm(path.join(noScript, "showcase.yaml"));
+    const plain = await run(["--showcase", "--scenario", noScript]);
     expect(plain.exitCode).toBe(2);
     expect(plain.stderr).toContain("showcase.yaml: the scenario has no showcase script");
     const bad = await variant((y) => y.replace("scene: s6_wrap_up", "scene: s9_nowhere"));
@@ -322,7 +325,7 @@ describe("--showcase --live (an in-process OpenAI-compatible fake on loopback)",
     expect(showcase.npcs.every((n) => n.latencyMs !== null)).toBe(true);
     expect(showcase.gm.evaluations).toBe(2); // s4 and s5 reach three utterances
     expect(seen.npc).toBe(8); // 5 replies + 3 re-asks: the fake repeats one sentence, and a verbatim repeat of an own earlier reply is asked for once more
-    expect(seen.gm).toBe(4); // 2 exit-condition verdicts and (US-0034) 2 checks of the CFO's earned_when condition, both false
+    expect(seen.gm).toBe(6); // 2 exit-condition verdicts and (US-0034, US-0040) 4 earned_when checks (the CFO's and Priya's condition in s4 and in s5), all false
     expect(showcase.gm.suggestions).toEqual([]); // the no-suggestion case
     expect(showcase.facilitatorAdvances).toBe(6);
     expect(showcase.observations).toHaveLength(6);
@@ -387,9 +390,9 @@ describe("helpers", () => {
   it("counts the model calls a run can make and the lines a --max-lines cap leaves", async () => {
     const sc = await loadScenario(EXTENDED);
     const script = await loadShowcaseScript(EXTENDED, sc, { mode: "mock" });
-    // gm: the exit-condition evaluations plus (US-0034) at most one earned_when check of the CFO per round in s4 and s5 (4 + 4; with one line 1 + 1)
-    expect(expectedModelCalls(sc, script, null)).toEqual({ npc: 20, gm: 24, player: 30 });
-    expect(expectedModelCalls(sc, script, 1)).toEqual({ npc: 5, gm: 4, player: 6 });
+    // gm: the exit-condition evaluations plus (US-0034, US-0040) at most 2 earned_when checks (the CFO's, Priya's) per round (s2: Priya's; s4 and s5: both); with one line the s4 and s5 rounds ask both
+    expect(expectedModelCalls(sc, script, null)).toEqual({ npc: 20, gm: 34, player: 30 });
+    expect(expectedModelCalls(sc, script, 1)).toEqual({ npc: 5, gm: 6, player: 6 });
     expect(linesFor(script, "s1_huddle", 2)).toHaveLength(2);
     expect(linesFor(script, "s1_huddle", null)).toHaveLength(6);
   });
