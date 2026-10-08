@@ -16,7 +16,7 @@ let scn: string;
 beforeEach(async () => {
   dir = await mkdtemp(path.join(os.tmpdir(), "acr-cal-"));
   scn = path.join(dir, "scn");
-  await cp(FRIDAY, scn, { recursive: true, filter: starterOnly });
+  await cp(FRIDAY, scn, { recursive: true, filter: starterOnly(FRIDAY) });
 });
 afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 

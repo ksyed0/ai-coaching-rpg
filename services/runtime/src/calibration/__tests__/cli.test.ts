@@ -33,7 +33,7 @@ const SCN = ["--scenario", "scenarios/friday-escalation"];
 /** `--scenario` for a copy of Friday with only the 8 starter probes, for tests that pin the starter counts (the real set is larger). */
 async function starterScn(): Promise<string[]> {
   const scn = path.join(dir, "starter-scn");
-  await cp(FRIDAY, scn, { recursive: true, filter: starterOnly });
+  await cp(FRIDAY, scn, { recursive: true, filter: starterOnly(FRIDAY) });
   return ["--scenario", scn];
 }
 /** Whether `p` exists, from a listing of its parent (no stat-then-read on the same path: CodeQL js/file-system-race). */
@@ -275,10 +275,10 @@ describe("pnpm calibrate: usage and input errors", () => {
     expect(r.exitCode).toBe(0);
     expect(r.outText).toContain(CALIBRATE_USAGE);
   });
-  it("--help lists every subcommand, says approve is for the owner only, and names every summary-replace condition", async () => {
+  it("--help lists every subcommand, says approve is the owner's command, and names every summary-replace condition", async () => {
     const r = await run(["--help"]);
     for (const sub of ["draft", "excerpt", "approve", "assign-splits"]) expect(r.outText).toMatch(new RegExp(`^ {7}pnpm calibrate ${sub} `, "m"));
-    expect(r.outText).toMatch(/approve +OWNER ONLY \(an agent never approves on the owner's behalf\)/);
+    expect(r.outText).toMatch(/approve +run by the owner; an agent may run it only on the owner's explicit instruction naming the items/);
     const start = CALIBRATE_USAGE.indexOf("is replaced only by a complete run");
     expect(start).toBeGreaterThan(0);
     const conditions = CALIBRATE_USAGE.slice(start, CALIBRATE_USAGE.indexOf("--strict", start));
@@ -471,7 +471,7 @@ describe("pnpm calibrate: a judge that degrades mid-run", () => {
   const flaky = () => fakeJudge(criteria, () => ({ discovery: 3, listening: 3, negotiation: 3 }), (role) => role === "account_manager");
   async function friday(minUsable?: number): Promise<string> {
     const scn = path.join(dir, "scn");
-    await cp(FRIDAY, scn, { recursive: true, filter: starterOnly });
+    await cp(FRIDAY, scn, { recursive: true, filter: starterOnly(FRIDAY) });
     if (minUsable !== undefined) await writeFile(path.join(scn, "calibration", "targets.yaml"), `minUsable: ${minUsable}\n`);
     return scn;
   }

@@ -45,7 +45,7 @@ function judge(probe: Probe, rubrics: Rubric[], quoteOf: (role: string, ownFirst
   };
 }
 
-describe("starter probes through the real evaluator", () => {
+describe("Friday probes through the real evaluator", () => {
   it("every scored role gets an ok evaluation whose quote is verified and none dropped", async () => {
     const { scenario, rubrics, probes } = await setup();
     expect(probes.length).toBeGreaterThanOrEqual(8);
