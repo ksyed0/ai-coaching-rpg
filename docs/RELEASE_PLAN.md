@@ -1121,3 +1121,44 @@ Status: To Do
 Branch: feature/EPIC-0005-US-0039-calibration-stamp
 Notes: Implementation plan Task 13 (docs/superpowers/plans, evaluator calibration, 2026-10-07).
 ```
+
+```
+US-0040 (EPIC-0005): As the evaluator calibrator, I want the showcase demo to play the original Friday Escalation scenario too, so that real excerpts from live sessions of esc-scope-creep-01 can be captured for its calibration set.
+Priority: High
+Estimate: S
+Status: Complete
+Branch: feature/EPIC-0005-US-0040-friday-showcase
+Dependencies: US-0024, US-0037
+Acceptance Criteria:
+  - [x] AC-0198: `scenarios/friday-escalation/showcase.yaml` covers every scene of the scenario (3 scenes, 16 scripted player lines of mixed quality, replies for Priya, and Game Master verdicts including a tolerant and a malformed reply), and no scripted line recites a player's private fact or Priya's hidden fact
+  - [x] AC-0199: `pnpm demo --showcase --fast --scenario scenarios/friday-escalation` passes all 14 showcase checks (15 with `--evaluate`) offline, and the extended scenario's mock demos keep their 29, 42 and 14 checks
+  - [x] AC-0200: a scene with no `gm_detects` exit condition (scene 3 of the original scenario) is ended by the facilitator advance by design: S-14 accepts that, still fails when a scene that has a condition needs the advance, and the observation says so
+  - [x] AC-0201: the original scenario's showcase has labelled negative controls (`NEGATIVE_CUTS` for esc-scope-creep-01) so a live run reports early Game Master exits, and the live and generated-player modes work with `--scenario scenarios/friday-escalation`
+```
+
+```
+TASK-0060 (US-0040): Write the Friday Escalation showcase.yaml and the mock replies
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0005-US-0040-friday-showcase
+Notes: Same format as the extended showcase. The demo already selected its scenario with `--scenario <dir>`, so no new flag was needed.
+```
+
+```
+TASK-0061 (US-0040): Accept a facilitator advance in a scene with no Game Master condition (S-14) and label the negative controls
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0005-US-0040-friday-showcase
+Notes: showcase.ts (S-14, observation text), gm-eval/cases.ts (NEGATIVE_CUTS), tests in showcase-friday.test.ts.
+```
+
+```
+TASK-0062 (US-0040): Document the Friday showcase (README, changelog, memory, ID registry)
+Type: Docs
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0005-US-0040-friday-showcase
+Notes: Live runs of this scenario are done by the owner (not part of this task).
+```

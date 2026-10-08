@@ -1582,6 +1582,41 @@
       "dependencies": [
         "US-0036"
       ]
+    },
+    {
+      "id": "US-0040",
+      "epicId": "EPIC-0005",
+      "title": "As the evaluator calibrator, I want the showcase demo to play the original Friday Escalation scenario too, so that real excerpts from live sessions of esc-scope-creep-01 can be captured for its calibration set.",
+      "priority": "High",
+      "estimate": "S",
+      "status": "Complete",
+      "branch": "feature/EPIC-0005-US-0040-friday-showcase",
+      "acs": [
+        {
+          "id": "AC-0198",
+          "text": "`scenarios/friday-escalation/showcase.yaml` covers every scene of the scenario (3 scenes, 16 scripted player lines of mixed quality, replies for Priya, and Game Master verdicts including a tolerant and a malformed reply), and no scripted line recites a player's private fact or Priya's hidden fact",
+          "done": true
+        },
+        {
+          "id": "AC-0199",
+          "text": "`pnpm demo --showcase --fast --scenario scenarios/friday-escalation` passes all 14 showcase checks (15 with `--evaluate`) offline, and the extended scenario's mock demos keep their 29, 42 and 14 checks",
+          "done": true
+        },
+        {
+          "id": "AC-0200",
+          "text": "a scene with no `gm_detects` exit condition (scene 3 of the original scenario) is ended by the facilitator advance by design: S-14 accepts that, still fails when a scene that has a condition needs the advance, and the observation says so",
+          "done": true
+        },
+        {
+          "id": "AC-0201",
+          "text": "the original scenario's showcase has labelled negative controls (`NEGATIVE_CUTS` for esc-scope-creep-01) so a live run reports early Game Master exits, and the live and generated-player modes work with `--scenario scenarios/friday-escalation`",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0024",
+        "US-0037"
+      ]
     }
   ],
   "tasks": [
@@ -2124,6 +2159,36 @@
       "status": "To Do",
       "branch": "feature/EPIC-0005-US-0039-calibration-stamp",
       "notes": "Implementation plan Task 13 (docs/superpowers/plans, evaluator calibration, 2026-10-07)."
+    },
+    {
+      "id": "TASK-0060",
+      "storyId": "US-0040",
+      "title": "Write the Friday Escalation showcase.yaml and the mock replies",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0005-US-0040-friday-showcase",
+      "notes": "Same format as the extended showcase. The demo already selected its scenario with `--scenario <dir>`, so no new flag was needed."
+    },
+    {
+      "id": "TASK-0061",
+      "storyId": "US-0040",
+      "title": "Accept a facilitator advance in a scene with no Game Master condition (S-14) and label the negative controls",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0005-US-0040-friday-showcase",
+      "notes": "showcase.ts (S-14, observation text), gm-eval/cases.ts (NEGATIVE_CUTS), tests in showcase-friday.test.ts."
+    },
+    {
+      "id": "TASK-0062",
+      "storyId": "US-0040",
+      "title": "Document the Friday showcase (README, changelog, memory, ID registry)",
+      "type": "Docs",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0005-US-0040-friday-showcase",
+      "notes": "Live runs of this scenario are done by the owner (not part of this task)."
     }
   ],
   "testCases": [
@@ -2476,6 +2541,46 @@
       "type": "Functional",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0040",
+      "title": "`scenarios/friday-escalation/showcase.yaml` covers every scene and leaks no secret",
+      "relatedStory": "US-0040",
+      "relatedTask": "TASK-0060",
+      "relatedAC": "AC-0198",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0041",
+      "title": "The mock showcase of the Friday Escalation scenario passes every check",
+      "relatedStory": "US-0040",
+      "relatedTask": "TASK-0060",
+      "relatedAC": "AC-0199",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0042",
+      "title": "S-14 accepts the advance only in a scene with no Game Master condition",
+      "relatedStory": "US-0040",
+      "relatedTask": "TASK-0061",
+      "relatedAC": "AC-0200",
+      "type": "Edge Case",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0043",
+      "title": "Negative controls for the original scenario and the `--scenario` path",
+      "relatedStory": "US-0040",
+      "relatedTask": "TASK-0061",
+      "relatedAC": "AC-0201",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -2567,235 +2672,241 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 1600,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 800,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 400,
-      "costUsd": 14.018846,
+      "costUsd": 13.668375,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0040": {
+      "projectedUsd": 400,
+      "costUsd": 13.668375,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -3141,6 +3252,13 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": true
+    },
+    "US-0040": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
     }
   },
   "risk": {
@@ -3321,10 +3439,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-08T00:31:57.781Z",
-  "commitSha": "b6409ad",
-  "buildNumber": "302",
-  "branch": "feature/EPIC-0005-US-0037-probe-drafting",
+  "generatedAt": "2026-10-08T12:44:30.054Z",
+  "commitSha": "757b196",
+  "buildNumber": "307",
+  "branch": "feature/EPIC-0005-US-0040-friday-showcase",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -3450,11 +3568,11 @@
   "budget": {
     "totalBudget": 1746.7350000000001,
     "totalSpent": 546.735,
-    "totalProjected": 32800,
+    "totalProjected": 33200,
     "percentUsed": 31,
-    "burnRate": 17.152077333333335,
-    "daysRemaining": 69,
-    "projectedExhaustion": 69,
+    "burnRate": 17.617016666666665,
+    "daysRemaining": 68,
+    "projectedExhaustion": 68,
     "thresholds": [
       50,
       75,
@@ -3466,32 +3584,32 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 196.26384399999998,
-        "spent": 196.26384399999998,
+        "budget": 191.35725,
+        "spent": 191.35725,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 14.018846,
-        "spent": 14.018846,
+        "budget": 13.668375,
+        "spent": 13.668375,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 210.28268999999997,
-        "spent": 210.28268999999997,
+        "budget": 205.025625,
+        "spent": 205.025625,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 1326.169614,
-        "spent": 126.16961399999998,
+        "budget": 1336.68375,
+        "spent": 136.68375,
         "remaining": 1200,
         "percentUsed": 10
       },
@@ -3517,43 +3635,39 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-07T23:01:05.557Z",
-      "2026-09-08T23:01:05.557Z",
-      "2026-09-09T23:01:05.557Z",
-      "2026-09-10T23:01:05.557Z",
-      "2026-09-11T23:01:05.557Z",
-      "2026-09-12T23:01:05.557Z",
-      "2026-09-13T23:01:05.557Z",
-      "2026-09-14T23:01:05.557Z",
-      "2026-09-15T23:01:05.557Z",
-      "2026-09-16T23:01:05.557Z",
-      "2026-09-17T23:01:05.557Z",
-      "2026-09-18T23:01:05.557Z",
-      "2026-09-19T23:01:05.557Z",
-      "2026-09-20T23:01:05.557Z",
-      "2026-09-21T23:01:05.557Z",
-      "2026-09-22T23:01:05.557Z",
-      "2026-09-23T23:01:05.557Z",
-      "2026-09-24T23:01:05.557Z",
-      "2026-09-25T23:01:05.557Z",
-      "2026-09-26T23:01:05.557Z",
-      "2026-09-27T23:01:05.557Z",
-      "2026-09-28T23:01:05.557Z",
-      "2026-09-29T23:01:05.557Z",
-      "2026-09-30T23:01:05.557Z",
-      "2026-10-01T23:01:05.557Z",
-      "2026-10-02T23:01:05.557Z",
-      "2026-10-03T23:01:05.557Z",
-      "2026-10-04T23:01:05.557Z",
-      "2026-10-05T23:01:05.557Z",
-      "2026-10-06T23:01:05.557Z",
-      "2026-10-07T23:01:05.556Z",
-      "2026-10-07T23:58:57.650Z",
-      "2026-10-08T00:31:57.840Z"
+      "2026-09-08T12:44:30.124Z",
+      "2026-09-09T12:44:30.124Z",
+      "2026-09-10T12:44:30.124Z",
+      "2026-09-11T12:44:30.124Z",
+      "2026-09-12T12:44:30.124Z",
+      "2026-09-13T12:44:30.124Z",
+      "2026-09-14T12:44:30.124Z",
+      "2026-09-15T12:44:30.124Z",
+      "2026-09-16T12:44:30.124Z",
+      "2026-09-17T12:44:30.124Z",
+      "2026-09-18T12:44:30.124Z",
+      "2026-09-19T12:44:30.124Z",
+      "2026-09-20T12:44:30.124Z",
+      "2026-09-21T12:44:30.124Z",
+      "2026-09-22T12:44:30.124Z",
+      "2026-09-23T12:44:30.124Z",
+      "2026-09-24T12:44:30.124Z",
+      "2026-09-25T12:44:30.124Z",
+      "2026-09-26T12:44:30.124Z",
+      "2026-09-27T12:44:30.124Z",
+      "2026-09-28T12:44:30.124Z",
+      "2026-09-29T12:44:30.124Z",
+      "2026-09-30T12:44:30.124Z",
+      "2026-10-01T12:44:30.124Z",
+      "2026-10-02T12:44:30.124Z",
+      "2026-10-03T12:44:30.124Z",
+      "2026-10-04T12:44:30.124Z",
+      "2026-10-05T12:44:30.124Z",
+      "2026-10-06T12:44:30.124Z",
+      "2026-10-07T12:44:30.124Z",
+      "2026-10-08T12:44:30.122Z"
     ],
     "doneCounts": [
-      0,
-      0,
       0,
       0,
       0,
@@ -3617,43 +3731,39 @@
       39,
       39,
       39,
-      39,
-      39,
-      39
+      40
     ],
     "aiCosts": [
-      16.08634,
-      32.17268,
-      48.25902,
-      64.34536,
-      80.43169999999999,
-      96.51804,
-      112.60437999999999,
-      128.69072,
-      144.77705999999998,
-      160.86339999999998,
-      176.94974,
-      193.03608,
-      209.12242,
-      225.20875999999998,
-      241.2951,
-      257.38144,
-      273.46778,
-      289.55411999999995,
-      305.64045999999996,
-      321.72679999999997,
-      337.81314,
-      353.89948,
-      369.98582,
-      386.07216,
-      402.1585,
-      418.24484,
-      434.33118,
-      450.41751999999997,
-      466.50386,
-      482.5902,
-      482.5902,
-      482.5902,
+      18.2245,
+      36.449,
+      54.673500000000004,
+      72.898,
+      91.1225,
+      109.34700000000001,
+      127.5715,
+      145.796,
+      164.0205,
+      182.245,
+      200.46949999999998,
+      218.69400000000002,
+      236.91850000000002,
+      255.143,
+      273.3675,
+      291.592,
+      309.8165,
+      328.041,
+      346.2655,
+      364.49,
+      382.7145,
+      400.93899999999996,
+      419.16350000000006,
+      437.38800000000003,
+      455.6125,
+      473.83700000000005,
+      492.0615,
+      510.286,
+      528.5105,
+      546.735,
       546.735
     ],
     "coverage": [
@@ -3687,13 +3797,9 @@
       0,
       0,
       0,
-      null,
-      null,
       null
     ],
     "velocity": [
-      0,
-      0,
       0,
       0,
       0,
@@ -3757,13 +3863,9 @@
       0,
       0,
       0,
-      0,
-      0,
       0
     ],
     "atRisk": [
-      0,
-      0,
       0,
       0,
       0,
@@ -3827,8 +3929,6 @@
       0,
       0,
       0,
-      20326329,
-      20326329,
       21582059
     ],
     "outputTokens": [
@@ -3862,44 +3962,40 @@
       0,
       0,
       0,
-      3533307,
-      3533307,
       3815388
     ],
     "avgRisk": [
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
-      1.176923076923077,
       1.1846153846153846,
       1.1846153846153846,
-      1.1846153846153846
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1846153846153846,
+      1.1825
     ],
     "velocityByWeek": {
       "labels": [

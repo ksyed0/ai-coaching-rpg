@@ -3,10 +3,10 @@
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0007             | EPIC-0006         |
-| US           | US-0040               | US-0039           |
-| TASK         | TASK-0060             | TASK-0059         |
-| AC           | AC-0198               | AC-0197           |
-| TC           | TC-0040               | TC-0039           |
+| US           | US-0041               | US-0040           |
+| TASK         | TASK-0063             | TASK-0062         |
+| AC           | AC-0202               | AC-0201           |
+| TC           | TC-0044               | TC-0043           |
 | BUG          | BUG-0008              | BUG-0007          |
 | L            | L-0018                | L-0017            |
 

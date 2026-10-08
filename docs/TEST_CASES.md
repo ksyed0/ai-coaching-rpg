@@ -565,5 +565,64 @@ Status: [x] Pass
 Defect Raised: None
 Notes: Automated only. Approval is the owner's command: an agent never approves on the owner's behalf (Ruling R4).
 
+## US-0040: showcase script for the Friday Escalation scenario
+
+TC-0040: `scenarios/friday-escalation/showcase.yaml` covers every scene and leaks no secret
+Related Story: US-0040
+Related Task: TASK-0060
+Related AC: AC-0198
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/showcase-friday.test.ts -t "covers every scene|tolerant|private facts"`.
+Expected Result: The script loads in mock and live mode, has an entry for each of the 3 scenes (6, 4 and 6 lines), replies only for Priya in scene 2, a tolerant and a malformed Game Master reply, and no line contains a private fact or Priya's hidden fact.
+Actual Result: As expected (showcase-friday.test.ts) on 2026-10-08.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
+TC-0041: The mock showcase of the Friday Escalation scenario passes every check
+Related Story: US-0040
+Related Task: TASK-0060
+Related AC: AC-0199
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm demo --showcase --fast --scenario scenarios/friday-escalation` (and again with `--evaluate`).
+  2. Run `pnpm demo --fast`, `pnpm demo --fast --security --resume` and `pnpm demo --showcase --fast`.
+Expected Result: 14 checks pass (15 with `--evaluate`) with 16 player lines, 4 AI replies and 4 Game Master evaluations (one re-ask); the other runs keep 29, 42 and 14 checks.
+Actual Result: As expected on 2026-10-08 (14, 15, 29, 42, 14).
+Status: [x] Pass
+Defect Raised: None
+Notes: Also covered by showcase-friday.test.ts.
+
+TC-0042: S-14 accepts the advance only in a scene with no Game Master condition
+Related Story: US-0040
+Related Task: TASK-0061
+Related AC: AC-0200
+Type: Edge Case
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/showcase-friday.test.ts src/demo/__tests__/showcase-runner.test.ts`.
+Expected Result: Scene 3 of the original scenario ends by the facilitator advance with the observation "s3_internal_wrap has no Game Master exit condition; ..." and S-14 passes; a Game Master verdict changed to false in scene 1 still fails S-14, naming only s1_huddle; the extended scenario's behaviour is unchanged.
+Actual Result: As expected on 2026-10-08.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
+TC-0043: Negative controls for the original scenario and the `--scenario` path
+Related Story: US-0040
+Related Task: TASK-0061
+Related AC: AC-0201
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/showcase-friday.test.ts -t "negative controls"`.
+Expected Result: `NEGATIVE_CUTS["esc-scope-creep-01"]` is s1 at 3 and 4 lines and s2 at 2 lines; five cases are built (full and cuts, labels true, false, false, true, false). Live and generated-player runs (`--live`, `--players generated` with `--scenario scenarios/friday-escalation`) are run by the owner.
+Actual Result: Offline part as expected on 2026-10-08; live runs not done by the implementer.
+Status: [x] Pass
+Defect Raised: None
+Notes: `--max-false-exits` still compares against `tests/gm-cases`, which is built from the extended scenario, so it is not usable with this scenario until cases are built for it.
+
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 
