@@ -437,13 +437,13 @@ Related AC: AC-0183
 Type: Functional
 Preconditions: A checkout of the branch.
 Steps:
-  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/starter-set.test.ts src/demo/__tests__/showcase-scenario.test.ts`.
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/friday-set.test.ts src/demo/__tests__/showcase-scenario.test.ts`.
   2. List `scenarios/friday-escalation/calibration/`.
 Expected Result: 1: no errors; 8 probes (discovery levels 1 to 4, negotiation levels 1 and 4, 2 contrast groups), all agent-drafted starter probes, approved by the owner (`source: drafted`, `drafter: claude-sonnet-5-5`, `approved_by: Kamal`, `approved_at: 2026-10-07T19:58:00-04:00`); the warnings say the set has fewer than 20 probes; the original scenario package only gained `calibration/` (YAML probe files only). 2: eight `.yaml` files.
-Actual Result: As expected (starter-set.test.ts, showcase-scenario.test.ts) on 2026-10-07.
+Actual Result: As expected (friday-set.test.ts, showcase-scenario.test.ts) on 2026-10-07.
 Status: [x] Pass
 Defect Raised: None
-Notes: Automated only. The set is deliberately thin until US-0037 scales it.
+Notes: Automated only. The set was deliberately thin until US-0037 scaled it (see TC-0036; the starter-set test became friday-set.test.ts).
 
 ## US-0036: `pnpm calibrate`: judges, runner, metrics, report and second-judge comparison
 
@@ -564,6 +564,21 @@ Actual Result: As expected (draft.test.ts, draft-cli.test.ts) on 2026-10-07.
 Status: [x] Pass
 Defect Raised: None
 Notes: Automated only. Approval is the owner's command: an agent never approves on the owner's behalf (Ruling R4).
+
+TC-0036: The scaled Friday set (34 probes) validates, is balanced and records who approved it
+Related Story: US-0037
+Related Task: TASK-0057
+Related AC: AC-0191
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/friday-set.test.ts`.
+  2. Run `pnpm --filter @acr/runtime exec vitest run src/calibration` (the authoring tests copy only the 8 starter probes, so they do not depend on the set's size).
+Expected Result: 1: no loader errors; at least 20 probes (34), at least 5 excerpts (7), at least 10 holdout (20), every level 1 to 4 at least 3 times across expected levels (9, 10, 9, 8), exactly 2 contrast probes, no linter warning about a thin set, thin holdout or unbalanced or mid-heavy levels (only unscored-speaker warnings remain); the 8 starters keep `approved_at: 2026-10-07T19:58:00-04:00`; drafted probes have drafter `claude-sonnet-5-5`, excerpts have no drafter, every probe is approved by Kamal. 2: all calibration tests pass.
+Actual Result: As expected (friday-set.test.ts, calibration suite 522 tests) on 2026-10-08.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. The 19 drafts and 7 excerpts were approved by an agent on the owner's explicit chat instruction of 2026-10-08; excerpt levels were assigned by the agent under that delegation.
 
 ## US-0040: showcase script for the Friday Escalation scenario
 
