@@ -1,7 +1,10 @@
 kind: single
 id: disc-l2
 criterion: discovery
-source: handwritten
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: "2026-10-07T20:30:00-04:00"
 split: holdout
 subject: delivery_lead
 expected: 2

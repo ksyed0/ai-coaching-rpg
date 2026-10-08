@@ -457,10 +457,14 @@ describe("approveDraft", () => {
     await writeFile(path.join(drafts(), "d-big.yaml"), `kind: single\nid: d-big\n# ${"x".repeat(130 * 1024)}\n`);
     await expect(approve({ draftId: "d-big" })).rejects.toThrow(/draft d-big cannot be read \(EFBIG\)/);
     const contrast = await readFile(path.join(scn, "calibration", "listening-contrast-01.yaml"), "utf8");
-    await writeFile(path.join(drafts(), "d-con.yaml"), contrast.replace("id: listening-contrast-01", "id: d-con").replace("source: handwritten", "source: excerpt").replace(/^split: .*\n/m, ""));
+    // the starter probe is already drafted and approved (R26): turn it back into an unapproved excerpt draft
+    const conDraft = contrast.replace("id: listening-contrast-01", "id: d-con").replace(/^source: drafted\ndrafter: .*\napproved_by: .*\napproved_at: .*\n/m, "source: excerpt\n").replace(/^split: .*\n/m, "");
+    expect(conDraft).toMatch(/^source: excerpt$/m);
+    expect(conDraft).not.toMatch(/drafter|approved_by|approved_at/);
+    await writeFile(path.join(drafts(), "d-con.yaml"), conDraft);
     await expect(approve({ draftId: "d-con", expected: 2 })).rejects.toThrow(/--expected does not apply to a contrast probe/);
-    const ok = await approve({ draftId: "d-con" });
-    expect(parse(await readFile(ok.file, "utf8"))).toMatchObject({ id: "d-con", kind: "contrast", approved_by: "Kamal" });
+    const ok = await approve({ draftId: "d-con", by: "Owner B" });
+    expect(parse(await readFile(ok.file, "utf8"))).toMatchObject({ id: "d-con", kind: "contrast", source: "excerpt", drafter: null, approved_by: "Owner B" });
   });
   it("does not follow a draft that is a symbolic link", async () => {
     await drafted();
