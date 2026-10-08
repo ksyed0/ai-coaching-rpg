@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { agreement, bias, biasByExpected, computeMetrics, contrast, isUsable, labelFor, notObserved, splitMetrics, spread, stability, usability } from "../metrics.js";
+import { agreement, bias, biasByExpected, computeMetrics, CONTRAST_MIN_USABLE_SHARE, contrast, isUsable, labelFor, notObserved, splitMetrics, spread, stability, usability, usableFraction } from "../metrics.js";
 import { DEFAULT_TARGETS } from "../targets.js";
 import type { ContrastOutcome, Observed, Outcome, SingleOutcome } from "../types.js";
 
@@ -263,4 +263,22 @@ describe("labelFor discrimination rules", () => {
       expect(r.reasons.join(" ")).not.toMatch(/thinly/);
     });
   });
+});
+
+describe("usableFraction", () => {
+  const five = () => computeMetrics([single("a", 2, [2]), ...["b", "c", "d", "e"].map((id) => single(id, 2, ["failed"]))]);
+  it("is (slots - unusable) / slots, and null with no slots", () => {
+    expect(usableFraction(five())).toBe(0.2);
+    expect(usableFraction(computeMetrics([]))).toBeNull();
+  });
+  it("is the one rule behind the WARN: 1 of 5 usable meets minUsable 0.2 although 1 - 4/5 rounds just below it", () => {
+    expect(1 - 4 / 5).toBeLessThan(0.2);
+    const r = labelFor(five(), { ...DEFAULT_TARGETS, minUsable: 0.2, contrastOrdering: 0, maxAbsBias: 3 });
+    expect(r.reasons.join(" ")).not.toMatch(/answers were usable/);
+  });
+  it("still warns when the fraction is below the threshold", () => {
+    const r = labelFor(five(), { ...DEFAULT_TARGETS, minUsable: 0.21 });
+    expect(r.reasons).toContain("only 1 of 5 answers were usable");
+  });
+  it("exports the contrast share the thinly-measured WARN uses", () => expect(CONTRAST_MIN_USABLE_SHARE).toBe(0.5));
 });

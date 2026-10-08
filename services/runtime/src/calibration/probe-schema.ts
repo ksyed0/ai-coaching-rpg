@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isFileSafeId, isScenarioId } from "@acr/events";
+import { hasHiddenChar, HIDDEN_CHARS_MESSAGE } from "./hidden-chars.js";
 
 export type Level = 1 | 2 | 3 | 4;
 export type Expected = Level | "not_observed";
@@ -14,17 +15,26 @@ export const MAX_PROBE_ID = 58;
 const ProbeId = z.string().max(MAX_PROBE_ID, `must be at most ${MAX_PROBE_ID} characters (it becomes the session id probe-<id>)`).refine(isFileSafeId, idMessage(MAX_PROBE_ID));
 const RoleId = z.string().max(64).refine(isScenarioId, "must be a scenario id");
 
+const NoHidden = (field: z.ZodString) => field.refine((t) => !hasHiddenChar(t), `must not contain ${HIDDEN_CHARS_MESSAGE}`);
+
+/** A line's text: the hidden-character rule is checked on the transcript (so the message can name the line), and by callers of LineSchema. */
 export const LineSchema = z.object({ scene: RoleId, role: RoleId, text: z.string().min(1).max(2000) }).strict();
+const Transcript = z.array(LineSchema).min(2).max(80).superRefine((lines, ctx) => {
+  lines.forEach((l, k) => {
+    if (hasHiddenChar(l.text)) ctx.addIssue({ code: "custom", path: [k, "text"], message: `transcript line ${k + 1} contains ${HIDDEN_CHARS_MESSAGE}` });
+  });
+});
 
 const common = {
   id: ProbeId,
   criterion: FileId,
   source: z.enum(["handwritten", "drafted", "excerpt"]),
-  drafter: z.string().min(1).max(200).nullable().default(null),
-  approved_by: z.string().min(1).max(120).nullable().default(null),
-  approved_at: z.string().min(1).max(40).nullable().default(null),
+  drafter: NoHidden(z.string().min(1).max(200)).nullable().default(null),
+  approved_by: NoHidden(z.string().min(1).max(120)).nullable().default(null),
+  /** An ISO-8601 datetime (the `...Z` form of new Date().toISOString(), or with an offset); handwritten probes keep null. */
+  approved_at: z.string().max(40).datetime({ offset: true }).nullable().default(null),
   split: z.enum(["tune", "holdout"]),
-  transcript: z.array(LineSchema).min(2).max(80),
+  transcript: Transcript,
 };
 
 export const SingleProbeSchema = z
@@ -46,6 +56,10 @@ export const ContrastProbeSchema = z
 export const ProbeSchema = z.discriminatedUnion("kind", [SingleProbeSchema, ContrastProbeSchema]).superRefine((p, ctx) => {
   if (p.source === "drafted" && (p.drafter === null || p.approved_by === null || p.approved_at === null)) {
     ctx.addIssue({ code: "custom", message: "a drafted probe needs drafter, approved_by and approved_at" });
+  }
+  if (p.source === "excerpt") {
+    if (p.approved_by === null || p.approved_at === null) ctx.addIssue({ code: "custom", message: "an excerpt probe needs approved_by and approved_at (a human assigned its level)" });
+    if (p.drafter !== null) ctx.addIssue({ code: "custom", message: "an excerpt probe has no drafter (it is a real excerpt, not model-drafted)" });
   }
   if (p.kind === "single" && p.acceptable !== undefined && !p.acceptable.includes(p.expected)) {
     ctx.addIssue({ code: "custom", message: "acceptable must include expected" });

@@ -293,4 +293,20 @@ describe("report", () => {
   it("refuses an unsafe scenario id for a summary file", () => {
     for (const id of ["../x", "a/b", "..", "", "a b", "x".repeat(65)]) expect(() => summaryFile(dir, id, "m", "v1")).toThrow(/scenario id/);
   });
+
+  it("shows the expected level in the disagreements table: a single's (with a wider acceptable set) and each contrast player's", () => {
+    const qwen = { label: "second", model: "qwen-3-32b", family: "qwen", provider };
+    const wide = { ...out("w", 3, 1), acceptable: [3 as const, 4 as const] };
+    const a = buildJudgeReport(gemma, [out("a", 1, 1), wide, contrastOut("c", { x: 4, y: 1 })], DEFAULT_TARGETS, probes);
+    const b = buildJudgeReport(qwen, [out("a", 1, 3), { ...wide, runs: [2 as const] }, contrastOut("c", { x: 1, y: 4 })], DEFAULT_TARGETS, probes);
+    const r = buildRun({ scenario: { id: "esc-scope-creep-01", version: "1.2" }, rubrics: [], variant: "v1", startedAt: "2026-10-08T00:00:00.000Z", probes, lint: [], judges: [a, b] });
+    const rows = renderMarkdown(r).split("\n").filter((l) => l.startsWith("|"));
+    const header = rows.find((l) => l.includes("rationale"))!;
+    expect(header.split("|").map((c) => c.trim()).slice(1, 6)).toEqual(["Probe", "Role", "Expected", "primary", "second"]);
+    const cells = (probe: string, role: string) => rows.find((l) => l.startsWith(`| ${probe} | ${role} |`))!.split("|").map((c) => c.trim());
+    expect(cells("a", "p")[3]).toBe("1");
+    expect(cells("w", "p")[3]).toBe("3 (acceptable 3, 4)");
+    expect(cells("c", "x")[3]).toBe("4");
+    expect(cells("c", "y")[3]).toBe("1");
+  });
 });

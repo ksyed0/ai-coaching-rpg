@@ -10,6 +10,8 @@ data/reports/
 services/runtime/data/reports/
 data/calibration/
 services/runtime/data/calibration/
+# probe drafts (model-drafted or cut from a real session) are working files: only an approved probe in calibration/ is committed
+scenarios/*/calibration/drafts/
 .superpowers/
 .history/
 demo-report.json

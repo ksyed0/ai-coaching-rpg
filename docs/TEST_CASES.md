@@ -439,7 +439,7 @@ Preconditions: A checkout of the branch.
 Steps:
   1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/starter-set.test.ts src/demo/__tests__/showcase-scenario.test.ts`.
   2. List `scenarios/friday-escalation/calibration/`.
-Expected Result: 1: no errors; 8 probes (discovery levels 1 to 4, negotiation levels 1 and 4, 2 contrast groups), all `handwritten`; the warnings say the set has fewer than 20 probes; the original scenario package only gained `calibration/` (YAML probe files only). 2: eight `.yaml` files.
+Expected Result: 1: no errors; 8 probes (discovery levels 1 to 4, negotiation levels 1 and 4, 2 contrast groups), all agent-drafted starter probes, approved by the owner (`source: drafted`, `drafter: claude-sonnet-5-5`, `approved_by: Kamal`, `approved_at: 2026-10-07T19:58:00-04:00`); the warnings say the set has fewer than 20 probes; the original scenario package only gained `calibration/` (YAML probe files only). 2: eight `.yaml` files.
 Actual Result: As expected (starter-set.test.ts, showcase-scenario.test.ts) on 2026-10-07.
 Status: [x] Pass
 Defect Raised: None
@@ -519,6 +519,51 @@ Actual Result: As expected (report.test.ts, targets.test.ts, cli.test.ts, docs-e
 Status: [x] Pass
 Defect Raised: None
 Notes: Automated only. `pnpm evaluate` does not read calibration output, so calibration never blocks it.
+
+## US-0037: probe drafting, excerpts, approval and splits
+
+TC-0033: `pnpm calibrate draft` writes validated drafts from a drafter of another model family, and a run never reads them
+Related Story: US-0037
+Related Task: TASK-0057
+Related AC: AC-0189
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/draft.test.ts src/calibration/__tests__/draft-cli.test.ts src/calibration/__tests__/probe-schema.test.ts -t "draftProbes|pnpm calibrate draft|Trojan Source"` and `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/hidden-chars.test.ts`.
+  2. Run `git check-ignore scenarios/friday-escalation/calibration/drafts/x.yaml`.
+Expected Result: 1: One draft per criterion, level and `--per-level` under `calibration/drafts/` (mode 0600, directory 0700, `source: drafted`, the drafter's model id, no approval, no split), numbered after existing drafts and probes; `loadProbes` gives the same result before and after; a drafter of the primary judge's family, an unknown primary model (without `--allow-same-family`) and the mock provider are refused before any call, naming families only; no call without `--drafter`, whatever `MODEL_PROVIDER`; the prompt holds the target anchor verbatim and no hidden fact, private fact, `earned_when` condition, brief, knowledge, goal, guardrail or facilitator note of either Friday scenario; garbage, more than 8 lines, invented scenes or roles, a speaker outside the scene, a one-line subject, a hidden fact, a prototype key, an over-long line, hidden or bidirectional control characters (`the reply contains hidden or bidirectional control characters`), a reply over 64 Ki characters, a provider error and a hang are each reported as `draft <id>: <reason>` (printable, secrets redacted) and not written while the other drafts are (exit 1); abort keeps what was written; a symlinked drafts directory is refused; the planned call count is printed before the first draft and the base URL is never printed. The probe schema refuses the first and last code point of every range of the one hidden-character table (hidden-chars.ts, also used by `printable` and the hidden-fact normaliser), in transcript text, `drafter` and `approved_by`, with `transcript line <n>` 1-based, and accepts each neighbour, tab, newline, visible spaces, FE0E/FE0F emoji, accents, Cyrillic, Arabic, Hebrew, Devanagari and CJK; the table matches the expected one for every BMP code point and the astral tag/selector planes; a hidden fact smuggled with tag characters is still caught. 2: the path is ignored.
+Actual Result: As expected (draft.test.ts, draft-cli.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only; scripted drafters (fake-drafter.ts), no live model call.
+
+TC-0034: `pnpm calibrate excerpt` cuts a draft from a real session log range for a human to rate
+Related Story: US-0037
+Related Task: TASK-0057
+Related AC: AC-0190
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/draft.test.ts src/calibration/__tests__/draft-cli.test.ts -t "excerpt"`.
+Expected Result: The draft holds the utterances with seq in the range, each with the scene active at its seq, `source: excerpt`, no drafter, no `expected` and no approval; refused with exit 2 and nothing written: a subject with fewer than 2 lines, `--from` after `--to`, a range outside the log, a line outside any scene, more than 80 lines, an unsafe or over-long id, an unknown criterion, an AI character as subject, a log of another scenario, a `--log` that is not a `.jsonl` file or cannot be read or parsed, an existing draft id, a line with hidden or bidirectional control characters (never printed raw); a log of 150 000 events works; an excerpt in which an AI character states a hidden fact gives `excerpt contains a hidden fact of <role>: choose another range` without the fact; hostile text from the log is printed made safe.
+Actual Result: As expected (draft.test.ts, draft-cli.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. Real customer sessions need consent and redaction before an excerpt (AGENTS section 12).
+
+TC-0035: `pnpm calibrate approve` validates a draft into a probe and `assign-splits` fills only missing splits
+Related Story: US-0037
+Related Task: TASK-0057
+Related AC: AC-0190
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/draft.test.ts src/calibration/__tests__/draft-cli.test.ts -t "approve|assignSplits|assign-splits"`.
+Expected Result: Approve records `approved_by` and `approved_at` (ISO-8601 from the clock), takes the drafted level or `--expected` (required for an excerpt), assigns `assignSplit(id, n + 1)` (n: probe files that parse as probes) when the draft has none and keeps one it has, refuses a hand-edited draft with hidden or bidirectional control characters, an oversized draft and `--expected` on a contrast draft, drops the `draft-` prefix (or uses `--id`), validates with the schema and the loader's rules (listing every problem), writes `calibration/<id>.yaml` exclusively (0600; an existing probe is never overwritten and the draft is then kept), deletes the draft afterwards, and the loader then loads the probe; unsafe draft ids, an unknown draft, a bad or hostile `--by`, a bad `--expected`, a prototype key, a non-draft source, a mismatched id and a symlinked draft are refused with exit 2. Assign-splits adds a split before `transcript` to files without one (atomic rewrite, 0600, comments kept, no temp file left), leaves every file with a split byte-identical, fills a `split: null` and reports any other invalid split, uses the same total as approve (same split for the same id with 39 or 40 probes; a broken file never counts), removes its temp file when the rename fails, reports unparseable files, symbolic links and files without a usable id without touching them, and exits 1 when some file was not changed.
+Actual Result: As expected (draft.test.ts, draft-cli.test.ts) on 2026-10-07.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. Approval is the owner's command: an agent never approves on the owner's behalf (Ruling R4).
 
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 

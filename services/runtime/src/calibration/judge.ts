@@ -11,10 +11,17 @@ export type Judge = { label: string; model: string; family: string; provider: Mo
 
 const FAMILIES = ["gemma", "qwen", "nemotron", "claude", "gpt", "llama", "mistral", "ministral", "holo", "raptor", "foundation", "gemini", "deepseek", "phi"];
 
+const isLetter = (c: string | undefined): boolean => c !== undefined && /\p{L}/u.test(c);
+
+/**
+ * A family name matches only as a whole leading word: the character right after it must not be a letter (end of string, a digit, '-',
+ * '_', '.' and ':' are fine), so philosopher-7b is not phi. One exception: gpt4all is a different project from the GPT models, so for
+ * the gpt family a digit run followed by "all" belongs to the name (gpt4all is its own family; gpt4, gpt-4o and gpt-oss stay gpt).
+ */
 export function modelFamily(model: string): string {
   const tail = (model.toLowerCase().split("/").pop() ?? "").trim();
   if (tail === "") return "unknown";
-  const hit = FAMILIES.find((f) => tail.startsWith(f));
+  const hit = FAMILIES.find((f) => tail.startsWith(f) && !isLetter(tail[f.length]) && !(f === "gpt" && /^gpt\d+all/.test(tail)));
   if (hit === "ministral") return "mistral";
   return hit ?? (tail.split(/[-_.:]/)[0] || tail);
 }

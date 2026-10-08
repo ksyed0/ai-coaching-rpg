@@ -47,6 +47,11 @@ describe("isValidModelId", () => {
 });
 
 describe("modelFamily edge", () => {
+  it.each([
+    ["philosopher-7b", "philosopher"], ["gpt4all", "gpt4all"], ["GPT4All-J", "gpt4all"], ["gpt-oss-20b", "gpt"], ["gpt4", "gpt"], ["gpt-4o", "gpt"],
+    ["llama3:8b", "llama"], ["meta-llama/Llama-3.1-8B", "llama"], ["mlx-community/Qwen3-8B-4bit", "qwen"], ["OsaurusAI/Holo3-35B-A3B-JANGTQ4", "holo"],
+    ["phi\u4e2d\u6587", "phi\u4e2d\u6587"], ["phi\u00e9", "phi\u00e9"], ["phi-3", "phi"], ["phi4", "phi"], ["phi_3", "phi"], ["phi.3", "phi"], ["phi:3", "phi"], ["phi", "phi"], ["qwerty-1", "qwerty"], ["gemmaX-1", "gemmax"],
+  ])("%s -> %s", (m, f) => expect(modelFamily(m)).toBe(f));
   it("is unknown for an empty or slash-only id", () => { expect(modelFamily("")).toBe("unknown"); expect(modelFamily("/")).toBe("unknown"); });
 });
 
