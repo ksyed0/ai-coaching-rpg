@@ -1073,9 +1073,9 @@ Acceptance Criteria:
 TASK-0057 (US-0037): Add probe drafting, excerpts and approval, and scale the Friday set
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: In Progress
 Branch: feature/EPIC-0005-US-0037-probe-drafting
-Notes: Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07).
+Notes: Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 (scale-up, owner approvals) pending.
 ```
 
 ```

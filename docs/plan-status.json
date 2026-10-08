@@ -2101,9 +2101,9 @@
       "title": "Add probe drafting, excerpts and approval, and scale the Friday set",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "In Progress",
       "branch": "feature/EPIC-0005-US-0037-probe-drafting",
-      "notes": "Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07)."
+      "notes": "Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 (scale-up, owner approvals) pending."
     },
     {
       "id": "TASK-0058",
@@ -3305,9 +3305,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-07T23:58:57.575Z",
-  "commitSha": "632de67",
-  "buildNumber": "293",
+  "generatedAt": "2026-10-08T00:25:29.513Z",
+  "commitSha": "c234ea7",
+  "buildNumber": "300",
   "branch": "feature/EPIC-0005-US-0037-probe-drafting",
   "sessionTimeline": [
     {
@@ -3532,9 +3532,11 @@
       "2026-10-05T23:01:05.557Z",
       "2026-10-06T23:01:05.557Z",
       "2026-10-07T23:01:05.556Z",
-      "2026-10-07T23:58:57.650Z"
+      "2026-10-07T23:58:57.650Z",
+      "2026-10-08T00:25:29.570Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -3600,6 +3602,7 @@
       39,
       39,
       39,
+      39,
       39
     ],
     "aiCosts": [
@@ -3632,6 +3635,7 @@
       434.33118,
       450.41751999999997,
       466.50386,
+      482.5902,
       482.5902,
       482.5902,
       482.5902
@@ -3668,9 +3672,11 @@
       0,
       0,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -3736,9 +3742,11 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -3804,6 +3812,7 @@
       0,
       0,
       20326329,
+      20326329,
       20326329
     ],
     "outputTokens": [
@@ -3838,6 +3847,7 @@
       0,
       0,
       3533307,
+      3533307,
       3533307
     ],
     "avgRisk": [
@@ -3871,6 +3881,7 @@
       1.176923076923077,
       1.176923076923077,
       1.176923076923077,
+      1.1846153846153846,
       1.1846153846153846,
       1.1846153846153846
     ],
