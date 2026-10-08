@@ -106,6 +106,8 @@ const EXIT_LABEL: Record<string, string> = {
   time_box_elapsed: "the time box elapsed",
   facilitator_advance: "facilitator advance",
 };
+/** Whether a scene has a `gm_detects` exit condition the Game Master can judge. */
+const hasGmCondition = (scene: Scenario["script"]["scenes"][number]): boolean => scene.exit_when.any_of.some((c) => typeof c === "object");
 export const describeExit = (reason: string): string => EXIT_LABEL[reason] ?? reason;
 
 /** The scripted lines that will be spoken in each scene, after the --max-lines cap. */
@@ -472,8 +474,14 @@ export async function playShowcase(ctx: Ctx, st: Story, o: ShowcaseOptions): Pro
         observations.push(`scene changed under us: the facilitator advance for ${scene.id} was refused (stale_scene): it had already ended (${exitReasonOf(scene.id) ?? "unknown"}); nothing was skipped`);
       } else {
         ensure(r.type === "event", `facilitator advance was refused: ${errCode(r)}`);
-        observations.push(`GM did not exit; facilitator advanced (${scene.id})`);
-        await n.note("the scripted lines are used up and the Game Master has not ended the scene: the facilitator advanced");
+        if (hasGmCondition(scene)) {
+          observations.push(`GM did not exit; facilitator advanced (${scene.id})`);
+          await n.note("the scripted lines are used up and the Game Master has not ended the scene: the facilitator advanced");
+        } else {
+          // US-0040: a scene whose only exits are the time box and the facilitator (the original Friday Escalation's last scene) is ended this way by design.
+          observations.push(`${scene.id} has no Game Master exit condition; the facilitator advanced after its scripted lines`);
+          await n.note("the scripted lines are used up and this scene has no Game Master exit condition: the facilitator advanced");
+        }
         await waitSettled(npcCount, gmConditions);
       }
     }
@@ -826,10 +834,11 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
     const dry = [...(sys!.npc!.exhausted ?? []), ...(sys!.gm!.exhausted ?? [])];
     ensure(dry.length === 0, `a scripted queue ran dry (${dry.slice(0, 3).join(", ")}): the default reply was served`);
     if (o.maxLines === null) {
-      const advanced = summary.scenes.filter((s) => s.exitReason === "facilitator_advance").map((s) => s.id);
+      // A scene with no gm_detects condition can only end by time box or advance, so the advance is its expected end (US-0040).
+      const advanced = summary.scenes.filter((s) => s.exitReason === "facilitator_advance" && hasGmCondition(scenario.script.scenes.find((x) => x.id === s.id)!)).map((s) => s.id);
       ensure(advanced.length === 0, `scene(s) ${advanced.join(", ")} ended by facilitator advance (the mock script should end each by verdict or time box; --max-lines allows it)`);
     }
-    return "every scripted reply and verdict came from the script and no scene needed the facilitator advance";
+    return "every scripted reply and verdict came from the script and no scene with a Game Master condition needed the facilitator advance";
   }, ["S-01"]);
 
   if (o.players) {

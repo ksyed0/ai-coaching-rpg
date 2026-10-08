@@ -259,7 +259,10 @@ describe("usage errors (exit 2, nothing started)", () => {
     const missing = await run(["--showcase", "--scenario", "scenarios/no-such-scenario"]);
     expect(missing.exitCode).toBe(2);
     expect(missing.stderr).toContain("error: --showcase cannot use that scenario: the scenario directory does not exist");
-    const plain = await run(["--showcase", "--scenario", "scenarios/friday-escalation"]);
+    // (the original Friday Escalation has a script since US-0040, so a copy of it without the file stands in for "no script")
+    const noScript = await variant((y) => y);
+    await rm(path.join(noScript, "showcase.yaml"));
+    const plain = await run(["--showcase", "--scenario", noScript]);
     expect(plain.exitCode).toBe(2);
     expect(plain.stderr).toContain("showcase.yaml: the scenario has no showcase script");
     const bad = await variant((y) => y.replace("scene: s6_wrap_up", "scene: s9_nowhere"));

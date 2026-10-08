@@ -24,6 +24,9 @@ export type GmCaseFile = { version: 1; description: string; cases: GmCase[] };
  * third (the risk review and the build plan) with "someone needs to ...", so one follow-up has no owner yet.
  */
 export const NEGATIVE_CUTS: Readonly<Record<string, Readonly<Record<string, readonly number[]>>>> = {
+  // US-0040, the original Friday Escalation: s1 at 3 and 4 lines has concerns and the unanswered "What if we offer it as a phase two...?" but no agreed position;
+  // s2 at 2 lines ends on the vague "come back to you next week", which Priya rejects: no next step yet. Its scene 3 has no Game Master condition.
+  "esc-scope-creep-01": { s1_huddle: [3, 4], s2_client_call: [2] },
   "esc-scope-creep-02": { s1_huddle: [3, 4], s2_priya_call: [2], s3_internal_huddle: [3], s4_escalation_call: [2], s5_final_terms: [3], s6_wrap_up: [1, 3] },
 };
 
