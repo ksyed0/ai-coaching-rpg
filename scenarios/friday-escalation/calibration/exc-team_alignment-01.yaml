@@ -1,0 +1,33 @@
+kind: single
+id: exc-team_alignment-01
+criterion: team_alignment
+source: excerpt
+drafter: null
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:52.120Z
+split: tune
+subject: delivery_lead
+expected: 3
+acceptable:
+  - 2
+  - 3
+transcript:
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Priya's email just came in. She wants a reconciliation module added before
+      go-live and needs an answer by Friday; what are your first reactions to
+      this?
+  - scene: s1_huddle
+    role: tech_lead
+    text: I'm concerned about the ingestion layer since we're still hardening it.
+      Adding a new module right now puts the entire go-live date at risk.
+  - scene: s1_huddle
+    role: account_manager
+    text: I'm worried that a flat refusal will damage the relationship, especially
+      since the renewal is coming up. Let's see if there's a middle ground or a
+      phased approach that doesn't compromise the go-live date.
+  - scene: s1_huddle
+    role: delivery_lead
+    text: I agree we can't risk the date, but we can't just say no. What if we offer
+      this as a phase two delivery, properly scoped and priced, to happen
+      immediately after go-live?

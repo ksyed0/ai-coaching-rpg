@@ -1,0 +1,24 @@
+kind: single
+id: commercial_judgement-l2-1
+criterion: commercial_judgement
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:24.539Z
+split: holdout
+subject: account_manager
+expected: 2
+transcript:
+  - scene: s2_client_call
+    role: client_sponsor
+    text: Can you absorb this within the fixed fee we already have?
+  - scene: s2_client_call
+    role: account_manager
+    text: It does take some effort on our side, and we would have to look at the
+      contract.
+  - scene: s2_client_call
+    role: client_sponsor
+    text: And what does that mean for us?
+  - scene: s2_client_call
+    role: account_manager
+    text: I'm not sure yet. We'll work out what is fair and come back to you.

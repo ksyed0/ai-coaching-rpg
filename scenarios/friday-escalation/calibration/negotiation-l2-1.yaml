@@ -1,0 +1,24 @@
+kind: single
+id: negotiation-l2-1
+criterion: negotiation
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:22.531Z
+split: tune
+subject: account_manager
+expected: 2
+transcript:
+  - scene: s2_client_call
+    role: client_sponsor
+    text: "Yes or no: will you add the module before launch?"
+  - scene: s2_client_call
+    role: account_manager
+    text: We can't do the whole module before launch, but we could do it after
+      go-live instead.
+  - scene: s2_client_call
+    role: client_sponsor
+    text: What would that mean for me?
+  - scene: s2_client_call
+    role: account_manager
+    text: I'd have to look into it. It's one option.

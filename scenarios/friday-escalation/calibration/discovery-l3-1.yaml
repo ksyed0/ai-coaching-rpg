@@ -1,0 +1,35 @@
+kind: single
+id: discovery-l3-1
+criterion: discovery
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:31.738Z
+split: holdout
+subject: account_manager
+expected: 3
+transcript:
+  - scene: s2_client_call
+    role: client_sponsor
+    text: I need a small reconciliation module added before go-live, and an answer
+      by end of day Friday.
+  - scene: s2_client_call
+    role: account_manager
+    text: Before I answer, what does your Finance team do today to reconcile, and
+      what breaks for them if this isn't there at launch?
+  - scene: s2_client_call
+    role: client_sponsor
+    text: They match the platform's totals against the ledger by hand at every month
+      end. At launch we'd be doing that on a platform nobody trusts yet, and my
+      CFO won't sign off numbers she can't check.
+  - scene: s2_client_call
+    role: account_manager
+    text: So what matters is that your CFO can trust the month-end totals from day
+      one.
+  - scene: s2_client_call
+    role: client_sponsor
+    text: That's it, yes.
+  - scene: s2_client_call
+    role: account_manager
+    text: Understood. The first thing I'll ask the team is whether the month-end
+      totals can be verified from day one.

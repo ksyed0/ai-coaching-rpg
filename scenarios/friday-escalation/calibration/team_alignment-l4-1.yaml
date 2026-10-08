@@ -1,0 +1,36 @@
+kind: single
+id: team_alignment-l4-1
+criterion: team_alignment
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:28.437Z
+split: holdout
+subject: account_manager
+expected: 4
+transcript:
+  - scene: s1_huddle
+    role: delivery_lead
+    text: I think we're split on this, and the tech lead is still uneasy.
+  - scene: s1_huddle
+    role: account_manager
+    text: Tech lead, what would make a pre-launch version acceptable to you?
+  - scene: s1_huddle
+    role: tech_lead
+    text: If it were cut to month-end totals only, and the regression window stays
+      as it is.
+  - scene: s1_huddle
+    role: account_manager
+    text: "Good. So our position is: after go-live as the default, and as a fallback
+      a month-end-totals-only version before launch if the regression window
+      stays. Delivery lead, are you good with both?"
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Yes.
+  - scene: s1_huddle
+    role: account_manager
+    text: On the call I'll take the commercial points. If Priya asks about the data
+      layer, I'll hand it straight to the tech lead and back him up.
+  - scene: s1_huddle
+    role: tech_lead
+    text: Thanks, that works for me.

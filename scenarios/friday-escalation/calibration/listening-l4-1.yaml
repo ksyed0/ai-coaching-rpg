@@ -1,0 +1,33 @@
+kind: single
+id: listening-l4-1
+criterion: listening
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:21.869Z
+split: tune
+subject: account_manager
+expected: 4
+transcript:
+  - scene: s1_huddle
+    role: delivery_lead
+    text: We're already stretched on the integration work.
+  - scene: s1_huddle
+    role: tech_lead
+    text: It's probably nothing, but the reconciliation feed would use the same data
+      layer we're still stabilising.
+  - scene: s1_huddle
+    role: account_manager
+    text: "Let me play that back: the tech lead says the data layer is still being
+      stabilised, and the delivery lead says integration is already behind. So
+      our position is we can size the module but not promise it for launch. Is
+      that a fair summary?"
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Yes, that's it.
+  - scene: s1_huddle
+    role: tech_lead
+    text: Yes. And thanks for picking that up, I nearly didn't mention it.
+  - scene: s1_huddle
+    role: account_manager
+    text: Then let's go to Priya with that.

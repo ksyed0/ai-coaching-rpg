@@ -1,0 +1,37 @@
+kind: single
+id: commercial_judgement-l4-1
+criterion: commercial_judgement
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:25.841Z
+split: holdout
+subject: account_manager
+expected: 4
+transcript:
+  - scene: s2_client_call
+    role: client_sponsor
+    text: My CFO will ask why we pay for this. Give me the terms in one place, and
+      tell me why this price.
+  - scene: s2_client_call
+    role: account_manager
+    text: "Here are the terms. Scope: reconciliation of the three ledger feeds and a
+      daily exception report. Price: a fixed fee of 48,000 as a change request.
+      Date: delivered by the end of week four. If we miss that date, we credit
+      ten percent of the fee for each week of delay, up to 30 percent."
+  - scene: s2_client_call
+    role: account_manager
+    text: "The price reflects the risk to you: this touches the month-end numbers,
+      so it includes testing with your Finance team until they can sign the
+      figures off."
+  - scene: s2_client_call
+    role: client_sponsor
+    text: That's too high. Take 20 percent off if I confirm today?
+  - scene: s2_client_call
+    role: account_manager
+    text: I can't discount it for nothing, because the price follows the effort and
+      the testing. If you want a lower number, we can reduce the scope to two
+      feeds and the fee comes down with it, but for this scope the fee stays.
+  - scene: s2_client_call
+    role: client_sponsor
+    text: Fine. Put it in writing.

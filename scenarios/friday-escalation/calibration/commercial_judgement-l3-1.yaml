@@ -1,0 +1,28 @@
+kind: single
+id: commercial_judgement-l3-1
+criterion: commercial_judgement
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:25.190Z
+split: holdout
+subject: account_manager
+expected: 3
+transcript:
+  - scene: s2_client_call
+    role: client_sponsor
+    text: What would this cost, and how would you charge for it?
+  - scene: s2_client_call
+    role: account_manager
+    text: We estimate about 15 days of effort. We would treat it as a separate
+      change request with its own fixed fee, not inside the current one.
+  - scene: s2_client_call
+    role: client_sponsor
+    text: What would be included?
+  - scene: s2_client_call
+    role: account_manager
+    text: Reconciling the main ledger feeds is in. Reports for other feeds and a
+      custom screen are out of scope for this fee.
+  - scene: s2_client_call
+    role: client_sponsor
+    text: Understood. Send me the numbers.

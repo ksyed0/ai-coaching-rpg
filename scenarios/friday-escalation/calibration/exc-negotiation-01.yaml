@@ -1,0 +1,33 @@
+kind: single
+id: exc-negotiation-01
+criterion: negotiation
+source: excerpt
+drafter: null
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:48.832Z
+split: holdout
+subject: account_manager
+expected: 3
+acceptable:
+  - 2
+  - 3
+transcript:
+  - scene: s1_huddle
+    role: account_manager
+    text: I'm worried that a flat refusal will damage the relationship, especially
+      since the renewal is coming up. Let's see if there's a middle ground or a
+      phased approach that doesn't compromise the go-live date.
+  - scene: s1_huddle
+    role: delivery_lead
+    text: I agree we can't risk the date, but we can't just say no. What if we offer
+      this as a phase two delivery, properly scoped and priced, to happen
+      immediately after go-live?
+  - scene: s1_huddle
+    role: tech_lead
+    text: I can live with that. A phased version would be roughly half the effort
+      and keeps the go-live date safe.
+  - scene: s1_huddle
+    role: account_manager
+    text: Let's go with that. We'll position it as a phase two delivery and price it
+      as a change request, but we need to be very clear with her about the risk
+      to the date if we tried to squeeze it in now.
