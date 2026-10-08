@@ -1589,7 +1589,7 @@
       "title": "As the evaluator calibrator, I want the showcase demo to play the original Friday Escalation scenario too, so that real excerpts from live sessions of esc-scope-creep-01 can be captured for its calibration set.",
       "priority": "High",
       "estimate": "S",
-      "status": "Complete",
+      "status": "In Progress",
       "branch": "feature/EPIC-0005-US-0040-friday-showcase",
       "acs": [
         {
@@ -1604,12 +1604,47 @@
         },
         {
           "id": "AC-0200",
-          "text": "a scene with no `gm_detects` exit condition (scene 3 of the original scenario) is ended by the facilitator advance by design: S-14 accepts that, still fails when a scene that has a condition needs the advance, and the observation says so",
+          "text": "a scene with no `gm_detects` exit condition is ended by the facilitator advance by design: S-14 (title: no scene with a Game Master condition needed the advance) accepts that, still fails when a scene that has a condition needs the advance, and the observation says so (generic; every shipped scene now has a condition)",
           "done": true
         },
         {
           "id": "AC-0201",
-          "text": "the original scenario's showcase has labelled negative controls (`NEGATIVE_CUTS` for esc-scope-creep-01) so a live run reports early Game Master exits, and the live and generated-player modes work with `--scenario scenarios/friday-escalation`",
+          "text": "the original scenario's showcase has labelled negative controls (`NEGATIVE_CUTS` for esc-scope-creep-01) so a live run reports early Game Master exits, and `--live` and `--players generated` are accepted by the CLI with `--scenario scenarios/friday-escalation`",
+          "done": true
+        },
+        {
+          "id": "AC-0202",
+          "text": "live and generated-player runs of the original scenario complete and yield excerpts (Pending: run by the owner/controller, results to be reported before this is ticked)",
+          "done": false
+        },
+        {
+          "id": "AC-0203",
+          "text": "scene 3 of the original scenario has the Game Master condition \"the team has assigned an owner and a next action for each follow-up\", with scripted mock verdicts (false then true) and negative controls at 1 and 3 lines; every scene of the mock run ends by the Game Master",
+          "done": true
+        },
+        {
+          "id": "AC-0204",
+          "text": "the delivery lead of both scenarios has a private pricing anchor (cost per person-day, a 20 percent margin floor) held only in that role file, consistent with 6 person-weeks full and about 3 phased and the showcase's 45 and 48 thousand",
+          "done": true
+        },
+        {
+          "id": "AC-0205",
+          "text": "the briefs say who owns what (delivery lead: plan, date, delivery commitment; account manager: price, commercial terms, relationship; tech lead: estimate, technical risk), short and with no hidden fact",
+          "done": true
+        },
+        {
+          "id": "AC-0206",
+          "text": "Priya's hidden fact 1 has an `earned_when` condition in both scenarios; the mock showcase suggests it to the facilitator only in scene 2; the 29, 42, 14 and 15 check counts are unchanged",
+          "done": true
+        },
+        {
+          "id": "AC-0207",
+          "text": "the two rubric directories are byte-identical (tested); versions are 1.3 (original) and 1.1 (extended); the extended duration is 55 minutes for time boxes of 51",
+          "done": true
+        },
+        {
+          "id": "AC-0208",
+          "text": "a per-role leak test shows no scripted line recites another role's private fact before its owner stated it, or an AI character's hidden fact",
           "done": true
         }
       ],
@@ -2189,6 +2224,36 @@
       "status": "Done",
       "branch": "feature/EPIC-0005-US-0040-friday-showcase",
       "notes": "Live runs of this scenario are done by the owner (not part of this task)."
+    },
+    {
+      "id": "TASK-0063",
+      "storyId": "US-0040",
+      "title": "Scenario content pass for both Friday Escalation scenarios",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0005-US-0040-friday-showcase",
+      "notes": "Scene 3 Game Master condition, pricing anchor, briefs, Priya's earned_when, versions and duration; showcase mock verdicts for scene 3 and Priya; the 29-check story's scripted Game Master and markers follow."
+    },
+    {
+      "id": "TASK-0064",
+      "storyId": "US-0040",
+      "title": "Tests for the content pass and the review fixes",
+      "type": "Test",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0005-US-0040-friday-showcase",
+      "notes": "scenario-content-us0040.test.ts, showcase-friday.test.ts (per-role leak test), and the pinned counts in the extended showcase tests."
+    },
+    {
+      "id": "TASK-0065",
+      "storyId": "US-0040",
+      "title": "Document the content pass and the review fixes",
+      "type": "Docs",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0005-US-0040-friday-showcase",
+      "notes": "AC-0201 reworded (live runs pending), README and memory notes on --max-false-exits and --min-gm-exits."
     }
   ],
   "testCases": [
@@ -2579,6 +2644,46 @@
       "relatedTask": "TASK-0061",
       "relatedAC": "AC-0201",
       "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0044",
+      "title": "Scenario content pass: pricing anchor, briefs, versions, duration and rubrics",
+      "relatedStory": "US-0040",
+      "relatedTask": "TASK-0063",
+      "relatedAC": "AC-0204",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0045",
+      "title": "The original scenario's scene 3 is ended by the Game Master in the mock run",
+      "relatedStory": "US-0040",
+      "relatedTask": "TASK-0063",
+      "relatedAC": "AC-0203",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0046",
+      "title": "Priya's earned_when is suggested to the facilitator only",
+      "relatedStory": "US-0040",
+      "relatedTask": "TASK-0063",
+      "relatedAC": "AC-0206",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0047",
+      "title": "No scripted line leaks another role's private fact or a hidden fact",
+      "relatedStory": "US-0040",
+      "relatedTask": "TASK-0064",
+      "relatedAC": "AC-0208",
+      "type": "Negative",
       "status": "Pass",
       "defect": "None"
     }
@@ -3439,9 +3544,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-08T12:44:30.054Z",
-  "commitSha": "757b196",
-  "buildNumber": "307",
+  "generatedAt": "2026-10-08T13:00:14.120Z",
+  "commitSha": "e934772",
+  "buildNumber": "310",
   "branch": "feature/EPIC-0005-US-0040-friday-showcase",
   "sessionTimeline": [
     {
@@ -3570,9 +3675,9 @@
     "totalSpent": 546.735,
     "totalProjected": 33200,
     "percentUsed": 31,
-    "burnRate": 17.617016666666665,
-    "daysRemaining": 68,
-    "projectedExhaustion": 68,
+    "burnRate": 17.009533333333334,
+    "daysRemaining": 70,
+    "projectedExhaustion": 70,
     "thresholds": [
       50,
       75,
@@ -3665,7 +3770,7 @@
       "2026-10-05T12:44:30.124Z",
       "2026-10-06T12:44:30.124Z",
       "2026-10-07T12:44:30.124Z",
-      "2026-10-08T12:44:30.122Z"
+      "2026-10-08T13:00:14.217Z"
     ],
     "doneCounts": [
       0,
@@ -3995,7 +4100,7 @@
       1.1846153846153846,
       1.1846153846153846,
       1.1846153846153846,
-      1.1825
+      1.19
     ],
     "velocityByWeek": {
       "labels": [

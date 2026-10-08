@@ -1126,14 +1126,21 @@ Notes: Implementation plan Task 13 (docs/superpowers/plans, evaluator calibratio
 US-0040 (EPIC-0005): As the evaluator calibrator, I want the showcase demo to play the original Friday Escalation scenario too, so that real excerpts from live sessions of esc-scope-creep-01 can be captured for its calibration set.
 Priority: High
 Estimate: S
-Status: Complete
+Status: In Progress
 Branch: feature/EPIC-0005-US-0040-friday-showcase
 Dependencies: US-0024, US-0037
 Acceptance Criteria:
   - [x] AC-0198: `scenarios/friday-escalation/showcase.yaml` covers every scene of the scenario (3 scenes, 16 scripted player lines of mixed quality, replies for Priya, and Game Master verdicts including a tolerant and a malformed reply), and no scripted line recites a player's private fact or Priya's hidden fact
   - [x] AC-0199: `pnpm demo --showcase --fast --scenario scenarios/friday-escalation` passes all 14 showcase checks (15 with `--evaluate`) offline, and the extended scenario's mock demos keep their 29, 42 and 14 checks
-  - [x] AC-0200: a scene with no `gm_detects` exit condition (scene 3 of the original scenario) is ended by the facilitator advance by design: S-14 accepts that, still fails when a scene that has a condition needs the advance, and the observation says so
-  - [x] AC-0201: the original scenario's showcase has labelled negative controls (`NEGATIVE_CUTS` for esc-scope-creep-01) so a live run reports early Game Master exits, and the live and generated-player modes work with `--scenario scenarios/friday-escalation`
+  - [x] AC-0200: a scene with no `gm_detects` exit condition is ended by the facilitator advance by design: S-14 (title: no scene with a Game Master condition needed the advance) accepts that, still fails when a scene that has a condition needs the advance, and the observation says so (generic; every shipped scene now has a condition)
+  - [x] AC-0201: the original scenario's showcase has labelled negative controls (`NEGATIVE_CUTS` for esc-scope-creep-01) so a live run reports early Game Master exits, and `--live` and `--players generated` are accepted by the CLI with `--scenario scenarios/friday-escalation`
+  - [ ] AC-0202: live and generated-player runs of the original scenario complete and yield excerpts (Pending: run by the owner/controller, results to be reported before this is ticked)
+  - [x] AC-0203: scene 3 of the original scenario has the Game Master condition "the team has assigned an owner and a next action for each follow-up", with scripted mock verdicts (false then true) and negative controls at 1 and 3 lines; every scene of the mock run ends by the Game Master
+  - [x] AC-0204: the delivery lead of both scenarios has a private pricing anchor (cost per person-day, a 20 percent margin floor) held only in that role file, consistent with 6 person-weeks full and about 3 phased and the showcase's 45 and 48 thousand
+  - [x] AC-0205: the briefs say who owns what (delivery lead: plan, date, delivery commitment; account manager: price, commercial terms, relationship; tech lead: estimate, technical risk), short and with no hidden fact
+  - [x] AC-0206: Priya's hidden fact 1 has an `earned_when` condition in both scenarios; the mock showcase suggests it to the facilitator only in scene 2; the 29, 42, 14 and 15 check counts are unchanged
+  - [x] AC-0207: the two rubric directories are byte-identical (tested); versions are 1.3 (original) and 1.1 (extended); the extended duration is 55 minutes for time boxes of 51
+  - [x] AC-0208: a per-role leak test shows no scripted line recites another role's private fact before its owner stated it, or an AI character's hidden fact
 ```
 
 ```
@@ -1161,4 +1168,31 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0005-US-0040-friday-showcase
 Notes: Live runs of this scenario are done by the owner (not part of this task).
+```
+
+```
+TASK-0063 (US-0040): Scenario content pass for both Friday Escalation scenarios
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0005-US-0040-friday-showcase
+Notes: Scene 3 Game Master condition, pricing anchor, briefs, Priya's earned_when, versions and duration; showcase mock verdicts for scene 3 and Priya; the 29-check story's scripted Game Master and markers follow.
+```
+
+```
+TASK-0064 (US-0040): Tests for the content pass and the review fixes
+Type: Test
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0005-US-0040-friday-showcase
+Notes: scenario-content-us0040.test.ts, showcase-friday.test.ts (per-role leak test), and the pinned counts in the extended showcase tests.
+```
+
+```
+TASK-0065 (US-0040): Document the content pass and the review fixes
+Type: Docs
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0005-US-0040-friday-showcase
+Notes: AC-0201 reworded (live runs pending), README and memory notes on --max-false-exits and --min-gm-exits.
 ```
