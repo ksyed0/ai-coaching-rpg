@@ -40,3 +40,5 @@ Required for merge: Lint, Test & Coverage Gate, Build, Orchestrator Validation, 
 ## Reproducing Linux in a container
 CI is Ubuntu; macOS passes can hide Linux-only hangs. Docker is installed:
 `git archive HEAD | tar -x -C /tmp/x && docker run --rm -v /tmp/x:/w -w /w node:22 bash -c 'corepack enable; corepack prepare pnpm@9 --activate; pnpm install --frozen-lockfile; timeout 90 pnpm -s vitest run <files>'` (run as root and, for permission tests, as a non-root user).
+
+Authoring `earned_when`: the text says what a player does and may overlap the hidden fact in meaning; the Game Master sees only the condition, so the separation is lexical, not semantic. Do not paraphrase the fact more than necessary.

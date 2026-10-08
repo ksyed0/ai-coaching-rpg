@@ -1614,7 +1614,7 @@
         },
         {
           "id": "AC-0202",
-          "text": "live and generated-player runs of the original scenario complete and yield excerpts (Pending: run by the owner/controller, results to be reported before this is ticked)",
+          "text": "live and generated-player runs of the original scenario complete and yield excerpts (Pending: TC-0048, run by the owner/controller, results to be reported before this is ticked)",
           "done": false
         },
         {
@@ -2639,10 +2639,20 @@
     },
     {
       "id": "TC-0043",
-      "title": "Negative controls for the original scenario and the `--scenario` path",
+      "title": "Negative controls for the original scenario and the CLI accepting `--scenario`",
       "relatedStory": "US-0040",
       "relatedTask": "TASK-0061",
       "relatedAC": "AC-0201",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0048",
+      "title": "Live and generated-player runs of the original scenario",
+      "relatedStory": "US-0040",
+      "relatedTask": "TASK-0060",
+      "relatedAC": "AC-0202",
       "type": "Functional",
       "status": "Not Run",
       "defect": "None"
@@ -2652,7 +2662,7 @@
       "title": "Scenario content pass: pricing anchor, briefs, versions, duration and rubrics",
       "relatedStory": "US-0040",
       "relatedTask": "TASK-0063",
-      "relatedAC": "AC-0204",
+      "relatedAC": "AC-0204, AC-0205, AC-0207",
       "type": "Regression",
       "status": "Pass",
       "defect": "None"
@@ -3544,9 +3554,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-08T13:00:14.120Z",
-  "commitSha": "e934772",
-  "buildNumber": "310",
+  "generatedAt": "2026-10-08T13:07:10.422Z",
+  "commitSha": "94076e9",
+  "buildNumber": "313",
   "branch": "feature/EPIC-0005-US-0040-friday-showcase",
   "sessionTimeline": [
     {
@@ -3770,7 +3780,7 @@
       "2026-10-05T12:44:30.124Z",
       "2026-10-06T12:44:30.124Z",
       "2026-10-07T12:44:30.124Z",
-      "2026-10-08T13:00:14.217Z"
+      "2026-10-08T13:07:10.498Z"
     ],
     "doneCounts": [
       0,

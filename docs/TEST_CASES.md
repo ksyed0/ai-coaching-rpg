@@ -574,8 +574,8 @@ Related AC: AC-0198
 Type: Functional
 Preconditions: A checkout of the branch.
 Steps:
-  1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/showcase-friday.test.ts -t "covers every scene|tolerant|private facts"`.
-Expected Result: The script loads in mock and live mode, has an entry for each of the 3 scenes (6, 4 and 6 lines), replies only for Priya in scene 2, a tolerant and a malformed Game Master reply, and no line contains a private fact or Priya's hidden fact.
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/showcase-friday.test.ts -t "covers every scene|tolerant|private fact"`.
+Expected Result: The script loads in mock and live mode, has an entry for each of the 3 scenes (6, 4 and 6 lines), replies only for Priya in scene 2, a tolerant and a malformed Game Master reply, and no line recites another role's private fact before its owner stated it in play, nor an AI character's hidden fact (a lexical overlap rule, so paraphrases count).
 Actual Result: As expected (showcase-friday.test.ts) on 2026-10-08.
 Status: [x] Pass
 Defect Raised: None
@@ -610,7 +610,7 @@ Status: [x] Pass
 Defect Raised: None
 Notes: Automated only.
 
-TC-0043: Negative controls for the original scenario and the `--scenario` path
+TC-0043: Negative controls for the original scenario and the CLI accepting `--scenario`
 Related Story: US-0040
 Related Task: TASK-0061
 Related AC: AC-0201
@@ -618,16 +618,31 @@ Type: Functional
 Preconditions: A checkout of the branch.
 Steps:
   1. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/showcase-friday.test.ts -t "negative controls"`.
-Expected Result: `NEGATIVE_CUTS["esc-scope-creep-01"]` is s1 at 3 and 4 lines, s2 at 2 and s3 at 1 and 3; eight cases are built. The CLI accepts `--live` and `--players generated` with this scenario (parse only).
-Actual Result: Offline part as expected on 2026-10-08. Live and generated-player runs: Pending (run by the owner/controller; not claimed here).
+  2. Parse `pnpm demo --showcase --live --players generated --scenario scenarios/friday-escalation` arguments (args tests; no live call is made).
+Expected Result: `NEGATIVE_CUTS["esc-scope-creep-01"]` is s1 at 3 and 4 lines, s2 at 2 and s3 at 1 and 3; eight cases are built. The CLI accepts the flags with this scenario.
+Actual Result: As expected on 2026-10-08.
+Status: [x] Pass
+Defect Raised: None
+Notes: `--max-false-exits` compares `tests/gm-cases`, built from the extended scenario, so it is not usable with this scenario; `--min-gm-exits` can reach at most 3 here.
+
+TC-0048: Live and generated-player runs of the original scenario
+Related Story: US-0040
+Related Task: TASK-0060
+Related AC: AC-0202
+Type: Functional
+Preconditions: The owner's machine with the local model server and `.env`.
+Steps:
+  1. Run `pnpm demo --showcase --live --players generated --scenario scenarios/friday-escalation` (see docs/memory/demo-and-testing.md for the recipe).
+Expected Result: The run completes, the AI replies are real, and the session log yields excerpts for `pnpm calibrate excerpt`.
+Actual Result: Pending: run by the owner/controller; not claimed here.
 Status: [ ] Not Run
 Defect Raised: None
-Notes: `--max-false-exits` still compares against `tests/gm-cases`, which is built from the extended scenario, so it is not usable with this scenario until cases are built for it. `--min-gm-exits` can reach at most 3 here.
+Notes: Do not run two live runs at once on the one model server.
 
 TC-0044: Scenario content pass: pricing anchor, briefs, versions, duration and rubrics
 Related Story: US-0040
 Related Task: TASK-0063
-Related AC: AC-0204
+Related AC: AC-0204, AC-0205, AC-0207
 Type: Regression
 Preconditions: A checkout of the branch.
 Steps:
