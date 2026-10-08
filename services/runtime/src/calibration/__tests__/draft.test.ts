@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { starterOnly } from "./starter-copy.js";
 import { cp, mkdir, mkdtemp, open, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -22,7 +23,7 @@ let rubrics: Rubric[];
 beforeEach(async () => {
   dir = await mkdtemp(path.join(os.tmpdir(), "acr-cal-"));
   scn = path.join(dir, "scn");
-  await cp(FRIDAY, scn, { recursive: true });
+  await cp(FRIDAY, scn, { recursive: true, filter: starterOnly(FRIDAY) });
   ({ scenario, rubrics } = await loadEvaluationInput(scn));
 });
 afterEach(async () => { await rm(dir, { recursive: true, force: true }); });

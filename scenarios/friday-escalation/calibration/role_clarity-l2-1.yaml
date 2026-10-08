@@ -1,0 +1,23 @@
+kind: single
+id: role_clarity-l2-1
+criterion: role_clarity
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:29.760Z
+split: tune
+subject: account_manager
+expected: 2
+transcript:
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Can you take the client relationship side of this?
+  - scene: s1_huddle
+    role: account_manager
+    text: Yes, I'll own the client relationship and the conversation with Priya.
+  - scene: s1_huddle
+    role: delivery_lead
+    text: What about the sizing and the timeline?
+  - scene: s1_huddle
+    role: account_manager
+    text: I'm not sure, someone will pick those up.

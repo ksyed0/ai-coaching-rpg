@@ -38,7 +38,7 @@ Dependencies: EPIC-0002
 
 ```
 EPIC-0005: Slice 5 — evaluator and reports
-Description: Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), and per-participant visibility and access control (ASM-09; reports are visible to all participants for now). Calibration (ASM-08) has started: the probe format, loader, log adapter and Friday starter probes are built (US-0035), and `pnpm calibrate` with judges, metrics, the report and the second-judge comparison (US-0036); the probe drafting, excerpt, approval and split commands (US-0037; the scaled, owner-approved Friday set is still to come); prompt variants and the calibration stamp on reports are planned (US-0038, US-0039).
+Description: Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), and per-participant visibility and access control (ASM-09; reports are visible to all participants for now). Calibration (ASM-08) has started: the probe format, loader, log adapter and Friday starter probes are built (US-0035), and `pnpm calibrate` with judges, metrics, the report and the second-judge comparison (US-0036); the probe drafting, excerpt, approval and split commands and the 34-probe Friday set (US-0037; owner review of the excerpt levels pending), and the Friday showcase and scenario content pass (US-0040); prompt variants and the calibration stamp on reports are planned (US-0038, US-0039).
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0003
@@ -1066,7 +1066,7 @@ Dependencies: US-0036
 Acceptance Criteria:
   - [x] AC-0189: `--draft-probes` (built as the `pnpm calibrate draft` subcommand, Ruling R1) writes candidate probes to `calibration/drafts/` using a drafter of a different model family from the primary judge unless `--allow-same-family`, and a run never reads drafts
   - [x] AC-0190: `approve` validates a draft, records approver and time, assigns a split, and moves it into `calibration/`; `excerpt` drafts a probe from a real session log range for a human to rate
-  - [ ] AC-0191: the Friday set reaches at least 20 approved probes, balanced across levels, with at least 5 real excerpts rated by a human and at least 10 holdout probes
+  - [ ] AC-0191: the Friday set reaches at least 20 approved probes, balanced across levels, with at least 5 real excerpts rated by a human and at least 10 holdout probes (34 probes, 7 excerpts and 18 holdout exist and are approved by an agent on the owner's chat instruction of 2026-10-08; the excerpt levels were assigned by the controlling agent, not rated by a human: owner review of the excerpt levels pending)
 ```
 
 ```
@@ -1075,7 +1075,7 @@ Type: Dev
 Assignee: Agent
 Status: In Progress
 Branch: feature/EPIC-0005-US-0037-probe-drafting
-Notes: Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 (scale-up, owner approvals) pending.
+Notes: Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 built 2026-10-08 (34-probe Friday set, TC-0036; agent approval of the 19 drafts and 7 excerpts on the owner's chat instruction). Remaining: owner review of the excerpt levels (AC-0191); then the baseline run (Task 11) needs the live judges.
 ```
 
 ```

@@ -1,0 +1,26 @@
+kind: single
+id: team_alignment-l2-1
+criterion: team_alignment
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:27.133Z
+split: holdout
+subject: account_manager
+expected: 2
+transcript:
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Where are we on the extra module?
+  - scene: s1_huddle
+    role: account_manager
+    text: My view is that we should find a way to say yes. What do you both think?
+  - scene: s1_huddle
+    role: tech_lead
+    text: I'm worried about the data layer.
+  - scene: s1_huddle
+    role: delivery_lead
+    text: I'm worried about the integration work.
+  - scene: s1_huddle
+    role: account_manager
+    text: Okay, good to know. We'll see how the call goes.

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { starterOnly } from "./starter-copy.js";
 import { cp, mkdir, mkdtemp, open, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -29,6 +30,12 @@ const run = (argv: string[], extra: Extra = {}, env: NodeJS.ProcessEnv = {}) => 
   return runCalibrate({ argv, stdout: o.stdout, stderr: o.stderr, env, repoRoot: REPO, cwd: dir, ...extra }).then((r) => ({ ...r, ...o, outText: o.out.join(""), errText: o.err.join("") }));
 };
 const SCN = ["--scenario", "scenarios/friday-escalation"];
+/** `--scenario` for a copy of Friday with only the 8 starter probes, for tests that pin the starter counts (the real set is larger). */
+async function starterScn(): Promise<string[]> {
+  const scn = path.join(dir, "starter-scn");
+  await cp(FRIDAY, scn, { recursive: true, filter: starterOnly(FRIDAY) });
+  return ["--scenario", scn];
+}
 /** Whether `p` exists, from a listing of its parent (no stat-then-read on the same path: CodeQL js/file-system-race). */
 const exists = (p: string) => readdir(path.dirname(p)).then((names) => names.includes(path.basename(p)), () => false);
 /** Mode and content of a file from ONE open descriptor (no check-then-use on the path: CodeQL js/file-system-race). */
@@ -71,7 +78,7 @@ describe("pnpm calibrate: the mock refusal", () => {
 
 describe("pnpm calibrate: runs", () => {
   it("runs the starter set against injected judges and writes a report and summary", async () => {
-    const r = await run([...SCN, "--out", dir], { judges: [judge(good())] });
+    const r = await run([...(await starterScn()), "--out", dir], { judges: [judge(good())] });
     expect(r.exitCode).toBe(0);
     expect(r.outText).toMatch(/primary/);
     expect(r.outText).toMatch(/# Calibration: esc-scope-creep-01/);
@@ -108,7 +115,7 @@ describe("pnpm calibrate: runs", () => {
   it("records an unreachable judge as unusable, keeps it in the report and still runs the other judge", async () => {
     const down = fakeJudge(criteria, () => ({ discovery: 3 }), () => true);
     const second = good();
-    const r = await run([...SCN, "--out", dir], { judges: [judge(down), judge(second, "second")] });
+    const r = await run([...(await starterScn()), "--out", dir], { judges: [judge(down), judge(second, "second")] });
     expect(r.exitCode).toBe(0);
     const [a, b] = r.run!.judges;
     expect(a!.metrics.usability.unusable).toBe(a!.metrics.usability.slots);
@@ -128,7 +135,7 @@ describe("pnpm calibrate: runs", () => {
     const p = good();
     let n = 0;
     const exploding: Judge = { label: "primary", model: "fake-model-primary", family: "fake", get provider() { if (++n > 2) throw new Error("boom sk-live-SECRET-0001"); return p; } };
-    const r = await run([...SCN, "--out", dir], { judges: [exploding, judge(good(), "second")] }, { LOCAL_API_KEY: "sk-live-SECRET-0001" });
+    const r = await run([...(await starterScn()), "--out", dir], { judges: [exploding, judge(good(), "second")] }, { LOCAL_API_KEY: "sk-live-SECRET-0001" });
     expect(r.exitCode).toBe(0);
     expect(r.errText).toMatch(/judge primary: run failed: boom \[redacted\]/);
     expect(r.errText + r.outText).not.toContain("sk-live-SECRET-0001");
@@ -184,15 +191,16 @@ describe("pnpm calibrate: the planned call count", () => {
     // By hand: the 6 single probes each have one player with 2+ lines (delivery_lead; client_sponsor is an AI character and does not count),
     // listening-contrast-01 has delivery_lead and account_manager (tech_lead speaks once), negotiation-contrast-01 has delivery_lead and
     // account_manager (client_sponsor again not counted): 6 + 2 + 2 = 10 calls per run. Counting AI characters too would give 17.
-    const scenario = await loadScenario(FRIDAY);
-    const { rubrics } = await loadRubrics(FRIDAY, scenario);
-    const { probes } = await loadProbes(FRIDAY, scenario, rubrics);
+    const starterDir = (await starterScn())[1]!;
+    const scenario = await loadScenario(starterDir);
+    const { rubrics } = await loadRubrics(starterDir, scenario);
+    const { probes } = await loadProbes(starterDir, scenario, rubrics);
     expect(probes).toHaveLength(8);
     expect(plannedCalls(probes, scenario, 1, 1)).toBe(10);
     expect(plannedCalls(probes, scenario, 3, 2)).toBe(60);
     expect(plannedCalls(probes.filter((p) => p.id === "listening-contrast-01"), scenario, 1, 1)).toBe(2);
     expect(plannedCalls(probes.filter((p) => p.id === "disc-l2"), scenario, 5, 1)).toBe(5);
-    const r = await run([...SCN, "--out", dir, "--repeat", "2"], { judges: [judge(good())] });
+    const r = await run([...(await starterScn()), "--out", dir, "--repeat", "2"], { judges: [judge(good())] });
     expect(r.outText).toMatch(/planned: 20 model calls \(8 probes, repeat 2, 1 judge;/);
   });
   it("never counts an AI character, however often it speaks", async () => {
@@ -267,10 +275,10 @@ describe("pnpm calibrate: usage and input errors", () => {
     expect(r.exitCode).toBe(0);
     expect(r.outText).toContain(CALIBRATE_USAGE);
   });
-  it("--help lists every subcommand, says approve is for the owner only, and names every summary-replace condition", async () => {
+  it("--help lists every subcommand, says approve is the owner's command, and names every summary-replace condition", async () => {
     const r = await run(["--help"]);
     for (const sub of ["draft", "excerpt", "approve", "assign-splits"]) expect(r.outText).toMatch(new RegExp(`^ {7}pnpm calibrate ${sub} `, "m"));
-    expect(r.outText).toMatch(/approve +OWNER ONLY \(an agent never approves on the owner's behalf\)/);
+    expect(r.outText).toMatch(/approve +run by the owner; an agent may run it only on the owner's explicit instruction naming the items/);
     const start = CALIBRATE_USAGE.indexOf("is replaced only by a complete run");
     expect(start).toBeGreaterThan(0);
     const conditions = CALIBRATE_USAGE.slice(start, CALIBRATE_USAGE.indexOf("--strict", start));
@@ -365,7 +373,7 @@ describe("pnpm calibrate: summary files are replaced only by a complete run", ()
   const summary = () => path.join(dir, "esc-scope-creep-01", "fake-model-primary-v1.json");
   async function baseline(): Promise<string> {
     expect(await exists(summary())).toBe(false);
-    const r = await run([...SCN, "--out", dir], { judges: [judge(good())] });
+    const r = await run([...(await starterScn()), "--out", dir], { judges: [judge(good())] });
     expect(r.exitCode).toBe(0);
     expect(r.outText).toMatch(/summaries updated: fake-model-primary-v1\.json/);
     return readFile(summary(), "utf8");
@@ -376,7 +384,7 @@ describe("pnpm calibrate: summary files are replaced only by a complete run", ()
     const before = await baseline();
     expect(JSON.parse(before).probes.total).toBe(8);
     const flat = fakeJudge(criteria, () => Object.fromEntries(criteria.map((c) => [c, 3])));
-    await run([...SCN, "--out", dir], { judges: [judge(flat)] });
+    await run([...(await starterScn()), "--out", dir], { judges: [judge(flat)] });
     const after = JSON.parse(await readFile(summary(), "utf8"));
     expect(after.label).toBe("FAIL");
     expect(await readFile(summary(), "utf8")).not.toBe(before);
@@ -463,7 +471,7 @@ describe("pnpm calibrate: a judge that degrades mid-run", () => {
   const flaky = () => fakeJudge(criteria, () => ({ discovery: 3, listening: 3, negotiation: 3 }), (role) => role === "account_manager");
   async function friday(minUsable?: number): Promise<string> {
     const scn = path.join(dir, "scn");
-    await cp(FRIDAY, scn, { recursive: true });
+    await cp(FRIDAY, scn, { recursive: true, filter: starterOnly(FRIDAY) });
     if (minUsable !== undefined) await writeFile(path.join(scn, "calibration", "targets.yaml"), `minUsable: ${minUsable}\n`);
     return scn;
   }
@@ -568,11 +576,11 @@ describe("pnpm calibrate: --only naming every probe", () => {
   const summary = () => path.join(dir, "esc-scope-creep-01", "fake-model-primary-v1.json");
   const ALL = "disc-l1,disc-l2,disc-l3,disc-l4,listening-contrast-01,neg-l1,neg-l4,negotiation-contrast-01";
   it("replaces the summary like a full run, while a smaller --only does not", async () => {
-    const all = await run([...SCN, "--out", dir, "--only", ALL], { judges: [judge(good())] });
+    const all = await run([...(await starterScn()), "--out", dir, "--only", ALL], { judges: [judge(good())] });
     expect(all.outText).toMatch(/summaries updated: fake-model-primary-v1\.json/);
     expect(all.outText).not.toContain("subset");
     const before = await readFile(summary(), "utf8");
-    const part = await run([...SCN, "--out", dir, "--only", "disc-l1"], { judges: [judge(good())] });
+    const part = await run([...(await starterScn()), "--out", dir, "--only", "disc-l1"], { judges: [judge(good())] });
     expect(part.outText).toContain("not updated: subset (--only)");
     expect(await readFile(summary(), "utf8")).toBe(before);
   });

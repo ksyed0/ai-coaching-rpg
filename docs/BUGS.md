@@ -83,3 +83,15 @@ Lesson Encoded: Yes (L-0014)
 ```
 
 Seen as an intermittent failure of `runner.test.ts` "aborts a hung run ... (watchdog)" under coverage or load (three agents, once each, passing on rerun): an extra `acr-demo-*` directory in the test's private TMPDIR. Cause, in the product: `runDemo` raced the run against the watchdog and, when the watchdog won, aborted, ran the cleanups registered so far and returned without waiting for the run. If the abort landed while the temp directory was being made (`makeTempRoot`: `mkdtemp`, then a recursive copy of the scenario), the directory existed but was not registered yet; it was registered later, after the run had closed, and removed fire-and-forget, so it was still there when `runDemo` returned, and the run went on into `startMockSystem`, which could recreate `<root>/data` after that removal and leave the directory for good. Under coverage the start-up takes longer than the test's 100 ms watchdog, so the abort fell into that gap. Reproduced with real watchdogs of 1 to 20 ms (60 runs: the directory still present right after `runDemo` returned in 36, and 300 ms later in 3; a permanent leftover was not observed) and deterministically with an injected watchdog fired between `mkdtemp` and registration (10 of 10 failing). Fixed: the temp directories (`makeTempRoot`, `makeTempDataDir`) are handed to the run's cleanups the moment they exist, check the abort signal after each step and remove themselves when aborted or when filling them fails; the runner checks the signal after each start-up step; after the watchdog or an interrupt `runDemo` waits for the run to unwind, bounded by `ABORT_GRACE_MS` (5 s), before it cleans up and reports, so a run that ignores the abort is still abandoned and never hangs the process; the Game Master trace file is registered for closing before anything else starts. The exit code and the WATCHDOG and INTERRUPTED entries are unchanged. Tests: the runner's timers are injectable (`setTimer`) and a test hook runs right after the temp directory is created (`afterTempCreated`), so the watchdog tests fire the watchdog by hand instead of using 1, 100 or 400 ms real timers; new tests abort in the gap (default and showcase runs) and abandon a run that ignores the abort after the grace.
+
+```
+BUG-0008: tests/unit/atomic-write.test.js flakes under full plan:test load (passes when run alone)
+Severity: Low
+Related Story: US-0037
+Related Task: TASK-0057
+Status: Open
+Fix Branch: bugfix/BUG-0008-atomic-write-flake
+Lesson Encoded: No
+```
+
+Seen twice on 2026-10-08 during the US-0037 session close: the file failed in a full `npm run plan:test` run and passed on its own and on rerun. The concurrency tests use real file locks and a shared `tests/.tmp-atomic` directory and are probably sensitive to machine load (compare BUG-0006 and BUG-0007). Not investigated yet: capture the failing assertion on the next occurrence, then inject clocks or hooks instead of relying on timing (L-0002).

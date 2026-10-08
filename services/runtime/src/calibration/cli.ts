@@ -33,7 +33,7 @@ export const CALIBRATE_USAGE = [
   "                     (default: the first player role by id). The prompt holds only public scenario data, never hidden facts",
   "  excerpt            cut a draft from a real session log: the lines with event seq --from..--to, with no level yet (a human rates it).",
   "                     Real customer sessions need consent and redaction first; the repository is public",
-  "  approve            OWNER ONLY (an agent never approves on the owner's behalf): turn a reviewed draft into calibration/<id>.yaml,",
+  "  approve            run by the owner; an agent may run it only on the owner's explicit instruction naming the items (see Limits in docs/EVALUATOR.md): turn a reviewed draft into calibration/<id>.yaml,",
   "                     recording --by and the time; --expected is required for an excerpt; the final id drops the draft- prefix",
   "  assign-splits      add a tune/holdout split to every probe file that has none (an existing split is never changed)",
   "options of run:",

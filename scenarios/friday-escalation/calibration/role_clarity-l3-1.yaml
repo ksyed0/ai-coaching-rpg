@@ -1,0 +1,27 @@
+kind: single
+id: role_clarity-l3-1
+criterion: role_clarity
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:30.413Z
+split: holdout
+subject: account_manager
+expected: 3
+transcript:
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Priya is going to ask whether this fits the timeline.
+  - scene: s1_huddle
+    role: account_manager
+    text: Tech lead, can you size this for us?
+  - scene: s1_huddle
+    role: tech_lead
+    text: It touches the data layer, so I'd need two days to size it.
+  - scene: s1_huddle
+    role: account_manager
+    text: Okay. So I'll own the client conversation, you size it, and the delivery
+      lead owns the timeline. Is that right?
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Yes.

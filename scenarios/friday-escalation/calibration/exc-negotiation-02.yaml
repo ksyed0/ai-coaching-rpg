@@ -1,0 +1,67 @@
+kind: single
+id: exc-negotiation-02
+criterion: negotiation
+source: excerpt
+drafter: null
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:49.476Z
+split: holdout
+subject: account_manager
+expected: 2
+acceptable:
+  - 1
+  - 2
+transcript:
+  - scene: s2_client_call
+    role: account_manager
+    text: I completely understand the urgency of your situation and the importance
+      of ensuring your Finance team has access to the reconciliation module
+      before the first month-end close. While we've proposed a phased release
+      after go-live, I believe it's crucial to address this need as soon as
+      possible to minimize any potential disruptions to your operations. Given
+      the urgency and the potential impact on your CFO's decision-making
+      process, I would like to propose a quick-turnaround solution. We can
+      accelerate the implementation of a smaller, more focused version of the
+      module that meets your immediate requirements, allowing it to be deployed
+      on a limited scale. This way, we can demonstrate its functionality and
+      gather your feedback in a timely manner. Can we discuss a possible
+      timeline for this accelerated implementation, and how we can ensure that
+      it aligns with your current project schedule and resource availability?
+      Additionally, I would be happy to coordinate with our team to streamline
+      the documentation and approval processes, so we can move this
+      implementation forward as quickly as possible.
+  - scene: s2_client_call
+    role: client_sponsor
+    text: A limited version doesn't help me if it doesn't actually balance the
+      books. I need to know if this "focused version" can handle the full daily
+      tie-out or if it's just a shell. Tell me exactly what functionality is
+      being cut to make this happen faster.
+  - scene: s2_client_call
+    role: account_manager
+    text: "Priya, I really appreciate your concern and need for transparency. Let me
+      clarify: the accelerated implementation is not a reduced-functionality
+      version. Instead, it's a streamlined, optimized version of the module that
+      prioritizes the core functionalities essential for your immediate
+      requirements. This version will include enhanced data validation and
+      reporting capabilities, ensuring that it meets your Finance team's needs
+      for the first month-end close. We will test this on a smaller scale to
+      confirm its reliability and functionality before expanding to the full
+      system. Our goal is to provide you with a functional solution that
+      minimises disruptions while working swiftly to meet your deadline. Would
+      you like me to arrange a quick demonstration to demonstrate these
+      capabilities?"
+  - scene: s2_client_call
+    role: client_sponsor
+    text: I don't have time for another demo. Just tell me if this "streamlined"
+      version can handle the full daily tie-out without me having to manually
+      reconcile data in Excel. If it can, when is the absolute earliest it can
+      be live in our environment?
+  - scene: s2_client_call
+    role: delivery_lead
+    text: I appreciate you clarifying the requirements, and I understand the urgency
+      of getting this module in before the first month-end close. I'll propose a
+      quick demonstration of the accelerated version to show you how it can
+      handle the full daily tie-out. Let me arrange for a time that works for
+      you to test this first. Once we have confirmation that it meets your
+      needs, I'll coordinate with our team to execute the streamlined version as
+      soon as possible, aiming for a live date within the next week.

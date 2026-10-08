@@ -49,7 +49,7 @@
     {
       "id": "EPIC-0005",
       "title": "Slice 5 — evaluator and reports",
-      "description": "Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), and per-participant visibility and access control (ASM-09; reports are visible to all participants for now). Calibration (ASM-08) has started: the probe format, loader, log adapter and Friday starter probes are built (US-0035), and `pnpm calibrate` with judges, metrics, the report and the second-judge comparison (US-0036); the probe drafting, excerpt, approval and split commands (US-0037; the scaled, owner-approved Friday set is still to come); prompt variants and the calibration stamp on reports are planned (US-0038, US-0039).",
+      "description": "Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), and per-participant visibility and access control (ASM-09; reports are visible to all participants for now). Calibration (ASM-08) has started: the probe format, loader, log adapter and Friday starter probes are built (US-0035), and `pnpm calibrate` with judges, metrics, the report and the second-judge comparison (US-0036); the probe drafting, excerpt, approval and split commands and the 34-probe Friday set (US-0037; owner review of the excerpt levels pending), and the Friday showcase and scenario content pass (US-0040); prompt variants and the calibration stamp on reports are planned (US-0038, US-0039).",
       "releaseTarget": "MVP",
       "status": "In Progress",
       "startDate": null,
@@ -1516,7 +1516,7 @@
         },
         {
           "id": "AC-0191",
-          "text": "the Friday set reaches at least 20 approved probes, balanced across levels, with at least 5 real excerpts rated by a human and at least 10 holdout probes",
+          "text": "the Friday set reaches at least 20 approved probes, balanced across levels, with at least 5 real excerpts rated by a human and at least 10 holdout probes (34 probes, 7 excerpts and 18 holdout exist and are approved by an agent on the owner's chat instruction of 2026-10-08; the excerpt levels were assigned by the controlling agent, not rated by a human: owner review of the excerpt levels pending)",
           "done": false
         }
       ],
@@ -2173,7 +2173,7 @@
       "assignee": "Agent",
       "status": "In Progress",
       "branch": "feature/EPIC-0005-US-0037-probe-drafting",
-      "notes": "Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 (scale-up, owner approvals) pending."
+      "notes": "Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 built 2026-10-08 (34-probe Friday set, TC-0036; agent approval of the 19 drafts and 7 excerpts on the owner's chat instruction). Remaining: owner review of the excerpt levels (AC-0191); then the baseline run (Task 11) needs the live judges."
     },
     {
       "id": "TASK-0058",
@@ -2519,7 +2519,7 @@
     },
     {
       "id": "TC-0027",
-      "title": "The 8 Friday starter probes validate against the rubric and the linter reports the set as thin",
+      "title": "The 8 Friday starter probes keep their fields inside the scaled Friday set",
       "relatedStory": "US-0035",
       "relatedTask": "TASK-0055",
       "relatedAC": "AC-0183",
@@ -2603,6 +2603,16 @@
       "relatedStory": "US-0037",
       "relatedTask": "TASK-0057",
       "relatedAC": "AC-0190",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0036",
+      "title": "The scaled Friday set (34 probes) validates, is balanced and records who approved it",
+      "relatedStory": "US-0037",
+      "relatedTask": "TASK-0057",
+      "relatedAC": "AC-0191",
       "type": "Functional",
       "status": "Pass",
       "defect": "None"
@@ -2782,253 +2792,265 @@
       "lessonEncoded": "Yes (L-0014)",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0008",
+      "title": "tests/unit/atomic-write.test.js flakes under full plan:test load (passes when run alone)",
+      "severity": "Low",
+      "relatedStory": "US-0037",
+      "relatedTask": "TASK-0057",
+      "status": "Open",
+      "fixBranch": "bugfix/BUG-0008-atomic-write-flake",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
     }
   ],
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 1600,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 800,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 400,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 400,
-      "costUsd": 13.668375,
+      "costUsd": 14.909883,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 546.735,
-      "inputTokens": 21582059,
-      "outputTokens": 3815388
+      "costUsd": 596.3953,
+      "inputTokens": 23784175,
+      "outputTokens": 4266832
     },
     "_bugs": {
       "BUG-0001": {
@@ -3080,6 +3102,14 @@
         "projectedUsd": 400
       },
       "BUG-0007": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0008": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -3552,12 +3582,28 @@
       "context": "",
       "date": "2026-10-07",
       "bugIds": []
+    },
+    {
+      "id": "L-0018",
+      "title": "Verify that a captured artifact belongs to the run before you keep it",
+      "rule": "When you copy a log, transcript or result out of a temporary location, check that it is from the run you mean: timestamps inside it, the scenario id and version, the model names. Do not assume that the newest or only matching directory is yours. Name the location a tool really writes to (the live showcase writes `$TMPDIR/acr-showcase-run-XXXX/data/demo.jsonl`), set `TMPDIR` to a known folder for the run, and copy from there.\n_Learned when a copy loop synced `acr-demo-*` directories (another demo mode) and saved a stale mock-story session log as if it were a live run's log; it was caught only by reading the timestamps and scenario version in it._",
+      "context": "",
+      "date": "2026-10-08",
+      "bugIds": []
+    },
+    {
+      "id": "L-0019",
+      "title": "When practice has an exception, the rule text must name the exception and its record",
+      "rule": "If a written rule says \"an agent never does X\" and an agent does X on explicit owner instruction, change the rule the same day to say who may do it, under what instruction, and where the record lives (here: `approve` may be run by an agent only on the owner's explicit instruction naming the items, and the approval is recorded in `approved_by`, the commit history and the docs Limits section). Otherwise the docs describe something that is no longer true and the next reader cannot tell a sanctioned exception from a breach.\n_Learned when the `approve` help and docs said an agent never approves probes while an agent approved 26 probes on the owner's chat instruction of 2026-10-08; the rule was reworded and the Limits section now lists the approval records._",
+      "context": "",
+      "date": "2026-10-08",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-08T13:43:27.628Z",
-  "commitSha": "0c6a538",
-  "buildNumber": "315",
-  "branch": "feature/EPIC-0005-US-0040-friday-showcase",
+  "generatedAt": "2026-10-08T15:57:05.584Z",
+  "commitSha": "052e947",
+  "buildNumber": "324",
+  "branch": "feature/EPIC-0005-US-0037-friday-set",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -3576,8 +3622,8 @@
       "cumCost": 409.0066
     },
     {
-      "date": "2026-10-07",
-      "cumCost": 546.735
+      "date": "2026-10-08",
+      "cumCost": 596.3953
     }
   ],
   "costHistory": {
@@ -3603,12 +3649,12 @@
         "costUsd": 7.1848
       },
       {
-        "date": "2026-10-07",
-        "costUsd": 137.7284
+        "date": "2026-10-08",
+        "costUsd": 187.3887
       }
     ]
   },
-  "deltaSpend": 137.73,
+  "deltaSpend": 187.39,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
@@ -3681,13 +3727,13 @@
     }
   },
   "budget": {
-    "totalBudget": 1746.7350000000001,
-    "totalSpent": 546.735,
+    "totalBudget": 1796.3953000000001,
+    "totalSpent": 596.3953,
     "totalProjected": 33200,
-    "percentUsed": 31,
-    "burnRate": 17.009533333333334,
-    "daysRemaining": 70,
-    "projectedExhaustion": 70,
+    "percentUsed": 33,
+    "burnRate": 18.664876666666668,
+    "daysRemaining": 64,
+    "projectedExhaustion": 64,
     "thresholds": [
       50,
       75,
@@ -3699,34 +3745,34 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 191.35725,
-        "spent": 191.35725,
+        "budget": 208.73836200000008,
+        "spent": 208.73836200000008,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 13.668375,
-        "spent": 13.668375,
+        "budget": 14.909883,
+        "spent": 14.909883,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 205.025625,
-        "spent": 205.025625,
+        "budget": 223.6482450000001,
+        "spent": 223.6482450000001,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 1336.68375,
-        "spent": 136.68375,
+        "budget": 1349.0988300000001,
+        "spent": 149.09883000000005,
         "remaining": 1200,
-        "percentUsed": 10
+        "percentUsed": 11
       },
       {
         "id": "EPIC-0003",
@@ -3750,38 +3796,38 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-08T12:44:30.124Z",
-      "2026-09-09T12:44:30.124Z",
-      "2026-09-10T12:44:30.124Z",
-      "2026-09-11T12:44:30.124Z",
-      "2026-09-12T12:44:30.124Z",
-      "2026-09-13T12:44:30.124Z",
-      "2026-09-14T12:44:30.124Z",
-      "2026-09-15T12:44:30.124Z",
-      "2026-09-16T12:44:30.124Z",
-      "2026-09-17T12:44:30.124Z",
-      "2026-09-18T12:44:30.124Z",
-      "2026-09-19T12:44:30.124Z",
-      "2026-09-20T12:44:30.124Z",
-      "2026-09-21T12:44:30.124Z",
-      "2026-09-22T12:44:30.124Z",
-      "2026-09-23T12:44:30.124Z",
-      "2026-09-24T12:44:30.124Z",
-      "2026-09-25T12:44:30.124Z",
-      "2026-09-26T12:44:30.124Z",
-      "2026-09-27T12:44:30.124Z",
-      "2026-09-28T12:44:30.124Z",
-      "2026-09-29T12:44:30.124Z",
-      "2026-09-30T12:44:30.124Z",
-      "2026-10-01T12:44:30.124Z",
-      "2026-10-02T12:44:30.124Z",
-      "2026-10-03T12:44:30.124Z",
-      "2026-10-04T12:44:30.124Z",
-      "2026-10-05T12:44:30.124Z",
-      "2026-10-06T12:44:30.124Z",
-      "2026-10-07T12:44:30.124Z",
-      "2026-10-08T13:07:10.498Z",
-      "2026-10-08T13:43:27.686Z"
+      "2026-09-08T14:53:02.783Z",
+      "2026-09-09T14:53:02.783Z",
+      "2026-09-10T14:53:02.783Z",
+      "2026-09-11T14:53:02.783Z",
+      "2026-09-12T14:53:02.783Z",
+      "2026-09-13T14:53:02.783Z",
+      "2026-09-14T14:53:02.783Z",
+      "2026-09-15T14:53:02.783Z",
+      "2026-09-16T14:53:02.783Z",
+      "2026-09-17T14:53:02.783Z",
+      "2026-09-18T14:53:02.783Z",
+      "2026-09-19T14:53:02.783Z",
+      "2026-09-20T14:53:02.783Z",
+      "2026-09-21T14:53:02.783Z",
+      "2026-09-22T14:53:02.783Z",
+      "2026-09-23T14:53:02.783Z",
+      "2026-09-24T14:53:02.783Z",
+      "2026-09-25T14:53:02.783Z",
+      "2026-09-26T14:53:02.783Z",
+      "2026-09-27T14:53:02.783Z",
+      "2026-09-28T14:53:02.783Z",
+      "2026-09-29T14:53:02.783Z",
+      "2026-09-30T14:53:02.783Z",
+      "2026-10-01T14:53:02.783Z",
+      "2026-10-02T14:53:02.783Z",
+      "2026-10-03T14:53:02.783Z",
+      "2026-10-04T14:53:02.783Z",
+      "2026-10-05T14:53:02.783Z",
+      "2026-10-06T14:53:02.783Z",
+      "2026-10-07T14:53:02.783Z",
+      "2026-10-08T15:06:19.139Z",
+      "2026-10-08T15:57:05.643Z"
     ],
     "doneCounts": [
       0,
@@ -3818,36 +3864,36 @@
       0
     ],
     "totalStories": [
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
-      39,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
+      40,
       40,
       40
     ],
@@ -3883,7 +3929,7 @@
       528.5105,
       546.735,
       546.735,
-      546.735
+      596.3953
     ],
     "coverage": [
       0,
@@ -3985,7 +4031,7 @@
       0,
       0,
       0,
-      0
+      1
     ],
     "atRisk": [
       0,
@@ -4053,7 +4099,7 @@
       0,
       0,
       21582059,
-      21582059
+      23784175
     ],
     "outputTokens": [
       0,
@@ -4087,41 +4133,41 @@
       0,
       0,
       3815388,
-      3815388
+      4266832
     ],
     "avgRisk": [
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.1846153846153846,
-      1.19,
-      1.1825
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1825,
+      1.1900000000000002
     ],
     "velocityByWeek": {
       "labels": [
