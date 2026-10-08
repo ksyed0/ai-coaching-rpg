@@ -3,8 +3,9 @@
  * transcript text, drafter or approver may contain them), by `printable` (they never reach a terminal) and by the hidden-fact check (they
  * are stripped before comparing, so a fact cannot be smuggled past it). Numeric [from, to] pairs, inclusive; no character classes.
  *
+ * A curated list, not the whole Unicode Default_Ignorable_Code_Point property. Sorted: isHiddenChar stops at the first range above c.
  * Deliberately NOT in the table: TAB U+0009 and LF U+000A (allowed in text; `printable` replaces them for one-line messages), the visible
- * spaces U+00A0, U+2000-U+200A, U+202F and U+205F, and the emoji presentation selectors U+FE0E and U+FE0F. U+200C and U+200D (zero-width
+ * spaces U+00A0, U+2000-U+200A, U+202F and U+205F, and the emoji presentation selectors U+FE0E and U+FE0F and the supplementary variation selectors U+E0100-E01EF. U+200C and U+200D (zero-width
  * non-joiner and joiner) ARE in it, so ZWJ emoji sequences and text that needs ZWNJ/ZWJ are not supported in probes.
  */
 export const HIDDEN_RANGES: readonly (readonly [number, number])[] = Object.freeze([
@@ -25,9 +26,15 @@ export const HIDDEN_RANGES: readonly (readonly [number, number])[] = Object.free
   [0xfe00, 0xfe0d], // variation selectors 1-14 (FE0E and FE0F stay: emoji presentation)
   [0xfeff, 0xfeff], // zero-width no-break space (BOM)
   [0xffa0, 0xffa0], // halfwidth Hangul filler
+  [0xfff0, 0xfff8], // unassigned specials (default ignorable)
   [0xfff9, 0xfffb], // interlinear annotation controls
+  [0x13430, 0x1343f], // Egyptian hieroglyph format controls
+  [0x1bca0, 0x1bca3], // shorthand format controls
+  [0x1d173, 0x1d17a], // musical symbol format controls
   [0xe0000, 0xe007f], // tag characters (ASCII smuggling)
-  [0xe0100, 0xe01ef], // variation selectors supplement
+  [0xe0080, 0xe00ff], // unassigned, default ignorable
+  // U+E0100-E01EF (variation selectors supplement) are allowed in text (R27); the hidden-fact check strips them (FOLD_ONLY_RANGES)
+  [0xe01f0, 0xe0fff], // unassigned, default ignorable
 ].map(([a, b]) => Object.freeze([a, b] as const)));
 
 export function isHiddenChar(c: number): boolean {
@@ -38,6 +45,18 @@ export function isHiddenChar(c: number): boolean {
 export function hasHiddenChar(s: string): boolean {
   for (const ch of s) if (isHiddenChar(ch.codePointAt(0)!)) return true;
   return false;
+}
+
+/** Allowed in text, but stripped before the hidden-fact comparison (R27): all variation selectors. */
+export const FOLD_ONLY_RANGES: readonly (readonly [number, number])[] = Object.freeze([[0xfe00, 0xfe0f], [0xe0100, 0xe01ef]].map(([a, b]) => Object.freeze([a, b] as const)));
+
+const inRanges = (c: number, ranges: readonly (readonly [number, number])[]): boolean => ranges.some(([a, b]) => c >= a && c <= b);
+
+/** `s` folded for comparison: compatibility forms folded (NFKC), then every hidden character and every variation selector removed. */
+export function foldForComparison(s: string): string {
+  let out = "";
+  for (const ch of s.normalize("NFKC")) { const c = ch.codePointAt(0)!; if (!isHiddenChar(c) && !inRanges(c, FOLD_ONLY_RANGES)) out += ch; }
+  return out;
 }
 
 /** `s` without any character of the table. */

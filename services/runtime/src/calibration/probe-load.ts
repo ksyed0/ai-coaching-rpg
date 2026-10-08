@@ -5,7 +5,7 @@ import { parseDocument } from "yaml";
 import { isPrototypeKey } from "@acr/events";
 import { readTextCapped, type Criterion, type Rubric, type Scenario } from "@acr/script";
 import { MIN_UTTERANCES } from "../evaluator/evaluate.js";
-import { isHiddenChar, stripHidden } from "./hidden-chars.js";
+import { foldForComparison, isHiddenChar } from "./hidden-chars.js";
 import { ProbeSchema, scoredRoles, type Probe } from "./probe-schema.js";
 
 export const MIN_SET_PROBES = 20;
@@ -128,11 +128,13 @@ async function parseOne(file: string, name: string, errors: string[]): Promise<P
 }
 
 /**
- * Invisible characters stripped, lower-cased, every whitespace run collapsed to one space: a hidden fact is found whatever the casing or
- * spacing of the line, and tag characters, zero-width characters or soft hyphens inside it cannot smuggle it past the check.
+ * NFKC-folded, invisible characters and variation selectors stripped, lower-cased, every whitespace run collapsed to one space: a hidden
+ * fact is found whatever the casing, spacing or compatibility form (fullwidth letters) of the line, and tag characters, zero-width
+ * characters, soft hyphens or variation selectors inside it cannot smuggle it past the check. Look-alike letters (Cyrillic а for a) are
+ * NOT folded: a known limit.
  */
 function normalise(s: string): string {
-  return stripHidden(s).toLowerCase().split(/\s+/).filter((w) => w !== "").join(" ");
+  return foldForComparison(s).toLowerCase().split(/\s+/).filter((w) => w !== "").join(" ");
 }
 
 /** A hidden fact shorter than this is too generic to be told apart from ordinary speech. */
