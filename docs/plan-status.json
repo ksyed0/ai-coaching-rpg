@@ -1589,7 +1589,7 @@
       "title": "As the evaluator calibrator, I want the showcase demo to play the original Friday Escalation scenario too, so that real excerpts from live sessions of esc-scope-creep-01 can be captured for its calibration set.",
       "priority": "High",
       "estimate": "S",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0005-US-0040-friday-showcase",
       "acs": [
         {
@@ -1614,8 +1614,8 @@
         },
         {
           "id": "AC-0202",
-          "text": "live and generated-player runs of the original scenario complete and yield excerpts (Pending: TC-0048, run by the owner/controller, results to be reported before this is ticked)",
-          "done": false
+          "text": "live and generated-player runs of the original scenario complete and yield excerpts (TC-0048: five live runs on 2026-10-08, all exit 0, 14 passed 0 failed 2 skipped)",
+          "done": true
         },
         {
           "id": "AC-0203",
@@ -2654,7 +2654,7 @@
       "relatedTask": "TASK-0060",
       "relatedAC": "AC-0202",
       "type": "Functional",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -3554,9 +3554,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-08T13:07:10.422Z",
-  "commitSha": "94076e9",
-  "buildNumber": "313",
+  "generatedAt": "2026-10-08T13:43:27.628Z",
+  "commitSha": "0c6a538",
+  "buildNumber": "315",
   "branch": "feature/EPIC-0005-US-0040-friday-showcase",
   "sessionTimeline": [
     {
@@ -3780,9 +3780,11 @@
       "2026-10-05T12:44:30.124Z",
       "2026-10-06T12:44:30.124Z",
       "2026-10-07T12:44:30.124Z",
-      "2026-10-08T13:07:10.498Z"
+      "2026-10-08T13:07:10.498Z",
+      "2026-10-08T13:43:27.686Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -3846,6 +3848,7 @@
       39,
       39,
       39,
+      40,
       40
     ],
     "aiCosts": [
@@ -3878,6 +3881,7 @@
       492.0615,
       510.286,
       528.5105,
+      546.735,
       546.735,
       546.735
     ],
@@ -3912,9 +3916,11 @@
       0,
       0,
       0,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -3978,9 +3984,11 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -4044,6 +4052,7 @@
       0,
       0,
       0,
+      21582059,
       21582059
     ],
     "outputTokens": [
@@ -4077,6 +4086,7 @@
       0,
       0,
       0,
+      3815388,
       3815388
     ],
     "avgRisk": [
@@ -4110,7 +4120,8 @@
       1.1846153846153846,
       1.1846153846153846,
       1.1846153846153846,
-      1.19
+      1.19,
+      1.1825
     ],
     "velocityByWeek": {
       "labels": [

@@ -632,12 +632,12 @@ Related AC: AC-0202
 Type: Functional
 Preconditions: The owner's machine with the local model server and `.env`.
 Steps:
-  1. Run `pnpm demo --showcase --live --players generated --scenario scenarios/friday-escalation` (see docs/memory/demo-and-testing.md for the recipe).
+  1. Run `pnpm demo --showcase --live --players generated --scenario scenarios/friday-escalation --gm-trace <file> --transcript <file> --json <file>` (see docs/memory/demo-and-testing.md for the recipe); also scripted live (omit `--players`) and `--player-model <id>` for weaker players.
 Expected Result: The run completes, the AI replies are real, and the session log yields excerpts for `pnpm calibrate excerpt`.
-Actual Result: Pending: run by the owner/controller; not claimed here.
-Status: [ ] Not Run
+Actual Result: As expected on 2026-10-08 (Gemma `gemma-4-31b-it-qat-mxfp4` for the AI characters and the Game Master; all runs exit 0, 14 passed, 0 failed, 2 skipped (S-06 and S-14, live mode), S-07 and S-15 found no leaks). (A) original scenario, generated players (Gemma): 234 s, 13 generated lines, 0 canned, the Game Master ended 2 of 3 scenes (s2_client_call by facilitator advance), 5 verdicts (2 true, 3 false), one scene 1 reply with no usable verdict (no_json, 2 attempts) recovered, one release suggestion for Priya's fact (facilitator only, nothing released). (B) extended scenario, generated (Gemma): 794 s, 29 generated lines, the Game Master ended 4 of 6 (s2_priya_call and s5_final_terms by facilitator advance), 14 verdicts, none unusable. (C) original, scripted live: 121 s, 2 of 3 by the Game Master (s2 by advance). (D) original, players `nemotron-3-nano-omni-30b-a3b-jangtq4` via `--player-model`: 436 s, 16 generated, the Game Master ended 1 of 3 (s2 and s3 by advance). (E) original, players `foundation` via `--player-model`: 185 s, 16 generated, 1 of 3.
+Status: [x] Pass
 Defect Raised: None
-Notes: Do not run two live runs at once on the one model server.
+Notes: Scene 2 (the call with Priya) ended by the facilitator advance in every live run: not a bug. The only TRUE verdicts in scene 2 were the earned_when checks of Priya's fact (traces: A seq 19, B 25, C 19, E 24); both exit verdicts were FALSE because the live Priya did not agree a concrete next step (for example she rejected the manual tie-out workaround), so the harness, after the scripted lines were used up and a final evaluation, advanced the scene (the safety net, with the observation "GM did not exit; facilitator advanced"). Weaker players (D, E) end fewer scenes. Logs: the demo deletes its temp data, so copy the log while the run is going.
 
 TC-0044: Scenario content pass: pricing anchor, briefs, versions, duration and rubrics
 Related Story: US-0040
