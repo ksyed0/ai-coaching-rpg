@@ -52,11 +52,20 @@ export const FOLD_ONLY_RANGES: readonly (readonly [number, number])[] = Object.f
 
 const inRanges = (c: number, ranges: readonly (readonly [number, number])[]): boolean => ranges.some(([a, b]) => c >= a && c <= b);
 
-/** `s` folded for comparison: compatibility forms folded (NFKC), then every hidden character and every variation selector removed. */
-export function foldForComparison(s: string): string {
+const stripFolded = (s: string): string => {
   let out = "";
-  for (const ch of s.normalize("NFKC")) { const c = ch.codePointAt(0)!; if (!isHiddenChar(c) && !inRanges(c, FOLD_ONLY_RANGES)) out += ch; }
+  for (const ch of s) { const c = ch.codePointAt(0)!; if (!isHiddenChar(c) && !inRanges(c, FOLD_ONLY_RANGES)) out += ch; }
   return out;
+};
+
+/**
+ * `s` folded for comparison (R28): every hidden character and variation selector removed, THEN compatibility forms folded (NFKC), then
+ * removed again. Stripping first matters: a hidden character between a base letter and its combining mark ("cafe", U+200B, U+0301) would
+ * otherwise block composition and the line would never equal "café". The strip after NFKC is a guard: today NFKC never yields one of these
+ * characters from a visible one (a test checks every code point), but a future Unicode version could.
+ */
+export function foldForComparison(s: string): string {
+  return stripFolded(stripFolded(s).normalize("NFKC"));
 }
 
 /** `s` without any character of the table. */

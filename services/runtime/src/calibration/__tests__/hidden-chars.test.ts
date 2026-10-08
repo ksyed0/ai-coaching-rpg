@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { loadScenario } from "@acr/script";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { HIDDEN_RANGES, hasHiddenChar, isHiddenChar, stripHidden } from "../hidden-chars.js";
+import { foldForComparison, HIDDEN_RANGES, hasHiddenChar, isHiddenChar, stripHidden } from "../hidden-chars.js";
 import { hiddenFactRoles, printable } from "../probe-load.js";
 import { EXPECTED_HIDDEN } from "./expected-hidden.js";
 
@@ -69,5 +69,39 @@ describe("the hidden-fact check strips invisible characters before comparing", (
     // a look-alike copy (Cyrillic а, е, о for a, e, o) is NOT caught: a known limit, documented
     const lookalike = FACT.replace(/a/g, "\u0430").replace(/e/g, "\u0435").replace(/o/g, "\u043e");
     expect(hiddenFactRoles([lookalike], scenario)).toEqual([]);
+  });
+  it("strips hidden characters BEFORE NFKC (R28): one between a base letter and its combining mark cannot block composition", async () => {
+    const loaded = await loadScenario(path.join(REPO, "scenarios", "friday-escalation"));
+    const sponsor = loaded.roles["client_sponsor"]!;
+    const withAccent = { ...loaded, roles: { ...loaded.roles, client_sponsor: { ...sponsor, hidden: ["We could meet at the café near the office tomorrow"] } } } as typeof loaded;
+    for (const sep of ["​", "\u{E0020}", "­", "⁠", "︀", "\u{E0100}"]) {
+      const line = `Fine. We could meet at the cafe${sep}́ near the office tomorrow.`;
+      expect(hiddenFactRoles([line], withAccent), sep.codePointAt(0)!.toString(16)).toEqual(["client_sponsor"]);
+    }
+    // the plain decomposed spelling (no hidden character) is caught too, and an unrelated line is not
+    expect(hiddenFactRoles(["We could meet at the café near the office tomorrow"], withAccent)).toEqual(["client_sponsor"]);
+    expect(hiddenFactRoles(["We could meet at the office tomorrow"], withAccent)).toEqual([]);
+  });
+});
+
+describe("foldForComparison", () => {
+  it("removes hidden characters and variation selectors, composes what they separated, and folds compatibility forms", () => {
+    expect(foldForComparison("cafe​́")).toBe("café");
+    expect(foldForComparison("cafe\u{E0041}́ Ａ️")).toBe("café A");
+    expect(foldForComparison("é")).toBe("é");
+  });
+  // Why the second strip (after NFKC) is kept although no current input reaches it: on this Node's Unicode data, NFKC never turns a
+  // non-hidden code point into a hidden one, so the strip after NFKC is behaviourally invisible today. It stays as a guard against a future
+  // Unicode version; this test fails if that ever changes, and then the second strip is what keeps the fact check sound.
+  it("NFKC of no visible code point yields a hidden character or variation selector (the second strip is a guard, not dead logic)", () => {
+    const folded = (c: number) => isHiddenChar(c) || (c >= 0xfe00 && c <= 0xfe0f) || (c >= 0xe0100 && c <= 0xe01ef);
+    const offenders: string[] = [];
+    for (let c = 0; c <= 0x10ffff; c++) {
+      if ((c >= 0xd800 && c <= 0xdfff) || folded(c)) continue;
+      const n = String.fromCodePoint(c).normalize("NFKC");
+      if (n.length === 1 && n.codePointAt(0) === c) continue;
+      for (const ch of n) if (folded(ch.codePointAt(0)!)) offenders.push(c.toString(16));
+    }
+    expect(offenders).toEqual([]);
   });
 });
