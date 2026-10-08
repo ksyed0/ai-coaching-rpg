@@ -29,8 +29,8 @@ transcript:
     text: Yes.
   - scene: s1_huddle
     role: account_manager
-    text: On the call I'll take the commercial points. If Priya asks about the data
-      layer, I'll hand it straight to the tech lead and back him up.
+    text: On the call I'll take the commercial points. If Priya has a data-layer
+      follow-up, the tech lead will answer it in writing and I'll back him up.
   - scene: s1_huddle
     role: tech_lead
     text: Thanks, that works for me.

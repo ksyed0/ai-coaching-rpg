@@ -22,9 +22,9 @@ transcript:
   - scene: s3_internal_wrap
     role: account_manager
     text: Thanks. Delivery lead, you draft the plan by end of day Thursday, and I'll
-      send Priya the written summary on Friday morning. On the call, I'll ask
-      the tech lead to take any question on the data layer rather than answer it
-      myself.
+      send Priya the written summary on Friday morning. If Priya has a
+      data-layer follow-up, I'll bring the tech lead into the next call rather
+      than answer it myself.
   - scene: s3_internal_wrap
     role: delivery_lead
     text: Fine. Wait, I thought I was sending the summary?

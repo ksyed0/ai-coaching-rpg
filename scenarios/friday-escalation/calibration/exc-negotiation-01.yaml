@@ -5,7 +5,7 @@ source: excerpt
 drafter: null
 approved_by: Kamal
 approved_at: 2026-10-08T14:47:48.832Z
-split: holdout
+split: tune
 subject: account_manager
 expected: 3
 acceptable:

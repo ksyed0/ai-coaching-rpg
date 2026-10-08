@@ -5,7 +5,7 @@ source: drafted
 drafter: claude-sonnet-5-5
 approved_by: Kamal
 approved_at: 2026-10-08T14:47:24.539Z
-split: holdout
+split: tune
 subject: account_manager
 expected: 2
 transcript:

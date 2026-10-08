@@ -15,9 +15,9 @@ transcript:
       tell me why this price.
   - scene: s2_client_call
     role: account_manager
-    text: "Here are the terms. Scope: reconciliation of the three ledger feeds and a
+    text: "Here are the terms. Scope: the phased version, reconciliation of the three ledger feeds and a
       daily exception report. Price: a fixed fee of 48,000 as a change request.
-      Date: delivered by the end of week four. If we miss that date, we credit
+      Date: delivered four weeks after go-live. If we miss that date, we credit
       ten percent of the fee for each week of delay, up to 30 percent."
   - scene: s2_client_call
     role: account_manager

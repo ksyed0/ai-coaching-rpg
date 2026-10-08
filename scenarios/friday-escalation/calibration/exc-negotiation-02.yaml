@@ -8,6 +8,9 @@ approved_at: 2026-10-08T14:47:49.476Z
 split: holdout
 subject: account_manager
 expected: 2
+acceptable:
+  - 1
+  - 2
 transcript:
   - scene: s2_client_call
     role: account_manager

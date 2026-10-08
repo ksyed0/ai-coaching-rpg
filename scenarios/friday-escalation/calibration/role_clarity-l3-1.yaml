@@ -14,7 +14,7 @@ transcript:
     text: Priya is going to ask whether this fits the timeline.
   - scene: s1_huddle
     role: account_manager
-    text: That's one for the tech lead. Can you take it?
+    text: Tech lead, can you size this for us?
   - scene: s1_huddle
     role: tech_lead
     text: It touches the data layer, so I'd need two days to size it.
