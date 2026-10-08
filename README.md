@@ -356,6 +356,7 @@ pnpm demo --showcase --live --max-fallbacks 0     # fail the run if any AI reply
 pnpm demo --showcase --live --players generated   # the model plays the three player roles too (see Generated players)
 pnpm demo --showcase --live --players generated --player-model qwen3:8b   # a different model for the player bots
 pnpm demo --showcase --fast --evaluate            # then write the feedback reports for the run (scripted offline evaluator; with --live a real one), check S-16
+pnpm demo --showcase --scenario scenarios/friday-escalation --fast   # the original 3-scene scenario (has its own showcase.yaml, US-0040; also works with --live and --players generated)
 pnpm demo --showcase --scenario scenarios/my-scenario --fast   # your own package (needs its own showcase.yaml)
 pnpm -s demo --showcase --fast --json -           # JSON report on stdout (with a `showcase` section)
 ```
@@ -477,7 +478,7 @@ packages/events     session event types, the state reducer and the shared identi
 packages/script     scenario schema, loader, validator, scene state machine
 packages/adapters   model provider adapters (mock, Anthropic, OpenAI-compatible)
 services/runtime    session engine, NPC agents, Game Master, WebSocket server, terminal client, demo runner (src/demo), post-session evaluator (src/evaluator)
-scenarios/          playable scenarios (YAML): friday-escalation (3 scenes, 1 AI character) and friday-escalation-extended (6 scenes, 2 AI characters, plus the showcase.yaml script for `pnpm demo --showcase`); each has rubrics/ (BARS rubric files)
+scenarios/          playable scenarios (YAML): friday-escalation (3 scenes, 1 AI character) and friday-escalation-extended (6 scenes, 2 AI characters); both have a showcase.yaml script for `pnpm demo --showcase` (the extended one is the default); each has rubrics/ (BARS rubric files)
 docs/               architecture, release plan, plans and the generated plan dashboard
 ```
 

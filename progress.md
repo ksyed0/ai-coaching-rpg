@@ -116,3 +116,8 @@
 - **After US-0037:** the live baseline (Task 11: Gemma primary, `holo3-35b-a3b-jangtq4` second, needs the scaled set), US-0038 only if the baseline FAILs, US-0039 the stamp (it must compare `judge.model` exactly and treat `contrast.of < contrast.probes` as thinly measured).
 - **Owner actions open:** rotate the OpenRouter key (2026-10-02); decide on `chore/ai-cost-log-session-1`; the 8 starter probes are labelled `handwritten` but an agent wrote them (confirm or relabel as drafted with an approver); connect Remote Control if you want phone notifications (the PushNotification tool reported "Remote Control inactive"); review the scaled probes at Task 10.
 
+
+## US-0040 — 2026-10-08
+
+- `feature/EPIC-0005-US-0040-friday-showcase`: `scenarios/friday-escalation/showcase.yaml` so `pnpm demo --showcase [--live] [--players generated] --scenario scenarios/friday-escalation` plays esc-scope-creep-01 (the demo already had `--scenario`). Mock: 14 checks (15 with `--evaluate`); the extended runs stay 29, 42 and 14. S-14 accepts the facilitator advance in a scene with no `gm_detects` condition (scene 3); `NEGATIVE_CUTS` labels the scenario's negative controls.
+- Next (owner): live generated-player runs of this scenario to capture excerpts for `pnpm calibrate excerpt`. `--max-false-exits` needs `tests/gm-cases` built for this scenario first.

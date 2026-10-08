@@ -6,11 +6,13 @@
 | `pnpm demo --fast` | mock main story, offline, deterministic | 29 (F-01..F-29) |
 | `pnpm demo --showcase --fast` | extended 6-scene scenario with scripted players | 14 (S-01..S-14) |
 | `... --showcase --fast --evaluate` | + the evaluator and S-16 | 15 |
+| `pnpm demo --showcase --fast --scenario scenarios/friday-escalation` | the original 3-scene scenario (US-0040; 16 lines, 4 AI replies, 4 GM evaluations; scene 3 has no `gm_detects`, so it ends by facilitator advance and S-14 accepts that) | 14 (15 with `--evaluate`) |
 | `pnpm demo --fast --security` | opt-in security room | 32 (F-31..F-33 added) |
 | `pnpm demo --fast --resume` | opt-in resume room (simulated crash, restart) | 39 (42 with `--security`) |
 | `... --live` | the same against the configured real model | live runs skip some checks; F-08 reports canned fallback lines (US-0023) |
 | `--players generated` | player bots written by the model; intents logged in the transcript (`--no-intents` hides) | S-15 audits the prompts |
 | `--gm-trace f.log --min-gm-exits n [--max-false-exits n]` | live Game Master measurement, check S-18 | n is gated only when asked |
+`--scenario <dir>` picks the showcase scenario (default `scenarios/friday-escalation-extended`; needs a `showcase.yaml`); use `scenarios/friday-escalation` with `--live --players generated` to capture real excerpts for the esc-scope-creep-01 calibration set. `--max-false-exits` compares labels with `tests/gm-cases`, which holds the extended scenario's cases only (US-0040 did not build cases for the original).
 Also `--url ws://...` (test a running server; `FACILITATOR_TOKEN` env passes a token), `--json -` (pure JSON on stdout), `--transcript file.md` (tags `[SCRIPTED] [GENERATED] [FALLBACK] [UNVERIFIED] [SYSTEM]`), `--watchdog <minutes 1..180>`, `--speed`, `--max-lines`.
 `--max-fallbacks <n>` (0..1000) works for the 29-check run (check F-08 fails above n; without it the count is a WARNING in F-08) and for `--showcase` (S-05). The JSON report of the main story has `liveEvidence` (counts, per-character, sanitized alerts with `replySeq`; a mock run reports 0 of 4). Alert text goes through `sanitizeAlert` (live-evidence.ts) in the 29-check run and the showcase (narration, report, transcript, F-13/lab failure messages): control chars to `·`, invisible chars removed, secrets, join codes in every accepted spelling, Bearer values, opaque tokens and hidden-fact text (case/width/zero-width folded) to `[redacted]`, 300 chars. An alert links to a reply (`replySeq`) only when it caused it, else null (orphan, still listed).
 Check counts are pinned by tests: add a new check only in an opt-in room or by extending an existing check's assertions.
