@@ -44,7 +44,7 @@ export const SHOWCASE_CHECKS: readonly CheckDef[] = [
   { id: "S-11", title: "No background failure was swallowed", kind: "any" },
   { id: "S-12", title: "The whole run finished within the watchdog", kind: "any" },
   { id: "S-13", title: "No scene was skipped: each had a scripted line, or ended by time box or Game Master before its first", kind: "any" },
-  { id: "S-14", title: "The mock scripts were never exhausted and no scene needed the facilitator advance (unless --max-lines)", kind: "scripted" },
+  { id: "S-14", title: "The mock scripts were never exhausted and no scene with a Game Master condition needed the facilitator advance (unless --max-lines)", kind: "scripted" },
 ] as const;
 
 /** Extra checks, only in a `--players generated` run (the default run keeps exactly S-01 to S-14). */

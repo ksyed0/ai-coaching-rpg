@@ -46,17 +46,17 @@ const at = (scene: string, index: number, fn: (a: { sys?: Sys; players?: Record<
 const FAIL = ["--showcase", "--fast", "--no-color"];
 
 describe("the Game Master's release suggestion in the showcase (mock mode)", () => {
-  it("suggests once, in s4 after the no-suggestion verdicts, to the facilitator only; the checks stay at 14 and all pass", async () => {
+  it("suggests Priya's fact in s2 and the CFO's once in s4 after the no-suggestion verdicts, to the facilitator only; the checks stay at 14 and all pass", async () => {
     const dir = await tmp();
     const r = await run(["--showcase", "--fast", "--no-color", "--transcript", "t.md"], { cwd: dir });
     expect(r.exitCode).toBe(0);
     expect(r.report!.results).toHaveLength(14);
     expect(r.report!.results.filter((x) => x.status !== "passed")).toEqual([]);
-    expect(r.showcase.gm.suggestions).toEqual([expect.objectContaining({ sceneId: "s4_escalation_call", roleId: "cfo", fact: 1, autoRelease: false })]);
+    expect(r.showcase.gm.suggestions).toEqual([expect.objectContaining({ sceneId: "s2_priya_call", roleId: "client_sponsor", fact: 1, autoRelease: false }), expect.objectContaining({ sceneId: "s4_escalation_call", roleId: "cfo", fact: 1, autoRelease: false })]);
     expect(r.stdout).toContain(SUGGESTED);
     expect(r.stdout.indexOf(SUGGESTED)).toBeLessThan(r.stdout.indexOf("facilitator released hidden fact number 1 of cfo"));
-    expect(result(r, "S-04").details).toContain("1 release suggestion(s) to the facilitator only (cfo #1 in s4_escalation_call)");
-    expect(result(r, "S-06").details).toContain("2 of them earned_when checks");
+    expect(result(r, "S-04").details).toContain("2 release suggestion(s) to the facilitator only (client_sponsor #1 in s2_priya_call, cfo #1 in s4_escalation_call)");
+    expect(result(r, "S-06").details).toContain("3 of them earned_when checks");
     const md = readFileSync(path.join(dir, "t.md"), "utf8");
     expect(md).toContain("the Game Master suggested releasing hidden fact number 1 of cfo (facilitator only: /release cfo 1)");
     for (const hay of [r.stdout, md, JSON.stringify(r.report)]) expect(hay).not.toContain(FACT);
@@ -67,7 +67,7 @@ describe("the Game Master's release suggestion in the showcase (mock mode)", () 
     expect(r.exitCode).toBe(0);
     expect(r.report!.results).toHaveLength(14);
     expect(r.report!.results.filter((x) => x.status !== "passed")).toEqual([]);
-    expect(r.showcase.gm.suggestions).toEqual([expect.objectContaining({ sceneId: "s4_escalation_call", roleId: "cfo", fact: 1, autoRelease: true })]);
+    expect(r.showcase.gm.suggestions).toEqual([expect.objectContaining({ sceneId: "s2_priya_call", roleId: "client_sponsor", fact: 1, autoRelease: true }), expect.objectContaining({ sceneId: "s4_escalation_call", roleId: "cfo", fact: 1, autoRelease: true })]);
     expect(r.stdout).toContain("released hidden fact number 1 of cfo itself (GM_AUTO_RELEASE)");
     expect(r.stdout).not.toContain("facilitator released hidden fact number 1 of cfo");
     expect(r.showcase.observations).toContain("facilitator step skipped: hidden fact #1 of cfo was already released (by the Game Master, GM_AUTO_RELEASE)");
@@ -104,9 +104,12 @@ describe("the Game Master's release suggestion in the showcase (mock mode)", () 
     await cp(EXTENDED, dir, { recursive: true });
     const cfo = path.join(dir, "roles", "cfo.yaml");
     await writeFile(cfo, (await readFile(cfo, "utf8")).replace(/\nearned_when:\n {2}1: .*\n/, "\n"));
+    const priya = path.join(dir, "roles", "client_sponsor.yaml"); // US-0040: Priya has one too
+    await writeFile(priya, (await readFile(priya, "utf8")).replace(/\nearned_when:\n {2}1: .*\n/, "\n"));
     const show = path.join(dir, "showcase.yaml");
     await writeFile(show, (await readFile(show, "utf8")).replace(/ {6}gm_earned:\n(?: {8}.*\n| {10}.*\n| {12}.*\n)+/g, ""));
     expect(await readFile(cfo, "utf8")).not.toContain("earned_when");
+    expect(await readFile(priya, "utf8")).not.toContain("earned_when");
     expect(await readFile(show, "utf8")).not.toContain("gm_earned");
     const r = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
     expect(r.report!.results.filter((x) => x.status !== "passed")).toEqual([]);

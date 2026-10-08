@@ -1,8 +1,8 @@
 id: account_manager
 type: player
-brief: >
-  You own the commercial relationship. A renewal conversation is live and
-  you do not want this request to sour it.
+brief: >-
+  You own price, commercial terms and the client relationship. A renewal
+  conversation is live and you do not want this request to sour it.
 private_facts:
   - The renewal is worth roughly three times this programme
   - Priya's CFO is the renewal decision maker

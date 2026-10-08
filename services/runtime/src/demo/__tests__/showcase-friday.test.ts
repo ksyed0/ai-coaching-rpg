@@ -19,6 +19,13 @@ afterAll(() => rmSync(PARENT, { recursive: true, force: true }));
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const c of cleanups.splice(0)) await c(); });
 
+/** A line "recites" a fact when it holds most of the fact's content words (4+ letters, numbers; punctuation and case ignored), so a paraphrase counts, not only the exact words. */
+const words = (t: string): string[] => t.toLowerCase().replace(/(\d),(\d)/g, "$1$2").split(/[^a-z0-9-]+/).map((w) => w.replace(/^-+|-+$/g, "")).filter((w) => w.length >= 4 || /^\d/.test(w));
+const recites = (line: string, fact: string): boolean => {
+  const f = [...new Set(words(fact))]; const l = new Set(words(line));
+  return f.length > 0 && f.filter((w) => l.has(w)).length / f.length >= 0.6;
+};
+
 const run = async (argv: string[]) => {
   const out: string[] = []; const err: string[] = [];
   const deps: RunDeps = {
@@ -38,6 +45,7 @@ describe("scenarios/friday-escalation/showcase.yaml (US-0040)", () => {
     expect(s.scenes.map((x) => x.scene)).toEqual(sc.script.scenes.map((x) => x.id));
     expect(s.scenes.map((x) => x.lines.length)).toEqual([6, 4, 6]);
     expect(s.scenes.map((x) => Object.keys(x.mock.npc))).toEqual([[], ["client_sponsor"], []]);
+    expect(s.scenes.map((x) => x.mock.gmEarned.map((g) => `${g.role}#${g.fact}`))).toEqual([[], ["client_sponsor#1"], []]);
     await expect(loadShowcaseScript(DIR, sc, { mode: "live", maxLines: 1 })).resolves.toBeDefined();
   });
 
@@ -47,30 +55,52 @@ describe("scenarios/friday-escalation/showcase.yaml (US-0040)", () => {
     expect(text).toContain("kind: malformed");
   });
 
-  it("does not put the players' private facts or Priya's hidden fact into any scripted line", async () => {
-    const sc = await loadScenario(DIR);
-    const s = await loadShowcaseScript(DIR, sc, { mode: "mock" });
-    const spoken = s.scenes.flatMap((x) => x.lines.map((l) => l.text)).join("\n").toLowerCase();
-    const secrets = [
-      ...Object.values(sc.roles).filter((r): r is PlayerRole => r.type === "player").flatMap((r) => r.private_facts),
-      ...Object.values(sc.roles).flatMap((r) => (r.type === "npc" ? r.hidden : [])),
-    ];
-    expect(secrets.length).toBeGreaterThan(0);
-    for (const f of secrets) expect(spoken, f).not.toContain(f.toLowerCase());
-    expect(spoken).not.toMatch(/three times|decision maker|6 person-weeks|six person-weeks/);
+  it("leaks no secret: no line recites another role's private fact before its owner stated it in play, and none recites an AI character's hidden fact", async () => {
+    for (const dirName of ["friday-escalation", "friday-escalation-extended"]) {
+      const dir = path.join(REPO_ROOT, "scenarios", dirName);
+      const sc = await loadScenario(dir);
+      const script = await loadShowcaseScript(dir, sc, { mode: "mock" });
+      const players = Object.values(sc.roles).filter((r): r is PlayerRole => r.type === "player");
+      const hidden = Object.values(sc.roles).flatMap((r) => (r.type === "npc" ? r.hidden : []));
+      expect(hidden.length, dirName).toBeGreaterThan(0);
+      // Accepted paraphrase: the extended script has the delivery lead tell Priya the launch date is at risk, which the tech lead raised in the huddle in other words
+      // ("anything we add now competes with go-live"). Left as it was (changing the extended lines would rebuild tests/gm-cases); nothing else is allowed.
+      const allowed = dirName === "friday-escalation-extended" ? ["Adding the module before go-live puts the go-live date at real risk"] : [];
+      const said: { role: string; text: string }[] = []; // in play order
+      for (const entry of script.scenes) {
+        for (const line of entry.lines) {
+          for (const owner of players.filter((p) => p.id !== line.role)) {
+            for (const fact of owner.private_facts.filter((f) => !allowed.includes(f))) {
+              if (!recites(line.text, fact)) continue;
+              // allowed only when the owner already said it earlier in play
+              expect(said.some((x) => x.role === owner.id && recites(x.text, fact)), `${dirName} ${entry.scene}: ${line.role} recites ${owner.id}'s private fact "${fact}" before ${owner.id} said it`).toBe(true);
+            }
+          }
+          for (const fact of hidden) expect(recites(line.text, fact), `${dirName} ${entry.scene}: ${line.role} recites a hidden fact "${fact}"`).toBe(false);
+          said.push(line);
+        }
+      }
+    }
   });
 
-  it("labels its negative controls: scene 1 not agreed after 3 and 4 lines, scene 2 after 2; scene 3 has no condition", async () => {
-    expect(NEGATIVE_CUTS["esc-scope-creep-01"]).toEqual({ s1_huddle: [3, 4], s2_client_call: [2] });
-    expect([lastNegativeLine("esc-scope-creep-01", "s1_huddle"), lastNegativeLine("esc-scope-creep-01", "s2_client_call"), lastNegativeLine("esc-scope-creep-01", "s3_internal_wrap")]).toEqual([4, 2, 0]);
+  it("the recital detector is meaningful: it catches a paraphrase, ignores an unrelated line", () => {
+    expect(recites("Our delivery cost is 2400 per person-day and the margin floor on a change request is 20 percent", "Your delivery cost is 2,400 per person-day and the margin floor on any change request is 20 percent")).toBe(true);
+    expect(recites("The renewal is worth about three times what this programme is", "The renewal is worth roughly three times this programme")).toBe(true);
+    expect(recites("Let us book the review for Thursday", "The renewal is worth roughly three times this programme")).toBe(false);
+  });
+
+  it("labels its negative controls: scene 1 not agreed after 3 and 4 lines, scene 2 after 2, scene 3 after 1 and 3", async () => {
+    expect(NEGATIVE_CUTS["esc-scope-creep-01"]).toEqual({ s1_huddle: [3, 4], s2_client_call: [2], s3_internal_wrap: [1, 3] });
+    expect([lastNegativeLine("esc-scope-creep-01", "s1_huddle"), lastNegativeLine("esc-scope-creep-01", "s2_client_call"), lastNegativeLine("esc-scope-creep-01", "s3_internal_wrap")]).toEqual([4, 2, 3]);
     const sc = await loadScenario(DIR);
     const cases = buildShowcaseCases(sc, await loadShowcaseScript(DIR, sc, { mode: "mock" }));
-    expect(cases.map((c) => c.id)).toEqual(["s1_huddle:full", "s1_huddle:cut-3", "s1_huddle:cut-4", "s2_client_call:full", "s2_client_call:cut-2"]);
-    expect(cases.map((c) => c.label)).toEqual([true, false, false, true, false]);
+    expect(cases.map((c) => c.id)).toEqual(["s1_huddle:full", "s1_huddle:cut-3", "s1_huddle:cut-4", "s2_client_call:full", "s2_client_call:cut-2", "s3_internal_wrap:full", "s3_internal_wrap:cut-1", "s3_internal_wrap:cut-3"]);
+    expect(cases.map((c) => c.label)).toEqual([true, false, false, true, false, true, false, false]);
+    expect(cases.find((c) => c.id === "s3_internal_wrap:cut-3")!.dialogue.at(-1)!.text).toMatch(/Someone should also tell the wider team/);
   });
 
-  it("plays in the mock showcase: every check passes, 16 scripted lines, 4 AI replies, scene 3 ended by the facilitator advance (it has no Game Master condition)", async () => {
-    const { exitCode, report, showcase, stderr } = await run(["--showcase", "--fast", "--no-color", "--scenario", DIR]);
+  it("plays in the mock showcase: every check passes, 16 scripted lines, 4 AI replies, all 3 scenes ended by the Game Master, Priya's fact suggested once", async () => {
+    const { exitCode, report, showcase, stderr, stdout } = await run(["--showcase", "--fast", "--no-color", "--scenario", DIR]);
     expect(report!.results.filter((r) => r.status !== "passed")).toEqual([]);
     expect(exitCode).toBe(0);
     expect(report!.summary).toEqual({ passed: SHOWCASE_CHECKS.length, failed: 0, skipped: 0 });
@@ -78,8 +108,25 @@ describe("scenarios/friday-escalation/showcase.yaml (US-0040)", () => {
     expect(showcase.playerLines).toBe(16);
     expect(showcase.npcReplies).toBe(4);
     expect(showcase.fallbackLines).toBe(0);
-    expect(showcase.gm).toMatchObject({ evaluations: 4, verdictsTrue: 2, verdictsFalse: 2, exitedScenes: ["s1_huddle", "s2_client_call"], reasks: 1 });
+    expect(showcase.gm).toMatchObject({ evaluations: 6, verdictsTrue: 3, verdictsFalse: 3, exitedScenes: ["s1_huddle", "s2_client_call", "s3_internal_wrap"], reasks: 1 });
     expect(showcase.gm.via.tolerant).toBe(1);
+    expect(showcase.scenes.map((s) => s.exitReason)).toEqual(["gm_detects", "gm_detects", "gm_detects"]);
+    expect(showcase.facilitatorAdvances).toBe(0);
+    expect(showcase.observations).toEqual([]);
+    expect(showcase.gm.suggestions).toEqual([expect.objectContaining({ sceneId: "s2_client_call", roleId: "client_sponsor", fact: 1, autoRelease: false })]);
+    expect(stdout).toContain("/release client_sponsor 1");
+  });
+
+  it("a scene with NO Game Master condition still ends by the facilitator advance without failing S-14 (generic relaxation)", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "acr-friday-nocond-"));
+    cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    await cp(DIR, dir, { recursive: true });
+    const file = path.join(dir, "script.yaml");
+    await writeFile(file, (await readFile(file, "utf8")).replace(/\n\s+- gm_detects: "the team has assigned an owner and a next action for each follow-up"/, ""));
+    expect(await readFile(file, "utf8")).not.toContain("assigned an owner");
+    const { exitCode, report, showcase } = await run(["--showcase", "--fast", "--no-color", "--scenario", dir]);
+    expect(report!.results.filter((r) => r.status !== "passed")).toEqual([]);
+    expect(exitCode).toBe(0);
     expect(showcase.scenes.map((s) => s.exitReason)).toEqual(["gm_detects", "gm_detects", "facilitator_advance"]);
     expect(showcase.observations).toEqual(["s3_internal_wrap has no Game Master exit condition; the facilitator advanced after its scripted lines"]);
   });

@@ -116,9 +116,10 @@ describe("--gm-trace", () => {
     const seen = readOnce(file);
     expect(seen.mode).toBe(0o600);
     const recs = seen.text.trim().split("\n").map((l) => JSON.parse(l) as { seq: number; sceneId: string; attempt: number; raw: string; parse: { ok: boolean; via?: string; verdict?: boolean; reason?: string }; earned?: { roleId: string; fact: number } });
-    expect(recs).toHaveLength(19); // 16 exit-condition evaluations, one of them asked twice, and (US-0034) 2 earned_when checks of the CFO's fact in s4
+    expect(recs).toHaveLength(20); // 16 exit-condition evaluations, one of them asked twice, one earned_when check of Priya's fact in s2 (US-0040) and (US-0034) 2 of the CFO's fact in s4
     const earned = recs.filter((x) => x.earned !== undefined);
     expect(earned.map((x) => [x.sceneId, x.earned, x.parse.verdict])).toEqual([
+      ["s2_priya_call", { roleId: "client_sponsor", fact: 1 }, true],
       ["s4_escalation_call", { roleId: "cfo", fact: 1 }, false], ["s4_escalation_call", { roleId: "cfo", fact: 1 }, true],
     ]);
     expect(recs.filter((x) => x.parse.via === "tolerant")).toHaveLength(1);

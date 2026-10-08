@@ -38,6 +38,13 @@ scenes:
       gm:
         - '{"verdict": false, "reasoning": "Priya is still probing the risk and no next step has been agreed yet."}'
         - '{"verdict": true, "reasoning": "Priya agreed to take a written phased plan to her CFO, which is a concrete next step."}'
+      # US-0040: Priya's hidden fact 1 has an earned_when condition. After line 2 the account manager has named the risk and offered a phased module after launch, so the
+      # facilitator (only) is told "/release client_sponsor 1". Nothing is released by that. In the round after line 3 the exit verdict is true, so no earned check is made.
+      gm_earned:
+        - role: client_sponsor
+          fact: 1
+          replies:
+            - '{"verdict": true, "reasoning": "The account manager named the risk of changing ingestion before go-live and offered a phased module after launch."}'
 
   - scene: s3_internal_huddle
     lines:
@@ -85,6 +92,12 @@ scenes:
           replies:
             - '{"verdict": false, "reasoning": "A phased module was proposed, but no price has been offered yet."}'
             - '{"verdict": true, "reasoning": "A fixed fee of 48 thousand, delivered three weeks after go-live, was offered."}'
+        # US-0040: used only when a --max-lines cap of 1 stops scene 2 before its first Game Master round: Priya's condition is then still pending in scene 4 and is judged
+        # after line 1 (in a full run it was suggested in scene 2 and is never judged again).
+        - role: client_sponsor
+          fact: 1
+          replies:
+            - '{"verdict": true, "reasoning": "The team named the risk of the module before go-live and offered a phased delivery after it."}'
 
   - scene: s5_final_terms
     lines:

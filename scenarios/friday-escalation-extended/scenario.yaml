@@ -1,8 +1,8 @@
 id: esc-scope-creep-02
 title: The Friday Escalation, Extended
-version: "1.0"
+version: "1.1"
 audience: Delivery leads and project managers
-duration_minutes: 50
+duration_minutes: 55
 players: { min: 3, max: 3 }
 context: >-
   A fixed-fee data platform programme is six weeks from go-live. The client

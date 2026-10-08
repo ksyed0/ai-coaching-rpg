@@ -2,9 +2,8 @@
 # `lines` are spoken in order by player bots (live and mock runs). `mock` is used ONLY by the offline mock run:
 # the scripted replies of each AI character (one per player line, in order) and the Game Master's verdicts
 # for the scene (JSON, in the order the Game Master is asked). A live run ignores `mock` entirely.
-# This scenario has three scenes and one AI character (Priya, scene 2); scene 3 has no Game Master exit condition, so the demo ends it
-# by the facilitator advance after the last scripted line. The lines mix good and weak moves on purpose (a vague first answer to Priya, a
-# loose end in the wrap-up) so that the evaluator and the Game Master have something to tell apart.
+# This scenario has three scenes and one AI character (Priya, scene 2). The lines mix good and weak moves on purpose (an unpriced promise to Priya,
+# a loose end in the wrap-up) so that the evaluator and the Game Master have something to tell apart.
 scenes:
   - scene: s1_huddle
     lines:
@@ -28,19 +27,26 @@ scenes:
   - scene: s2_client_call
     lines:
       - { role: delivery_lead, text: "Hi Priya, thanks for making time. We read your email and we want to help Finance tie out the daily loads." }
-      - { role: account_manager, text: "We take the request seriously. Let us look at it properly and come back to you with something next week." }
-      - { role: delivery_lead, text: "Let me be more concrete. Adding new code to the ingestion layer now puts the launch date at risk, and a late launch costs you far more than a short wait. We would offer the module as a phase two right after go-live, scoped and priced separately." }
-      - { role: account_manager, text: "I will send you a short written proposal on Monday, and in the meantime we give Finance a manual tie-out report so nothing is blind." }
+      - { role: account_manager, text: "We can deliver it, but not safely before go-live. The ingestion layer is still being hardened, so we would propose a phased module right after launch." }
+      - { role: account_manager, text: "And on price, do not worry, we will find a way to make it work for you, whatever Finance needs." }
+      - { role: delivery_lead, text: "Let me be concrete. Adding new code to ingestion now puts the launch date at risk, and a late launch costs you far more than a short wait. We will send a written proposal on Monday with scope, a price and a date, and until then Finance gets a manual tie-out report." }
     mock:
       npc:
         client_sponsor:
           - "Thanks for jumping on. I will be direct: Finance needs that reconciliation module before go-live. Can you confirm it today?"
-          - "Next week is not an answer I can take to my CFO. I would rather hear a yes or a no, or at least what the risk is."
-          - "Okay, that is a clear argument. If it goes after launch, how soon, and what do I tell Finance in the meantime?"
-          - "That I can work with. A written proposal on Monday and a manual report until then. I will tell my CFO to expect it."
+          - "Right after launch is not what I asked for. Walk me through the risk, because I have to explain this upstairs."
+          - "That is generous, but I cannot take whatever Finance needs to my CFO. How soon after launch, and what do I tell Finance in the meantime?"
+          - "That I can work with. A written proposal with scope, a price and a date on Monday, and a manual report until then. I will tell my CFO to expect it."
       gm:
-        - '{"verdict": false, "reasoning": "Priya is still asking for a decision and no next step has been agreed yet."}'
-        - '{"verdict": true, "reasoning": "Priya accepted a written phased proposal on Monday and told the team she would brief her CFO, which is a concrete next step."}'
+        - '{"verdict": false, "reasoning": "Priya is still asking about the risk and no next step has been agreed yet."}'
+        - '{"verdict": true, "reasoning": "Priya accepted a written proposal on Monday with scope, price and date, and told the team she would brief her CFO, which is a concrete next step."}'
+      # US-0040: Priya's hidden fact 1 has an earned_when condition. After line 2 the account manager has named the risk and offered a phased module after go-live,
+      # so the facilitator (only) is told "/release client_sponsor 1". Nothing is released by that. In the round after line 3 the exit verdict is true, so no earned check is made.
+      gm_earned:
+        - role: client_sponsor
+          fact: 1
+          replies:
+            - '{"verdict": true, "reasoning": "The account manager named the risk of changing ingestion before go-live and offered a phased module after launch."}'
 
   - scene: s3_internal_wrap
     lines:
@@ -50,3 +56,8 @@ scenes:
       - { role: delivery_lead, text: "I will send that note to the wider team today: go-live scope is unchanged and the module is a phase two proposal." }
       - { role: tech_lead, text: "Then I will send you the effort estimate by Thursday so the proposal has a defensible price." }
       - { role: account_manager, text: "Good. So: I own the proposal and the call to Priya, the tech lead owns the estimate, and the delivery lead owns the message to the wider team." }
+    # Judged after line 3 (the wider-team message still has no owner: false) and after line 6 (every follow-up has an owner and a next action: true).
+    mock:
+      gm:
+        - '{"verdict": false, "reasoning": "The proposal and the call to Priya have an owner but the estimate and the message to the wider team do not yet."}'
+        - '{"verdict": true, "reasoning": "Owners and next actions were named for the proposal, the estimate and the message to the wider team."}'

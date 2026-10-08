@@ -112,7 +112,7 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
 
     await rec.run("F-19", () => {
       const calls = [...sys!.npc!.calls, ...sys!.gm!.calls];
-      ensure(calls.length === 10, `expected 4 NPC and 6 Game Master model calls (one of them the re-ask), saw ${calls.length}`);
+      ensure(calls.length === 11, `expected 4 NPC and 7 Game Master model calls (one of them the re-ask, one Priya's earned_when check), saw ${calls.length}`);
       const banned = [...ctx.markers.rubric, ...ctx.markers.hidden, ...Object.values(ctx.markers.secretsByRole).flat(), ...PARTICIPANT_NAMES, WHISPER_MARK];
       for (const req of calls) {
         const found = findMarkers(`${req.system}\n${JSON.stringify(req.messages)}`, banned);

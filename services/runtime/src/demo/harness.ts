@@ -103,6 +103,8 @@ export const GM_SCRIPT = [
   GM_MALFORMED,
   'Here is my judgement:\n```json\n{"reasoning": "delivery lead summarised one position and the others agreed", "verdict": true}\n```',
   '{"verdict": false, "reasoning": "no next step yet"}',
+  // US-0040: Priya's hidden fact has an earned_when condition, so the round whose exit verdict is false also asks (after it) whether the fact is earned. No suggestion in this run.
+  '{"verdict": false, "reasoning": "the risk has been named but no phased delivery has been offered yet"}',
   '{"verdict": true, "reasoning": "a phased plan by Monday was agreed"}',
 ];
 

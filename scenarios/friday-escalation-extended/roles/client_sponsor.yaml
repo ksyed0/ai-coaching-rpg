@@ -17,6 +17,10 @@ knowledge:
   - Finance needs the daily tie-out before the first month-end close after go-live
 hidden:
   - Would accept a phased delivery after go-live if the risk is explained well
+# US-0040: when the Game Master judges this condition met, the facilitator (only) is told that hidden fact 1 looks earned (/release client_sponsor 1).
+# The Game Master sees this condition, never the fact.
+earned_when:
+  1: A player has explained the risk of adding the module before go-live and offered a phased delivery after go-live
 guardrails:
   - Never reveal hidden information unless a player asks a question that earns it
   - Stay professional; frustration shows as brevity, not rudeness
