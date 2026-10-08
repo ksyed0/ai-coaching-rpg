@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { cp, mkdir, mkdtemp, open, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, open, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,7 +41,7 @@ async function dirMode(p: string): Promise<number> {
 }
 const input = (script: (req: Parameters<typeof targetOf>[0], i: number) => Script, extra: Partial<DraftInput> = {}) => {
   const p = scriptedDrafter(script);
-  return { p, i: { dir: scn, scenario, rubrics, drafter: drafterJudge(p), primaryFamily: "gemma", allowSameFamily: false, subject: "delivery_lead", perLevel: 1, timeouts: TIMEOUTS, ...extra } as DraftInput };
+  return { p, i: { dir: scn, scenario, rubrics, drafter: drafterJudge(p), primaryFamily: "gemma", allowSameFamily: false, subject: "delivery_lead", perLevel: 1, timeouts: TIMEOUTS, maxTokens: 3000, ...extra } as DraftInput };
 };
 
 describe("draftProbes", () => {
@@ -125,7 +125,8 @@ describe("draftProbes", () => {
   describe("the prompt", () => {
     it("names the scenario, the criterion, the target anchor verbatim, the scenes with participants and the roles' public persona", () => {
       const disc = rubrics.flatMap((r) => r.criteria).find((c) => c.id === "discovery")!;
-      const req = buildDraftRequest(scenario, disc, 2, "delivery_lead");
+      const req = buildDraftRequest(scenario, disc, 2, "delivery_lead", { maxTokens: 2500 });
+      expect(req.maxTokens).toBe(2500);
       expect(req.system).toContain(scenario.meta.title);
       expect(req.system).toContain(scenario.meta.context.trim());
       expect(req.system).toContain(disc.description.trim());
@@ -152,7 +153,7 @@ describe("draftProbes", () => {
         for (const c of rb.filter((r) => r.scope === "individual").flatMap((r) => r.criteria)) {
           for (const level of [1, 2, 3, 4] as const) {
             for (const subject of players) {
-              const req = buildDraftRequest(sc, c, level, subject);
+              const req = buildDraftRequest(sc, c, level, subject, { maxTokens: 3000 });
               const whole = [req.system, ...req.messages.map((m) => m.content)].join("\n");
               for (const secret of nonEmpty) expect(whole.includes(secret), `${s} ${c.id} l${level}: ${secret.slice(0, 40)}`).toBe(false);
             }
@@ -576,5 +577,85 @@ describe("the split total shared by approve and assign-splits", () => {
     const viaAssign = (parse(await readFile(path.join(cal, `${id}.yaml`), "utf8")) as { split: string }).split;
     expect(viaApprove).toBe(assignSplit(id, total));
     expect(viaAssign).toBe(viaApprove);
+  });
+});
+
+// ---- R29: approve checks its directories; a failed write leaves no truncated file -------------------------------------
+
+describe("R29 hardening", () => {
+  const NOW = () => new Date("2026-10-07T12:34:56.000Z");
+  const drafted = async () => { const { i } = input(() => fridayReply(), { criterion: "discovery" }); await draftProbes(i); };
+  const approve = (o: Partial<Parameters<typeof approveDraft>[0]> = {}) => approveDraft({ dir: scn, draftId: "draft-discovery-l2-1", by: "Kamal", scenario, rubrics, existing: [], now: NOW, ...o });
+  const cal = () => path.join(scn, "calibration");
+
+  it("approve refuses a calibration/drafts that is a symbolic link, and neither reads nor deletes the draft behind it", async () => {
+    await drafted();
+    const elsewhere = path.join(dir, "elsewhere");
+    await rename(drafts(), elsewhere);
+    await symlink(elsewhere, drafts());
+    await expect(approve()).rejects.toThrow(/calibration\/drafts must be a directory, not a symbolic link or a file/);
+    expect(await readdir(elsewhere)).toContain("draft-discovery-l2-1.yaml");
+    expect(await readdir(cal())).not.toContain("discovery-l2-1.yaml");
+  });
+  it("approve refuses a calibration/ that is a symbolic link, and writes nothing through it", async () => {
+    await drafted();
+    const elsewhere = path.join(dir, "elsewhere-cal");
+    await rename(cal(), elsewhere);
+    await symlink(elsewhere, cal());
+    await expect(approve()).rejects.toThrow(/^calibration must be a directory, not a symbolic link or a file/);
+    expect(await readdir(elsewhere)).not.toContain("discovery-l2-1.yaml");
+    expect(await readdir(path.join(elsewhere, "drafts"))).toContain("draft-discovery-l2-1.yaml");
+  });
+  it("approve refuses a calibration/drafts that is a file", async () => {
+    await mkdir(cal(), { recursive: true });
+    await writeFile(drafts(), "not a directory\n");
+    await expect(approve()).rejects.toThrow(/calibration\/drafts must be a directory/);
+  });
+
+  describe("a write that fails midway (ENOSPC) removes the truncated file", () => {
+    type Proto = { write: (...a: unknown[]) => Promise<{ bytesWritten: number }> };
+    let proto: Proto; let origWrite: Proto["write"];
+    beforeEach(async () => {
+      const fh = await open(path.join(dir, "probe-handle"), "w");
+      proto = Object.getPrototypeOf(fh) as Proto; origWrite = proto.write;
+      await fh.close();
+    });
+    afterEach(() => { proto.write = origWrite; });
+    /** Every write writes its first 10 bytes, then fails with ENOSPC. */
+    const failMidway = () => {
+      proto.write = async function (this: unknown, buf: unknown, off: unknown, len: unknown) {
+        await origWrite.call(this, buf, off, Math.min(Number(len ?? 10), 10));
+        throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+      };
+    };
+    it("draft: reports the error and leaves no draft file", async () => {
+      const { i } = input(() => fridayReply(), { criterion: "discovery" });
+      await mkdir(drafts(), { recursive: true });
+      failMidway();
+      const r = await draftProbes(i);
+      proto.write = origWrite;
+      expect(r.written).toEqual([]);
+      expect(r.problems).toHaveLength(4);
+      for (const p of r.problems) expect(p).toMatch(/cannot be written \(ENOSPC\)/);
+      expect(await listDrafts()).toEqual([]);
+    });
+    it("excerpt: rethrows and leaves no draft file", async () => {
+      await mkdir(drafts(), { recursive: true });
+      failMidway();
+      const err = await excerptDraft({ log: fridayLog(), scenario, rubrics, from: 7, to: 12, subject: "delivery_lead", criterion: "discovery", id: "excerpt-disc-01", dir: scn }).catch((e: unknown) => e);
+      proto.write = origWrite;
+      expect((err as NodeJS.ErrnoException).code).toBe("ENOSPC");
+      expect(await listDrafts()).toEqual([]);
+    });
+    it("approve: refuses, leaves no probe file and keeps the draft", async () => {
+      await drafted();
+      failMidway();
+      const err = await approve().catch((e: unknown) => e);
+      proto.write = origWrite;
+      expect(err).toBeInstanceOf(CalibrationInputError);
+      expect((err as Error).message).toBe("calibration/discovery-l2-1.yaml cannot be written (ENOSPC)");
+      expect(await readdir(cal())).not.toContain("discovery-l2-1.yaml");
+      expect(await listDrafts()).toContain("draft-discovery-l2-1.yaml");
+    });
   });
 });

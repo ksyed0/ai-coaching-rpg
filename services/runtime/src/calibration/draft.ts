@@ -26,7 +26,6 @@ export const MAX_EXCERPT_LINES = 80;
 export const MAX_APPROVER_CHARS = 120;
 const MAX_ALIASES = 10;
 const DRAFT_PREFIX = "draft-";
-const DEFAULT_DRAFT_TOKENS = 2_000;
 const DEFAULT_DRAFT_TEMPERATURE = 0.7;
 /** O_NOFOLLOW where the platform has it: a symbolic link at the last path component is refused (ELOOP) instead of followed. */
 const NOFOLLOW = constants.O_NOFOLLOW ?? 0;
@@ -51,13 +50,40 @@ async function ensureRealDir(dir: string, label: string): Promise<void> {
   try { await mkdir(dir, { mode: 0o700 }); } catch (e) {
     if (code(e) !== "EEXIST") throw new CalibrationInputError(`${label} cannot be created (${code(e)})`);
   }
+  try { await assertRealDir(dir, label); } catch (e) {
+    if (e instanceof CalibrationInputError) throw e;
+    throw new CalibrationInputError(`${label} cannot be opened (${code(e)})`);
+  }
+}
+
+/** `dir` opened with O_DIRECTORY | O_NOFOLLOW (never created): a symbolic link or a file in its place is refused. ENOENT is rethrown as is. */
+async function assertRealDir(dir: string, label: string): Promise<void> {
   let fh: FileHandle;
   try { fh = await open(dir, constants.O_RDONLY | constants.O_DIRECTORY | NOFOLLOW); } catch (e) {
     const c = code(e);
     if (c === "ELOOP" || c === "ENOTDIR") throw new CalibrationInputError(`${label} must be a directory, not a symbolic link or a file`);
+    if (c === "ENOENT") throw e;
     throw new CalibrationInputError(`${label} cannot be opened (${c})`);
   }
   await fh.close();
+}
+
+/**
+ * Creates `file` exclusively (`wx`, 0o600) and writes `text` through that one handle. When the write or close fails (ENOSPC midway), the
+ * file this call created is removed (unlink errors ignored) before the error is rethrown, so no truncated draft or probe is left. When
+ * the open itself fails (EEXIST: someone else's file) nothing is removed.
+ */
+async function writeExclusive(file: string, text: string): Promise<void> {
+  const fh = await open(file, "wx", 0o600);
+  try {
+    const buf = Buffer.from(text, "utf8");
+    for (let off = 0; off < buf.length;) off += (await fh.write(buf, off, buf.length - off)).bytesWritten;
+    await fh.close();
+  } catch (e) {
+    await fh.close().catch(() => undefined);
+    await unlink(file).catch(() => undefined);
+    throw e;
+  }
 }
 
 /** <scenario>/calibration/drafts, both levels checked as real directories. */
@@ -108,7 +134,7 @@ export type DraftInput = {
   /** One individual criterion, or every individual criterion when undefined. */ criterion?: string;
   /** The player role whose lines demonstrate the level (default: the first player role by id). */ subject?: string;
   /** Drafts per (criterion, level): 1 to 3. */ perLevel: number;
-  timeouts: Timeouts; maxTokens?: number; temperature?: number;
+  timeouts: Timeouts; /** The drafter's token budget per call (the CLI passes EVAL_MAX_TOKENS). */ maxTokens: number; temperature?: number;
   signal?: AbortSignal; onProgress?: (message: string) => void;
 };
 export type DraftResult = { written: string[]; problems: string[] };
@@ -125,7 +151,17 @@ export function draftCriteria(rubrics: Rubric[], criterion?: string): Criterion[
 /** The model calls a draft run makes: criteria x 4 levels x perLevel (no re-asks). */
 export const plannedDraftCalls = (criteria: number, perLevel: number): number => criteria * LEVELS.length * perLevel;
 
-function subjectOf(scenario: Scenario, subject: string | undefined): string {
+/** The longest criterion id a draft id can carry: draft-<criterion>-l<level>-1 is at most MAX_PROBE_ID (58) characters. */
+export const MAX_DRAFT_CRITERION_ID = MAX_PROBE_ID - `${DRAFT_PREFIX}-l1-1`.length;
+
+/** Refuses (CalibrationInputError) a criterion whose id is too long to become a draft id, before any call is planned or made. */
+export function checkDraftCriteria(criteria: Criterion[]): void {
+  const long = criteria.find((c) => c.id.length > MAX_DRAFT_CRITERION_ID);
+  if (long) throw new CalibrationInputError(`criterion ${printable(long.id, 64)} is too long for a draft id (at most ${MAX_DRAFT_CRITERION_ID} characters)`);
+}
+
+/** The draft subject: `subject` when it is a player role, else the first player role by id; a CalibrationInputError otherwise. */
+export function subjectOf(scenario: Scenario, subject: string | undefined): string {
   if (subject === undefined) {
     const players = Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => r.id).sort();
     if (players.length === 0) throw new CalibrationInputError("the scenario has no player role to draft for");
@@ -154,7 +190,7 @@ export function checkDrafter(drafter: Judge, primaryFamily: string | null, allow
  * AI character its name, title and persona; scene ids, titles and participants; the criterion and the target anchor. Never a hidden fact,
  * an earned_when condition, a player's brief or private facts, an AI character's goals, knowledge or guardrails, or the facilitator notes.
  */
-export function buildDraftRequest(scenario: Scenario, criterion: Criterion, level: Level, subject: string, o: { maxTokens?: number; temperature?: number } = {}): ChatRequest {
+export function buildDraftRequest(scenario: Scenario, criterion: Criterion, level: Level, subject: string, o: { maxTokens: number; temperature?: number }): ChatRequest {
   const roles = Object.values(scenario.roles).filter((r) => r.id !== subject).map((r) =>
     r.type === "npc" ? `- ${r.id} (AI character): ${oneLine(r.name)}${r.title ? `, ${oneLine(r.title)}` : ""}. ${oneLine(r.persona)}` : `- ${r.id} (player)`);
   const scenes = scenario.script.scenes.map((s) => `- ${s.id} "${oneLine(s.title)}": participants ${s.participants.join(", ")}`);
@@ -181,7 +217,7 @@ export function buildDraftRequest(scenario: Scenario, criterion: Criterion, leve
     'Answer with JSON only, no prose and no code fence: {"transcript":[{"scene":"<scene id>","role":"<role id>","text":"<what they say>"}]}',
   ].join("\n");
   return {
-    system, maxTokens: o.maxTokens ?? DEFAULT_DRAFT_TOKENS, temperature: o.temperature ?? DEFAULT_DRAFT_TEMPERATURE,
+    system, maxTokens: o.maxTokens, temperature: o.temperature ?? DEFAULT_DRAFT_TEMPERATURE,
     messages: [{ role: "user", content: `Draft the transcript for criterion ${criterion.id} at level ${level}.` }],
   };
 }
@@ -271,7 +307,7 @@ export async function draftProbes(i: DraftInput): Promise<DraftResult> {
         if ("problem" in r) { fail(r.problem); continue; }
         const draft = { kind: "single", id, criterion: c.id, source: "drafted", drafter: i.drafter.model, approved_by: null, approved_at: null, subject, expected: level, transcript: r.lines };
         const file = path.join(drafts, `${id}.yaml`);
-        try { await writeFile(file, toYaml(draft, HEADER.drafted), { flag: "wx", mode: 0o600 }); }
+        try { await writeExclusive(file, toYaml(draft, HEADER.drafted)); }
         catch (e) { fail(code(e) === "EEXIST" ? "a file with this name appeared meanwhile: not overwritten" : `cannot be written (${code(e)})`); continue; }
         out.written.push(file);
         i.onProgress?.(`draft ${id} written (${c.id}, level ${level})`);
@@ -339,7 +375,7 @@ export async function excerptDraft(i: ExcerptInput): Promise<{ file: string; war
   const draft = { kind: "single", id: i.id, criterion: i.criterion, source: "excerpt", drafter: null, approved_by: null, approved_at: null, subject, transcript: lines };
   const drafts = await draftsDir(i.dir);
   const file = path.join(drafts, name);
-  try { await writeFile(file, toYaml(draft, HEADER.excerpt), { flag: "wx", mode: 0o600 }); }
+  try { await writeExclusive(file, toYaml(draft, HEADER.excerpt)); }
   catch (e) {
     if (code(e) === "EEXIST") throw new CalibrationInputError(`draft ${i.id} already exists in calibration/drafts (approve or delete it first)`);
     throw e;
@@ -370,6 +406,12 @@ export async function approveDraft(i: ApproveInput): Promise<ApproveResult> {
   if (i.finalId !== undefined && !isProbeId(i.finalId)) throw new CalibrationInputError(`--id must be ${ID_RULE}`);
   const cal = path.join(i.dir, "calibration");
   const draftFile = path.join(cal, "drafts", `${i.draftId}.yaml`);
+  // Both levels must be real directories (never created here): a symbolic link in place of calibration/ or drafts/ is refused before
+  // the draft is read, the probe written or the draft deleted. A missing directory means there is no such draft.
+  try { await assertRealDir(cal, "calibration"); await assertRealDir(path.dirname(draftFile), "calibration/drafts"); } catch (e) {
+    if (e instanceof CalibrationInputError) throw e;
+    throw new CalibrationInputError(code(e) === "ENOENT" ? `there is no draft ${i.draftId} in calibration/drafts` : `calibration/drafts cannot be opened (${code(e)})`);
+  }
   let text: string;
   try { text = await readNoFollow(draftFile, MAX_PROBE_BYTES); } catch (e) {
     const c = code(e);
@@ -405,7 +447,7 @@ export async function approveDraft(i: ApproveInput): Promise<ApproveResult> {
   if (checked.problems.length) throw new CalibrationInputError(`draft ${i.draftId}: not a valid probe:\n${checked.problems.map((x) => `  - ${x}`).join("\n")}`);
   const { transcript, ...rest } = parsed.data;
   const file = path.join(cal, name);
-  try { await writeFile(file, toYaml({ ...rest, transcript }), { flag: "wx", mode: 0o600 }); }
+  try { await writeExclusive(file, toYaml({ ...rest, transcript })); }
   catch (e) {
     if (code(e) === "EEXIST") throw new CalibrationInputError(`a probe ${finalId} already exists (calibration/${name}): approve never overwrites (choose another --id)`);
     throw new CalibrationInputError(`calibration/${name} cannot be written (${code(e)})`);

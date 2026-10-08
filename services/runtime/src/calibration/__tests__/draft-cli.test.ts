@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -272,5 +272,61 @@ describe("pnpm calibrate: authoring exit codes and output hygiene", () => {
       // eslint-disable-next-line no-control-regex
       expect(t).not.toMatch(/[\u0007\u001b]/);
     }
+  });
+});
+
+describe("R29: draft input checked before the planned-calls line; approve checks its directories", () => {
+  /** The scenario copy with criterion `discovery` renamed to `id` (rubric and scenario). */
+  const renameDiscovery = async (id: string) => {
+    for (const f of [path.join(scn, "rubrics", "individual_delivery_v2.yaml"), path.join(scn, "scenario.yaml")]) {
+      await writeFile(f, (await readFile(f, "utf8")).replace(/\bdiscovery\b/g, id));
+    }
+    await rm(path.join(scn, "calibration"), { recursive: true, force: true });
+  };
+  it("refuses an unknown --subject with exit 2, before the planned line and any call", async () => {
+    const { p, d } = scripted();
+    const r = await run(["draft", "--scenario", scn, ...SPEC, "--criterion", "discovery", "--subject", "nobody"], { drafter: d });
+    expect(r.exitCode).toBe(2);
+    expect(r.errText).toMatch(/subject nobody is not a player role/);
+    expect(r.outText).not.toContain("planned:");
+    expect(p.calls).toHaveLength(0);
+  });
+  it.each([["--criterion"], ["(every criterion)"]])("refuses a criterion id over 47 characters (%s) with exit 2, before the planned line", async (how) => {
+    const long = "d".repeat(48);
+    await renameDiscovery(long);
+    const { p, d } = scripted();
+    const r = await run(["draft", "--scenario", scn, ...SPEC, ...(how === "--criterion" ? ["--criterion", long] : []), "--subject", "delivery_lead"], { drafter: d });
+    expect(r.exitCode).toBe(2);
+    expect(r.errText).toContain(`criterion ${long} is too long for a draft id (at most 47 characters)`);
+    expect(r.outText).not.toContain("planned:");
+    expect(p.calls).toHaveLength(0);
+  });
+  it("accepts a criterion id of exactly 47 characters (draft id of 58)", async () => {
+    const id47 = "d".repeat(47);
+    await renameDiscovery(id47);
+    const { p, d } = scripted();
+    const r = await run(["draft", "--scenario", scn, ...SPEC, "--criterion", id47, "--subject", "delivery_lead"], { drafter: d });
+    expect(r.errText).not.toContain("too long");
+    expect(r.outText).toContain("planned: 4 drafter calls");
+    expect(p.calls).toHaveLength(4);
+  });
+  it("sends EVAL_MAX_TOKENS as the drafter's token budget", async () => {
+    const { p, d } = scripted();
+    const r = await run(["draft", "--scenario", scn, ...SPEC, "--criterion", "discovery", "--subject", "delivery_lead"], { drafter: d }, { ...ENV, EVAL_MAX_TOKENS: "1234" });
+    expect(r.exitCode).toBe(0);
+    expect(p.calls.map((c) => c.maxTokens)).toEqual([1234, 1234, 1234, 1234]);
+  });
+  it("approve exits 2 for a calibration/drafts that is a symbolic link, and keeps the draft behind it", async () => {
+    const { d } = scripted();
+    expect((await run(["draft", "--scenario", scn, ...SPEC, "--criterion", "discovery", "--subject", "delivery_lead"], { drafter: d })).exitCode).toBe(0);
+    const real = path.join(scn, "calibration", "drafts");
+    const elsewhere = path.join(dir, "elsewhere");
+    await rename(real, elsewhere);
+    await symlink(elsewhere, real);
+    const r = await run(["approve", "--scenario", scn, "--draft", "draft-discovery-l2-1", "--by", "Kamal"]);
+    expect(r.exitCode).toBe(2);
+    expect(r.errText).toMatch(/calibration\/drafts must be a directory, not a symbolic link or a file/);
+    expect(await readdir(elsewhere)).toContain("draft-discovery-l2-1.yaml");
+    expect(await readdir(path.join(scn, "calibration"))).not.toContain("discovery-l2-1.yaml");
   });
 });

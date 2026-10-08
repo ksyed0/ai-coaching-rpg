@@ -8,7 +8,7 @@ import { loadEvaluationInput, secretValues, type Out } from "../evaluator/cli.js
 import { isValidModelId, parseEvalConfig } from "../evaluator/config.js";
 import { MIN_UTTERANCES } from "../evaluator/evaluate.js";
 import { readSessionLog, SessionLogError } from "../evaluator/log-reader.js";
-import { approveDraft, assignSplits, checkDrafter, draftCriteria, draftProbes, excerptDraft, MAX_PER_LEVEL, plannedDraftCalls } from "./draft.js";
+import { approveDraft, assignSplits, checkDraftCriteria, checkDrafter, draftCriteria, draftProbes, excerptDraft, MAX_PER_LEVEL, plannedDraftCalls, subjectOf } from "./draft.js";
 import { buildJudge, buildPrimaryJudge, CalibrationInputError, modelFamily, parseJudgeSpec, type Judge, type JudgeSpec } from "./judge.js";
 import { CONTRAST_MIN_USABLE_SHARE, usableFraction } from "./metrics.js";
 import { loadProbes, printable } from "./probe-load.js";
@@ -321,6 +321,9 @@ async function runAuthoring(sub: string, values: Values, deps: CalibrateDeps, di
     const primaryFamily = primaryModel !== "" && isValidModelId(primaryModel) ? modelFamily(primaryModel) : null;
     const allowSameFamily = values["allow-same-family"] === true;
     const criteria = draftCriteria(input.rubrics, str(values, "criterion"));
+    // Everything draftProbes would refuse is refused here, before the planned-calls line (exit 2, nothing planned or called).
+    checkDraftCriteria(criteria);
+    subjectOf(input.scenario, str(values, "subject"));
     const drafter = deps.drafter ?? asDrafter(() => buildJudge(spec, deps.env));
     checkDrafter(drafter, primaryFamily, allowSameFamily);
     say(`drafter: ${drafter.label} (${drafter.model}). This sends the scenario's public context and the rubric anchors to its model provider and may cost money.`);
