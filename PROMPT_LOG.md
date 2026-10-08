@@ -496,3 +496,13 @@ Every user prompt of each working session, in order, with its UTC timestamp (AGE
 > whats the status
 > go ahead and merge pr 36, then continue with us-0037
 > update session documents
+
+## US-0037 Task 10 and session close — 2026-10-08
+
+### 2026-10-08T09:00:00Z (approximate, reconstructed from the session)
+
+> option 2 (add a showcase for friday-escalation, not a separate extended calibration set)
+> approve the 19 drafts you recommended ... approve the excerpts you recommend
+> the 8 starter probes are drafted with my approval
+> I will rotate the OpenRouter key later
+> update session documents

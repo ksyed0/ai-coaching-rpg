@@ -136,3 +136,19 @@ _Learned when the calibration label let a judge that answered 3 to everything PA
 _Learned when PR #36 failed the CodeQL check with three high alerts in a test file, and when review reproduced that an outage, a Ctrl-C, `--only` and a mid-run judge failure each replaced a good summary._
 **Date:** 2026-10-07
 
+
+## L-0018 — Verify that a captured artifact belongs to the run before you keep it
+
+@agent: all
+
+**Rule:** When you copy a log, transcript or result out of a temporary location, check that it is from the run you mean: timestamps inside it, the scenario id and version, the model names. Do not assume that the newest or only matching directory is yours. Name the location a tool really writes to (the live showcase writes `$TMPDIR/acr-showcase-run-XXXX/data/demo.jsonl`), set `TMPDIR` to a known folder for the run, and copy from there.
+_Learned when a copy loop synced `acr-demo-*` directories (another demo mode) and saved a stale mock-story session log as if it were a live run's log; it was caught only by reading the timestamps and scenario version in it._
+**Date:** 2026-10-08
+
+## L-0019 — When practice has an exception, the rule text must name the exception and its record
+
+@agent: all
+
+**Rule:** If a written rule says "an agent never does X" and an agent does X on explicit owner instruction, change the rule the same day to say who may do it, under what instruction, and where the record lives (here: `approve` may be run by an agent only on the owner's explicit instruction naming the items, and the approval is recorded in `approved_by`, the commit history and the docs Limits section). Otherwise the docs describe something that is no longer true and the next reader cannot tell a sanctioned exception from a breach.
+_Learned when the `approve` help and docs said an agent never approves probes while an agent approved 26 probes on the owner's chat instruction of 2026-10-08; the rule was reworded and the Limits section now lists the approval records._
+**Date:** 2026-10-08

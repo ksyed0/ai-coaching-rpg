@@ -34,3 +34,5 @@ Osaurus at `http://127.0.0.1:1337/v1`. Models served on 2026-10-06: `foundation`
 
 ## Cost
 `docs/AI_COST_LOG.md` is appended by the Stop hook with running totals per snapshot: do not sum rows; take the latest row per session.
+
+- Drafting model for calibration probes: `claude-sonnet-5-5` (a Claude model, a different family from the Gemma primary judge and the Holo3 second judge). The draft CLI supports only OpenAI-compatible drafters, so the 19 Friday drafts were produced through the real draft pipeline with a replay shim; the owner declined copying `ANTHROPIC_API_KEY` into `LOCAL_API_KEY`. The second judge is `holo3-35b-a3b-jangtq4` at `http://127.0.0.1:1337/v1`.

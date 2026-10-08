@@ -16,7 +16,7 @@ Parallel stories: reserve id blocks up front (see below) and tell implementers n
 ## Plan files (PlanVisualizer v2.4.0; `plan_visualizer.md` is the format authority)
 - Status values: epic `Planned|In Progress|Complete`; story `Planned|In Progress|Complete|Blocked` (NOT `Done`); task `To Do|In Progress|Done|Blocked`; bug `Open|In Progress|Fixed|Verified|Closed`.
 - `npm run plan:generate` regenerates `docs/plan-status.*` (never hand-merge them); `npm run plan:test` includes a registry test: each Next/Last id in `docs/ID_REGISTRY.md` must equal the highest id used, and ids named in the registry's "Reserved blocks" line count as used.
-- Current registry: next EPIC-0007, US-0035, TASK-0052, AC-0170, TC-0008, BUG-0007, L-0014 (see the file). Test case ids start at TC-0001 (US-0033 used TC-0001..TC-0007); the controller reserves TC ids for an implementer by editing the registry in its worktree.
+- Current registry: next EPIC-0007, US-0035, TASK-0052, AC-0170, TC-0008, BUG-0009, L-0020 (see the file; the figures in this line go stale, the registry is the authority). Test case ids start at TC-0001 (US-0033 used TC-0001..TC-0007); the controller reserves TC ids for an implementer by editing the registry in its worktree.
 
 ## Session close (AGENTS.md section 14)
 Commit state, update `progress.md`, `MEMORY.md`, `PROMPT_LOG.md` (redact secrets: the repo is public), `docs/LESSONS.md`, `MIGRATION_LOG.md`, run coverage and log it, report to the owner. Never put a secret in any file in this repo; never print one in chat.
@@ -35,3 +35,6 @@ Commit state, update `progress.md`, `MEMORY.md`, `PROMPT_LOG.md` (redact secrets
 - A CI watcher must also wait for the PR head to equal the pushed commit (`gh pr view --json headRefOid` against `git ls-remote`): right after a push, `gh pr checks` still lists the previous commit's checks.
 - A new worktree needs `pnpm install --frozen-lockfile` AND `npm ci` before `npm run plan:generate`; copy the SDD workspace (git-ignored `.superpowers/sdd/<plan>/`) into the next story's worktree so the ledger continues.
 
+
+- Agent approval of ground-truth data: an agent may run `pnpm calibrate approve` only on the owner's explicit instruction naming the items; record it (`--by`, commit message, EVALUATOR.md Limits) and leave the owner review items unticked (AC-0191). Before trusting probe levels, have a reviewer grade the probes blind (before seeing the levels): the Friday set's audit found 0 full-level disagreements; keep this practice for ground-truth data.
+- Verify a captured artifact belongs to the run (L-0018). Scenario review checklist from US-0040: a pricing anchor for negotiation roles, role boundaries in the briefs, and no criterion the base scenario cannot exercise (stakeholder_management still has no probe).

@@ -7,8 +7,8 @@
 | TASK         | TASK-0066             | TASK-0065         |
 | AC           | AC-0209               | AC-0208           |
 | TC           | TC-0049               | TC-0048           |
-| BUG          | BUG-0008              | BUG-0007          |
-| L            | L-0018                | L-0017            |
+| BUG          | BUG-0009              | BUG-0008          |
+| L            | L-0020                | L-0019            |
 
 Reserved blocks (2026-10-06): AC-0130..AC-0139 and TASK-0040..TASK-0042 US-0025; AC-0140..AC-0149 and TASK-0043..TASK-0045 US-0017; AC-0150..AC-0159 and TASK-0046..TASK-0048 US-0016; AC-0160..AC-0169 and TASK-0049..TASK-0051 US-0018. Free below the blocks: AC-0127..AC-0129 and TASK-0035..TASK-0039. Next/Last point past the reserved blocks; an id in a block that its story does not use stays unused (ids are never reassigned).
 
