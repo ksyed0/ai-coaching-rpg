@@ -1,17 +1,19 @@
 # Backlog and decisions
 
 ## State on 2026-10-07 (session 7)
-`develop` holds everything built so far (through PR #32; PR #33 US-0019 is open and the calibration stories are in build). Delivered stories: US-0001..US-0012 (Slice 1), US-0014..US-0018, US-0021, US-0022, US-0024..US-0034, US-0013 (protocol slice; the web lobby of EPIC-0002 is still untouched), bugs BUG-0001..BUG-0006.
+`develop` holds everything built so far (through PR #36: calibration probes and `pnpm calibrate` are in; US-0037 is in build). Delivered stories: US-0001..US-0012 (Slice 1), US-0014..US-0018, US-0021, US-0022, US-0024..US-0034, US-0013 (protocol slice; the web lobby of EPIC-0002 is still untouched), bugs BUG-0001..BUG-0006.
 
 ## Open work, in the order I would take it
 1. **EPIC-0005 remainder:** facilitator moderation and release of reports (ASM-04), participant self-assessment (ASM-07), per-participant visibility (ASM-09), calibration with a second judge (ASM-08). The evaluator is lenient and its three players score alike; a judge from a different model family is the plan.
-2. **EPIC-0005 calibration slice (US-0035..US-0039):** US-0035 code-complete on its branch, then US-0036 `pnpm calibrate`, US-0037 drafting and the scaled probe set, the live baseline (decision gate), US-0038 variants only if the baseline FAILs, US-0039 the report stamp. Plan: `docs/superpowers/plans/2026-10-07-evaluator-calibration.md`.
+2. **EPIC-0005 calibration slice (US-0035..US-0039):** US-0035 and US-0036 merged; US-0037 (loader hardening, `draft`/`excerpt`/`approve`/`assign-splits`, the scaled Friday probe set with the owner approving probes at Task 10) in build; then the live baseline (Gemma + `holo3-35b-a3b-jangtq4`), US-0038 only if the baseline FAILs, US-0039 the report stamp. Plan: `docs/superpowers/plans/2026-10-07-evaluator-calibration.md`.
 3. Tooling: a lint rule or contributor note against short real timers and `/proc` in tests (three CI rounds were lost to them); a Linux test that forces real inode reuse in the lock takeover; a restart policy outside Docker.
 4. Epics 2, 3, 4 (web lobby, voice over LiveKit, 3D) are all Planned and untouched.
 
 Follow-ups from the US-0013 and US-0034 reviews (not filed as stories): announce the text of an auto-released fact found in a replay (N1); tests for a one-microtask yield in the join block and for the replay margin (N2); a log identity in `joined` so a pre-`fresh` `lastSeq` is detected; a per-address join rate limit; per-viewer event numbering (players see seq gaps for facilitator-only events); earned checks in the showcase reliability numbers; the terminal client does not reconnect by itself; a live `gm-eval` set for `earned_when`; a flaky real-timer watchdog test in `runner.test.ts` and an `atomic-write` concurrency test (seen to flake once under load).
 
 Review follow-ups for the calibration code (deferred minors, not filed): see `.superpowers/sdd/2026-10-07-evaluator-calibration/progress.md` in the US-0035 worktree: item-4 test fixture that only the prototype-key defence can refuse; sanitise bidi and zero-width characters in loader messages; `O_NOFOLLOW` in `readCapped`; FIFO `.yaml` entries; ESLint does not lint any TypeScript in this repo (still true: type-aware lint is an open tooling item).
+
+Deferred from the US-0036 reviews (carried into US-0037/US-0038/US-0039, see the SDD ledger in the US-0037 worktree): usable-fraction helper shared by the WARN and the summary skip rule; skip reason when all contrast answers are lost (R22); `--only` naming every probe should not count as a subset; Expected column in the disagreements table; `runs[0]`-only agreement and bias (US-0038); confidence distribution (US-0038/US-0039); stamp must compare `judge.model` exactly (US-0039); eslint does not lint `src/calibration` or any TypeScript in the repo (separate chore); `Evidence` type name exists in both `evaluator/parse.ts` and `calibration/types.ts`.
 
 ## Decisions taken (and why)
 - Local model default Gemma-4-31B; Raptor dropped (repetition, echoing). 2026-10-06, owner.
