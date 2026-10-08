@@ -1530,7 +1530,7 @@
       "title": "Evaluator prompt variants and the acceptance report (conditional on the baseline)",
       "priority": "Medium",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Blocked",
       "branch": "feature/EPIC-0005-US-0038-prompt-variants",
       "acs": [
         {
@@ -2163,7 +2163,7 @@
       "assignee": "Agent",
       "status": "Done",
       "branch": "feature/EPIC-0005-US-0036-calibrate-command",
-      "notes": "Implementation plan Tasks 4-8 (docs/superpowers/plans, evaluator calibration, 2026-10-07): judge configuration, the runner, metrics, the blind cross-judge comparison, the report and result files, and `pnpm calibrate` (cli.ts, main.ts), with the carried review fixes (quiet YAML loading, base URL messages, per-criterion labels and the contrast gap in the report). Done 2026-10-07; test cases TC-0028..TC-0032. Not done here: the first live numbers (baseline task), drafting and approval (US-0037), prompt variants and the stamp (US-0038, US-0039)."
+      "notes": "Implementation plan Tasks 4-8 (docs/superpowers/plans, evaluator calibration, 2026-10-07): judge configuration, the runner, metrics, the blind cross-judge comparison, the report and result files, and `pnpm calibrate` (cli.ts, main.ts), with the carried review fixes (quiet YAML loading, base URL messages, per-criterion labels and the contrast gap in the report). Done 2026-10-07; test cases TC-0028..TC-0032. Not done here: the first live numbers (baseline task), drafting and approval (US-0037), prompt variants and the stamp (US-0038, US-0039). Update 2026-10-08: the baseline ran (Task 11, both judges PASS; docs/EVALUATOR.md, Baseline)."
     },
     {
       "id": "TASK-0057",
@@ -2173,7 +2173,7 @@
       "assignee": "Agent",
       "status": "In Progress",
       "branch": "feature/EPIC-0005-US-0037-probe-drafting",
-      "notes": "Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 built 2026-10-08 (34-probe Friday set, TC-0036; agent approval of the 19 drafts and 7 excerpts on the owner's chat instruction). Remaining: owner review of the excerpt levels (AC-0191); then the baseline run (Task 11) needs the live judges."
+      "notes": "Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 built 2026-10-08 (34-probe Friday set, TC-0036; agent approval of the 19 drafts and 7 excerpts on the owner's chat instruction). Remaining: owner review of the excerpt levels (AC-0191). Update 2026-10-08: the baseline run (Task 11) has run on this set (docs/EVALUATOR.md, Baseline)."
     },
     {
       "id": "TASK-0058",
@@ -2181,9 +2181,9 @@
       "title": "Add evaluator prompt variants and the acceptance report",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Blocked",
       "branch": "feature/EPIC-0005-US-0038-prompt-variants",
-      "notes": "Implementation plan Task 12 (docs/superpowers/plans, evaluator calibration, 2026-10-07)."
+      "notes": "Implementation plan Task 12 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Deferred (Blocked is the closest allowed status; see US-0038) by ruling R32: the Task 11 baseline did not trigger the stage gate. Id stays reserved."
     },
     {
       "id": "TASK-0059",
@@ -2809,248 +2809,248 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 1600,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 800,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 400,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 400,
-      "costUsd": 14.909883,
+      "costUsd": 15.26156,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 596.3953,
-      "inputTokens": 23784175,
-      "outputTokens": 4266832
+      "costUsd": 610.4624,
+      "inputTokens": 24884746,
+      "outputTokens": 4324888
     },
     "_bugs": {
       "BUG-0001": {
@@ -3600,10 +3600,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-08T15:57:05.584Z",
-  "commitSha": "052e947",
-  "buildNumber": "324",
-  "branch": "feature/EPIC-0005-US-0037-friday-set",
+  "generatedAt": "2026-10-08T22:50:40.129Z",
+  "commitSha": "6547215",
+  "buildNumber": "326",
+  "branch": "docs/EPIC-0005-task11-baseline",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -3623,7 +3623,7 @@
     },
     {
       "date": "2026-10-08",
-      "cumCost": 596.3953
+      "cumCost": 610.4624
     }
   ],
   "costHistory": {
@@ -3650,11 +3650,11 @@
       },
       {
         "date": "2026-10-08",
-        "costUsd": 187.3887
+        "costUsd": 201.4558
       }
     ]
   },
-  "deltaSpend": 187.39,
+  "deltaSpend": 201.46,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
@@ -3727,52 +3727,54 @@
     }
   },
   "budget": {
-    "totalBudget": 1796.3953000000001,
-    "totalSpent": 596.3953,
+    "totalBudget": 1010.4624,
+    "totalSpent": 610.4624,
     "totalProjected": 33200,
-    "percentUsed": 33,
-    "burnRate": 18.664876666666668,
-    "daysRemaining": 64,
-    "projectedExhaustion": 64,
+    "percentUsed": 60,
+    "burnRate": 19.68608522222222,
+    "daysRemaining": 20,
+    "projectedExhaustion": 20,
     "thresholds": [
       50,
       75,
       90,
       100
     ],
-    "crossedThresholds": [],
+    "crossedThresholds": [
+      50
+    ],
     "epicBudgets": [
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 208.73836200000008,
-        "spent": 208.73836200000008,
+        "budget": 213.66184,
+        "spent": 213.66184,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 14.909883,
-        "spent": 14.909883,
+        "budget": 15.26156,
+        "spent": 15.26156,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 223.6482450000001,
-        "spent": 223.6482450000001,
+        "budget": 228.92340000000002,
+        "spent": 228.92340000000002,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 1349.0988300000001,
-        "spent": 149.09883000000005,
-        "remaining": 1200,
-        "percentUsed": 11
+        "budget": 552.6156,
+        "spent": 152.6156,
+        "remaining": 400,
+        "percentUsed": 28
       },
       {
         "id": "EPIC-0003",
@@ -3796,41 +3798,39 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-08T14:53:02.783Z",
-      "2026-09-09T14:53:02.783Z",
-      "2026-09-10T14:53:02.783Z",
-      "2026-09-11T14:53:02.783Z",
-      "2026-09-12T14:53:02.783Z",
-      "2026-09-13T14:53:02.783Z",
-      "2026-09-14T14:53:02.783Z",
-      "2026-09-15T14:53:02.783Z",
-      "2026-09-16T14:53:02.783Z",
-      "2026-09-17T14:53:02.783Z",
-      "2026-09-18T14:53:02.783Z",
-      "2026-09-19T14:53:02.783Z",
-      "2026-09-20T14:53:02.783Z",
-      "2026-09-21T14:53:02.783Z",
-      "2026-09-22T14:53:02.783Z",
-      "2026-09-23T14:53:02.783Z",
-      "2026-09-24T14:53:02.783Z",
-      "2026-09-25T14:53:02.783Z",
-      "2026-09-26T14:53:02.783Z",
-      "2026-09-27T14:53:02.783Z",
-      "2026-09-28T14:53:02.783Z",
-      "2026-09-29T14:53:02.783Z",
-      "2026-09-30T14:53:02.783Z",
-      "2026-10-01T14:53:02.783Z",
-      "2026-10-02T14:53:02.783Z",
-      "2026-10-03T14:53:02.783Z",
-      "2026-10-04T14:53:02.783Z",
-      "2026-10-05T14:53:02.783Z",
-      "2026-10-06T14:53:02.783Z",
-      "2026-10-07T14:53:02.783Z",
-      "2026-10-08T15:06:19.139Z",
-      "2026-10-08T15:57:05.643Z"
+      "2026-09-08T22:50:40.190Z",
+      "2026-09-09T22:50:40.190Z",
+      "2026-09-10T22:50:40.190Z",
+      "2026-09-11T22:50:40.190Z",
+      "2026-09-12T22:50:40.190Z",
+      "2026-09-13T22:50:40.190Z",
+      "2026-09-14T22:50:40.190Z",
+      "2026-09-15T22:50:40.190Z",
+      "2026-09-16T22:50:40.190Z",
+      "2026-09-17T22:50:40.190Z",
+      "2026-09-18T22:50:40.190Z",
+      "2026-09-19T22:50:40.190Z",
+      "2026-09-20T22:50:40.190Z",
+      "2026-09-21T22:50:40.190Z",
+      "2026-09-22T22:50:40.190Z",
+      "2026-09-23T22:50:40.190Z",
+      "2026-09-24T22:50:40.190Z",
+      "2026-09-25T22:50:40.190Z",
+      "2026-09-26T22:50:40.190Z",
+      "2026-09-27T22:50:40.190Z",
+      "2026-09-28T22:50:40.190Z",
+      "2026-09-29T22:50:40.190Z",
+      "2026-09-30T22:50:40.190Z",
+      "2026-10-01T22:50:40.190Z",
+      "2026-10-02T22:50:40.190Z",
+      "2026-10-03T22:50:40.190Z",
+      "2026-10-04T22:50:40.190Z",
+      "2026-10-05T22:50:40.190Z",
+      "2026-10-06T22:50:40.190Z",
+      "2026-10-07T22:50:40.190Z",
+      "2026-10-08T22:50:40.189Z"
     ],
     "doneCounts": [
-      0,
       0,
       0,
       0,
@@ -3894,42 +3894,40 @@
       40,
       40,
       40,
-      40,
       40
     ],
     "aiCosts": [
-      18.2245,
-      36.449,
-      54.673500000000004,
-      72.898,
-      91.1225,
-      109.34700000000001,
-      127.5715,
-      145.796,
-      164.0205,
-      182.245,
-      200.46949999999998,
-      218.69400000000002,
-      236.91850000000002,
-      255.143,
-      273.3675,
-      291.592,
-      309.8165,
-      328.041,
-      346.2655,
-      364.49,
-      382.7145,
-      400.93899999999996,
-      419.16350000000006,
-      437.38800000000003,
-      455.6125,
-      473.83700000000005,
-      492.0615,
-      510.286,
-      528.5105,
-      546.735,
-      546.735,
-      596.3953
+      19.879843333333334,
+      39.75968666666667,
+      59.63953000000001,
+      79.51937333333333,
+      99.39921666666666,
+      119.27906000000002,
+      139.15890333333334,
+      159.03874666666667,
+      178.91859,
+      198.79843333333332,
+      218.67827666666665,
+      238.55812000000003,
+      258.43796333333336,
+      278.3178066666667,
+      298.19765,
+      318.07749333333334,
+      337.95733666666666,
+      357.83718,
+      377.7170233333333,
+      397.59686666666664,
+      417.47670999999997,
+      437.3565533333333,
+      457.23639666666674,
+      477.11624000000006,
+      496.9960833333334,
+      516.8759266666667,
+      536.75577,
+      556.6356133333334,
+      576.5154566666666,
+      596.3953,
+      610.4624
     ],
     "coverage": [
       0,
@@ -3962,7 +3960,6 @@
       0,
       0,
       0,
-      null,
       null
     ],
     "velocity": [
@@ -3996,45 +3993,42 @@
       0,
       0,
       0,
-      0,
       0
     ],
     "openBugs": [
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
-      0,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
       1
     ],
     "atRisk": [
-      0,
       0,
       0,
       0,
@@ -4098,8 +4092,7 @@
       0,
       0,
       0,
-      21582059,
-      23784175
+      24884746
     ],
     "outputTokens": [
       0,
@@ -4132,42 +4125,40 @@
       0,
       0,
       0,
-      3815388,
-      4266832
+      4324888
     ],
     "avgRisk": [
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1825,
-      1.1900000000000002
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.1900000000000002,
+      1.2125000000000001
     ],
     "velocityByWeek": {
       "labels": [
