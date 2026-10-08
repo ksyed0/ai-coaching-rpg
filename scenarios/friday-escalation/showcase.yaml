@@ -34,7 +34,7 @@ scenes:
       npc:
         client_sponsor:
           - "Thanks for jumping on. I will be direct: Finance needs that reconciliation module before go-live. Can you confirm it today?"
-          - "Right after launch is not what I asked for. Walk me through the risk, because I have to explain this upstairs."
+          - "I hear the ingestion risk, but right after launch is not what I asked for, and I have to explain this upstairs."
           - "That is generous, but I cannot take whatever Finance needs to my CFO. How soon after launch, and what do I tell Finance in the meantime?"
           - "That I can work with. A written proposal with scope, a price and a date on Monday, and a manual report until then. I will tell my CFO to expect it."
       gm:

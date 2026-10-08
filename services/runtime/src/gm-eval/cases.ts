@@ -25,7 +25,7 @@ export type GmCaseFile = { version: 1; description: string; cases: GmCase[] };
  */
 export const NEGATIVE_CUTS: Readonly<Record<string, Readonly<Record<string, readonly number[]>>>> = {
   // US-0040, the original Friday Escalation (esc-scope-creep-01): s1 at 3 and 4 lines has concerns and the unanswered "What if we offer it as a phase two...?" but no agreed
-  // position; s2 at 2 lines has the account manager's offer of a phased module but Priya's "walk me through the risk" is unanswered, so no next step; s3 at 1 line has only
+  // position; s2 at 2 lines has the risk explained and a phased module offered (Priya's fact is earned) but she has agreed nothing yet, so no next step; s3 at 1 line has only
   // the proposal's owner stated, and at 3 lines the tech lead has raised the estimate and the message to the wider team with "someone should" (no owner yet).
   // These labels exist so a live run can report early Game Master exits (S-18); `tests/gm-cases/showcase.json` is built from the extended scenario only, so
   // `--max-false-exits` (which compares it) is not usable with this scenario until cases are built for it.

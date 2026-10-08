@@ -63,14 +63,17 @@ describe("scenarios/friday-escalation/showcase.yaml (US-0040)", () => {
       const players = Object.values(sc.roles).filter((r): r is PlayerRole => r.type === "player");
       const hidden = Object.values(sc.roles).flatMap((r) => (r.type === "npc" ? r.hidden : []));
       expect(hidden.length, dirName).toBeGreaterThan(0);
-      // Accepted paraphrase: the extended script has the delivery lead tell Priya the launch date is at risk, which the tech lead raised in the huddle in other words
-      // ("anything we add now competes with go-live"). Left as it was (changing the extended lines would rebuild tests/gm-cases); nothing else is allowed.
-      const allowed = dirName === "friday-escalation-extended" ? ["Adding the module before go-live puts the go-live date at real risk"] : [];
+      // The detector is lexical (share of the fact's content words in the line), so it flags paraphrases but also shared vocabulary. Accepted, line by line:
+      //  - extended s2_priya_call line 3 (delivery_lead, overlap 0.63): "Adding new code to ingestion now puts the launch date at risk..." shares words with the tech lead's
+      //    private fact "Adding the module before go-live puts the go-live date at real risk"; the tech lead raised the same risk in the huddle in other words ("anything we add now
+      //    competes with go-live"). Left as it was: changing extended lines would rebuild tests/gm-cases.
+      //  - the original's s2 line 4 says the same thing in new words (overlap 0.50): below the 0.6 threshold, so it needs no exemption.
+      const exempt = (dir: string, scene: string, index: number, fact: string) => dir === "friday-escalation-extended" && scene === "s2_priya_call" && index === 2 && fact === "Adding the module before go-live puts the go-live date at real risk";
       const said: { role: string; text: string }[] = []; // in play order
       for (const entry of script.scenes) {
-        for (const line of entry.lines) {
+        for (const [index, line] of entry.lines.entries()) {
           for (const owner of players.filter((p) => p.id !== line.role)) {
-            for (const fact of owner.private_facts.filter((f) => !allowed.includes(f))) {
+            for (const fact of owner.private_facts.filter((f) => !exempt(dirName, entry.scene, index, f))) {
               if (!recites(line.text, fact)) continue;
               // allowed only when the owner already said it earlier in play
               expect(said.some((x) => x.role === owner.id && recites(x.text, fact)), `${dirName} ${entry.scene}: ${line.role} recites ${owner.id}'s private fact "${fact}" before ${owner.id} said it`).toBe(true);
@@ -80,6 +83,16 @@ describe("scenarios/friday-escalation/showcase.yaml (US-0040)", () => {
           said.push(line);
         }
       }
+    }
+  });
+
+  it("Priya's reply to the line that earns her fact does not ask for the risk to be explained (the earned verdict and the mock reply agree)", async () => {
+    for (const [dirName, scene] of [["friday-escalation", "s2_client_call"], ["friday-escalation-extended", "s2_priya_call"]] as const) {
+      const dir = path.join(REPO_ROOT, "scenarios", dirName);
+      const script = await loadShowcaseScript(dir, await loadScenario(dir), { mode: "mock" });
+      const s2 = script.scenes.find((x) => x.scene === scene)!;
+      expect(s2.lines[1]!.text, dirName).toMatch(/not safely before go-live/); // the risk and the phased offer, the line the earned verdict follows
+      expect(s2.mock.npc.client_sponsor![1]!, dirName).not.toMatch(/walk me through the risk/i);
     }
   });
 
