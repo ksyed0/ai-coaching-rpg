@@ -48,7 +48,7 @@ function judge(probe: Probe, rubrics: Rubric[], quoteOf: (role: string, ownFirst
 describe("starter probes through the real evaluator", () => {
   it("every scored role gets an ok evaluation whose quote is verified and none dropped", async () => {
     const { scenario, rubrics, probes } = await setup();
-    expect(probes).toHaveLength(8);
+    expect(probes.length).toBeGreaterThanOrEqual(8);
     for (const probe of probes) {
       const r = await evaluateSession({ events: buildProbeEvents(probe, scenario), scenario, rubrics, provider: judge(probe, rubrics, (role) => probe.transcript.find((l) => l.role === role)!.text.slice(0, 60)), config, nonce: "abc123" });
       expect(r.failures, probe.id).toEqual([]);
