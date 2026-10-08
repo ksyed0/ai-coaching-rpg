@@ -21,7 +21,7 @@ describe("Friday starter probe set", () => {
     // R26: agent-drafted starter probes, approved by the owner in chat (2026-10-07)
     for (const p of r.probes) {
       expect({ id: p.id, source: p.source, drafter: p.drafter, approved_by: p.approved_by, approved_at: p.approved_at }).toEqual({
-        id: p.id, source: "drafted", drafter: "claude-sonnet-5-5", approved_by: "Kamal", approved_at: "2026-10-07T20:30:00-04:00",
+        id: p.id, source: "drafted", drafter: "claude-sonnet-5-5", approved_by: "Kamal", approved_at: "2026-10-07T19:58:00-04:00",
       });
     }
     // the drafter's family is neither judge's, so the report raises no self-agreement warning for these probes

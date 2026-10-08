@@ -4,7 +4,7 @@ criterion: negotiation
 source: drafted
 drafter: claude-sonnet-5-5
 approved_by: Kamal
-approved_at: "2026-10-07T20:30:00-04:00"
+approved_at: "2026-10-07T19:58:00-04:00"
 split: holdout
 players: { delivery_lead: 4, account_manager: 1 }
 min_gap: 2

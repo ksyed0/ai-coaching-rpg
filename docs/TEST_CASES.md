@@ -439,7 +439,7 @@ Preconditions: A checkout of the branch.
 Steps:
   1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/starter-set.test.ts src/demo/__tests__/showcase-scenario.test.ts`.
   2. List `scenarios/friday-escalation/calibration/`.
-Expected Result: 1: no errors; 8 probes (discovery levels 1 to 4, negotiation levels 1 and 4, 2 contrast groups), all agent-drafted starter probes, approved by the owner (`source: drafted`, `drafter: claude-sonnet-5-5`, `approved_by: Kamal`, `approved_at: 2026-10-07T20:30:00-04:00`); the warnings say the set has fewer than 20 probes; the original scenario package only gained `calibration/` (YAML probe files only). 2: eight `.yaml` files.
+Expected Result: 1: no errors; 8 probes (discovery levels 1 to 4, negotiation levels 1 and 4, 2 contrast groups), all agent-drafted starter probes, approved by the owner (`source: drafted`, `drafter: claude-sonnet-5-5`, `approved_by: Kamal`, `approved_at: 2026-10-07T19:58:00-04:00`); the warnings say the set has fewer than 20 probes; the original scenario package only gained `calibration/` (YAML probe files only). 2: eight `.yaml` files.
 Actual Result: As expected (starter-set.test.ts, showcase-scenario.test.ts) on 2026-10-07.
 Status: [x] Pass
 Defect Raised: None
