@@ -1066,16 +1066,16 @@ Dependencies: US-0036
 Acceptance Criteria:
   - [x] AC-0189: `--draft-probes` (built as the `pnpm calibrate draft` subcommand, Ruling R1) writes candidate probes to `calibration/drafts/` using a drafter of a different model family from the primary judge unless `--allow-same-family`, and a run never reads drafts
   - [x] AC-0190: `approve` validates a draft, records approver and time, assigns a split, and moves it into `calibration/`; `excerpt` drafts a probe from a real session log range for a human to rate
-  - [x] AC-0191: the Friday set reaches at least 20 approved probes, balanced across levels, with at least 5 real excerpts rated by a human and at least 10 holdout probes (34 probes, 7 excerpts, 20 holdout; approved by an agent on the owner's chat instruction of 2026-10-08, excerpt levels assigned by the agent under that delegation, not rated by the owner item by item)
+  - [ ] AC-0191: the Friday set reaches at least 20 approved probes, balanced across levels, with at least 5 real excerpts rated by a human and at least 10 holdout probes (34 probes, 7 excerpts and 18 holdout exist and are approved by an agent on the owner's chat instruction of 2026-10-08; the excerpt levels were assigned by the controlling agent, not rated by a human: owner review of the excerpt levels pending)
 ```
 
 ```
 TASK-0057 (US-0037): Add probe drafting, excerpts and approval, and scale the Friday set
 Type: Dev
 Assignee: Agent
-Status: Done
+Status: In Progress
 Branch: feature/EPIC-0005-US-0037-probe-drafting
-Notes: Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 done 2026-10-08 (34-probe Friday set, TC-0036; owner's chat approval of the 19 drafts and 7 excerpts). Remaining: the baseline run (Task 11) needs the live judges.
+Notes: Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 built 2026-10-08 (34-probe Friday set, TC-0036; agent approval of the 19 drafts and 7 excerpts on the owner's chat instruction). Remaining: owner review of the excerpt levels (AC-0191); then the baseline run (Task 11) needs the live judges.
 ```
 
 ```

@@ -1516,8 +1516,8 @@
         },
         {
           "id": "AC-0191",
-          "text": "the Friday set reaches at least 20 approved probes, balanced across levels, with at least 5 real excerpts rated by a human and at least 10 holdout probes (34 probes, 7 excerpts, 20 holdout; approved by an agent on the owner's chat instruction of 2026-10-08, excerpt levels assigned by the agent under that delegation, not rated by the owner item by item)",
-          "done": true
+          "text": "the Friday set reaches at least 20 approved probes, balanced across levels, with at least 5 real excerpts rated by a human and at least 10 holdout probes (34 probes, 7 excerpts and 18 holdout exist and are approved by an agent on the owner's chat instruction of 2026-10-08; the excerpt levels were assigned by the controlling agent, not rated by a human: owner review of the excerpt levels pending)",
+          "done": false
         }
       ],
       "dependencies": [
@@ -2171,9 +2171,9 @@
       "title": "Add probe drafting, excerpts and approval, and scale the Friday set",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "Done",
+      "status": "In Progress",
       "branch": "feature/EPIC-0005-US-0037-probe-drafting",
-      "notes": "Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 done 2026-10-08 (34-probe Friday set, TC-0036; owner's chat approval of the 19 drafts and 7 excerpts). Remaining: the baseline run (Task 11) needs the live judges."
+      "notes": "Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 built 2026-10-08 (34-probe Friday set, TC-0036; agent approval of the 19 drafts and 7 excerpts on the owner's chat instruction). Remaining: owner review of the excerpt levels (AC-0191); then the baseline run (Task 11) needs the live judges."
     },
     {
       "id": "TASK-0058",
@@ -2519,7 +2519,7 @@
     },
     {
       "id": "TC-0027",
-      "title": "The 8 Friday starter probes validate against the rubric and the linter reports the set as thin",
+      "title": "The 8 Friday starter probes keep their fields inside the scaled Friday set",
       "relatedStory": "US-0035",
       "relatedTask": "TASK-0055",
       "relatedAC": "AC-0183",
@@ -3564,9 +3564,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-08T14:53:02.710Z",
-  "commitSha": "037b178",
-  "buildNumber": "319",
+  "generatedAt": "2026-10-08T15:01:12.773Z",
+  "commitSha": "a96ac60",
+  "buildNumber": "320",
   "branch": "feature/EPIC-0005-US-0037-friday-set",
   "sessionTimeline": [
     {
@@ -3695,9 +3695,9 @@
     "totalSpent": 546.735,
     "totalProjected": 33200,
     "percentUsed": 31,
-    "burnRate": 17.617016666666665,
-    "daysRemaining": 68,
-    "projectedExhaustion": 68,
+    "burnRate": 17.009533333333334,
+    "daysRemaining": 70,
+    "projectedExhaustion": 70,
     "thresholds": [
       50,
       75,
@@ -3790,7 +3790,7 @@
       "2026-10-05T14:53:02.783Z",
       "2026-10-06T14:53:02.783Z",
       "2026-10-07T14:53:02.783Z",
-      "2026-10-08T14:53:02.781Z"
+      "2026-10-08T15:01:12.849Z"
     ],
     "doneCounts": [
       0,
