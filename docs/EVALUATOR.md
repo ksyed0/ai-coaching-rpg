@@ -179,6 +179,8 @@ pnpm calibrate --scenario scenarios/friday-escalation --repeat 3 --only disc-l1,
 pnpm -s calibrate --scenario scenarios/friday-escalation --json - --strict  # CI style: JSON on stdout, exit 1 on any FAIL
 ```
 
+**Run time.** Local models are slow: the full Friday set (34 probes, 282 planned calls) with two judges at `--repeat 3` took 6 h 24 min (23,018 s) on 2026-10-08, so start it where it can run unattended, or use `--only` and `--repeat 1` to try something small first.
+
 Flags: `--repeat n` (1 to 5) scores every probe n times to measure the judge's own noise; `--only id,id` runs a subset; `--criteria all` (default) has the judge score every individual criterion as in a real evaluation, `probe` only the probe's criterion; `--variant v1` (the only prompt variant so far); `--out <dir>` (default `data/calibration`, git-ignored); `--json -` or `--json <file>`; `--strict`. Before the first call the run prints the **planned call count**: per probe, every player with at least 2 lines in its transcript (scored or not, because the evaluator scores each of them) times `--repeat` times the number of judges, plus at most one re-ask per unusable reply. Exit codes: 0 results written, whatever the labels; 1 with `--strict` when a judge is labelled FAIL, or when the results could not be written after the run; 2 usage or input error (nothing was run).
 
 A judge that is down or answers garbage is recorded as **unusable**, not as disagreeing, and the other judge still runs. If a judge's run breaks off, the probes it finished are kept; Ctrl-C stops the run and writes what was finished (exit 130). Each run is written to a new directory `data/calibration/<scenario-id>/<start time>/` (`calibration-report.md` and `calibration.json`, exclusive creation, private file modes), and the latest result per judge to `data/calibration/<scenario-id>/<model>-<variant>.json` (replaced atomically), for the calibration stamp that reports will show later. That summary file is created or replaced **only by a complete run** of that judge: every probe (no `--only`), `--criteria all`, no failure and no abort, and a usable fraction of answers at least `minUsable` (0.9 by default; a judge that degrades mid-run records its lost calls as unusable, so it is caught here; every `--repeat` run counts, so `--repeat 5` gives five slots per scored player), and at least half of the contrast probes usable (a judge can lose every contrast answer while overall usability stays high). `--only` naming every probe still counts as a full run. Otherwise the run directory is still written, the old summary is kept and the run prints `summary for <label> (<model>) not updated: <reason>`. A summary holds the scenario, rubric hash, variant, judge label and model, start time, probe counts (total, tune, holdout), `exact` (`n` exact matches of `of` usable singles), `bias`, `contrast` (`ordered` of `of` usable contrast probes, out of `probes` contrast probes), `usable` (usable answer slots of all slots) and the label. Two judges with the same model id share one summary file; the last complete one wins. Everything written to disk or printed has the environment's secret values redacted.
@@ -191,6 +193,81 @@ A judge that is down or answers garbage is recorded as **unusable**, not as disa
 - **Warnings** on the figures: `thin` (fewer than 20 probes, or fewer than 4 for a criterion), `partial` (the run was cut short), and self-agreement (a probe drafted by a model from the judge's own family).
 
 **Limits.** Probes are a proxy for real sessions. Synthetic and drafted transcripts are cleaner than real speech, which is why real (consented, redacted) excerpts are required before a default change. The 7 excerpts in the Friday set do NOT meet that bar: they were cut from demo sessions played by weaker local models (Gemma, Nemotron-nano and the foundation model), not by people, so they are model-played text and there is no genuine level-4 excerpt. The Friday set has 34 probes: 16 tune and 18 holdout (splits hand-set), 27 drafted (the 8 starters and 19 more written by claude-sonnet-5-5, a Claude model, so neither the Gemma primary judge nor the Holo3 second judge gets a self-agreement warning on them) and 7 excerpts, with 2 contrast probes. The 36 expected levels are level 1 nine times, level 2 ten, level 3 nine and level 4 eight (each contrast player counted). By criterion (tune/holdout): listening 6/1, negotiation 4/3, team_alignment 2/4, discovery 2/3, role_clarity 1/4, commercial_judgement 1/3; stakeholder_management has no probe. Approval records: the starter probes' approval was recorded by an agent from the owner's explicit chat instruction (2026-10-07, 19:58 EDT). The 19 new drafts and the 7 excerpts were approved by an agent (`approved_by: Kamal`) on the owner's explicit chat instruction of 2026-10-08 ("approve the 19 drafts you recommended ... approve the excerpts you recommend"); the owner did not review each item (owner review of the excerpt levels is pending). The levels of the excerpts were assigned by the controlling agent session (claude-sonnet-5-5) under the owner's delegation, with an `acceptable` range on all 7 (7 of 7: [2, 3] for listening-01, listening-02, negotiation-01, role_clarity-02 and team_alignment-01, [1, 2] for negotiation-02 and team_alignment-02); the drafted levels are the drafter's intended levels, and an independent review found no level disagreement on the 26 new probes. All of this is visible in the commit history and open to the owner's edits. The owner-approved text of five probes was adjusted by an agent afterwards for consistency with scenario 1.3 (levels unchanged, `approved_by` and `approved_at` untouched): role_clarity-l4-1 and team_alignment-l4-1 (the tech lead is not on the client call, so the data-layer follow-up is handled in the next call or in writing), commercial_judgement-l4-1 (scope is the phased version and the date is four weeks after go-live, so 48,000 matches the cost fact) and role_clarity-l3-1 (the tech lead is asked to size, the delivery lead stays the timeline owner). Known limits of the set: all 19 new drafted probes score the account_manager (24 of the 32 single probes do, 7 score the delivery_lead), the tech_lead is scored once (the role_clarity excerpt), there are only 2 contrast probes so the contrast ordering rests on two comparisons, listening-l2-1 and negotiation-l2-1 closely echo the rubric's own anchor examples (a judge may match the anchor text), exc-team_alignment-02 contains a greeting to Priya who is not in scene 1 (a model artefact), exc-listening-01's Priya context calls a phased delivery a failure although her 1.3 earned_when would accept it (context only, Priya is not scored), and the linter lists 11 unscored-speaker warnings on drafted probes (a context role that speaks twice; each costs a model call and changes no score; friday-set.test.ts pins them). The hand-set starter probes share the client's setup lines across splits (disc-l2 and disc-l4 in holdout and disc-l3 in tune share "We need the reconciliation module before go-live. It is a must-have."; neg-l1 in holdout and neg-l4 in tune share "We need the module before go-live. Can you do it for the same fee?"): these are not scored player lines, so the effect is weak, but the splits are not fully independent. Calibration is per judge, per prompt variant and per rubric version; a result says nothing about another model, another variant or a changed rubric. It reports measurements and never claims the scores are accurate. The report does not yet show a confidence distribution (spec section 5, usability). Not built yet: prompt variants other than `v1`, and the calibration stamp on evaluation reports.
+
+## Baseline
+
+The first live baseline of the Friday Escalation set, run on 2026-10-08. It measures the unchanged prompt (`v1`); it says nothing about another model, variant or rubric version. Positive bias means lenient.
+
+| Item | Primary judge | Second judge |
+| --- | --- | --- |
+| Date | 2026-10-08 | 2026-10-08 |
+| Judge | `gemma-4-31b-it-qat-mxfp4` | `holo3-35b-a3b-jangtq4` |
+| Prompt variant | v1 | v1 |
+| Rubric hash | `38e0284af8f82d44` | `38e0284af8f82d44` |
+| Scenario | esc-scope-creep-01 v1.3 | esc-scope-creep-01 v1.3 |
+| Probes | 34 (16 tune, 18 holdout; 7 excerpts, 27 drafted; 2 contrast) | same 34 |
+| Repeat | 3 | 3 |
+| Exact agreement | 27 of 32 (84%) | 28 of 32 (88%) |
+| Within one level | 31 of 32 (97%) | 31 of 32 (97%) |
+| Bias | +0.16 | +0.10 |
+| Contrast ordered | 2 of 2 | 2 of 2 |
+| Usable answers | 108 of 108 | 108 of 108 |
+| Stability (mean per-probe variance) | 0.02 | 0.01 |
+| Label | PASS | PASS |
+
+The exact and within-one counts are over the 32 single probes (the 2 contrast probes are measured by ordering). 282 model calls were planned for the two judges at `--repeat 3`; the run took 23,018 s of wall time (6 h 24 min) on the local models. Command (the Osaurus server at `http://127.0.0.1:1337/v1` served both models):
+
+```bash
+MODEL_PROVIDER=local NPC_MODEL=gemma-4-31b-it-qat-mxfp4 EVAL_MODEL=gemma-4-31b-it-qat-mxfp4 \
+  pnpm calibrate --scenario scenarios/friday-escalation \
+  --judge second,holo3-35b-a3b-jangtq4,http://127.0.0.1:1337/v1 --repeat 3
+```
+
+The report is in the git-ignored `data/calibration/esc-scope-creep-01/2026-10-08T16-24-23-440Z/` (`calibration-report.md`, `calibration.json`); the two per-judge summaries `gemma-4-31b-it-qat-mxfp4-v1.json` and `holo3-35b-a3b-jangtq4-v1.json` in the parent folder come from this complete run.
+
+**Per criterion** (probes; exact; within one; bias; label), Gemma / Holo3 where they differ:
+
+| Criterion | Probes | Exact | Within one | Bias | Label |
+| --- | --- | --- | --- | --- | --- |
+| commercial_judgement | 4 | 4 of 4 / 4 of 4 | 4 of 4 / 4 of 4 | 0.00 / 0.00 | WARN / WARN |
+| discovery | 5 | 3 of 5 / 3 of 5 | 5 of 5 / 5 of 5 | +0.40 / +0.40 | FAIL / FAIL |
+| listening | 7 | 5 of 6 / 5 of 6 | 6 of 6 / 6 of 6 | +0.17 / +0.17 | PASS / PASS |
+| negotiation | 7 | 5 of 6 / 5 of 6 | 5 of 6 / 5 of 6 | -0.20 / -0.20 | PASS / PASS |
+| role_clarity | 5 | 5 of 5 / 5 of 5 | 5 of 5 / 5 of 5 | +0.20 / +0.20 | WARN / WARN |
+| team_alignment | 6 | 5 of 6 / 6 of 6 | 6 of 6 / 6 of 6 | +0.33 / 0.00 | FAIL / WARN |
+
+The WARN labels on commercial_judgement, role_clarity and team_alignment (Holo3) are the report's "discrimination not measured" warning: those criteria have no contrast probe.
+
+**By source** (Gemma / Holo3):
+
+| Source | Probes | Exact | Within one | Bias |
+| --- | --- | --- | --- | --- |
+| drafted | 27 | 21 of 25 / 22 of 25 | 25 of 25 / 25 of 25 | +0.08 / +0.04 |
+| excerpt | 7 | 6 of 7 / 6 of 7 | 6 of 7 / 6 of 7 | +0.50 / +0.33 |
+
+By split the two are close: holdout 15 of 17 exact, bias +0.18 (Gemma), 16 of 17, +0.12 (Holo3); tune 12 of 15, +0.14 and 12 of 15, +0.07.
+
+**Bias by expected level** (Gemma / Holo3; scored answers in brackets):
+
+| Expected level | Bias |
+| --- | --- |
+| 1 (7) | +0.14 / 0.00 |
+| 2 (10) | +0.20 / +0.20 |
+| 3 (8) | +0.38 / +0.25 |
+| 4 (6) | -0.17 / -0.17 |
+
+**Cross-judge** (primary against second): 35 numeric pairs, mean absolute difference 0.06, within one level in 35 of 35. Two disagreements: `exc-team_alignment-02` (expected 1, acceptable 1 or 2; Gemma 2, Holo3 1) and `team_alignment-l3-1` (expected 3; Gemma 4, Holo3 3). Each judge used 4 distinct levels; no scores were capped for missing evidence and no quotes were dropped as not verbatim.
+
+**How to read this baseline.**
+
+- Contrast was measured on 2 probes only (both ordered by both judges). That is not a meaningful test against the 80 percent contrast-ordering target: one miss would have read 50 percent.
+- Discovery is FAIL for both judges: bias +0.40, which is 2 of its 5 probes scored one level high. team_alignment is FAIL for Gemma (+0.33) but 0.00 for Holo3.
+- Level 3 is the most inflated expected level (+0.38 Gemma, +0.25 Holo3); level 4 is scored slightly low.
+- Excerpts show the most leniency (+0.50 Gemma, +0.33 Holo3), but their expected levels were assigned by an agent and have not been reviewed by the owner (AC-0191), so part of that gap may be the labels.
+- Both judges score probes drafted by Sonnet from the same rubric text, so their agreement may partly be phrase matching against the anchors rather than judgement.
+- The leniency seen earlier on demo sessions is not reproduced on the synthetic probes (overall bias +0.16 and +0.10).
+
+**Stage-gate decision (ruling R32).** The gate (a judge-level FAIL on contrast ordering, or an absolute bias above 0.3) was not triggered: both judges are labelled PASS. Task 12 (prompt variants `v2` and `v3`) was not run. US-0038 is Deferred (not Cancelled) because contrast is measured on only 2 probes, which is not meaningful against the 80 percent target, and because the excerpt levels are unreviewed; its ids stay reserved. Revisit after the second Sonnet batch (contrast, tech_lead and messier probes) and the owner's review of the excerpt levels.
 
 ## Limits and planned follow-ups
 

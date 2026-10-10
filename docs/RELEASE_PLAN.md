@@ -42,7 +42,7 @@ Description: Post-session rubric scoring with quoted evidence and confidence, fa
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0003
-Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed; per-participant isolation and ASM-09 are planned); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039.
+Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed; per-participant isolation and ASM-09 are planned); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039. Task 11 outcome (2026-10-08): the baseline of the 34-probe Friday set ran with Gemma as primary judge and Holo3 as second judge at `--repeat 3` (6 h 24 min); both judges PASS (exact 27 and 28 of 32, bias +0.16 and +0.10, contrast ordered 2 of 2, all 108 answers usable). The stage gate was not triggered, so Task 12 was not run and US-0038 is Deferred (shown as Blocked, the closest allowed status; ids reserved) until contrast is measured on more than 2 probes and the owner has reviewed the excerpt levels. Weak spots: discovery FAIL for both judges (bias +0.40), team_alignment FAIL for Gemma only. Next: Task 13 (US-0039, the stamp).
 ```
 
 ```
@@ -1053,7 +1053,7 @@ Type: Dev
 Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0005-US-0036-calibrate-command
-Notes: Implementation plan Tasks 4-8 (docs/superpowers/plans, evaluator calibration, 2026-10-07): judge configuration, the runner, metrics, the blind cross-judge comparison, the report and result files, and `pnpm calibrate` (cli.ts, main.ts), with the carried review fixes (quiet YAML loading, base URL messages, per-criterion labels and the contrast gap in the report). Done 2026-10-07; test cases TC-0028..TC-0032. Not done here: the first live numbers (baseline task), drafting and approval (US-0037), prompt variants and the stamp (US-0038, US-0039).
+Notes: Implementation plan Tasks 4-8 (docs/superpowers/plans, evaluator calibration, 2026-10-07): judge configuration, the runner, metrics, the blind cross-judge comparison, the report and result files, and `pnpm calibrate` (cli.ts, main.ts), with the carried review fixes (quiet YAML loading, base URL messages, per-criterion labels and the contrast gap in the report). Done 2026-10-07; test cases TC-0028..TC-0032. Not done here: the first live numbers (baseline task), drafting and approval (US-0037), prompt variants and the stamp (US-0038, US-0039). Update 2026-10-08: the baseline ran (Task 11, both judges PASS; docs/EVALUATOR.md, Baseline).
 ```
 
 ```
@@ -1075,16 +1075,17 @@ Type: Dev
 Assignee: Agent
 Status: In Progress
 Branch: feature/EPIC-0005-US-0037-probe-drafting
-Notes: Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 built 2026-10-08 (34-probe Friday set, TC-0036; agent approval of the 19 drafts and 7 excerpts on the owner's chat instruction). Remaining: owner review of the excerpt levels (AC-0191); then the baseline run (Task 11) needs the live judges.
+Notes: Implementation plan Tasks 9-10 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Task 9 done (draft/excerpt/approve/assign-splits, TC-0033..TC-0035); Task 10 built 2026-10-08 (34-probe Friday set, TC-0036; agent approval of the 19 drafts and 7 excerpts on the owner's chat instruction). Remaining: owner review of the excerpt levels (AC-0191). Update 2026-10-08: the baseline run (Task 11) has run on this set (docs/EVALUATOR.md, Baseline).
 ```
 
 ```
 US-0038 (EPIC-0005): Evaluator prompt variants and the acceptance report (conditional on the baseline)
 Priority: Medium
 Estimate: M
-Status: Planned
+Status: Blocked
 Branch: feature/EPIC-0005-US-0038-prompt-variants
 Dependencies: US-0036, US-0037
+Notes: DEFERRED (not Cancelled) on 2026-10-08 by ruling R32 after the Task 11 baseline. plan_visualizer.md allows only Planned | In Progress | Complete | Blocked for a story, so the closest status, Blocked, is used and means deferred. The baseline gate was not triggered (both judges PASS, contrast 2 of 2, bias +0.16 and +0.10), so Task 12 was not run. Reasons: contrast is measured on only 2 probes, not meaningful against the 80 percent target, and the excerpt levels are unreviewed. The ids US-0038, AC-0192..AC-0194 and TASK-0058 stay reserved. Revisit after the second Sonnet batch (contrast, tech_lead, messier probes) and the owner's review of the excerpt levels.
 Acceptance Criteria:
   - [ ] AC-0192: the evaluator takes a named prompt variant, `v1` is byte-identical to today's prompt, and reports record the variant
   - [ ] AC-0193: `v2` (evidence-first, lower-level tie-break) and `v3` (next-level challenge) exist behind the variant name with the output schema, parser and quote verification unchanged
@@ -1095,9 +1096,9 @@ Acceptance Criteria:
 TASK-0058 (US-0038): Add evaluator prompt variants and the acceptance report
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Blocked
 Branch: feature/EPIC-0005-US-0038-prompt-variants
-Notes: Implementation plan Task 12 (docs/superpowers/plans, evaluator calibration, 2026-10-07).
+Notes: Implementation plan Task 12 (docs/superpowers/plans, evaluator calibration, 2026-10-07). Deferred (Blocked is the closest allowed status; see US-0038) by ruling R32: the Task 11 baseline did not trigger the stage gate. Id stays reserved.
 ```
 
 ```
