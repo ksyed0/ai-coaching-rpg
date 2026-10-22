@@ -37,21 +37,21 @@ Not claimed: access control against anyone who can read the reports directory. U
 
 **Events.** Every event has a contiguous `seq`, an injected-clock timestamp (ordering uses `seq`, never the timestamp), an actor and a type:
 
-| Event | Payload | Allowed when |
-| --- | --- | --- |
-| `score.edited` | subject, criterion, `from`, `to` (1 to 4 or Not observed), reason | subject not released |
-| `rationale.edited` | subject, criterion, `from_hash`, new text, reason | subject not released |
-| `summary.edited` | subject, new summary (strengths, development points, next actions), reason | subject not released |
-| `comment.added` | subject, optional criterion, text, `visibility` (`internal` or `feedback`) | any time |
-| `score.accepted` | subject, criterion | subject not released |
-| `self.rated` | role, criterion, level or none, optional note | before that subject's release; the last one wins |
-| `report.released` | `subjects[]` (one event even for several), `version` = its own `seq` | gate passes (section 4) |
-| `report.amended` | subject, reason, based-on version | subject released |
-| `report.withdrawn` | subject, reason | subject released |
-| `response.added` | role, optional criterion, text, optional `dispute: true` | after that subject's release |
-| `dispute.resolved` | response `seq`, outcome (`upheld`, `amended`, `declined`), reason | a dispute exists |
-| `report.exported` | subject, version, principal, destination label | subject released |
-| `review.superseded` | the replacement directory's draft hashes | section 5 |
+| Event               | Payload                                                                    | Allowed when                                     |
+| ------------------- | -------------------------------------------------------------------------- | ------------------------------------------------ |
+| `score.edited`      | subject, criterion, `from`, `to` (1 to 4 or Not observed), reason          | subject not released                             |
+| `rationale.edited`  | subject, criterion, `from_hash`, new text, reason                          | subject not released                             |
+| `summary.edited`    | subject, new summary (strengths, development points, next actions), reason | subject not released                             |
+| `comment.added`     | subject, optional criterion, text, `visibility` (`internal` or `feedback`) | any time                                         |
+| `score.accepted`    | subject, criterion                                                         | subject not released                             |
+| `self.rated`        | role, criterion, level or none, optional note                              | before that subject's release; the last one wins |
+| `report.released`   | `subjects[]` (one event even for several), `version` = its own `seq`       | gate passes (section 4)                          |
+| `report.amended`    | subject, reason, based-on version                                          | subject released                                 |
+| `report.withdrawn`  | subject, reason                                                            | subject released                                 |
+| `response.added`    | role, optional criterion, text, optional `dispute: true`                   | after that subject's release                     |
+| `dispute.resolved`  | response `seq`, outcome (`upheld`, `amended`, `declined`), reason          | a dispute exists                                 |
+| `report.exported`   | subject, version, principal, destination label                             | subject released                                 |
+| `review.superseded` | the replacement directory's draft hashes                                   | section 5                                        |
 
 **Fold.** `currentView(drafts, events)` is pure and total. It produces, per subject and criterion: the AI level, the current level, the edit history, the status (`needs_review`, `accepted`, `edited`), the self-rating, the responses and disputes; per subject the release state and version history; and learning-objective scores recomputed with the existing pure `aggregateObjectives`, fed each criterion's mapped LO ids from the draft JSON. The fold itself rejects illegal sequences (an edit or self-rating after release, a release that fails the gate, a dispute without a response, a non-contiguous `seq`); a log that fails the fold is a corrupt review and every command refuses, so a hand-edited log cannot render.
 
@@ -87,10 +87,10 @@ Not claimed: access control against anyone who can read the reports directory. U
 
 **Policy (constant table, versioned).**
 
-| Subject | Audience (after release) |
-| --- | --- |
+| Subject         | Audience (after release)                            |
+| --------------- | --------------------------------------------------- |
 | Personal report | the participant, line manager, facilitator, L&D, HR |
-| Group report | the same plus programme sponsor |
+| Group report    | the same plus programme sponsor                     |
 
 `canView(principal, subject, version, view)` is one pure function. The facilitator sees everything. An unreleased, withdrawn or superseded subject is visible only to the facilitator. A participant sees their own personal report. For the group report and `index.md` a non-facilitator sees team-level criteria and, in the per-role learning-objective table, only their own row; peers' individual scores are removed (not blanked) from the rendered file. L&D, HR, sponsor and line manager are in the table but cannot be resolved to a person until EPIC-0002, so `canView` returns false for them in every shipped command; the table is data, not a principal model.
 
