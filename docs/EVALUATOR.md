@@ -116,6 +116,13 @@ Write anchors as **observable behaviour in the participant's OWN words**, for th
 - **Evidence.** The verified quotes with scene number, time since the start of the session (wall clock, pauses included, not active scene time) and the line number (`#12` is the event sequence number in the log).
 - **Group report.** Group criteria, LO coverage across the team (players by LO), the scenario author's facilitator notes next to the model's talking points, and notable moments.
 - **index.md** links everything and shows the LO table for everyone.
+- **Calibration stamp.** One line in `index.md`, `group.md` and every personal report (and, with the prompt variant and the rubric hash, in the `evaluator` block of each JSON file: `variant`, `rubricHash`, `calibration` and `calibration_line`). It states what `pnpm calibrate` measured for this judge model, prompt variant and rubric, and nothing more; it never says the scores are accurate. It has four states:
+  - **Calibrated** ("Scored by `<model>`, prompt `v1`. Calibration on 34 probes (2026-10-08): 27 of 32 exact, bias +0.2 levels, 4 of 4 contrast groups ordered."): a summary file for this exact model and variant exists, its rubric hash matches the current rubrics, and the numbers are not thin.
+  - **Thin** (the same line plus "Thin: ..."): treat the numbers as indicative only. A result is thin when it rests on fewer than 20 probes, or when contrast was measured on fewer usable groups than there were contrast probes, or on fewer than 3 groups (the line then says "contrast was measured on few groups"; the contrast count is printed either way).
+  - **Stale** ("not calibrated for this rubric version"): the rubric hash or the prompt variant in the summary differs from the current one, so the old numbers say nothing about this run.
+  - **Not calibrated**: no summary for this model (EVAL_MODEL, else NPC_MODEL), a file that is missing, corrupt or of the wrong shape, or a file that names another model. The scripted offline evaluator (`MODEL_PROVIDER=mock`) is always "not calibrated", without a lookup.
+
+  The summary is read from `data/calibration/<scenario-id>/` next to where you run `pnpm evaluate`. A missing or corrupt file never breaks a report. Only `pnpm calibrate` writes it, and only after a complete run, so the stamp is as current as your last full calibration. Prompt variants other than `v1` do not exist yet (US-0038), so the variant is always `v1`.
 
 ## Calibration
 

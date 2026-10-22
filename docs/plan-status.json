@@ -1560,23 +1560,23 @@
       "title": "Calibration stamp on evaluation reports",
       "priority": "High",
       "estimate": "S",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0005-US-0039-calibration-stamp",
       "acs": [
         {
           "id": "AC-0195",
-          "text": "every evaluation's JSON and Markdown records the judge, model, prompt variant and rubric hash",
-          "done": false
+          "text": "every evaluation's JSON and Markdown records the judge, model, prompt variant and rubric hash (report-model.ts `evaluator.variant`/`rubricHash`/`calibration`, report-md.ts, cli.ts; reports.test.ts, cli.test.ts; TC-0039)",
+          "done": true
         },
         {
           "id": "AC-0196",
-          "text": "a one-line calibration stamp (footer, `index.md`, each personal report) states measured numbers and never claims accuracy, with states not calibrated, stale (rubric hash or variant changed) and thin",
-          "done": false
+          "text": "a one-line calibration stamp (footer, `index.md`, each personal report) states measured numbers and never claims accuracy, with states not calibrated, stale (rubric hash or variant changed) and thin (stamp.ts, report-md.ts, report-write.ts; stamp.test.ts, reports.test.ts; thin = under 20 probes, or contrast usable on fewer groups than contrast probes, or on fewer than 3; TC-0038, TC-0039)",
+          "done": true
         },
         {
           "id": "AC-0197",
-          "text": "a corrupt or missing calibration file never breaks a report",
-          "done": false
+          "text": "a corrupt or missing calibration file never breaks a report (stamp.ts validates the shape and the model; stamp.test.ts, cli.test.ts: a corrupt summary exits 0; TC-0038, TC-0039)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -2191,7 +2191,7 @@
       "title": "Stamp evaluation reports with the calibration state",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0005-US-0039-calibration-stamp",
       "notes": "Implementation plan Task 13 (docs/superpowers/plans, evaluator calibration, 2026-10-07)."
     },
@@ -2613,6 +2613,26 @@
       "relatedStory": "US-0037",
       "relatedTask": "TASK-0057",
       "relatedAC": "AC-0191",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0038",
+      "title": "The calibration lookup states one of four states and never throws",
+      "relatedStory": "US-0039",
+      "relatedTask": "TASK-0059",
+      "relatedAC": "AC-0196, AC-0197",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0039",
+      "title": "Evaluation reports carry the calibration stamp and the evaluator block",
+      "relatedStory": "US-0039",
+      "relatedTask": "TASK-0059",
+      "relatedAC": "AC-0195, AC-0196, AC-0197",
       "type": "Functional",
       "status": "Pass",
       "defect": "None"
@@ -3392,11 +3412,11 @@
       "isAtRisk": true
     },
     "US-0039": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0040": {
       "missingTCs": false,
@@ -3600,10 +3620,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-08T22:50:40.129Z",
-  "commitSha": "6547215",
-  "buildNumber": "326",
-  "branch": "docs/EPIC-0005-task11-baseline",
+  "generatedAt": "2026-10-22T22:44:43.630Z",
+  "commitSha": "a4b7487",
+  "buildNumber": "330",
+  "branch": "feature/EPIC-0005-US-0039-calibration-stamp",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -3727,22 +3747,20 @@
     }
   },
   "budget": {
-    "totalBudget": 1010.4624,
+    "totalBudget": null,
     "totalSpent": 610.4624,
     "totalProjected": 33200,
-    "percentUsed": 60,
-    "burnRate": 19.68608522222222,
-    "daysRemaining": 20,
-    "projectedExhaustion": 20,
+    "percentUsed": null,
+    "burnRate": 18.992163555555557,
+    "daysRemaining": null,
+    "projectedExhaustion": null,
     "thresholds": [
       50,
       75,
       90,
       100
     ],
-    "crossedThresholds": [
-      50
-    ],
+    "crossedThresholds": [],
     "epicBudgets": [
       {
         "id": "EPIC-0001",
@@ -3761,20 +3779,20 @@
         "percentUsed": 100
       },
       {
+        "id": "EPIC-0005",
+        "title": "Slice 5 — evaluator and reports",
+        "budget": 152.6156,
+        "spent": 152.6156,
+        "remaining": 0,
+        "percentUsed": 100
+      },
+      {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
         "budget": 228.92340000000002,
         "spent": 228.92340000000002,
         "remaining": 0,
         "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0005",
-        "title": "Slice 5 — evaluator and reports",
-        "budget": 552.6156,
-        "spent": 152.6156,
-        "remaining": 400,
-        "percentUsed": 28
       },
       {
         "id": "EPIC-0003",
@@ -3793,42 +3811,42 @@
         "percentUsed": null
       }
     ],
-    "hasBudget": true
+    "hasBudget": false
   },
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-08T22:50:40.190Z",
-      "2026-09-09T22:50:40.190Z",
-      "2026-09-10T22:50:40.190Z",
-      "2026-09-11T22:50:40.190Z",
-      "2026-09-12T22:50:40.190Z",
-      "2026-09-13T22:50:40.190Z",
-      "2026-09-14T22:50:40.190Z",
-      "2026-09-15T22:50:40.190Z",
-      "2026-09-16T22:50:40.190Z",
-      "2026-09-17T22:50:40.190Z",
-      "2026-09-18T22:50:40.190Z",
-      "2026-09-19T22:50:40.190Z",
-      "2026-09-20T22:50:40.190Z",
-      "2026-09-21T22:50:40.190Z",
-      "2026-09-22T22:50:40.190Z",
-      "2026-09-23T22:50:40.190Z",
-      "2026-09-24T22:50:40.190Z",
-      "2026-09-25T22:50:40.190Z",
-      "2026-09-26T22:50:40.190Z",
-      "2026-09-27T22:50:40.190Z",
-      "2026-09-28T22:50:40.190Z",
-      "2026-09-29T22:50:40.190Z",
-      "2026-09-30T22:50:40.190Z",
-      "2026-10-01T22:50:40.190Z",
-      "2026-10-02T22:50:40.190Z",
-      "2026-10-03T22:50:40.190Z",
-      "2026-10-04T22:50:40.190Z",
-      "2026-10-05T22:50:40.190Z",
-      "2026-10-06T22:50:40.190Z",
-      "2026-10-07T22:50:40.190Z",
-      "2026-10-08T22:50:40.189Z"
+      "2026-09-22T22:44:36.986Z",
+      "2026-09-23T22:44:36.986Z",
+      "2026-09-24T22:44:36.986Z",
+      "2026-09-25T22:44:36.986Z",
+      "2026-09-26T22:44:36.986Z",
+      "2026-09-27T22:44:36.986Z",
+      "2026-09-28T22:44:36.986Z",
+      "2026-09-29T22:44:36.986Z",
+      "2026-09-30T22:44:36.986Z",
+      "2026-10-01T22:44:36.986Z",
+      "2026-10-02T22:44:36.986Z",
+      "2026-10-03T22:44:36.986Z",
+      "2026-10-04T22:44:36.986Z",
+      "2026-10-05T22:44:36.986Z",
+      "2026-10-06T22:44:36.986Z",
+      "2026-10-07T22:44:36.986Z",
+      "2026-10-08T22:44:36.986Z",
+      "2026-10-09T22:44:36.986Z",
+      "2026-10-10T22:44:36.986Z",
+      "2026-10-11T22:44:36.986Z",
+      "2026-10-12T22:44:36.986Z",
+      "2026-10-13T22:44:36.986Z",
+      "2026-10-14T22:44:36.986Z",
+      "2026-10-15T22:44:36.986Z",
+      "2026-10-16T22:44:36.986Z",
+      "2026-10-17T22:44:36.986Z",
+      "2026-10-18T22:44:36.986Z",
+      "2026-10-19T22:44:36.986Z",
+      "2026-10-20T22:44:36.986Z",
+      "2026-10-21T22:44:36.986Z",
+      "2026-10-22T22:44:43.694Z"
     ],
     "doneCounts": [
       0,
@@ -3897,36 +3915,36 @@
       40
     ],
     "aiCosts": [
-      19.879843333333334,
-      39.75968666666667,
-      59.63953000000001,
-      79.51937333333333,
-      99.39921666666666,
-      119.27906000000002,
-      139.15890333333334,
-      159.03874666666667,
-      178.91859,
-      198.79843333333332,
-      218.67827666666665,
-      238.55812000000003,
-      258.43796333333336,
-      278.3178066666667,
-      298.19765,
-      318.07749333333334,
-      337.95733666666666,
-      357.83718,
-      377.7170233333333,
-      397.59686666666664,
-      417.47670999999997,
-      437.3565533333333,
-      457.23639666666674,
-      477.11624000000006,
-      496.9960833333334,
-      516.8759266666667,
-      536.75577,
-      556.6356133333334,
-      576.5154566666666,
-      596.3953,
+      20.348746666666667,
+      40.697493333333334,
+      61.046240000000004,
+      81.39498666666667,
+      101.74373333333332,
+      122.09248000000001,
+      142.44122666666667,
+      162.78997333333334,
+      183.13872,
+      203.48746666666665,
+      223.83621333333332,
+      244.18496000000002,
+      264.53370666666666,
+      284.88245333333333,
+      305.2312,
+      325.5799466666667,
+      345.92869333333334,
+      366.27744,
+      386.6261866666666,
+      406.9749333333333,
+      427.32367999999997,
+      447.67242666666664,
+      468.02117333333337,
+      488.36992000000004,
+      508.7186666666667,
+      529.0674133333333,
+      549.41616,
+      569.7649066666667,
+      590.1136533333333,
+      610.4624,
       610.4624
     ],
     "coverage": [
@@ -4128,45 +4146,45 @@
       4324888
     ],
     "avgRisk": [
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.1900000000000002,
-      1.2125000000000001
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2125000000000001,
+      1.2200000000000002
     ],
     "velocityByWeek": {
       "labels": [
-        "2026-W37",
-        "2026-W38",
         "2026-W39",
         "2026-W40",
-        "2026-W41"
+        "2026-W41",
+        "2026-W42",
+        "2026-W43"
       ],
       "points": [
         0,
