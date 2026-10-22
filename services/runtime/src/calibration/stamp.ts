@@ -1,5 +1,6 @@
-import { readFile } from "node:fs/promises";
+import { lstat } from "node:fs/promises";
 import { isSafeId } from "@acr/events";
+import { readTextCapped } from "@acr/script";
 import { MIN_SET_PROBES } from "./probe-load.js";
 import { summaryFile, type CalibrationSummary } from "./report.js";
 
@@ -13,7 +14,12 @@ const MIN_CONTRAST_GROUPS = 3;
 const NOT_CALIBRATED: StampState = { state: "not_calibrated" };
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const isCount = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+const isCount = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= Number.MAX_SAFE_INTEGER;
+/** A summary file is a few hundred bytes; anything bigger is not one. */
+const MAX_SUMMARY_BYTES = 256 * 1024;
+/** Bias is a mean signed difference between levels 1 to 4, so it cannot exceed 3 in size; 4 leaves room. */
+const MAX_BIAS = 4;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}(T[0-9:.+Z-]+)?$/;
 /** A short value printed in the stamp: printable ASCII without spaces, so it cannot carry control, bidirectional or markup-breaking text. */
 const isToken = (v: unknown, max: number): v is string => typeof v === "string" && v.length > 0 && v.length <= max && [...v].every((c) => c > " " && c < "\u007f");
 const isPair = (v: unknown, keys: string[]): boolean => isObj(v) && keys.every((k) => isCount(v[k]));
@@ -23,9 +29,11 @@ function isSummary(v: unknown): v is CalibrationSummary {
   if (!isObj(v)) return false;
   return v.schema === "acr.calibration.summary/1" && isToken(v.scenarioId, 64) && isToken(v.rubricHash, 128) && isToken(v.variant, 64)
     && isObj(v.judge) && isToken(v.judge.label, 64) && isToken(v.judge.model, 200)
-    && typeof v.ranAt === "string" && /^\d{4}-\d{2}-\d{2}(T|$)/.test(v.ranAt)
-    && isPair(v.probes, ["total", "tune", "holdout"]) && isPair(v.exact, ["n", "of"]) && isPair(v.contrast, ["ordered", "of", "probes"])
-    && (v.bias === null || (typeof v.bias === "number" && Number.isFinite(v.bias)))
+    && typeof v.ranAt === "string" && ISO_DATE.test(v.ranAt) && Number.isFinite(Date.parse(v.ranAt))
+    && isPair(v.probes, ["total", "tune", "holdout"]) && isPair(v.exact, ["n", "of"]) && isPair(v.contrast, ["ordered", "of", "probes"]) && isPair(v.usable, ["n", "of"])
+    && (v.exact as { n: number; of: number }).n <= (v.exact as { of: number }).of
+    && (v.contrast as { ordered: number }).ordered <= (v.contrast as { of: number }).of && (v.contrast as { of: number }).of <= (v.contrast as { probes: number }).probes
+    && (v.bias === null || (typeof v.bias === "number" && Number.isFinite(v.bias) && Math.abs(v.bias) <= MAX_BIAS))
     && (v.label === "PASS" || v.label === "WARN" || v.label === "FAIL");
 }
 
@@ -41,15 +49,27 @@ function thinReasons(s: CalibrationSummary): { fewProbes: boolean; fewContrast: 
 export async function lookupCalibration(dataDir: string, scenarioId: string, model: string, variant: string, rubricHash: string): Promise<StampState> {
   try {
     if (!isSafeId(scenarioId) || typeof model !== "string" || typeof variant !== "string" || typeof rubricHash !== "string") return NOT_CALIBRATED;
-    const s: unknown = JSON.parse(await readFile(summaryFile(dataDir, scenarioId, model, variant), "utf8"));
+    const file = summaryFile(dataDir, scenarioId, model, variant);
+    if (!(await lstat(file)).isFile()) return NOT_CALIBRATED;
+    const s: unknown = JSON.parse(await readTextCapped(file, MAX_SUMMARY_BYTES));
     if (!isSummary(s) || s.scenarioId !== scenarioId || s.judge.model !== model) return NOT_CALIBRATED;
     if (s.rubricHash !== rubricHash) return { state: "stale", reason: "the rubric changed since the last calibration" };
     if (s.variant !== variant) return { state: "stale", reason: "the prompt variant changed since the last calibration" };
     const t = thinReasons(s);
-    return { state: t.fewProbes || t.fewContrast ? "thin" : "ok", summary: s };
+    return { state: t.fewProbes || t.fewContrast ? "thin" : "ok", summary: project(s) };
   } catch {
     return NOT_CALIBRATED;
   }
+}
+
+/** A copy holding only the validated fields: nothing else in the file reaches a report. */
+function project(m: CalibrationSummary): CalibrationSummary {
+  return {
+    schema: m.schema, scenarioId: m.scenarioId, rubricHash: m.rubricHash, variant: m.variant, judge: { label: m.judge.label, model: m.judge.model }, ranAt: m.ranAt,
+    probes: { total: m.probes.total, tune: m.probes.tune, holdout: m.probes.holdout }, exact: { n: m.exact.n, of: m.exact.of }, bias: m.bias,
+    contrast: { ordered: m.contrast.ordered, of: m.contrast.of, probes: m.contrast.probes },
+    usable: { n: m.usable.n, of: m.usable.of }, label: m.label,
+  };
 }
 
 /** The state as it may be recorded: a malformed one (not produced by lookupCalibration) is replaced by not_calibrated. Never throws. */
@@ -57,7 +77,7 @@ export function normalizeStamp(s: unknown): StampState {
   try {
     if (!isObj(s)) return NOT_CALIBRATED;
     if (s.state === "stale" && typeof s.reason === "string") return { state: "stale", reason: s.reason.slice(0, 200) };
-    if ((s.state === "ok" || s.state === "thin") && isSummary(s.summary)) return { state: s.state, summary: s.summary };
+    if ((s.state === "ok" || s.state === "thin") && isSummary(s.summary)) return { state: s.state, summary: project(s.summary) };
     return NOT_CALIBRATED;
   } catch {
     return NOT_CALIBRATED;

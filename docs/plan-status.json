@@ -1570,7 +1570,7 @@
         },
         {
           "id": "AC-0196",
-          "text": "a one-line calibration stamp (footer, `index.md`, each personal report) states measured numbers and never claims accuracy, with states not calibrated, stale (rubric hash or variant changed) and thin (stamp.ts, report-md.ts, report-write.ts; stamp.test.ts, reports.test.ts; thin = under 20 probes, or contrast usable on fewer groups than contrast probes, or on fewer than 3; TC-0038, TC-0039)",
+          "text": "a one-line calibration stamp (header, `index.md`, each personal report) states measured numbers and never claims accuracy, with states not calibrated, stale (rubric hash or variant changed) and thin (stamp.ts, report-md.ts, report-write.ts; stamp.test.ts, reports.test.ts; thin = under 20 probes, or contrast usable on fewer groups than contrast probes, or on fewer than 3; TC-0038, TC-0039)",
           "done": true
         },
         {
@@ -3620,9 +3620,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-22T22:44:43.630Z",
-  "commitSha": "a4b7487",
-  "buildNumber": "330",
+  "generatedAt": "2026-10-22T22:50:45.692Z",
+  "commitSha": "d17f9c2",
+  "buildNumber": "331",
   "branch": "feature/EPIC-0005-US-0039-calibration-stamp",
   "sessionTimeline": [
     {
@@ -3846,7 +3846,7 @@
       "2026-10-19T22:44:36.986Z",
       "2026-10-20T22:44:36.986Z",
       "2026-10-21T22:44:36.986Z",
-      "2026-10-22T22:44:43.694Z"
+      "2026-10-22T22:50:45.779Z"
     ],
     "doneCounts": [
       0,

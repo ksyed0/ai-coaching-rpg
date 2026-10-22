@@ -127,11 +127,12 @@ export async function runEvaluate(deps: EvaluateDeps): Promise<{ exitCode: numbe
     return { exitCode: e instanceof EvaluatorInputError ? 2 : 1 };
   }
   // The calibration stamp: the scripted evaluator is never looked up (its scores are demo data); a real one is matched on model, variant and rubric hash.
-  const hash = rubricHash(input.rubrics);
   const model = cfg.model ?? (deps.env.NPC_MODEL ?? "").trim();
-  const calibration = scripted || model === "" ? { state: "not_calibrated" as const }
+  let hash: string | undefined;
+  try { hash = rubricHash(input.rubrics); } catch { hash = undefined; }
+  const calibration = scripted || model === "" || hash === undefined ? { state: "not_calibrated" as const }
     : await lookupCalibration(path.resolve(base, "data/calibration"), input.scenario.meta.id, model, PROMPT_VARIANT, hash);
-  const info = { ...evaluatorInfo(deps.env, cfg, { scripted }), variant: PROMPT_VARIANT, rubricHash: hash, calibration };
+  const info = { ...evaluatorInfo(deps.env, cfg, { scripted }), variant: PROMPT_VARIANT, ...(hash === undefined ? {} : { rubricHash: hash }), calibration };
   let written: WrittenReports;
   try { written = await writeReports(result, { outDir: path.resolve(base, values.out ?? "data/reports"), evaluator: info, secrets }); }
   catch (e) {

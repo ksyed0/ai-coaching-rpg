@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { lookupCalibration, stampLine } from "../stamp.js";
+import { lookupCalibration, normalizeStamp, stampLine } from "../stamp.js";
 import { summaryFile, type CalibrationSummary } from "../report.js";
 
 let dir: string;
@@ -77,6 +77,50 @@ describe("lookupCalibration", () => {
   });
 });
 
+describe("shape and consistency", () => {
+  const cases: [string, Partial<CalibrationSummary>][] = [
+    ["a fractional count", { probes: { total: 24.5, tune: 12, holdout: 12 } }],
+    ["a negative count", { exact: { n: -1, of: 24 } }],
+    ["exact.n above exact.of", { exact: { n: 25, of: 24 } }],
+    ["contrast.ordered above contrast.of", { contrast: { ordered: 9, of: 8, probes: 8 } }],
+    ["contrast.of above contrast.probes", { contrast: { ordered: 6, of: 9, probes: 8 } }],
+    ["a bias beyond 4", { bias: 4.5 }], ["a bias beyond -4", { bias: -5 }], ["an infinite count", { probes: { total: 1e999, tune: 1, holdout: 1 } }],
+    ["a date that does not exist", { ranAt: "2026-13-45T00:00:00.000Z" }], ["a non-ISO date", { ranAt: "Oct 8 2026" }], ["a missing usable", { usable: undefined as never }],
+  ];
+  it.each(cases)("%s is not_calibrated", async (_n, over) => {
+    await put(summary(), JSON.stringify(summary(over)));
+    expect(await look()).toEqual({ state: "not_calibrated" });
+  });
+  it("accepts a bias of exactly 4 in size and a date-only ranAt", async () => {
+    await put(summary({ bias: -4, ranAt: "2026-10-08" }));
+    expect((await look()).state).toBe("ok");
+  });
+  it("drops every field it did not validate, so a junk field never reaches a report", async () => {
+    const junk = "J".repeat(5 * 1024 * 1024);
+    await put(summary(), JSON.stringify({ ...summary(), extra: junk, judge: { label: "primary", model: "gemma-4-31b", secret: junk }, probes: { total: 24, tune: 12, holdout: 12, more: junk } }));
+    expect(await look()).toEqual({ state: "not_calibrated" }); // over the size cap
+    await put(summary(), JSON.stringify({ ...summary(), extra: "J".repeat(1000), judge: { label: "primary", model: "gemma-4-31b", secret: "s" }, probes: { total: 24, tune: 12, holdout: 12, more: "m" } }));
+    const r = await look();
+    expect(r).toEqual({ state: "ok", summary: summary() });
+    expect(JSON.stringify(r)).not.toContain("JJJ");
+    expect(normalizeStamp({ state: "ok", summary: { ...summary(), extra: "x" } })).toEqual({ state: "ok", summary: summary() });
+  });
+  it("is not_calibrated for a file over the size cap and for a non-regular file", async () => {
+    const f = summaryFile(dir, SID, "gemma-4-31b", "v1");
+    await mkdir(path.dirname(f), { recursive: true });
+    await writeFile(f, JSON.stringify({ ...summary(), pad: " ".repeat(300 * 1024) }));
+    expect(await look()).toEqual({ state: "not_calibrated" });
+    await rm(f);
+    await mkdir(f); // a directory where the file should be
+    expect(await look()).toEqual({ state: "not_calibrated" });
+    await rm(f, { recursive: true });
+    const real = path.join(dir, "real.json");
+    await writeFile(real, JSON.stringify(summary()));
+    await symlink(real, f);
+    expect(await look()).toEqual({ state: "not_calibrated" });
+  });
+});
+
 describe("stampLine", () => {
   it("states measurements and never claims accuracy", async () => {
     await put(summary());
@@ -96,15 +140,15 @@ describe("stampLine", () => {
   it("a thin state caused by contrast prints the contrast count and says contrast was measured on few groups", async () => {
     await put(summary({ contrast: { ordered: 2, of: 2, probes: 2 } }));
     const line = stampLine(await look());
-    expect(line).toMatch(/2 of 2 contrast/); expect(line).toMatch(/contrast was measured on few groups/i); expect(line).not.toMatch(/fewer than 20 probes/);
+    expect(line).toBe("Scored by gemma-4-31b, prompt v1. Calibration on 24 probes (2026-10-08): 24 of 24 exact, bias +0.4 levels, 2 of 2 contrast groups ordered. Thin: contrast was measured on few groups; treat these numbers as indicative only.");
     await put(summary({ contrast: { ordered: 5, of: 7, probes: 8 } }));
-    expect(stampLine(await look())).toMatch(/5 of 7 contrast[^.]*\(8 contrast probes\)|contrast was measured on few groups/i);
+    expect(stampLine(await look())).toBe("Scored by gemma-4-31b, prompt v1. Calibration on 24 probes (2026-10-08): 24 of 24 exact, bias +0.4 levels, 5 of 7 contrast groups ordered. Thin: contrast was measured on few groups; treat these numbers as indicative only.");
   });
   it("prints n/a for a null bias and a minus sign for a negative one", async () => {
     await put(summary({ bias: null }));
     expect(stampLine(await look())).toMatch(/bias n\/a/);
     await put(summary({ bias: -0.25 }));
-    expect(stampLine(await look())).toMatch(/-0\.3|-0\.2/);
+    expect(stampLine(await look())).toContain("bias -0.3 levels"); // toFixed(1) of -0.25 (binary -0.25 rounds away from zero)
   });
   it("never throws on a malformed state", () => {
     for (const s of [{ state: "ok" }, { state: "thin", summary: null }, { state: "ok", summary: {} }, { state: "stale" }, { state: "weird" }, 5, null]) {
