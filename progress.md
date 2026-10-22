@@ -148,3 +148,9 @@
 - **Decision (ruling R32):** the stage gate was not triggered, so Task 12 (variants v2/v3) was not run. US-0038 is Deferred, not Cancelled (shown as Blocked in the plan, the closest status `plan_visualizer.md` allows; ids stay reserved) because contrast was measured on only 2 probes and the excerpt levels are unreviewed.
 - **Next:** Task 13 (US-0039, the calibration stamp); a second Sonnet batch (contrast, tech_lead and messier probes), after which the baseline is re-run and US-0038 is revisited; the owner reviews the 7 excerpt levels (AC-0191, which keeps US-0037 In Progress).
 - **Cost log:** the uncommitted Stop-hook rows from the main checkout were applied to this branch.
+
+## Session 8 — 2026-10-22 (documentation sync)
+
+- Release plan statuses reconciled with what is merged: US-0013, US-0020, US-0023, US-0025, US-0034, US-0035 and US-0036 -> Complete (every AC ticked, every task Done); TASK-0025 -> Done. Left In Progress on purpose: US-0019 (`cache_read_input_tokens` not recorded), US-0033 (human live check), US-0026 (AC-0087 live rerun), US-0037 (AC-0191 owner review of excerpt levels). US-0038 stays Blocked (deferred, R32).
+- `docs/ID_REGISTRY.md` checked against the highest ids in the plan, bugs and test cases: consistent, no change needed.
+- Next: US-0039 (calibration stamp), the only Planned story.
