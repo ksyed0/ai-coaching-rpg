@@ -1560,7 +1560,7 @@
       "title": "Calibration stamp on evaluation reports",
       "priority": "High",
       "estimate": "S",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0005-US-0039-calibration-stamp",
       "acs": [
         {
@@ -3620,9 +3620,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-22T23:05:09.804Z",
-  "commitSha": "0056388",
-  "buildNumber": "333",
+  "generatedAt": "2026-10-22T23:06:27.153Z",
+  "commitSha": "1d05fc7",
+  "buildNumber": "334",
   "branch": "feature/EPIC-0005-US-0039-calibration-stamp",
   "sessionTimeline": [
     {
@@ -3846,7 +3846,7 @@
       "2026-10-19T22:44:36.986Z",
       "2026-10-20T22:44:36.986Z",
       "2026-10-21T22:44:36.986Z",
-      "2026-10-22T23:05:09.924Z"
+      "2026-10-22T23:06:27.226Z"
     ],
     "doneCounts": [
       0,
@@ -4176,7 +4176,7 @@
       1.2125000000000001,
       1.2125000000000001,
       1.2125000000000001,
-      1.2200000000000002
+      1.2125000000000001
     ],
     "velocityByWeek": {
       "labels": [

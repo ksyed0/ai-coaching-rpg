@@ -1105,7 +1105,7 @@ Notes: Implementation plan Task 12 (docs/superpowers/plans, evaluator calibratio
 US-0039 (EPIC-0005): Calibration stamp on evaluation reports
 Priority: High
 Estimate: S
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0005-US-0039-calibration-stamp
 Dependencies: US-0036
 Acceptance Criteria:
