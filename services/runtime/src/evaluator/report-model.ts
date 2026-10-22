@@ -2,19 +2,24 @@ import { scrubDeep } from "../demo/report.js";
 import { INVALID_LABEL, NOT_OBSERVED, type LoResult } from "./aggregate.js";
 import type { EvaluationResult, GroupEval, ParticipantEval } from "./evaluate.js";
 import { DRAFT_BANNER, VISIBILITY_LINE, buildMethod, type Method } from "./method.js";
+import { normalizeStamp, stampLine, type StampState } from "../calibration/stamp.js";
 import type { CriterionResult } from "./parse.js";
 
 export const REPORT_SCHEMA = "acr.report/1";
 
 /** Who produced the scores: a fixed provider label (never an endpoint or key) and the model id when one was configured. */
-export type EvaluatorInfo = { provider: string; model?: string; /** The scripted offline evaluator produced the scores: demo data, not a real assessment. */ scripted?: boolean };
+export type EvaluatorInfo = {
+  provider: string; model?: string; /** The prompt variant and the rubric hash the scores were produced with. */ variant?: string; rubricHash?: string;
+  /** What the calibration data says about this judge, variant and rubric (absent: not calibrated). */ calibration?: StampState;
+  /** The scripted offline evaluator produced the scores: demo data, not a real assessment. */ scripted?: boolean;
+};
 export type ReportContext = { result: EvaluationResult; evaluator: EvaluatorInfo; secrets: string[] };
 
 type Common = {
   schema: typeof REPORT_SCHEMA; status: "draft"; /** True when the scores come from the scripted offline evaluator (demo data). */ demo: boolean; draft_notice: string; visibility: string;
   scenario: { id: string; title: string; version: string };
   session: { id: string; date: string; complete: boolean; scenes: { number: number; id: string; title: string }[] };
-  evaluator: EvaluatorInfo & { model_calls: number };
+  evaluator: Omit<EvaluatorInfo, "calibration" | "scripted"> & { calibration: StampState; calibration_line: string; model_calls: number };
   notes: string[];
   method: Method;
 };
@@ -65,7 +70,10 @@ function common(ctx: ReportContext, modelCalls: number): Common {
   return {
     schema: REPORT_SCHEMA, status: "draft", demo: ctx.evaluator.scripted === true, draft_notice: DRAFT_BANNER, visibility: VISIBILITY_LINE, scenario: r.scenario,
     session: { id: r.sessionId, date: r.startedAtIso, complete: r.sessionComplete, scenes: r.scenes.map((s, i) => ({ number: i + 1, id: s.id, title: s.title })) },
-    evaluator: { provider: ctx.evaluator.provider, ...(ctx.evaluator.model ? { model: ctx.evaluator.model } : {}), model_calls: modelCalls }, notes: notesOf(r, ctx.evaluator), method: buildMethod({ players: r.participants.length }),
+    evaluator: {
+      provider: ctx.evaluator.provider, ...(ctx.evaluator.model ? { model: ctx.evaluator.model } : {}), ...(ctx.evaluator.variant ? { variant: ctx.evaluator.variant } : {}),
+      ...(ctx.evaluator.rubricHash ? { rubricHash: ctx.evaluator.rubricHash } : {}), calibration: normalizeStamp(ctx.evaluator.calibration), calibration_line: stampLine(ctx.evaluator.calibration), model_calls: modelCalls,
+    }, notes: notesOf(r, ctx.evaluator), method: buildMethod({ players: r.participants.length }),
   };
 }
 

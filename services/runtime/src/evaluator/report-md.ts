@@ -14,6 +14,7 @@ function header(title: string, r: ParticipantReport | GroupReport, sec: string[]
     `| Session | ${id(r.session.id, sec)} |`, `| Date | ${cell(r.session.date)} |`];
   for (const [k, v] of extra) out.push(`| ${k} | ${v} |`);
   out.push(`| Evaluator | ${cell(r.evaluator.provider)}${r.evaluator.model ? `, model ${safeMd(r.evaluator.model, 100, sec)}` : ""} |`, `| Model calls | ${r.evaluator.model_calls} |`, "");
+  out.push(safeMd(r.evaluator.calibration_line, 600, sec), "");
   for (const n of r.notes) out.push(`Note: ${safeMd(n, 600, sec)}`, "");
   return out;
 }

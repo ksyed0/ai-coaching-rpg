@@ -148,3 +148,66 @@ describe("helpers", () => {
     expect(lines).toEqual(["a: LO1 3.0 - Proficient", "b: evaluation failed: x", "team: Shared understanding 3; Decision quality N/O", "model calls: 4"]);
   });
 });
+
+describe("the calibration stamp in a run", () => {
+  const ok = { criteria: [{ id: "discovery", score: null }, { id: "shared_understanding", score: null }], talking_points: ["x"] };
+  const provider = { name: "fake", async *stream() { yield JSON.stringify(ok); } };
+  const ENV = { MODEL_PROVIDER: "openrouter", OPENROUTER_API_KEY: "sk-or-secret-value-12345", EVAL_MODEL: "gemma-4-31b" };
+  const SUMMARY = (hash: string) => ({ schema: "acr.calibration.summary/1", scenarioId: "esc-scope-creep-01", rubricHash: hash, variant: "v1", judge: { label: "primary", model: "gemma-4-31b" }, ranAt: "2026-10-08T00:00:00.000Z",
+    probes: { total: 34, tune: 14, holdout: 20 }, exact: { n: 27, of: 32 }, bias: 0.16, contrast: { ordered: 4, of: 4, probes: 4 }, usable: { n: 32, of: 32 }, label: "PASS" });
+  async function storeSummary(hash: string, model = "gemma-4-31b") {
+    const { summaryFile } = await import("../../calibration/report.js");
+    const f = summaryFile(path.join(dir, "data/calibration"), "esc-scope-creep-01", model, "v1");
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(path.dirname(f), { recursive: true });
+    await writeFile(f, JSON.stringify(SUMMARY(hash)));
+  }
+  const hashOf = async () => {
+    const { loadEvaluationInput } = await import("../cli.js");
+    const { rubricHash } = await import("../../calibration/rubric-hash.js");
+    const sdir = await findScenarioDir(REPO, "esc-scope-creep-01");
+    return rubricHash((await loadEvaluationInput(sdir!)).rubrics);
+  };
+  it("a real run with no calibration file is stamped not calibrated and records the variant and rubric hash in the JSON", async () => {
+    const out = path.join(dir, "c1");
+    await run([log, "--out", out], ENV, { provider });
+    const j = JSON.parse(await readFile(path.join(out, "cli-sess", "group.json"), "utf8"));
+    expect(j.evaluator).toMatchObject({ model: "gemma-4-31b", variant: "v1", calibration: { state: "not_calibrated" } });
+    expect(j.evaluator.rubricHash).toBe(await hashOf());
+    expect(await readFile(path.join(out, "cli-sess", "index.md"), "utf8")).toMatch(/Calibration: not calibrated/);
+  });
+  it("a matching calibration summary stamps measured numbers in index, group and personal reports", async () => {
+    await storeSummary(await hashOf());
+    const out = path.join(dir, "c2");
+    await run([log, "--out", out], ENV, { provider });
+    for (const f of ["index.md", "group.md", "delivery_lead.md"]) expect(await readFile(path.join(out, "cli-sess", f), "utf8"), f).toMatch(/Scored by gemma-4-31b, prompt v1\. Calibration on 34 probes \(2026-10-08\): 27 of 32 exact/);
+  });
+  it("a summary for another rubric hash is stale, and one for another model is ignored", async () => {
+    await storeSummary("0000000000000000");
+    const o1 = path.join(dir, "c3");
+    await run([log, "--out", o1], ENV, { provider });
+    expect(await readFile(path.join(o1, "cli-sess", "index.md"), "utf8")).toMatch(/not calibrated for this rubric version/);
+    const o2 = path.join(dir, "c4");
+    await run([log, "--out", o2], { ...ENV, EVAL_MODEL: "other-model" }, { provider });
+    expect(await readFile(path.join(o2, "cli-sess", "index.md"), "utf8")).toMatch(/Calibration: not calibrated \(/);
+  });
+  it("a corrupt summary never breaks a run", async () => {
+    const { summaryFile } = await import("../../calibration/report.js");
+    const f = summaryFile(path.join(dir, "data/calibration"), "esc-scope-creep-01", "gemma-4-31b", "v1");
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(path.dirname(f), { recursive: true });
+    await writeFile(f, "{broken");
+    const out = path.join(dir, "c5");
+    const r = await run([log, "--out", out], ENV, { provider });
+    expect(r.exitCode).toBe(0);
+    expect(await readFile(path.join(out, "cli-sess", "group.md"), "utf8")).toMatch(/Calibration: not calibrated/);
+  });
+  it("the scripted evaluator is never looked up: it is stamped with the constant not-calibrated line even when a summary exists", async () => {
+    await storeSummary(await hashOf());
+    const out = path.join(dir, "c6");
+    await run([log, "--out", out], { EVAL_MODEL: "gemma-4-31b" });
+    const md = await readFile(path.join(out, "cli-sess", "index.md"), "utf8");
+    expect(md).toContain("Calibration: not calibrated (no calibration result for this judge, prompt variant and rubric).");
+    expect(md).not.toMatch(/Scored by/);
+  });
+});

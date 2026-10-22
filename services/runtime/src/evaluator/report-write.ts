@@ -6,6 +6,7 @@ import { EvaluatorInputError, type EvaluationResult } from "./evaluate.js";
 import { DRAFT_BANNER, VISIBILITY_LINE } from "./method.js";
 import { buildMethod } from "./method.js";
 import { id, renderGroupMarkdown, renderMethodMarkdown, renderParticipantMarkdown } from "./report-md.js";
+import { stampLine } from "../calibration/stamp.js";
 import { DEMO_NOTE, buildGroupReport, buildParticipantReport, loScoreText, type EvaluatorInfo, type GroupReport, type ParticipantReport } from "./report-model.js";
 
 /** File names the reports use themselves; a role with one of these ids would overwrite them. */
@@ -41,7 +42,7 @@ function renderIndex(result: EvaluationResult, participants: ParticipantReport[]
   const sec = secrets;
   const roles = participants.map((p) => p.participant.role);
   const out = [`# Feedback reports: ${safeMd(result.scenario.title, 200, sec)}`, "", `> ${DRAFT_BANNER}`, "", VISIBILITY_LINE, "",
-    `Session \`${result.sessionId}\`, ${safeMd(result.startedAtIso, 40, sec)}. Model calls: ${result.modelCalls}.`, "", ...(evaluator.scripted ? [DEMO_NOTE, ""] : []), "## Reports", ""];
+    `Session \`${result.sessionId}\`, ${safeMd(result.startedAtIso, 40, sec)}. Model calls: ${result.modelCalls}.`, "", safeMd(stampLine(evaluator.calibration), 600, sec), "", ...(evaluator.scripted ? [DEMO_NOTE, ""] : []), "## Reports", ""];
   for (const r of roles) out.push(`- [${r}](${r}.md) ([JSON](${r}.json))`);
   out.push("- [Group report](group.md) ([JSON](group.json))", "- [How scores are produced](method.md)", "", "## Learning-objective results for everyone", "");
   const team = group.lo_coverage.objectives.some((o) => o.team.score !== null);
