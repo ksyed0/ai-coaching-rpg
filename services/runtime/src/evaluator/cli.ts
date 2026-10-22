@@ -10,7 +10,7 @@ import { scrubText } from "../demo/report.js";
 import { parseEvalConfig } from "./config.js";
 import { evaluateSession, EvaluatorInputError, type EvaluationResult } from "./evaluate.js";
 import { readSessionLog, SessionLogError } from "./log-reader.js";
-import { evaluatorInfo, isMockProvider, startEvaluatorProvider } from "./provider.js";
+import { buildEvaluatorInfo, isMockProvider, startEvaluatorProvider } from "./provider.js";
 import { summaryLines } from "./summary.js";
 import { ReportWriteError, writeReports, type WrittenReports } from "./report-write.js";
 
@@ -121,8 +121,9 @@ export async function runEvaluate(deps: EvaluateDeps): Promise<{ exitCode: numbe
     err(`error: ${e instanceof EvaluatorInputError ? e.message : "the evaluation could not run"}`);
     return { exitCode: e instanceof EvaluatorInputError ? 2 : 1 };
   }
+  const info = await buildEvaluatorInfo({ env: deps.env, cfg, scripted, scenarioId: input.scenario.meta.id, rubrics: input.rubrics, calibrationDir: path.resolve(base, "data/calibration") });
   let written: WrittenReports;
-  try { written = await writeReports(result, { outDir: path.resolve(base, values.out ?? "data/reports"), evaluator: evaluatorInfo(deps.env, cfg, { scripted }), secrets }); }
+  try { written = await writeReports(result, { outDir: path.resolve(base, values.out ?? "data/reports"), evaluator: info, secrets }); }
   catch (e) {
     err(`error: cannot write the reports: ${e instanceof EvaluatorInputError || e instanceof ReportWriteError ? e.message : (e as NodeJS.ErrnoException).code ?? "failed"}`);
     return { exitCode: e instanceof EvaluatorInputError ? 2 : 1, result };

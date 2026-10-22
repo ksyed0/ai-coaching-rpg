@@ -1105,20 +1105,20 @@ Notes: Implementation plan Task 12 (docs/superpowers/plans, evaluator calibratio
 US-0039 (EPIC-0005): Calibration stamp on evaluation reports
 Priority: High
 Estimate: S
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0005-US-0039-calibration-stamp
 Dependencies: US-0036
 Acceptance Criteria:
-  - [ ] AC-0195: every evaluation's JSON and Markdown records the judge, model, prompt variant and rubric hash
-  - [ ] AC-0196: a one-line calibration stamp (footer, `index.md`, each personal report) states measured numbers and never claims accuracy, with states not calibrated, stale (rubric hash or variant changed) and thin
-  - [ ] AC-0197: a corrupt or missing calibration file never breaks a report
+  - [x] AC-0195: every evaluation's JSON and Markdown records the judge, model, prompt variant and rubric hash (report-model.ts `evaluator.variant`/`rubricHash`/`calibration`, report-md.ts, cli.ts; reports.test.ts, cli.test.ts; TC-0039)
+  - [x] AC-0196: a one-line calibration stamp (header, `index.md`, each personal report) states measured numbers and never claims accuracy, with states not calibrated, stale (rubric hash or variant changed) and thin (stamp.ts, report-md.ts, report-write.ts; stamp.test.ts, reports.test.ts; thin = under 20 probes, or contrast usable on fewer groups than contrast probes, or on fewer than 3; TC-0038, TC-0039)
+  - [x] AC-0197: a corrupt or missing calibration file never breaks a report (stamp.ts validates the shape and the model; stamp.test.ts, cli.test.ts: a corrupt summary exits 0; TC-0038, TC-0039)
 ```
 
 ```
 TASK-0059 (US-0039): Stamp evaluation reports with the calibration state
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0005-US-0039-calibration-stamp
 Notes: Implementation plan Task 13 (docs/superpowers/plans, evaluator calibration, 2026-10-07).
 ```
