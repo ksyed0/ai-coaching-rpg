@@ -43,6 +43,7 @@ function renderIndex(result: EvaluationResult, participants: ParticipantReport[]
   const roles = participants.map((p) => p.participant.role);
   const out = [`# Feedback reports: ${safeMd(result.scenario.title, 200, sec)}`, "", `> ${DRAFT_BANNER}`, "", VISIBILITY_LINE, "",
     `Session \`${result.sessionId}\`, ${safeMd(result.startedAtIso, 40, sec)}. Model calls: ${result.modelCalls}.`, "", safeMd(stampLine(evaluator.calibration), 600, sec), "",
+    `Evaluator: ${safeMd(evaluator.provider, 200, sec)}${evaluator.model ? `, model ${safeMd(evaluator.model, 100, sec)}` : ""}.`, "",
     ...(evaluator.variant || evaluator.rubricHash ? [`Prompt variant ${token(evaluator.variant, sec)}, rubric ${token(evaluator.rubricHash, sec)}.`, ""] : []), ...(evaluator.scripted ? [DEMO_NOTE, ""] : []), "## Reports", ""];
   for (const r of roles) out.push(`- [${r}](${r}.md) ([JSON](${r}.json))`);
   out.push("- [Group report](group.md) ([JSON](group.json))", "- [How scores are produced](method.md)", "", "## Learning-objective results for everyone", "");

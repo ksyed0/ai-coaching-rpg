@@ -5,19 +5,14 @@ import { parse } from "yaml";
 import { describeModelProvider } from "@acr/adapters";
 import type { SessionEvent } from "@acr/events";
 import { loadRubrics, loadScenario, readTextCapped, validateScenario, type Rubric, type Scenario } from "@acr/script";
-import { lookupCalibration } from "../calibration/stamp.js";
-import { rubricHash } from "../calibration/rubric-hash.js";
 import { createScriptedEvaluator } from "../demo/eval-mock.js";
 import { scrubText } from "../demo/report.js";
 import { parseEvalConfig } from "./config.js";
 import { evaluateSession, EvaluatorInputError, type EvaluationResult } from "./evaluate.js";
 import { readSessionLog, SessionLogError } from "./log-reader.js";
-import { evaluatorInfo, isMockProvider, startEvaluatorProvider } from "./provider.js";
+import { buildEvaluatorInfo, isMockProvider, startEvaluatorProvider } from "./provider.js";
 import { summaryLines } from "./summary.js";
 import { ReportWriteError, writeReports, type WrittenReports } from "./report-write.js";
-
-/** The evaluator prompt variant in use. Only the base prompt exists (variants are US-0038), so this is a constant. */
-const PROMPT_VARIANT = "v1";
 
 export const EVALUATE_USAGE = [
   "usage: pnpm evaluate <session.jsonl> [--scenario <dir>] [--out <dir>] [--json -] [--help]",
@@ -126,13 +121,7 @@ export async function runEvaluate(deps: EvaluateDeps): Promise<{ exitCode: numbe
     err(`error: ${e instanceof EvaluatorInputError ? e.message : "the evaluation could not run"}`);
     return { exitCode: e instanceof EvaluatorInputError ? 2 : 1 };
   }
-  // The calibration stamp: the scripted evaluator is never looked up (its scores are demo data); a real one is matched on model, variant and rubric hash.
-  const model = cfg.model ?? (deps.env.NPC_MODEL ?? "").trim();
-  let hash: string | undefined;
-  try { hash = rubricHash(input.rubrics); } catch { hash = undefined; }
-  const calibration = scripted || model === "" || hash === undefined ? { state: "not_calibrated" as const }
-    : await lookupCalibration(path.resolve(base, "data/calibration"), input.scenario.meta.id, model, PROMPT_VARIANT, hash);
-  const info = { ...evaluatorInfo(deps.env, cfg, { scripted, ...(model === "" ? {} : { model }) }), variant: PROMPT_VARIANT, ...(hash === undefined ? {} : { rubricHash: hash }), calibration };
+  const info = await buildEvaluatorInfo({ env: deps.env, cfg, scripted, scenarioId: input.scenario.meta.id, rubrics: input.rubrics, calibrationDir: path.resolve(base, "data/calibration") });
   let written: WrittenReports;
   try { written = await writeReports(result, { outDir: path.resolve(base, values.out ?? "data/reports"), evaluator: info, secrets }); }
   catch (e) {

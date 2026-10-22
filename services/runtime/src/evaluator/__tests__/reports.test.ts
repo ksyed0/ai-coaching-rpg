@@ -346,3 +346,12 @@ describe("calibration stamp", () => {
     expect(files.get("alice.md")).toMatch(NOT_CAL);
   });
 });
+
+describe("index.md without a stamp line naming the model", () => {
+  it("names the provider and model in the not_calibrated and stale states too", async () => {
+    for (const calibration of [{ state: "not_calibrated" as const }, { state: "stale" as const, reason: "the rubric changed since the last calibration" }]) {
+      const { files } = renderReports(await evaluate(), { provider: "Some provider", model: "m1", calibration });
+      expect(files.get("index.md")).toContain("Evaluator: Some provider, model m1.");
+    }
+  });
+});
