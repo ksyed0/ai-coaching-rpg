@@ -20,7 +20,7 @@ export function startEvaluatorProvider(env: NodeJS.ProcessEnv, cfg: EvalConfig):
 }
 
 /** What a report says about who produced the scores: a fixed provider label (no endpoint, no key) and the model id when EVAL_MODEL is set. */
-export function evaluatorInfo(env: NodeJS.ProcessEnv, cfg: EvalConfig, o: { scripted?: boolean } = {}): EvaluatorInfo {
+export function evaluatorInfo(env: NodeJS.ProcessEnv, cfg: EvalConfig, o: { scripted?: boolean; /** The effective model id (EVAL_MODEL, else NPC_MODEL): the one the calibration lookup used. */ model?: string } = {}): EvaluatorInfo {
   if (o.scripted) return { provider: "scripted offline evaluator (demo data, not a real assessment)", scripted: true };
-  return { provider: describeModelProvider(env), ...(cfg.model ? { model: cfg.model } : {}) };
+  return { provider: describeModelProvider(env), ...(o.model ? { model: o.model } : cfg.model ? { model: cfg.model } : {}) };
 }

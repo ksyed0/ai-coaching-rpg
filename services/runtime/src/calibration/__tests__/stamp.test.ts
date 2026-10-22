@@ -84,12 +84,31 @@ describe("shape and consistency", () => {
     ["exact.n above exact.of", { exact: { n: 25, of: 24 } }],
     ["contrast.ordered above contrast.of", { contrast: { ordered: 9, of: 8, probes: 8 } }],
     ["contrast.of above contrast.probes", { contrast: { ordered: 6, of: 9, probes: 8 } }],
-    ["a bias beyond 4", { bias: 4.5 }], ["a bias beyond -4", { bias: -5 }], ["an infinite count", { probes: { total: 1e999, tune: 1, holdout: 1 } }],
+    ["a bias beyond 4", { bias: 4.5 }], ["a bias beyond -4", { bias: -5 }], ["an impossible day", { ranAt: "2026-02-30T00:00:00.000Z" }], ["a month 00", { ranAt: "2026-00-10" }],
     ["a date that does not exist", { ranAt: "2026-13-45T00:00:00.000Z" }], ["a non-ISO date", { ranAt: "Oct 8 2026" }], ["a missing usable", { usable: undefined as never }],
   ];
   it.each(cases)("%s is not_calibrated", async (_n, over) => {
     await put(summary(), JSON.stringify(summary(over)));
     expect(await look()).toEqual({ state: "not_calibrated" });
+  });
+  it("a raw infinite count in the text (1e999 parses to Infinity) is not_calibrated", async () => {
+    await put(summary(), JSON.stringify(summary()).replace('"total":24', '"total":1e999'));
+    expect(await look()).toEqual({ state: "not_calibrated" });
+  });
+  it("is not_calibrated for a FIFO where the file should be, without hanging", async () => {
+    if (process.platform === "win32") return;
+    const { execFileSync } = await import("node:child_process");
+    const f = summaryFile(dir, SID, "gemma-4-31b", "v1");
+    await mkdir(path.dirname(f), { recursive: true });
+    execFileSync("mkfifo", [f]);
+    expect(await look()).toEqual({ state: "not_calibrated" });
+  });
+  it("prints zero bias as 0.0 (never +0.0 or -0.0) and shows the label", async () => {
+    for (const b of [0, -0.04, 0.04]) {
+      await put(summary({ bias: b, label: "FAIL" }));
+      const line = stampLine(await look());
+      expect(line).toContain("bias 0.0 levels"); expect(line).toContain("label FAIL.");
+    }
   });
   it("accepts a bias of exactly 4 in size and a date-only ranAt", async () => {
     await put(summary({ bias: -4, ranAt: "2026-10-08" }));
@@ -126,13 +145,13 @@ describe("stampLine", () => {
     await put(summary());
     const line = stampLine(await look());
     expect(line).toMatch(/gemma-4-31b/); expect(line).toMatch(/24 probes/); expect(line).toMatch(/24 of 24 exact/);
-    expect(line).toMatch(/6 of 8 contrast/); expect(line).toMatch(/\+0\.4/); expect(line).toContain("2026-10-08");
+    expect(line).toMatch(/6 of 8 contrast/); expect(line).toMatch(/\+0\.4/); expect(line).toMatch(/label WARN\./); expect(line).toContain("2026-10-08");
     expect(line).not.toMatch(/accurate|validated|reliable/i);
     expect(line).not.toMatch(/Thin/);
   });
   it("is explicit when not calibrated, stale or thin", async () => {
     expect(stampLine({ state: "not_calibrated" })).toMatch(/not calibrated/i);
-    expect(stampLine({ state: "stale", reason: "the rubric changed" })).toMatch(/not calibrated for this rubric version/i);
+    expect(stampLine({ state: "stale", reason: "the rubric changed" })).toMatch(/not calibrated for this rubric or prompt version/i);
     expect(stampLine(undefined)).toMatch(/not calibrated/i);
     await put(summary({ probes: { total: 8, tune: 4, holdout: 4 } }));
     expect(stampLine(await look())).toMatch(/fewer than 20 probes/);
@@ -140,9 +159,9 @@ describe("stampLine", () => {
   it("a thin state caused by contrast prints the contrast count and says contrast was measured on few groups", async () => {
     await put(summary({ contrast: { ordered: 2, of: 2, probes: 2 } }));
     const line = stampLine(await look());
-    expect(line).toBe("Scored by gemma-4-31b, prompt v1. Calibration on 24 probes (2026-10-08): 24 of 24 exact, bias +0.4 levels, 2 of 2 contrast groups ordered. Thin: contrast was measured on few groups; treat these numbers as indicative only.");
+    expect(line).toBe("Scored by gemma-4-31b, prompt v1. Calibration on 24 probes (2026-10-08): 24 of 24 exact, bias +0.4 levels, 2 of 2 contrast groups ordered, label WARN. Thin: contrast was measured on few groups; treat these numbers as indicative only.");
     await put(summary({ contrast: { ordered: 5, of: 7, probes: 8 } }));
-    expect(stampLine(await look())).toBe("Scored by gemma-4-31b, prompt v1. Calibration on 24 probes (2026-10-08): 24 of 24 exact, bias +0.4 levels, 5 of 7 contrast groups ordered. Thin: contrast was measured on few groups; treat these numbers as indicative only.");
+    expect(stampLine(await look())).toBe("Scored by gemma-4-31b, prompt v1. Calibration on 24 probes (2026-10-08): 24 of 24 exact, bias +0.4 levels, 5 of 7 contrast groups ordered, label WARN. Thin: contrast was measured on few groups; treat these numbers as indicative only.");
   });
   it("prints n/a for a null bias and a minus sign for a negative one", async () => {
     await put(summary({ bias: null }));

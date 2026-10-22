@@ -320,14 +320,22 @@ describe("calibration stamp", () => {
     const info = { ...EVALUATOR, model: "gemma-4-31b", variant: "v1", rubricHash: "h1", calibration: { state: "ok" as const, summary: SUMMARY } };
     const { files } = renderReports(await evaluate(), info);
     for (const f of ["index.md", "group.md", "alice.md", "bob.md"]) {
-      expect(files.get(f), f).toMatch(/Scored by gemma-4-31b, prompt v1\. Calibration on 24 probes \(2026-10-08\): 22 of 24 exact, bias \+0\.4 levels, 6 of 8 contrast groups ordered/);
+      expect(files.get(f), f).toMatch(/Scored by gemma-4-31b, prompt v1\. Calibration on 24 probes \(2026-10-08\): 22 of 24 exact, bias \+0\.4 levels, 6 of 8 contrast groups ordered, label WARN\./);
       expect(files.get(f), f).not.toMatch(/accurate|validated|reliable/i);
     }
     expect(JSON.parse(files.get("alice.json")!).evaluator.calibration).toMatchObject({ state: "ok", summary: { probes: { total: 24 } } });
   });
+  it("every Markdown report prints the prompt variant and rubric hash, in every state; the JSON has them too", async () => {
+    for (const calibration of [{ state: "not_calibrated" as const }, { state: "stale" as const, reason: "the rubric changed since the last calibration" }, { state: "ok" as const, summary: SUMMARY }]) {
+      const { files } = renderReports(await evaluate(), { ...EVALUATOR, model: "m1", variant: "v1", rubricHash: "abc123", calibration });
+      expect(files.get("index.md")).toContain("Prompt variant `v1`, rubric `abc123`.");
+      for (const f of ["group.md", "alice.md", "bob.md"]) { expect(files.get(f), f).toContain("| Prompt variant | `v1`, rubric `abc123` |"); expect(files.get(f), f).toContain("model m1"); }
+      expect(JSON.parse(files.get("bob.json")!).evaluator).toMatchObject({ model: "m1", variant: "v1", rubricHash: "abc123" });
+    }
+  });
   it("a stale state says so", async () => {
     const { files } = renderReports(await evaluate(), { ...EVALUATOR, calibration: { state: "stale", reason: "the rubric changed since the last calibration" } });
-    for (const f of ["index.md", "group.md", "alice.md"]) expect(files.get(f), f).toMatch(/not calibrated for this rubric version/);
+    for (const f of ["index.md", "group.md", "alice.md"]) expect(files.get(f), f).toMatch(/not calibrated for this rubric or prompt version/);
   });
   it("a thin state says so", async () => {
     const { files } = renderReports(await evaluate(), { ...EVALUATOR, calibration: { state: "thin", summary: { ...SUMMARY, probes: { total: 8, tune: 4, holdout: 4 } } } });

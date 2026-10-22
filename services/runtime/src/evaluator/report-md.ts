@@ -7,13 +7,18 @@ const cap = (s: string) => (s.length > 0 ? s[0]!.toUpperCase() + s.slice(1) : s)
 /** A validated id, or an escaped fragment: report text never carries an unchecked identifier. */
 export const id = (v: string, sec: string[]): string => (isSafeId(v) ? `\`${v}\`` : safeMd(v, 64, sec));
 
+/** A rubric hash or variant name: a code span when it is plain letters and digits (so it can be copied whole), else escaped text. */
+export const token = (v: string | undefined, sec: string[]): string => (v !== undefined && v.length >= 1 && v.length <= 128 && [...v].every((c) => c < "\u007f" && (c.toLowerCase() !== c.toUpperCase() || (c >= "0" && c <= "9") || c === "." || c === "_" || c === "-")) ? `\`${v}\`` : safeMd(v ?? "unknown", 128, sec));
+
 function header(title: string, r: ParticipantReport | GroupReport, sec: string[], extra: [string, string][]): string[] {
   const cell = (t: string) => safeMd(t, 200, sec);
   const out = [`# ${title}`, "", `> ${DRAFT_BANNER}`, "", VISIBILITY_LINE, "", "| Field | Value |", "| --- | --- |",
     `| Scenario | ${cell(r.scenario.title)} (${id(r.scenario.id, sec)}, version ${cell(r.scenario.version)}) |`,
     `| Session | ${id(r.session.id, sec)} |`, `| Date | ${cell(r.session.date)} |`];
   for (const [k, v] of extra) out.push(`| ${k} | ${v} |`);
-  out.push(`| Evaluator | ${cell(r.evaluator.provider)}${r.evaluator.model ? `, model ${safeMd(r.evaluator.model, 100, sec)}` : ""} |`, `| Model calls | ${r.evaluator.model_calls} |`, "");
+  out.push(`| Evaluator | ${cell(r.evaluator.provider)}${r.evaluator.model ? `, model ${safeMd(r.evaluator.model, 100, sec)}` : ""} |`, `| Model calls | ${r.evaluator.model_calls} |`);
+  if (r.evaluator.variant || r.evaluator.rubricHash) out.push(`| Prompt variant | ${token(r.evaluator.variant, sec)}, rubric ${token(r.evaluator.rubricHash, sec)} |`);
+  out.push("");
   out.push(safeMd(r.evaluator.calibration_line, 600, sec), "");
   for (const n of r.notes) out.push(`Note: ${safeMd(n, 600, sec)}`, "");
   return out;

@@ -591,7 +591,7 @@ Preconditions: A checkout of the branch.
 Steps:
   1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/stamp.test.ts`.
 Expected Result: No file, a corrupt file, a parseable file of the wrong shape (every field the stamp reads), a file naming another model than the one asked for, and hostile scenario ids or models (paths, empty, control characters) give not_calibrated and never read outside the calibration directory; a changed rubric hash or variant gives stale; fewer than 20 probes, contrast usable on fewer groups than contrast probes, or fewer than 3 contrast groups give thin (the line prints the contrast count and says contrast was measured on few groups when that is the reason); otherwise ok. The stamp line states probes, exact agreement, bias and contrast groups ordered, and never contains "accurate", "validated" or "reliable".
-Actual Result: As expected (stamp.test.ts, 12 tests) on 2026-10-22.
+Actual Result: As expected (stamp.test.ts) on 2026-10-22, including whole-number and consistency checks, impossible dates, an oversize file, a directory, a symbolic link and a FIFO in place of the file, only validated fields kept, zero bias printed as 0.0, and the calibration label in the line.
 Status: [x] Pass
 Defect Raised: None
 Notes: Automated only.

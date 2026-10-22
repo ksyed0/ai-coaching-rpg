@@ -1,6 +1,6 @@
-import { lstat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open } from "node:fs/promises";
 import { isSafeId } from "@acr/events";
-import { readTextCapped } from "@acr/script";
 import { MIN_SET_PROBES } from "./probe-load.js";
 import { summaryFile, type CalibrationSummary } from "./report.js";
 
@@ -17,6 +17,33 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object
 const isCount = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= Number.MAX_SAFE_INTEGER;
 /** A summary file is a few hundred bytes; anything bigger is not one. */
 const MAX_SUMMARY_BYTES = 256 * 1024;
+/** Opened without following a symbolic link and without blocking on a pipe; on Windows O_NOFOLLOW does not exist. */
+const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0);
+
+/** Reads a small regular file from ONE handle: no check-then-use, no symbolic link, no pipe or device, at most `max` bytes. Rejects otherwise. */
+async function readRegularCapped(file: string, max: number): Promise<string> {
+  const fh = await open(file, OPEN_FLAGS);
+  try {
+    if (!(await fh.stat()).isFile()) throw new Error("not a regular file");
+    const buf = Buffer.allocUnsafe(max + 1);
+    let got = 0;
+    while (got < buf.length) {
+      const { bytesRead } = await fh.read(buf, got, buf.length - got, null);
+      if (bytesRead === 0) break;
+      got += bytesRead;
+    }
+    if (got > max) throw new Error("file too large");
+    return buf.subarray(0, got).toString("utf8");
+  } finally { await fh.close(); }
+}
+
+/** An ISO date or datetime naming a day that exists (2026-02-30 is refused). */
+function isRealIsoDate(v: unknown): v is string {
+  if (typeof v !== "string" || !ISO_DATE.test(v) || !Number.isFinite(Date.parse(v))) return false;
+  const day = v.slice(0, 10);
+  const d = new Date(`${day}T00:00:00Z`);
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === day;
+}
 /** Bias is a mean signed difference between levels 1 to 4, so it cannot exceed 3 in size; 4 leaves room. */
 const MAX_BIAS = 4;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}(T[0-9:.+Z-]+)?$/;
@@ -29,7 +56,7 @@ function isSummary(v: unknown): v is CalibrationSummary {
   if (!isObj(v)) return false;
   return v.schema === "acr.calibration.summary/1" && isToken(v.scenarioId, 64) && isToken(v.rubricHash, 128) && isToken(v.variant, 64)
     && isObj(v.judge) && isToken(v.judge.label, 64) && isToken(v.judge.model, 200)
-    && typeof v.ranAt === "string" && ISO_DATE.test(v.ranAt) && Number.isFinite(Date.parse(v.ranAt))
+    && isRealIsoDate(v.ranAt)
     && isPair(v.probes, ["total", "tune", "holdout"]) && isPair(v.exact, ["n", "of"]) && isPair(v.contrast, ["ordered", "of", "probes"]) && isPair(v.usable, ["n", "of"])
     && (v.exact as { n: number; of: number }).n <= (v.exact as { of: number }).of
     && (v.contrast as { ordered: number }).ordered <= (v.contrast as { of: number }).of && (v.contrast as { of: number }).of <= (v.contrast as { probes: number }).probes
@@ -50,8 +77,7 @@ export async function lookupCalibration(dataDir: string, scenarioId: string, mod
   try {
     if (!isSafeId(scenarioId) || typeof model !== "string" || typeof variant !== "string" || typeof rubricHash !== "string") return NOT_CALIBRATED;
     const file = summaryFile(dataDir, scenarioId, model, variant);
-    if (!(await lstat(file)).isFile()) return NOT_CALIBRATED;
-    const s: unknown = JSON.parse(await readTextCapped(file, MAX_SUMMARY_BYTES));
+    const s: unknown = JSON.parse(await readRegularCapped(file, MAX_SUMMARY_BYTES));
     if (!isSummary(s) || s.scenarioId !== scenarioId || s.judge.model !== model) return NOT_CALIBRATED;
     if (s.rubricHash !== rubricHash) return { state: "stale", reason: "the rubric changed since the last calibration" };
     if (s.variant !== variant) return { state: "stale", reason: "the prompt variant changed since the last calibration" };
@@ -90,16 +116,17 @@ const NOT_CALIBRATED_LINE = "Calibration: not calibrated (no calibration result 
 export function stampLine(s: StampState | undefined): string {
   try {
     if (!s || s.state === "not_calibrated") return NOT_CALIBRATED_LINE;
-    if (s.state === "stale") return `Calibration: not calibrated for this rubric version (${String(s.reason).slice(0, 200)}).`;
+    if (s.state === "stale") return `Calibration: not calibrated for this rubric or prompt version (${String(s.reason).slice(0, 200)}).`;
     if ((s.state !== "ok" && s.state !== "thin") || !isSummary(s.summary)) return NOT_CALIBRATED_LINE;
     const m = s.summary;
-    const bias = m.bias === null ? "bias n/a" : `bias ${m.bias >= 0 ? "+" : ""}${m.bias.toFixed(1)} levels`;
+    const rounded = m.bias === null ? 0 : Number(m.bias.toFixed(1));
+    const bias = m.bias === null ? "bias n/a" : `bias ${rounded === 0 ? "0.0" : `${rounded > 0 ? "+" : ""}${rounded.toFixed(1)}`} levels`;
     const t = thinReasons(m);
     const notes: string[] = [];
     if (t.fewProbes) notes.push(`fewer than ${MIN_SET_PROBES} probes`);
     if (t.fewContrast) notes.push("contrast was measured on few groups");
     const thin = s.state === "thin" ? ` Thin: ${notes.length ? notes.join(" and ") : "few probes"}; treat these numbers as indicative only.` : "";
-    return `Scored by ${m.judge.model}, prompt ${m.variant}. Calibration on ${m.probes.total} probes (${m.ranAt.slice(0, 10)}): ${m.exact.n} of ${m.exact.of} exact, ${bias}, ${m.contrast.ordered} of ${m.contrast.of} contrast groups ordered.${thin}`;
+    return `Scored by ${m.judge.model}, prompt ${m.variant}. Calibration on ${m.probes.total} probes (${m.ranAt.slice(0, 10)}): ${m.exact.n} of ${m.exact.of} exact, ${bias}, ${m.contrast.ordered} of ${m.contrast.of} contrast groups ordered, label ${m.label}.${thin}`;
   } catch {
     return NOT_CALIBRATED_LINE;
   }
