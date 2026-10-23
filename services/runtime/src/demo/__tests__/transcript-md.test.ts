@@ -120,6 +120,11 @@ describe("mdEscape", () => {
     expect(mdEscape("www.a.b")).not.toContain("www.");
     expect(mdEscape("a@b.c")).not.toMatch(/@[a-z]/);
   });
+  it("breaks a hex run of 7 or more with a digit (a SHA) but leaves words made only of hex letters whole", () => {
+    expect(mdEscape("deadbeef1234")).toContain("&#8203;");
+    expect(mdEscape("feedback")).toBe("feedback");
+    expect(mdEscape("a decade of effects, defaced")).toBe("a decade of effects, defaced");
+  });
 });
 
 describe("renderTranscript: review fixes", () => {

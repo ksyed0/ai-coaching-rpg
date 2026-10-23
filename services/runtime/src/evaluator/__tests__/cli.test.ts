@@ -95,7 +95,7 @@ describe("a run with the scripted offline evaluator (MODEL_PROVIDER mock)", () =
     expect(files.sort()).toEqual(["account_manager.json", "account_manager.md", "delivery_lead.json", "delivery_lead.md", "group.json", "group.md", "index.md", "method.md", "tech_lead.json", "tech_lead.md"]);
     const md = await readFile(path.join(out, "cli-sess", "delivery_lead.md"), "utf8");
     expect(md).toContain("scripted offline evaluator (demo data, not a real assessment)");
-    expect(md).toContain("Visibility: all participants (prototype setting; per-participant isolation is planned)");
+    expect(md).toContain("Visibility: facilitator only until released");
   });
   it("exercises the verification (an invented quote is dropped, a 4 is capped) and the re-ask path", async () => {
     const r = await run([log, "--out", path.join(dir, "o"), "--json", "-"]);

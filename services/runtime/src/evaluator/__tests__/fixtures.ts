@@ -1,5 +1,8 @@
 import type { EventBody, SessionEvent } from "@acr/events";
 import type { Scenario } from "@acr/script";
+import type { ChatRequest } from "@acr/adapters";
+import { evaluateSession, type EvaluationResult } from "../evaluate.js";
+import { parseEvalConfig } from "../config.js";
 
 export const T0 = 1_800_000_000_000;
 type Body = EventBody;
@@ -71,3 +74,20 @@ export function sampleEvents(): SessionEvent[] {
     [101, { type: "session.ended", reason: "script_complete" }],
   ] as unknown as [number, Body][]);
 }
+
+// Shared evaluation helpers (moved out of reports.test.ts unchanged in behaviour).
+const evalCfg = (() => { const c = parseEvalConfig({}); if (!c.ok) throw new Error("cfg"); return c; })();
+export const crit = (id: string, score: unknown, seq: number, quote: string, rationale = `Because ${id}.`, more: { seq: number; quote: string }[] = []) => ({ id, score, rationale, confidence: "high", evidence: [{ seq, quote }, ...more] });
+export const sampleAnswers: Record<string, unknown> = {
+  alice: { criteria: [crit("discovery", 3, 3, "what Finance really needs", "Because discovery.", [{ seq: 5, quote: "tie-out of daily loads" }, { seq: 11, quote: "three weeks after go-live" }]), crit("listening", 4, 5, "Have I got that right?"), crit("negotiation", 2, 11, "phased module for 48 thousand")], strengths: ["You asked about the need."], development_points: ["Price earlier."], next_actions: [{ lo: "LO2", action: "State two options." }] },
+  bob: { criteria: [crit("discovery", 2, 4, "the ingestion layer"), crit("listening", 3, 6, "a phased module costs about three person-weeks"), crit("negotiation", 3, 13, "I agree with that plan")], strengths: ["Clear on effort."], development_points: ["Ask more."], next_actions: [{ lo: "LO1", action: "Ask an open question." }] },
+  group: { criteria: [crit("shared_understanding", 3, 6, "a phased module costs about three person-weeks")], talking_points: ["Compare first price and final terms."], notable_moments: [{ seq: 11, quote: "phased module for 48 thousand", note: "Price named." }] },
+};
+export function sampleProvider(over: Record<string, unknown> = {}) {
+  const all = { ...sampleAnswers, ...over };
+  return { name: "router", async *stream(req: ChatRequest): AsyncIterable<string> { const key = /role id "(\w+)"/.exec(req.system)?.[1] ?? "group"; yield JSON.stringify(all[key]); } };
+}
+export const sampleEvaluation = (over: Record<string, unknown> = {}, secrets: string[] = []): Promise<EvaluationResult> => {
+  void secrets;
+  return evaluateSession({ events: sampleEvents(), scenario: sampleScenario(), rubrics: sampleRubrics(), provider: sampleProvider(over), config: evalCfg, nonce: "n" });
+};

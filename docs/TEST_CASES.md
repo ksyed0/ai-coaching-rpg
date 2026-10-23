@@ -742,5 +742,36 @@ Status: [x] Pass
 Defect Raised: None
 Notes: Automated only.
 
+## US-0041: review log and moderation
+
+TC-0049: The review log, the fold and tampering
+Related Story: US-0041
+Related Task: TASK-0066
+Related AC: AC-0209, AC-0211, AC-0212, AC-0213, AC-0214, AC-0215
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/review/__tests__/review-log.test.ts src/review/__tests__/fold.test.ts src/review/__tests__/store.test.ts src/review/__tests__/draft.test.ts src/review/__tests__/view.test.ts src/review/__tests__/text.test.ts src/review/__tests__/supersede.test.ts`.
+Expected Result: The log is hash-chained and owner-only; a changed or missing draft file, a broken chain, a cut-off last line, a symbolic link and an oversize log are refused as damage and nothing repairs them; the fold returns a view or rejects an illegal sequence; criteria that need review are found from flags, invalid answers, incomplete objectives and confidence; free text is cleaned, scrubbed and length-limited; supersede carries byte-identical subjects forward marked `carriedFrom`, starts changed ones clean, makes the old review read-only, and the second `supersede` and an `open` after a release are refused.
+Actual Result: As expected (all of src/review, 131 tests, including supersede-crash.test.ts and draft-hygiene.test.ts) on 2026-10-23.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. The release event is forced in the supersede test until US-0042 builds the gated release.
+
+TC-0050: `pnpm moderate` end to end
+Related Story: US-0041
+Related Task: TASK-0066
+Related AC: AC-0209, AC-0210, AC-0214, AC-0215, AC-0216
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/review/__tests__/cli.test.ts src/review/__tests__/cli-show.test.ts`.
+  2. Run `pnpm -s demo --showcase --fast --evaluate`, then `pnpm moderate open <reports-dir> --by me`, `status`, `show <dir> group`.
+Expected Result: Open, status, show, edit (with `--expect`), accept, comment, edit-summary and supersede work through the CLI with exit 0 and refuse with 1 or 2 as documented; `show` emits no control character except newline and tab, also when a draft quote, rationale or summary item holds them; the mock demo keeps its check counts: `pnpm -s demo` 29, `--showcase --fast` 14, `--showcase --fast --evaluate` 15, `--fast --resume` 39, `--fast --resume --security` 42. An interrupted supersede is finished by re-running it (supersede-crash.test.ts).
+Actual Result: As expected (cli tests, 2026-10-23); demo `Summary:` lines: `pnpm -s demo` 29 passed, `--showcase --fast` 14 passed, `--showcase --fast --evaluate` 15 passed, `--fast --resume` 39 passed, `--fast --resume --security` 42 passed; 0 failed in each.
+Status: [x] Pass
+Defect Raised: None
+Notes: Step 2 manual part not run by hand; covered by the tests.
+
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 

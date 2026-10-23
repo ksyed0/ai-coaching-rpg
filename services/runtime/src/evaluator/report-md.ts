@@ -12,7 +12,7 @@ export const token = (v: string | undefined, sec: string[]): string => (v !== un
 
 function header(title: string, r: ParticipantReport | GroupReport, sec: string[], extra: [string, string][]): string[] {
   const cell = (t: string) => safeMd(t, 200, sec);
-  const out = [`# ${title}`, "", `> ${DRAFT_BANNER}`, "", VISIBILITY_LINE, "", "| Field | Value |", "| --- | --- |",
+  const out = [`# ${title}`, "", `> ${safeMd(r.draft_notice, 300, sec)}`, "", safeMd(r.visibility, 300, sec), "", "| Field | Value |", "| --- | --- |",
     `| Scenario | ${cell(r.scenario.title)} (${id(r.scenario.id, sec)}, version ${cell(r.scenario.version)}) |`,
     `| Session | ${id(r.session.id, sec)} |`, `| Date | ${cell(r.session.date)} |`];
   for (const [k, v] of extra) out.push(`| ${k} | ${v} |`);
@@ -24,11 +24,28 @@ function header(title: string, r: ParticipantReport | GroupReport, sec: string[]
   return out;
 }
 
+/** The review marks on a criterion. The state marks appear only in the facilitator view (`moderation.state` is set there); a released view keeps just the adjustment disclosure. */
+const marks = (c: JsonCriterion, sec: string[]): string => {
+  const m = c.moderation;
+  if (!m) return "";
+  const out: string[] = [];
+  if (m.state === "open") out.push("**Needs review**");
+  if (m.state === "accepted") out.push("**Accepted by facilitator**");
+  if (m.adjusted) out.push(`**Facilitator-adjusted** from ${scoreText(m.ai_score, m.ai_label, m.ai_invalid)} (AI draft; ${safeMd(m.reason ?? "no reason recorded", 500, sec)})`);
+  if (m.state !== undefined && m.rationale_edited) out.push("**Rationale edited**");
+  return out.map((x) => ` - ${x}`).join("");
+};
+
+function notesSection(r: ParticipantReport | GroupReport, sec: string[]): string[] {
+  if (!r.comments?.length) return [];
+  return ["## Facilitator notes", "", ...r.comments.map((c) => `- ${c.criterion ? `${id(c.criterion, sec)}: ` : ""}${safeMd(c.text, 1500, sec)}`), ""];
+}
+
 function criteriaTable(cs: JsonCriterion[], sec: string[]): string[] {
   const out = ["| Criterion | Level | Confidence | Rationale |", "| --- | --- | --- | --- |"];
   for (const c of cs) {
     const flags = c.flags.length ? ` (${c.flags.map((f) => safeMd(f, 160, sec)).join("; ")})` : "";
-    out.push(`| ${safeMd(c.name, 120, sec)} (${id(c.id, sec)}) | ${scoreText(c.score, c.level_label, c.invalid)} | ${c.confidence ? cap(c.confidence) : "-"} | ${safeMd(c.rationale, 600, sec) || "-"}${flags} |`);
+    out.push(`| ${safeMd(c.name, 120, sec)} (${id(c.id, sec)}) | ${scoreText(c.score, c.level_label, c.invalid)} | ${c.confidence ? cap(c.confidence) : "-"} | ${safeMd(c.rationale, c.moderation ? 1500 : 600, sec) || "-"}${flags}${marks(c, sec)} |`);
   }
   return out;
 }
@@ -59,6 +76,8 @@ export function renderParticipantMarkdown(r: ParticipantReport, secrets: string[
   const sec = secrets;
   const out = header(`Feedback report: ${r.participant.role}`, r, sec, [["Participant role", id(r.participant.role, sec)], ["Lines spoken", String(r.participant.utterances)]]);
   out.push("## Summary", "");
+  if (r.summary_state?.edited) out.push("**Summary edited by a facilitator**", "");
+  if (r.summary_state?.stale) out.push("**Summary needs review: scores changed after it was drafted**", "");
   if (r.evaluation.status !== "ok") out.push(`${safeMd(r.evaluation.reason ?? r.evaluation.status, 400, sec)}`, "");
   else {
     out.push("### Strengths", "", ...bullets(r.summary.strengths, sec, "None were drafted."));
@@ -69,6 +88,7 @@ export function renderParticipantMarkdown(r: ParticipantReport, secrets: string[
   }
   out.push("## Learning objectives", "", ...objectivesTable(r.learning_objectives, sec), "");
   out.push("## Criteria", "", ...criteriaTable(r.criteria, sec), "");
+  out.push(...notesSection(r, sec));
   out.push(...evidenceSection(r.criteria, sec, false));
   out.push(...methodMarkdown(r.method, 2));
   return `${out.join("\n")}\n`;
@@ -81,6 +101,7 @@ export function renderGroupMarkdown(r: GroupReport, secrets: string[] = []): str
   out.push("## Group criteria", "");
   if (r.evaluation.status !== "ok") out.push(`${safeMd(r.evaluation.reason ?? r.evaluation.status, 400, sec)}`, "");
   out.push(...criteriaTable(r.criteria, sec), "");
+  out.push(...notesSection(r, sec));
   out.push("## Learning-objective coverage across the team", "");
   const players = r.lo_coverage.players;
   // The team column appears only when a learning objective maps to a group criterion (otherwise it would be all Not observed).

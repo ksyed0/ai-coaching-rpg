@@ -49,7 +49,7 @@
     {
       "id": "EPIC-0005",
       "title": "Slice 5 — evaluator and reports",
-      "description": "Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), and per-participant visibility and access control (ASM-09; reports are visible to all participants for now). Calibration (ASM-08) has started: the probe format, loader, log adapter and Friday starter probes are built (US-0035), and `pnpm calibrate` with judges, metrics, the report and the second-judge comparison (US-0036); the probe drafting, excerpt, approval and split commands and the 34-probe Friday set (US-0037; owner review of the excerpt levels pending), and the Friday showcase and scenario content pass (US-0040); prompt variants and the calibration stamp on reports are planned (US-0038, US-0039).",
+      "description": "Post-session rubric scoring with quoted evidence and confidence, facilitator moderation, participant and group reports with ASM-09 visibility. Built so far (US-0028 to US-0031): BARS rubrics as YAML, the evaluator engine with verified quotes, draft participant and group reports, `pnpm evaluate` and the showcase `--evaluate` check S-16. Not built yet: facilitator moderation and edit workflow (ASM-04), participant self-assessment and response (ASM-07), and per-participant visibility and access control (ASM-09; draft reports are facilitator only until released). Calibration (ASM-08) has started: the probe format, loader, log adapter and Friday starter probes are built (US-0035), and `pnpm calibrate` with judges, metrics, the report and the second-judge comparison (US-0036); the probe drafting, excerpt, approval and split commands and the 34-probe Friday set (US-0037; owner review of the excerpt levels pending), and the Friday showcase and scenario content pass (US-0040); prompt variants and the calibration stamp on reports are planned (US-0038, US-0039).",
       "releaseTarget": "MVP",
       "status": "In Progress",
       "startDate": null,
@@ -1261,7 +1261,7 @@
         },
         {
           "id": "AC-0106",
-          "text": "`index.md` links every report and shows the per-LO table for all players, `method.md` holds the scale and method text, and every report and JSON carries the line 'Visibility: all participants (prototype setting; per-participant isolation is planned)'",
+          "text": "`index.md` links every report and shows the per-LO table for all players, `method.md` holds the scale and method text, and every report and JSON carries the line 'Visibility: facilitator only until released'",
           "done": true
         }
       ],
@@ -1659,48 +1659,48 @@
       "title": "Review log and moderation",
       "priority": "High",
       "estimate": "L",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0005-US-0041-review-log",
       "acs": [
         {
           "id": "AC-0209",
-          "text": "`pnpm moderate open` creates an owner-only, hash-chained `review.jsonl` bound to the draft files, the session instance and the join-code record; a changed or missing draft file, a broken chain, a cut-off last line or a symbolic link makes every command exit 2 and repairs nothing",
-          "done": false
+          "text": "`pnpm moderate open` creates an owner-only, hash-chained `review.jsonl` bound to the draft files, the session instance and the join-code record; a changed or missing draft file, a broken chain, a cut-off last line or a symbolic link makes every command exit 2 and repairs nothing (review-log.ts, store.ts; review-log.test.ts, store.test.ts, TC-0049)",
+          "done": true
         },
         {
           "id": "AC-0210",
-          "text": "edit, accept, comment and edit-summary append through one lock with a compare-and-set (`--expect`); of two racing commands exactly one wins and the other exits 1; the log stays valid",
-          "done": false
+          "text": "edit, accept, comment and edit-summary append through one lock with a compare-and-set (`--expect`); of two racing commands exactly one wins and the other exits 1; the log stays valid (store.ts `applyCommand`, cli.ts `--expect`; store.test.ts, cli.test.ts, TC-0050)",
+          "done": true
         },
         {
           "id": "AC-0211",
-          "text": "the fold (`currentView`) is pure and total: it returns a view or rejects an illegal sequence (edit after release, stale `from`, unknown subject or criterion, second `review.opened`, non-contiguous seq, anything after supersede)",
-          "done": false
+          "text": "the fold (`currentView`) is pure and total: it returns a view or rejects an illegal sequence (edit after release, stale `from`, unknown subject or criterion, second `review.opened`, non-contiguous seq, anything after supersede) (fold.ts; fold.test.ts, TC-0049)",
+          "done": true
         },
         {
           "id": "AC-0212",
-          "text": "a criterion with any flag, an invalid answer, a learning objective marked incomplete or confidence below high needs review; report JSON carries structured `flag_codes` (a directory without them is a legacy draft)",
-          "done": false
+          "text": "a criterion with any flag, an invalid answer, a learning objective marked incomplete or confidence below high needs review; report JSON carries structured `flag_codes` (a directory without them is a legacy draft) (draft.ts, fold.ts; draft.test.ts, fold.test.ts)",
+          "done": true
         },
         {
           "id": "AC-0213",
-          "text": "every score edit needs a reason and keeps history; an edited criterion is shown as Facilitator-adjusted with the AI original and the reason; learning-objective results are recomputed; the AI summary is marked out of date after a score change; the AI calibration stamp is labelled as the draft's",
-          "done": false
+          "text": "every score edit needs a reason and keeps history; an edited criterion is shown as Facilitator-adjusted with the AI original and the reason; learning-objective results are recomputed; the AI summary is marked out of date after a score change; the AI calibration stamp is labelled as the draft's (view.ts; view.test.ts)",
+          "done": true
         },
         {
           "id": "AC-0214",
-          "text": "free text (reason, comment, rationale, summary items, `--by`) is stripped of hidden characters, scrubbed of secrets, length-limited before it is stored and escaped when rendered",
-          "done": false
+          "text": "free text (reason, comment, rationale, summary items, `--by`) is stripped of hidden characters, scrubbed of secrets, length-limited before it is stored and escaped when rendered (text.ts, cli.ts; text.test.ts, cli.test.ts, cli-show.test.ts)",
+          "done": true
         },
         {
           "id": "AC-0215",
-          "text": "opening a review on a re-run is refused when an earlier directory of the same session was released, unless `supersede`; supersede carries byte-identical subjects forward (marked `carriedFrom`), starts changed ones clean and makes the old review read-only",
-          "done": false
+          "text": "opening a review on a re-run is refused when an earlier directory of the same session was released, unless `supersede`; supersede carries byte-identical subjects forward (marked `carriedFrom`), starts changed ones clean and makes the old review read-only (store.ts `siblingReleased`, `supersedeReview`; supersede.test.ts, TC-0049)",
+          "done": true
         },
         {
           "id": "AC-0216",
-          "text": "draft reports say 'DRAFT: AI-drafted, not reviewed by a facilitator' and 'Visibility: facilitator only until released'; mock demo check counts 29, 39, 42 and 14 are unchanged",
-          "done": false
+          "text": "draft reports say 'DRAFT: AI-drafted, not reviewed by a facilitator' and 'Visibility: facilitator only until released'; mock demo check counts 29, 39, 42 and 14 are unchanged (draft banner in the report writer; mock demos 29, 14, 15 with --evaluate, 39 with --resume and 42 with --resume --security unchanged)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -2447,7 +2447,7 @@
       "title": "Review log and moderation",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "Planned",
+      "status": "Done",
       "branch": "feature/EPIC-0005-US-0041-review-log",
       "notes": "Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 1-8: foundations, hash-chained review log, draft loader and flag codes, pure fold, store, moderated rendering, `pnpm moderate` (open, status, show, edit, accept, comment, edit-summary), supersede. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md."
     },
@@ -2950,6 +2950,26 @@
       "relatedTask": "TASK-0064",
       "relatedAC": "AC-0208",
       "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0049",
+      "title": "The review log, the fold and tampering",
+      "relatedStory": "US-0041",
+      "relatedTask": "TASK-0066",
+      "relatedAC": "AC-0209, AC-0211, AC-0212, AC-0213, AC-0214, AC-0215",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0050",
+      "title": "`pnpm moderate` end to end",
+      "relatedStory": "US-0041",
+      "relatedTask": "TASK-0066",
+      "relatedAC": "AC-0209, AC-0210, AC-0214, AC-0215, AC-0216",
+      "type": "Functional",
       "status": "Pass",
       "defect": "None"
     }
@@ -3676,11 +3696,11 @@
       "isAtRisk": false
     },
     "US-0041": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0042": {
       "missingTCs": true,
@@ -3898,10 +3918,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-23T13:45:54.771Z",
-  "commitSha": "56ef8cd",
-  "buildNumber": "333",
-  "branch": "docs/EPIC-0005-moderation-plan",
+  "generatedAt": "2026-10-23T18:32:46.342Z",
+  "commitSha": "81379e2",
+  "buildNumber": "350",
+  "branch": "feature/EPIC-0005-US-0041-review-log",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -4033,13 +4053,13 @@
     }
   },
   "budget": {
-    "totalBudget": 4622.1355,
+    "totalBudget": 3022.1355,
     "totalSpent": 622.1355,
     "totalProjected": 37200,
-    "percentUsed": 13,
-    "burnRate": 20.046588333333332,
-    "daysRemaining": 199,
-    "projectedExhaustion": 199,
+    "percentUsed": 21,
+    "burnRate": 19.355326666666667,
+    "daysRemaining": 123,
+    "projectedExhaustion": 123,
     "thresholds": [
       50,
       75,
@@ -4075,10 +4095,10 @@
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 4197.952202,
+        "budget": 2597.952202,
         "spent": 197.952202,
-        "remaining": 4000.0000000000005,
-        "percentUsed": 5
+        "remaining": 2400,
+        "percentUsed": 8
       },
       {
         "id": "EPIC-0003",
@@ -4102,37 +4122,37 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-23T13:45:54.863Z",
-      "2026-09-24T13:45:54.863Z",
-      "2026-09-25T13:45:54.863Z",
-      "2026-09-26T13:45:54.863Z",
-      "2026-09-27T13:45:54.863Z",
-      "2026-09-28T13:45:54.863Z",
-      "2026-09-29T13:45:54.863Z",
-      "2026-09-30T13:45:54.863Z",
-      "2026-10-01T13:45:54.863Z",
-      "2026-10-02T13:45:54.863Z",
-      "2026-10-03T13:45:54.863Z",
-      "2026-10-04T13:45:54.863Z",
-      "2026-10-05T13:45:54.863Z",
-      "2026-10-06T13:45:54.863Z",
-      "2026-10-07T13:45:54.863Z",
-      "2026-10-08T13:45:54.863Z",
-      "2026-10-09T13:45:54.863Z",
-      "2026-10-10T13:45:54.863Z",
-      "2026-10-11T13:45:54.863Z",
-      "2026-10-12T13:45:54.863Z",
-      "2026-10-13T13:45:54.863Z",
-      "2026-10-14T13:45:54.863Z",
-      "2026-10-15T13:45:54.863Z",
-      "2026-10-16T13:45:54.863Z",
-      "2026-10-17T13:45:54.863Z",
-      "2026-10-18T13:45:54.863Z",
-      "2026-10-19T13:45:54.863Z",
-      "2026-10-20T13:45:54.863Z",
-      "2026-10-21T13:45:54.863Z",
-      "2026-10-22T13:45:54.863Z",
-      "2026-10-23T13:45:54.861Z"
+      "2026-09-23T18:04:20.937Z",
+      "2026-09-24T18:04:20.937Z",
+      "2026-09-25T18:04:20.937Z",
+      "2026-09-26T18:04:20.937Z",
+      "2026-09-27T18:04:20.937Z",
+      "2026-09-28T18:04:20.937Z",
+      "2026-09-29T18:04:20.937Z",
+      "2026-09-30T18:04:20.937Z",
+      "2026-10-01T18:04:20.937Z",
+      "2026-10-02T18:04:20.937Z",
+      "2026-10-03T18:04:20.937Z",
+      "2026-10-04T18:04:20.937Z",
+      "2026-10-05T18:04:20.937Z",
+      "2026-10-06T18:04:20.937Z",
+      "2026-10-07T18:04:20.937Z",
+      "2026-10-08T18:04:20.937Z",
+      "2026-10-09T18:04:20.937Z",
+      "2026-10-10T18:04:20.937Z",
+      "2026-10-11T18:04:20.937Z",
+      "2026-10-12T18:04:20.937Z",
+      "2026-10-13T18:04:20.937Z",
+      "2026-10-14T18:04:20.937Z",
+      "2026-10-15T18:04:20.937Z",
+      "2026-10-16T18:04:20.937Z",
+      "2026-10-17T18:04:20.937Z",
+      "2026-10-18T18:04:20.937Z",
+      "2026-10-19T18:04:20.937Z",
+      "2026-10-20T18:04:20.937Z",
+      "2026-10-21T18:04:20.937Z",
+      "2026-10-22T18:04:20.937Z",
+      "2026-10-23T18:32:46.424Z"
     ],
     "doneCounts": [
       0,
@@ -4168,36 +4188,36 @@
       0
     ],
     "totalStories": [
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
-      40,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
+      44,
       44
     ],
     "aiCosts": [
@@ -4432,36 +4452,36 @@
       4383036
     ],
     "avgRisk": [
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
-      1.1600000000000006,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
+      1.1545454545454552,
       1.1545454545454552
     ],
     "velocityByWeek": {

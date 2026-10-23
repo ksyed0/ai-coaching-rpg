@@ -1,8 +1,8 @@
 # Post-session evaluator
 
-The evaluator turns a recorded session into draft feedback: a score per criterion for each player, a score per criterion for the team, learning-objective results, and a personal report for each player plus a group report with talking points for the facilitator. It is the first version of EPIC-0005 (US-0028 to US-0031). Everything it produces is a **draft**: it is held for facilitator review, and the review and edit workflow is a planned follow-up (ASM-04).
+The evaluator turns a recorded session into draft feedback: a score per criterion for each player, a score per criterion for the team, learning-objective results, and a personal report for each player plus a group report with talking points for the facilitator. It is the first version of EPIC-0005 (US-0028 to US-0031). Everything it produces is a **draft**: it is held for facilitator review, and the facilitator review is `pnpm moderate` (below); release to participants and self-assessment are planned follow-ups (ASM-04, ASM-07, ASM-09).
 
-**Visibility: all participants (prototype setting; per-participant isolation is planned).** For now every participant may see every score and report. There is no access control yet (ASM-09 is planned).
+**Visibility: facilitator only until released.** Draft reports are for the facilitator. A moderated view marks each facilitator-adjusted score with the AI original and the reason, and is labelled "IN REVIEW" until it is released.
 
 ## Method
 
@@ -123,6 +123,39 @@ Write anchors as **observable behaviour in the participant's OWN words**, for th
   - **Not calibrated**: no summary for this model (EVAL_MODEL, else NPC_MODEL), a file that is missing, corrupt or of the wrong shape, or a file that names another model. The scripted offline evaluator (`MODEL_PROVIDER=mock`) is always "not calibrated", without a lookup.
 
   The summary is read from `data/calibration/<scenario-id>/` next to where you run `pnpm evaluate`. A missing or corrupt file never breaks a report. Only `pnpm calibrate` writes it, and only after a complete run, so the stamp is as current as your last full calibration. Every Markdown report also has a "Prompt variant ..., rubric ..." row (a line in `index.md`), and the JSON records the model (EVAL_MODEL, else NPC_MODEL), variant and rubric hash. Prompt variants other than `v1` do not exist yet (US-0038), so the variant is always `v1`. Bump the prompt variant whenever the evaluator prompt or parser changes: a calibration only goes stale when the rubric or the variant changes.
+
+## Moderating a report (`pnpm moderate`)
+
+`pnpm moderate <subcommand> <reports-dir> [options]` is the facilitator's review of a draft directory written by `pnpm evaluate`. It writes an append-only, hash-chained log (`review.jsonl`) beside the drafts and never changes a draft file. Paths are relative to where you ran `pnpm`.
+
+```bash
+pnpm moderate open data/reports/local --by kamal [--session-log data/sessions/local.jsonl] [--codes-dir data/sessions]
+pnpm moderate status data/reports/local
+pnpm moderate show data/reports/local delivery_lead            # Markdown of the report as it stands, marked IN REVIEW
+pnpm moderate edit data/reports/local delivery_lead discovery --level 3 --reason "heard it at 00:12" --by kamal [--rationale "new text"] [--expect 2]
+pnpm moderate accept data/reports/local delivery_lead discovery --by kamal   # or: accept <dir> <subject> --summary --by kamal
+pnpm moderate comment data/reports/local delivery_lead --text "good scene 2" --by kamal [--criterion listening] [--feedback]
+pnpm moderate edit-summary data/reports/local delivery_lead --reason "tighter" --by kamal --strength "..." --development "..." --action "LO2:State two options"
+pnpm moderate supersede data/reports/local data/reports/local-2 --by kamal   # after a re-run of a released session
+```
+
+**Reading order.** `open` once per directory, then `status` to see what needs review, `edit` or `accept` per criterion (and `accept --summary` or `edit-summary`), `comment` for notes, and `show` to read the report as it stands before you move on.
+
+A subject is a player role or `group`. `--level` is 1 to 4 or `na`; every edit needs a `--reason` (up to 500 characters); `--expect <level>` makes an edit a compare-and-set (refused, with the current level shown, if the score changed meanwhile). `--feedback` makes a comment visible to the participant once released; otherwise it is internal. `open` refuses a directory that holds files `pnpm evaluate` did not write (the message names the file); move them out.
+
+Free text is stored after hidden characters are stripped and secrets and machine paths are scrubbed. Line breaks in `--text`, `--reason` and the like are stored as a visible ` ⏎ ` marker, so one comment is always one line and cannot forge a log or report line. Exit codes: 0 done, 1 refused (fix and retry), 2 usage error or damaged review or draft file. Any unexpected failure prints a short generic message and exits 2.
+
+**Re-runs and `supersede`.** A second `pnpm evaluate` of the same session writes a new directory. While no earlier directory of that session has a release, `open` works on it freely. Once one has been released, `open` on a sibling is refused (exit 1) and tells you to run `supersede <old> <new> --by <name>`. Supersede copies the moderation (score and summary edits, accepts, comments) of every subject whose draft file is byte-identical in the new run, marks the copies `carriedFrom`, and starts changed subjects clean (it prints both lists). The new review is written first and the old one is marked superseded last, so a crash leaves the old review live; the old review is then read-only. Directories are matched by session id and `startedAt`, not by log hash (a new directory has no log yet; a deliberate deviation from the spec). A sibling directory of the session whose `review.jsonl` is damaged (cut-off line, broken chain, forged opener) makes `open` fail with exit 2 naming the directory (`supersede` does not look at siblings, only at the two directories you name), because its release state cannot be known; a directory with no log is skipped. Subjects the earlier review has but the new run does not are listed in the output ("not in the new run") and their moderation is not carried. `supersede X X`, or two spellings of one path, is a usage error (exit 2).
+
+**After a crash.** The two writes are not atomic. If the process dies between them, the new directory already holds its review (the copies) while the old one is not yet marked superseded, so **both reviews are briefly live**. Nothing is lost: the old review is untouched. Run the same `supersede <old> <new> --by <name>` again: when the new log is exactly the copies that command would write, it only appends the missing marker to the old log and prints "completed an interrupted supersede". Any other review in the new directory is refused with a message saying so. Stuck cases: if the crash happened while the new log was being written, `review.jsonl` in the new directory may end in a cut-off line, and `supersede` refuses it (exit 2, naming the directory); the file then holds only copies, so move it aside and run supersede again. A new log that holds only some of the copies is not completed automatically: move it aside the same way. A successful completion says that the new review already held the opener and the carried copies and that the earlier review is now marked superseded.
+
+**Limits worth knowing.**
+- Sibling detection looks only in the same parent directory as the new one; a re-run written to another directory bypasses the refusal on `open`.
+- A rationale-only edit at the same level is refused by design: a rationale changes in the same event as the level (`edit --level ... --rationale ...`).
+- The session binding is the session id plus `startedAt`. The session log's SHA-256 is recorded only when you pass `--session-log` and is not re-verified later.
+- `supersede` also works on a review that was never released.
+
+**What file access defeats.** The review is plain files. Anyone who can write the reports directory can forge a review: the hash chain catches an edit in the middle of the log, a changed draft file or a cut-off line, but not a rewrite of the whole log or cutting whole lines off its end (the chain has no key, so a truncated tail is undetectable), and `cat` of a report is not audited. The `--by` name is a label, not an identity. Treat the reports directory like the session logs (see `docs/THREAT_MODEL.md`).
 
 ## Calibration
 
@@ -278,4 +311,4 @@ By split the two are close: holdout 15 of 17 exact, bias +0.18 (Gemma), 16 of 17
 
 ## Limits and planned follow-ups
 
-Not built yet: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), calibration against human raters (ASM-08; `pnpm calibrate` above measures a judge against human-labelled probes, not against human raters scoring the same sessions), and result isolation and access control (ASM-09). The evaluator has not been validated against human raters, so treat its scores as a conversation starter for the debrief.
+Not built yet: release of moderated reports to participants (US-0042), participant self-assessment and response (ASM-07), calibration against human raters (ASM-08; `pnpm calibrate` above measures a judge against human-labelled probes, not against human raters scoring the same sessions), and result isolation and access control (ASM-09). The evaluator has not been validated against human raters, so treat its scores as a conversation starter for the debrief.

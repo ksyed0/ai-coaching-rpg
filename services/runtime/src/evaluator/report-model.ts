@@ -5,6 +5,40 @@ import { DRAFT_BANNER, VISIBILITY_LINE, buildMethod, type Method } from "./metho
 import { normalizeStamp, stampLine, type StampState } from "../calibration/stamp.js";
 import type { CriterionResult } from "./parse.js";
 
+export const FLAG_CODE_LIST = [
+  "invalid_score",
+  "not_reported",
+  "quotes_dropped",
+  "capped_no_quote",
+  "no_quote",
+  "capped_weak_quote",
+  "short_quotes_only",
+  "rating_language",
+  "no_rationale",
+  "evaluation_failed",
+  "insufficient_evidence",
+  "other",
+] as const;
+export type FlagCode = (typeof FLAG_CODE_LIST)[number];
+
+/** The code of each flag text `parse.ts` and `evaluate.ts` emit (one table; the flag-codes test fails on an unmapped text). First match wins. */
+const FLAG_CODES: [RegExp, FlagCode][] = [
+  [/^not reported by the evaluator/, "not_reported"],
+  [/the criterion is invalid$/, "invalid_score"],
+  [/could not be verified against the recording/, "quotes_dropped"],
+  [/^capped from \d to 2: no verified quote$/, "capped_no_quote"],
+  [/^capped from \d to 2: no verified quote of at least/, "capped_weak_quote"],
+  [/^no verified quote$/, "no_quote"],
+  [/^only short quotes/, "short_quotes_only"],
+  [/rating language/, "rating_language"],
+  [/^no rationale given/, "no_rationale"],
+  [/^evaluation failed|^the evaluation failed/i, "evaluation_failed"],
+  [/^insufficient evidence/, "insufficient_evidence"],
+];
+export function flagCodesOf(flags: string[]): FlagCode[] {
+  return flags.map((f) => FLAG_CODES.find(([re]) => re.test(f))?.[1] ?? "other");
+}
+
 export const REPORT_SCHEMA = "acr.report/1";
 
 /** Who produced the scores: a fixed provider label (never an endpoint or key) and the model id when one was configured. */
@@ -16,7 +50,7 @@ export type EvaluatorInfo = {
 export type ReportContext = { result: EvaluationResult; evaluator: EvaluatorInfo; secrets: string[] };
 
 type Common = {
-  schema: typeof REPORT_SCHEMA; status: "draft"; /** True when the scores come from the scripted offline evaluator (demo data). */ demo: boolean; draft_notice: string; visibility: string;
+  schema: typeof REPORT_SCHEMA | "acr.view/1"; status: "draft" | "moderated" | "released"; /** True when the scores come from the scripted offline evaluator (demo data). */ demo: boolean; draft_notice: string; visibility: string;
   scenario: { id: string; title: string; version: string };
   session: { id: string; date: string; complete: boolean; scenes: { number: number; id: string; title: string }[] };
   evaluator: Omit<EvaluatorInfo, "calibration" | "scripted"> & { calibration: StampState; calibration_line: string; model_calls: number };
@@ -25,11 +59,20 @@ type Common = {
 };
 
 export type JsonCriterion = {
-  id: string; name: string; score: number | null; level_label: string; confidence: string | null; rationale: string; flags: string[]; dropped_quotes: number;
+  id: string; name: string; score: number | null; level_label: string; confidence: string | null; rationale: string; flags: string[]; flag_codes: FlagCode[]; dropped_quotes: number;
   /** True when the evaluator's answer for this criterion was unusable (not the same as Not observed). */
   invalid: boolean;
   evidence: { seq: number; role: string; quote: string; scene: number; scene_title: string; time: string; flags: string[] }[];
+  moderation?: Moderation;
 };
+/** What the review changed on a criterion; present only on a moderated view. */
+export type Moderation = {
+  adjusted: boolean; ai_score: number | null; ai_label: string; /** True when the AI draft was Invalid (not Not observed). */ ai_invalid: boolean;
+  reason: string | null; by: string | null; rationale_edited: boolean; accepted: boolean;
+  /** The review state, set for the facilitator audience only (a released view has no open items). */
+  state?: "open" | "accepted" | "edited" | "clear";
+};
+export type ReportComment = { criterion?: string; text: string; by: string; visibility: "internal" | "feedback" };
 export type JsonObjective = { id: string; statement: string; score: number | null; label: string; criteria: string[]; observed: string[]; incomplete: boolean };
 
 export type ParticipantReport = Common & {
@@ -39,6 +82,9 @@ export type ParticipantReport = Common & {
   summary: { strengths: string[]; development_points: string[]; next_actions: { lo: string; action: string }[] };
   learning_objectives: JsonObjective[];
   criteria: JsonCriterion[];
+  comments?: ReportComment[];
+  /** Facilitator audience only: whether the summary was edited, or is stale after a score edit. */
+  summary_state?: { edited: boolean; stale: boolean };
 };
 export type GroupReport = Common & {
   kind: "group";
@@ -48,6 +94,7 @@ export type GroupReport = Common & {
   /** Set when no learning objective maps to a group criterion (then `learning_objectives` is empty). */
   learning_objectives_note?: string;
   lo_coverage: { players: string[]; objectives: { id: string; statement: string; by_role: Record<string, { score: number | null; label: string; incomplete: boolean }>; team: { score: number | null; label: string; incomplete: boolean } }[] };
+  comments?: ReportComment[];
   facilitator_notes: string;
   talking_points: { from_scenario: string; from_evaluator: string[] };
   notable_moments: { seq: number; role: string; quote: string; note: string; scene: number; scene_title: string; time: string }[];
@@ -78,7 +125,7 @@ function common(ctx: ReportContext, modelCalls: number): Common {
 }
 
 export const jsonCriterion = (c: CriterionResult): JsonCriterion => ({
-  id: c.id, name: c.name, score: c.score, level_label: c.invalid ? INVALID_LABEL : c.label, confidence: c.confidence, rationale: c.rationale, flags: c.flags, dropped_quotes: c.droppedQuotes, invalid: c.invalid,
+  id: c.id, name: c.name, score: c.score, level_label: c.invalid ? INVALID_LABEL : c.label, confidence: c.confidence, rationale: c.rationale, flags: c.flags, flag_codes: flagCodesOf(c.flags), dropped_quotes: c.droppedQuotes, invalid: c.invalid,
   evidence: c.evidence.map((e) => ({ seq: e.seq, role: e.roleId, quote: e.quote, scene: e.sceneNumber, scene_title: e.sceneTitle, time: e.time, flags: e.ratingLanguage ? ["rating language"] : [] })),
 });
 const jsonObjective = (o: LoResult): JsonObjective => ({ id: o.id, statement: o.statement, score: o.score, label: o.label, criteria: o.criteria, observed: o.observed, incomplete: o.incomplete });

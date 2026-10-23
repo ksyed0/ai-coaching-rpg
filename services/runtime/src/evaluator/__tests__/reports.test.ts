@@ -7,23 +7,12 @@ import { evaluateSession, EvaluatorInputError, type EvaluationResult } from "../
 import { parseEvalConfig } from "../config.js";
 import { REPORT_FILE_MODE, ReportWriteError, checkRoleId, reportPath, renderReports, writeExclusive, writeReports } from "../report-write.js";
 import { DRAFT_BANNER, VISIBILITY_LINE } from "../method.js";
-import { sampleEvents, sampleRubrics, sampleScenario } from "./fixtures.js";
+import { crit, sampleAnswers, sampleEvaluation, sampleEvents, sampleProvider, sampleRubrics, sampleScenario } from "./fixtures.js";
 
 const cfg = parseEvalConfig({}); if (!cfg.ok) throw new Error("cfg");
-const crit = (id: string, score: unknown, seq: number, quote: string, rationale = `Because ${id}.`, more: { seq: number; quote: string }[] = []) => ({ id, score, rationale, confidence: "high", evidence: [{ seq, quote }, ...more] });
-const answers: Record<string, unknown> = {
-  alice: { criteria: [crit("discovery", 3, 3, "what Finance really needs", "Because discovery.", [{ seq: 5, quote: "tie-out of daily loads" }, { seq: 11, quote: "three weeks after go-live" }]), crit("listening", 4, 5, "Have I got that right?"), crit("negotiation", 2, 11, "phased module for 48 thousand")], strengths: ["You asked about the need."], development_points: ["Price earlier."], next_actions: [{ lo: "LO2", action: "State two options." }] },
-  bob: { criteria: [crit("discovery", 2, 4, "the ingestion layer"), crit("listening", 3, 6, "a phased module costs about three person-weeks"), crit("negotiation", 3, 13, "I agree with that plan")], strengths: ["Clear on effort."], development_points: ["Ask more."], next_actions: [{ lo: "LO1", action: "Ask an open question." }] },
-  group: { criteria: [crit("shared_understanding", 3, 6, "a phased module costs about three person-weeks")], talking_points: ["Compare first price and final terms."], notable_moments: [{ seq: 11, quote: "phased module for 48 thousand", note: "Price named." }] },
-};
-function provider(over: Record<string, unknown> = {}) {
-  const all = { ...answers, ...over };
-  return { name: "router", async *stream(req: ChatRequest): AsyncIterable<string> { const key = /role id "(\w+)"/.exec(req.system)?.[1] ?? "group"; yield JSON.stringify(all[key]); } };
-}
-const evaluate = (over: Record<string, unknown> = {}, secrets: string[] = []): Promise<EvaluationResult> => {
-  void secrets;
-  return evaluateSession({ events: sampleEvents(), scenario: sampleScenario(), rubrics: sampleRubrics(), provider: provider(over), config: cfg, nonce: "n" });
-};
+const answers = sampleAnswers;
+const provider = sampleProvider;
+const evaluate = sampleEvaluation;
 const EVALUATOR = { provider: "scripted mock" };
 
 describe("participant report", () => {
@@ -33,8 +22,8 @@ describe("participant report", () => {
     const order = ["# Feedback report: alice", `> ${DRAFT_BANNER}`, VISIBILITY_LINE, "## Summary", "### Strengths", "### Development points", "### Next actions", "## Learning objectives", "## Criteria", "## Evidence", "## How this was scored"].map((x) => md.indexOf(x));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    expect(DRAFT_BANNER).toBe("DRAFT: AI-drafted - held for facilitator review before release (facilitator editing is planned)");
-    expect(VISIBILITY_LINE).toBe("Visibility: all participants (prototype setting; per-participant isolation is planned)");
+    expect(DRAFT_BANNER).toBe("DRAFT: AI-drafted, not reviewed by a facilitator");
+    expect(VISIBILITY_LINE).toBe("Visibility: facilitator only until released");
     expect(md).toContain("| Participant role | `alice` |");
     expect(md).toContain("- (`LO2`) State two options.");
     expect(md).toMatch(/\| Discovery \(`discovery`\) \| 3 - Proficient \| High \|/);
