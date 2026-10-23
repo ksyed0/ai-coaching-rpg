@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { isFileSafeId, isSafeId } from "@acr/events";
+import { FLAG_CODE_LIST } from "../evaluator/report-model.js";
 import { readRegularCapped } from "../util/read-regular.js";
 import { ReviewCorruptError } from "./errors.js";
 import { sha256 } from "./hash.js";
@@ -45,6 +46,7 @@ export type Drafts = {
 
 const MAX_DRAFT_BYTES = 4 * 1024 * 1024;
 const MAX_ITEMS = 200;
+const MAX_FLAGS = 20;
 const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown, max = 2000): string | null =>
@@ -84,7 +86,7 @@ function parseCriteria(file: string, raw: unknown): DraftCriterion[] {
       conf === "low"
     ))
       bad(file, `criterion ${id}: confidence is not valid`);
-    const flags = strs(c.flags);
+    const flags = strs(c.flags, MAX_FLAGS);
     const rationale = str(c.rationale, 5000);
     const name = str(c.name, 200);
     const label = str(c.level_label, 200);
@@ -96,6 +98,17 @@ function parseCriteria(file: string, raw: unknown): DraftCriterion[] {
       typeof c.invalid !== "boolean"
     )
       bad(file, `criterion ${id}: a field is missing or invalid`);
+    let codes: string[] = [];
+    if (c.flag_codes !== undefined) {
+      const fc = strs(c.flag_codes, MAX_FLAGS);
+      if (
+        !fc ||
+        fc.length !== flags.length ||
+        !fc.every((x) => (FLAG_CODE_LIST as readonly string[]).includes(x))
+      )
+        bad(file, `criterion ${id}: flag_codes is not valid`);
+      codes = fc;
+    }
     return {
       id,
       name,
@@ -104,7 +117,7 @@ function parseCriteria(file: string, raw: unknown): DraftCriterion[] {
       confidence: conf,
       rationale,
       flags,
-      flag_codes: strs(c.flag_codes) ?? [],
+      flag_codes: codes,
       invalid: c.invalid,
     };
   });
@@ -141,6 +154,8 @@ function parseSubject(
   const role = group
     ? GROUP
     : str((raw.participant as Record<string, unknown> | undefined)?.role, 64);
+  if (!group && role === GROUP)
+    bad(file, "a participant report cannot use the group role id");
   if (!role || !isFileSafeId(role))
     bad(file, "the role id is not a safe file name");
   if (file !== `${role}.json`)
@@ -227,7 +242,7 @@ export async function loadDrafts(
     const s = parseSubject(name, raw);
     if (
       (raw.criteria as Record<string, unknown>[]).some(
-        (c) => !Array.isArray(c.flag_codes),
+        (c) => c.flag_codes === undefined,
       )
     )
       legacy = true;
@@ -244,7 +259,9 @@ export async function loadDrafts(
       bad(name, "session or scenario id is not a safe id");
     if (
       meta &&
-      (meta.sessionId !== m.sessionId || meta.scenarioId !== m.scenarioId)
+      (meta.sessionId !== m.sessionId ||
+        meta.scenarioId !== m.scenarioId ||
+        meta.rubricHash !== m.rubricHash)
     )
       bad(
         name,

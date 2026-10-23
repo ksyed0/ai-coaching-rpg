@@ -5,18 +5,21 @@ import { DRAFT_BANNER, VISIBILITY_LINE, buildMethod, type Method } from "./metho
 import { normalizeStamp, stampLine, type StampState } from "../calibration/stamp.js";
 import type { CriterionResult } from "./parse.js";
 
-export type FlagCode =
-  | "invalid_score"
-  | "not_reported"
-  | "quotes_dropped"
-  | "capped_no_quote"
-  | "no_quote"
-  | "capped_weak_quote"
-  | "short_quotes_only"
-  | "rating_language"
-  | "no_rationale"
-  | "evaluation_failed"
-  | "other";
+export const FLAG_CODE_LIST = [
+  "invalid_score",
+  "not_reported",
+  "quotes_dropped",
+  "capped_no_quote",
+  "no_quote",
+  "capped_weak_quote",
+  "short_quotes_only",
+  "rating_language",
+  "no_rationale",
+  "evaluation_failed",
+  "insufficient_evidence",
+  "other",
+] as const;
+export type FlagCode = (typeof FLAG_CODE_LIST)[number];
 
 /** The code of each flag text `parse.ts` and `evaluate.ts` emit (one table; the flag-codes test fails on an unmapped text). First match wins. */
 const FLAG_CODES: [RegExp, FlagCode][] = [
@@ -30,6 +33,7 @@ const FLAG_CODES: [RegExp, FlagCode][] = [
   [/rating language/, "rating_language"],
   [/^no rationale given/, "no_rationale"],
   [/^evaluation failed|^the evaluation failed/i, "evaluation_failed"],
+  [/^insufficient evidence/, "insufficient_evidence"],
 ];
 export function flagCodesOf(flags: string[]): FlagCode[] {
   return flags.map((f) => FLAG_CODES.find(([re]) => re.test(f))?.[1] ?? "other");

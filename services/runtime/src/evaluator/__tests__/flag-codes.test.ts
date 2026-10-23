@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { flagCodesOf } from "../report-model.js";
 import { normaliseCriteria } from "../parse.js";
-import { sampleRubrics } from "./fixtures.js";
+import { evaluateSession } from "../evaluate.js";
+import { parseEvalConfig } from "../config.js";
+import {
+  sampleEvents,
+  sampleEvaluation,
+  sampleRubrics,
+  sampleScenario,
+} from "./fixtures.js";
 
 describe("flagCodesOf", () => {
   it("maps every flag text parse.ts can produce to a specific code, never other", () => {
@@ -52,5 +59,36 @@ describe("flagCodesOf", () => {
     expect(flagCodesOf(["evaluation failed"])).toEqual(["evaluation_failed"]);
     expect(flagCodesOf(["something new"])).toEqual(["other"]);
     expect(flagCodesOf([])).toEqual([]);
+  });
+
+  it("maps every flag evaluate.ts emits (failed and insufficient evidence) to a specific code", async () => {
+    const cfg = parseEvalConfig({});
+    if (!cfg.ok) throw new Error("cfg");
+    const run = (events: ReturnType<typeof sampleEvents>, text: string) =>
+      evaluateSession({
+        events,
+        scenario: sampleScenario(),
+        rubrics: sampleRubrics(),
+        provider: {
+          name: "p",
+          async *stream() {
+            yield text;
+          },
+        },
+        config: cfg,
+      });
+    const results = [
+      await run(sampleEvents(), "no json"),
+      await run(sampleEvents().slice(0, 3), "no json"),
+      await sampleEvaluation(),
+    ];
+    const seen = new Set<string>();
+    for (const r of results)
+      for (const e of [...r.participants, ...(r.group ? [r.group] : [])])
+        for (const c of e.criteria)
+          for (const code of flagCodesOf(c.flags)) seen.add(code);
+    expect(seen.has("other")).toBe(false);
+    expect(seen.has("evaluation_failed")).toBe(true);
+    expect(seen.has("insufficient_evidence")).toBe(true);
   });
 });

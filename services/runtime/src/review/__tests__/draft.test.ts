@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import { loadDrafts } from "../draft.js";
+import { ReviewCorruptError } from "../errors.js";
 import { makeDraftDir } from "./fixtures.js";
 
 let root: string, dir: string;
@@ -87,5 +95,65 @@ describe("loadDrafts", () => {
       "bob",
       "group",
     ]);
+  });
+
+  const edit = async (
+    file: string,
+    fn: (j: Record<string, any>) => void,
+  ): Promise<void> => {
+    const f = path.join(dir, file);
+    const j = JSON.parse(await readFile(f, "utf8"));
+    fn(j);
+    await writeFile(f, JSON.stringify(j));
+  };
+  it("validates flag_codes: unknown code, non-array and length mismatch are corrupt", async () => {
+    for (const bad of [["made_up"], "quotes_dropped", ["other", "other"]]) {
+      ({ root, dir } = await (async () => {
+        await rm(root, { recursive: true, force: true });
+        return makeDraftDir();
+      })());
+      await edit("alice.json", (j) => {
+        j.criteria[0].flags = ["x"];
+        j.criteria[0].flag_codes = bad;
+      });
+      const err = await loadDrafts(dir).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ReviewCorruptError);
+      expect((err as Error).message).toMatch(/alice\.json.*discovery/);
+      expect((err as Error).message).not.toMatch(/made_up/);
+    }
+  });
+  it("accepts matching flag_codes", async () => {
+    await edit("alice.json", (j) => {
+      j.criteria[0].flags = ["x"];
+      j.criteria[0].flag_codes = ["other"];
+    });
+    expect((await loadDrafts(dir)).legacy).toBe(false);
+  });
+  it("refuses a participant report with the group role and a group report in another file", async () => {
+    await edit("bob.json", (j) => (j.participant.role = "group"));
+    await rm(path.join(dir, "group.json"));
+    await rm(path.join(dir, "group.md"));
+    await rename(path.join(dir, "bob.json"), path.join(dir, "group.json"));
+    await expect(loadDrafts(dir)).rejects.toThrow(/group\.json/);
+    ({ root, dir } = await (async () => {
+      await rm(root, { recursive: true, force: true });
+      return makeDraftDir();
+    })());
+    await rename(path.join(dir, "group.json"), path.join(dir, "zed.json"));
+    await expect(loadDrafts(dir)).rejects.toThrow(/zed\.json/);
+  });
+  it("refuses reports that disagree on the rubric hash", async () => {
+    await edit("bob.json", (j) => (j.evaluator.rubricHash = "other"));
+    await expect(loadDrafts(dir)).rejects.toThrow(/different session|rubric/);
+  });
+  it("refuses a symbolic link and a directory named like a report", async () => {
+    const target = path.join(root, "real.json");
+    await writeFile(target, await readFile(path.join(dir, "bob.json")));
+    await rm(path.join(dir, "bob.json"));
+    await symlink(target, path.join(dir, "bob.json"));
+    await expect(loadDrafts(dir)).rejects.toBeInstanceOf(ReviewCorruptError);
+    await rm(path.join(dir, "bob.json"));
+    await mkdir(path.join(dir, "x.json"));
+    await expect(loadDrafts(dir)).rejects.toThrow(/x\.json/);
   });
 });
