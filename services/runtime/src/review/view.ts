@@ -19,6 +19,8 @@ import type {
 import { type CriterionView, type SubjectView, type View } from "./fold.js";
 import { VIEW_SCHEMA } from "./types.js";
 
+export const TABLE_STALE_NOTE =
+  "Per-role table out of date: a player was released or withdrawn after this group report was released; amend and re-release the group to refresh it.";
 export type RenderAudience =
   { audience: "facilitator" } | { audience: "released"; line: string };
 const AI_PREFIX =
@@ -71,16 +73,9 @@ function criterion(
   };
 }
 
-/** The draft report with the review applied. Pure; the draft object is not modified. Banner and visibility line follow the audience. */
-export function viewReport(
-  draft: ParticipantReport | GroupReport,
-  view: View,
-  subject: string,
-  a: RenderAudience,
-): ParticipantReport | GroupReport {
-  const sv = view.subjects.get(subject) as SubjectView;
-  // Facilitators who changed or accepted something: comment authors are not reviewers of the scores.
-  const names = [
+/** Facilitators who changed or accepted something: comment authors are not reviewers of the scores. */
+function reviewerNames(sv: SubjectView): string[] {
+  return [
     ...new Set([
       ...sv.criteria.flatMap((c) => [
         ...c.edits.map((e) => e.by),
@@ -90,6 +85,17 @@ export function viewReport(
       ...sv.summaryBy,
     ]),
   ];
+}
+
+/** The draft report with the review applied. Pure; the draft object is not modified. Banner and visibility line follow the audience. */
+export function viewReport(
+  draft: ParticipantReport | GroupReport,
+  view: View,
+  subject: string,
+  a: RenderAudience,
+): ParticipantReport | GroupReport {
+  const sv = view.subjects.get(subject) as SubjectView;
+  const names = reviewerNames(sv);
   const edited = sv.criteria.filter((c) => c.edits.length > 0).length;
   const base = {
     ...structuredClone(draft),
@@ -116,6 +122,8 @@ export function viewReport(
     ...base.notes,
     `Scores were moderated by a facilitator${names.length ? ` (${names.join(", ")})` : ""}; ${edited} of ${sv.criteria.length} criteria were changed.`,
   ];
+  if (a.audience === "facilitator" && sv.tableStale)
+    base.notes.push(TABLE_STALE_NOTE);
   const comments = sv.comments
     .filter((c) => a.audience === "facilitator" || c.visibility === "feedback")
     .map((c) => ({
@@ -192,11 +200,14 @@ export function snapshotReport(
     summaryEdited: snap.summaryEdited,
     summaryStale: false,
     objectives: snap.objectives,
+    // frozen at release: the log is append-only, so a comment made before the release has a smaller seq
+    comments: sv.comments.filter((c) => c.seq < snap.version),
   };
   const subjects = new Map(view.subjects).set(subject, frozen);
   const r = viewReport(draft, { ...view, subjects }, subject, {
     audience: "facilitator",
   });
+  r.draft_notice = releasedBanner(snap.version, reviewerNames(frozen));
   if (r.kind === "group" && snap.table) {
     const players = Object.keys(snap.table.objectives[0]?.byRole ?? {});
     const pick = (x: LoResult | null) => ({
