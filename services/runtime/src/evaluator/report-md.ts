@@ -41,11 +41,17 @@ function notesSection(r: ParticipantReport | GroupReport, sec: string[]): string
   return ["## Notes", "", ...r.comments.map((c) => `- ${c.criterion ? `${id(c.criterion, sec)}: ` : ""}${safeMd(c.text, 1500, sec)}`), ""];
 }
 
-function criteriaTable(cs: JsonCriterion[], sec: string[]): string[] {
-  const out = ["| Criterion | Level | Confidence | Rationale |", "| --- | --- | --- | --- |"];
+function selfCell(s: NonNullable<ParticipantReport["self"]>[string] | undefined, sec: string[]): string {
+  if (!s) return "-";
+  const lvl = s.level === null ? "N/O" : `${s.level} - ${safeMd(s.label, 60, sec)}`;
+  return s.note ? `${lvl}: ${safeMd(s.note, 1500, sec)}` : lvl;
+}
+
+function criteriaTable(cs: JsonCriterion[], sec: string[], self?: ParticipantReport["self"]): string[] {
+  const out = self ? ["| Criterion | Level | Self-rating | Confidence | Rationale |", "| --- | --- | --- | --- | --- |"] : ["| Criterion | Level | Confidence | Rationale |", "| --- | --- | --- | --- |"];
   for (const c of cs) {
     const flags = c.flags.length ? ` (${c.flags.map((f) => safeMd(f, 160, sec)).join("; ")})` : "";
-    out.push(`| ${safeMd(c.name, 120, sec)} (${id(c.id, sec)}) | ${scoreText(c.score, c.level_label, c.invalid)} | ${c.confidence ? cap(c.confidence) : "-"} | ${safeMd(c.rationale, c.moderation ? 1500 : 600, sec) || "-"}${flags}${marks(c, sec)} |`);
+    out.push(`| ${safeMd(c.name, 120, sec)} (${id(c.id, sec)}) | ${scoreText(c.score, c.level_label, c.invalid)} | ${self ? `${selfCell(self[c.id], sec)} | ` : ""}${c.confidence ? cap(c.confidence) : "-"} | ${safeMd(c.rationale, c.moderation ? 1500 : 600, sec) || "-"}${flags}${marks(c, sec)} |`);
   }
   return out;
 }
@@ -87,7 +93,14 @@ export function renderParticipantMarkdown(r: ParticipantReport, secrets: string[
     else out.push(...r.summary.next_actions.map((a) => `- (${id(a.lo, sec)}) ${safeMd(a.action, 400, sec)}`), "");
   }
   out.push("## Learning objectives", "", ...objectivesTable(r.learning_objectives, sec), "");
-  out.push("## Criteria", "", ...criteriaTable(r.criteria, sec), "");
+  out.push("## Criteria", "", ...criteriaTable(r.criteria, sec, r.self), "");
+  if (r.responses?.length) {
+    out.push("## Your responses", "");
+    const vs = r.responses.map((x) => x.version).filter((v): v is number => typeof v === "number");
+    if (vs.length) out.push(`Responses are added after release and are not part of version ${Math.max(...vs)}.`, "");
+    for (const x of r.responses) out.push(`- ${x.criterion ? `(${id(x.criterion, sec)}) ` : ""}${x.dispute ? "Dispute: " : ""}${safeMd(x.text, 1500, sec)}${x.resolution ? ` - Facilitator's reply (${safeMd(x.resolution.outcome, 20, sec)}): ${safeMd(x.resolution.reason, 1500, sec)}` : x.dispute ? " - awaiting the facilitator's reply" : ""}`);
+    out.push("");
+  }
   out.push(...notesSection(r, sec));
   out.push(...evidenceSection(r.criteria, sec, false));
   out.push(...methodMarkdown(r.method, 2));

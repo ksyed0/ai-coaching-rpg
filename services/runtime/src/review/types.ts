@@ -8,6 +8,7 @@ export const LIMITS = {
   reason: 500,
   text: 1500,
   item: 400,
+  responses: 50,
   events: 10_000,
   logBytes: 16 * 1024 * 1024,
 } as const;

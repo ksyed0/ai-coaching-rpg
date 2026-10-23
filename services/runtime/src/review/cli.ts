@@ -1,25 +1,14 @@
-import {
-  link,
-  lstat,
-  mkdir,
-  realpath,
-  rmdir,
-  rm,
-  stat,
-  unlink,
-} from "node:fs/promises";
-import os from "node:os";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { isSafeId } from "@acr/events";
-import { stripHidden } from "../calibration/hidden-chars.js";
-import { scrubDeep, scrubText } from "../demo/report.js";
+import { scrubText } from "../demo/report.js";
 import { secretValues } from "../evaluator/cli.js";
+import { buildMethod } from "../evaluator/method.js";
 import type {
   GroupReport,
   ParticipantReport,
 } from "../evaluator/report-model.js";
-import { REPORT_DIR_MODE, writeExclusive } from "../evaluator/report-write.js";
 import { readRegularCapped } from "../util/read-regular.js";
 import {
   ReviewCorruptError,
@@ -29,11 +18,8 @@ import {
 import { loadDrafts } from "./draft.js";
 import { releaseProblems } from "./gate.js";
 import { sha256 } from "./hash.js";
-import {
-  canView,
-  parsePrincipal,
-} from "./policy.js";
-import { renderReviewIndex } from "./index-view.js";
+import { cleanLine, facilitator, need, shownName } from "./cli-util.js";
+import { exportHandler } from "./export.js";
 import {
   applyCommand,
   loadReview,
@@ -43,19 +29,8 @@ import {
   type Loaded,
 } from "./store.js";
 import { cleanBy, cleanText, isDraftFileName, parseLevel } from "./text.js";
-import {
-  GROUP,
-  LIMITS,
-  type Actor,
-  type Entry,
-  type ReviewEvent,
-} from "./types.js";
-import {
-  participantGroupReport,
-  renderSubjectMarkdown,
-  snapshotReport,
-  viewReport,
-} from "./view.js";
+import { LIMITS, type Entry, type ReviewEvent } from "./types.js";
+import { renderSubjectMarkdown, viewReport } from "./view.js";
 
 export const MODERATE_USAGE = [
   "usage: pnpm moderate <subcommand> <reports-dir> [options]",
@@ -71,6 +46,9 @@ export const MODERATE_USAGE = [
   "  withdraw <dir> <subject> --reason <text> --by <name>                  take a released report back for good (cannot be undone)",
   "  export <dir> <subject> --for facilitator|participant:<role> --to <new-dir> --by <name>  write the released report (or `index`) as owner-only files and record the export",
   "  supersede <old-dir> <new-dir> --by <name>                            move moderation of unchanged subjects to a re-run of a released session; the old review becomes read-only",
+  "  self-assess <dir> --role <role> --list   |   self-assess <dir> --role <role> --rate <criterion>=<1|2|3|4|na>... [--note <text>] --by <facilitator>   blind self-rating before release (the facilitator attests)",
+  "  respond <dir> --role <role> --text <text> [--criterion <id>] [--dispute] --by <facilitator>   a participant's response after release; --dispute puts it on the facilitator's list",
+  "  resolve <dir> <response-number> --outcome upheld|amended|declined --reason <text> --by <name>   close a dispute (`amended` needs an amend of that report first)",
   "exit codes: 0 done, 1 refused (fix and retry), 2 usage error or a damaged review/draft file",
   "A subject is a player role or `group`. Free text is stored after hidden characters are stripped and secrets scrubbed.",
 ].join("\n");
@@ -111,6 +89,12 @@ const OPTIONS = {
   action: { type: "string", multiple: true },
   all: { type: "boolean" },
   to: { type: "string" },
+  role: { type: "string" },
+  rate: { type: "string", multiple: true },
+  note: { type: "string" },
+  list: { type: "boolean" },
+  dispute: { type: "boolean" },
+  outcome: { type: "string" },
   for: { type: "string" },
   "session-log": { type: "string" },
   "codes-dir": { type: "string" },
@@ -130,6 +114,9 @@ export const ALLOWED: Record<string, string[]> = {
   amend: ["by", "reason"],
   withdraw: ["by", "reason"],
   export: ["by", "to", "for"],
+  "self-assess": ["role", "by", "rate", "note", "list"],
+  respond: ["role", "by", "criterion", "text", "dispute"],
+  resolve: ["by", "outcome", "reason"],
 };
 
 /** Most positional arguments after <dir> each subcommand takes. */
@@ -146,35 +133,10 @@ const ARITY: Record<string, number> = {
   amend: 1,
   withdraw: 1,
   export: 1,
+  "self-assess": 0,
+  respond: 0,
+  resolve: 1,
 };
-const facilitator = (c: Ctx): Actor => ({
-  kind: "facilitator",
-  by: cleanBy(c.values.by),
-});
-const need = <T>(v: T | undefined, what: string): T => {
-  if (v === undefined) throw new ReviewRefusedError(`unknown ${what}`);
-  return v;
-};
-/** A file name from the directory, safe to print: hidden characters stripped, markup and secrets scrubbed, at most 64 characters. */
-const shownName = (n: string): string => {
-  const t = Array.from(scrubText(stripHidden(n), []))
-    .slice(0, 64)
-    .join("");
-  return `\`${t}${Array.from(n).length > 64 ? "..." : ""}\``;
-};
-// eslint-disable-next-line no-control-regex
-const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
-/** One line of rendered Markdown made safe for a terminal; the line's own layout (tables, tabs) is kept. */
-function cleanLine(line: string, secrets: string[]): string {
-  let out = stripHidden(line).replace(CONTROLS, "");
-  for (const x of secrets) if (x) out = out.split(x).join("[redacted]");
-  for (const [dir, label] of [
-    [os.tmpdir(), "<tmp>"],
-    [os.homedir(), "~"],
-  ] as const)
-    if (dir && dir !== "/") out = out.split(dir).join(label);
-  return out;
-}
 /** The refusal text of `release`. The top-level error is cut at 400 characters, so keep whole (capped) lines and say how many were left out. */
 export function releaseRefusal(problems: string[]): string {
   const shown: string[] = [];
@@ -211,6 +173,12 @@ function statusLines(l: Loaded): string[] {
     );
     for (const c of open)
       out.push(`  needs review: ${c.id} (currently ${lvl(c.current)})`);
+    const rated = sv.criteria.filter((c) => c.self).length;
+    if (rated > 0) out.push(`  ${rated} self-rating(s)`);
+    for (const r of sv.responses.filter((x) => x.dispute && !x.resolution))
+      out.push(
+        `  open dispute: #${r.seq} by ${r.role}${r.criterion ? ` on ${r.criterion}` : ""}`,
+      );
   }
   return out;
 }
@@ -491,188 +459,198 @@ export const HANDLERS: Record<string, Handler> = {
     if (hint) c.out(hint);
     return 0;
   },
-  async export(c) {
-    const [subject] = c.args;
-    if (!subject) throw new ReviewUsageError("export needs <subject>");
-    const actor = facilitator(c);
-    const principal =
-      typeof c.values.for === "string" ? parsePrincipal(c.values.for) : null;
-    if (principal === null)
-      throw new ReviewUsageError(
-        "--for needs facilitator or participant:<role>",
-      );
-    if (typeof c.values.to !== "string" || c.values.to === "")
-      throw new ReviewUsageError("--to needs a destination directory");
-    const dest = path.resolve(c.base, c.values.to);
-    const label = isSafeId(path.basename(dest))
-      ? path.basename(dest)
-      : "destination";
-    const isIndex = subject === "index";
-    // An index export is audited under the group (the export event needs a released subject); the index follows the group's state.
-    const audited = isIndex ? GROUP : subject;
-    const names = isIndex ? ["index.md"] : [`${subject}.md`, `${subject}.json`];
-    const role = principal.startsWith("participant:")
-      ? principal.slice("participant:".length)
-      : null;
-    /** Who may export what, against one loaded view. Messages are constants: nothing from the request is echoed. */
-    const gate = (l: Loaded) => {
-      const sv = need(l.view.subjects.get(audited), "subject");
-      if (role !== null && l.view.subjects.get(role)?.kind !== "participant")
-        throw new ReviewRefusedError("that participant is not in this review");
-      if (principal === "facilitator") {
-        if (sv.state !== "released")
-          throw new ReviewRefusedError(
-            `${isIndex ? GROUP : subject} is ${sv.state}; only a released report is exported`,
-          );
-      } else {
-        const access = canView({
-          principal,
-          subject,
-          state: sv.state,
-          versions: sv.versions.length,
-          view: isIndex ? "index" : "report",
-          superseded: l.view.superseded !== null,
-          policyVersion: l.view.opened.policyVersion,
-        });
-        if (!access.allowed)
-          throw new ReviewRefusedError(`export refused: ${access.why}`);
-      }
+  async "self-assess"(c) {
+    const role = typeof c.values.role === "string" ? c.values.role : "";
+    if (!role) throw new ReviewUsageError("self-assess needs --role <role>");
+    const rateArgs = Array.isArray(c.values.rate) ? c.values.rate : [];
+    const participant = (l: Loaded) => {
+      const sv = l.view.subjects.get(role);
+      if (!sv || sv.kind !== "participant")
+        throw new ReviewRefusedError(
+          "that role is not a player in this review",
+        );
       return sv;
     };
-    const l = await loadReview(c.dir);
-    gate(l);
-    // Refuse before auditing what we can already see is unwritable: a symbolic-link or non-directory destination, or a file already there.
-    const existing = await lstat(dest).catch(() => null);
-    if (existing && (existing.isSymbolicLink() || !existing.isDirectory()))
-      throw new ReviewRefusedError(
-        "the destination exists and is not a plain directory (symbolic links are never followed); nothing was exported",
+    if (c.values.list === true) {
+      if (rateArgs.length > 0 || c.values.note !== undefined)
+        throw new ReviewUsageError(
+          "--list cannot be used with --rate or --note",
+        );
+      const sv = participant(await loadReview(c.dir));
+      c.out(
+        "Rate yourself on each criterion (1 to 4, or na if there was no chance to show it):",
       );
-    if (existing)
-      for (const n of names)
-        if (await lstat(path.join(dest, n)).catch(() => null))
+      for (const k of sv.criteria) c.out(`  ${k.id}: ${k.name}`);
+      for (const s of buildMethod().scale)
+        c.out(`  ${s.level} ${s.label}: ${s.meaning}`);
+      return 0;
+    }
+    const by = cleanBy(c.values.by);
+    const rates = rateArgs.map((r) => {
+      const i = r.indexOf("=");
+      if (i < 1)
+        throw new ReviewUsageError("--rate needs <criterion>=<1|2|3|4|na>");
+      const v = r.slice(i + 1);
+      if (v !== "na" && !/^[1-4]$/.test(v))
+        throw new ReviewUsageError("--rate needs <criterion>=<1|2|3|4|na>");
+      return { criterion: r.slice(0, i), level: parseLevel(v) };
+    });
+    if (rates.length === 0)
+      throw new ReviewUsageError(
+        "self-assess needs --list or at least one --rate",
+      );
+    if (c.values.note !== undefined && rates.length !== 1)
+      throw new ReviewUsageError("--note goes with exactly one --rate");
+    // Participant-authored text takes the same path as every other free text: hidden characters out, secrets scrubbed.
+    const note =
+      typeof c.values.note === "string"
+        ? cleanText(c.values.note, LIMITS.text, "--note", c.secrets)
+        : undefined;
+    await applyCommand(c.dir, c.now, (l) => {
+      const sv = participant(l);
+      if (l.view.superseded !== null)
+        throw new ReviewRefusedError(
+          "this review was superseded and is read-only",
+        );
+      if (sv.state !== "draft" || sv.versions.length > 0)
+        throw new ReviewRefusedError(
+          "self-rating is closed: this player's report has already been released (a self-rating is blind, so it can only be made before release)",
+        );
+      for (const r of rates)
+        if (!sv.criteria.some((k) => k.id === r.criterion))
           throw new ReviewRefusedError(
-            `the destination already holds ${shownName(n)}; files are never overwritten; nothing was exported`,
+            "a --rate names a criterion that is not in this report; run self-assess --list for the criteria",
           );
-    // The audit event comes first (P17): a record of an export that then failed is safer than an export nobody recorded.
-    // Version and content are both taken from the locked view inside the callback, so they always belong together.
-    const files: string[] = [];
-    const tidy = (md: string): string =>
-      `${md
-        .split("\n")
-        .map((line) => cleanLine(line, c.secrets))
-        .join("\n")
-        .trimEnd()}\n`;
-    await applyCommand(c.dir, c.now, (cur) => {
-      const sv = gate(cur);
-      files.length = 0;
-      const draftOf = (n: string) =>
-        cur.drafts.subjects.get(n)!.raw as unknown as
-          ParticipantReport | GroupReport;
-      if (isIndex) {
-        files.push(
-          tidy(
-            renderReviewIndex(
-              cur,
-              role === null
-                ? { audience: "facilitator" }
-                : { audience: "participant", role },
-              c.secrets,
-            ),
-          ),
+      return rates.map((r) => ({
+        actor: { kind: "participant", role, attestedBy: by } as const,
+        body: {
+          type: "self.rated" as const,
+          role,
+          criterion: r.criterion,
+          level: r.level,
+          ...(note !== undefined ? { note } : {}),
+        },
+      }));
+    });
+    c.out(`${rates.length} self-rating(s) recorded for ${role}`);
+    return 0;
+  },
+  async respond(c) {
+    const role = typeof c.values.role === "string" ? c.values.role : "";
+    if (!role) throw new ReviewUsageError("respond needs --role <role>");
+    const by = cleanBy(c.values.by);
+    const text = cleanText(
+      String(c.values.text ?? ""),
+      LIMITS.text,
+      "--text",
+      c.secrets,
+    );
+    const criterion =
+      typeof c.values.criterion === "string" ? c.values.criterion : undefined;
+    const dispute = c.values.dispute === true;
+    await applyCommand(c.dir, c.now, (l) => {
+      const sv = l.view.subjects.get(role);
+      if (!sv || sv.kind !== "participant")
+        throw new ReviewRefusedError(
+          "that role is not a player in this review",
         );
-      } else {
-        // as strict as `show`: per line, hidden and control characters out, secrets and machine paths redacted (tables and tabs stay)
-        let report: ParticipantReport | GroupReport;
-        if (role === null)
-          report = snapshotReport(draftOf(subject), cur.view, subject);
-        else {
-          const line =
-            subject === GROUP
-              ? "Visibility: the players of this session and the facilitator"
-              : "Visibility: you and the facilitator";
-          const legacy = cur.view.opened.legacy;
-          report =
-            subject === GROUP
-              ? participantGroupReport(
-                  draftOf(subject) as GroupReport,
-                  cur.view,
-                  role,
-                  line,
-                  legacy,
-                )
-              : viewReport(draftOf(subject), cur.view, subject, {
-                  audience: "released",
-                  line,
-                  legacy,
-                });
-        }
-        files.push(
-          tidy(renderSubjectMarkdown(report, c.secrets)),
-          `${JSON.stringify(scrubDeep(report, c.secrets), null, 2)}\n`,
+      if (l.view.superseded !== null)
+        throw new ReviewRefusedError(
+          "this review was superseded and is read-only",
         );
-      }
+      if (sv.state === "draft")
+        throw new ReviewRefusedError(
+          "responses open once this player's report is released; it is still a draft",
+        );
+      if (sv.state === "withdrawn")
+        throw new ReviewRefusedError(
+          "this player's report was withdrawn, so responses are closed",
+        );
+      if (sv.responses.length >= LIMITS.responses)
+        throw new ReviewRefusedError(
+          `this player already has ${LIMITS.responses} responses (answered disputes count too); no more can be added`,
+        );
+      if (
+        criterion !== undefined &&
+        !sv.criteria.some((k) => k.id === criterion)
+      )
+        throw new ReviewRefusedError(
+          "--criterion is not a criterion of this report",
+        );
       return [
         {
-          actor,
+          actor: { kind: "participant", role, attestedBy: by },
           body: {
-            type: "report.exported",
-            subject: audited,
-            version: sv.versions.at(-1)!,
-            principal,
-            destination: label,
+            type: "response.added",
+            role,
+            ...(criterion !== undefined ? { criterion } : {}),
+            text,
+            ...(dispute ? { dispute: true } : {}),
           },
         },
       ];
     });
-    const finals: string[] = [];
-    const temps: string[] = [];
-    let created = false;
-    try {
-      // Exclusive creation: parents may be made, the destination itself must not exist (EEXIST refuses, nothing is deleted).
-      if (!existing) {
-        await mkdir(path.dirname(dest), {
-          recursive: true,
-          mode: REPORT_DIR_MODE,
-        });
-        await mkdir(dest, { mode: REPORT_DIR_MODE });
-        created = true;
-      }
-      // A destination swapped for a symbolic link since the check is refused (a residual window remains between this check and the writes).
-      const here = await lstat(dest);
-      if (
-        here.isSymbolicLink() ||
-        (await realpath(dest)) !==
-          path.join(await realpath(path.dirname(dest)), path.basename(dest))
-      )
-        throw new Error("destination is not a plain directory");
-      const tag = `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      // Stage every file under a private temp name (created exclusively, owner-only), then link each into place: link never
-      // replaces an existing name or follows a symlink there, so a late-appearing file fails the export instead of being overwritten.
-      const staged: [string, string][] = [];
-      for (const [i, n] of names.entries()) {
-        const t = files[i]!;
-        const tmp = path.join(dest, `.${n}.${tag}.tmp`);
-        await writeExclusive(tmp, t);
-        temps.push(tmp);
-        staged.push([tmp, path.join(dest, n)]);
-      }
-      for (const [tmp, fin] of staged) {
-        await link(tmp, fin);
-        finals.push(fin);
-      }
-      for (const tmp of temps) await unlink(tmp);
-    } catch {
-      // Remove only what this run made; the directory only if this run created it and it is now empty (never a recursive delete).
-      for (const f of [...finals, ...temps])
-        await rm(f, { force: true }).catch(() => undefined);
-      if (created) await rmdir(dest).catch(() => undefined);
-      throw new ReviewCorruptError(
-        "an export event was recorded in the review but no files were produced (the destination could not be written, or a file appeared there); nothing was left behind",
-      );
-    }
-    c.out(`exported ${subject} to ${label}`);
+    c.out(
+      `response recorded for ${role}${dispute ? " (dispute: it is on the facilitator's list)" : ""}`,
+    );
     return 0;
   },
+  async resolve(c) {
+    const arg = c.args[0] ?? "";
+    if (!/^[1-9]\d{0,8}$/.test(arg))
+      throw new ReviewUsageError(
+        "resolve needs the response number shown by status",
+      );
+    const seq = Number(arg);
+    const actor = facilitator(c);
+    const reason = cleanText(
+      String(c.values.reason ?? ""),
+      LIMITS.reason,
+      "--reason",
+      c.secrets,
+    );
+    const outcome = c.values.outcome;
+    if (outcome !== "upheld" && outcome !== "amended" && outcome !== "declined")
+      throw new ReviewUsageError("--outcome needs upheld, amended or declined");
+    await applyCommand(c.dir, c.now, (l) => {
+      const found = [...l.view.subjects.values()]
+        .flatMap((sv) => sv.responses.map((r) => ({ sv, r })))
+        .find((x) => x.r.seq === seq);
+      if (!found)
+        throw new ReviewRefusedError(
+          "there is no response with that number; run status for the open disputes",
+        );
+      if (!found.r.dispute)
+        throw new ReviewRefusedError(
+          "that response is not a dispute, so there is nothing to resolve",
+        );
+      if (found.r.resolution)
+        throw new ReviewRefusedError("that dispute is already resolved");
+      if (
+        outcome === "amended" &&
+        !(
+          l.events.some(
+            (e) =>
+              e.type === "report.amended" &&
+              e.subject === found.sv.id &&
+              e.seq > seq,
+          ) || found.sv.versions.some((v) => v > seq)
+        )
+      )
+        throw new ReviewRefusedError(
+          `${found.sv.id}'s report has not been amended since the response; run amend first (and release again), then resolve the dispute as amended`,
+        );
+      return [
+        {
+          actor,
+          body: { type: "dispute.resolved", response: seq, outcome, reason },
+        },
+      ];
+    });
+    c.out(`dispute #${seq} resolved: ${outcome}`);
+    return 0;
+  },
+  export: exportHandler,
   async supersede(c) {
     const newArg = c.args[0];
     if (!newArg)
