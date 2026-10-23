@@ -35,6 +35,13 @@ export const LEGACY_NOTE =
 const AI_PREFIX =
   "AI draft calibration (not the calibration of the final scores): ";
 
+/** One cell of the per-role table: the objective's score and label, or "Not observed" when there is none. */
+const pick = (x: LoResult | null | undefined) => ({
+  score: x?.score ?? null,
+  label: x?.label ?? "Not observed",
+  incomplete: x?.incomplete ?? false,
+});
+
 const jsonLo = (o: LoResult): JsonObjective => ({
   id: o.id,
   statement: o.statement,
@@ -165,11 +172,6 @@ export function viewReport(
   g.lo_coverage = {
     players: roles.map((r) => r.id),
     objectives: draft.lo_coverage.objectives.map((o) => {
-      const pick = (x: LoResult | undefined) => ({
-        score: x?.score ?? null,
-        label: x?.label ?? "Not observed",
-        incomplete: x?.incomplete ?? false,
-      });
       return {
         id: o.id,
         statement: o.statement,
@@ -211,11 +213,6 @@ function frozenView(view: View, subject: string): View {
 function applyFrozenTable(r: GroupReport, snap: Snapshot): void {
   if (!snap.table) return;
   const players = Object.keys(snap.table.objectives[0]?.byRole ?? {});
-  const pick = (x: LoResult | null) => ({
-    score: x?.score ?? null,
-    label: x?.label ?? "Not observed",
-    incomplete: x?.incomplete ?? false,
-  });
   r.lo_coverage = {
     players,
     objectives: snap.table.objectives.map((o) => ({
@@ -285,11 +282,6 @@ export function participantGroupReport(
     (own.state === "released" || own.state === "amending")
       ? own.snapshot
       : null;
-  const pick = (x: LoResult | undefined) => ({
-    score: x?.score ?? null,
-    label: x?.label ?? "Not observed",
-    incomplete: x?.incomplete ?? false,
-  });
   g.lo_coverage = {
     players: snap ? [role] : [],
     objectives: g.lo_coverage.objectives.map((o) => ({
