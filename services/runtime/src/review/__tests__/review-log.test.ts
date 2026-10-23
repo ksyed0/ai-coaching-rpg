@@ -134,7 +134,11 @@ describe("review log", () => {
     await append([comment("a")]);
     const file = path.join(dir, REVIEW_FILE);
     const before = await readFile(file);
-    const probe = await fsp.open(file, "r");
+    // Borrow the FileHandle prototype from a scratch file so the log path is
+    // never opened and then re-read by path.
+    const scratch = path.join(dir, "probe.tmp");
+    await writeFile(scratch, "");
+    const probe = await fsp.open(scratch, "r");
     const proto = Object.getPrototypeOf(probe) as {
       write: (...a: unknown[]) => Promise<unknown>;
     };
