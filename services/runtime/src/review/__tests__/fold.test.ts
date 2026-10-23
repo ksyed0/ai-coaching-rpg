@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { rm } from "node:fs/promises";
 import { loadDrafts, type Drafts } from "../draft.js";
-import { currentView } from "../fold.js";
+import { currentView, type View } from "../fold.js";
 import { releaseProblems } from "../gate.js";
 import { sealEntries } from "../review-log.js";
 import { sha256 } from "../hash.js";
@@ -14,7 +14,7 @@ import {
   type ReviewEvent,
 } from "../types.js";
 import { ReviewIllegalError } from "../errors.js";
-import { fixedClock, makeDraftDir } from "./fixtures.js";
+import { fixedClock, makeDraftDir, makeFold } from "./fixtures.js";
 
 let root: string, drafts: Drafts;
 beforeEach(async () => {
@@ -26,31 +26,13 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-const fac: Actor = { kind: "facilitator", by: "kamal" };
-const opened = (): Body => ({
-  type: "review.opened",
-  schema: REVIEW_SCHEMA,
-  policyVersion: POLICY_VERSION,
-  legacy: false,
-  session: {
-    id: drafts.sessionId,
-    logSha256: null,
-    startedAt: drafts.startedAt,
-  },
-  scenario: { id: drafts.scenarioId, sha256: null },
-  rubricHash: drafts.rubricHash,
-  files: drafts.files,
-  codes: null,
+let fac: Actor,
+  opened: () => Body,
+  log: (...b: Body[]) => ReviewEvent[],
+  fold: (...b: Body[]) => View;
+beforeEach(() => {
+  ({ fac, opened, log, fold } = makeFold(drafts));
 });
-function log(...bodies: Body[]): ReviewEvent[] {
-  return sealEntries(
-    [],
-    ZERO_HASH,
-    [opened(), ...bodies].map((body) => ({ actor: fac, body })),
-    fixedClock(),
-  );
-}
-const fold = (...b: Body[]) => currentView(drafts, log(...b));
 const aliceNeeds = () =>
   [...drafts.subjects.get("alice")!.criteria]
     .filter((c) => c.confidence !== "high" || c.flags.length > 0 || c.invalid)
@@ -254,7 +236,13 @@ describe("currentView rejects illegal sequences", () => {
     ],
     [
       "an event type that arrives in a later story",
-      () => fold({ type: "report.released", subjects: ["alice"] }),
+      () =>
+        fold({
+          type: "self.rated",
+          role: "alice",
+          criterion: "listening",
+          level: 3,
+        }),
     ],
   ])("%s", (_name, run) => {
     expect(run).toThrow(ReviewIllegalError);
