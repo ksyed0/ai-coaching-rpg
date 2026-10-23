@@ -415,7 +415,7 @@ describe("untrusted payloads and states", () => {
       expect((e as Error).message).not.toMatch(/SECRET-ECHO/);
     }
   });
-  it("withdraw from amending works and export is refused while amending", () => {
+  it("withdraw from amending works; an amending subject still exports its last release, a withdrawn one does not", () => {
     const rel = released("alice");
     const v1 = f.fold(...rel).lastSeq;
     const amend: Body = {
@@ -433,15 +433,49 @@ describe("untrusted payloads and states", () => {
         })
         .subjects.get("alice")!.state,
     ).toBe("withdrawn");
+    const exp = (principal: string): Body => ({
+      type: "report.exported",
+      subject: "alice",
+      version: v1,
+      principal,
+      destination: "d",
+    });
+    expect(
+      f.fold(...rel, amend, exp("participant:alice")).subjects.get("alice")!
+        .exports,
+    ).toHaveLength(1);
     expect(() =>
-      f.fold(...rel, amend, {
-        type: "report.exported",
-        subject: "alice",
-        version: v1,
-        principal: "p",
-        destination: "d",
-      }),
+      f.fold(
+        ...rel,
+        { type: "report.withdrawn", subject: "alice", reason: "r" },
+        exp("facilitator"),
+      ),
     ).toThrow(ReviewIllegalError);
+  });
+  it("accepts only facilitator or participant:<participant role of this review> as an export principal", () => {
+    const rel = released("alice");
+    const v1 = f.fold(...rel).lastSeq;
+    const exp = (principal: string): Body => ({
+      type: "report.exported",
+      subject: "alice",
+      version: v1,
+      principal,
+      destination: "d",
+    });
+    for (const ok of ["facilitator", "participant:alice", "participant:bob"])
+      expect(() => f.fold(...rel, exp(ok))).not.toThrow();
+    for (const bad of [
+      "p",
+      "line_manager",
+      "hr",
+      "participant:",
+      "participant:group",
+      "participant:nobody",
+      "participant:../x",
+      "participant:Alice",
+      " facilitator",
+    ])
+      expect(() => f.fold(...rel, exp(bad))).toThrow(ReviewIllegalError);
   });
   it("keeps the last released snapshot while amending (P12) and the latest release wins", () => {
     const rel = released("alice");
