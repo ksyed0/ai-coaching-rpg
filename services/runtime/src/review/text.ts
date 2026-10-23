@@ -1,4 +1,4 @@
-import { isSafeId } from "@acr/events";
+import { isFileSafeId, isSafeId } from "@acr/events";
 import { stripHidden } from "../calibration/hidden-chars.js";
 import { scrubText } from "../demo/report.js";
 import { ReviewUsageError } from "./errors.js";
@@ -39,4 +39,10 @@ export function parseLevel(raw: unknown): Level {
   if (typeof raw === "string" && /^[1-4]$/.test(raw))
     return Number(raw) as 1 | 2 | 3 | 4;
   throw new ReviewUsageError("--level needs 1, 2, 3, 4 or na (not observed)");
+}
+
+/** The one rule for a draft file name a review may bind to: `<file-safe id up to 64>.md|json`. Shared by `open` and the review.opened check. */
+export function isDraftFileName(name: string): boolean {
+  const m = /^(.{1,64})\.(md|json)$/.exec(name);
+  return m !== null && isFileSafeId(m[1]!);
 }

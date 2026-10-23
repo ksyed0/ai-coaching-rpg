@@ -1,7 +1,8 @@
 import { stat } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { isFileSafeId } from "@acr/events";
+import { isSafeId } from "@acr/events";
 import { stripHidden } from "../calibration/hidden-chars.js";
 import { scrubText } from "../demo/report.js";
 import { secretValues } from "../evaluator/cli.js";
@@ -24,7 +25,7 @@ import {
   readCodesRecord,
   type Loaded,
 } from "./store.js";
-import { cleanBy, cleanText, parseLevel } from "./text.js";
+import { cleanBy, cleanText, isDraftFileName, parseLevel } from "./text.js";
 import { LIMITS, type Actor, type Entry } from "./types.js";
 import { renderSubjectMarkdown, viewReport } from "./view.js";
 
@@ -90,6 +91,16 @@ export const ALLOWED: Record<string, string[]> = {
   "edit-summary": ["by", "reason", "strength", "development", "action"],
 };
 
+/** Most positional arguments after <dir> each subcommand takes. */
+const ARITY: Record<string, number> = {
+  open: 0,
+  status: 0,
+  show: 1,
+  edit: 2,
+  accept: 2,
+  comment: 1,
+  "edit-summary": 1,
+};
 const facilitator = (c: Ctx): Actor => ({
   kind: "facilitator",
   by: cleanBy(c.values.by),
@@ -105,6 +116,19 @@ const shownName = (n: string): string => {
     .join("");
   return `\`${t}${Array.from(n).length > 64 ? "..." : ""}\``;
 };
+// eslint-disable-next-line no-control-regex
+const CONTROLS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g;
+/** One line of rendered Markdown made safe for a terminal; the line's own layout (tables, tabs) is kept. */
+function cleanLine(line: string, secrets: string[]): string {
+  let out = stripHidden(line).replace(CONTROLS, "");
+  for (const x of secrets) if (x) out = out.split(x).join("[redacted]");
+  for (const [dir, label] of [
+    [os.tmpdir(), "<tmp>"],
+    [os.homedir(), "~"],
+  ] as const)
+    if (dir && dir !== "/") out = out.split(dir).join(label);
+  return out;
+}
 const lvl = (l: unknown): string => (l === null ? "na" : String(l));
 
 function statusLines(l: Loaded): string[] {
@@ -142,8 +166,7 @@ export const HANDLERS: Record<string, Handler> = {
     const d = await loadDrafts(c.dir);
     // openReview would refuse a stray file with an unnamed message; name it (sanitised, bounded) so the facilitator can act.
     for (const name of Object.keys(d.files)) {
-      const m = /^(.{1,64})\.(md|json)$/.exec(name);
-      if (!m || !isFileSafeId(m[1]!))
+      if (!isDraftFileName(name))
         throw new ReviewRefusedError(
           `${shownName(name)} is not a generated report file; move it out of the reports directory and run open again`,
         );
@@ -176,17 +199,16 @@ export const HANDLERS: Record<string, Handler> = {
       throw new ReviewRefusedError("unknown subject; run status to list them");
     const draft = l.drafts.subjects.get(id)!.raw as unknown as
       ParticipantReport | GroupReport;
-    // Multi-line Markdown: not passed through c.out (scrubText would flatten every line break). The renderer already
-    // cleans each field; the secrets are redacted once more over the whole document.
+    // Multi-line Markdown: not passed through c.out (scrubText would flatten every line break). Per line: control and
+    // hidden characters out (keeps \n and tab), then secrets and machine paths redacted, as scrubText does.
     c.raw(
-      c.secrets
-        .reduce(
-          (t, x) => (x ? t.split(x).join("[redacted]") : t),
-          renderSubjectMarkdown(
-            viewReport(draft, l.view, id, { audience: "facilitator" }),
-            c.secrets,
-          ),
-        )
+      renderSubjectMarkdown(
+        viewReport(draft, l.view, id, { audience: "facilitator" }),
+        c.secrets,
+      )
+        .split("\n")
+        .map((line) => cleanLine(line, c.secrets))
+        .join("\n")
         .trimEnd(),
     );
     return 0;
@@ -264,6 +286,10 @@ export const HANDLERS: Record<string, Handler> = {
         "accept needs <subject> and a <criterion> or --summary",
       );
     const actor = facilitator(c);
+    if (c.values.summary === true && criterion)
+      throw new ReviewUsageError(
+        "accept takes a <criterion> or --summary, not both",
+      );
     if (c.values.summary === true) {
       await applyCommand(c.dir, c.now, () => [
         { actor, body: { type: "summary.accepted", subject } },
@@ -329,9 +355,28 @@ export const HANDLERS: Record<string, Handler> = {
         return { lo: a.slice(0, i), action: a.slice(i + 1).trim() };
       }),
     };
-    await applyCommand(c.dir, c.now, () => [
-      { actor, body: { type: "summary.edited", subject, summary, reason } },
-    ]);
+    if (
+      !summary.strengths.length &&
+      !summary.development_points.length &&
+      !summary.next_actions.length
+    )
+      throw new ReviewUsageError(
+        "edit-summary needs at least one --strength, --development or --action; it replaces the whole summary",
+      );
+    await applyCommand(c.dir, c.now, (l) => {
+      const known = l.drafts.subjects.get(subject)?.objectives ?? [];
+      for (const a of summary.next_actions)
+        if (
+          !isSafeId(a.lo) ||
+          (known.length && !known.some((o) => o.id === a.lo))
+        )
+          throw new ReviewUsageError(
+            "--action needs the id of one of the report's learning objectives before the colon",
+          );
+      return [
+        { actor, body: { type: "summary.edited", subject, summary, reason } },
+      ];
+    });
     c.out(`${subject} summary replaced`);
     return 0;
   },
@@ -341,17 +386,36 @@ export async function runModerate(
   deps: ModerateDeps,
 ): Promise<{ exitCode: number }> {
   const secrets = secretValues(deps.env);
-  const err = (m: string) => deps.stderr.write(`${scrubText(m, secrets)}\n`);
+  // scrub first, then cut by code points: a cut can never split a redaction or a surrogate pair
+  const err = (m: string) =>
+    deps.stderr.write(
+      `${Array.from(scrubText(m, secrets)).slice(0, 400).join("")}\n`,
+    );
+  const usage = (m: string) => {
+    err(m);
+    deps.stderr.write(`${MODERATE_USAGE}\n`);
+  };
   let parsed;
   try {
     parsed = parseArgs({
       args: deps.argv,
       allowPositionals: true,
       strict: true,
+      tokens: true,
       options: OPTIONS,
     });
+    const seen = new Set<string>();
+    for (const t of parsed.tokens ?? []) {
+      if (t.kind !== "option") continue;
+      const o = OPTIONS[t.name as keyof typeof OPTIONS] as {
+        multiple?: boolean;
+      };
+      if (!o.multiple && seen.has(t.name))
+        throw new Error(`--${t.name} was given more than once`);
+      seen.add(t.name);
+    }
   } catch (e) {
-    err(`error: ${(e as Error).message.split("\n")[0]}\n${MODERATE_USAGE}`);
+    usage(`error: ${(e as Error).message.split("\n")[0]}`);
     return { exitCode: 2 };
   }
   const { values, positionals } = parsed;
@@ -362,7 +426,7 @@ export async function runModerate(
   const [sub, dirArg, ...args] = positionals;
   const handler = sub ? HANDLERS[sub] : undefined;
   if (!sub || !handler || !dirArg) {
-    err(`error: give a subcommand and a reports directory\n${MODERATE_USAGE}`);
+    usage("error: give a subcommand and a reports directory");
     return { exitCode: 2 };
   }
   const given = Object.keys(values).filter(
@@ -370,7 +434,11 @@ export async function runModerate(
   );
   const bad = given.find((k) => !ALLOWED[sub]!.includes(k));
   if (bad) {
-    err(`error: --${bad} is not an option of ${sub}\n${MODERATE_USAGE}`);
+    usage(`error: --${bad} is not an option of ${sub}`);
+    return { exitCode: 2 };
+  }
+  if (args.length > ARITY[sub]!) {
+    usage(`error: too many arguments for ${sub}`);
     return { exitCode: 2 };
   }
   const base = deps.cwd ?? deps.env.INIT_CWD ?? process.cwd();
@@ -393,11 +461,11 @@ export async function runModerate(
     return { exitCode: await handler(ctx) };
   } catch (e) {
     if (e instanceof ReviewRefusedError) {
-      err(`refused: ${e.message}`.slice(0, 400));
+      err(`refused: ${e.message}`);
       return { exitCode: 1 };
     }
     if (e instanceof ReviewUsageError || e instanceof ReviewCorruptError) {
-      err(`error: ${e.message}`.slice(0, 400));
+      err(`error: ${e.message}`);
       return { exitCode: 2 };
     }
     err("error: the command failed");

@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { isFileSafeId, isSafeId } from "@acr/events";
+import { stripHidden } from "../calibration/hidden-chars.js";
 import { FLAG_CODE_LIST } from "../evaluator/report-model.js";
 import { readRegularCapped } from "../util/read-regular.js";
 import { ReviewCorruptError } from "./errors.js";
@@ -60,6 +61,70 @@ const strs = (v: unknown, max = 50): string[] | null =>
 
 function bad(file: string, why: string): never {
   throw new ReviewCorruptError(`${file}: ${why}`);
+}
+
+/** C0 and C1 controls except line feed and tab, and the hidden or bidirectional characters: terminal escape sequences start here. */
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+const dirty = (s: string): boolean => CONTROL.test(s) || stripHidden(s) !== s;
+
+/** Every string anywhere under `v` is free of control and hidden characters. */
+function cleanDeep(file: string, v: unknown, what: string, depth = 0): void {
+  if (depth > 8) bad(file, `${what} is nested too deeply`);
+  if (typeof v === "string") {
+    if (dirty(v)) bad(file, `${what} contains control characters`);
+  } else if (Array.isArray(v))
+    for (const x of v) cleanDeep(file, x, what, depth + 1);
+  else if (isObj(v))
+    for (const [k, x] of Object.entries(v)) {
+      if (dirty(k)) bad(file, `${what} contains control characters`);
+      cleanDeep(file, x, what, depth + 1);
+    }
+}
+const isCount = (v: unknown): boolean =>
+  typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 1e9;
+
+/** Fields the renderer prints as they are (numbers, times, method text) must be plain numbers and clean text; quotes and rationales are escaped by the renderer. */
+function checkRaw(file: string, raw: Record<string, unknown>): void {
+  const ev = raw.evaluator;
+  if (!isObj(ev) || !isCount(ev.model_calls))
+    bad(file, "evaluator.model_calls is not a count");
+  cleanDeep(file, ev, "evaluator");
+  cleanDeep(file, raw.method, "method");
+  cleanDeep(file, raw.session, "session");
+  cleanDeep(file, raw.scenario, "scenario");
+  if (raw.kind === "participant") {
+    const p = raw.participant;
+    if (!isObj(p) || !isCount(p.utterances))
+      bad(file, "participant.utterances is not a count");
+  }
+  const moments = (list: unknown, what: string) => {
+    if (list === undefined) return;
+    if (!Array.isArray(list) || list.length > MAX_ITEMS)
+      bad(file, `${what} is invalid`);
+    for (const m of list) {
+      if (
+        !isObj(m) ||
+        !isCount(m.seq) ||
+        !isCount(m.scene) ||
+        typeof m.time !== "string" ||
+        dirty(m.time) ||
+        (m.scene_title !== undefined &&
+          (typeof m.scene_title !== "string" || dirty(m.scene_title)))
+      )
+        bad(file, `${what} has an invalid seq, scene, time or scene title`);
+    }
+  };
+  moments(raw.notable_moments, "notable_moments");
+  if (Array.isArray(raw.criteria))
+    for (const c of raw.criteria) {
+      if (!isObj(c)) continue;
+      moments(c.evidence, "evidence");
+      if (typeof c.level_label === "string" && dirty(c.level_label))
+        bad(file, "a level label contains control characters");
+      if (typeof c.name === "string" && dirty(c.name))
+        bad(file, "a criterion name contains control characters");
+    }
 }
 
 function parseCriteria(file: string, raw: unknown): DraftCriterion[] {
@@ -148,6 +213,7 @@ function parseSubject(
   file: string,
   raw: Record<string, unknown>,
 ): DraftSubject {
+  checkRaw(file, raw);
   const group = raw.kind === "group";
   if (raw.kind !== "participant" && !group)
     bad(file, "kind is neither participant nor group");

@@ -384,4 +384,94 @@ describe("pnpm moderate", () => {
     expect(r.code).toBe(1);
     expect(r.err).not.toContain("sk-live-abcdef123456");
   });
+
+  const ESC = "\u001b]0;PWNED\u0007\u001b[31m";
+  const tamper = async (edit: (r: any) => void) => {
+    const f = path.join(dir, "alice.json");
+    const r = JSON.parse(await readFile(f, "utf8"));
+    edit(r);
+    await writeFile(f, JSON.stringify(r));
+  };
+  const CTRL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+
+  it("refuses to open drafts whose printed fields hold terminal control sequences or non-numbers", async () => {
+    for (const edit of [
+      (r: any) => (r.method.name = ESC),
+      (r: any) => (r.criteria[0].level_label = ESC),
+      (r: any) => {
+        const c = r.criteria.find((x: any) => x.evidence?.length);
+        c.evidence[0].time = ESC;
+      },
+      (r: any) => (r.evaluator.model_calls = ESC),
+      (r: any) => (r.participant.utterances = ESC),
+    ]) {
+      await rm(root, { recursive: true, force: true });
+      ({ root, dir } = await makeDraftDir());
+      await tamper(edit);
+      const r = await open();
+      expect(r.code).toBe(2);
+      expect(r.out + r.err).not.toMatch(CTRL);
+    }
+  });
+  it("show never emits a control character, keeps its line breaks, and redacts a secret", async () => {
+    await open();
+    await comment_with_esc();
+    const r = await run(["show", rel(), "alice"], {
+      OPENROUTER_API_KEY: "sk-live-abcdef123456",
+    });
+    expect(r.code).toBe(0);
+    expect(r.out).not.toMatch(CTRL);
+    expect(r.out.split("\n").length).toBeGreaterThan(20);
+  });
+  async function comment_with_esc() {
+    await run([
+      "comment",
+      rel(),
+      "alice",
+      "--text",
+      `${ESC} hi`,
+      "--feedback",
+      "--by",
+      "kamal",
+    ]);
+  }
+  it("keeps the usage text multi-line on an error", async () => {
+    const r = await run(["status", rel(), "--bogus"]);
+    expect(r.err.split("\n").length).toBeGreaterThan(5);
+  });
+  it("rejects a repeated single-value option, extra positionals and accept with both a criterion and --summary (exit 2)", async () => {
+    await open();
+    const edit = ["edit", rel(), "alice", "listening", "--reason", "r"];
+    expect(
+      (await run([...edit, "--level", "2", "--level", "3", "--by", "kamal"]))
+        .code,
+    ).toBe(2);
+    expect(
+      (await run([...edit, "--level", "2", "--by", "a", "--by", "b"])).code,
+    ).toBe(2);
+    expect((await run(["status", rel(), "junk"])).code).toBe(2);
+    expect((await run(["show", rel(), "alice", "junk"])).code).toBe(2);
+    const id = (await needs())[0]!;
+    expect(
+      (await run(["accept", rel(), "alice", id, "--summary", "--by", "kamal"]))
+        .code,
+    ).toBe(2);
+  });
+  it("edit-summary with no items, or an action naming an unknown or unsafe objective, is refused and changes nothing", async () => {
+    await open();
+    const before = await readFile(path.join(dir, "review.jsonl"), "utf8");
+    const base = [
+      "edit-summary",
+      rel(),
+      "alice",
+      "--reason",
+      "r",
+      "--by",
+      "kamal",
+    ];
+    expect((await run(base)).code).toBe(2);
+    expect((await run([...base, "--action", "NOPE9:Do it"])).code).toBe(2);
+    expect((await run([...base, "--action", "bad id:Do it"])).code).toBe(2);
+    expect(await readFile(path.join(dir, "review.jsonl"), "utf8")).toBe(before);
+  });
 });

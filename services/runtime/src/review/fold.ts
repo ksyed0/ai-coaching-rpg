@@ -1,4 +1,4 @@
-import { isFileSafeId, isSafeId } from "@acr/events";
+import { isSafeId } from "@acr/events";
 import {
   aggregateObjectives,
   INVALID,
@@ -8,7 +8,7 @@ import {
 import type { DraftCriterion, DraftSubject, Drafts } from "./draft.js";
 import { ReviewIllegalError } from "./errors.js";
 import { sha256 } from "./hash.js";
-import { cpLen } from "./text.js";
+import { cpLen, isDraftFileName } from "./text.js";
 import {
   GROUP,
   LIMITS,
@@ -238,8 +238,7 @@ export function checkOpened(o: Record<string, unknown>): void {
   const names = Object.entries(f as Record<string, unknown>);
   if (names.length === 0 || names.length > 200) bad("files has a bad size");
   for (const [n, h] of names) {
-    const m = /^(.{1,64})\.(md|json)$/.exec(n);
-    if (!m || !isFileSafeId(m[1]!)) bad("a file name is not safe");
+    if (!isDraftFileName(n)) bad("a file name is not safe");
     if (typeof h !== "string" || !HEX64.test(h)) bad("a file hash is invalid");
   }
   const c = o.codes;
