@@ -12,7 +12,7 @@ import {
   writeJoinCodesFile,
   codesFileName,
 } from "../../engine/join-code-file.js";
-import { readReview } from "../review-log.js";
+import { readReview, sealEntries, writeEvents } from "../review-log.js";
 import { ReviewCorruptError, ReviewRefusedError } from "../errors.js";
 import { makeDraftDir, fixedClock } from "./fixtures.js";
 
@@ -50,22 +50,37 @@ describe("openReview / loadReview", () => {
     await rm(f);
     await expect(loadReview(dir)).rejects.toBeInstanceOf(ReviewCorruptError);
   });
-  it("turns an illegal sequence in an existing log into a corrupt-review error", async () => {
+  it("turns a valid-chain but illegal sequence into a corrupt-review error", async () => {
     await openReview(dir, { by: "kamal", now: fixedClock() });
-    await applyCommand(dir, fixedClock(), () => [
-      {
-        actor: fac,
-        body: {
-          type: "comment.added",
-          subject: "alice",
-          text: "x",
-          visibility: "internal",
-        },
-      },
-    ]);
+    const id = (await loadReview(dir)).view.subjects
+      .get("alice")!
+      .criteria.find((c) => c.status === "needs_review")!.id;
+    const accept = {
+      actor: fac,
+      body: { type: "score.accepted", subject: "alice", criterion: id },
+    } as const;
+    await applyCommand(dir, fixedClock(), () => [accept]);
+    const r = await readReview(dir);
+    await writeEvents(
+      dir,
+      sealEntries(r.events, r.tailHash, [accept], fixedClock()),
+    );
+    await expect(loadReview(dir)).rejects.toBeInstanceOf(ReviewCorruptError);
+  });
+  it.each([
+    ["files dropped", (o: any) => delete o.files],
+    ["files null", (o: any) => (o.files = null)],
+    ["files an array", (o: any) => (o.files = ["alice.md"])],
+    ["a non-hex hash", (o: any) => (o.files["alice.md"] = "xyz")],
+    ["an unsafe file name", (o: any) => (o.files["../x.md"] = "0".repeat(64))],
+    ["a bad schema", (o: any) => (o.schema = "nope")],
+    ["a bad session id", (o: any) => (o.session.id = "a/b")],
+  ])("refuses a review.opened with %s as corrupt", async (_n, mutate) => {
+    await openReview(dir, { by: "kamal", now: fixedClock() });
     const f = path.join(dir, "review.jsonl");
-    const lines = (await readFile(f, "utf8")).trimEnd().split("\n");
-    await writeFile(f, lines.slice(0, 1).join("\n") + "\n" + lines[0] + "\n"); // a second review.opened with a broken chain
+    const o = JSON.parse((await readFile(f, "utf8")).trim());
+    mutate(o);
+    await writeFile(f, JSON.stringify(o) + "\n");
     await expect(loadReview(dir)).rejects.toBeInstanceOf(ReviewCorruptError);
   });
 });
@@ -152,9 +167,9 @@ describe("openReview with codes and a session log", () => {
     expect(l.view.opened.session.logSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(l.view.opened.scenario.sha256).toBe("a".repeat(64));
   });
-  it("refuses an event past the limit", async () => {
+  it("allows exactly 10,000 events and refuses the 10,001st", async () => {
     await openReview(dir, { by: "kamal", now: fixedClock() });
-    const many = Array.from({ length: 100_000 }, () => ({
+    const c = () => ({
       actor: fac,
       body: {
         type: "comment.added" as const,
@@ -162,10 +177,85 @@ describe("openReview with codes and a session log", () => {
         text: "x",
         visibility: "internal" as const,
       },
-    }));
+    });
+    const r = await readReview(dir);
+    await writeEvents(
+      dir,
+      sealEntries(
+        r.events,
+        r.tailHash,
+        Array.from({ length: 9_998 }, c),
+        fixedClock(),
+      ),
+    );
+    await applyCommand(dir, fixedClock(), () => [c()]);
+    expect((await readReview(dir)).events).toHaveLength(10_000);
     await expect(
-      applyCommand(dir, fixedClock(), () => many),
+      applyCommand(dir, fixedClock(), () => [c()]),
     ).rejects.toBeInstanceOf(ReviewRefusedError);
+    expect((await readReview(dir)).events).toHaveLength(10_000);
+  });
+  it("refuses a bad --by, a foreign or hashless codes record", async () => {
+    await expect(
+      openReview(dir, { by: "a b", now: fixedClock() }),
+    ).rejects.toBeInstanceOf(ReviewRefusedError);
+    const mk = (sessionId: string, h: unknown) =>
+      ({ sessionId, scenarioSha256: h }) as Record<string, unknown>;
+    for (const codes of [
+      mk("other", "a".repeat(64)),
+      mk("sess1", "nothex"),
+      mk("sess1", 5),
+    ])
+      await expect(
+        openReview(dir, { by: "kamal", now: fixedClock(), codes }),
+      ).rejects.toBeInstanceOf(ReviewRefusedError);
+    expect((await readReview(dir)).events).toHaveLength(0);
+  });
+});
+
+describe("applyCommand actors and sequences", () => {
+  beforeEach(async () => {
+    await openReview(dir, { by: "kamal", now: fixedClock() });
+  });
+  const cm = (actor: any) => [
+    {
+      actor,
+      body: {
+        type: "comment.added" as const,
+        subject: "alice",
+        text: "x",
+        visibility: "internal" as const,
+      },
+    },
+  ];
+  it("refuses an unsafe facilitator or participant identity before writing", async () => {
+    for (const actor of [
+      { kind: "facilitator", by: "../x" },
+      { kind: "facilitator", by: 5 },
+      { kind: "participant", role: "A B", attestedBy: "kamal" },
+      { kind: "participant", role: "alice", attestedBy: "" },
+    ])
+      await expect(
+        applyCommand(dir, fixedClock(), () => cm(actor)),
+      ).rejects.toBeInstanceOf(ReviewRefusedError);
+    expect((await readReview(dir)).events).toHaveLength(1);
+  });
+  it("refuses a sequential second accept through the fold and leaves the file unchanged", async () => {
+    const id = (await loadReview(dir)).view.subjects
+      .get("alice")!
+      .criteria.find((c) => c.status === "needs_review")!.id;
+    const acc = () => [
+      {
+        actor: fac,
+        body: { type: "score.accepted", subject: "alice", criterion: id },
+      } as const,
+    ];
+    await applyCommand(dir, fixedClock(), acc);
+    const before = await readFile(path.join(dir, "review.jsonl"), "utf8");
+    await expect(applyCommand(dir, fixedClock(), acc)).rejects.toBeInstanceOf(
+      ReviewRefusedError,
+    );
+    expect(await readFile(path.join(dir, "review.jsonl"), "utf8")).toBe(before);
   });
 });
 

@@ -1,3 +1,4 @@
+import { isFileSafeId, isSafeId } from "@acr/events";
 import {
   aggregateObjectives,
   INVALID,
@@ -11,6 +12,8 @@ import { cpLen } from "./text.js";
 import {
   GROUP,
   LIMITS,
+  POLICY_VERSION,
+  REVIEW_SCHEMA,
   type Actor,
   type CurrentLevel,
   type Level,
@@ -192,10 +195,57 @@ export function groupTable(
 }
 
 /** The current state: drafts plus the review log, folded. Pure and total: a view, or ReviewIllegalError. */
+const HEX64 = /^[0-9a-f]{64}$/;
+const isRec = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+const hexOrNull = (v: unknown): boolean =>
+  v === null || (typeof v === "string" && HEX64.test(v));
+
+/** The shape of review.opened, checked before anything is trusted. Messages never echo the payload. */
+export function checkOpened(o: Record<string, unknown>): void {
+  const bad = (m: string): never => {
+    throw new ReviewIllegalError(`review.opened: ${m}`);
+  };
+  const a = o.actor as Record<string, unknown> | undefined;
+  if (!a || a.kind !== "facilitator" || !isSafeId(a.by as string))
+    bad("the opener must be a facilitator with a safe id");
+  if (o.schema !== REVIEW_SCHEMA) bad("unknown schema");
+  if (o.policyVersion !== POLICY_VERSION) bad("unknown policy version");
+  if (typeof o.legacy !== "boolean") bad("legacy must be true or false");
+  const s = o.session;
+  if (
+    !isRec(s) ||
+    !isSafeId(s.id as string) ||
+    !hexOrNull(s.logSha256) ||
+    typeof s.startedAt !== "string" ||
+    s.startedAt.length > 64
+  )
+    bad("the session field is invalid");
+  const sc = o.scenario;
+  if (!isRec(sc) || !isSafeId(sc.id as string) || !hexOrNull(sc.sha256))
+    bad("the scenario field is invalid");
+  if (o.rubricHash !== null && typeof o.rubricHash !== "string")
+    bad("the rubric hash is invalid");
+  if (typeof o.rubricHash === "string" && o.rubricHash.length > 128)
+    bad("the rubric hash is invalid");
+  const f = o.files;
+  if (!isRec(f)) bad("files must be an object");
+  const names = Object.entries(f as Record<string, unknown>);
+  if (names.length === 0 || names.length > 200) bad("files has a bad size");
+  for (const [n, h] of names) {
+    const m = /^(.{1,64})\.(md|json)$/.exec(n);
+    if (!m || !isFileSafeId(m[1]!)) bad("a file name is not safe");
+    if (typeof h !== "string" || !HEX64.test(h)) bad("a file hash is invalid");
+  }
+  const c = o.codes;
+  if (c !== null && !isRec(c)) bad("codes must be an object or null");
+}
+
 export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   const first = events[0];
   if (!first || first.type !== "review.opened")
     throw new ReviewIllegalError("the log does not start with review.opened");
+  checkOpened(first as unknown as Record<string, unknown>);
   const ill = (e: ReviewEvent, m: string): never => {
     throw new ReviewIllegalError(
       `event ${e.seq} (${typeof e.type === "string" ? e.type.slice(0, 40) : "?"}): ${m}`,

@@ -177,4 +177,21 @@ describe("review log", () => {
       "again",
     );
   });
+  it("takes carriedFrom from the entry only, never from the body", () => {
+    const e = comment("a");
+    const [x] = sealEntries(
+      [],
+      ZERO_HASH,
+      [{ ...e, body: { ...e.body, carriedFrom: "evil" } as any }],
+      clock(),
+    );
+    expect((x as any).carriedFrom).toBeUndefined();
+    const [y] = sealEntries(
+      [],
+      ZERO_HASH,
+      [{ ...e, carriedFrom: "ok" }],
+      clock(),
+    );
+    expect(y!.carriedFrom).toBe("ok");
+  });
 });

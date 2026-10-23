@@ -91,6 +91,7 @@ export function sealEntries(
     // chain fields are the log's own: a body cannot override them
     const {
       seq: _s,
+      carriedFrom: _c,
       ts: _t,
       prev: _p,
       actor: _a,

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isFileSafeId, isSafeId } from "@acr/events";
 import { JoinCodes } from "../engine/join-codes.js";
 import {
   MAX_CODES_FILE_BYTES,
@@ -12,7 +13,7 @@ import {
   ReviewRefusedError,
 } from "./errors.js";
 import { sha256 } from "./hash.js";
-import { currentView, type View } from "./fold.js";
+import { checkOpened, currentView, type View } from "./fold.js";
 import {
   readReview,
   sealEntries,
@@ -47,13 +48,30 @@ function fold(
   drafts: Drafts,
   events: ReviewEvent[],
   onIllegal: (m: string) => Error,
+  malformedIsCorrupt = false,
 ): View {
   try {
     return currentView(drafts, events);
   } catch (e) {
     if (e instanceof ReviewIllegalError) throw onIllegal(e.message);
+    // events already on disk that make the fold throw a TypeError are damage, not a bug in the caller
+    if (malformedIsCorrupt && e instanceof TypeError)
+      throw new ReviewCorruptError(
+        "the review log is not valid: malformed event",
+      );
     throw e;
   }
+}
+
+function checkActor(a: Entry["actor"]): void {
+  const ok =
+    a.kind === "system" ||
+    (a.kind === "facilitator" && isSafeId(a.by)) ||
+    (a.kind === "participant" &&
+      isFileSafeId(a.role) &&
+      isSafeId(a.attestedBy));
+  if (!ok)
+    throw new ReviewRefusedError("the actor on this command is not valid");
 }
 
 /** Reads the log, verifies every recorded draft file hash, folds. Throws ReviewRefusedError when no review is open, ReviewCorruptError for any damage. */
@@ -68,6 +86,13 @@ export async function loadReview(dir: string): Promise<Loaded> {
     throw new ReviewCorruptError(
       "review.jsonl does not start with review.opened",
     );
+  try {
+    checkOpened(opened as unknown as Record<string, unknown>);
+  } catch (e) {
+    if (e instanceof ReviewIllegalError)
+      throw new ReviewCorruptError(`the review log is not valid: ${e.message}`);
+    throw e;
+  }
   const drafts = await loadDrafts(dir, new Set(Object.keys(opened.files)));
   for (const [name, hash] of Object.entries(opened.files)) {
     if (drafts.files[name] === undefined)
@@ -83,6 +108,7 @@ export async function loadReview(dir: string): Promise<Loaded> {
     drafts,
     events,
     (m) => new ReviewCorruptError(`the review log is not valid: ${m}`),
+    true,
   );
   return { dir, drafts, events, tailHash, view };
 }
@@ -96,6 +122,7 @@ export async function applyCommand(
   return withReviewLock(dir, async () => {
     const loaded = await loadReview(dir);
     const entries = build(loaded);
+    for (const en of entries) checkActor(en.actor);
     if (entries.length === 0) return { loaded, appended: [] };
     if (loaded.events.length + entries.length > LIMITS.events)
       throw new ReviewRefusedError("this review has reached its event limit");
@@ -124,8 +151,25 @@ export async function openReview(dir: string, meta: OpenMeta): Promise<Loaded> {
     const existing = await readReview(dir);
     if (existing.events.length > 0)
       throw new ReviewRefusedError("a review is already open here");
+    if (!isSafeId(meta.by))
+      throw new ReviewRefusedError(
+        "--by must be 1 to 64 letters, digits, _ or -",
+      );
     const drafts = await loadDrafts(dir);
     const codes = meta.codes ?? null;
+    if (codes !== null) {
+      if (codes.sessionId !== drafts.sessionId)
+        throw new ReviewRefusedError(
+          "the join codes record belongs to another session",
+        );
+      if (
+        typeof codes.scenarioSha256 !== "string" ||
+        !/^[0-9a-f]{64}$/.test(codes.scenarioSha256)
+      )
+        throw new ReviewRefusedError(
+          "the join codes record has no valid scenario hash",
+        );
+    }
     const body: Body = {
       type: "review.opened",
       schema: REVIEW_SCHEMA,
