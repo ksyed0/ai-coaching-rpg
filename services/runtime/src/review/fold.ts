@@ -200,7 +200,9 @@ export function groupTable(
       byRole: Object.fromEntries(
         roles.map((r) => [
           r.id,
-          r.objectives.find((x) => x.id === o.id) ?? null,
+          (r.state === "withdrawn"
+            ? undefined
+            : r.snapshot?.objectives.find((x) => x.id === o.id)) ?? null,
         ]),
       ),
       team: team.objectives.find((x) => x.id === o.id) ?? null,
@@ -219,7 +221,7 @@ function takeSnapshot(
     summary: structuredClone(sv.summary),
     summaryEdited: sv.summaryEdited,
     objectives: structuredClone(sv.objectives),
-    table,
+    table: structuredClone(table),
   };
 }
 const isReleased = (sv: SubjectView): boolean =>
@@ -474,12 +476,11 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           sv.versions.push(e.seq);
           if (sv.kind === "group") sv.tableStale = false;
         }
-        for (const sv of svs)
-          sv.snapshot = takeSnapshot(
-            sv,
-            e.seq,
-            sv.kind === "group" ? groupTable(drafts, subjects) : null,
-          );
+        // players first, so a group released with them tabulates their just-released snapshots
+        for (const sv of svs.filter((x) => x.kind !== "group"))
+          sv.snapshot = takeSnapshot(sv, e.seq, null);
+        for (const sv of svs.filter((x) => x.kind === "group"))
+          sv.snapshot = takeSnapshot(sv, e.seq, groupTable(drafts, subjects));
         break;
       }
       case "report.amended": {
