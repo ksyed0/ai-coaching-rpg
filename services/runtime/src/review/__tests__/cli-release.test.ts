@@ -344,17 +344,20 @@ describe("export", () => {
     ).toHaveLength(1);
     expect(await readFile(path.join(root, "afile"), "utf8")).toBe("x");
   });
-  it("a file that appears after the check fails the export, cleans up its own files and the directory it created", async () => {
-    // Directory is made read-only after being created empty: staging fails; nothing may remain.
-    const out = path.join(root, "out/ro");
-    await mkdir(path.join(root, "out"), { recursive: true });
-    await mkdir(out, { mode: 0o500 });
-    const r = await exp("out/ro");
-    expect(r.code).toBe(2);
-    expect(r.err).toMatch(/nothing was left behind/);
-    expect(await readdir(out)).toEqual([]);
-    await rm(out, { recursive: true, force: true });
-  });
+  // root ignores directory modes, so this case cannot be provoked there (the Linux container run is root)
+  it.skipIf(process.getuid?.() === 0)(
+    "a read-only destination fails after the audit event with exit 2 and leaves nothing behind",
+    async () => {
+      const out = path.join(root, "out/ro");
+      await mkdir(path.join(root, "out"), { recursive: true });
+      await mkdir(out, { mode: 0o500 });
+      const r = await exp("out/ro");
+      expect(r.code).toBe(2);
+      expect(r.err).toMatch(/nothing was left behind/);
+      expect(await readdir(out)).toEqual([]);
+      await rm(out, { recursive: true, force: true });
+    },
+  );
   it("exports the released snapshot, not the live amendment", async () => {
     const before = await readFile(path.join(dir, "alice.json"), "utf8").then(
       JSON.parse,
