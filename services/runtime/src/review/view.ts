@@ -114,6 +114,9 @@ export function viewReport(
   a: RenderAudience,
 ): ParticipantReport | GroupReport {
   // The released audience is built from the snapshot frozen at the last release only (P12): never from live state.
+  // The one exception is the participant's own responses: they are made after the release, so they are read from the live view
+  // and appended; they are never part of the frozen scores, summary or self-ratings.
+  const liveResponses = (view.subjects.get(subject) as SubjectView).responses;
   if (a.audience === "released") view = frozenView(view, subject);
   const sv = view.subjects.get(subject) as SubjectView;
   const names = reviewerNames(sv);
@@ -161,6 +164,31 @@ export function viewReport(
     r.learning_objectives = sv.objectives.map(jsonLo);
     if (sv.summary) r.summary = structuredClone(sv.summary);
     if (comments.length) r.comments = comments;
+    // Self-ratings come from the criteria in use: the frozen ones for the released audience, the live ones for the facilitator.
+    const self: NonNullable<ParticipantReport["self"]> = {};
+    for (const c of sv.criteria)
+      if (c.self)
+        self[c.id] = {
+          level: c.self.level,
+          label: levelLabel(c.self.level),
+          ...(c.self.note !== undefined ? { note: c.self.note } : {}),
+        };
+    if (Object.keys(self).length) r.self = self;
+    const responses = a.audience === "released" ? liveResponses : sv.responses;
+    if (responses.length)
+      r.responses = responses.map((x) => ({
+        ...(x.criterion !== undefined ? { criterion: x.criterion } : {}),
+        text: x.text,
+        dispute: x.dispute,
+        ...(x.resolution
+          ? {
+              resolution: {
+                outcome: x.resolution.outcome,
+                reason: x.resolution.reason,
+              },
+            }
+          : {}),
+      }));
     return r;
   }
   const g = base as GroupReport;
@@ -205,6 +233,7 @@ function frozenView(view: View, subject: string): View {
     objectives: snap.objectives,
     // frozen at release: the log is append-only, so a comment made before the release has a smaller seq
     comments: sv.comments.filter((c) => c.seq < snap.version),
+    responses: sv.responses.filter((x) => x.seq < snap.version),
   };
   return { ...view, subjects: new Map(view.subjects).set(subject, frozen) };
 }

@@ -41,6 +41,7 @@ import {
   type Loaded,
 } from "./store.js";
 import { cleanBy, cleanText, isDraftFileName, parseLevel } from "./text.js";
+import { buildMethod } from "../evaluator/method.js";
 import {
   GROUP,
   LIMITS,
@@ -69,6 +70,9 @@ export const MODERATE_USAGE = [
   "  withdraw <dir> <subject> --reason <text> --by <name>                  take a released report back for good (cannot be undone)",
   "  export <dir> <subject> --for facilitator|participant:<role> --to <new-dir> --by <name>  write the released report (or `index`) as owner-only files and record the export",
   "  supersede <old-dir> <new-dir> --by <name>                            move moderation of unchanged subjects to a re-run of a released session; the old review becomes read-only",
+  "  self-assess <dir> --role <role> --list   |   self-assess <dir> --role <role> --rate <criterion>=<1|2|3|4|na>... [--note <text>] --by <facilitator>   blind self-rating before release (the facilitator attests)",
+  "  respond <dir> --role <role> --text <text> [--criterion <id>] [--dispute] --by <facilitator>   a participant's response after release; --dispute puts it on the facilitator's list",
+  "  resolve <dir> <response-number> --outcome upheld|amended|declined --reason <text> --by <name>   close a dispute (`amended` needs an amend of that report first)",
   "exit codes: 0 done, 1 refused (fix and retry), 2 usage error or a damaged review/draft file",
   "A subject is a player role or `group`. Free text is stored after hidden characters are stripped and secrets scrubbed.",
 ].join("\n");
@@ -109,6 +113,12 @@ const OPTIONS = {
   action: { type: "string", multiple: true },
   all: { type: "boolean" },
   to: { type: "string" },
+  role: { type: "string" },
+  rate: { type: "string", multiple: true },
+  note: { type: "string" },
+  list: { type: "boolean" },
+  dispute: { type: "boolean" },
+  outcome: { type: "string" },
   for: { type: "string" },
   "session-log": { type: "string" },
   "codes-dir": { type: "string" },
@@ -128,6 +138,9 @@ export const ALLOWED: Record<string, string[]> = {
   amend: ["by", "reason"],
   withdraw: ["by", "reason"],
   export: ["by", "to", "for"],
+  "self-assess": ["role", "by", "rate", "note", "list"],
+  respond: ["role", "by", "criterion", "text", "dispute"],
+  resolve: ["by", "outcome", "reason"],
 };
 
 /** Most positional arguments after <dir> each subcommand takes. */
@@ -144,6 +157,9 @@ const ARITY: Record<string, number> = {
   amend: 1,
   withdraw: 1,
   export: 1,
+  "self-assess": 0,
+  respond: 0,
+  resolve: 1,
 };
 /** The refusal text of `release`. The top-level error is cut at 400 characters, so keep whole (capped) lines and say how many were left out. */
 export function releaseRefusal(problems: string[]): string {
@@ -181,6 +197,12 @@ function statusLines(l: Loaded): string[] {
     );
     for (const c of open)
       out.push(`  needs review: ${c.id} (currently ${lvl(c.current)})`);
+    const rated = sv.criteria.filter((c) => c.self).length;
+    if (rated > 0) out.push(`  ${rated} self-rating(s)`);
+    for (const r of sv.responses.filter((x) => x.dispute && !x.resolution))
+      out.push(
+        `  open dispute: #${r.seq} by ${r.role}${r.criterion ? ` on ${r.criterion}` : ""}`,
+      );
   }
   return out;
 }
@@ -459,6 +481,195 @@ export const HANDLERS: Record<string, Handler> = {
     c.out(`${subject} withdrawn`);
     const hint = staleHint(before, loaded);
     if (hint) c.out(hint);
+    return 0;
+  },
+  async "self-assess"(c) {
+    const role = typeof c.values.role === "string" ? c.values.role : "";
+    if (!role) throw new ReviewUsageError("self-assess needs --role <role>");
+    const rateArgs = Array.isArray(c.values.rate) ? c.values.rate : [];
+    const participant = (l: Loaded) => {
+      const sv = l.view.subjects.get(role);
+      if (!sv || sv.kind !== "participant")
+        throw new ReviewRefusedError(
+          "that role is not a player in this review",
+        );
+      return sv;
+    };
+    if (c.values.list === true) {
+      if (rateArgs.length > 0)
+        throw new ReviewUsageError("--list and --rate cannot be used together");
+      const sv = participant(await loadReview(c.dir));
+      c.out(
+        "Rate yourself on each criterion (1 to 4, or na if there was no chance to show it):",
+      );
+      for (const k of sv.criteria) c.out(`  ${k.id}: ${k.name}`);
+      for (const s of buildMethod().scale)
+        c.out(`  ${s.level} ${s.label}: ${s.meaning}`);
+      return 0;
+    }
+    const by = cleanBy(c.values.by);
+    const rates = rateArgs.map((r) => {
+      const i = r.indexOf("=");
+      if (i < 1)
+        throw new ReviewUsageError("--rate needs <criterion>=<1|2|3|4|na>");
+      const v = r.slice(i + 1);
+      if (v !== "na" && !/^[1-4]$/.test(v))
+        throw new ReviewUsageError("--rate needs <criterion>=<1|2|3|4|na>");
+      return { criterion: r.slice(0, i), level: parseLevel(v) };
+    });
+    if (rates.length === 0)
+      throw new ReviewUsageError(
+        "self-assess needs --list or at least one --rate",
+      );
+    if (c.values.note !== undefined && rates.length !== 1)
+      throw new ReviewUsageError("--note goes with exactly one --rate");
+    // Participant-authored text takes the same path as every other free text: hidden characters out, secrets scrubbed.
+    const note =
+      typeof c.values.note === "string"
+        ? cleanText(c.values.note, LIMITS.text, "--note", c.secrets)
+        : undefined;
+    await applyCommand(c.dir, c.now, (l) => {
+      const sv = participant(l);
+      if (l.view.superseded !== null)
+        throw new ReviewRefusedError(
+          "this review was superseded and is read-only",
+        );
+      if (sv.state !== "draft" || sv.versions.length > 0)
+        throw new ReviewRefusedError(
+          "self-rating is closed: this player's report has already been released (a self-rating is blind, so it can only be made before release)",
+        );
+      for (const r of rates)
+        if (!sv.criteria.some((k) => k.id === r.criterion))
+          throw new ReviewRefusedError(
+            "a --rate names a criterion that is not in this report; run self-assess --list for the criteria",
+          );
+      return rates.map((r) => ({
+        actor: { kind: "participant", role, attestedBy: by } as const,
+        body: {
+          type: "self.rated" as const,
+          role,
+          criterion: r.criterion,
+          level: r.level,
+          ...(note !== undefined ? { note } : {}),
+        },
+      }));
+    });
+    c.out(`${rates.length} self-rating(s) recorded for ${role}`);
+    return 0;
+  },
+  async respond(c) {
+    const role = typeof c.values.role === "string" ? c.values.role : "";
+    if (!role) throw new ReviewUsageError("respond needs --role <role>");
+    const by = cleanBy(c.values.by);
+    const text = cleanText(
+      String(c.values.text ?? ""),
+      LIMITS.text,
+      "--text",
+      c.secrets,
+    );
+    const criterion =
+      typeof c.values.criterion === "string" ? c.values.criterion : undefined;
+    const dispute = c.values.dispute === true;
+    await applyCommand(c.dir, c.now, (l) => {
+      const sv = l.view.subjects.get(role);
+      if (!sv || sv.kind !== "participant")
+        throw new ReviewRefusedError(
+          "that role is not a player in this review",
+        );
+      if (l.view.superseded !== null)
+        throw new ReviewRefusedError(
+          "this review was superseded and is read-only",
+        );
+      if (sv.state === "draft")
+        throw new ReviewRefusedError(
+          "responses open once this player's report is released; it is still a draft",
+        );
+      if (sv.state === "withdrawn")
+        throw new ReviewRefusedError(
+          "this player's report was withdrawn, so responses are closed",
+        );
+      if (sv.responses.length >= LIMITS.responses)
+        throw new ReviewRefusedError(
+          `this player already has ${LIMITS.responses} responses (answered disputes count too); no more can be added`,
+        );
+      if (
+        criterion !== undefined &&
+        !sv.criteria.some((k) => k.id === criterion)
+      )
+        throw new ReviewRefusedError(
+          "--criterion is not a criterion of this report",
+        );
+      return [
+        {
+          actor: { kind: "participant", role, attestedBy: by },
+          body: {
+            type: "response.added",
+            role,
+            ...(criterion !== undefined ? { criterion } : {}),
+            text,
+            ...(dispute ? { dispute: true } : {}),
+          },
+        },
+      ];
+    });
+    c.out(
+      `response recorded for ${role}${dispute ? " (dispute: it is on the facilitator's list)" : ""}`,
+    );
+    return 0;
+  },
+  async resolve(c) {
+    const arg = c.args[0] ?? "";
+    if (!/^[1-9]\d{0,8}$/.test(arg))
+      throw new ReviewUsageError(
+        "resolve needs the response number shown by status",
+      );
+    const seq = Number(arg);
+    const actor = facilitator(c);
+    const reason = cleanText(
+      String(c.values.reason ?? ""),
+      LIMITS.reason,
+      "--reason",
+      c.secrets,
+    );
+    const outcome = c.values.outcome;
+    if (outcome !== "upheld" && outcome !== "amended" && outcome !== "declined")
+      throw new ReviewUsageError("--outcome needs upheld, amended or declined");
+    await applyCommand(c.dir, c.now, (l) => {
+      const found = [...l.view.subjects.values()]
+        .flatMap((sv) => sv.responses.map((r) => ({ sv, r })))
+        .find((x) => x.r.seq === seq);
+      if (!found)
+        throw new ReviewRefusedError(
+          "there is no response with that number; run status for the open disputes",
+        );
+      if (!found.r.dispute)
+        throw new ReviewRefusedError(
+          "that response is not a dispute, so there is nothing to resolve",
+        );
+      if (found.r.resolution)
+        throw new ReviewRefusedError("that dispute is already resolved");
+      if (
+        outcome === "amended" &&
+        !(
+          l.events.some(
+            (e) =>
+              e.type === "report.amended" &&
+              e.subject === found.sv.id &&
+              e.seq > seq,
+          ) || found.sv.versions.some((v) => v > seq)
+        )
+      )
+        throw new ReviewRefusedError(
+          `${found.sv.id}'s report has not been amended since the response; run amend first (and release again), then resolve the dispute as amended`,
+        );
+      return [
+        {
+          actor,
+          body: { type: "dispute.resolved", response: seq, outcome, reason },
+        },
+      ];
+    });
+    c.out(`dispute #${seq} resolved: ${outcome}`);
     return 0;
   },
   export: exportHandler,
