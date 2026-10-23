@@ -38,7 +38,7 @@ const marks = (c: JsonCriterion, sec: string[]): string => {
 
 function notesSection(r: ParticipantReport | GroupReport, sec: string[]): string[] {
   if (!r.comments?.length) return [];
-  return ["## Facilitator notes", "", ...r.comments.map((c) => `- ${c.criterion ? `${id(c.criterion, sec)}: ` : ""}${safeMd(c.text, 1500, sec)}`), ""];
+  return ["## Notes", "", ...r.comments.map((c) => `- ${c.criterion ? `${id(c.criterion, sec)}: ` : ""}${safeMd(c.text, 1500, sec)}`), ""];
 }
 
 function criteriaTable(cs: JsonCriterion[], sec: string[]): string[] {

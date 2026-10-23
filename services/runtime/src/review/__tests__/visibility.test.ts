@@ -200,6 +200,76 @@ describe("participants see released reports only, and only their own scores", ()
       expect(t).toContain("group.md");
     });
   });
+  describe("the caller's own row in the group report follows their own subject", () => {
+    const groupJson = async (to: string) => {
+      expect((await ex("group", to, "participant:alice")).code).toBe(0);
+      return {
+        md: await read(`${to}/group.md`),
+        j: JSON.parse(await read(`${to}/group.json`)) as {
+          lo_coverage: {
+            players: string[];
+            objectives: { by_role: Record<string, { score: number | null }> }[];
+          };
+        },
+      };
+    };
+    it("a withdrawn player has no row in the group export, and peers stay out", async () => {
+      await release();
+      const before = await groupJson("o/b4");
+      expect(before.j.lo_coverage.players).toEqual(["alice"]);
+      await run(["withdraw", rel, "alice", "--reason", "r", "--by", "kamal"]);
+      const { md, j } = await groupJson("o/w");
+      expect(j.lo_coverage.players).toEqual([]);
+      for (const o of j.lo_coverage.objectives)
+        expect(Object.keys(o.by_role)).toEqual([]);
+      expect(md).not.toMatch(/`(alice|bob)`\s*\|/);
+    });
+    it("an amended and re-released player's row shows the new value, matching the index", async () => {
+      await release();
+      await run(["amend", rel, "alice", "--reason", "r", "--by", "kamal"]);
+      const cur = (await loadReview(dir)).view.subjects
+        .get("alice")!
+        .criteria.find((c) => c.id === "discovery")!.current;
+      await run([
+        "edit",
+        rel,
+        "alice",
+        "discovery",
+        "--level",
+        cur === 4 ? "3" : "4",
+        "--reason",
+        "r",
+        "--by",
+        "kamal",
+      ]);
+      await resolveAll();
+      expect((await run(["release", rel, "alice", "--by", "kamal"])).code).toBe(
+        0,
+      );
+      const sv = (await loadReview(dir)).view.subjects.get("alice")!;
+      const { j } = await groupJson("o/v2");
+      for (const o of j.lo_coverage.objectives)
+        expect(Object.keys(o.by_role)).toEqual(["alice"]);
+      const ids = (await loadReview(dir)).view.subjects
+        .get("group")!
+        .snapshot!.table!.objectives.map((o) => o.id);
+      ids.forEach((id, i) =>
+        expect(j.lo_coverage.objectives[i]!.by_role["alice"]!.score).toBe(
+          sv.snapshot!.objectives.find((x) => x.id === id)?.score ?? null,
+        ),
+      );
+    });
+    it("a group released while alice is draft has no row for her, not a Not observed one", async () => {
+      expect(
+        (await run(["release", rel, "bob", "group", "--by", "kamal"])).code,
+      ).toBe(0);
+      const { md, j } = await groupJson("o/d");
+      expect(j.lo_coverage.players).toEqual([]);
+      for (const o of j.lo_coverage.objectives)
+        expect(Object.keys(o.by_role)).toEqual([]);
+      expect(md).not.toMatch(/`(alice|bob)`\s*\|/);
+    });
+  });
   it("a participant cannot get the index until the group is released", async () => {
     expect((await run(["release", rel, "alice", "--by", "kamal"])).code).toBe(
       0,

@@ -51,7 +51,12 @@ import {
   type Entry,
   type ReviewEvent,
 } from "./types.js";
-import { renderSubjectMarkdown, snapshotReport, viewReport } from "./view.js";
+import {
+  participantGroupReport,
+  renderSubjectMarkdown,
+  snapshotReport,
+  viewReport,
+} from "./view.js";
 
 export const MODERATE_USAGE = [
   "usage: pnpm moderate <subcommand> <reports-dir> [options]",
@@ -582,16 +587,25 @@ export const HANDLERS: Record<string, Handler> = {
         if (role === null)
           report = snapshotReport(draftOf(subject), cur.view, subject);
         else {
-          report = viewReport(draftOf(subject), cur.view, subject, {
-            audience: "released",
-            line:
-              subject === GROUP
-                ? "Visibility: the players of this session and the facilitator"
-                : "Visibility: you and the facilitator",
-            legacy: cur.view.opened.legacy,
-          });
-          if (report.kind === "group")
-            report = redactGroupForParticipant(report, role);
+          const line =
+            subject === GROUP
+              ? "Visibility: the players of this session and the facilitator"
+              : "Visibility: you and the facilitator";
+          const legacy = cur.view.opened.legacy;
+          report =
+            subject === GROUP
+              ? participantGroupReport(
+                  draftOf(subject) as GroupReport,
+                  cur.view,
+                  role,
+                  line,
+                  legacy,
+                )
+              : viewReport(draftOf(subject), cur.view, subject, {
+                  audience: "released",
+                  line,
+                  legacy,
+                });
         }
         files.push(
           tidy(renderSubjectMarkdown(report, c.secrets)),
