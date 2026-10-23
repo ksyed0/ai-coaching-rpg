@@ -1,7 +1,6 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { isFileSafeId, isSafeId } from "@acr/events";
-import { stripHidden } from "../calibration/hidden-chars.js";
 import { FLAG_CODE_LIST } from "../evaluator/report-model.js";
 import { readRegularCapped } from "../util/read-regular.js";
 import { ReviewCorruptError } from "./errors.js";
@@ -63,10 +62,16 @@ function bad(file: string, why: string): never {
   throw new ReviewCorruptError(`${file}: ${why}`);
 }
 
-/** C0 and C1 controls except line feed and tab, and the hidden or bidirectional characters: terminal escape sequences start here. */
+/**
+ * C0 and C1 controls except line feed and tab (terminal escape sequences start here) and the bidirectional controls
+ * (U+202A-202E, U+2066-2069). Other invisible characters (ZWJ in emoji sequences, soft hyphen, U+2028) are legitimate in
+ * titles; the renderers and `show` strip them before output.
+ */
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
-const dirty = (s: string): boolean => CONTROL.test(s) || stripHidden(s) !== s;
+// eslint-disable-next-line no-misleading-character-class
+const BIDI = /[\u202a-\u202e\u2066-\u2069]/;
+const dirty = (s: string): boolean => CONTROL.test(s) || BIDI.test(s);
 
 /** Every string anywhere under `v` is free of control and hidden characters. */
 function cleanDeep(file: string, v: unknown, what: string, depth = 0): void {
@@ -272,7 +277,8 @@ export async function loadDrafts(
     .filter(
       (n) =>
         /\.(md|json)$/.test(n) &&
-        !n.startsWith("review.") &&
+        n !== "review.jsonl" &&
+        n !== "review.lock" &&
         (only ? only.has(n) : true),
     )
     .sort();
@@ -327,6 +333,7 @@ export async function loadDrafts(
       meta &&
       (meta.sessionId !== m.sessionId ||
         meta.scenarioId !== m.scenarioId ||
+        meta.startedAt !== m.startedAt ||
         meta.rubricHash !== m.rubricHash)
     )
       bad(

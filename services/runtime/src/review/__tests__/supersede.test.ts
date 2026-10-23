@@ -222,4 +222,46 @@ describe("re-runs", () => {
     const c = l2.events.find((e) => e.type === "comment.added")!;
     expect(c.actor).toEqual(other);
   });
+  it("a forged opener in the old log is a ReviewCorruptError, not a generic failure", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    const f = path.join(dir1, "review.jsonl");
+    const ev = JSON.parse((await readFile(f, "utf8")).trim());
+    ev.files = null;
+    await writeFile(f, `${JSON.stringify(ev)}\n`);
+    await expect(
+      supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() }),
+    ).rejects.toThrow(ReviewCorruptError);
+    await expect(siblingReleased(dir2)).rejects.toThrow(ReviewCorruptError);
+  });
+  it("refuses to carry an event whose actor is not valid", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    const { events, tailHash } = await readReview(dir1);
+    await writeEvents(
+      dir1,
+      sealEntries(
+        events,
+        tailHash,
+        [
+          {
+            actor: { kind: "facilitator", by: "bad name!" },
+            body: {
+              type: "comment.added",
+              subject: "alice",
+              text: "x",
+              visibility: "internal",
+            },
+          },
+        ],
+        fixedClock(),
+      ),
+    );
+    const before = await readFile(path.join(dir1, "review.jsonl"), "utf8");
+    await expect(
+      supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() }),
+    ).rejects.toThrow(ReviewRefusedError);
+    expect(await readFile(path.join(dir1, "review.jsonl"), "utf8")).toBe(
+      before,
+    );
+    await expect(readFile(path.join(dir2, "review.jsonl"))).rejects.toThrow();
+  });
 });

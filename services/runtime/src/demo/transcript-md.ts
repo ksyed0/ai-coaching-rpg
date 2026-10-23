@@ -8,10 +8,10 @@ import type { TLine } from "./transcript.js";
 export function mdEscape(text: string): string {
   return text
     .replace(/[\\*_`[\]<>|~!#&$]/g, (c) => `\\${c}`)
-    // GitHub autolinks: #123 and owner/repo#1 (break after the #), GH-123, and 7 to 40 hex digit SHAs (break every 6 characters).
+    // GitHub autolinks: #123 and owner/repo#1 (break after the #), GH-123, and 7 or more hex digit SHAs (a run needs at least one digit, so words such as feedback stay whole) (break every 6 characters).
     .replace(/\\#(?=\d)/g, "\\#&#8203;")
     .replace(/\bGH-(?=\d)/gi, (m) => `${m}&#8203;`)
-    .replace(/[0-9a-f]{7,}/gi, (m) => (m.match(/.{1,6}/g) as string[]).join("&#8203;"))
+    .replace(/(?=[0-9a-f]*\d)[0-9a-f]{7,}/gi, (m) => (m.match(/.{1,6}/g) as string[]).join("&#8203;"))
     .replace(/:\/\//g, ":&#8203;//")
     .replace(/www\./gi, (m) => `${m.slice(0, 3)}&#8203;.`)
     .replace(/@/g, "@&#8203;");

@@ -77,6 +77,17 @@ function checkActor(a: Entry["actor"]): void {
     throw new ReviewRefusedError("the actor on this command is not valid");
 }
 
+/** The opener's shape, as damage: a forged or hand-edited review.opened is a ReviewCorruptError, never a TypeError later. */
+function assertOpened(opened: ReviewEvent): void {
+  try {
+    checkOpened(opened as unknown as Record<string, unknown>);
+  } catch (e) {
+    if (e instanceof ReviewIllegalError)
+      throw new ReviewCorruptError(`the review log is not valid: ${e.message}`);
+    throw e;
+  }
+}
+
 /** Reads the log, verifies every recorded draft file hash, folds. Throws ReviewRefusedError when no review is open, ReviewCorruptError for any damage. */
 export async function loadReview(dir: string): Promise<Loaded> {
   const { events, tailHash } = await readReview(dir);
@@ -89,13 +100,7 @@ export async function loadReview(dir: string): Promise<Loaded> {
     throw new ReviewCorruptError(
       "review.jsonl does not start with review.opened",
     );
-  try {
-    checkOpened(opened as unknown as Record<string, unknown>);
-  } catch (e) {
-    if (e instanceof ReviewIllegalError)
-      throw new ReviewCorruptError(`the review log is not valid: ${e.message}`);
-    throw e;
-  }
+  assertOpened(opened);
   const drafts = await loadDrafts(dir, new Set(Object.keys(opened.files)));
   for (const [name, hash] of Object.entries(opened.files)) {
     if (drafts.files[name] === undefined)
@@ -290,9 +295,15 @@ export async function siblingReleased(dir: string): Promise<string | null> {
       throw e;
     }
     const first = read.events[0];
+    if (!first || first.type !== "review.opened") continue;
+    try {
+      assertOpened(first);
+    } catch {
+      throw new ReviewCorruptError(
+        `the review log in the earlier directory ${safeName(name)} is damaged, so it cannot be checked for a release; restore it from a backup or move that directory out of the way`,
+      );
+    }
     if (
-      !first ||
-      first.type !== "review.opened" ||
       first.session.id !== drafts.sessionId ||
       first.session.startedAt !== drafts.startedAt
     )
@@ -368,6 +379,7 @@ export async function supersedeReview(
         throw new ReviewRefusedError(
           "the earlier directory has no open review",
         );
+      assertOpened(oldOpened);
       if (old.events.some((e) => e.type === "review.superseded"))
         throw new ReviewRefusedError(
           "the earlier review was already superseded",
@@ -426,6 +438,7 @@ export async function supersedeReview(
           carriedFrom: name,
           body: stripEnvelope(e),
         }));
+      for (const en of carried) checkActor(en.actor);
       if (1 + carried.length > LIMITS.events)
         throw new ReviewRefusedError("this review has reached its event limit");
       const sealedNew = sealEntries([], ZERO_HASH, [opened, ...carried], o.now);
@@ -450,7 +463,16 @@ export async function supersedeReview(
         throw new ReviewRefusedError(
           "the earlier review is full, so it cannot be marked superseded",
         );
-      const existing = await readReview(newDir);
+      let existing;
+      try {
+        existing = await readReview(newDir);
+      } catch (e) {
+        if (e instanceof ReviewCorruptError)
+          throw new ReviewCorruptError(
+            `the review.jsonl in ${safeName(path.basename(newDir))} is damaged. If an earlier supersede stopped while writing it, the file holds only copies: move it aside and run supersede again`,
+          );
+        throw e;
+      }
       let completed = false;
       if (existing.events.length > 0) {
         // the same copies this call would write? then an earlier supersede stopped before the old marker: finish it

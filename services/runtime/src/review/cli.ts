@@ -347,7 +347,10 @@ export const HANDLERS: Record<string, Handler> = {
       by: cleanBy(c.values.by),
       now: c.now,
     });
-    if (r.completed) c.out("completed an interrupted supersede");
+    if (r.completed)
+      c.out(
+        "completed an interrupted supersede: the new review already held the opener and the carried copies, and the earlier review is now marked superseded",
+      );
     c.out(
       `carried forward: ${r.carried.join(", ") || "none"}; starts clean: ${r.fresh.join(", ") || "none"}`,
     );
@@ -374,11 +377,23 @@ export const HANDLERS: Record<string, Handler> = {
     const summary = {
       strengths: items(c.values.strength, "--strength"),
       development_points: items(c.values.development, "--development"),
-      next_actions: items(c.values.action, "--action").map((a) => {
-        const i = a.indexOf(":");
-        if (i < 1) throw new ReviewUsageError("--action needs <lo>:<text>");
-        return { lo: a.slice(0, i), action: a.slice(i + 1).trim() };
-      }),
+      // the 400-character cap applies to the action text, not to the `LO:` prefix plus the text
+      next_actions: (Array.isArray(c.values.action) ? c.values.action : []).map(
+        (raw) => {
+          const t = String(raw);
+          const i = t.indexOf(":");
+          if (i < 1) throw new ReviewUsageError("--action needs <lo>:<text>");
+          return {
+            lo: t.slice(0, i).trim(),
+            action: cleanText(
+              t.slice(i + 1),
+              LIMITS.item,
+              "--action",
+              c.secrets,
+            ),
+          };
+        },
+      ),
     };
     if (
       !summary.strengths.length &&
