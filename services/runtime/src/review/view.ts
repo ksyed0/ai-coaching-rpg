@@ -180,6 +180,7 @@ export function viewReport(
         ...(x.criterion !== undefined ? { criterion: x.criterion } : {}),
         text: x.text,
         dispute: x.dispute,
+        version: x.version,
         ...(x.resolution
           ? {
               resolution: {
@@ -233,7 +234,14 @@ function frozenView(view: View, subject: string): View {
     objectives: snap.objectives,
     // frozen at release: the log is append-only, so a comment made before the release has a smaller seq
     comments: sv.comments.filter((c) => c.seq < snap.version),
-    responses: sv.responses.filter((x) => x.seq < snap.version),
+    // a dispute resolved after the release is not part of that version either
+    responses: sv.responses
+      .filter((x) => x.seq < snap.version)
+      .map((x) =>
+        x.resolution && x.resolution.seq >= snap.version
+          ? { ...x, resolution: null }
+          : x,
+      ),
   };
   return { ...view, subjects: new Map(view.subjects).set(subject, frozen) };
 }

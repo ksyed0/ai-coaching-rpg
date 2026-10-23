@@ -1,25 +1,14 @@
-import {
-  link,
-  lstat,
-  mkdir,
-  realpath,
-  rmdir,
-  rm,
-  stat,
-  unlink,
-} from "node:fs/promises";
-import os from "node:os";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { isSafeId } from "@acr/events";
-import { stripHidden } from "../calibration/hidden-chars.js";
-import { scrubDeep, scrubText } from "../demo/report.js";
+import { scrubText } from "../demo/report.js";
 import { secretValues } from "../evaluator/cli.js";
+import { buildMethod } from "../evaluator/method.js";
 import type {
   GroupReport,
   ParticipantReport,
 } from "../evaluator/report-model.js";
-import { REPORT_DIR_MODE, writeExclusive } from "../evaluator/report-write.js";
 import { readRegularCapped } from "../util/read-regular.js";
 import {
   ReviewCorruptError,
@@ -29,7 +18,6 @@ import {
 import { loadDrafts } from "./draft.js";
 import { releaseProblems } from "./gate.js";
 import { sha256 } from "./hash.js";
-import { canView, parsePrincipal } from "./policy.js";
 import { cleanLine, facilitator, need, shownName } from "./cli-util.js";
 import { exportHandler } from "./export.js";
 import {
@@ -41,20 +29,8 @@ import {
   type Loaded,
 } from "./store.js";
 import { cleanBy, cleanText, isDraftFileName, parseLevel } from "./text.js";
-import { buildMethod } from "../evaluator/method.js";
-import {
-  GROUP,
-  LIMITS,
-  type Actor,
-  type Entry,
-  type ReviewEvent,
-} from "./types.js";
-import {
-  participantGroupReport,
-  renderSubjectMarkdown,
-  snapshotReport,
-  viewReport,
-} from "./view.js";
+import { LIMITS, type Entry, type ReviewEvent } from "./types.js";
+import { renderSubjectMarkdown, viewReport } from "./view.js";
 
 export const MODERATE_USAGE = [
   "usage: pnpm moderate <subcommand> <reports-dir> [options]",
@@ -496,8 +472,10 @@ export const HANDLERS: Record<string, Handler> = {
       return sv;
     };
     if (c.values.list === true) {
-      if (rateArgs.length > 0)
-        throw new ReviewUsageError("--list and --rate cannot be used together");
+      if (rateArgs.length > 0 || c.values.note !== undefined)
+        throw new ReviewUsageError(
+          "--list cannot be used with --rate or --note",
+        );
       const sv = participant(await loadReview(c.dir));
       c.out(
         "Rate yourself on each criterion (1 to 4, or na if there was no chance to show it):",
