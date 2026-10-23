@@ -263,7 +263,7 @@ describe("export", () => {
     });
     expect(JSON.stringify(ex[0])).not.toContain(root);
   });
-  it("refuses a draft subject, another principal for now, an existing file and a missing --to", async () => {
+  it("refuses a draft subject, an inert principal, an existing file and a missing --to", async () => {
     expect(
       (
         await run([
@@ -286,14 +286,14 @@ describe("export", () => {
           rel,
           "alice",
           "--for",
-          "participant:alice",
+          "line_manager",
           "--to",
           "out/p",
           "--by",
           "kamal",
         ])
       ).code,
-    ).toBe(2);
+    ).toBe(1);
     expect((await exp(null)).code).toBe(2);
     expect((await exp("out/x")).code).toBe(0);
     expect((await exp("out/x")).code).not.toBe(0);

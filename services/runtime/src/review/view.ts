@@ -16,13 +16,21 @@ import type {
   Moderation,
   ParticipantReport,
 } from "../evaluator/report-model.js";
-import { type CriterionView, type SubjectView, type View } from "./fold.js";
+import {
+  type CriterionView,
+  type Snapshot,
+  type SubjectView,
+  type View,
+} from "./fold.js";
 import { VIEW_SCHEMA } from "./types.js";
 
 export const TABLE_STALE_NOTE =
   "Per-role table out of date: a player was released or withdrawn after this group report was released; amend and re-release the group to refresh it.";
 export type RenderAudience =
-  { audience: "facilitator" } | { audience: "released"; line: string };
+  | { audience: "facilitator" }
+  | { audience: "released"; line: string; legacy?: boolean };
+export const LEGACY_NOTE =
+  "Legacy draft set: this session was played before the visibility policy; the report is limited to the participant and the facilitator.";
 const AI_PREFIX =
   "AI draft calibration (not the calibration of the final scores): ";
 
@@ -54,10 +62,13 @@ function criterion(
     ai_invalid: c.invalid,
     reason: last?.reason ?? null,
     by: last?.by ?? v.rationaleEdits.at(-1)?.by ?? null,
-    rationale_edited: v.rationaleEdits.length > 0,
-    accepted: v.status === "accepted",
+    // Review-state marks are the facilitator's: a released view carries only the adjustment disclosure.
     ...(facilitator
-      ? { state: v.status === "needs_review" ? ("open" as const) : v.status }
+      ? {
+          rationale_edited: v.rationaleEdits.length > 0,
+          accepted: v.status === "accepted",
+          state: v.status === "needs_review" ? ("open" as const) : v.status,
+        }
       : {}),
   };
   const cur = v.current;
@@ -94,6 +105,8 @@ export function viewReport(
   subject: string,
   a: RenderAudience,
 ): ParticipantReport | GroupReport {
+  // The released audience is built from the snapshot frozen at the last release only (P12): never from live state.
+  if (a.audience === "released") view = frozenView(view, subject);
   const sv = view.subjects.get(subject) as SubjectView;
   const names = reviewerNames(sv);
   const edited = sv.criteria.filter((c) => c.edits.length > 0).length;
@@ -124,8 +137,7 @@ export function viewReport(
   ];
   if (a.audience === "facilitator" && sv.tableStale)
     base.notes.push(TABLE_STALE_NOTE);
-  // A "released" audience (US-0043) must be fed a view whose comments are already frozen at the release (see snapshotReport):
-  // this function trusts sv.comments and would otherwise show comments made after the release to participants.
+  if (a.audience === "released" && a.legacy) base.notes.push(LEGACY_NOTE);
   const comments = sv.comments
     .filter((c) => a.audience === "facilitator" || c.visibility === "feedback")
     .map((c) => ({
@@ -171,7 +183,49 @@ export function viewReport(
     }),
   };
   if (comments.length) g.comments = comments;
+  if (a.audience === "released" && sv.snapshot)
+    applyFrozenTable(g, sv.snapshot);
   return g;
+}
+
+/** The view with the subject's state replaced by its last released snapshot; comments frozen at that release. Fails closed. */
+function frozenView(view: View, subject: string): View {
+  const sv = view.subjects.get(subject) as SubjectView;
+  const snap = sv.snapshot;
+  if (!snap) throw new Error("a released view needs a released subject");
+  const frozen: SubjectView = {
+    ...sv,
+    criteria: snap.criteria,
+    summary: snap.summary,
+    summaryEdited: snap.summaryEdited,
+    summaryStale: false,
+    objectives: snap.objectives,
+    // frozen at release: the log is append-only, so a comment made before the release has a smaller seq
+    comments: sv.comments.filter((c) => c.seq < snap.version),
+  };
+  return { ...view, subjects: new Map(view.subjects).set(subject, frozen) };
+}
+
+/** The group's per-role table as frozen at its release. */
+function applyFrozenTable(r: GroupReport, snap: Snapshot): void {
+  if (!snap.table) return;
+  const players = Object.keys(snap.table.objectives[0]?.byRole ?? {});
+  const pick = (x: LoResult | null) => ({
+    score: x?.score ?? null,
+    label: x?.label ?? "Not observed",
+    incomplete: x?.incomplete ?? false,
+  });
+  r.lo_coverage = {
+    players,
+    objectives: snap.table.objectives.map((o) => ({
+      id: o.id,
+      statement: o.statement,
+      by_role: Object.fromEntries(
+        players.map((p) => [p, pick(o.byRole[p] ?? null)]),
+      ),
+      team: pick(o.team),
+    })),
+  };
 }
 
 export function renderSubjectMarkdown(
@@ -195,39 +249,12 @@ export function snapshotReport(
   const sv = view.subjects.get(subject) as SubjectView;
   const snap = sv.snapshot;
   if (!snap) throw new Error("snapshotReport needs a released subject");
-  const frozen: SubjectView = {
-    ...sv,
-    criteria: snap.criteria,
-    summary: snap.summary,
-    summaryEdited: snap.summaryEdited,
-    summaryStale: false,
-    objectives: snap.objectives,
-    // frozen at release: the log is append-only, so a comment made before the release has a smaller seq
-    comments: sv.comments.filter((c) => c.seq < snap.version),
-  };
-  const subjects = new Map(view.subjects).set(subject, frozen);
-  const r = viewReport(draft, { ...view, subjects }, subject, {
-    audience: "facilitator",
-  });
-  r.draft_notice = releasedBanner(snap.version, reviewerNames(frozen));
-  if (r.kind === "group" && snap.table) {
-    const players = Object.keys(snap.table.objectives[0]?.byRole ?? {});
-    const pick = (x: LoResult | null) => ({
-      score: x?.score ?? null,
-      label: x?.label ?? "Not observed",
-      incomplete: x?.incomplete ?? false,
-    });
-    r.lo_coverage = {
-      players,
-      objectives: snap.table.objectives.map((o) => ({
-        id: o.id,
-        statement: o.statement,
-        by_role: Object.fromEntries(
-          players.map((p) => [p, pick(o.byRole[p] ?? null)]),
-        ),
-        team: pick(o.team),
-      })),
-    };
-  }
+  const fv = frozenView(view, subject);
+  const r = viewReport(draft, fv, subject, { audience: "facilitator" });
+  r.draft_notice = releasedBanner(
+    snap.version,
+    reviewerNames(fv.subjects.get(subject) as SubjectView),
+  );
+  if (r.kind === "group") applyFrozenTable(r, snap);
   return r;
 }
