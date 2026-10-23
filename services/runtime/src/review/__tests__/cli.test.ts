@@ -474,4 +474,48 @@ describe("pnpm moderate", () => {
     expect((await run([...base, "--action", "bad id:Do it"])).code).toBe(2);
     expect(await readFile(path.join(dir, "review.jsonl"), "utf8")).toBe(before);
   });
+  it("show emits no control character except newline and tab when a draft quote, rationale and summary item carry them", async () => {
+    const file = path.join(dir, "alice.json");
+    const j = JSON.parse(await readFile(file, "utf8"));
+    const bad = "x\u001b[31m\u009b2J\u0007\u0000y";
+    const crit = j.criteria.find(
+      (c: { evidence?: unknown[] }) => (c.evidence ?? []).length > 0,
+    );
+    crit.evidence[0].quote = `q${bad}`;
+    crit.rationale = `r${bad}`;
+    j.summary.strengths[0] = `s${bad}`;
+    await writeFile(file, JSON.stringify(j, null, 2));
+    expect((await open()).code).toBe(0);
+    const r = await run(["show", rel(), "alice"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/r\S*x\S*y/);
+    expect(r.out).toMatch(/s\S*x\S*y/);
+    expect(r.out).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+  });
+  it("supersede moves a re-run onto the new directory, naming carried and clean subjects", async () => {
+    const { writeReports } = await import("../../evaluator/report-write.js");
+    const { sampleEvaluation } =
+      await import("../../evaluator/__tests__/fixtures.js");
+    const w = await writeReports(await sampleEvaluation(), {
+      outDir: root,
+      evaluator: {
+        provider: "scripted mock",
+        scripted: true,
+        rubricHash: "h1",
+        variant: "v1",
+      },
+    });
+    await open();
+    const n = path.relative(root, w.dir);
+    // no release yet: nothing blocks a second open, and supersede of an unreleased review is allowed
+    const r = await run(["supersede", rel(), n, "--by", "kamal"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/carried forward: .*alice/);
+    expect((await run(["supersede", rel(), n, "--by", "kamal"])).code).toBe(1);
+    expect((await run(["supersede", rel(), "--by", "kamal"])).code).toBe(2);
+    expect(
+      (await run(["supersede", rel(), "nope", "--by", "kamal"])).code,
+    ).toBe(2);
+    expect((await run(["status", rel()])).out).toContain("superseded");
+  });
 });

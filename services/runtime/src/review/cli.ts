@@ -23,6 +23,7 @@ import {
   loadReview,
   openReview,
   readCodesRecord,
+  supersedeReview,
   type Loaded,
 } from "./store.js";
 import { cleanBy, cleanText, isDraftFileName, parseLevel } from "./text.js";
@@ -38,6 +39,7 @@ export const MODERATE_USAGE = [
   "  accept <dir> <subject> <criterion> --by <name>   |   accept <dir> <subject> --summary --by <name>",
   "  comment <dir> <subject> --text <text> --by <name> [--criterion <id>] [--feedback]",
   "  edit-summary <dir> <subject> --reason <text> --by <name> [--strength <t>]... [--development <t>]... [--action <lo>:<t>]...",
+  "  supersede <old-dir> <new-dir> --by <name>                            move moderation of unchanged subjects to a re-run of a released session; the old review becomes read-only",
   "exit codes: 0 done, 1 refused (fix and retry), 2 usage error or a damaged review/draft file",
   "A subject is a player role or `group`. Free text is stored after hidden characters are stripped and secrets scrubbed.",
 ].join("\n");
@@ -89,6 +91,7 @@ export const ALLOWED: Record<string, string[]> = {
   accept: ["by", "summary"],
   comment: ["by", "text", "criterion", "feedback"],
   "edit-summary": ["by", "reason", "strength", "development", "action"],
+  supersede: ["by"],
 };
 
 /** Most positional arguments after <dir> each subcommand takes. */
@@ -100,6 +103,7 @@ const ARITY: Record<string, number> = {
   accept: 2,
   comment: 1,
   "edit-summary": 1,
+  supersede: 1,
 };
 const facilitator = (c: Ctx): Actor => ({
   kind: "facilitator",
@@ -380,6 +384,23 @@ export const HANDLERS: Record<string, Handler> = {
     c.out(`${subject} summary replaced`);
     return 0;
   },
+};
+
+HANDLERS.supersede = async (c) => {
+  const newArg = c.args[0];
+  if (!newArg)
+    throw new ReviewUsageError("supersede needs <old-dir> <new-dir>");
+  const newDir = path.resolve(c.base, newArg);
+  if (!(await stat(newDir).catch(() => null))?.isDirectory())
+    throw new ReviewUsageError("the new reports directory does not exist");
+  const r = await supersedeReview(c.dir, newDir, {
+    by: cleanBy(c.values.by),
+    now: c.now,
+  });
+  c.out(
+    `carried forward: ${r.carried.join(", ") || "none"}; starts clean: ${r.fresh.join(", ") || "none"}`,
+  );
+  return 0;
 };
 
 export async function runModerate(
