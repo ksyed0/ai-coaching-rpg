@@ -51,7 +51,8 @@ describe("pnpm demo --showcase --evaluate (mock mode)", () => {
     const { exitCode, report, stdout } = await run(["--showcase", "--fast", "--no-color", "--evaluate", "--eval-out", out, "--json", json]);
     expect(report!.results.filter((r) => r.status !== "passed")).toEqual([]);
     expect(exitCode).toBe(0);
-    expect(report!.results.map((r) => r.id)).toEqual([...SHOWCASE_CHECKS.map((c) => c.id), "S-16"]);
+    expect(report!.results.map((r) => r.id)).toEqual([...SHOWCASE_CHECKS.map((c) => c.id), "S-16", "S-17"]);
+    expect(report!.results.find((x) => x.id === "S-17")!.details).toMatch(/4 subjects reviewed and released in one event; access matrix \d+ cells checked; peers' results absent from/);
     const dir = path.join(out, "demo");
     expect(readdirSync(dir).sort()).toEqual(["account_manager.json", "account_manager.md", "delivery_lead.json", "delivery_lead.md", "group.json", "group.md", "index.md", "method.md", "tech_lead.json", "tech_lead.md"]);
     expect(stdout).toContain("EVALUATION: feedback reports for the session");
@@ -115,7 +116,8 @@ describe("pnpm demo --showcase --evaluate (mock mode)", () => {
     const s16 = r.report!.results.find((x) => x.id === "S-16")!;
     expect(s16.status).toBe("failed");
     expect(s16.details).toMatch(/quote is not verbatim/);
-    expect(r.report!.results.filter((x) => x.status === "failed").map((x) => x.id)).toEqual(["S-16"]);
+    expect(r.report!.results.filter((x) => x.status === "failed").map((x) => x.id)).toEqual(["S-16", "S-17"]);
+    expect(r.report!.results.find((x) => x.id === "S-17")!.details).toMatch(/did not run \(prerequisite failed: S-16\)/);
   });
 
   it("without --evaluate the run is exactly S-01 to S-14, writes no reports and has no evaluation section", async () => {

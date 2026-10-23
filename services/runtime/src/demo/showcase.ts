@@ -28,6 +28,7 @@ import { readSessionLog } from "../evaluator/log-reader.js";
 import { summaryLines } from "../evaluator/summary.js";
 import type { WrittenReports } from "../evaluator/report-write.js";
 import { verifyReportFiles } from "../evaluator/verify.js";
+import { runReviewCheck } from "../review/demo-check.js";
 
 /** The showcase's own checks (ids S-01..). `scripted` ones need the scripted models and are an intended skip in a live run. */
 export const SHOWCASE_CHECKS: readonly CheckDef[] = [
@@ -52,9 +53,10 @@ export const SHOWCASE_PLAYER_CHECKS: readonly CheckDef[] = [
   { id: "S-15", title: "Generated player prompts held only what that role may see, and every player line is tagged by what produced it", kind: "any" },
 ] as const;
 
-/** Only with `--evaluate`: S-16 (the default run keeps exactly S-01 to S-14). */
+/** Only with `--evaluate`: S-16, and S-17 in a mock run (the default run keeps exactly S-01 to S-14). */
 export const SHOWCASE_EVAL_CHECKS: readonly CheckDef[] = [
   { id: "S-16", title: "The evaluator wrote a report for every player: each quote is a verbatim line of the session, the method is stated, scores are 1 to 4 or Not observed", kind: "any" },
+  { id: "S-17", title: "A scripted facilitator review released every report through the gate, only the right audience can see each one, a participant's group report holds no peer result, and the export is recorded (mock runs)", kind: "any" },
 ] as const;
 
 /** Only in a `--live` run: S-18 reports how reliably the real Game Master ended the scenes (it fails only below `--min-gm-exits`). */
@@ -890,6 +892,8 @@ async function playShowcaseAudit(ctx: Ctx, st: Story, o: ShowcaseOptions, summar
       const dropped = outcome.result.participants.reduce((a, p) => a + p.criteria.reduce((b, c) => b + c.droppedQuotes, 0), 0);
       return `${ok} of ${players} players evaluated; ${v.reports} reports (${players} players and the group) in ${outcome.written.files.length} files: ${v.quotes} quotes are verbatim lines of the session, ${v.scores} scores are 1 to 4 or Not observed, the method and the visibility line are in every report; ${dropped} unverifiable quote(s) were dropped; ${outcome.result.modelCalls} model call(s)`;
     }, ["S-01"]);
+    // S-17 exists in mock runs only: it moderates a private temp copy of the scripted drafts with the real review code (offline, the reports directory is untouched). A live evaluation may have failed players, which cannot be released.
+    if (rec.has("S-17")) await rec.run("S-17", async () => runReviewCheck(o.holder.evaluation!.written.dir, { now: ctx.now }), ["S-16"]);
   }
 
   if (!mock) {
