@@ -518,3 +518,44 @@ describe("group table from released snapshots", () => {
     expect(rowOf(v)).toBeNull();
   });
 });
+
+describe("group table staleness", () => {
+  const stale = (v: ReturnType<typeof f.fold>) =>
+    v.subjects.get("group")!.tableStale;
+  it("goes stale when a player is released alone after the group, and clears on group re-release", () => {
+    const g = released("group");
+    const withAlice = [...g, ...released("alice")];
+    expect(stale(f.fold(...g))).toBe(false);
+    expect(stale(f.fold(...withAlice))).toBe(true);
+    const v1 = f.fold(...g).lastSeq;
+    const v = f.fold(
+      ...withAlice,
+      { type: "report.amended", subject: "group", reason: "r", basedOn: v1 },
+      { type: "report.released", subjects: ["group"] },
+    );
+    expect(stale(v)).toBe(false);
+    expect(
+      v.subjects.get("group")!.snapshot!.table!.objectives[0]!.byRole.alice,
+    ).toBeTruthy();
+  });
+  it("goes stale when a player in the table is withdrawn, and the re-released row is null", () => {
+    const rel = released("alice", "group");
+    const w: Body = { type: "report.withdrawn", subject: "alice", reason: "r" };
+    expect(stale(f.fold(...rel))).toBe(false);
+    expect(stale(f.fold(...rel, w))).toBe(true);
+    const v1 = f.fold(...rel).lastSeq;
+    const v = f.fold(
+      ...rel,
+      w,
+      { type: "report.amended", subject: "group", reason: "r", basedOn: v1 },
+      { type: "report.released", subjects: ["group"] },
+    );
+    expect(stale(v)).toBe(false);
+    expect(
+      v.subjects.get("group")!.snapshot!.table!.objectives[0]!.byRole.alice,
+    ).toBeNull();
+  });
+  it("does not go stale for a release of players together with the group", () => {
+    expect(stale(f.fold(...released("alice", "group")))).toBe(false);
+  });
+});
