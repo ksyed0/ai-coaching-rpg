@@ -124,6 +124,8 @@ export function viewReport(
   ];
   if (a.audience === "facilitator" && sv.tableStale)
     base.notes.push(TABLE_STALE_NOTE);
+  // A "released" audience (US-0043) must be fed a view whose comments are already frozen at the release (see snapshotReport):
+  // this function trusts sv.comments and would otherwise show comments made after the release to participants.
   const comments = sv.comments
     .filter((c) => a.audience === "facilitator" || c.visibility === "feedback")
     .map((c) => ({
