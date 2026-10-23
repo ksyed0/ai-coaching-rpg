@@ -161,3 +161,10 @@
 - **Docs:** `docs/EVALUATOR.md` (Moderating a report, re-runs, what file access defeats), README, CHANGELOG, TC-0049 and TC-0050, release plan (AC-0209..AC-0216 ticked, US-0041 Complete, TASK-0066 Done).
 - **Known limits:** the release gate, amend and withdraw (US-0042) and participant visibility are not built; the supersede test forces a `report.released` event until then, and the old-review-read-only assertion tightens to `ReviewRefusedError` in Task 9.
 - **Next:** PR for US-0041 (controller), then US-0042 from `develop`.
+
+## Session 9 part 2 — 2026-10-23 (EPIC-0005 moderation: US-0042 release gate)
+
+- **Built (branch `feature/EPIC-0005-US-0042-release`):** fold and gate for release, amend, withdraw and export (Task 9); `pnpm moderate release | amend | withdraw | export --for facilitator` (Task 10). Export renders the released snapshot (`snapshotReport`), appends `report.exported` before writing, then writes owner-only files via exclusive temp files linked into place (no overwrite, no symlink following, no partial files); a recorded export whose files could not be written exits 2 and says so.
+- **Docs:** `docs/EVALUATOR.md` (gate rules, versions, amend, withdraw, export audit, why viewing is not audited), AGENTS.md rule that an agent never runs release, amend or withdraw unless the owner names the subjects, README, CHANGELOG, TC-0051 and TC-0052, release plan (AC-0217..AC-0222 ticked, US-0042 Complete, TASK-0067 Done).
+- **Not built:** participant visibility (US-0043), self-assessment (US-0044), export for other audiences (refused with exit 2 until then).
+- **Next:** PR for US-0042 (controller), then US-0043.
