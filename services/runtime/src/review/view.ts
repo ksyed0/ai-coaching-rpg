@@ -172,3 +172,49 @@ export function renderSubjectMarkdown(
     ? renderParticipantMarkdown(report, secrets)
     : renderGroupMarkdown(report, secrets);
 }
+
+/**
+ * The facilitator-audience report of a subject's last RELEASED snapshot (criteria, summary, objectives and, for the group, the frozen
+ * table), not its live draft state: an export during an amendment still carries what was released. Pure. Needs a released snapshot.
+ */
+export function snapshotReport(
+  draft: ParticipantReport | GroupReport,
+  view: View,
+  subject: string,
+): ParticipantReport | GroupReport {
+  const sv = view.subjects.get(subject) as SubjectView;
+  const snap = sv.snapshot;
+  if (!snap) throw new Error("snapshotReport needs a released subject");
+  const frozen: SubjectView = {
+    ...sv,
+    criteria: snap.criteria,
+    summary: snap.summary,
+    summaryEdited: snap.summaryEdited,
+    summaryStale: false,
+    objectives: snap.objectives,
+  };
+  const subjects = new Map(view.subjects).set(subject, frozen);
+  const r = viewReport(draft, { ...view, subjects }, subject, {
+    audience: "facilitator",
+  });
+  if (r.kind === "group" && snap.table) {
+    const players = Object.keys(snap.table.objectives[0]?.byRole ?? {});
+    const pick = (x: LoResult | null) => ({
+      score: x?.score ?? null,
+      label: x?.label ?? "Not observed",
+      incomplete: x?.incomplete ?? false,
+    });
+    r.lo_coverage = {
+      players,
+      objectives: snap.table.objectives.map((o) => ({
+        id: o.id,
+        statement: o.statement,
+        by_role: Object.fromEntries(
+          players.map((p) => [p, pick(o.byRole[p] ?? null)]),
+        ),
+        team: pick(o.team),
+      })),
+    };
+  }
+  return r;
+}

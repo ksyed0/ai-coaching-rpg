@@ -12,6 +12,7 @@ import {
   type ReviewEvent,
 } from "../types.js";
 import type { Drafts } from "../draft.js";
+import { runModerate } from "../cli.js";
 import { writeReports } from "../../evaluator/report-write.js";
 import { sampleEvaluation } from "../../evaluator/__tests__/fixtures.js";
 
@@ -74,4 +75,22 @@ export function resolveBodies(view: View, subject: string): Body[] {
       .map((c): Body => ({ type: "score.accepted", subject, criterion: c.id })),
     ...(sv.summaryStale ? [{ type: "summary.accepted", subject } as Body] : []),
   ];
+}
+
+/** The `pnpm moderate` runner of the CLI tests: one fixed clock per runner, cwd = root. */
+export function makeRunner(root: string) {
+  const now = fixedClock();
+  return async (argv: string[], env: NodeJS.ProcessEnv = {}) => {
+    let out = "",
+      err = "";
+    const r = await runModerate({
+      argv,
+      stdout: { write: (s) => (out += s) },
+      stderr: { write: (s) => (err += s) },
+      env,
+      cwd: root,
+      now,
+    });
+    return { code: r.exitCode, out, err };
+  };
 }
