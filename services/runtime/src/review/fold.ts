@@ -7,6 +7,7 @@ import {
 import type { DraftCriterion, DraftSubject, Drafts } from "./draft.js";
 import { ReviewIllegalError } from "./errors.js";
 import { sha256 } from "./hash.js";
+import { cpLen } from "./text.js";
 import {
   GROUP,
   LIMITS,
@@ -196,17 +197,20 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   if (!first || first.type !== "review.opened")
     throw new ReviewIllegalError("the log does not start with review.opened");
   const ill = (e: ReviewEvent, m: string): never => {
-    throw new ReviewIllegalError(`event ${e.seq} (${e.type}): ${m}`);
+    throw new ReviewIllegalError(
+      `event ${e.seq} (${typeof e.type === "string" ? e.type.slice(0, 40) : "?"}): ${m}`,
+    );
   };
   const subjects = new Map<string, SubjectView>(
     [...drafts.subjects.values()].map((d) => [d.id, initSubject(d)]),
   );
-  const subj = (e: ReviewEvent, id: string): SubjectView =>
-    subjects.get(id) ??
-    ill(e, `unknown subject ${JSON.stringify(String(id).slice(0, 40))}`);
-  const crit = (e: ReviewEvent, sv: SubjectView, id: string): CriterionView =>
-    sv.criteria.find((c) => c.id === id) ??
-    ill(e, `unknown criterion ${JSON.stringify(String(id).slice(0, 40))}`);
+  const subj = (e: ReviewEvent, id: unknown): SubjectView =>
+    (typeof id === "string" ? subjects.get(id) : undefined) ??
+    ill(e, "unknown subject");
+  const crit = (e: ReviewEvent, sv: SubjectView, id: unknown): CriterionView =>
+    (typeof id === "string"
+      ? sv.criteria.find((c) => c.id === id)
+      : undefined) ?? ill(e, "unknown criterion");
   const editable = (e: ReviewEvent, sv: SubjectView): void => {
     if (sv.state === "released" || sv.state === "withdrawn")
       ill(e, `${sv.id} is ${sv.state}; amend it first`);
@@ -216,17 +220,19 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
       ? e.actor.by
       : ill(e, "only a facilitator can do this");
   const reason = (e: ReviewEvent, r: unknown): string =>
-    typeof r === "string" && r.length >= 1 && r.length <= LIMITS.reason
+    typeof r === "string" && cpLen(r) >= 1 && cpLen(r) <= LIMITS.reason
       ? r
       : ill(e, "a reason of 1 to 500 characters is required");
   const text = (e: ReviewEvent, t: unknown): string =>
-    typeof t === "string" && t.length >= 1 && t.length <= LIMITS.text
+    typeof t === "string" && cpLen(t) >= 1 && cpLen(t) <= LIMITS.text
       ? t
       : ill(e, "text of 1 to 1,500 characters is required");
   const items = (e: ReviewEvent, v: unknown): string[] =>
     Array.isArray(v) &&
     v.length <= 50 &&
-    v.every((x) => typeof x === "string" && x.length <= LIMITS.item)
+    v.every(
+      (x) => typeof x === "string" && cpLen(x) >= 1 && cpLen(x) <= LIMITS.item,
+    )
       ? (v as string[])
       : ill(e, "a summary list is invalid");
   const summary = (e: ReviewEvent, v: unknown): Summary => {
@@ -243,8 +249,10 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           a !== null &&
           typeof (a as { lo?: unknown }).lo === "string" &&
           typeof (a as { action?: unknown }).action === "string" &&
-          (a as { lo: string }).lo.length <= LIMITS.item &&
-          (a as { action: string }).action.length <= LIMITS.item,
+          cpLen((a as { lo: string }).lo) >= 1 &&
+          cpLen((a as { lo: string }).lo) <= LIMITS.item &&
+          cpLen((a as { action: string }).action) >= 1 &&
+          cpLen((a as { action: string }).action) <= LIMITS.item,
       )
     )
       return ill(e, "the summary next actions are invalid");
@@ -276,10 +284,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         const c = crit(e, sv, e.criterion);
         editable(e, sv);
         if (e.from !== c.current)
-          ill(
-            e,
-            `from ${String(e.from)} does not match the current level ${String(c.current)}`,
-          );
+          ill(e, "from does not match the current level");
         if (e.to === c.current) ill(e, "the level is unchanged");
         if (!(
           e.to === null ||
@@ -314,7 +319,6 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ill(e, "the rationale changed since it was read");
         c.rationaleEdits.push({ seq: e.seq, reason: reason(e, e.reason), by });
         c.rationale = text(e, e.text);
-        c.status = "edited";
         break;
       }
       case "summary.edited": {
@@ -347,6 +351,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         break;
       }
       case "comment.added": {
+        facilitator(e);
         const sv = subj(e, e.subject);
         if (e.criterion !== undefined) crit(e, sv, e.criterion);
         if (e.visibility !== "internal" && e.visibility !== "feedback")
@@ -361,6 +366,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         break;
       }
       case "review.superseded":
+        if (typeof e.by !== "string") ill(e, "by must be a string");
         superseded = e.by;
         break;
       default:

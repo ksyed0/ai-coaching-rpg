@@ -53,3 +53,15 @@ describe("parseLevel", () => {
       expect(() => parseLevel(bad)).toThrow(/--level/);
   });
 });
+
+describe("cleanText length after scrubbing", () => {
+  it("rejects text that a scrub lengthens past the limit", async () => {
+    const { cleanText } = await import("../text.js");
+    expect(() => cleanText("abc", 10, "--text", ["abc"])).not.toThrow();
+    // a secret replaced by a longer marker
+    const out = cleanText("abc", 100, "--text", ["abc"]);
+    expect(() => cleanText("abc", out.length - 1, "--text", ["abc"])).toThrow(
+      /longer than/,
+    );
+  });
+});

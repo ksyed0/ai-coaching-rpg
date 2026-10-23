@@ -400,3 +400,130 @@ describe("releaseProblems and summary edits", () => {
       ).toThrow(ReviewIllegalError);
   });
 });
+
+describe("fix round 1", () => {
+  const rationaleEdit = (
+    sv: ReturnType<typeof fold>,
+    criterion: string,
+  ): Body => ({
+    type: "rationale.edited",
+    subject: "alice",
+    criterion,
+    fromHash: sha256(
+      sv.subjects.get("alice")!.criteria.find((c) => c.id === criterion)!
+        .rationale,
+    ),
+    text: "new words",
+    reason: "clarity",
+  });
+  it("a rationale-only edit leaves a needs-review criterion open; accept then resolves it", () => {
+    const id = aliceNeeds()[0]!;
+    const base = fold();
+    const edit = rationaleEdit(base, id);
+    const a = fold(edit).subjects.get("alice")!;
+    expect(a.criteria.find((c) => c.id === id)!.status).toBe("needs_review");
+    expect(releaseProblems(a).join(" ")).toContain(id);
+    const b = fold(edit, {
+      type: "score.accepted",
+      subject: "alice",
+      criterion: id,
+    }).subjects.get("alice")!;
+    expect(b.criteria.find((c) => c.id === id)!.status).toBe("accepted");
+  });
+  it("an edit after an acceptance wins", () => {
+    const id = aliceNeeds()[0]!;
+    const cur = fold()
+      .subjects.get("alice")!
+      .criteria.find((c) => c.id === id)!.current;
+    const v = fold(
+      { type: "score.accepted", subject: "alice", criterion: id },
+      {
+        type: "score.edited",
+        subject: "alice",
+        criterion: id,
+        from: cur,
+        to: cur === 4 ? 3 : 4,
+        reason: "r",
+      },
+    );
+    expect(
+      v.subjects.get("alice")!.criteria.find((c) => c.id === id)!.status,
+    ).toBe("edited");
+  });
+  it("a failed evaluation with only rationale edits stays blocked", () => {
+    const base = fold();
+    const ids = base.subjects.get("alice")!.criteria.map((c) => c.id);
+    const v = fold(...ids.map((i) => rationaleEdit(base, i)));
+    const sv = v.subjects.get("alice")!;
+    sv.evaluationOk = false;
+    expect(releaseProblems(sv)[0]).toContain("score these by hand");
+  });
+  it("counts code points: 400 astral characters pass in a summary item", () => {
+    const item = "\u{1F600}".repeat(400);
+    const v = fold({
+      type: "summary.edited",
+      subject: "alice",
+      summary: {
+        strengths: [item],
+        development_points: [],
+        next_actions: [],
+      },
+      reason: "r",
+    });
+    expect(v.subjects.get("alice")!.summary!.strengths[0]).toBe(item);
+  });
+  it("rejects empty summary items", () => {
+    expect(() =>
+      fold({
+        type: "summary.edited",
+        subject: "alice",
+        summary: { strengths: [""], development_points: [], next_actions: [] },
+        reason: "r",
+      }),
+    ).toThrow(ReviewIllegalError);
+  });
+  it("rejects non-string payload fields without echoing them", () => {
+    const evil = { toString: 1 } as never;
+    for (const b of [
+      { type: "score.accepted", subject: evil, criterion: "x" },
+      { type: "score.accepted", subject: "alice", criterion: evil },
+      {
+        type: "score.edited",
+        subject: "alice",
+        criterion: "listening",
+        from: evil,
+        to: 3,
+        reason: "r",
+      },
+      { type: "review.superseded", by: evil },
+      { type: "review.superseded", by: 5 },
+    ] as Body[])
+      expect(() => fold(b)).toThrow(ReviewIllegalError);
+    const e = log();
+    (e[0] as { type: unknown }).type = evil;
+    expect(() => currentView(drafts, e)).toThrow(ReviewIllegalError);
+    const g = log({ type: "score.accepted", subject: "alice", criterion: "x" });
+    (g[1] as { type: unknown }).type = { toString: 1 };
+    expect(() => currentView(drafts, g)).toThrow(ReviewIllegalError);
+  });
+  it("only a facilitator can comment in this story", () => {
+    const evs = sealEntries(
+      [],
+      ZERO_HASH,
+      [
+        { actor: fac, body: opened() },
+        {
+          actor: { kind: "participant", role: "alice", attestedBy: "kamal" },
+          body: {
+            type: "comment.added",
+            subject: "alice",
+            text: "x",
+            visibility: "feedback",
+          },
+        },
+      ],
+      fixedClock(),
+    );
+    expect(() => currentView(drafts, evs)).toThrow(ReviewIllegalError);
+  });
+});

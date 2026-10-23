@@ -4,6 +4,9 @@ import { scrubText } from "../demo/report.js";
 import { ReviewUsageError } from "./errors.js";
 import type { Level } from "./types.js";
 
+/** Length in code points: the one counting rule for every limit. */
+export const cpLen = (s: string): number => Array.from(s).length;
+
 /** Free text from a person: hidden characters stripped, secrets scrubbed, 1 to `max` characters. `what` names the option in the message. */
 export function cleanText(
   raw: string,
@@ -12,9 +15,11 @@ export function cleanText(
   secrets: string[],
 ): string {
   const stripped = stripHidden(String(raw)).replace(/\r\n?/g, "\n").trim();
-  if (Array.from(stripped).length > max)
-    throw new ReviewUsageError(`${what} is longer than ${max} characters`);
+  const tooLong = () =>
+    new ReviewUsageError(`${what} is longer than ${max} characters`);
+  if (cpLen(stripped) > max) throw tooLong();
   const text = scrubText(stripped, secrets).trim();
+  if (cpLen(text) > max) throw tooLong();
   if (text.length === 0)
     throw new ReviewUsageError(`${what} must not be empty`);
   return text;
