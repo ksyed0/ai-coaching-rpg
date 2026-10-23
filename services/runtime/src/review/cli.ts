@@ -1,15 +1,25 @@
-import { stat } from "node:fs/promises";
+import {
+  link,
+  lstat,
+  mkdir,
+  realpath,
+  rmdir,
+  rm,
+  stat,
+  unlink,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { isSafeId } from "@acr/events";
 import { stripHidden } from "../calibration/hidden-chars.js";
-import { scrubText } from "../demo/report.js";
+import { scrubDeep, scrubText } from "../demo/report.js";
 import { secretValues } from "../evaluator/cli.js";
 import type {
   GroupReport,
   ParticipantReport,
 } from "../evaluator/report-model.js";
+import { REPORT_DIR_MODE, writeExclusive } from "../evaluator/report-write.js";
 import { readRegularCapped } from "../util/read-regular.js";
 import {
   ReviewCorruptError,
@@ -17,6 +27,7 @@ import {
   ReviewUsageError,
 } from "./errors.js";
 import { loadDrafts } from "./draft.js";
+import { releaseProblems } from "./gate.js";
 import { sha256 } from "./hash.js";
 import {
   applyCommand,
@@ -27,8 +38,8 @@ import {
   type Loaded,
 } from "./store.js";
 import { cleanBy, cleanText, isDraftFileName, parseLevel } from "./text.js";
-import { LIMITS, type Actor, type Entry } from "./types.js";
-import { renderSubjectMarkdown, viewReport } from "./view.js";
+import { LIMITS, type Actor, type Entry, type ReviewEvent } from "./types.js";
+import { renderSubjectMarkdown, snapshotReport, viewReport } from "./view.js";
 
 export const MODERATE_USAGE = [
   "usage: pnpm moderate <subcommand> <reports-dir> [options]",
@@ -39,6 +50,10 @@ export const MODERATE_USAGE = [
   "  accept <dir> <subject> <criterion> --by <name>   |   accept <dir> <subject> --summary --by <name>",
   "  comment <dir> <subject> --text <text> --by <name> [--criterion <id>] [--feedback]",
   "  edit-summary <dir> <subject> --reason <text> --by <name> [--strength <t>]... [--development <t>]... [--action <lo>:<t>]...",
+  "  release <dir> <subject>... --by <name>   |   release <dir> --all --by <name>   all-or-nothing; every open item must be resolved first",
+  "  amend <dir> <subject> --reason <text> --by <name>                     reopen a released report for edits (participants keep seeing the last release)",
+  "  withdraw <dir> <subject> --reason <text> --by <name>                  take a released report back for good (cannot be undone)",
+  "  export <dir> <subject> --for facilitator --to <new-dir> --by <name>  write the released report as Markdown and JSON (owner-only files) and record the export",
   "  supersede <old-dir> <new-dir> --by <name>                            move moderation of unchanged subjects to a re-run of a released session; the old review becomes read-only",
   "exit codes: 0 done, 1 refused (fix and retry), 2 usage error or a damaged review/draft file",
   "A subject is a player role or `group`. Free text is stored after hidden characters are stripped and secrets scrubbed.",
@@ -78,6 +93,9 @@ const OPTIONS = {
   strength: { type: "string", multiple: true },
   development: { type: "string", multiple: true },
   action: { type: "string", multiple: true },
+  all: { type: "boolean" },
+  to: { type: "string" },
+  for: { type: "string" },
   "session-log": { type: "string" },
   "codes-dir": { type: "string" },
   help: { type: "boolean" },
@@ -92,6 +110,10 @@ export const ALLOWED: Record<string, string[]> = {
   comment: ["by", "text", "criterion", "feedback"],
   "edit-summary": ["by", "reason", "strength", "development", "action"],
   supersede: ["by"],
+  release: ["by", "all"],
+  amend: ["by", "reason"],
+  withdraw: ["by", "reason"],
+  export: ["by", "to", "for"],
 };
 
 /** Most positional arguments after <dir> each subcommand takes. */
@@ -104,6 +126,10 @@ const ARITY: Record<string, number> = {
   comment: 1,
   "edit-summary": 1,
   supersede: 1,
+  release: 200,
+  amend: 1,
+  withdraw: 1,
+  export: 1,
 };
 const facilitator = (c: Ctx): Actor => ({
   kind: "facilitator",
@@ -133,6 +159,27 @@ function cleanLine(line: string, secrets: string[]): string {
     if (dir && dir !== "/") out = out.split(dir).join(label);
   return out;
 }
+/** The refusal text of `release`. The top-level error is cut at 400 characters, so keep whole (capped) lines and say how many were left out. */
+export function releaseRefusal(problems: string[]): string {
+  const shown: string[] = [];
+  let len = 60; // "refused: nothing was released:" plus the line markers and the "... and N more" tail
+  for (const raw of problems) {
+    const p = raw.length > 110 ? `${raw.slice(0, 107)}...` : raw;
+    if (shown.length > 0 && len + p.length + 5 > 340) break;
+    shown.push(p);
+    len += p.length + 5;
+  }
+  const more = problems.length - shown.length;
+  return `nothing was released:\n  ${shown.join("\n  ")}${more > 0 ? `\n  ... and ${more} more; run status for the full list` : ""}`;
+}
+/** The hint printed when a release or withdrawal left the released group's per-role table out of date. */
+const staleHint = (before: Loaded, after: Loaded): string | null => {
+  const b = before.view.subjects.get("group");
+  const a = after.view.subjects.get("group");
+  return a?.tableStale && !b?.tableStale
+    ? "the group's per-role table is now out of date; amend and re-release the group to refresh it"
+    : null;
+};
 const lvl = (l: unknown): string => (l === null ? "na" : String(l));
 
 function statusLines(l: Loaded): string[] {
@@ -144,7 +191,7 @@ function statusLines(l: Loaded): string[] {
   for (const sv of l.view.subjects.values()) {
     const open = sv.criteria.filter((c) => c.status === "needs_review");
     out.push(
-      `${sv.id}: ${sv.state}${sv.versions.length ? ` (version ${sv.versions.at(-1)})` : ""}, ${open.length} of ${sv.criteria.length} criteria need review${sv.summaryStale ? ", summary may be out of date" : ""}${sv.evaluationOk ? "" : ", evaluation failed (score by hand)"}`,
+      `${sv.id}: ${sv.state}${sv.versions.length ? ` (version ${sv.versions.at(-1)})` : ""}, ${open.length} of ${sv.criteria.length} criteria need review${sv.summaryStale ? ", summary may be out of date" : ""}${sv.evaluationOk ? "" : ", evaluation failed (score by hand)"}${sv.tableStale ? ", per-role table out of date (amend and re-release the group)" : ""}`,
     );
     for (const c of open)
       out.push(`  needs review: ${c.id} (currently ${lvl(c.current)})`);
@@ -334,6 +381,218 @@ export const HANDLERS: Record<string, Handler> = {
       },
     ]);
     c.out(`comment added to ${subject}`);
+    return 0;
+  },
+  async release(c) {
+    const actor = facilitator(c);
+    const all = c.values.all === true;
+    if (all && c.args.length > 0)
+      throw new ReviewUsageError(
+        "release takes <subject>... or --all, not both",
+      );
+    if (!all && c.args.length === 0)
+      throw new ReviewUsageError("release needs <subject>... or --all");
+    let before!: Loaded;
+    const { appended, loaded } = await applyCommand(c.dir, c.now, (l) => {
+      before = l;
+      const ids = all
+        ? [...l.view.subjects.values()]
+            .filter((s) => s.state === "draft" || s.state === "amending")
+            .map((s) => s.id)
+        : [...new Set(c.args)];
+      if (ids.length === 0)
+        throw new ReviewRefusedError(
+          "nothing was released: no subject is waiting for release",
+        );
+      const problems: string[] = [];
+      for (const id of ids) {
+        const sv = l.view.subjects.get(id);
+        if (!sv) {
+          problems.push(`${shownName(id)}: unknown subject`);
+          continue;
+        }
+        if (sv.state !== "draft" && sv.state !== "amending") {
+          problems.push(`${id}: is ${sv.state}`);
+          continue;
+        }
+        for (const p of releaseProblems(sv)) problems.push(`${id}: ${p}`);
+      }
+      if (problems.length)
+        throw new ReviewRefusedError(releaseRefusal(problems));
+      return [{ actor, body: { type: "report.released", subjects: ids } }];
+    });
+    const e = appended[0] as Extract<ReviewEvent, { type: "report.released" }>;
+    c.out(`released ${e.subjects.join(", ")} as version ${e.seq}`);
+    const hint = staleHint(before, loaded);
+    if (hint) c.out(hint);
+    return 0;
+  },
+  async amend(c) {
+    const [subject] = c.args;
+    if (!subject) throw new ReviewUsageError("amend needs <subject>");
+    const actor = facilitator(c);
+    const reason = cleanText(
+      String(c.values.reason ?? ""),
+      LIMITS.reason,
+      "--reason",
+      c.secrets,
+    );
+    await applyCommand(c.dir, c.now, (l) => {
+      const sv = need(l.view.subjects.get(subject), "subject");
+      return [
+        {
+          actor,
+          body: {
+            type: "report.amended",
+            subject,
+            reason,
+            basedOn: sv.versions.at(-1) ?? 0,
+          },
+        },
+      ];
+    });
+    c.out(`${subject} reopened for amendment`);
+    return 0;
+  },
+  async withdraw(c) {
+    const [subject] = c.args;
+    if (!subject) throw new ReviewUsageError("withdraw needs <subject>");
+    const actor = facilitator(c);
+    const reason = cleanText(
+      String(c.values.reason ?? ""),
+      LIMITS.reason,
+      "--reason",
+      c.secrets,
+    );
+    let before!: Loaded;
+    const { loaded } = await applyCommand(c.dir, c.now, (l) => {
+      before = l;
+      need(l.view.subjects.get(subject), "subject");
+      return [{ actor, body: { type: "report.withdrawn", subject, reason } }];
+    });
+    c.out(`${subject} withdrawn`);
+    const hint = staleHint(before, loaded);
+    if (hint) c.out(hint);
+    return 0;
+  },
+  async export(c) {
+    const [subject] = c.args;
+    if (!subject) throw new ReviewUsageError("export needs <subject>");
+    const actor = facilitator(c);
+    if (c.values.for !== "facilitator")
+      throw new ReviewUsageError(
+        "--for supports only facilitator in this version",
+      );
+    if (typeof c.values.to !== "string" || c.values.to === "")
+      throw new ReviewUsageError("--to needs a destination directory");
+    const dest = path.resolve(c.base, c.values.to);
+    const label = isSafeId(path.basename(dest))
+      ? path.basename(dest)
+      : "destination";
+    const names = [`${subject}.md`, `${subject}.json`];
+    const l = await loadReview(c.dir);
+    const sv0 = need(l.view.subjects.get(subject), "subject");
+    if (sv0.state !== "released")
+      throw new ReviewRefusedError(
+        `${subject} is ${sv0.state}; only a released report is exported`,
+      );
+    // Refuse before auditing what we can already see is unwritable: a symbolic-link or non-directory destination, or a file already there.
+    const existing = await lstat(dest).catch(() => null);
+    if (existing && (existing.isSymbolicLink() || !existing.isDirectory()))
+      throw new ReviewRefusedError(
+        "the destination exists and is not a plain directory (symbolic links are never followed); nothing was exported",
+      );
+    if (existing)
+      for (const n of names)
+        if (await lstat(path.join(dest, n)).catch(() => null))
+          throw new ReviewRefusedError(
+            `the destination already holds ${shownName(n)}; files are never overwritten; nothing was exported`,
+          );
+    // The audit event comes first (P17): a record of an export that then failed is safer than an export nobody recorded.
+    // Version and content are both taken from the locked view inside the callback, so they always belong together.
+    let md = "";
+    let json = "";
+    await applyCommand(c.dir, c.now, (cur) => {
+      const sv = need(cur.view.subjects.get(subject), "subject");
+      if (sv.state !== "released")
+        throw new ReviewRefusedError(
+          `${subject} is ${sv.state}; only a released report is exported`,
+        );
+      const report = snapshotReport(
+        cur.drafts.subjects.get(subject)!.raw as unknown as
+          ParticipantReport | GroupReport,
+        cur.view,
+        subject,
+      );
+      // as strict as `show`: per line, hidden and control characters out, secrets and machine paths redacted (tables and tabs stay)
+      md = `${renderSubjectMarkdown(report, c.secrets)
+        .split("\n")
+        .map((line) => cleanLine(line, c.secrets))
+        .join("\n")
+        .trimEnd()}\n`;
+      json = `${JSON.stringify(scrubDeep(report, c.secrets), null, 2)}\n`;
+      return [
+        {
+          actor,
+          body: {
+            type: "report.exported",
+            subject,
+            version: sv.versions.at(-1)!,
+            principal: "facilitator",
+            destination: label,
+          },
+        },
+      ];
+    });
+    const finals: string[] = [];
+    const temps: string[] = [];
+    let created = false;
+    try {
+      // Exclusive creation: parents may be made, the destination itself must not exist (EEXIST refuses, nothing is deleted).
+      if (!existing) {
+        await mkdir(path.dirname(dest), {
+          recursive: true,
+          mode: REPORT_DIR_MODE,
+        });
+        await mkdir(dest, { mode: REPORT_DIR_MODE });
+        created = true;
+      }
+      // A destination swapped for a symbolic link since the check is refused (a residual window remains between this check and the writes).
+      const here = await lstat(dest);
+      if (
+        here.isSymbolicLink() ||
+        (await realpath(dest)) !==
+          path.join(await realpath(path.dirname(dest)), path.basename(dest))
+      )
+        throw new Error("destination is not a plain directory");
+      const tag = `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+      // Stage every file under a private temp name (created exclusively, owner-only), then link each into place: link never
+      // replaces an existing name or follows a symlink there, so a late-appearing file fails the export instead of being overwritten.
+      const staged: [string, string][] = [];
+      for (const [n, t] of [
+        [names[0]!, md],
+        [names[1]!, json],
+      ] as const) {
+        const tmp = path.join(dest, `.${n}.${tag}.tmp`);
+        await writeExclusive(tmp, t);
+        temps.push(tmp);
+        staged.push([tmp, path.join(dest, n)]);
+      }
+      for (const [tmp, fin] of staged) {
+        await link(tmp, fin);
+        finals.push(fin);
+      }
+      for (const tmp of temps) await unlink(tmp);
+    } catch {
+      // Remove only what this run made; the directory only if this run created it and it is now empty (never a recursive delete).
+      for (const f of [...finals, ...temps])
+        await rm(f, { force: true }).catch(() => undefined);
+      if (created) await rmdir(dest).catch(() => undefined);
+      throw new ReviewCorruptError(
+        "an export event was recorded in the review but no files were produced (the destination could not be written, or a file appeared there); nothing was left behind",
+      );
+    }
+    c.out(`exported ${subject} to ${label}`);
     return 0;
   },
   async supersede(c) {
