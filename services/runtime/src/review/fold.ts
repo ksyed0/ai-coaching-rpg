@@ -548,6 +548,11 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
             (role === null || subjects.get(role)?.kind !== "participant"))
         )
           ill(e, "the export principal is not valid for this review");
+        // A facilitator export needs a released subject; a participant's personal export is of their own report only.
+        if (pr === "facilitator" && sv.state !== "released")
+          ill(e, "the export principal is not valid for this review");
+        if (role !== null && sv.id !== GROUP && sv.id !== role)
+          ill(e, "the export principal is not valid for this review");
         sv.exports.push({
           seq: e.seq,
           version: e.version,

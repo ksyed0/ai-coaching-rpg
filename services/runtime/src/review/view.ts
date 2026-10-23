@@ -22,7 +22,8 @@ import {
   type SubjectView,
   type View,
 } from "./fold.js";
-import { VIEW_SCHEMA } from "./types.js";
+import { redactGroupForParticipant } from "./policy.js";
+import { GROUP, VIEW_SCHEMA } from "./types.js";
 
 export const TABLE_STALE_NOTE =
   "Per-role table out of date: a player was released or withdrawn after this group report was released; amend and re-release the group to refresh it.";
@@ -257,4 +258,46 @@ export function snapshotReport(
   );
   if (r.kind === "group") applyFrozenTable(r, snap);
   return r;
+}
+
+/**
+ * The group report as one participant may read it: peers' rows are removed, facilitator-directed material emptied, and the caller's
+ * own row follows the caller's OWN subject: the latest released snapshot, absent when they are withdrawn, draft or have none.
+ */
+export function participantGroupReport(
+  draft: GroupReport,
+  view: View,
+  role: string,
+  line: string,
+  legacy: boolean,
+): GroupReport {
+  const g = redactGroupForParticipant(
+    viewReport(draft, view, GROUP, {
+      audience: "released",
+      line,
+      legacy,
+    }) as GroupReport,
+    role,
+  );
+  const own = view.subjects.get(role);
+  const snap =
+    own?.kind === "participant" &&
+    (own.state === "released" || own.state === "amending")
+      ? own.snapshot
+      : null;
+  const pick = (x: LoResult | undefined) => ({
+    score: x?.score ?? null,
+    label: x?.label ?? "Not observed",
+    incomplete: x?.incomplete ?? false,
+  });
+  g.lo_coverage = {
+    players: snap ? [role] : [],
+    objectives: g.lo_coverage.objectives.map((o) => ({
+      ...o,
+      by_role: snap
+        ? { [role]: pick(snap.objectives.find((x) => x.id === o.id)) }
+        : {},
+    })),
+  };
+  return g;
 }

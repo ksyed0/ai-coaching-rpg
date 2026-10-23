@@ -452,6 +452,39 @@ describe("untrusted payloads and states", () => {
       ),
     ).toThrow(ReviewIllegalError);
   });
+  it("refuses a facilitator export of an amending subject and a participant's personal export of another role", () => {
+    const rel = released("alice", "bob", "group");
+    const v1 = f.fold(...rel).lastSeq;
+    const exp = (subject: string, principal: string): Body => ({
+      type: "report.exported",
+      subject,
+      version: f
+        .fold(...rel)
+        .subjects.get(subject)!
+        .versions.at(-1)!,
+      principal,
+      destination: "d",
+    });
+    void v1;
+    const amend: Body = {
+      type: "report.amended",
+      subject: "alice",
+      reason: "r",
+      basedOn: f
+        .fold(...rel)
+        .subjects.get("alice")!
+        .versions.at(-1)!,
+    };
+    expect(() => f.fold(...rel, amend, exp("alice", "facilitator"))).toThrow(
+      ReviewIllegalError,
+    );
+    expect(() => f.fold(...rel, exp("bob", "participant:alice"))).toThrow(
+      ReviewIllegalError,
+    );
+    expect(() =>
+      f.fold(...rel, exp("group", "participant:alice")),
+    ).not.toThrow();
+  });
   it("accepts only facilitator or participant:<participant role of this review> as an export principal", () => {
     const rel = released("alice");
     const v1 = f.fold(...rel).lastSeq;
@@ -462,7 +495,7 @@ describe("untrusted payloads and states", () => {
       principal,
       destination: "d",
     });
-    for (const ok of ["facilitator", "participant:alice", "participant:bob"])
+    for (const ok of ["facilitator", "participant:alice"])
       expect(() => f.fold(...rel, exp(ok))).not.toThrow();
     for (const bad of [
       "p",
