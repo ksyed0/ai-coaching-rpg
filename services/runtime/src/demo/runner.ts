@@ -37,7 +37,7 @@ import { parseTemperatures } from "../agents/temperatures.js";
 import { parseEvalConfig, type EvalConfig } from "../evaluator/config.js";
 import { evaluateSession } from "../evaluator/evaluate.js";
 import { readSessionLog } from "../evaluator/log-reader.js";
-import { evaluatorInfo, startEvaluatorProvider } from "../evaluator/provider.js";
+import { buildEvaluatorInfo, startEvaluatorProvider } from "../evaluator/provider.js";
 import { writeReports } from "../evaluator/report-write.js";
 import { createScriptedEvaluator } from "./eval-mock.js";
 
@@ -307,7 +307,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
           const events = await readSessionLog(logFile);
           const provider = mockRun ? createScriptedEvaluator(events, sc.scenario, sc.rubrics) : startEvaluatorProvider(liveEnv!, config);
           const result = await evaluateSession({ events, scenario: sc.scenario, rubrics: sc.rubrics, provider, config, signal });
-          const written = await writeReports(result, { outDir, evaluator: evaluatorInfo(mockRun ? {} : liveEnv!, config, { scripted: mockRun }), secrets: secretValues });
+          const written = await writeReports(result, { outDir, evaluator: await buildEvaluatorInfo({ env: mockRun ? {} : liveEnv!, cfg: config, scripted: mockRun, scenarioId: sc.scenario.meta.id, rubrics: sc.rubrics, calibrationDir: path.resolve(deps.cwd ?? deps.env.INIT_CWD ?? process.cwd(), "data/calibration") }), secrets: secretValues });
           await deps.afterReportsWritten?.(written.dir);
           return { result, written };
         },

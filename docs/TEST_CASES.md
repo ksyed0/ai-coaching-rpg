@@ -580,6 +580,37 @@ Status: [x] Pass
 Defect Raised: None
 Notes: Automated only. The 19 drafts and 7 excerpts were approved by an agent on the owner's explicit chat instruction of 2026-10-08; excerpt levels were assigned by the agent under that delegation.
 
+## US-0039: calibration stamp on evaluation reports
+
+TC-0038: The calibration lookup states one of four states and never throws
+Related Story: US-0039
+Related Task: TASK-0059
+Related AC: AC-0196, AC-0197
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/calibration/__tests__/stamp.test.ts`.
+Expected Result: No file, a corrupt file, a parseable file of the wrong shape (every field the stamp reads), a file naming another model than the one asked for, and hostile scenario ids or models (paths, empty, control characters) give not_calibrated and never read outside the calibration directory; a changed rubric hash or variant gives stale; fewer than 20 probes, contrast usable on fewer groups than contrast probes, or fewer than 3 contrast groups give thin (the line prints the contrast count and says contrast was measured on few groups when that is the reason); otherwise ok. The stamp line states probes, exact agreement, bias and contrast groups ordered, and never contains "accurate", "validated" or "reliable".
+Actual Result: As expected (stamp.test.ts) on 2026-10-22, including whole-number and consistency checks, impossible dates, an oversize file, a directory, a symbolic link and a FIFO in place of the file, only validated fields kept, zero bias printed as 0.0, and the calibration label in the line.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
+TC-0039: Evaluation reports carry the calibration stamp and the evaluator block
+Related Story: US-0039
+Related Task: TASK-0059
+Related AC: AC-0195, AC-0196, AC-0197
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/evaluator/__tests__/reports.test.ts src/evaluator/__tests__/cli.test.ts -t "calibration stamp"`.
+  2. Run `pnpm demo --showcase --fast --evaluate` and check that the counts are unchanged (15 checks; 29, 42 and 14 for the other demos).
+Expected Result: 1: index.md, group.md and every personal report show the stamp (an evaluator without calibration, not calibrated, ok, stale and thin all render; a malformed state renders as not calibrated); every JSON file has evaluator.variant, rubricHash, calibration and calibration_line; pnpm evaluate with a matching summary stamps the numbers, a summary for another rubric hash is stale, one for another model is ignored, a corrupt summary does not fail the run (exit 0), and the scripted evaluator is never looked up. 2: the mock demos stay deterministic.
+Actual Result: As expected on 2026-10-22 (reports.test.ts, cli.test.ts; demos 29, 42, 14, 15 checks passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only. A run against a real model and a real session log was not done in this task.
+
 ## US-0040: showcase script for the Friday Escalation scenario
 
 TC-0040: `scenarios/friday-escalation/showcase.yaml` covers every scene and leaks no secret

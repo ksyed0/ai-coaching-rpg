@@ -73,6 +73,34 @@ describe("pnpm demo --showcase --evaluate (mock mode)", () => {
     expect(dl.criteria[0].flags.join(" ")).toMatch(/capped from 4 to 2/);
   });
 
+  it("stamps the scripted evaluator with the constant not-calibrated line, records variant and rubric hash, and never looks up a summary even when one matches", async () => {
+    const o1 = outDir();
+    const r1 = await run(["--showcase", "--fast", "--no-color", "--evaluate", "--eval-out", o1]);
+    expect(r1.exitCode).toBe(0);
+    const g1 = JSON.parse(readFileSync(path.join(o1, "demo", "group.json"), "utf8"));
+    expect(g1.evaluator).toMatchObject({ variant: "v1", calibration: { state: "not_calibrated" } });
+    expect(g1.evaluator.rubricHash).toMatch(/^[0-9a-f]{16}$/);
+    for (const f of ["group.md", "delivery_lead.md"]) {
+      const md = readFileSync(path.join(o1, "demo", f), "utf8");
+      expect(md).toContain(`| Prompt variant | \`v1\`, rubric \`${g1.evaluator.rubricHash}\` |`);
+      expect(md).toContain("Calibration: not calibrated (no calibration result for this judge, prompt variant and rubric).");
+    }
+    expect(readFileSync(path.join(o1, "demo", "index.md"), "utf8")).toContain(`Prompt variant \`v1\`, rubric \`${g1.evaluator.rubricHash}\`.`);
+    // a summary that would match this model, variant and rubric exists in <cwd>/data/calibration: the scripted evaluator must ignore it
+    const { summaryFile } = await import("../../calibration/report.js");
+    const cwd = path.join(PARENT, "calcwd");
+    const f = summaryFile(path.join(cwd, "data/calibration"), g1.scenario.id, "m", "v1");
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(path.dirname(f), { recursive: true });
+    writeFileSync(f, JSON.stringify({ schema: "acr.calibration.summary/1", scenarioId: g1.scenario.id, rubricHash: g1.evaluator.rubricHash, variant: "v1", judge: { label: "primary", model: "m" }, ranAt: "2026-10-08T00:00:00.000Z",
+      probes: { total: 34, tune: 14, holdout: 20 }, exact: { n: 30, of: 32 }, bias: 0.1, contrast: { ordered: 4, of: 4, probes: 4 }, usable: { n: 32, of: 32 }, label: "PASS" }));
+    const o2 = outDir();
+    await run(["--showcase", "--fast", "--no-color", "--evaluate", "--eval-out", o2], { cwd, env: { PATH: "/usr/bin", NPC_MODEL: "m", EVAL_MODEL: "m" } });
+    const g2 = JSON.parse(readFileSync(path.join(o2, "demo", "group.json"), "utf8"));
+    expect(g2.evaluator.calibration).toEqual({ state: "not_calibrated" });
+    expect(g2.evaluator).not.toHaveProperty("model");
+    expect(readFileSync(path.join(o2, "demo", "group.md"), "utf8")).not.toMatch(/Scored by/);
+  });
   it("S-16 reads the files back from disk: a quote edited in <role>.json after writing makes S-16 fail with 'quote is not verbatim'", async () => {
     const r = await run(["--showcase", "--fast", "--no-color", "--evaluate", "--eval-out", outDir()], {
       afterReportsWritten: async (dir) => {

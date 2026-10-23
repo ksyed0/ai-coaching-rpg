@@ -299,3 +299,59 @@ describe("role ids and files", () => {
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 });
+
+describe("calibration stamp", () => {
+  const SUMMARY = { schema: "acr.calibration.summary/1" as const, scenarioId: "s", rubricHash: "h1", variant: "v1", judge: { label: "primary", model: "gemma-4-31b" }, ranAt: "2026-10-08T00:00:00.000Z",
+    probes: { total: 24, tune: 12, holdout: 12 }, exact: { n: 22, of: 24 }, bias: 0.4, contrast: { ordered: 6, of: 8, probes: 8 }, usable: { n: 24, of: 24 }, label: "WARN" as const };
+  const NOT_CAL = /Calibration: not calibrated/;
+  it("an evaluator without calibration is stamped not calibrated in index, group and every personal report", async () => {
+    const { files } = renderReports(await evaluate(), EVALUATOR);
+    for (const f of ["index.md", "group.md", "alice.md", "bob.md"]) expect(files.get(f), f).toMatch(NOT_CAL);
+  });
+  it("a not_calibrated state is stamped, and the JSON carries variant, rubricHash and calibration", async () => {
+    const { files } = renderReports(await evaluate(), { ...EVALUATOR, variant: "v1", rubricHash: "h1", calibration: { state: "not_calibrated" } });
+    for (const f of ["index.md", "group.md", "alice.md", "bob.md"]) expect(files.get(f), f).toMatch(NOT_CAL);
+    for (const f of ["group.json", "alice.json", "bob.json"]) {
+      const j = JSON.parse(files.get(f)!);
+      expect(j.evaluator).toMatchObject({ variant: "v1", rubricHash: "h1", calibration: { state: "not_calibrated" }, calibration_line: expect.stringMatching(/not calibrated/i) });
+    }
+  });
+  it("an ok summary prints measured numbers in every Markdown report and sits in the JSON; no accuracy claim", async () => {
+    const info = { ...EVALUATOR, model: "gemma-4-31b", variant: "v1", rubricHash: "h1", calibration: { state: "ok" as const, summary: SUMMARY } };
+    const { files } = renderReports(await evaluate(), info);
+    for (const f of ["index.md", "group.md", "alice.md", "bob.md"]) {
+      expect(files.get(f), f).toMatch(/Scored by gemma-4-31b, prompt v1\. Calibration on 24 probes \(2026-10-08\): 22 of 24 exact, bias \+0\.4 levels, 6 of 8 contrast groups ordered, label WARN\./);
+      expect(files.get(f), f).not.toMatch(/accurate|validated|reliable/i);
+    }
+    expect(JSON.parse(files.get("alice.json")!).evaluator.calibration).toMatchObject({ state: "ok", summary: { probes: { total: 24 } } });
+  });
+  it("every Markdown report prints the prompt variant and rubric hash, in every state; the JSON has them too", async () => {
+    for (const calibration of [{ state: "not_calibrated" as const }, { state: "stale" as const, reason: "the rubric changed since the last calibration" }, { state: "ok" as const, summary: SUMMARY }]) {
+      const { files } = renderReports(await evaluate(), { ...EVALUATOR, model: "m1", variant: "v1", rubricHash: "abc123", calibration });
+      expect(files.get("index.md")).toContain("Prompt variant `v1`, rubric `abc123`.");
+      for (const f of ["group.md", "alice.md", "bob.md"]) { expect(files.get(f), f).toContain("| Prompt variant | `v1`, rubric `abc123` |"); expect(files.get(f), f).toContain("model m1"); }
+      expect(JSON.parse(files.get("bob.json")!).evaluator).toMatchObject({ model: "m1", variant: "v1", rubricHash: "abc123" });
+    }
+  });
+  it("a stale state says so", async () => {
+    const { files } = renderReports(await evaluate(), { ...EVALUATOR, calibration: { state: "stale", reason: "the rubric changed since the last calibration" } });
+    for (const f of ["index.md", "group.md", "alice.md"]) expect(files.get(f), f).toMatch(/not calibrated for this rubric or prompt version/);
+  });
+  it("a thin state says so", async () => {
+    const { files } = renderReports(await evaluate(), { ...EVALUATOR, calibration: { state: "thin", summary: { ...SUMMARY, probes: { total: 8, tune: 4, holdout: 4 } } } });
+    for (const f of ["index.md", "group.md", "alice.md"]) expect(files.get(f), f).toMatch(/fewer than 20 probes/);
+  });
+  it("a malformed state in the info cannot break rendering", async () => {
+    const { files } = renderReports(await evaluate(), { ...EVALUATOR, calibration: { state: "ok" } as never });
+    expect(files.get("alice.md")).toMatch(NOT_CAL);
+  });
+});
+
+describe("index.md without a stamp line naming the model", () => {
+  it("names the provider and model in the not_calibrated and stale states too", async () => {
+    for (const calibration of [{ state: "not_calibrated" as const }, { state: "stale" as const, reason: "the rubric changed since the last calibration" }]) {
+      const { files } = renderReports(await evaluate(), { provider: "Some provider", model: "m1", calibration });
+      expect(files.get("index.md")).toContain("Evaluator: Some provider, model m1.");
+    }
+  });
+});

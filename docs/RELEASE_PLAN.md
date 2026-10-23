@@ -372,7 +372,7 @@ Notes: services/runtime/src/agents/timeouts.ts (constants and validation), npc-a
 US-0013 (EPIC-0002): As a participant, I want to reconnect and receive the events I missed, so that a dropped connection does not lose the session.
 Priority: Medium
 Estimate: M
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0002-US-0013-reconnect
 Dependencies: US-0012, US-0017 (limits), US-0018 (resume rebuilds the replay window from the log), US-0033 (one generic refusal)
 Acceptance Criteria:
@@ -627,7 +627,7 @@ Notes: Deferred minor findings from Tasks 7 and 8 and the final review. Behavior
 US-0020 (EPIC-0006): As a developer, I want one shared definition of identifier rules and accurate plan text, so that scenario ids, protocol ids, session ids and the docs cannot drift apart.
 Priority: Low
 Estimate: S
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0006-US-0020-shared-id-rules
 Dependencies: US-0012
 Acceptance Criteria:
@@ -695,7 +695,7 @@ Notes: Found in a live demo run: about 4 of 10 calls to a free OpenRouter model 
 US-0023 (EPIC-0006): As a developer or evaluator, I want the demo runner's live mode to report fallback lines and alert reasons, so that a run cannot pass while the characters only spoke canned lines.
 Priority: Medium
 Estimate: S
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0006-US-0023-demo-live-evidence
 Dependencies: US-0021
 Acceptance Criteria:
@@ -742,7 +742,7 @@ Notes: Requested by the user (R40, R41) after a live demo showed only one real m
 US-0025 (EPIC-0006): As a facilitator, I want the Game Master to give a usable verdict reliably with real models, so that scenes end on the Game Master's judgement instead of needing a facilitator advance.
 Priority: High
 Estimate: M
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0006-US-0025-game-master-reliability
 Dependencies: US-0008, US-0024
 Acceptance Criteria:
@@ -765,7 +765,7 @@ Acceptance Criteria:
 TASK-0025 (US-0025): Make Game Master verdict parsing tolerant, tune the prompt and conditions, add a timeout and retry
 Type: Dev
 Assignee: Agent
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0006-US-0025-game-master-reliability
 Notes: Found in the first real live showcase (OpenRouter free Nemotron): 4 Game Master evaluations, 3 verdicts false, 1 true, and several 'GM: no usable verdict' alerts; 5 of 6 scenes ended on the facilitator safety net.
 ```
@@ -991,7 +991,7 @@ Notes: Closes the gap US-0017 leaves open: with only a facilitator token, any co
 US-0034 (EPIC-0006): As a facilitator, I want the Game Master to suggest releasing a hidden fact when a scenario `earned_when` condition is met (suggest-only, never auto-release by default), so that I do not have to watch for the moment a participant has earned it.
 Priority: Medium
 Estimate: M
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0006-US-0034-gm-suggests-hidden-fact-release
 Dependencies: US-0016, US-0025
 Acceptance Criteria:
@@ -1014,7 +1014,7 @@ Notes: Follow-up to the design notes for US-0016 and US-0025. US-0016 gives the 
 US-0035 (EPIC-0005): Calibration probe format, validator, log adapter and Friday starter set
 Priority: High
 Estimate: M
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0005-US-0035-calibration-probes
 Acceptance Criteria:
   - [x] AC-0180: a probe is a validated YAML file (`single` or `contrast`, `source`, `drafter`, `approved_by`, `split`, `acceptable`) in `scenarios/<id>/calibration/` (probe-schema.ts; probe-schema.test.ts; TC-0025)
@@ -1036,7 +1036,7 @@ Notes: Implementation plan Tasks 0-3b (docs/superpowers/plans, evaluator calibra
 US-0036 (EPIC-0005): `pnpm calibrate`: judges, runner, metrics, report, second-judge comparison
 Priority: High
 Estimate: L
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0005-US-0036-calibrate-command
 Dependencies: US-0035
 Acceptance Criteria:
@@ -1105,20 +1105,20 @@ Notes: Implementation plan Task 12 (docs/superpowers/plans, evaluator calibratio
 US-0039 (EPIC-0005): Calibration stamp on evaluation reports
 Priority: High
 Estimate: S
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0005-US-0039-calibration-stamp
 Dependencies: US-0036
 Acceptance Criteria:
-  - [ ] AC-0195: every evaluation's JSON and Markdown records the judge, model, prompt variant and rubric hash
-  - [ ] AC-0196: a one-line calibration stamp (footer, `index.md`, each personal report) states measured numbers and never claims accuracy, with states not calibrated, stale (rubric hash or variant changed) and thin
-  - [ ] AC-0197: a corrupt or missing calibration file never breaks a report
+  - [x] AC-0195: every evaluation's JSON and Markdown records the judge, model, prompt variant and rubric hash (report-model.ts `evaluator.variant`/`rubricHash`/`calibration`, report-md.ts, cli.ts; reports.test.ts, cli.test.ts; TC-0039)
+  - [x] AC-0196: a one-line calibration stamp (header, `index.md`, each personal report) states measured numbers and never claims accuracy, with states not calibrated, stale (rubric hash or variant changed) and thin (stamp.ts, report-md.ts, report-write.ts; stamp.test.ts, reports.test.ts; thin = under 20 probes, or contrast usable on fewer groups than contrast probes, or on fewer than 3; TC-0038, TC-0039)
+  - [x] AC-0197: a corrupt or missing calibration file never breaks a report (stamp.ts validates the shape and the model; stamp.test.ts, cli.test.ts: a corrupt summary exits 0; TC-0038, TC-0039)
 ```
 
 ```
 TASK-0059 (US-0039): Stamp evaluation reports with the calibration state
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0005-US-0039-calibration-stamp
 Notes: Implementation plan Task 13 (docs/superpowers/plans, evaluator calibration, 2026-10-07).
 ```
