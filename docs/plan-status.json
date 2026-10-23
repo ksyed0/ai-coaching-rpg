@@ -1652,6 +1652,192 @@
         "US-0024",
         "US-0037"
       ]
+    },
+    {
+      "id": "US-0041",
+      "epicId": "EPIC-0005",
+      "title": "Review log and moderation",
+      "priority": "High",
+      "estimate": "L",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0041-review-log",
+      "acs": [
+        {
+          "id": "AC-0209",
+          "text": "`pnpm moderate open` creates an owner-only, hash-chained `review.jsonl` bound to the draft files, the session instance and the join-code record; a changed or missing draft file, a broken chain, a cut-off last line or a symbolic link makes every command exit 2 and repairs nothing",
+          "done": false
+        },
+        {
+          "id": "AC-0210",
+          "text": "edit, accept, comment and edit-summary append through one lock with a compare-and-set (`--expect`); of two racing commands exactly one wins and the other exits 1; the log stays valid",
+          "done": false
+        },
+        {
+          "id": "AC-0211",
+          "text": "the fold (`currentView`) is pure and total: it returns a view or rejects an illegal sequence (edit after release, stale `from`, unknown subject or criterion, second `review.opened`, non-contiguous seq, anything after supersede)",
+          "done": false
+        },
+        {
+          "id": "AC-0212",
+          "text": "a criterion with any flag, an invalid answer, a learning objective marked incomplete or confidence below high needs review; report JSON carries structured `flag_codes` (a directory without them is a legacy draft)",
+          "done": false
+        },
+        {
+          "id": "AC-0213",
+          "text": "every score edit needs a reason and keeps history; an edited criterion is shown as Facilitator-adjusted with the AI original and the reason; learning-objective results are recomputed; the AI summary is marked out of date after a score change; the AI calibration stamp is labelled as the draft's",
+          "done": false
+        },
+        {
+          "id": "AC-0214",
+          "text": "free text (reason, comment, rationale, summary items, `--by`) is stripped of hidden characters, scrubbed of secrets, length-limited before it is stored and escaped when rendered",
+          "done": false
+        },
+        {
+          "id": "AC-0215",
+          "text": "opening a review on a re-run is refused when an earlier directory of the same session was released, unless `supersede`; supersede carries byte-identical subjects forward (marked `carriedFrom`), starts changed ones clean and makes the old review read-only",
+          "done": false
+        },
+        {
+          "id": "AC-0216",
+          "text": "draft reports say 'DRAFT: AI-drafted, not reviewed by a facilitator' and 'Visibility: facilitator only until released'; mock demo check counts 29, 39, 42 and 14 are unchanged",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0039"
+      ]
+    },
+    {
+      "id": "US-0042",
+      "epicId": "EPIC-0005",
+      "title": "Release gate, amend and withdraw, export audit",
+      "priority": "High",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0042-release-gate",
+      "acs": [
+        {
+          "id": "AC-0217",
+          "text": "`release` is refused (exit 1) while a criterion that needs review is unresolved, the summary is stale after a score change, or a failed evaluation is not scored by hand; it lists every unresolved item; releasing several subjects is one event, all or none",
+          "done": false
+        },
+        {
+          "id": "AC-0218",
+          "text": "a release makes version N (N is the event's seq) and freezes a snapshot; scores, accepts and summaries cannot change while a report is released",
+          "done": false
+        },
+        {
+          "id": "AC-0219",
+          "text": "`amend` (reason required, based on the current version) reopens a report and the next release makes a new version; earlier versions stay in history; `withdraw` (reason required) is terminal",
+          "done": false
+        },
+        {
+          "id": "AC-0220",
+          "text": "a group release freezes the per-role learning-objective table as of its seq; a later player edit marks it out of date and an amendment of the group refreshes it",
+          "done": false
+        },
+        {
+          "id": "AC-0221",
+          "text": "`export` writes the viewer file (owner-only, `acr.view/1` JSON and Markdown) and records `report.exported` with the version, principal and destination label; viewing is not audited and the documentation says why",
+          "done": false
+        },
+        {
+          "id": "AC-0222",
+          "text": "an agent never runs release, amend or withdraw unless the owner names the subjects (AGENTS.md and docs/EVALUATOR.md)",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0041"
+      ]
+    },
+    {
+      "id": "US-0043",
+      "epicId": "EPIC-0005",
+      "title": "Result visibility and the audience policy",
+      "priority": "High",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0043-visibility",
+      "acs": [
+        {
+          "id": "AC-0223",
+          "text": "one pure function `canView` over a constant, versioned policy table decides access; the facilitator sees everything; an unreleased, withdrawn or superseded report is facilitator-only",
+          "done": false
+        },
+        {
+          "id": "AC-0224",
+          "text": "line manager, L&D, HR and programme sponsor are in the table but denied in every shipped command until EPIC-0002 identities exist",
+          "done": false
+        },
+        {
+          "id": "AC-0225",
+          "text": "a participant sees their own released personal report; in the group report and `index.md` peers' individual results are removed (not blanked) from the Markdown and the JSON",
+          "done": false
+        },
+        {
+          "id": "AC-0226",
+          "text": "during an amendment participants keep seeing the last released version; withdrawal removes participant access",
+          "done": false
+        },
+        {
+          "id": "AC-0227",
+          "text": "a review on a session recorded before the policy (legacy drafts) or under another policy version is narrowed to participant and facilitator and the report says so",
+          "done": false
+        },
+        {
+          "id": "AC-0228",
+          "text": "the offline check S-17 drives a scripted review (gate, release, access matrix, redaction, export audit) in the showcase `--evaluate` run; the default mock demo counts 29, 39, 42 and 14 are unchanged",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0042"
+      ]
+    },
+    {
+      "id": "US-0044",
+      "epicId": "EPIC-0005",
+      "title": "Self-assessment, response and dispute",
+      "priority": "High",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0044-self-assessment",
+      "acs": [
+        {
+          "id": "AC-0229",
+          "text": "`self-assess --list` shows the criteria and level anchors only (never scores, rationale or others' data) and `--rate` records facilitator-attested ratings before release (the last rating wins)",
+          "done": false
+        },
+        {
+          "id": "AC-0230",
+          "text": "self-rating closes at the subject's release and never changes a score, status or learning-objective result",
+          "done": false
+        },
+        {
+          "id": "AC-0231",
+          "text": "the released personal report shows the self-rating beside the final level per criterion",
+          "done": false
+        },
+        {
+          "id": "AC-0232",
+          "text": "after release a participant (attested) adds a response per criterion or overall; marking it a dispute puts it on the facilitator's status list without printing its text",
+          "done": false
+        },
+        {
+          "id": "AC-0233",
+          "text": "the facilitator resolves a dispute as upheld, amended or declined with a reason; amended needs an amend first; the outcome and reason are shown in the participant's report",
+          "done": false
+        },
+        {
+          "id": "AC-0234",
+          "text": "responses are scrubbed and escaped; another participant's report never carries them; the attested participant channel and what it does not protect are documented in the threat model",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0043"
+      ]
     }
   ],
   "tasks": [
@@ -2254,6 +2440,46 @@
       "status": "Done",
       "branch": "feature/EPIC-0005-US-0040-friday-showcase",
       "notes": "AC-0201 reworded (live runs pending), README and memory notes on --max-false-exits and --min-gm-exits."
+    },
+    {
+      "id": "TASK-0066",
+      "storyId": "US-0041",
+      "title": "Review log and moderation",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0041-review-log",
+      "notes": "Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 1-8: foundations, hash-chained review log, draft loader and flag codes, pure fold, store, moderated rendering, `pnpm moderate` (open, status, show, edit, accept, comment, edit-summary), supersede. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md."
+    },
+    {
+      "id": "TASK-0067",
+      "storyId": "US-0042",
+      "title": "Release gate, amend and withdraw, export audit",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0042-release-gate",
+      "notes": "Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 9-10: fold and gate for release, amend, withdraw and export; `release`, `amend`, `withdraw` and `export --for facilitator`. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md."
+    },
+    {
+      "id": "TASK-0068",
+      "storyId": "US-0043",
+      "title": "Result visibility and the audience policy",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0043-visibility",
+      "notes": "Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 11-13: policy table, `canView` and redaction; participant exports, review index, legacy handling; offline check S-17. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md."
+    },
+    {
+      "id": "TASK-0069",
+      "storyId": "US-0044",
+      "title": "Self-assessment, response and dispute",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Planned",
+      "branch": "feature/EPIC-0005-US-0044-self-assessment",
+      "notes": "Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 14-15: fold for self-ratings, responses and dispute resolution; `self-assess`, `respond`, `resolve`; side-by-side rendering. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md."
     }
   ],
   "testCases": [
@@ -2829,241 +3055,265 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 1600,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 800,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 400,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 400,
-      "costUsd": 15.553387,
+      "costUsd": 14.139443,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0041": {
+      "projectedUsd": 1600,
+      "costUsd": 14.139443,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0042": {
+      "projectedUsd": 800,
+      "costUsd": 14.139443,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0043": {
+      "projectedUsd": 800,
+      "costUsd": 14.139443,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0044": {
+      "projectedUsd": 800,
+      "costUsd": 14.139443,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -3424,6 +3674,34 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": false
+    },
+    "US-0041": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0042": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0043": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
+    "US-0044": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
     }
   },
   "risk": {
@@ -3620,10 +3898,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-22T23:17:38.059Z",
-  "commitSha": "e9578be",
-  "buildNumber": "340",
-  "branch": "feature/EPIC-0005-US-0039-calibration-stamp",
+  "generatedAt": "2026-10-23T13:45:54.771Z",
+  "commitSha": "56ef8cd",
+  "buildNumber": "333",
+  "branch": "docs/EPIC-0005-moderation-plan",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -3755,13 +4033,13 @@
     }
   },
   "budget": {
-    "totalBudget": null,
+    "totalBudget": 4622.1355,
     "totalSpent": 622.1355,
-    "totalProjected": 33200,
-    "percentUsed": null,
-    "burnRate": 19.381266888888888,
-    "daysRemaining": null,
-    "projectedExhaustion": null,
+    "totalProjected": 37200,
+    "percentUsed": 13,
+    "burnRate": 20.046588333333332,
+    "daysRemaining": 199,
+    "projectedExhaustion": 199,
     "thresholds": [
       50,
       75,
@@ -3773,34 +4051,34 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 217.74741799999993,
-        "spent": 217.74741799999993,
+        "budget": 197.952202,
+        "spent": 197.952202,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 15.553387,
-        "spent": 15.553387,
-        "remaining": 0,
-        "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0005",
-        "title": "Slice 5 — evaluator and reports",
-        "budget": 155.53386999999998,
-        "spent": 155.53386999999998,
+        "budget": 14.139443,
+        "spent": 14.139443,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 233.3008049999999,
-        "spent": 233.3008049999999,
+        "budget": 212.091645,
+        "spent": 212.091645,
         "remaining": 0,
         "percentUsed": 100
+      },
+      {
+        "id": "EPIC-0005",
+        "title": "Slice 5 — evaluator and reports",
+        "budget": 4197.952202,
+        "spent": 197.952202,
+        "remaining": 4000.0000000000005,
+        "percentUsed": 5
       },
       {
         "id": "EPIC-0003",
@@ -3819,46 +4097,44 @@
         "percentUsed": null
       }
     ],
-    "hasBudget": false
+    "hasBudget": true
   },
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-22T22:44:36.986Z",
-      "2026-09-23T22:44:36.986Z",
-      "2026-09-24T22:44:36.986Z",
-      "2026-09-25T22:44:36.986Z",
-      "2026-09-26T22:44:36.986Z",
-      "2026-09-27T22:44:36.986Z",
-      "2026-09-28T22:44:36.986Z",
-      "2026-09-29T22:44:36.986Z",
-      "2026-09-30T22:44:36.986Z",
-      "2026-10-01T22:44:36.986Z",
-      "2026-10-02T22:44:36.986Z",
-      "2026-10-03T22:44:36.986Z",
-      "2026-10-04T22:44:36.986Z",
-      "2026-10-05T22:44:36.986Z",
-      "2026-10-06T22:44:36.986Z",
-      "2026-10-07T22:44:36.986Z",
-      "2026-10-08T22:44:36.986Z",
-      "2026-10-09T22:44:36.986Z",
-      "2026-10-10T22:44:36.986Z",
-      "2026-10-11T22:44:36.986Z",
-      "2026-10-12T22:44:36.986Z",
-      "2026-10-13T22:44:36.986Z",
-      "2026-10-14T22:44:36.986Z",
-      "2026-10-15T22:44:36.986Z",
-      "2026-10-16T22:44:36.986Z",
-      "2026-10-17T22:44:36.986Z",
-      "2026-10-18T22:44:36.986Z",
-      "2026-10-19T22:44:36.986Z",
-      "2026-10-20T22:44:36.986Z",
-      "2026-10-21T22:44:36.986Z",
-      "2026-10-22T23:06:27.226Z",
-      "2026-10-22T23:17:38.129Z"
+      "2026-09-23T13:45:54.863Z",
+      "2026-09-24T13:45:54.863Z",
+      "2026-09-25T13:45:54.863Z",
+      "2026-09-26T13:45:54.863Z",
+      "2026-09-27T13:45:54.863Z",
+      "2026-09-28T13:45:54.863Z",
+      "2026-09-29T13:45:54.863Z",
+      "2026-09-30T13:45:54.863Z",
+      "2026-10-01T13:45:54.863Z",
+      "2026-10-02T13:45:54.863Z",
+      "2026-10-03T13:45:54.863Z",
+      "2026-10-04T13:45:54.863Z",
+      "2026-10-05T13:45:54.863Z",
+      "2026-10-06T13:45:54.863Z",
+      "2026-10-07T13:45:54.863Z",
+      "2026-10-08T13:45:54.863Z",
+      "2026-10-09T13:45:54.863Z",
+      "2026-10-10T13:45:54.863Z",
+      "2026-10-11T13:45:54.863Z",
+      "2026-10-12T13:45:54.863Z",
+      "2026-10-13T13:45:54.863Z",
+      "2026-10-14T13:45:54.863Z",
+      "2026-10-15T13:45:54.863Z",
+      "2026-10-16T13:45:54.863Z",
+      "2026-10-17T13:45:54.863Z",
+      "2026-10-18T13:45:54.863Z",
+      "2026-10-19T13:45:54.863Z",
+      "2026-10-20T13:45:54.863Z",
+      "2026-10-21T13:45:54.863Z",
+      "2026-10-22T13:45:54.863Z",
+      "2026-10-23T13:45:54.861Z"
     ],
     "doneCounts": [
-      0,
       0,
       0,
       0,
@@ -3922,41 +4198,39 @@
       40,
       40,
       40,
-      40,
-      40
+      44
     ],
     "aiCosts": [
-      20.348746666666667,
-      40.697493333333334,
-      61.046240000000004,
-      81.39498666666667,
-      101.74373333333332,
-      122.09248000000001,
-      142.44122666666667,
-      162.78997333333334,
-      183.13872,
-      203.48746666666665,
-      223.83621333333332,
-      244.18496000000002,
-      264.53370666666666,
-      284.88245333333333,
-      305.2312,
-      325.5799466666667,
-      345.92869333333334,
-      366.27744,
-      386.6261866666666,
-      406.9749333333333,
-      427.32367999999997,
-      447.67242666666664,
-      468.02117333333337,
-      488.36992000000004,
-      508.7186666666667,
-      529.0674133333333,
-      549.41616,
-      569.7649066666667,
-      590.1136533333333,
-      610.4624,
-      610.4624,
+      20.737849999999998,
+      41.475699999999996,
+      62.21355,
+      82.95139999999999,
+      103.68924999999999,
+      124.4271,
+      145.16495,
+      165.90279999999998,
+      186.64065,
+      207.37849999999997,
+      228.11634999999998,
+      248.8542,
+      269.59205,
+      290.3299,
+      311.06775,
+      331.80559999999997,
+      352.54345,
+      373.2813,
+      394.01914999999997,
+      414.75699999999995,
+      435.49485,
+      456.23269999999997,
+      476.97055,
+      497.7084,
+      518.44625,
+      539.1841,
+      559.92195,
+      580.6598,
+      601.39765,
+      622.1355,
       622.1355
     ],
     "coverage": [
@@ -3990,11 +4264,9 @@
       0,
       0,
       0,
-      null,
       null
     ],
     "velocity": [
-      0,
       0,
       0,
       0,
@@ -4058,11 +4330,9 @@
       1,
       1,
       1,
-      1,
       1
     ],
     "atRisk": [
-      0,
       0,
       0,
       0,
@@ -4126,7 +4396,6 @@
       0,
       0,
       0,
-      24884746,
       26394971
     ],
     "outputTokens": [
@@ -4160,42 +4429,40 @@
       0,
       0,
       0,
-      4324888,
       4383036
     ],
     "avgRisk": [
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.2125000000000001,
-      1.1600000000000006
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1600000000000006,
+      1.1545454545454552
     ],
     "velocityByWeek": {
       "labels": [

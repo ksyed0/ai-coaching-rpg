@@ -3,10 +3,10 @@
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0007             | EPIC-0006         |
-| US           | US-0041               | US-0040           |
-| TASK         | TASK-0066             | TASK-0065         |
-| AC           | AC-0209               | AC-0208           |
-| TC           | TC-0049               | TC-0048           |
+| US           | US-0045               | US-0044           |
+| TASK         | TASK-0070             | TASK-0069         |
+| AC           | AC-0235               | AC-0234           |
+| TC           | TC-0057               | TC-0056           |
 | BUG          | BUG-0009              | BUG-0008          |
 | L            | L-0020                | L-0019            |
 
@@ -17,3 +17,5 @@ Reserved blocks (2026-10-07): AC-0170..AC-0179, TASK-0052..TASK-0054 and TC-0013
 Reserved blocks (2026-10-07, later): TC-0017..TC-0019 US-0023; TC-0020..TC-0022 US-0019; TC-0023..TC-0024 US-0020. Ids in a block that its story does not use stay unused.
 
 Reserved blocks (2026-10-07, calibration): AC-0180..AC-0197, TASK-0055..TASK-0059 and TC-0025..TC-0039 US-0035..US-0039. Ids in a block that its story does not use stay unused.
+
+Reserved blocks (2026-10-23, moderation): US-0041..US-0044, TASK-0066..TASK-0069, AC-0209..AC-0234 (US-0041 AC-0209..AC-0216, US-0042 AC-0217..AC-0222, US-0043 AC-0223..AC-0228, US-0044 AC-0229..AC-0234) and TC-0049..TC-0056 (two per story, filed when each story moves to In Progress). Ids in a block that its story does not use stay unused.
