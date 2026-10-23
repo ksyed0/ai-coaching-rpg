@@ -1599,7 +1599,7 @@
         },
         {
           "id": "AC-0199",
-          "text": "`pnpm demo --showcase --fast --scenario scenarios/friday-escalation` passes all 14 showcase checks (15 with `--evaluate`) offline, and the extended scenario's mock demos keep their 29, 42 and 14 checks",
+          "text": "`pnpm demo --showcase --fast --scenario scenarios/friday-escalation` passes all 14 showcase checks (16 with `--evaluate`) offline, and the extended scenario's mock demos keep their 29, 42 and 14 checks",
           "done": true
         },
         {
@@ -1714,7 +1714,7 @@
       "priority": "High",
       "estimate": "M",
       "status": "Complete",
-      "branch": "feature/EPIC-0005-US-0042-release-gate",
+      "branch": "feature/EPIC-0005-US-0042-release",
       "acs": [
         {
           "id": "AC-0217",
@@ -1782,7 +1782,7 @@
         },
         {
           "id": "AC-0227",
-          "text": "a review on a session recorded before the policy (legacy drafts) or under another policy version is narrowed to participant and facilitator and the report says so (visibility.test.ts (legacy draft sets), policy.test.ts (policy version); TC-0053)",
+          "text": "a review on a session recorded before the policy (legacy drafts) is narrowed to participant and facilitator and the report says so; a review recorded under another policy version is refused by the fold (no command can load it) and `canView` allows only the facilitator for it (visibility.test.ts (legacy draft sets), policy.test.ts (policy version); TC-0053)",
           "done": true
         },
         {
@@ -2458,7 +2458,7 @@
       "type": "Dev",
       "assignee": "Agent",
       "status": "Done",
-      "branch": "feature/EPIC-0005-US-0042-release-gate",
+      "branch": "feature/EPIC-0005-US-0042-release",
       "notes": "Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 9-10: fold and gate for release, amend, withdraw and export; `release`, `amend`, `withdraw` and `export --for facilitator`. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md."
     },
     {
@@ -2467,7 +2467,7 @@
       "title": "Result visibility and the audience policy",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "Complete",
+      "status": "Done",
       "branch": "feature/EPIC-0005-US-0043-audience",
       "notes": "Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 11-13: policy table, `canView` and redaction; participant exports, review index, legacy handling; offline check S-17. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md."
     },
@@ -3958,9 +3958,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-23T19:43:01.498Z",
-  "commitSha": "f1c46c8",
-  "buildNumber": "366",
+  "generatedAt": "2026-10-23T19:58:44.174Z",
+  "commitSha": "d48960c",
+  "buildNumber": "367",
   "branch": "feature/EPIC-0005-US-0043-audience",
   "sessionTimeline": [
     {
@@ -4194,7 +4194,7 @@
       "2026-10-22T18:04:20.937Z",
       "2026-10-23T18:32:46.424Z",
       "2026-10-23T19:12:59.998Z",
-      "2026-10-23T19:43:01.580Z"
+      "2026-10-23T19:58:44.301Z"
     ],
     "doneCounts": [
       0,

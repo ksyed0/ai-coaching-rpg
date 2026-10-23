@@ -149,6 +149,14 @@ describe("pnpm demo --showcase --evaluate (mock mode)", () => {
     expect(r.stdout).toBe("");
   });
 
+  it("the original Friday scenario with --evaluate has 16 checks, S-16 and S-17 among them, all passed", async () => {
+    const r = await run(["--showcase", "--fast", "--no-color", "--scenario", "scenarios/friday-escalation", "--evaluate", "--eval-out", outDir()]);
+    expect(r.exitCode).toBe(0);
+    expect(r.report!.results).toHaveLength(16);
+    expect(r.report!.results.map((x) => x.id)).toEqual(expect.arrayContaining(["S-16", "S-17"]));
+    expect(r.report!.results.every((x) => x.status === "passed")).toBe(true);
+  });
+
   it("never reads the live environment in a mock run", async () => {
     expect((await run(["--showcase", "--fast", "--evaluate", "--eval-out", outDir()], { resolveLiveEnv: () => { throw new Error("no"); } })).exitCode).toBe(0);
   });
@@ -184,6 +192,7 @@ describe("pnpm demo --showcase --live --evaluate (a fake OpenAI-compatible serve
     const r = await run(["--showcase", "--live", "--max-lines", "1", "--fast", "--no-color", "--evaluate", "--eval-out", out], { resolveLiveEnv: () => env(port, { EVAL_MODEL: "judge-1" }) });
     expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
     expect(r.exitCode).toBe(0);
+    expect(r.report!.results.find((x) => x.id === "S-17")).toMatchObject({ status: "skipped", details: expect.stringMatching(/live mode/) });
     expect(seen.eval).toBe(2); // --max-lines 1: only the delivery lead speaks enough to be evaluated, plus the group
     expect(r.stdout).toMatch(/NOTICE: --evaluate sends the whole session transcript .* to the configured model provider/);
     expect(r.stdout).toMatch(/The evaluator sends the session transcript to the configured model provider/);

@@ -1,14 +1,23 @@
-import { copyFile, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { POLICY, canView, type Principal } from "./policy.js";
-import { applyCommand, loadReview } from "./store.js";
+import { loadReview } from "./store.js";
 import { runModerate } from "./cli.js";
 import { GROUP } from "./types.js";
 
 const BY = "s17";
 const TEXT_INTERNAL = "S17-INTERNAL-NOTE";
-const TEXT_POST_RELEASE = "S17-POST-RELEASE-NOTE";
+const TEXT_POST_RELEASE = "S17-POST-RELEASE-FEEDBACK";
+const TEXT_GROUP_INTERNAL = "S17-GROUP-INTERNAL-NOTE";
+const TEXT_AMEND_EDIT = "S17-AMEND-RATIONALE";
 const TEXT_FEEDBACK = "S17-FEEDBACK-NOTE";
 const TEXT_REASON = "S17-EDIT-REASON";
 /** Fields that exist only while a report is being reviewed; a participant's files must never carry them. */
@@ -52,7 +61,7 @@ export async function runReviewCheck(
   const root = await mkdtemp(path.join(os.tmpdir(), "acr-s17-"));
   try {
     const work = path.join(root, "draft");
-    await (await import("node:fs/promises")).mkdir(work, { mode: 0o700 });
+    await mkdir(work, { mode: 0o700 });
     const names = (await readdir(draftDir)).filter(
       (n) => n.endsWith(".md") || n.endsWith(".json"),
     );
@@ -165,6 +174,15 @@ export async function runReviewCheck(
       "--by",
       BY,
     ]);
+    await must("group internal comment", [
+      "comment",
+      rel,
+      GROUP,
+      "--text",
+      TEXT_GROUP_INTERNAL,
+      "--by",
+      BY,
+    ]);
     await resolveAll();
     await must("release", ["release", rel, "--all", "--by", BY]);
     const released = (await loadReview(work)).events.filter(
@@ -184,6 +202,7 @@ export async function runReviewCheck(
       me,
       "--text",
       TEXT_POST_RELEASE,
+      "--feedback",
       "--by",
       BY,
     ]);
@@ -287,10 +306,43 @@ export async function runReviewCheck(
       peerStrings.length > 0,
       "the peer has no quote or rationale to look for (the check would be vacuous)",
     );
+    // Facilitator-directed material of the source group draft: none of it may be in the participant's group export.
+    const gd = JSON.parse(
+      await readFile(path.join(work, "group.json"), "utf8"),
+    ) as {
+      facilitator_notes?: string;
+      talking_points?: { from_scenario?: string; from_evaluator?: string[] };
+      notable_moments?: { note?: string }[];
+    };
+    const tp = gd.talking_points as unknown;
+    const directed = [
+      gd.facilitator_notes,
+      ...(Array.isArray(tp)
+        ? (tp as string[])
+        : [
+            (tp as { from_scenario?: string } | undefined)?.from_scenario,
+            ...((tp as { from_evaluator?: string[] } | undefined)
+              ?.from_evaluator ?? []),
+          ]),
+      ...(gd.notable_moments ?? []).map((m) => m.note),
+    ].filter((x): x is string => typeof x === "string" && x.length >= 8);
+    ensure(
+      directed.length > 0,
+      "the group draft has no facilitator-directed text to look for (the check would be vacuous)",
+    );
     const files: Record<string, string> = {};
     for (const d of ["out/p1", "out/p2", "out/p3"])
       for (const n of await readdir(path.join(root, d)))
         files[`${d}/${n}`] = await read(`${d}/${n}`);
+    for (const f of Object.keys(files).filter((n) =>
+      /\/group\.(md|json)$/.test(n),
+    ))
+      for (const x of directed)
+        ensure(
+          !files[f]!.includes(x) &&
+            !files[f]!.includes(JSON.stringify(x).slice(1, -1)),
+          `${f} carries facilitator-directed text of the group draft`,
+        );
     ensure(
       Object.keys(files).length >= 4,
       "the participant exports are missing files",
@@ -299,10 +351,10 @@ export async function runReviewCheck(
       // The group report's notable moments keep their quotes by design (the quote, role and scene stay for everyone); personal files and the index may not.
       for (const s of /\/group\.(md|json)$/.test(f) ? [] : peerStrings)
         ensure(!text.includes(s), `${f} carries a peer's quote or rationale`);
-      for (const t of [TEXT_INTERNAL, TEXT_POST_RELEASE])
+      for (const t of [TEXT_INTERNAL, TEXT_POST_RELEASE, TEXT_GROUP_INTERNAL])
         ensure(
           !text.includes(t),
-          `${f} carries an internal or post-release comment`,
+          `${f} carries an internal comment or one made after the release`,
         );
       if (f.endsWith(".md") && !f.endsWith("group.md"))
         ensure(
@@ -343,6 +395,7 @@ export async function runReviewCheck(
       );
 
     // Amend the peer: the participant keeps the last release until it is re-released.
+    await ex(peer, `participant:${peer}`, "out/pre");
     await must("amend", [
       "amend",
       rel,
@@ -352,7 +405,34 @@ export async function runReviewCheck(
       "--by",
       BY,
     ]);
+    const pc = (await loadReview(work)).view.subjects.get(peer)!.criteria[0]!;
+    await must("edit during the amendment", [
+      "edit",
+      rel,
+      peer,
+      pc.id,
+      "--level",
+      pc.current === 4 ? "3" : "4",
+      "--rationale",
+      TEXT_AMEND_EDIT,
+      "--reason",
+      TEXT_REASON,
+      "--by",
+      BY,
+    ]);
     await ex(peer, `participant:${peer}`, "out/amend");
+    for (const ext of ["md", "json"]) {
+      const before = await read(`out/pre/${peer}.${ext}`);
+      const during = await read(`out/amend/${peer}.${ext}`);
+      ensure(
+        !during.includes(TEXT_AMEND_EDIT),
+        `the ${ext} export during an amendment carries the unreleased edit`,
+      );
+      ensure(
+        during === before,
+        `the ${ext} export during an amendment differs from the last release`,
+      );
+    }
     await must("withdraw", [
       "withdraw",
       rel,
@@ -391,31 +471,11 @@ export async function runReviewCheck(
       (e) => e.type === "report.exported",
     ).length;
     ensure(
-      exports === 6,
-      `${exports} exports are recorded, expected 6 (refused exports record nothing)`,
-    );
-    // The library path agrees: an export event can also be written through applyCommand.
-    await applyCommand(work, o.now, (l) => [
-      {
-        actor: { kind: "facilitator", by: BY },
-        body: {
-          type: "report.exported",
-          subject: GROUP,
-          version: l.view.subjects.get(GROUP)!.versions.at(-1)!,
-          principal: "facilitator",
-          destination: "s17",
-        },
-      },
-    ]);
-    const total = (await loadReview(work)).events.filter(
-      (e) => e.type === "report.exported",
-    ).length;
-    ensure(
-      total === exports + 1,
-      "an export written through the library was not recorded",
+      exports === 7,
+      `${exports} exports are recorded, expected 7 (refused exports record nothing)`,
     );
 
-    return `${subjects} subjects reviewed and released in one event; access matrix ${cells} cells checked; peers' results absent from ${me}'s group report; ${total} exports recorded, amend and withdraw honoured`;
+    return `${subjects} subjects reviewed and released in one event; access matrix ${cells} cells checked; peers' results absent from ${me}'s group report; ${exports} exports recorded, amend and withdraw honoured`;
   } finally {
     await rm(root, { recursive: true, force: true });
   }

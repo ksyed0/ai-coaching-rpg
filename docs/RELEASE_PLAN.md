@@ -1132,7 +1132,7 @@ Branch: feature/EPIC-0005-US-0040-friday-showcase
 Dependencies: US-0024, US-0037
 Acceptance Criteria:
   - [x] AC-0198: `scenarios/friday-escalation/showcase.yaml` covers every scene of the scenario (3 scenes, 16 scripted player lines of mixed quality, replies for Priya, and Game Master verdicts including a tolerant and a malformed reply), and no scripted line recites a player's private fact or Priya's hidden fact
-  - [x] AC-0199: `pnpm demo --showcase --fast --scenario scenarios/friday-escalation` passes all 14 showcase checks (15 with `--evaluate`) offline, and the extended scenario's mock demos keep their 29, 42 and 14 checks
+  - [x] AC-0199: `pnpm demo --showcase --fast --scenario scenarios/friday-escalation` passes all 14 showcase checks (16 with `--evaluate`) offline, and the extended scenario's mock demos keep their 29, 42 and 14 checks
   - [x] AC-0200: a scene with no `gm_detects` exit condition is ended by the facilitator advance by design: S-14 (title: no scene with a Game Master condition needed the advance) accepts that, still fails when a scene that has a condition needs the advance, and the observation says so (generic; every shipped scene now has a condition)
   - [x] AC-0201: the original scenario's showcase has labelled negative controls (`NEGATIVE_CUTS` for esc-scope-creep-01) so a live run reports early Game Master exits, and `--live` and `--players generated` are accepted by the CLI with `--scenario scenarios/friday-escalation`
   - [x] AC-0202: live and generated-player runs of the original scenario complete and yield excerpts (TC-0048: five live runs on 2026-10-08, all exit 0, 14 passed 0 failed 2 skipped)
@@ -1230,7 +1230,7 @@ US-0042 (EPIC-0005): Release gate, amend and withdraw, export audit
 Priority: High
 Estimate: M
 Status: Complete
-Branch: feature/EPIC-0005-US-0042-release-gate
+Branch: feature/EPIC-0005-US-0042-release
 Dependencies: US-0041
 Acceptance Criteria:
   - [x] AC-0217: `release` is refused (exit 1) while a criterion that needs review is unresolved, the summary is stale after a score change, or a failed evaluation is not scored by hand; it lists every unresolved item; releasing several subjects is one event, all or none (cli-release.test.ts, fold-release.test.ts, gate.ts; TC-0051, TC-0052)
@@ -1246,7 +1246,7 @@ TASK-0067 (US-0042): Release gate, amend and withdraw, export audit
 Type: Dev
 Assignee: Agent
 Status: Done
-Branch: feature/EPIC-0005-US-0042-release-gate
+Branch: feature/EPIC-0005-US-0042-release
 Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 9-10: fold and gate for release, amend, withdraw and export; `release`, `amend`, `withdraw` and `export --for facilitator`. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md.
 ```
 
@@ -1262,7 +1262,7 @@ Acceptance Criteria:
   - [x] AC-0224: line manager, L&D, HR and programme sponsor are in the table but denied in every shipped command until EPIC-0002 identities exist (policy.test.ts, visibility.test.ts (inert audiences refused); TC-0053)
   - [x] AC-0225: a participant sees their own released personal report; in the group report and `index.md` peers' individual results are removed (not blanked) from the Markdown and the JSON (visibility.test.ts, view.test.ts (peer removal in Markdown and JSON); TC-0054)
   - [x] AC-0226: during an amendment participants keep seeing the last released version; withdrawal removes participant access (visibility.test.ts (amending keeps the last release, withdrawn removes access); TC-0053)
-  - [x] AC-0227: a review on a session recorded before the policy (legacy drafts) or under another policy version is narrowed to participant and facilitator and the report says so (visibility.test.ts (legacy draft sets), policy.test.ts (policy version); TC-0053)
+  - [x] AC-0227: a review on a session recorded before the policy (legacy drafts) is narrowed to participant and facilitator and the report says so; a review recorded under another policy version is refused by the fold (no command can load it) and `canView` allows only the facilitator for it (visibility.test.ts (legacy draft sets), policy.test.ts (policy version); TC-0053)
   - [x] AC-0228: the offline check S-17 drives a scripted review (gate, release, access matrix, redaction, export audit) in the showcase `--evaluate` run; the default mock demo counts 29, 39, 42 and 14 are unchanged (demo-check.test.ts, showcase-evaluate.test.ts; TC-0054)
 ```
 
@@ -1270,7 +1270,7 @@ Acceptance Criteria:
 TASK-0068 (US-0043): Result visibility and the audience policy
 Type: Dev
 Assignee: Agent
-Status: Complete
+Status: Done
 Branch: feature/EPIC-0005-US-0043-audience
 Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 11-13: policy table, `canView` and redaction; participant exports, review index, legacy handling; offline check S-17. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md.
 ```
