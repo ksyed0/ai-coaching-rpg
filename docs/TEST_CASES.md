@@ -835,5 +835,35 @@ Status: [x] Pass
 Defect Raised: None
 Notes: A live `--evaluate` run records S-17 as skipped (live mode): a live evaluation may have players that cannot be released.
 
+TC-0055: Self-ratings, responses and dispute resolution in the fold
+Related Story: US-0044
+Related Task: TASK-0069
+Related AC: AC-0230, AC-0232, AC-0233
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/review/__tests__/fold-self.test.ts`.
+Expected Result: a self-rating is accepted only for a player in draft with no release, the last rating for a criterion wins and no score, status or learning-objective result changes; a response is accepted while released or amending and refused in draft, withdrawn or superseded; at most 50 responses per player, resolved ones included; a dispute is resolved once, only by a facilitator, with upheld, amended or declined, and amended only after an amend or a release that follows the response; participant events need the participant actor with a facilitator's attestation.
+Actual Result: As expected (fold-self tests) on 2026-10-23.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
+TC-0056: `self-assess`, `respond`, `resolve` and the side-by-side report
+Related Story: US-0044
+Related Task: TASK-0069
+Related AC: AC-0229, AC-0230, AC-0231, AC-0232, AC-0233, AC-0234
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/review/__tests__/cli-self.test.ts src/review/__tests__/demo-check-leak.test.ts`.
+  2. Run `pnpm -s demo --showcase --fast --evaluate --eval-out <tmp>` and read check S-17.
+  3. Run `pnpm -s demo`, `pnpm -s demo --resume`, `pnpm -s demo --resume --security`, `pnpm -s demo --showcase --fast`.
+Expected Result: `self-assess --list` shows criteria and level anchors only and does not change when the facilitator edits a score; `--rate` records ratings as `participant:<role>` attested by `--by` (exit 2 without it; last rating wins; bad level, unknown criterion or the group role refused); a self-rating after release is refused with a plain message; the participant's own export shows a Self-rating column and a "Your responses" section with the outcome and reason; a dispute is listed in `status` without its text until resolved; `amended` is refused before an amend; hostile text is escaped and secrets scrubbed; another player's export, the group report and the index never carry the response or self-rating note; a response made after the release is not in the facilitator's snapshot export of that version; S-17 passes (16 checks) and fails when a peer response is made to leak; default runs keep 29, 39, 42 and 14 checks.
+Actual Result: As expected (cli-self and demo-check-leak tests; S-17 passed in the mock showcase run) on 2026-10-23.
+Status: [x] Pass
+Defect Raised: None
+Notes: Facilitator-attested only: no participant is authenticated (see docs/THREAT_MODEL.md).
+
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 

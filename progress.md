@@ -176,3 +176,11 @@
 - **Not built:** self-assessment, response and dispute (US-0044); identities for line manager, L&D, HR and sponsor (EPIC-0002).
 - **Follow-ups (deferred):** extract `export.ts` from `cli.ts`; share the `pick` helper between `view.ts` and `policy.ts`.
 - **Next:** PR for US-0043 (controller), then US-0044 from `develop`.
+
+## Session 9 part 4 — 2026-10-23 (EPIC-0005 moderation: US-0044 self-assessment)
+
+- **Built (branch `feature/EPIC-0005-US-0044-self-assessment`):** fold for self-ratings, responses and dispute resolution (Task 14); `pnpm moderate self-assess | respond | resolve` with the Self-rating column and "Your responses" section in the player's own report and the facilitator view (Task 15). Refactor first: `export.ts` and `cli-util.ts` split out of `cli.ts`, one shared `pick` in `view.ts`. S-17 also checks that self-ratings and responses do not leak (still 16 checks).
+- **Decision:** responses are made after the release, so the participant's own export appends them from the log while scores, summary and self-ratings stay frozen at the release; the facilitator's snapshot export of a version does not carry later responses.
+- **Docs:** `docs/EVALUATOR.md`, `docs/THREAT_MODEL.md` (unkeyed chain, non-atomic sibling check, no content hash on release, attested channel, single-user CLI), README, CHANGELOG, AGENTS.md, TC-0055 and TC-0056, release plan (AC-0229..AC-0234 ticked, US-0044 Complete, TASK-0069 Done).
+- **Not built:** the web UI and real participant logins (EPIC-0002).
+- **Next:** PR for US-0044 (controller); session close updates `MEMORY.md` after merge.
