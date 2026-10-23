@@ -1699,7 +1699,7 @@
         },
         {
           "id": "AC-0216",
-          "text": "draft reports say 'DRAFT: AI-drafted, not reviewed by a facilitator' and 'Visibility: facilitator only until released'; mock demo check counts 29, 39, 42 and 14 are unchanged (draft banner in the report writer; mock demos 29, 14 and 15 with --evaluate unchanged)",
+          "text": "draft reports say 'DRAFT: AI-drafted, not reviewed by a facilitator' and 'Visibility: facilitator only until released'; mock demo check counts 29, 39, 42 and 14 are unchanged (draft banner in the report writer; mock demos 29, 14, 15 with --evaluate, 39 with --resume and 42 with --resume --security unchanged)",
           "done": true
         }
       ],
@@ -3918,9 +3918,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-23T18:26:09.909Z",
-  "commitSha": "15b0d25",
-  "buildNumber": "349",
+  "generatedAt": "2026-10-23T18:32:46.342Z",
+  "commitSha": "81379e2",
+  "buildNumber": "350",
   "branch": "feature/EPIC-0005-US-0041-review-log",
   "sessionTimeline": [
     {
@@ -4152,7 +4152,7 @@
       "2026-10-20T18:04:20.937Z",
       "2026-10-21T18:04:20.937Z",
       "2026-10-22T18:04:20.937Z",
-      "2026-10-23T18:26:10.078Z"
+      "2026-10-23T18:32:46.424Z"
     ],
     "doneCounts": [
       0,

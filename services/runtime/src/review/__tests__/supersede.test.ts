@@ -9,7 +9,11 @@ import {
   siblingReleased,
 } from "../store.js";
 import { readReview, sealEntries, writeEvents } from "../review-log.js";
-import { ReviewRefusedError } from "../errors.js";
+import {
+  ReviewCorruptError,
+  ReviewRefusedError,
+  ReviewUsageError,
+} from "../errors.js";
 import { makeDraftDir, fixedClock } from "./fixtures.js";
 import { writeReports } from "../../evaluator/report-write.js";
 import { sampleEvaluation } from "../../evaluator/__tests__/fixtures.js";
@@ -125,15 +129,26 @@ describe("re-runs", () => {
           },
         },
       ]),
-    ).rejects.toThrow();
+    ).rejects.toThrow(); // passes today because the fold rejects report.released; Task 9 tightens it to ReviewRefusedError
   });
   it("refuses to supersede when a review is already open on the new directory", async () => {
     await openReview(dir1, { by: "kamal", now: fixedClock() });
     await openReview(dir2, { by: "kamal", now: fixedClock() });
+    await applyCommand(dir2, fixedClock(), () => [
+      {
+        actor: fac,
+        body: {
+          type: "comment.added",
+          subject: "alice",
+          text: "own work",
+          visibility: "internal",
+        },
+      },
+    ]); // moderation of its own: not a copy left by an interrupted supersede
     await forceRelease(dir1);
     await expect(
       supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() }),
-    ).rejects.toThrow(/already open/);
+    ).rejects.toThrow(/already open[\s\S]*interrupted supersede/);
   });
   it("refuses a second supersede of the same old review", async () => {
     await openReview(dir1, { by: "kamal", now: fixedClock() });
@@ -148,5 +163,63 @@ describe("re-runs", () => {
     await forceRelease(dir1);
     await supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() });
     expect(await siblingReleased(dir2)).toBeNull();
+  });
+  it("refuses to open when a same-session sibling has a damaged log, naming a sanitised directory; a missing log or a stray file is skipped", async () => {
+    await writeFile(path.join(root, `${path.basename(dir1)}-notes.txt`), "x");
+    expect(await siblingReleased(dir2)).toBeNull();
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    const f = path.join(dir1, "review.jsonl");
+    await writeFile(f, (await readFile(f, "utf8")).slice(0, -5)); // cut-off tail
+    const err = await siblingReleased(dir2).catch((e) => e);
+    expect(err).toBeInstanceOf(ReviewCorruptError);
+    expect(err.message).toContain(path.basename(dir1));
+    await expect(
+      openReview(dir2, { by: "kamal", now: fixedClock() }),
+    ).rejects.toThrow(ReviewCorruptError);
+  });
+  it("a broken hash chain in a sibling is also a refusal", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    const f = path.join(dir1, "review.jsonl");
+    await writeFile(
+      f,
+      (await readFile(f, "utf8")).replace('"prev":"000', '"prev":"111'),
+    );
+    await expect(siblingReleased(dir2)).rejects.toThrow(ReviewCorruptError);
+  });
+  it("refuses the same directory twice (also through another spelling of the path), exit class usage", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    await expect(
+      supersedeReview(dir1, dir1, { by: "kamal", now: fixedClock() }),
+    ).rejects.toThrow(ReviewUsageError);
+    await expect(
+      supersedeReview(dir1, path.join(dir1, "..", path.basename(dir1)), {
+        by: "kamal",
+        now: fixedClock(),
+      }),
+    ).rejects.toThrow(ReviewUsageError);
+  });
+  it("carried events keep their original actor, and subjects missing from the new drafts are reported as dropped", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    const other = { kind: "facilitator", by: "sam" } as const;
+    await applyCommand(dir1, fixedClock(), () => [
+      {
+        actor: other,
+        body: {
+          type: "comment.added",
+          subject: "alice",
+          text: "hi",
+          visibility: "internal",
+        },
+      },
+    ]);
+    await rm(path.join(dir2, "bob.json"));
+    const r = await supersedeReview(dir1, dir2, {
+      by: "kamal",
+      now: fixedClock(),
+    });
+    expect(r.dropped).toContain("bob");
+    const l2 = await loadReview(dir2);
+    const c = l2.events.find((e) => e.type === "comment.added")!;
+    expect(c.actor).toEqual(other);
   });
 });

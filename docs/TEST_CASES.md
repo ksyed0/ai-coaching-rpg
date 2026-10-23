@@ -767,7 +767,7 @@ Preconditions: A checkout of the branch.
 Steps:
   1. Run `pnpm --filter @acr/runtime exec vitest run src/review/__tests__/cli.test.ts src/review/__tests__/cli-show.test.ts`.
   2. Run `pnpm -s demo --showcase --fast --evaluate`, then `pnpm moderate open <reports-dir> --by me`, `status`, `show <dir> group`.
-Expected Result: Open, status, show, edit (with `--expect`), accept, comment, edit-summary and supersede work through the CLI with exit 0 and refuse with 1 or 2 as documented; `show` emits no control character except newline and tab, also when a draft quote, rationale or summary item holds them; the mock demo keeps its check counts (29, 14, and 15 with `--evaluate`).
+Expected Result: Open, status, show, edit (with `--expect`), accept, comment, edit-summary and supersede work through the CLI with exit 0 and refuse with 1 or 2 as documented; `show` emits no control character except newline and tab, also when a draft quote, rationale or summary item holds them; the mock demo keeps its check counts: `pnpm -s demo` 29, `--showcase --fast` 14, `--showcase --fast --evaluate` 15, `--fast --resume` 39, `--fast --resume --security` 42. An interrupted supersede is finished by re-running it (supersede-crash.test.ts).
 Actual Result: As expected (cli tests, 2026-10-23); demo counts 29, 14 and 15 passed, 0 failed.
 Status: [x] Pass
 Defect Raised: None

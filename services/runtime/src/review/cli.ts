@@ -336,6 +336,27 @@ export const HANDLERS: Record<string, Handler> = {
     c.out(`comment added to ${subject}`);
     return 0;
   },
+  async supersede(c) {
+    const newArg = c.args[0];
+    if (!newArg)
+      throw new ReviewUsageError("supersede needs <old-dir> <new-dir>");
+    const newDir = path.resolve(c.base, newArg);
+    if (!(await stat(newDir).catch(() => null))?.isDirectory())
+      throw new ReviewUsageError("the new reports directory does not exist");
+    const r = await supersedeReview(c.dir, newDir, {
+      by: cleanBy(c.values.by),
+      now: c.now,
+    });
+    if (r.completed) c.out("completed an interrupted supersede");
+    c.out(
+      `carried forward: ${r.carried.join(", ") || "none"}; starts clean: ${r.fresh.join(", ") || "none"}`,
+    );
+    if (r.dropped.length)
+      c.out(
+        `not in the new run (their moderation was not carried): ${r.dropped.join(", ")}`,
+      );
+    return 0;
+  },
   async "edit-summary"(c) {
     const [subject] = c.args;
     if (!subject) throw new ReviewUsageError("edit-summary needs <subject>");
@@ -384,23 +405,6 @@ export const HANDLERS: Record<string, Handler> = {
     c.out(`${subject} summary replaced`);
     return 0;
   },
-};
-
-HANDLERS.supersede = async (c) => {
-  const newArg = c.args[0];
-  if (!newArg)
-    throw new ReviewUsageError("supersede needs <old-dir> <new-dir>");
-  const newDir = path.resolve(c.base, newArg);
-  if (!(await stat(newDir).catch(() => null))?.isDirectory())
-    throw new ReviewUsageError("the new reports directory does not exist");
-  const r = await supersedeReview(c.dir, newDir, {
-    by: cleanBy(c.values.by),
-    now: c.now,
-  });
-  c.out(
-    `carried forward: ${r.carried.join(", ") || "none"}; starts clean: ${r.fresh.join(", ") || "none"}`,
-  );
-  return 0;
 };
 
 export async function runModerate(

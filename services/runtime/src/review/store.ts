@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { isFileSafeId, isSafeId } from "@acr/events";
 import { JoinCodes } from "../engine/join-codes.js";
@@ -12,6 +12,7 @@ import {
   ReviewCorruptError,
   ReviewIllegalError,
   ReviewRefusedError,
+  ReviewUsageError,
 } from "./errors.js";
 import { sha256 } from "./hash.js";
 import { checkOpened, currentView, type View } from "./fold.js";
@@ -24,6 +25,7 @@ import {
 import {
   LIMITS,
   POLICY_VERSION,
+  REVIEW_FILE,
   REVIEW_SCHEMA,
   ZERO_HASH,
   type Body,
@@ -146,7 +148,12 @@ export async function applyCommand(
   });
 }
 
-/** Opens the review on a draft directory: binds it to the files, the session instance and the join-code record as they are now. */
+/**
+ * Opens the review on a draft directory: binds it to the files, the session instance and the join-code record as they are now.
+ * Refused when an earlier directory of the session was released (use supersede). Note: after a crash inside `supersedeReview`
+ * the new directory already holds its review while the old one is not yet marked superseded, so both are briefly live;
+ * re-running `supersede <old> <new>` completes it and is the recovery.
+ */
 export async function openReview(dir: string, meta: OpenMeta): Promise<Loaded> {
   return withReviewLock(dir, async () => {
     const existing = await readReview(dir);
@@ -246,13 +253,28 @@ export async function readCodesRecord(
   return rec;
 }
 
-/** The name of another directory of the same session instance (same id and startedAt) whose review has a release and was not superseded, else null. */
+/** A directory name made safe to print: anything but printable ASCII becomes ?, at most 64 characters. */
+const safeName = (n: string): string =>
+  Array.from(n)
+    .slice(0, 64)
+    .map((c) =>
+      c.length === 1 && c.charCodeAt(0) > 0x20 && c.charCodeAt(0) < 0x7f
+        ? c
+        : "?",
+    )
+    .join("");
+
+/** The name of another directory of the same session instance (same id and startedAt) whose review has a release and was not superseded, else null. Matching uses session id and startedAt, not the log hash (a new directory has no log yet). A damaged log in such a directory is a refusal; a missing one is skipped. */
 export async function siblingReleased(dir: string): Promise<string | null> {
   const drafts = await loadDrafts(dir);
   const parent = path.dirname(dir);
   const me = path.basename(dir);
-  for (const name of (await readdir(parent)).sort()) {
+  for (const ent of (await readdir(parent, { withFileTypes: true })).sort(
+    (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0),
+  )) {
+    const name = ent.name;
     if (
+      !ent.isDirectory() ||
       name === me ||
       !(name === drafts.sessionId || name.startsWith(`${drafts.sessionId}-`))
     )
@@ -260,8 +282,12 @@ export async function siblingReleased(dir: string): Promise<string | null> {
     let read;
     try {
       read = await readReview(path.join(parent, name));
-    } catch {
-      continue;
+    } catch (e) {
+      if (e instanceof ReviewCorruptError)
+        throw new ReviewCorruptError(
+          `the review log in the earlier directory ${safeName(name)} is damaged, so it cannot be checked for a release; restore it from a backup or move that directory out of the way`,
+        );
+      throw e;
     }
     const first = read.events[0];
     if (
@@ -294,19 +320,45 @@ function stripEnvelope(e: ReviewEvent): Body {
   return body as Body;
 }
 
+export type SupersedeResult = {
+  carried: string[];
+  fresh: string[];
+  /** Subjects the old review has that the new drafts do not. */
+  dropped: string[];
+  /** True when this call finished an interrupted supersede (the new review was already written). */
+  completed: boolean;
+};
+
+/** A cause from a failed write, made safe to print: printable ASCII only, at most 160 characters. */
+const cause = (e: unknown): string =>
+  Array.from(String((e as Error)?.message ?? e))
+    .slice(0, 160)
+    .map((c) => (c >= " " && c <= "~" ? c : "?"))
+    .join("");
+
 /**
  * Moves moderation from an earlier review of the same session to a re-run: subjects whose draft file is byte-identical
  * keep their moderation (copied as events marked carriedFrom); the rest start clean. Ruling P16: the new review is
  * written first, the old one is marked superseded last, so a crash leaves the old review live and never both closed.
+ * After such a crash both reviews are live until `supersede old new` is run again: when the new log is exactly the copies
+ * this call would write, the call only appends the missing marker to the old log. `o.by` must already be a clean id
+ * (the CLI passes it through `cleanBy`); it is validated here again because it is stored.
  */
 export async function supersedeReview(
   oldDir: string,
   newDir: string,
   o: { by: string; now: () => number },
-): Promise<{ carried: string[]; fresh: string[] }> {
+): Promise<SupersedeResult> {
   if (!isSafeId(o.by))
     throw new ReviewRefusedError(
       "--by must be 1 to 64 letters, digits, _ or -",
+    );
+  const [realOld, realNew] = await Promise.all(
+    [oldDir, newDir].map((d) => realpath(d).catch(() => path.resolve(d))),
+  );
+  if (realOld === realNew)
+    throw new ReviewUsageError(
+      "supersede needs two different directories: the earlier one and the re-run",
     );
   return withReviewLock(oldDir, () =>
     withReviewLock(newDir, async () => {
@@ -337,10 +389,6 @@ export async function supersedeReview(
         throw new ReviewRefusedError(
           "the two directories are not evaluations of the same session",
         );
-      if ((await readReview(newDir)).events.length > 0)
-        throw new ReviewRefusedError(
-          "a review is already open on the new directory",
-        );
       const identical = [...newDrafts.subjects.keys()].filter(
         (id) =>
           oldDrafts.files[`${id}.json`] !== undefined &&
@@ -348,6 +396,9 @@ export async function supersedeReview(
       );
       const fresh = [...newDrafts.subjects.keys()].filter(
         (id) => !identical.includes(id),
+      );
+      const dropped = [...oldDrafts.subjects.keys()].filter(
+        (id) => !newDrafts.subjects.has(id),
       );
       const name = path.basename(oldDir);
       const opened: Entry = {
@@ -378,14 +429,6 @@ export async function supersedeReview(
       if (1 + carried.length > LIMITS.events)
         throw new ReviewRefusedError("this review has reached its event limit");
       const sealedNew = sealEntries([], ZERO_HASH, [opened, ...carried], o.now);
-      fold(
-        newDrafts,
-        sealedNew,
-        (m) =>
-          new ReviewRefusedError(
-            `the carried-forward moderation does not apply: ${m}`,
-          ),
-      );
       const sealedOld = sealEntries(
         old.events,
         old.tailHash,
@@ -397,15 +440,66 @@ export async function supersedeReview(
         ],
         o.now,
       );
-      await writeEvents(newDir, sealedNew);
+      // room for the marker in the old log, checked BEFORE the new log is written
+      const marker = Buffer.byteLength(`${JSON.stringify(sealedOld[0])}\n`);
+      const oldSize = (await stat(path.join(oldDir, REVIEW_FILE))).size;
+      if (
+        old.events.length + 1 > LIMITS.events ||
+        oldSize + marker > LIMITS.logBytes
+      )
+        throw new ReviewRefusedError(
+          "the earlier review is full, so it cannot be marked superseded",
+        );
+      const existing = await readReview(newDir);
+      let completed = false;
+      if (existing.events.length > 0) {
+        // the same copies this call would write? then an earlier supersede stopped before the old marker: finish it
+        const sig = (en: {
+          actor: unknown;
+          carriedFrom?: string;
+          body: unknown;
+        }) => JSON.stringify([en.actor, en.carriedFrom ?? null, en.body]);
+        const want = [opened, ...carried].map(sig);
+        const have = existing.events.map((e) =>
+          sig({
+            actor: e.actor,
+            ...(e.carriedFrom !== undefined
+              ? { carriedFrom: e.carriedFrom }
+              : {}),
+            body: stripEnvelope(e),
+          }),
+        );
+        const sameCopies =
+          want.length === have.length &&
+          existing.events.slice(1).every((e) => e.carriedFrom === name) &&
+          // the opener may be by a different facilitator name on the retry; compare it without the actor
+          want.slice(1).every((w, i) => w === have[i + 1]) &&
+          JSON.stringify(stripEnvelope(existing.events[0]!)) ===
+            JSON.stringify(opened.body);
+        if (!sameCopies)
+          throw new ReviewRefusedError(
+            "a review is already open on the new directory and it is not the copy of this earlier review left by an interrupted supersede; pick a directory with no review.jsonl, or move that file aside if it holds only copies",
+          );
+        completed = true;
+      } else {
+        fold(
+          newDrafts,
+          sealedNew,
+          (m) =>
+            new ReviewRefusedError(
+              `the carried-forward moderation does not apply: ${m}`,
+            ),
+        );
+        await writeEvents(newDir, sealedNew);
+      }
       try {
         await writeEvents(oldDir, sealedOld);
-      } catch {
+      } catch (e) {
         throw new ReviewCorruptError(
-          "the new review was opened but the old one could not be marked superseded; delete review.jsonl in the new directory (it holds only copies) and run supersede again",
+          `the new review was opened but the earlier one could not be marked superseded (${cause(e)}); both are live until you run the same supersede command again, which finishes it`,
         );
       }
-      return { carried: identical, fresh };
+      return { carried: identical, fresh, dropped, completed };
     }),
   );
 }
