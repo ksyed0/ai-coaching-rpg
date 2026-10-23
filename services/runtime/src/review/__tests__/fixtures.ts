@@ -9,6 +9,7 @@ import {
   ZERO_HASH,
   type Actor,
   type Body,
+  type Entry,
   type ReviewEvent,
 } from "../types.js";
 import type { Drafts } from "../draft.js";
@@ -63,7 +64,22 @@ export function makeFold(drafts: Drafts) {
       fixedClock(),
     );
   const fold = (...b: Body[]): View => currentView(drafts, log(...b));
-  return { fac, opened, log, fold };
+  const part = (role: string): Actor => ({
+    kind: "participant",
+    role,
+    attestedBy: "kamal",
+  });
+  const foldE = (...entries: Entry[]): View =>
+    currentView(
+      drafts,
+      sealEntries(
+        [],
+        ZERO_HASH,
+        [{ actor: fac, body: opened() }, ...entries],
+        fixedClock(),
+      ),
+    );
+  return { fac, opened, log, fold, part, foldE };
 }
 
 /** An accept for every needs-review criterion of a subject, plus summary.accepted when its summary is stale. */
