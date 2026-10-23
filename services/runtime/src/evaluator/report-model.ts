@@ -85,6 +85,10 @@ export type ParticipantReport = Common & {
   comments?: ReportComment[];
   /** Facilitator audience only: whether the summary was edited, or is stale after a score edit. */
   summary_state?: { edited: boolean; stale: boolean };
+  /** The participant's own self-rating per criterion id (blind, before release); never changes the score. Present only when at least one exists. */
+  self?: Record<string, { level: number | null; label: string; note?: string }>;
+  /** The participant's own responses and disputes with the facilitator's outcome. Shown only in that participant's report and the facilitator view. */
+  responses?: { criterion?: string; text: string; dispute: boolean; resolution?: { outcome: string; reason: string } }[];
 };
 export type GroupReport = Common & {
   kind: "group";
