@@ -22,8 +22,8 @@ describe("participant report", () => {
     const order = ["# Feedback report: alice", `> ${DRAFT_BANNER}`, VISIBILITY_LINE, "## Summary", "### Strengths", "### Development points", "### Next actions", "## Learning objectives", "## Criteria", "## Evidence", "## How this was scored"].map((x) => md.indexOf(x));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
-    expect(DRAFT_BANNER).toBe("DRAFT: AI-drafted - held for facilitator review before release (facilitator editing is planned)");
-    expect(VISIBILITY_LINE).toBe("Visibility: all participants (prototype setting; per-participant isolation is planned)");
+    expect(DRAFT_BANNER).toBe("DRAFT: AI-drafted, not reviewed by a facilitator");
+    expect(VISIBILITY_LINE).toBe("Visibility: facilitator only until released");
     expect(md).toContain("| Participant role | `alice` |");
     expect(md).toContain("- (`LO2`) State two options.");
     expect(md).toMatch(/\| Discovery \(`discovery`\) \| 3 - Proficient \| High \|/);

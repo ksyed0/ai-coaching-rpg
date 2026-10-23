@@ -2,7 +2,7 @@
 
 The evaluator turns a recorded session into draft feedback: a score per criterion for each player, a score per criterion for the team, learning-objective results, and a personal report for each player plus a group report with talking points for the facilitator. It is the first version of EPIC-0005 (US-0028 to US-0031). Everything it produces is a **draft**: it is held for facilitator review, and the review and edit workflow is a planned follow-up (ASM-04).
 
-**Visibility: all participants (prototype setting; per-participant isolation is planned).** For now every participant may see every score and report. There is no access control yet (ASM-09 is planned).
+**Visibility: facilitator only until released.** Draft reports are for the facilitator. A moderated view marks each facilitator-adjusted score with the AI original and the reason, and is labelled "IN REVIEW" until it is released.
 
 ## Method
 

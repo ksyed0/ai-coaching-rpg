@@ -12,7 +12,7 @@ export const token = (v: string | undefined, sec: string[]): string => (v !== un
 
 function header(title: string, r: ParticipantReport | GroupReport, sec: string[], extra: [string, string][]): string[] {
   const cell = (t: string) => safeMd(t, 200, sec);
-  const out = [`# ${title}`, "", `> ${DRAFT_BANNER}`, "", VISIBILITY_LINE, "", "| Field | Value |", "| --- | --- |",
+  const out = [`# ${title}`, "", `> ${safeMd(r.draft_notice, 300, sec)}`, "", safeMd(r.visibility, 300, sec), "", "| Field | Value |", "| --- | --- |",
     `| Scenario | ${cell(r.scenario.title)} (${id(r.scenario.id, sec)}, version ${cell(r.scenario.version)}) |`,
     `| Session | ${id(r.session.id, sec)} |`, `| Date | ${cell(r.session.date)} |`];
   for (const [k, v] of extra) out.push(`| ${k} | ${v} |`);
@@ -24,11 +24,19 @@ function header(title: string, r: ParticipantReport | GroupReport, sec: string[]
   return out;
 }
 
+const adjusted = (c: JsonCriterion, sec: string[]): string =>
+  c.moderation?.adjusted ? ` - **Facilitator-adjusted** from ${scoreText(c.moderation.ai_score, c.moderation.ai_label, false)} (AI draft; ${safeMd(c.moderation.reason ?? "no reason recorded", 500, sec)})` : "";
+
+function notesSection(r: ParticipantReport | GroupReport, sec: string[]): string[] {
+  if (!r.comments?.length) return [];
+  return ["## Facilitator notes", "", ...r.comments.map((c) => `- ${c.criterion ? `${id(c.criterion, sec)}: ` : ""}${safeMd(c.text, 1500, sec)}`), ""];
+}
+
 function criteriaTable(cs: JsonCriterion[], sec: string[]): string[] {
   const out = ["| Criterion | Level | Confidence | Rationale |", "| --- | --- | --- | --- |"];
   for (const c of cs) {
     const flags = c.flags.length ? ` (${c.flags.map((f) => safeMd(f, 160, sec)).join("; ")})` : "";
-    out.push(`| ${safeMd(c.name, 120, sec)} (${id(c.id, sec)}) | ${scoreText(c.score, c.level_label, c.invalid)} | ${c.confidence ? cap(c.confidence) : "-"} | ${safeMd(c.rationale, 600, sec) || "-"}${flags} |`);
+    out.push(`| ${safeMd(c.name, 120, sec)} (${id(c.id, sec)}) | ${scoreText(c.score, c.level_label, c.invalid)} | ${c.confidence ? cap(c.confidence) : "-"} | ${safeMd(c.rationale, 600, sec) || "-"}${flags}${adjusted(c, sec)} |`);
   }
   return out;
 }
@@ -69,6 +77,7 @@ export function renderParticipantMarkdown(r: ParticipantReport, secrets: string[
   }
   out.push("## Learning objectives", "", ...objectivesTable(r.learning_objectives, sec), "");
   out.push("## Criteria", "", ...criteriaTable(r.criteria, sec), "");
+  out.push(...notesSection(r, sec));
   out.push(...evidenceSection(r.criteria, sec, false));
   out.push(...methodMarkdown(r.method, 2));
   return `${out.join("\n")}\n`;
@@ -81,6 +90,7 @@ export function renderGroupMarkdown(r: GroupReport, secrets: string[] = []): str
   out.push("## Group criteria", "");
   if (r.evaluation.status !== "ok") out.push(`${safeMd(r.evaluation.reason ?? r.evaluation.status, 400, sec)}`, "");
   out.push(...criteriaTable(r.criteria, sec), "");
+  out.push(...notesSection(r, sec));
   out.push("## Learning-objective coverage across the team", "");
   const players = r.lo_coverage.players;
   // The team column appears only when a learning objective maps to a group criterion (otherwise it would be all Not observed).

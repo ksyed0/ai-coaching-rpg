@@ -50,7 +50,7 @@ export type EvaluatorInfo = {
 export type ReportContext = { result: EvaluationResult; evaluator: EvaluatorInfo; secrets: string[] };
 
 type Common = {
-  schema: typeof REPORT_SCHEMA; status: "draft"; /** True when the scores come from the scripted offline evaluator (demo data). */ demo: boolean; draft_notice: string; visibility: string;
+  schema: typeof REPORT_SCHEMA | "acr.view/1"; status: "draft" | "moderated" | "released"; /** True when the scores come from the scripted offline evaluator (demo data). */ demo: boolean; draft_notice: string; visibility: string;
   scenario: { id: string; title: string; version: string };
   session: { id: string; date: string; complete: boolean; scenes: { number: number; id: string; title: string }[] };
   evaluator: Omit<EvaluatorInfo, "calibration" | "scripted"> & { calibration: StampState; calibration_line: string; model_calls: number };
@@ -63,7 +63,11 @@ export type JsonCriterion = {
   /** True when the evaluator's answer for this criterion was unusable (not the same as Not observed). */
   invalid: boolean;
   evidence: { seq: number; role: string; quote: string; scene: number; scene_title: string; time: string; flags: string[] }[];
+  moderation?: Moderation;
 };
+/** What the review changed on a criterion; present only on a moderated view. */
+export type Moderation = { adjusted: boolean; ai_score: number | null; ai_label: string; reason: string | null; by: string | null; rationale_edited: boolean; accepted: boolean };
+export type ReportComment = { criterion?: string; text: string; by: string; visibility: "internal" | "feedback" };
 export type JsonObjective = { id: string; statement: string; score: number | null; label: string; criteria: string[]; observed: string[]; incomplete: boolean };
 
 export type ParticipantReport = Common & {
@@ -73,6 +77,7 @@ export type ParticipantReport = Common & {
   summary: { strengths: string[]; development_points: string[]; next_actions: { lo: string; action: string }[] };
   learning_objectives: JsonObjective[];
   criteria: JsonCriterion[];
+  comments?: ReportComment[];
 };
 export type GroupReport = Common & {
   kind: "group";
@@ -82,6 +87,7 @@ export type GroupReport = Common & {
   /** Set when no learning objective maps to a group criterion (then `learning_objectives` is empty). */
   learning_objectives_note?: string;
   lo_coverage: { players: string[]; objectives: { id: string; statement: string; by_role: Record<string, { score: number | null; label: string; incomplete: boolean }>; team: { score: number | null; label: string; incomplete: boolean } }[] };
+  comments?: ReportComment[];
   facilitator_notes: string;
   talking_points: { from_scenario: string; from_evaluator: string[] };
   notable_moments: { seq: number; role: string; quote: string; note: string; scene: number; scene_title: string; time: string }[];
