@@ -184,3 +184,5 @@
 - **Docs:** `docs/EVALUATOR.md`, `docs/THREAT_MODEL.md` (unkeyed chain, non-atomic sibling check, no content hash on release, attested channel, single-user CLI), README, CHANGELOG, AGENTS.md, TC-0055 and TC-0056, release plan (AC-0229..AC-0234 ticked, US-0044 Complete, TASK-0069 Done).
 - **Not built:** the web UI and real participant logins (EPIC-0002).
 - **Next:** PR for US-0044 (controller); session close updates `MEMORY.md` after merge.
+- **Fix round (whole-story review):** a frozen facilitator snapshot no longer shows a dispute resolved after the release; the participant report marks the response boundary; docs corrected; dead imports removed; S-17 scans the peer's own export and the mutation test uses a structural leak.
+- **Follow-ups (deferred):** move self-assess/respond/resolve into `participant.ts`; document the facilitator-vs-participant export difference beyond EVALUATOR.md.

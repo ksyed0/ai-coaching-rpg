@@ -504,6 +504,18 @@ export async function runReviewCheck(
 
     // Amend the peer: the participant keeps the last release until it is re-released.
     await ex(peer, `participant:${peer}`, "out/pre");
+    for (const ext of ["md", "json"]) {
+      const theirs = await read(`out/pre/${peer}.${ext}`);
+      for (const t of [TEXT_SELF_ME, TEXT_RESP_ME])
+        ensure(
+          !theirs.includes(t),
+          `${peer}'s own export carries another player's self-rating or response`,
+        );
+      ensure(
+        theirs.includes(TEXT_RESP_PEER),
+        "the peer's own export lacks their response (the check would be vacuous)",
+      );
+    }
     await must("amend", [
       "amend",
       rel,

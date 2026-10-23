@@ -502,7 +502,7 @@ Work follows `feature/*` → `develop` (pull request) → `main` (pull request).
 - Resuming after a restart restores the session paused, but not the participants' role claims (anyone with a role's join code may claim it again). Injects and whispers are replayed only to a client that rejoins with its last-seen seq (`--last-seq`), and only from the last 4096 events, at most 1000 events or 256 KiB per rejoin (US-0013); the terminal client does not reconnect by itself: it exits and prints the `--last-seq` to use. A rotated log is moved with a hard link and falls back to a file copy, so the data directory's filesystem must support one of the two. Session logs are capped at 64 MiB.
 - A session lock left by a crashed server on another machine (or container with another host name) blocks a restart for up to `SESSION_LOCK_STALE_MS` (30 s).
 - NPCs are a scripted mock unless you configure a model provider.
-- Scoring and feedback reports are a first, AI-drafted version: no facilitator edit workflow, no participant self-assessment, no isolation between participants (everyone may see every report), and not yet validated against human raters. See [docs/EVALUATOR.md](docs/EVALUATOR.md).
+- Scoring and feedback reports are AI-drafted and facilitator-moderated through the `pnpm moderate` command line: there is no web screen for the facilitator or participants, self-assessment, responses and disputes are attested by the facilitator rather than made by a logged-in participant, line managers, L&D, HR and sponsors cannot be identified yet (EPIC-0002), and the evaluator is not yet validated against human raters. See [docs/EVALUATOR.md](docs/EVALUATOR.md).
 
 ## License
 

@@ -12,7 +12,13 @@ vi.mock("../view.js", async (orig) => {
       ...a: Parameters<typeof real.participantGroupReport>
     ) => {
       const r = real.participantGroupReport(...a);
-      r.notes.push("S17-RESPONSE-PEER");
+      // a structural leak: a peer's response and self-rating attached to the group report
+      Object.assign(r, {
+        responses: [{ text: "S17-RESPONSE-PEER", dispute: false }],
+        self: {
+          x: { level: 2, label: "Developing", note: "S17-SELF-NOTE-PEER" },
+        },
+      });
       return r;
     },
   };

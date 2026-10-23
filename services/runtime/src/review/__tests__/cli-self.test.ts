@@ -921,3 +921,109 @@ describe("who sees what", () => {
     expect(after).toContain("while amending");
   });
 });
+
+describe("fix round", () => {
+  it("a facilitator snapshot export does not change when a dispute is resolved later", async () => {
+    await release();
+    await run(["amend", rel, "alice", "--reason", "r", "--by", "kamal"]);
+    await run([
+      "respond",
+      rel,
+      "--role",
+      "alice",
+      "--text",
+      "DURING-AMEND",
+      "--dispute",
+      "--by",
+      "kamal",
+    ]);
+    await resolveAll("alice");
+    expect((await run(["release", rel, "alice", "--by", "kamal"])).code).toBe(
+      0,
+    );
+    await run([
+      "export",
+      rel,
+      "alice",
+      "--for",
+      "facilitator",
+      "--to",
+      "o/f1",
+      "--by",
+      "kamal",
+    ]);
+    const seq = (await loadReview(dir)).events.find(
+      (e) => e.type === "response.added",
+    )!.seq;
+    expect(
+      (
+        await run([
+          "resolve",
+          rel,
+          String(seq),
+          "--outcome",
+          "upheld",
+          "--reason",
+          "LATE-REASON",
+          "--by",
+          "kamal",
+        ])
+      ).code,
+    ).toBe(0);
+    await run([
+      "export",
+      rel,
+      "alice",
+      "--for",
+      "facilitator",
+      "--to",
+      "o/f2",
+      "--by",
+      "kamal",
+    ]);
+    for (const f of ["alice.md", "alice.json"]) {
+      const a = await readFile(path.join(root, "o/f1", f), "utf8");
+      expect(await readFile(path.join(root, "o/f2", f), "utf8")).toBe(a);
+      expect(a).not.toContain("LATE-REASON");
+    }
+  });
+  it("marks the boundary under Your responses, in md and json", async () => {
+    await release();
+    await run([
+      "respond",
+      rel,
+      "--role",
+      "alice",
+      "--text",
+      "BOUNDARY",
+      "--by",
+      "kamal",
+    ]);
+    const md = await exportAlice("o/bd");
+    const v = (await loadReview(dir)).view.subjects
+      .get("alice")!
+      .versions.at(-1)!;
+    expect(md).toContain(
+      `Responses are added after release and are not part of version ${v}.`,
+    );
+    const json = JSON.parse(
+      await readFile(path.join(root, "o/bd/alice.json"), "utf8"),
+    );
+    expect(json.responses[0].version).toBe(v);
+  });
+  it("self-assess --list refuses --note", async () => {
+    expect(
+      (
+        await run([
+          "self-assess",
+          rel,
+          "--role",
+          "alice",
+          "--list",
+          "--note",
+          "x",
+        ])
+      ).code,
+    ).toBe(2);
+  });
+});
