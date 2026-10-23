@@ -1,4 +1,4 @@
-import { link, lstat, mkdir, rm, stat, unlink } from "node:fs/promises";
+import { link, lstat, mkdir, rmdir, rm, stat, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -150,6 +150,28 @@ function cleanLine(line: string, secrets: string[]): string {
     if (dir && dir !== "/") out = out.split(dir).join(label);
   return out;
 }
+/** Every string in a JSON value with the secret values redacted (the Markdown renderer does the same), keys untouched. */
+function redactDeep(v: unknown, secrets: string[]): unknown {
+  if (typeof v === "string") {
+    let t = v;
+    for (const x of secrets) if (x) t = t.split(x).join("[redacted]");
+    return t;
+  }
+  if (Array.isArray(v)) return v.map((x) => redactDeep(x, secrets));
+  if (v && typeof v === "object")
+    return Object.fromEntries(
+      Object.entries(v).map(([k, x]) => [k, redactDeep(x, secrets)]),
+    );
+  return v;
+}
+/** The hint printed when a release or withdrawal left the released group's per-role table out of date. */
+const staleHint = (before: Loaded, after: Loaded): string | null => {
+  const b = before.view.subjects.get("group");
+  const a = after.view.subjects.get("group");
+  return a?.tableStale && !b?.tableStale
+    ? "the group's per-role table is now out of date; amend and re-release the group to refresh it"
+    : null;
+};
 const lvl = (l: unknown): string => (l === null ? "na" : String(l));
 
 function statusLines(l: Loaded): string[] {
@@ -161,7 +183,7 @@ function statusLines(l: Loaded): string[] {
   for (const sv of l.view.subjects.values()) {
     const open = sv.criteria.filter((c) => c.status === "needs_review");
     out.push(
-      `${sv.id}: ${sv.state}${sv.versions.length ? ` (version ${sv.versions.at(-1)})` : ""}, ${open.length} of ${sv.criteria.length} criteria need review${sv.summaryStale ? ", summary may be out of date" : ""}${sv.evaluationOk ? "" : ", evaluation failed (score by hand)"}`,
+      `${sv.id}: ${sv.state}${sv.versions.length ? ` (version ${sv.versions.at(-1)})` : ""}, ${open.length} of ${sv.criteria.length} criteria need review${sv.summaryStale ? ", summary may be out of date" : ""}${sv.evaluationOk ? "" : ", evaluation failed (score by hand)"}${sv.tableStale ? ", per-role table out of date (amend and re-release the group)" : ""}`,
     );
     for (const c of open)
       out.push(`  needs review: ${c.id} (currently ${lvl(c.current)})`);
@@ -362,7 +384,9 @@ export const HANDLERS: Record<string, Handler> = {
       );
     if (!all && c.args.length === 0)
       throw new ReviewUsageError("release needs <subject>... or --all");
-    const { appended } = await applyCommand(c.dir, c.now, (l) => {
+    let before!: Loaded;
+    const { appended, loaded } = await applyCommand(c.dir, c.now, (l) => {
+      before = l;
       const ids = all
         ? [...l.view.subjects.values()]
             .filter((s) => s.state === "draft" || s.state === "amending")
@@ -385,14 +409,27 @@ export const HANDLERS: Record<string, Handler> = {
         }
         for (const p of releaseProblems(sv)) problems.push(`${id}: ${p}`);
       }
-      if (problems.length)
+      if (problems.length) {
+        // The top-level error message is cut at 400 characters: keep whole lines and say how many were left out.
+        const shown: string[] = [];
+        let len = 60; // "refused: nothing was released:" plus the line markers and the "... and N more" tail
+        for (const raw of problems) {
+          const p = raw.length > 110 ? `${raw.slice(0, 107)}...` : raw;
+          if (shown.length > 0 && len + p.length + 5 > 380 - 40) break;
+          shown.push(p);
+          len += p.length + 5;
+        }
+        const more = problems.length - shown.length;
         throw new ReviewRefusedError(
-          `nothing was released:\n  ${problems.join("\n  ")}`,
+          `nothing was released:\n  ${shown.join("\n  ")}${more > 0 ? `\n  ... and ${more} more; run status for the full list` : ""}`,
         );
+      }
       return [{ actor, body: { type: "report.released", subjects: ids } }];
     });
     const e = appended[0] as Extract<ReviewEvent, { type: "report.released" }>;
     c.out(`released ${e.subjects.join(", ")} as version ${e.seq}`);
+    const hint = staleHint(before, loaded);
+    if (hint) c.out(hint);
     return 0;
   },
   async amend(c) {
@@ -432,11 +469,15 @@ export const HANDLERS: Record<string, Handler> = {
       "--reason",
       c.secrets,
     );
-    await applyCommand(c.dir, c.now, (l) => {
+    let before!: Loaded;
+    const { loaded } = await applyCommand(c.dir, c.now, (l) => {
+      before = l;
       need(l.view.subjects.get(subject), "subject");
       return [{ actor, body: { type: "report.withdrawn", subject, reason } }];
     });
     c.out(`${subject} withdrawn`);
+    const hint = staleHint(before, loaded);
+    if (hint) c.out(hint);
     return 0;
   },
   async export(c) {
@@ -455,20 +496,12 @@ export const HANDLERS: Record<string, Handler> = {
       : "destination";
     const names = [`${subject}.md`, `${subject}.json`];
     const l = await loadReview(c.dir);
-    const sv = need(l.view.subjects.get(subject), "subject");
-    if (sv.state !== "released")
+    const sv0 = need(l.view.subjects.get(subject), "subject");
+    if (sv0.state !== "released")
       throw new ReviewRefusedError(
-        `${subject} is ${sv.state}; only a released report is exported`,
+        `${subject} is ${sv0.state}; only a released report is exported`,
       );
-    const report = snapshotReport(
-      l.drafts.subjects.get(subject)!.raw as unknown as
-        ParticipantReport | GroupReport,
-      l.view,
-      subject,
-    );
-    const md = renderSubjectMarkdown(report, c.secrets);
-    const json = `${JSON.stringify(report, null, 2)}\n`;
-    // Refuse before auditing what we can already see is unwritable: a symlinked or non-directory destination, or a file already there.
+    // Refuse before auditing what we can already see is unwritable: a symbolic-link or non-directory destination, or a file already there.
     const existing = await lstat(dest).catch(() => null);
     if (existing && (existing.isSymbolicLink() || !existing.isDirectory()))
       throw new ReviewRefusedError(
@@ -481,24 +514,47 @@ export const HANDLERS: Record<string, Handler> = {
             `the destination already holds ${shownName(n)}; files are never overwritten; nothing was exported`,
           );
     // The audit event comes first (P17): a record of an export that then failed is safer than an export nobody recorded.
-    await applyCommand(c.dir, c.now, (cur) => [
-      {
-        actor,
-        body: {
-          type: "report.exported",
-          subject,
-          version: cur.view.subjects.get(subject)!.versions.at(-1)!,
-          principal: "facilitator",
-          destination: label,
+    // Version and content are both taken from the locked view inside the callback, so they always belong together.
+    let md = "";
+    let json = "";
+    await applyCommand(c.dir, c.now, (cur) => {
+      const sv = need(cur.view.subjects.get(subject), "subject");
+      if (sv.state !== "released")
+        throw new ReviewRefusedError(
+          `${subject} is ${sv.state}; only a released report is exported`,
+        );
+      const report = snapshotReport(
+        cur.drafts.subjects.get(subject)!.raw as unknown as
+          ParticipantReport | GroupReport,
+        cur.view,
+        subject,
+      );
+      md = renderSubjectMarkdown(report, c.secrets);
+      json = `${JSON.stringify(redactDeep(report, c.secrets), null, 2)}\n`;
+      return [
+        {
+          actor,
+          body: {
+            type: "report.exported",
+            subject,
+            version: sv.versions.at(-1)!,
+            principal: "facilitator",
+            destination: label,
+          },
         },
-      },
-    ]);
+      ];
+    });
     const finals: string[] = [];
     const temps: string[] = [];
     let created = false;
     try {
+      // Exclusive creation: parents may be made, the destination itself must not exist (EEXIST refuses, nothing is deleted).
       if (!existing) {
-        await mkdir(dest, { recursive: true, mode: REPORT_DIR_MODE });
+        await mkdir(path.dirname(dest), {
+          recursive: true,
+          mode: REPORT_DIR_MODE,
+        });
+        await mkdir(dest, { mode: REPORT_DIR_MODE });
         created = true;
       }
       const tag = `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -520,10 +576,10 @@ export const HANDLERS: Record<string, Handler> = {
       }
       for (const tmp of temps) await unlink(tmp);
     } catch {
+      // Remove only what this run made; the directory only if this run created it and it is now empty (never a recursive delete).
       for (const f of [...finals, ...temps])
         await rm(f, { force: true }).catch(() => undefined);
-      if (created)
-        await rm(dest, { recursive: true, force: true }).catch(() => undefined);
+      if (created) await rmdir(dest).catch(() => undefined);
       throw new ReviewCorruptError(
         "an export event was recorded in the review but no files were produced (the destination could not be written, or a file appeared there); nothing was left behind",
       );
