@@ -328,42 +328,222 @@ describe("denial is the default", () => {
   });
 });
 
-describe("full matrix: principal x state x subject kind", () => {
-  const principals = [
-    "facilitator",
-    "participant:alice",
-    "participant:bob",
-    "line_manager",
-    "ld",
-    "hr",
-    "sponsor",
+describe("full matrix: literal expectations", () => {
+  // columns: principal, subject, view, state, versions, superseded, policyVersion -> allowed, redact
+  type Row = [
+    string,
+    string,
+    "report" | "index",
+    string,
+    number,
+    boolean,
+    number,
+    boolean,
+    string,
   ];
-  const states = ["draft", "released", "amending", "withdrawn"] as const;
-  const kinds = [
-    ["alice", "report"],
-    ["group", "report"],
-    ["index", "index"],
-  ] as const;
-  const expected = (
+  const rows: Row[] = [];
+  const add = (
     p: string,
-    state: string,
-    subject: string,
-  ): [boolean, string] => {
-    if (p === "facilitator") return [true, "none"];
-    if (!p.startsWith("participant:")) return [false, "none"];
-    if (state !== "released" && state !== "amending") return [false, "none"];
-    if (subject === "alice") return [p === "participant:alice", "none"];
-    return [true, "peers"];
-  };
-  for (const p of principals)
-    for (const state of states)
-      for (const [subject, view] of kinds)
-        it(`${p} / ${state} / ${subject}`, () => {
-          const [allowed, redact] = expected(p, state, subject);
-          expect(
-            canView({ ...base, subject, view, state, principal: P(p) }),
-          ).toMatchObject({ allowed, redact });
-        });
+    subj: [string, "report" | "index"],
+    st: string,
+    v: number,
+    sup: boolean,
+    pv: number,
+    ok: boolean,
+    red = "none",
+  ) => rows.push([p, subj[0], subj[1], st, v, sup, pv, ok, red]);
+  const PERS: [string, "report"] = ["alice", "report"];
+  const GRP: [string, "report"] = ["group", "report"];
+  const IDX: [string, "index"] = ["index", "index"];
+  for (const subj of [PERS, GRP, IDX]) {
+    const shared = subj !== PERS;
+    // facilitator: always
+    for (const st of ["draft", "released", "amending", "withdrawn"])
+      add("facilitator", subj, st, 0, true, 0, true);
+    // participant:alice
+    add(
+      "participant:alice",
+      subj,
+      "released",
+      1,
+      false,
+      1,
+      true,
+      shared ? "peers" : "none",
+    );
+    add(
+      "participant:alice",
+      subj,
+      "amending",
+      1,
+      false,
+      1,
+      true,
+      shared ? "peers" : "none",
+    );
+    add("participant:alice", subj, "amending", 0, false, 1, false);
+    add("participant:alice", subj, "released", 0, false, 1, false);
+    add("participant:alice", subj, "draft", 0, false, 1, false);
+    add("participant:alice", subj, "withdrawn", 1, false, 1, false);
+    add("participant:alice", subj, "released", 1, true, 1, false);
+    add("participant:alice", subj, "released", 1, false, 0, false);
+    add("participant:alice", subj, "released", 1, false, 2, false);
+    // participant:bob
+    add(
+      "participant:bob",
+      subj,
+      "released",
+      1,
+      false,
+      1,
+      shared,
+      shared ? "peers" : "none",
+    );
+    add(
+      "participant:bob",
+      subj,
+      "amending",
+      1,
+      false,
+      1,
+      shared,
+      shared ? "peers" : "none",
+    );
+    add("participant:bob", subj, "released", 0, false, 1, false);
+    add("participant:bob", subj, "released", 1, true, 1, false);
+    add("participant:bob", subj, "released", 1, false, 0, false);
+    add("participant:bob", subj, "draft", 0, false, 1, false);
+    add("participant:bob", subj, "withdrawn", 1, false, 1, false);
+    // inert audiences
+    for (const p of ["line_manager", "ld", "hr", "sponsor"]) {
+      add(p, subj, "released", 1, false, 1, false);
+      add(p, subj, "amending", 1, false, 1, false);
+      add(p, subj, "released", 0, false, 1, false);
+      add(p, subj, "released", 1, true, 1, false);
+      add(p, subj, "released", 1, false, 0, false);
+    }
+  }
+  it.each(rows)(
+    "%s | %s/%s | %s v%i sup=%s pv=%i -> %s %s",
+    (
+      p,
+      subject,
+      view,
+      state,
+      versions,
+      superseded,
+      policyVersion,
+      allowed,
+      redact,
+    ) => {
+      expect(
+        canView({
+          principal: P(p),
+          subject,
+          view,
+          state: state as never,
+          versions,
+          superseded,
+          policyVersion,
+        }),
+      ).toMatchObject({ allowed, redact });
+    },
+  );
+});
+
+describe("the table is immutable", () => {
+  it("rejects mutation in strict mode", () => {
+    "use strict";
+    const t = POLICY as unknown as {
+      version: number;
+      personal: string[];
+      group: string[];
+    };
+    expect(() => {
+      t.version = 2;
+    }).toThrow();
+    expect(() => {
+      t.personal.push("sponsor");
+    }).toThrow();
+    expect(() => {
+      t.group.pop();
+    }).toThrow();
+    expect(() => {
+      t.personal[0] = "x";
+    }).toThrow();
+    expect(
+      Object.isFrozen(POLICY) &&
+        Object.isFrozen(POLICY.group) &&
+        Object.isFrozen(POLICY.personal),
+    ).toBe(true);
+  });
+  it("method, group, index and facilitator are not role ids", () => {
+    for (const r of ["method", "group", "index", "facilitator"])
+      expect(parsePrincipal("participant:" + r)).toBeNull();
+  });
+});
+
+describe("redaction drops facilitator-only material", () => {
+  const HOSTILE = "HOSTILE-bob-said-secret";
+  const g = {
+    kind: "group",
+    facilitator_notes: HOSTILE + "-notes",
+    talking_points: {
+      from_scenario: HOSTILE + "-scen",
+      from_evaluator: [HOSTILE + "-eval"],
+    },
+    notable_moments: [
+      {
+        seq: 3,
+        role: "bob",
+        quote: "a shared quote",
+        note: HOSTILE + "-note",
+        scene: 1,
+        scene_title: "t",
+        time: "00:01",
+      },
+    ],
+    comments: [
+      { text: HOSTILE + "-internal", by: "f", visibility: "internal" },
+      { text: "kept feedback", by: "f", visibility: "feedback" },
+    ],
+    lo_coverage: { players: ["alice", "bob"], objectives: [] },
+  } as unknown as GroupReport;
+  it("none of it survives for a participant, the rest stays", () => {
+    const copy = JSON.stringify(g);
+    const r = redactGroupForParticipant(g, "alice");
+    expect(JSON.stringify(r)).not.toContain("HOSTILE");
+    expect(r.notable_moments[0]).toMatchObject({
+      quote: "a shared quote",
+      role: "bob",
+      scene: 1,
+    });
+    expect(r.comments).toEqual([
+      { text: "kept feedback", by: "f", visibility: "feedback" },
+    ]);
+    expect(r.talking_points).toEqual({ from_scenario: "", from_evaluator: [] });
+    expect(r.facilitator_notes).toBe("");
+    expect(JSON.stringify(g)).toBe(copy);
+  });
+  it("the renderer still renders it", async () => {
+    const { renderGroupMarkdown } =
+      await import("../../evaluator/report-md.js");
+    const { buildMethod } = await import("../../evaluator/method.js");
+    const full = {
+      ...g,
+      criteria: [],
+      learning_objectives: [],
+      evaluation: { status: "ok" },
+      notes: [],
+      method: buildMethod({ players: 2 }),
+      session: { scenes: [] },
+      scenario: {},
+      evaluator: {},
+    } as never;
+    expect(() =>
+      renderGroupMarkdown(redactGroupForParticipant(full, "alice")),
+    ).not.toThrow();
+  });
 });
 
 describe("redaction properties", () => {
