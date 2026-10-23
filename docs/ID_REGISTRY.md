@@ -18,4 +18,4 @@ Reserved blocks (2026-10-07, later): TC-0017..TC-0019 US-0023; TC-0020..TC-0022 
 
 Reserved blocks (2026-10-07, calibration): AC-0180..AC-0197, TASK-0055..TASK-0059 and TC-0025..TC-0039 US-0035..US-0039. Ids in a block that its story does not use stay unused.
 
-Reserved blocks (2026-10-23, moderation): US-0041..US-0044, TASK-0066..TASK-0069, AC-0209..AC-0234 (US-0041 AC-0209..AC-0216, US-0042 AC-0217..AC-0222, US-0043 AC-0223..AC-0228, US-0044 AC-0229..AC-0234) and TC-0049..TC-0056 (two per story, filed when each story moves to In Progress). Ids in a block that its story does not use stay unused.
+Reserved blocks (2026-10-23, moderation): US-0041..US-0044, TASK-0066..TASK-0069, AC-0209..AC-0234 (US-0041 AC-0209..AC-0216, US-0042 AC-0217..AC-0222, US-0043 AC-0223..AC-0228, US-0044 AC-0229..AC-0234) and TC-0049..TC-0056 (two per story, filed when each story moves to In Progress). Filed so far: TC-0049, TC-0050 (US-0041) and TC-0051, TC-0052 (US-0042). Ids in a block that its story does not use stay unused.
