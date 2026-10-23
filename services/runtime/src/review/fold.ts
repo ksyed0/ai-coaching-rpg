@@ -471,11 +471,17 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           if (problems.length)
             ill(e, `${sv.id} cannot be released: ${problems.join("; ")}`);
         }
+        // Order matters: (1) mark released and clear the group's tableStale, (2) snapshot the players,
+        // (3) only then build the group table from those snapshots, so it sees the players released in this event.
+        const g = subjects.get(GROUP);
         for (const sv of svs) {
           sv.state = "released";
           sv.versions.push(e.seq);
           if (sv.kind === "group") sv.tableStale = false;
         }
+        // a player released alone after the group: the group's frozen table lacks this release
+        if (g && g.versions.length > 0 && !svs.includes(g))
+          if (svs.some((sv) => sv.kind === "participant")) g.tableStale = true;
         // players first, so a group released with them tabulates their just-released snapshots
         for (const sv of svs.filter((x) => x.kind !== "group"))
           sv.snapshot = takeSnapshot(sv, e.seq, null);
@@ -507,6 +513,12 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
             `${sv.id} is ${sv.state}; only a released report can be withdrawn`,
           );
         sv.state = "withdrawn";
+        // the group's frozen table still holds this player's row
+        {
+          const g = subjects.get(GROUP);
+          if (sv.kind === "participant" && g && g.versions.length > 0)
+            g.tableStale = true;
+        }
         break;
       }
       case "report.exported": {
