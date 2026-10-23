@@ -508,6 +508,37 @@ describe("response and dispute", () => {
       ),
     ).toThrow(/amend/);
   });
+  it("disputing while amending, then re-releasing, lets the dispute resolve as 'amended'", () => {
+    const rel = releaseAlice();
+    const v1 = f.foldE(...rel).lastSeq;
+    const pre = [
+      ...rel,
+      fb({
+        type: "report.amended",
+        subject: "alice",
+        reason: "r",
+        basedOn: v1,
+      }),
+      respond({ dispute: true }),
+    ];
+    const seq = f.foldE(...pre).lastSeq;
+    const res = fb({
+      type: "dispute.resolved",
+      response: seq,
+      outcome: "amended",
+      reason: "fixed",
+    });
+    expect(() => f.foldE(...pre, res)).toThrow(/amend/);
+    const v = f.foldE(
+      ...pre,
+      fb({ type: "report.released", subjects: ["alice"] }),
+      res,
+    );
+    const a = v.subjects.get("alice")!;
+    expect(a.responses[0]!.resolution?.outcome).toBe("amended");
+    expect(a.responses[0]!.version).toBe(v1);
+    expect(a.versions).toHaveLength(2);
+  });
   it("resolving never changes the released score; only the amendment does", () => {
     const base = [...releaseAlice(), respond({ dispute: true })];
     const seq = f.foldE(...base).lastSeq;

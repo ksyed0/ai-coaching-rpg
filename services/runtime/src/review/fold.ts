@@ -468,8 +468,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         break;
       }
       case "review.superseded":
-        if (e.actor.kind === "participant")
-          ill(e, "a participant cannot supersede a review");
+        facilitator(e);
         if (typeof e.by !== "string") ill(e, "by must be a string");
         superseded = e.by;
         break;
@@ -608,8 +607,10 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         const sv = subj(e, e.role);
         if (sv.kind !== "participant") ill(e, "only players respond");
         const version = sv.versions.at(-1);
-        if (version === undefined || sv.state === "withdrawn")
-          ill(e, `${sv.id}'s report is not released`);
+        const ver =
+          version === undefined || sv.state === "withdrawn"
+            ? ill(e, `${sv.id}'s report is not released`)
+            : version;
         if (e.criterion !== undefined) crit(e, sv, e.criterion);
         if (e.dispute !== undefined && typeof e.dispute !== "boolean")
           ill(e, "dispute must be true or false");
@@ -621,7 +622,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ...(e.criterion !== undefined ? { criterion: e.criterion } : {}),
           text: text(e, e.text),
           dispute: e.dispute === true,
-          version: version!,
+          version: ver,
           resolution: null,
         });
         break;
@@ -642,7 +643,10 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ill(e, "outcome must be upheld, amended or declined");
         if (
           e.outcome === "amended" &&
-          !(amendedAt.get(found.sv.id) ?? []).some((s) => s > found.r.seq)
+          !(
+            (amendedAt.get(found.sv.id) ?? []).some((s) => s > found.r.seq) ||
+            found.sv.versions.some((v) => v > found.r.seq)
+          )
         )
           ill(e, "amend the report first, then resolve the dispute as amended");
         found.r.resolution = {
