@@ -124,6 +124,24 @@ Write anchors as **observable behaviour in the participant's OWN words**, for th
 
   The summary is read from `data/calibration/<scenario-id>/` next to where you run `pnpm evaluate`. A missing or corrupt file never breaks a report. Only `pnpm calibrate` writes it, and only after a complete run, so the stamp is as current as your last full calibration. Every Markdown report also has a "Prompt variant ..., rubric ..." row (a line in `index.md`), and the JSON records the model (EVAL_MODEL, else NPC_MODEL), variant and rubric hash. Prompt variants other than `v1` do not exist yet (US-0038), so the variant is always `v1`. Bump the prompt variant whenever the evaluator prompt or parser changes: a calibration only goes stale when the rubric or the variant changes.
 
+## Moderating the drafts (`pnpm moderate`)
+
+`pnpm moderate <subcommand> <reports-dir> [options]` is the facilitator's review of a draft directory written by `pnpm evaluate`. It writes an append-only, hash-chained log (`review.jsonl`) beside the drafts and never changes a draft file. Paths are relative to where you ran `pnpm`.
+
+```bash
+pnpm moderate open data/reports/local --by kamal [--session-log data/sessions/local.jsonl] [--codes-dir data/sessions]
+pnpm moderate status data/reports/local
+pnpm moderate show data/reports/local delivery_lead            # Markdown of the report as it stands, marked IN REVIEW
+pnpm moderate edit data/reports/local delivery_lead discovery --level 3 --reason "heard it at 00:12" --by kamal [--rationale "new text"] [--expect 2]
+pnpm moderate accept data/reports/local delivery_lead discovery --by kamal   # or: accept <dir> <subject> --summary --by kamal
+pnpm moderate comment data/reports/local delivery_lead --text "good scene 2" --by kamal [--criterion listening] [--feedback]
+pnpm moderate edit-summary data/reports/local delivery_lead --reason "tighter" --by kamal --strength "..." --development "..." --action "LO2:State two options"
+```
+
+A subject is a player role or `group`. `--level` is 1 to 4 or `na`; every edit needs a `--reason` (up to 500 characters); `--expect <level>` makes an edit a compare-and-set (refused, with the current level shown, if the score changed meanwhile). `--feedback` makes a comment visible to the participant once released; otherwise it is internal. `open` refuses a directory that holds files `pnpm evaluate` did not write (the message names the file); move them out.
+
+Free text is stored after hidden characters are stripped and secrets and machine paths are scrubbed. Line breaks in `--text`, `--reason` and the like are stored as a visible ` ⏎ ` marker, so one comment is always one line and cannot forge a log or report line. Exit codes: 0 done, 1 refused (fix and retry), 2 usage error or damaged review or draft file. Any unexpected failure prints a short generic message and exits 2.
+
 ## Calibration
 
 `pnpm calibrate` measures how far the evaluator's scores can be trusted, per judge model. It feeds **probes** through the real evaluator (the same prompt, parser and quote verification that score real sessions) and compares what the judge answers with what a human expects.

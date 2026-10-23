@@ -9,6 +9,7 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 
 ### Added
 
+- `pnpm moderate` (EPIC-0005, US-0041): facilitator review of a draft report directory with `open`, `status`, `show`, `edit` (level, reason, optional rationale and `--expect` compare-and-set), `accept`, `comment` and `edit-summary`. Every change is appended to a hash-chained `review.jsonl` beside the drafts, which are never modified. Free text is cleaned and secrets scrubbed (line breaks are stored as a visible marker); `open` names a stray file that blocks it; unexpected errors exit 2 with a bounded message. Moderation release and participant visibility are not there yet.
 - pnpm/TypeScript monorepo with Vitest: `packages/events`, `packages/script`, `packages/adapters`, `services/runtime` (US-0001).
 - Session event types and a pure state reducer; session state is always a projection of the event log (US-0002).
 - Scenario package: YAML schema, loader and validator with cross-kind id uniqueness checks and warnings for injects past a scene's time box (US-0003).

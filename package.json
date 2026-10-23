@@ -38,6 +38,7 @@
     "demo": "pnpm -s --filter @acr/runtime demo",
     "evaluate": "pnpm -s --filter @acr/runtime evaluate",
     "calibrate": "pnpm -s --filter @acr/runtime calibrate",
+    "moderate": "pnpm -s --filter @acr/runtime moderate",
     "gm-eval": "pnpm -s --filter @acr/runtime gm-eval",
     "lint:sdk": "bash scripts/check-sdk-imports.sh"
   },
