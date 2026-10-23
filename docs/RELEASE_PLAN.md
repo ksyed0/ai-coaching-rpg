@@ -42,7 +42,7 @@ Description: Post-session rubric scoring with quoted evidence and confidence, fa
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0003
-Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: ~~participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed)~~ superseded by US-0041: draft reports now say 'Visibility: facilitator only until released' (per-participant isolation and ASM-09 are planned in US-0043); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039. Task 11 outcome (2026-10-08): the baseline of the 34-probe Friday set ran with Gemma as primary judge and Holo3 as second judge at `--repeat 3` (6 h 24 min); both judges PASS (exact 27 and 28 of 32, bias +0.16 and +0.10, contrast ordered 2 of 2, all 108 answers usable). The stage gate was not triggered, so Task 12 was not run and US-0038 is Deferred (shown as Blocked, the closest allowed status; ids reserved) until contrast is measured on more than 2 probes and the owner has reviewed the excerpt levels. Weak spots: discovery FAIL for both judges (bias +0.40), team_alignment FAIL for Gemma only. Next: Task 13 (US-0039, the stamp). Moderation, visibility and self-assessment (ASM-04, ASM-07, ASM-09) are filed as US-0041..US-0044 (2026-10-23; spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md, plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md); engine and CLI only, the web UI and SSO stay in EPIC-0002. US-0041 (review log, `pnpm moderate`, supersede) is Complete as of 2026-10-23; US-0042..US-0044 remain Planned.
+Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: ~~participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed)~~ superseded by US-0041: draft reports now say 'Visibility: facilitator only until released' (per-participant isolation and ASM-09 are planned in US-0043); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039. Task 11 outcome (2026-10-08): the baseline of the 34-probe Friday set ran with Gemma as primary judge and Holo3 as second judge at `--repeat 3` (6 h 24 min); both judges PASS (exact 27 and 28 of 32, bias +0.16 and +0.10, contrast ordered 2 of 2, all 108 answers usable). The stage gate was not triggered, so Task 12 was not run and US-0038 is Deferred (shown as Blocked, the closest allowed status; ids reserved) until contrast is measured on more than 2 probes and the owner has reviewed the excerpt levels. Weak spots: discovery FAIL for both judges (bias +0.40), team_alignment FAIL for Gemma only. Next: Task 13 (US-0039, the stamp). Moderation, visibility and self-assessment (ASM-04, ASM-07, ASM-09) are filed as US-0041..US-0044 (2026-10-23; spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md, plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md); engine and CLI only, the web UI and SSO stay in EPIC-0002. US-0041 (review log, `pnpm moderate`, supersede) is Complete as of 2026-10-23; US-0042 (release gate, amend, withdraw, export audit) is Complete as of 2026-10-23; US-0043 and US-0044 remain Planned.
 ```
 
 ```
@@ -1229,23 +1229,23 @@ Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderatio
 US-0042 (EPIC-0005): Release gate, amend and withdraw, export audit
 Priority: High
 Estimate: M
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0005-US-0042-release-gate
 Dependencies: US-0041
 Acceptance Criteria:
-  - [ ] AC-0217: `release` is refused (exit 1) while a criterion that needs review is unresolved, the summary is stale after a score change, or a failed evaluation is not scored by hand; it lists every unresolved item; releasing several subjects is one event, all or none
-  - [ ] AC-0218: a release makes version N (N is the event's seq) and freezes a snapshot; scores, accepts and summaries cannot change while a report is released
-  - [ ] AC-0219: `amend` (reason required, based on the current version) reopens a report and the next release makes a new version; earlier versions stay in history; `withdraw` (reason required) is terminal
-  - [ ] AC-0220: a group release freezes the per-role learning-objective table as of its seq; a later player edit marks it out of date and an amendment of the group refreshes it
-  - [ ] AC-0221: `export` writes the viewer file (owner-only, `acr.view/1` JSON and Markdown) and records `report.exported` with the version, principal and destination label; viewing is not audited and the documentation says why
-  - [ ] AC-0222: an agent never runs release, amend or withdraw unless the owner names the subjects (AGENTS.md and docs/EVALUATOR.md)
+  - [x] AC-0217: `release` is refused (exit 1) while a criterion that needs review is unresolved, the summary is stale after a score change, or a failed evaluation is not scored by hand; it lists every unresolved item; releasing several subjects is one event, all or none (cli-release.test.ts, fold-release.test.ts, gate.ts; TC-0051, TC-0052)
+  - [x] AC-0218: a release makes version N (N is the event's seq) and freezes a snapshot; scores, accepts and summaries cannot change while a report is released (fold-release.test.ts, cli-release.test.ts; TC-0051)
+  - [x] AC-0219: `amend` (reason required, based on the current version) reopens a report and the next release makes a new version; earlier versions stay in history; `withdraw` (reason required) is terminal (cli-release.test.ts, fold-release.test.ts; TC-0051, TC-0052)
+  - [x] AC-0220: a group release freezes the per-role learning-objective table as of its seq; a later player edit marks it out of date and an amendment of the group refreshes it (fold-release.test.ts (group table from released player snapshots, stale marker); TC-0051)
+  - [x] AC-0221: `export` writes the viewer file (owner-only, `acr.view/1` JSON and Markdown) and records `report.exported` with the version, principal and destination label; viewing is not audited and the documentation says why (cli-release.test.ts (export, audit before write, no overwrite or symlink, no partial files); TC-0052)
+  - [x] AC-0222: an agent never runs release, amend or withdraw unless the owner names the subjects (AGENTS.md and docs/EVALUATOR.md) (AGENTS.md, docs/EVALUATOR.md, agent-rule.test.ts; TC-0052)
 ```
 
 ```
 TASK-0067 (US-0042): Release gate, amend and withdraw, export audit
 Type: Dev
 Assignee: Agent
-Status: Planned
+Status: Done
 Branch: feature/EPIC-0005-US-0042-release-gate
 Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 9-10: fold and gate for release, amend, withdraw and export; `release`, `amend`, `withdraw` and `export --for facilitator`. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md.
 ```

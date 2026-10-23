@@ -773,5 +773,36 @@ Status: [x] Pass
 Defect Raised: None
 Notes: Step 2 manual part not run by hand; covered by the tests.
 
+## US-0042: release gate, amend, withdraw and export audit
+
+TC-0051: The release gate, versions, amend and withdraw
+Related Story: US-0042
+Related Task: TASK-0067
+Related AC: AC-0217, AC-0218, AC-0219, AC-0220
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/review/__tests__/fold-release.test.ts src/review/__tests__/store-release.test.ts src/review/__tests__/cli-release.test.ts`.
+Expected Result: `release` is refused with exit 1 and every unresolved item listed (open criteria, a failed evaluation not scored by hand, a stale summary) and writes nothing; several subjects or `--all` release in one event, all or none; a release is version N = the event's seq with a frozen snapshot, and a second release is refused; scores cannot change while released; `amend` needs a reason and a released subject, the next release is version 2 and both versions stay in the log; `withdraw` is terminal; the group table comes from the players' last released snapshots, is frozen at the group release and is marked out of date by a later player release or withdrawal; two racing releases give exactly one success.
+Actual Result: As expected (all of src/review) on 2026-10-23.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
+TC-0052: `pnpm moderate release`, `export` and the agent rule
+Related Story: US-0042
+Related Task: TASK-0067
+Related AC: AC-0217, AC-0219, AC-0221, AC-0222
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/review/__tests__/cli-release.test.ts src/review/__tests__/agent-rule.test.ts`.
+  2. Run `MODEL_PROVIDER=mock pnpm -s demo --showcase --fast --evaluate --eval-out <tmp>`, then with absolute paths `pnpm moderate open`, `accept` the open criteria of one player, `release`, `export --for facilitator --to <tmp>/x`, `amend`, `edit`, `accept --summary`, `release`, `withdraw`.
+Expected Result: `export` writes `<subject>.md` and `<subject>.json` (`acr.view/1`) with mode 0600 into a directory with mode 0700 and the content of the released snapshot (not an unfinished amendment); the `report.exported` event carries the version, principal `facilitator` and a destination label, never a path; the event is appended before any file is written; a pre-existing file, a symbolic-link destination or a symbolic-link file name is refused without overwriting or following (exit 1, no event); when the event is recorded but the files cannot be written the command exits 2, says an export event was recorded but no files were produced and leaves nothing behind; other audiences are refused with exit 2; AGENTS.md and docs/EVALUATOR.md both carry the rule that an agent never runs release, amend or withdraw unless the owner names the subjects.
+Actual Result: As expected (cli-release and agent-rule tests; mock-demo drive of open, accept, release, export, amend, edit, accept --summary, release, withdraw with the expected exit codes and messages) on 2026-10-23.
+Status: [x] Pass
+Defect Raised: None
+Notes: The mock-demo drive was run by hand once; the tests cover the same paths.
+
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 
