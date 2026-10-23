@@ -833,7 +833,7 @@ Expected Result: a participant's export of the group report and the index holds 
 Actual Result: As expected (tests above; S-17 passed in both showcase --evaluate runs with 16 checks; default counts 29, 39, 42, 14) on 2026-10-23.
 Status: [x] Pass
 Defect Raised: None
-Notes: A live `--evaluate` run does not define S-17 (a live evaluation may have players that cannot be released).
+Notes: A live `--evaluate` run records S-17 as skipped (live mode): a live evaluation may have players that cannot be released.
 
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 

@@ -171,7 +171,8 @@
 
 ## Session 9 part 3 — 2026-10-23 (EPIC-0005 moderation: US-0043 visibility)
 
-- **Built (branch `feature/EPIC-0005-US-0043-audience`):** `canView` over a versioned constant policy table, peer redaction of the group report and index, `export --for participant:<role>` from snapshot-frozen released views (Tasks 11-12); offline check S-17 in mock `--evaluate` showcase runs (Task 13: `review/demo-check.ts`, 16 checks in total; not defined in a live run).
+- **Built (branch `feature/EPIC-0005-US-0043-audience`):** `canView` over a versioned constant policy table, peer redaction of the group report and index, `export --for participant:<role>` from snapshot-frozen released views (Tasks 11-12); offline check S-17 in mock `--evaluate` showcase runs (Task 13: `review/demo-check.ts`, 16 checks in total; skipped in a live run).
 - **Docs:** `docs/EVALUATOR.md` ("Who sees what"), README, CHANGELOG, TC-0053 and TC-0054, release plan (AC-0223..AC-0228 ticked, US-0043 Complete, TASK-0068 Done).
 - **Not built:** self-assessment, response and dispute (US-0044); identities for line manager, L&D, HR and sponsor (EPIC-0002).
+- **Follow-ups (deferred):** extract `export.ts` from `cli.ts`; share the `pick` helper between `view.ts` and `policy.ts`.
 - **Next:** PR for US-0043 (controller), then US-0044 from `develop`.

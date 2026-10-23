@@ -36,7 +36,7 @@ export const DEMO_USAGE = [
   "                    them too, using each scripted line as its private intent; needs --live; a failed generation falls back to the scripted line)",
   "  --player-model <id> --players generated only: the model id for the player bots (default: the NPC model, NPC_MODEL)",
   "  --no-intents      --players generated only: do not log each generated player's private intent (the scripted line it was asked to express)",
-  "  --evaluate        --showcase only: after the checks, run the post-session evaluator on this run's log and write the feedback reports (adds check S-16, and S-17 when mock;",
+  "  --evaluate        --showcase only: after the checks, run the post-session evaluator on this run's log and write the feedback reports (adds checks S-16 and S-17 (S-17 is skipped with --live);",
   "                    mock runs use a scripted offline evaluator, --live sends the transcript to the model provider and may cost money)",
   "  --eval-out <dir>  --evaluate only: where the reports go, into <dir>/<session-id>/ (default data/reports, relative to where you ran pnpm)",
   "  --gm-trace <path> --showcase only: write every raw Game Master reply and how it was read to <path> (JSON lines, owner-only file; it holds the",

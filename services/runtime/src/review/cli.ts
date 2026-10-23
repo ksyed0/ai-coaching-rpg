@@ -32,7 +32,6 @@ import { sha256 } from "./hash.js";
 import {
   canView,
   parsePrincipal,
-  redactGroupForParticipant,
 } from "./policy.js";
 import { renderReviewIndex } from "./index-view.js";
 import {

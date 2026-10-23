@@ -230,7 +230,7 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   const startedMs = now();
   const holder: ShowcaseHolder = {};
   const rec = new Recorder({
-    kind, now, defs: showcase ? [...SHOWCASE_CHECKS, ...(opts.players === "generated" ? SHOWCASE_PLAYER_CHECKS : []), ...(opts.evaluate ? SHOWCASE_EVAL_CHECKS.filter((c) => c.id !== "S-17" || !opts.live) : []), ...(opts.live ? SHOWCASE_LIVE_CHECKS : [])] : [...CHECKS, ...(opts.security ? SECURITY_CHECKS : []), ...(opts.resume ? RESUME_CHECKS : [])], forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
+    kind, now, defs: showcase ? [...SHOWCASE_CHECKS, ...(opts.players === "generated" ? SHOWCASE_PLAYER_CHECKS : []), ...(opts.evaluate ? SHOWCASE_EVAL_CHECKS : []), ...(opts.live ? SHOWCASE_LIVE_CHECKS : [])] : [...CHECKS, ...(opts.security ? SECURITY_CHECKS : []), ...(opts.resume ? RESUME_CHECKS : [])], forceFail: new Set(deps.forceFail ?? []), bypass: new Set(deps.bypass ?? []), aborted: () => ac.signal.aborted,
     onResult: (r) => { if (r.status === "passed") n.ok(`${r.id} ${r.details}`); else if (r.status === "failed") n.fail(`${r.id} ${r.details}`); },
   });
   const cleanups: (() => Promise<void> | void)[] = [];
