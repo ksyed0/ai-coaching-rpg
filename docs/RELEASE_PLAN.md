@@ -42,7 +42,7 @@ Description: Post-session rubric scoring with quoted evidence and confidence, fa
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0003
-Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: ~~participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed)~~ superseded by US-0041: draft reports now say 'Visibility: facilitator only until released' (per-participant isolation and ASM-09 are planned in US-0043); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039. Task 11 outcome (2026-10-08): the baseline of the 34-probe Friday set ran with Gemma as primary judge and Holo3 as second judge at `--repeat 3` (6 h 24 min); both judges PASS (exact 27 and 28 of 32, bias +0.16 and +0.10, contrast ordered 2 of 2, all 108 answers usable). The stage gate was not triggered, so Task 12 was not run and US-0038 is Deferred (shown as Blocked, the closest allowed status; ids reserved) until contrast is measured on more than 2 probes and the owner has reviewed the excerpt levels. Weak spots: discovery FAIL for both judges (bias +0.40), team_alignment FAIL for Gemma only. Next: Task 13 (US-0039, the stamp). Moderation, visibility and self-assessment (ASM-04, ASM-07, ASM-09) are filed as US-0041..US-0044 (2026-10-23; spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md, plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md); engine and CLI only, the web UI and SSO stay in EPIC-0002. US-0041 (review log, `pnpm moderate`, supersede) is Complete as of 2026-10-23; US-0042 (release gate, amend, withdraw, export audit) is Complete as of 2026-10-23; US-0043 and US-0044 remain Planned.
+Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: ~~participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed)~~ superseded by US-0041: draft reports now say 'Visibility: facilitator only until released' (per-participant isolation and ASM-09 are delivered by US-0043: a participant sees only their own released report, the group report without peers' results and the index); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039. Task 11 outcome (2026-10-08): the baseline of the 34-probe Friday set ran with Gemma as primary judge and Holo3 as second judge at `--repeat 3` (6 h 24 min); both judges PASS (exact 27 and 28 of 32, bias +0.16 and +0.10, contrast ordered 2 of 2, all 108 answers usable). The stage gate was not triggered, so Task 12 was not run and US-0038 is Deferred (shown as Blocked, the closest allowed status; ids reserved) until contrast is measured on more than 2 probes and the owner has reviewed the excerpt levels. Weak spots: discovery FAIL for both judges (bias +0.40), team_alignment FAIL for Gemma only. Next: Task 13 (US-0039, the stamp). Moderation, visibility and self-assessment (ASM-04, ASM-07, ASM-09) are filed as US-0041..US-0044 (2026-10-23; spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md, plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md); engine and CLI only, the web UI and SSO stay in EPIC-0002. US-0041 (review log, `pnpm moderate`, supersede) is Complete as of 2026-10-23; US-0042 (release gate, amend, withdraw, export audit) is Complete as of 2026-10-23; US-0043 (audience policy, participant exports, redaction, S-17) is Complete as of 2026-10-23; US-0044 remains Planned.
 ```
 
 ```
@@ -1254,24 +1254,24 @@ Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderatio
 US-0043 (EPIC-0005): Result visibility and the audience policy
 Priority: High
 Estimate: M
-Status: Planned
-Branch: feature/EPIC-0005-US-0043-visibility
+Status: Complete
+Branch: feature/EPIC-0005-US-0043-audience
 Dependencies: US-0042
 Acceptance Criteria:
-  - [ ] AC-0223: one pure function `canView` over a constant, versioned policy table decides access; the facilitator sees everything; an unreleased, withdrawn or superseded report is facilitator-only
-  - [ ] AC-0224: line manager, L&D, HR and programme sponsor are in the table but denied in every shipped command until EPIC-0002 identities exist
-  - [ ] AC-0225: a participant sees their own released personal report; in the group report and `index.md` peers' individual results are removed (not blanked) from the Markdown and the JSON
-  - [ ] AC-0226: during an amendment participants keep seeing the last released version; withdrawal removes participant access
-  - [ ] AC-0227: a review on a session recorded before the policy (legacy drafts) or under another policy version is narrowed to participant and facilitator and the report says so
-  - [ ] AC-0228: the offline check S-17 drives a scripted review (gate, release, access matrix, redaction, export audit) in the showcase `--evaluate` run; the default mock demo counts 29, 39, 42 and 14 are unchanged
+  - [x] AC-0223: one pure function `canView` over a constant, versioned policy table decides access; the facilitator sees everything; an unreleased, withdrawn or superseded report is facilitator-only (policy.test.ts (canView table), visibility.test.ts; TC-0053)
+  - [x] AC-0224: line manager, L&D, HR and programme sponsor are in the table but denied in every shipped command until EPIC-0002 identities exist (policy.test.ts, visibility.test.ts (inert audiences refused); TC-0053)
+  - [x] AC-0225: a participant sees their own released personal report; in the group report and `index.md` peers' individual results are removed (not blanked) from the Markdown and the JSON (visibility.test.ts, view.test.ts (peer removal in Markdown and JSON); TC-0054)
+  - [x] AC-0226: during an amendment participants keep seeing the last released version; withdrawal removes participant access (visibility.test.ts (amending keeps the last release, withdrawn removes access); TC-0053)
+  - [x] AC-0227: a review on a session recorded before the policy (legacy drafts) or under another policy version is narrowed to participant and facilitator and the report says so (visibility.test.ts (legacy draft sets), policy.test.ts (policy version); TC-0053)
+  - [x] AC-0228: the offline check S-17 drives a scripted review (gate, release, access matrix, redaction, export audit) in the showcase `--evaluate` run; the default mock demo counts 29, 39, 42 and 14 are unchanged (demo-check.test.ts, showcase-evaluate.test.ts; TC-0054)
 ```
 
 ```
 TASK-0068 (US-0043): Result visibility and the audience policy
 Type: Dev
 Assignee: Agent
-Status: Planned
-Branch: feature/EPIC-0005-US-0043-visibility
+Status: Complete
+Branch: feature/EPIC-0005-US-0043-audience
 Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 11-13: policy table, `canView` and redaction; participant exports, review index, legacy handling; offline check S-17. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md.
 ```
 
