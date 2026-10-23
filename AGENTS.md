@@ -508,6 +508,10 @@ See §19 (Dependency Management) for all rules on pinning, CVE checking, and lic
 - At-rest encryption must be used for any persistent store containing user data.
 - Minimize data collection — only store what is explicitly needed for the feature.
 
+**Releasing moderated reports (US-0042):**
+
+- An agent never runs `pnpm moderate release`, `amend` or `withdraw` unless the owner explicitly names the subjects. Releasing, reopening and withdrawing change what participants may see, and a withdrawal cannot be undone. `export` is allowed only to a destination the owner named.
+
 ---
 
 ### 13. Error Handling Standard
