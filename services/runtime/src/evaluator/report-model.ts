@@ -66,7 +66,12 @@ export type JsonCriterion = {
   moderation?: Moderation;
 };
 /** What the review changed on a criterion; present only on a moderated view. */
-export type Moderation = { adjusted: boolean; ai_score: number | null; ai_label: string; reason: string | null; by: string | null; rationale_edited: boolean; accepted: boolean };
+export type Moderation = {
+  adjusted: boolean; ai_score: number | null; ai_label: string; /** True when the AI draft was Invalid (not Not observed). */ ai_invalid: boolean;
+  reason: string | null; by: string | null; rationale_edited: boolean; accepted: boolean;
+  /** The review state, set for the facilitator audience only (a released view has no open items). */
+  state?: "open" | "accepted" | "edited" | "clear";
+};
 export type ReportComment = { criterion?: string; text: string; by: string; visibility: "internal" | "feedback" };
 export type JsonObjective = { id: string; statement: string; score: number | null; label: string; criteria: string[]; observed: string[]; incomplete: boolean };
 
@@ -78,6 +83,8 @@ export type ParticipantReport = Common & {
   learning_objectives: JsonObjective[];
   criteria: JsonCriterion[];
   comments?: ReportComment[];
+  /** Facilitator audience only: whether the summary was edited, or is stale after a score edit. */
+  summary_state?: { edited: boolean; stale: boolean };
 };
 export type GroupReport = Common & {
   kind: "group";

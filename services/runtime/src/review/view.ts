@@ -34,17 +34,29 @@ const jsonLo = (o: LoResult): JsonObjective => ({
   incomplete: o.incomplete,
 });
 
-function criterion(c: JsonCriterion, v: CriterionView): JsonCriterion {
+/**
+ * Per-criterion review state ("open", "accepted", ...) is shown only to the facilitator audience. A released view carries just the
+ * "Facilitator-adjusted" disclosure: the release gate (Task 9) guarantees there are no open items in a released subject.
+ */
+function criterion(
+  c: JsonCriterion,
+  v: CriterionView,
+  facilitator: boolean,
+): JsonCriterion {
   const adjusted = v.edits.length > 0;
   const last = v.edits.at(-1);
   const moderation: Moderation = {
     adjusted,
     ai_score: c.score,
     ai_label: c.level_label,
+    ai_invalid: c.invalid,
     reason: last?.reason ?? null,
     by: last?.by ?? v.rationaleEdits.at(-1)?.by ?? null,
     rationale_edited: v.rationaleEdits.length > 0,
     accepted: v.status === "accepted",
+    ...(facilitator
+      ? { state: v.status === "needs_review" ? ("open" as const) : v.status }
+      : {}),
   };
   const cur = v.current;
   const invalid = cur === "invalid";
@@ -67,12 +79,15 @@ export function viewReport(
   a: RenderAudience,
 ): ParticipantReport | GroupReport {
   const sv = view.subjects.get(subject) as SubjectView;
+  // Facilitators who changed or accepted something: comment authors are not reviewers of the scores.
   const names = [
     ...new Set([
-      ...sv.criteria.flatMap((c) =>
-        [...c.edits, ...c.rationaleEdits].map((e) => e.by),
-      ),
-      ...sv.comments.map((c) => c.by),
+      ...sv.criteria.flatMap((c) => [
+        ...c.edits.map((e) => e.by),
+        ...c.rationaleEdits.map((e) => e.by),
+        ...(c.acceptedBy ? [c.acceptedBy] : []),
+      ]),
+      ...sv.summaryBy,
     ]),
   ];
   const edited = sv.criteria.filter((c) => c.edits.length > 0).length;
@@ -89,6 +104,7 @@ export function viewReport(
       criterion(
         c,
         sv.criteria.find((x) => x.id === c.id)!,
+        a.audience === "facilitator",
       ),
     ),
   };
@@ -110,6 +126,8 @@ export function viewReport(
     }));
   if (draft.kind === "participant") {
     const r = base as ParticipantReport;
+    if (a.audience === "facilitator" && sv.summary)
+      r.summary_state = { edited: sv.summaryEdited, stale: sv.summaryStale };
     r.learning_objectives = sv.objectives.map(jsonLo);
     if (sv.summary) r.summary = structuredClone(sv.summary);
     if (comments.length) r.comments = comments;

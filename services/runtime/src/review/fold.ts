@@ -39,6 +39,7 @@ export type CriterionView = {
   }[];
   rationale: string;
   rationaleEdits: { seq: number; reason: string; by: string }[];
+  acceptedBy: string | null;
   self: { level: Level; note?: string; seq: number } | null;
 };
 export type CommentView = {
@@ -86,6 +87,8 @@ export type SubjectView = {
   summary: Summary | null;
   summaryEdited: boolean;
   summaryStale: boolean;
+  /** Facilitators who edited or accepted the summary. */
+  summaryBy: string[];
   objectives: LoResult[];
   versions: number[];
   snapshot: Snapshot | null;
@@ -130,6 +133,7 @@ function initSubject(d: DraftSubject): SubjectView {
     summary: d.summary,
     summaryEdited: false,
     summaryStale: false,
+    summaryBy: [],
     objectives: [],
     versions: [],
     snapshot: null,
@@ -148,6 +152,7 @@ function initSubject(d: DraftSubject): SubjectView {
         edits: [],
         rationale: c.rationale,
         rationaleEdits: [],
+        acceptedBy: null,
         self: null,
       };
     }),
@@ -372,32 +377,35 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         break;
       }
       case "summary.edited": {
-        facilitator(e);
+        const by = facilitator(e);
         const sv = subj(e, e.subject);
         editable(e, sv);
         if (sv.summary === null) ill(e, "this subject has no summary");
         reason(e, e.reason);
         sv.summary = summary(e, e.summary);
+        if (!sv.summaryBy.includes(by)) sv.summaryBy.push(by);
         sv.summaryEdited = true;
         sv.summaryStale = false;
         break;
       }
       case "summary.accepted": {
-        facilitator(e);
+        const by = facilitator(e);
         const sv = subj(e, e.subject);
         editable(e, sv);
         if (sv.summary === null) ill(e, "this subject has no summary");
+        if (!sv.summaryBy.includes(by)) sv.summaryBy.push(by);
         sv.summaryStale = false;
         break;
       }
       case "score.accepted": {
-        facilitator(e);
+        const by = facilitator(e);
         const sv = subj(e, e.subject);
         const c = crit(e, sv, e.criterion);
         editable(e, sv);
         if (c.status === "accepted" || c.status === "edited")
           ill(e, `${c.id} is already ${c.status}`);
         c.status = "accepted";
+        c.acceptedBy = by;
         break;
       }
       case "comment.added": {

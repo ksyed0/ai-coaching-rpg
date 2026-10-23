@@ -24,8 +24,17 @@ function header(title: string, r: ParticipantReport | GroupReport, sec: string[]
   return out;
 }
 
-const adjusted = (c: JsonCriterion, sec: string[]): string =>
-  c.moderation?.adjusted ? ` - **Facilitator-adjusted** from ${scoreText(c.moderation.ai_score, c.moderation.ai_label, false)} (AI draft; ${safeMd(c.moderation.reason ?? "no reason recorded", 500, sec)})` : "";
+/** The review marks on a criterion. The state marks appear only in the facilitator view (`moderation.state` is set there); a released view keeps just the adjustment disclosure. */
+const marks = (c: JsonCriterion, sec: string[]): string => {
+  const m = c.moderation;
+  if (!m) return "";
+  const out: string[] = [];
+  if (m.state === "open") out.push("**Needs review**");
+  if (m.state === "accepted") out.push("**Accepted by facilitator**");
+  if (m.adjusted) out.push(`**Facilitator-adjusted** from ${scoreText(m.ai_score, m.ai_label, m.ai_invalid)} (AI draft; ${safeMd(m.reason ?? "no reason recorded", 500, sec)})`);
+  if (m.state !== undefined && m.rationale_edited) out.push("**Rationale edited**");
+  return out.map((x) => ` - ${x}`).join("");
+};
 
 function notesSection(r: ParticipantReport | GroupReport, sec: string[]): string[] {
   if (!r.comments?.length) return [];
@@ -36,7 +45,7 @@ function criteriaTable(cs: JsonCriterion[], sec: string[]): string[] {
   const out = ["| Criterion | Level | Confidence | Rationale |", "| --- | --- | --- | --- |"];
   for (const c of cs) {
     const flags = c.flags.length ? ` (${c.flags.map((f) => safeMd(f, 160, sec)).join("; ")})` : "";
-    out.push(`| ${safeMd(c.name, 120, sec)} (${id(c.id, sec)}) | ${scoreText(c.score, c.level_label, c.invalid)} | ${c.confidence ? cap(c.confidence) : "-"} | ${safeMd(c.rationale, 600, sec) || "-"}${flags}${adjusted(c, sec)} |`);
+    out.push(`| ${safeMd(c.name, 120, sec)} (${id(c.id, sec)}) | ${scoreText(c.score, c.level_label, c.invalid)} | ${c.confidence ? cap(c.confidence) : "-"} | ${safeMd(c.rationale, c.moderation ? 1500 : 600, sec) || "-"}${flags}${marks(c, sec)} |`);
   }
   return out;
 }
@@ -67,6 +76,8 @@ export function renderParticipantMarkdown(r: ParticipantReport, secrets: string[
   const sec = secrets;
   const out = header(`Feedback report: ${r.participant.role}`, r, sec, [["Participant role", id(r.participant.role, sec)], ["Lines spoken", String(r.participant.utterances)]]);
   out.push("## Summary", "");
+  if (r.summary_state?.edited) out.push("**Summary edited by a facilitator**", "");
+  if (r.summary_state?.stale) out.push("**Summary needs review: scores changed after it was drafted**", "");
   if (r.evaluation.status !== "ok") out.push(`${safeMd(r.evaluation.reason ?? r.evaluation.status, 400, sec)}`, "");
   else {
     out.push("### Strengths", "", ...bullets(r.summary.strengths, sec, "None were drafted."));

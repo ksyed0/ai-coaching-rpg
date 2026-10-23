@@ -7,7 +7,7 @@ export const METHOD_VERSION = "bars-1";
 export const VISIBILITY_LINE = "Visibility: facilitator only until released";
 export const FACILITATOR_ONLY_LINE = VISIBILITY_LINE;
 export const IN_REVIEW_BANNER = "IN REVIEW: AI-drafted and partly reviewed by a facilitator - not released";
-export const releasedBanner = (version: number, by: string[]): string => `Reviewed by ${by.join(", ")} and released (version ${version})`;
+export const releasedBanner = (version: number, by: string[]): string => `${by.length ? `Reviewed by ${by.join(", ")} and released` : "Released"} (version ${version})`;
 export const DRAFT_BANNER = "DRAFT: AI-drafted, not reviewed by a facilitator";
 
 export type MethodSection = { title: string; body: string[] };
