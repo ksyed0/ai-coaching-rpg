@@ -42,7 +42,7 @@ Description: Post-session rubric scoring with quoted evidence and confidence, fa
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0003
-Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed; per-participant isolation and ASM-09 are planned); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039. Task 11 outcome (2026-10-08): the baseline of the 34-probe Friday set ran with Gemma as primary judge and Holo3 as second judge at `--repeat 3` (6 h 24 min); both judges PASS (exact 27 and 28 of 32, bias +0.16 and +0.10, contrast ordered 2 of 2, all 108 answers usable). The stage gate was not triggered, so Task 12 was not run and US-0038 is Deferred (shown as Blocked, the closest allowed status; ids reserved) until contrast is measured on more than 2 probes and the owner has reviewed the excerpt levels. Weak spots: discovery FAIL for both judges (bias +0.40), team_alignment FAIL for Gemma only. Next: Task 13 (US-0039, the stamp).
+Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed; per-participant isolation and ASM-09 are planned); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039. Task 11 outcome (2026-10-08): the baseline of the 34-probe Friday set ran with Gemma as primary judge and Holo3 as second judge at `--repeat 3` (6 h 24 min); both judges PASS (exact 27 and 28 of 32, bias +0.16 and +0.10, contrast ordered 2 of 2, all 108 answers usable). The stage gate was not triggered, so Task 12 was not run and US-0038 is Deferred (shown as Blocked, the closest allowed status; ids reserved) until contrast is measured on more than 2 probes and the owner has reviewed the excerpt levels. Weak spots: discovery FAIL for both judges (bias +0.40), team_alignment FAIL for Gemma only. Next: Task 13 (US-0039, the stamp). Moderation, visibility and self-assessment (ASM-04, ASM-07, ASM-09) are filed as US-0041..US-0044 (2026-10-23; spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md, plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md); engine and CLI only, the web UI and SSO stay in EPIC-0002.
 ```
 
 ```
@@ -1196,4 +1196,106 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0005-US-0040-friday-showcase
 Notes: AC-0201 reworded (live runs pending), README and memory notes on --max-false-exits and --min-gm-exits.
+```
+
+```
+US-0041 (EPIC-0005): Review log and moderation
+Priority: High
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0005-US-0041-review-log
+Dependencies: US-0039
+Acceptance Criteria:
+  - [ ] AC-0209: `pnpm moderate open` creates an owner-only, hash-chained `review.jsonl` bound to the draft files, the session instance and the join-code record; a changed or missing draft file, a broken chain, a cut-off last line or a symbolic link makes every command exit 2 and repairs nothing
+  - [ ] AC-0210: edit, accept, comment and edit-summary append through one lock with a compare-and-set (`--expect`); of two racing commands exactly one wins and the other exits 1; the log stays valid
+  - [ ] AC-0211: the fold (`currentView`) is pure and total: it returns a view or rejects an illegal sequence (edit after release, stale `from`, unknown subject or criterion, second `review.opened`, non-contiguous seq, anything after supersede)
+  - [ ] AC-0212: a criterion with any flag, an invalid answer, a learning objective marked incomplete or confidence below high needs review; report JSON carries structured `flag_codes` (a directory without them is a legacy draft)
+  - [ ] AC-0213: every score edit needs a reason and keeps history; an edited criterion is shown as Facilitator-adjusted with the AI original and the reason; learning-objective results are recomputed; the AI summary is marked out of date after a score change; the AI calibration stamp is labelled as the draft's
+  - [ ] AC-0214: free text (reason, comment, rationale, summary items, `--by`) is stripped of hidden characters, scrubbed of secrets, length-limited before it is stored and escaped when rendered
+  - [ ] AC-0215: opening a review on a re-run is refused when an earlier directory of the same session was released, unless `supersede`; supersede carries byte-identical subjects forward (marked `carriedFrom`), starts changed ones clean and makes the old review read-only
+  - [ ] AC-0216: draft reports say 'DRAFT: AI-drafted, not reviewed by a facilitator' and 'Visibility: facilitator only until released'; mock demo check counts 29, 39, 42 and 14 are unchanged
+```
+
+```
+TASK-0066 (US-0041): Review log and moderation
+Type: Dev
+Assignee: Agent
+Status: Planned
+Branch: feature/EPIC-0005-US-0041-review-log
+Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 1-8: foundations, hash-chained review log, draft loader and flag codes, pure fold, store, moderated rendering, `pnpm moderate` (open, status, show, edit, accept, comment, edit-summary), supersede. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md.
+```
+
+```
+US-0042 (EPIC-0005): Release gate, amend and withdraw, export audit
+Priority: High
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0005-US-0042-release-gate
+Dependencies: US-0041
+Acceptance Criteria:
+  - [ ] AC-0217: `release` is refused (exit 1) while a criterion that needs review is unresolved, the summary is stale after a score change, or a failed evaluation is not scored by hand; it lists every unresolved item; releasing several subjects is one event, all or none
+  - [ ] AC-0218: a release makes version N (N is the event's seq) and freezes a snapshot; scores, accepts and summaries cannot change while a report is released
+  - [ ] AC-0219: `amend` (reason required, based on the current version) reopens a report and the next release makes a new version; earlier versions stay in history; `withdraw` (reason required) is terminal
+  - [ ] AC-0220: a group release freezes the per-role learning-objective table as of its seq; a later player edit marks it out of date and an amendment of the group refreshes it
+  - [ ] AC-0221: `export` writes the viewer file (owner-only, `acr.view/1` JSON and Markdown) and records `report.exported` with the version, principal and destination label; viewing is not audited and the documentation says why
+  - [ ] AC-0222: an agent never runs release, amend or withdraw unless the owner names the subjects (AGENTS.md and docs/EVALUATOR.md)
+```
+
+```
+TASK-0067 (US-0042): Release gate, amend and withdraw, export audit
+Type: Dev
+Assignee: Agent
+Status: Planned
+Branch: feature/EPIC-0005-US-0042-release-gate
+Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 9-10: fold and gate for release, amend, withdraw and export; `release`, `amend`, `withdraw` and `export --for facilitator`. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md.
+```
+
+```
+US-0043 (EPIC-0005): Result visibility and the audience policy
+Priority: High
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0005-US-0043-visibility
+Dependencies: US-0042
+Acceptance Criteria:
+  - [ ] AC-0223: one pure function `canView` over a constant, versioned policy table decides access; the facilitator sees everything; an unreleased, withdrawn or superseded report is facilitator-only
+  - [ ] AC-0224: line manager, L&D, HR and programme sponsor are in the table but denied in every shipped command until EPIC-0002 identities exist
+  - [ ] AC-0225: a participant sees their own released personal report; in the group report and `index.md` peers' individual results are removed (not blanked) from the Markdown and the JSON
+  - [ ] AC-0226: during an amendment participants keep seeing the last released version; withdrawal removes participant access
+  - [ ] AC-0227: a review on a session recorded before the policy (legacy drafts) or under another policy version is narrowed to participant and facilitator and the report says so
+  - [ ] AC-0228: the offline check S-17 drives a scripted review (gate, release, access matrix, redaction, export audit) in the showcase `--evaluate` run; the default mock demo counts 29, 39, 42 and 14 are unchanged
+```
+
+```
+TASK-0068 (US-0043): Result visibility and the audience policy
+Type: Dev
+Assignee: Agent
+Status: Planned
+Branch: feature/EPIC-0005-US-0043-visibility
+Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 11-13: policy table, `canView` and redaction; participant exports, review index, legacy handling; offline check S-17. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md.
+```
+
+```
+US-0044 (EPIC-0005): Self-assessment, response and dispute
+Priority: High
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0005-US-0044-self-assessment
+Dependencies: US-0043
+Acceptance Criteria:
+  - [ ] AC-0229: `self-assess --list` shows the criteria and level anchors only (never scores, rationale or others' data) and `--rate` records facilitator-attested ratings before release (the last rating wins)
+  - [ ] AC-0230: self-rating closes at the subject's release and never changes a score, status or learning-objective result
+  - [ ] AC-0231: the released personal report shows the self-rating beside the final level per criterion
+  - [ ] AC-0232: after release a participant (attested) adds a response per criterion or overall; marking it a dispute puts it on the facilitator's status list without printing its text
+  - [ ] AC-0233: the facilitator resolves a dispute as upheld, amended or declined with a reason; amended needs an amend first; the outcome and reason are shown in the participant's report
+  - [ ] AC-0234: responses are scrubbed and escaped; another participant's report never carries them; the attested participant channel and what it does not protect are documented in the threat model
+```
+
+```
+TASK-0069 (US-0044): Self-assessment, response and dispute
+Type: Dev
+Assignee: Agent
+Status: Planned
+Branch: feature/EPIC-0005-US-0044-self-assessment
+Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 14-15: fold for self-ratings, responses and dispute resolution; `self-assess`, `respond`, `resolve`; side-by-side rendering. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md.
 ```
