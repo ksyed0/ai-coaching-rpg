@@ -325,7 +325,7 @@ After a session, the evaluator drafts feedback from the recorded log: a score pe
 pnpm evaluate data/sessions/local.jsonl                 # reports in data/reports/local/ (index.md links them all)
 pnpm evaluate <session.jsonl> [--scenario <dir>] [--out <dir>] [--json -]
 pnpm demo --showcase --fast --evaluate                  # the showcase, then the reports; adds check S-16
-pnpm moderate open data/reports/local --by <name>      # facilitator review of the drafts: also status, show, edit, accept, comment, edit-summary (docs/EVALUATOR.md)
+pnpm moderate open data/reports/local --by <name>      # facilitator review of the drafts: also status, show, edit, accept, comment, edit-summary, supersede (docs/EVALUATOR.md)
 ```
 
 - **Scoring method.** A Behaviourally Anchored Rating Scale (BARS): four levels per criterion with no midpoint, 1 Not yet demonstrated, 2 Developing, 3 Proficient, 4 Advanced, plus Not observed (N/O, no score) when there is no evidence either way. Each level has a written behavioural anchor per criterion in the scenario's `rubrics/` files.

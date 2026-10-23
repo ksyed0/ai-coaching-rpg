@@ -42,7 +42,7 @@ Description: Post-session rubric scoring with quoted evidence and confidence, fa
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0003
-Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed; per-participant isolation and ASM-09 are planned); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039. Task 11 outcome (2026-10-08): the baseline of the 34-probe Friday set ran with Gemma as primary judge and Holo3 as second judge at `--repeat 3` (6 h 24 min); both judges PASS (exact 27 and 28 of 32, bias +0.16 and +0.10, contrast ordered 2 of 2, all 108 answers usable). The stage gate was not triggered, so Task 12 was not run and US-0038 is Deferred (shown as Blocked, the closest allowed status; ids reserved) until contrast is measured on more than 2 probes and the owner has reviewed the excerpt levels. Weak spots: discovery FAIL for both judges (bias +0.40), team_alignment FAIL for Gemma only. Next: Task 13 (US-0039, the stamp). Moderation, visibility and self-assessment (ASM-04, ASM-07, ASM-09) are filed as US-0041..US-0044 (2026-10-23; spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md, plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md); engine and CLI only, the web UI and SSO stay in EPIC-0002.
+Notes: Pulled forward on 2026-10-06 (Planned -> In Progress) as a first version of the post-session evaluator: BARS rubrics (US-0028), the evaluator engine (US-0029), draft reports (US-0030) and the CLI and demo integration (US-0031). Product decisions: participants may see each other's scores and reports for now (a 'Visibility: all participants' line is printed; per-participant isolation and ASM-09 are planned); scoring uses a Behaviourally Anchored Rating Scale with four levels and 'Not observed'. Planned follow-ups: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), and isolation and access control (ASM-09), not yet filed as stories. The calibration slice (ASM-08) is filed as US-0035..US-0039. Task 11 outcome (2026-10-08): the baseline of the 34-probe Friday set ran with Gemma as primary judge and Holo3 as second judge at `--repeat 3` (6 h 24 min); both judges PASS (exact 27 and 28 of 32, bias +0.16 and +0.10, contrast ordered 2 of 2, all 108 answers usable). The stage gate was not triggered, so Task 12 was not run and US-0038 is Deferred (shown as Blocked, the closest allowed status; ids reserved) until contrast is measured on more than 2 probes and the owner has reviewed the excerpt levels. Weak spots: discovery FAIL for both judges (bias +0.40), team_alignment FAIL for Gemma only. Next: Task 13 (US-0039, the stamp). Moderation, visibility and self-assessment (ASM-04, ASM-07, ASM-09) are filed as US-0041..US-0044 (2026-10-23; spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md, plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md); engine and CLI only, the web UI and SSO stay in EPIC-0002. US-0041 (review log, `pnpm moderate`, supersede) is Complete as of 2026-10-23; US-0042..US-0044 remain Planned.
 ```
 
 ```
@@ -1202,25 +1202,25 @@ Notes: AC-0201 reworded (live runs pending), README and memory notes on --max-fa
 US-0041 (EPIC-0005): Review log and moderation
 Priority: High
 Estimate: L
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0005-US-0041-review-log
 Dependencies: US-0039
 Acceptance Criteria:
-  - [ ] AC-0209: `pnpm moderate open` creates an owner-only, hash-chained `review.jsonl` bound to the draft files, the session instance and the join-code record; a changed or missing draft file, a broken chain, a cut-off last line or a symbolic link makes every command exit 2 and repairs nothing
-  - [ ] AC-0210: edit, accept, comment and edit-summary append through one lock with a compare-and-set (`--expect`); of two racing commands exactly one wins and the other exits 1; the log stays valid
-  - [ ] AC-0211: the fold (`currentView`) is pure and total: it returns a view or rejects an illegal sequence (edit after release, stale `from`, unknown subject or criterion, second `review.opened`, non-contiguous seq, anything after supersede)
-  - [ ] AC-0212: a criterion with any flag, an invalid answer, a learning objective marked incomplete or confidence below high needs review; report JSON carries structured `flag_codes` (a directory without them is a legacy draft)
-  - [ ] AC-0213: every score edit needs a reason and keeps history; an edited criterion is shown as Facilitator-adjusted with the AI original and the reason; learning-objective results are recomputed; the AI summary is marked out of date after a score change; the AI calibration stamp is labelled as the draft's
-  - [ ] AC-0214: free text (reason, comment, rationale, summary items, `--by`) is stripped of hidden characters, scrubbed of secrets, length-limited before it is stored and escaped when rendered
-  - [ ] AC-0215: opening a review on a re-run is refused when an earlier directory of the same session was released, unless `supersede`; supersede carries byte-identical subjects forward (marked `carriedFrom`), starts changed ones clean and makes the old review read-only
-  - [ ] AC-0216: draft reports say 'DRAFT: AI-drafted, not reviewed by a facilitator' and 'Visibility: facilitator only until released'; mock demo check counts 29, 39, 42 and 14 are unchanged
+  - [x] AC-0209: `pnpm moderate open` creates an owner-only, hash-chained `review.jsonl` bound to the draft files, the session instance and the join-code record; a changed or missing draft file, a broken chain, a cut-off last line or a symbolic link makes every command exit 2 and repairs nothing (review-log.ts, store.ts; review-log.test.ts, store.test.ts, TC-0049)
+  - [x] AC-0210: edit, accept, comment and edit-summary append through one lock with a compare-and-set (`--expect`); of two racing commands exactly one wins and the other exits 1; the log stays valid (store.ts `applyCommand`, cli.ts `--expect`; store.test.ts, cli.test.ts, TC-0050)
+  - [x] AC-0211: the fold (`currentView`) is pure and total: it returns a view or rejects an illegal sequence (edit after release, stale `from`, unknown subject or criterion, second `review.opened`, non-contiguous seq, anything after supersede) (fold.ts; fold.test.ts, TC-0049)
+  - [x] AC-0212: a criterion with any flag, an invalid answer, a learning objective marked incomplete or confidence below high needs review; report JSON carries structured `flag_codes` (a directory without them is a legacy draft) (draft.ts, fold.ts; draft.test.ts, fold.test.ts)
+  - [x] AC-0213: every score edit needs a reason and keeps history; an edited criterion is shown as Facilitator-adjusted with the AI original and the reason; learning-objective results are recomputed; the AI summary is marked out of date after a score change; the AI calibration stamp is labelled as the draft's (view.ts; view.test.ts)
+  - [x] AC-0214: free text (reason, comment, rationale, summary items, `--by`) is stripped of hidden characters, scrubbed of secrets, length-limited before it is stored and escaped when rendered (text.ts, cli.ts; text.test.ts, cli.test.ts, cli-show.test.ts)
+  - [x] AC-0215: opening a review on a re-run is refused when an earlier directory of the same session was released, unless `supersede`; supersede carries byte-identical subjects forward (marked `carriedFrom`), starts changed ones clean and makes the old review read-only (store.ts `siblingReleased`, `supersedeReview`; supersede.test.ts, TC-0049)
+  - [x] AC-0216: draft reports say 'DRAFT: AI-drafted, not reviewed by a facilitator' and 'Visibility: facilitator only until released'; mock demo check counts 29, 39, 42 and 14 are unchanged (draft banner in the report writer; mock demos 29, 14 and 15 with --evaluate unchanged)
 ```
 
 ```
 TASK-0066 (US-0041): Review log and moderation
 Type: Dev
 Assignee: Agent
-Status: Planned
+Status: Done
 Branch: feature/EPIC-0005-US-0041-review-log
 Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 1-8: foundations, hash-chained review log, draft loader and flag codes, pure fold, store, moderated rendering, `pnpm moderate` (open, status, show, edit, accept, comment, edit-summary), supersede. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md.
 ```

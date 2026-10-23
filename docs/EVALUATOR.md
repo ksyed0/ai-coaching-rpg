@@ -1,6 +1,6 @@
 # Post-session evaluator
 
-The evaluator turns a recorded session into draft feedback: a score per criterion for each player, a score per criterion for the team, learning-objective results, and a personal report for each player plus a group report with talking points for the facilitator. It is the first version of EPIC-0005 (US-0028 to US-0031). Everything it produces is a **draft**: it is held for facilitator review, and the review and edit workflow is a planned follow-up (ASM-04).
+The evaluator turns a recorded session into draft feedback: a score per criterion for each player, a score per criterion for the team, learning-objective results, and a personal report for each player plus a group report with talking points for the facilitator. It is the first version of EPIC-0005 (US-0028 to US-0031). Everything it produces is a **draft**: it is held for facilitator review, and the facilitator review is `pnpm moderate` (below); release to participants and self-assessment are planned follow-ups (ASM-04, ASM-07, ASM-09).
 
 **Visibility: facilitator only until released.** Draft reports are for the facilitator. A moderated view marks each facilitator-adjusted score with the AI original and the reason, and is labelled "IN REVIEW" until it is released.
 
@@ -124,7 +124,7 @@ Write anchors as **observable behaviour in the participant's OWN words**, for th
 
   The summary is read from `data/calibration/<scenario-id>/` next to where you run `pnpm evaluate`. A missing or corrupt file never breaks a report. Only `pnpm calibrate` writes it, and only after a complete run, so the stamp is as current as your last full calibration. Every Markdown report also has a "Prompt variant ..., rubric ..." row (a line in `index.md`), and the JSON records the model (EVAL_MODEL, else NPC_MODEL), variant and rubric hash. Prompt variants other than `v1` do not exist yet (US-0038), so the variant is always `v1`. Bump the prompt variant whenever the evaluator prompt or parser changes: a calibration only goes stale when the rubric or the variant changes.
 
-## Moderating the drafts (`pnpm moderate`)
+## Moderating a report (`pnpm moderate`)
 
 `pnpm moderate <subcommand> <reports-dir> [options]` is the facilitator's review of a draft directory written by `pnpm evaluate`. It writes an append-only, hash-chained log (`review.jsonl`) beside the drafts and never changes a draft file. Paths are relative to where you ran `pnpm`.
 
@@ -136,11 +136,18 @@ pnpm moderate edit data/reports/local delivery_lead discovery --level 3 --reason
 pnpm moderate accept data/reports/local delivery_lead discovery --by kamal   # or: accept <dir> <subject> --summary --by kamal
 pnpm moderate comment data/reports/local delivery_lead --text "good scene 2" --by kamal [--criterion listening] [--feedback]
 pnpm moderate edit-summary data/reports/local delivery_lead --reason "tighter" --by kamal --strength "..." --development "..." --action "LO2:State two options"
+pnpm moderate supersede data/reports/local data/reports/local-2 --by kamal   # after a re-run of a released session
 ```
+
+**Reading order.** `open` once per directory, then `status` to see what needs review, `edit` or `accept` per criterion (and `accept --summary` or `edit-summary`), `comment` for notes, and `show` to read the report as it stands before you move on.
 
 A subject is a player role or `group`. `--level` is 1 to 4 or `na`; every edit needs a `--reason` (up to 500 characters); `--expect <level>` makes an edit a compare-and-set (refused, with the current level shown, if the score changed meanwhile). `--feedback` makes a comment visible to the participant once released; otherwise it is internal. `open` refuses a directory that holds files `pnpm evaluate` did not write (the message names the file); move them out.
 
 Free text is stored after hidden characters are stripped and secrets and machine paths are scrubbed. Line breaks in `--text`, `--reason` and the like are stored as a visible ` ⏎ ` marker, so one comment is always one line and cannot forge a log or report line. Exit codes: 0 done, 1 refused (fix and retry), 2 usage error or damaged review or draft file. Any unexpected failure prints a short generic message and exits 2.
+
+**Re-runs and `supersede`.** A second `pnpm evaluate` of the same session writes a new directory. While no earlier directory of that session has a release, `open` works on it freely. Once one has been released, `open` on a sibling is refused (exit 1) and tells you to run `supersede <old> <new> --by <name>`. Supersede copies the moderation (score and summary edits, accepts, comments) of every subject whose draft file is byte-identical in the new run, marks the copies `carriedFrom`, and starts changed subjects clean (it prints both lists). The new review is written first and the old one is marked superseded last, so a crash leaves the old review live; the old review is then read-only.
+
+**What file access defeats.** The review is plain files. Anyone who can write the reports directory can forge a review: the hash chain catches an edit in the middle of the log, a changed draft file or a cut-off line, but not a rewrite of the whole log, and `cat` of a report is not audited. The `--by` name is a label, not an identity. Treat the reports directory like the session logs (see `docs/THREAT_MODEL.md`).
 
 ## Calibration
 
@@ -296,4 +303,4 @@ By split the two are close: holdout 15 of 17 exact, bias +0.18 (Gemma), 16 of 17
 
 ## Limits and planned follow-ups
 
-Not built yet: the facilitator moderation and edit workflow with history (ASM-04), participant self-assessment and response (ASM-07), calibration against human raters (ASM-08; `pnpm calibrate` above measures a judge against human-labelled probes, not against human raters scoring the same sessions), and result isolation and access control (ASM-09). The evaluator has not been validated against human raters, so treat its scores as a conversation starter for the debrief.
+Not built yet: release of moderated reports to participants (US-0042), participant self-assessment and response (ASM-07), calibration against human raters (ASM-08; `pnpm calibrate` above measures a judge against human-labelled probes, not against human raters scoring the same sessions), and result isolation and access control (ASM-09). The evaluator has not been validated against human raters, so treat its scores as a conversation starter for the debrief.

@@ -154,3 +154,10 @@
 - Release plan statuses reconciled with what is merged: US-0013, US-0020, US-0023, US-0025, US-0034, US-0035 and US-0036 -> Complete (every AC ticked, every task Done); TASK-0025 -> Done. Left In Progress on purpose: US-0019 (`cache_read_input_tokens` not recorded), US-0033 (human live check), US-0026 (AC-0087 live rerun), US-0037 (AC-0191 owner review of excerpt levels). US-0038 stays Blocked (deferred, R32).
 - `docs/ID_REGISTRY.md` checked against the highest ids in the plan, bugs and test cases: consistent, no change needed.
 - Next: US-0039 (calibration stamp), the only Planned story.
+
+## Session 9 — 2026-10-23 (EPIC-0005 moderation: US-0041 review log)
+
+- **Built (branch `feature/EPIC-0005-US-0041-review-log`):** `services/runtime/src/review/` (types, hash-chained `review.jsonl`, draft loader with structured flag codes, pure fold, store with one locked write path, moderated view, `pnpm moderate` with open, status, show, edit, accept, comment, edit-summary, supersede). Supersede (ruling P16) writes the new review first and marks the old one superseded last, so a crash leaves the old review live. `open` on a re-run is refused once an earlier directory of the session was released.
+- **Docs:** `docs/EVALUATOR.md` (Moderating a report, re-runs, what file access defeats), README, CHANGELOG, TC-0049 and TC-0050, release plan (AC-0209..AC-0216 ticked, US-0041 Complete, TASK-0066 Done).
+- **Known limits:** the release gate, amend and withdraw (US-0042) and participant visibility are not built; the supersede test forces a `report.released` event until then, and the old-review-read-only assertion tightens to `ReviewRefusedError` in Task 9.
+- **Next:** PR for US-0041 (controller), then US-0042 from `develop`.
