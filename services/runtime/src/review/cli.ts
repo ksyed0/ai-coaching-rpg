@@ -1,10 +1,19 @@
-import { link, lstat, mkdir, rmdir, rm, stat, unlink } from "node:fs/promises";
+import {
+  link,
+  lstat,
+  mkdir,
+  realpath,
+  rmdir,
+  rm,
+  stat,
+  unlink,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { isSafeId } from "@acr/events";
 import { stripHidden } from "../calibration/hidden-chars.js";
-import { scrubText } from "../demo/report.js";
+import { scrubDeep, scrubText } from "../demo/report.js";
 import { secretValues } from "../evaluator/cli.js";
 import type {
   GroupReport,
@@ -150,19 +159,18 @@ function cleanLine(line: string, secrets: string[]): string {
     if (dir && dir !== "/") out = out.split(dir).join(label);
   return out;
 }
-/** Every string in a JSON value with the secret values redacted (the Markdown renderer does the same), keys untouched. */
-function redactDeep(v: unknown, secrets: string[]): unknown {
-  if (typeof v === "string") {
-    let t = v;
-    for (const x of secrets) if (x) t = t.split(x).join("[redacted]");
-    return t;
+/** The refusal text of `release`. The top-level error is cut at 400 characters, so keep whole (capped) lines and say how many were left out. */
+export function releaseRefusal(problems: string[]): string {
+  const shown: string[] = [];
+  let len = 60; // "refused: nothing was released:" plus the line markers and the "... and N more" tail
+  for (const raw of problems) {
+    const p = raw.length > 110 ? `${raw.slice(0, 107)}...` : raw;
+    if (shown.length > 0 && len + p.length + 5 > 340) break;
+    shown.push(p);
+    len += p.length + 5;
   }
-  if (Array.isArray(v)) return v.map((x) => redactDeep(x, secrets));
-  if (v && typeof v === "object")
-    return Object.fromEntries(
-      Object.entries(v).map(([k, x]) => [k, redactDeep(x, secrets)]),
-    );
-  return v;
+  const more = problems.length - shown.length;
+  return `nothing was released:\n  ${shown.join("\n  ")}${more > 0 ? `\n  ... and ${more} more; run status for the full list` : ""}`;
 }
 /** The hint printed when a release or withdrawal left the released group's per-role table out of date. */
 const staleHint = (before: Loaded, after: Loaded): string | null => {
@@ -409,21 +417,8 @@ export const HANDLERS: Record<string, Handler> = {
         }
         for (const p of releaseProblems(sv)) problems.push(`${id}: ${p}`);
       }
-      if (problems.length) {
-        // The top-level error message is cut at 400 characters: keep whole lines and say how many were left out.
-        const shown: string[] = [];
-        let len = 60; // "refused: nothing was released:" plus the line markers and the "... and N more" tail
-        for (const raw of problems) {
-          const p = raw.length > 110 ? `${raw.slice(0, 107)}...` : raw;
-          if (shown.length > 0 && len + p.length + 5 > 380 - 40) break;
-          shown.push(p);
-          len += p.length + 5;
-        }
-        const more = problems.length - shown.length;
-        throw new ReviewRefusedError(
-          `nothing was released:\n  ${shown.join("\n  ")}${more > 0 ? `\n  ... and ${more} more; run status for the full list` : ""}`,
-        );
-      }
+      if (problems.length)
+        throw new ReviewRefusedError(releaseRefusal(problems));
       return [{ actor, body: { type: "report.released", subjects: ids } }];
     });
     const e = appended[0] as Extract<ReviewEvent, { type: "report.released" }>;
@@ -529,8 +524,13 @@ export const HANDLERS: Record<string, Handler> = {
         cur.view,
         subject,
       );
-      md = renderSubjectMarkdown(report, c.secrets);
-      json = `${JSON.stringify(redactDeep(report, c.secrets), null, 2)}\n`;
+      // as strict as `show`: per line, hidden and control characters out, secrets and machine paths redacted (tables and tabs stay)
+      md = `${renderSubjectMarkdown(report, c.secrets)
+        .split("\n")
+        .map((line) => cleanLine(line, c.secrets))
+        .join("\n")
+        .trimEnd()}\n`;
+      json = `${JSON.stringify(scrubDeep(report, c.secrets), null, 2)}\n`;
       return [
         {
           actor,
@@ -557,6 +557,14 @@ export const HANDLERS: Record<string, Handler> = {
         await mkdir(dest, { mode: REPORT_DIR_MODE });
         created = true;
       }
+      // A destination swapped for a symbolic link since the check is refused (a residual window remains between this check and the writes).
+      const here = await lstat(dest);
+      if (
+        here.isSymbolicLink() ||
+        (await realpath(dest)) !==
+          path.join(await realpath(path.dirname(dest)), path.basename(dest))
+      )
+        throw new Error("destination is not a plain directory");
       const tag = `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       // Stage every file under a private temp name (created exclusively, owner-only), then link each into place: link never
       // replaces an existing name or follows a symlink there, so a late-appearing file fails the export instead of being overwritten.
