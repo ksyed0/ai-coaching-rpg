@@ -804,5 +804,36 @@ Status: [x] Pass
 Defect Raised: None
 Notes: The mock-demo drive was run by hand once; the tests cover the same paths.
 
+TC-0053: The audience policy and `canView`
+Related Story: US-0043
+Related Task: TASK-0068
+Related AC: AC-0223, AC-0224, AC-0226, AC-0227
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/review/__tests__/policy.test.ts src/review/__tests__/visibility.test.ts`.
+  2. Run `pnpm -s demo --showcase --fast --evaluate --eval-out <tmp>` and read check S-17.
+Expected Result: the facilitator may view any well-formed subject at any state; every other audience is denied unless the report is released (or amending with a released snapshot), current and unsuperseded, under policy version 1; a participant gets only their own personal report, the group report and the index; line manager, L&D, HR and sponsor are denied everywhere; a withdrawn or draft report is refused for participants; during an amendment a participant still gets the last release; a legacy draft set carries the legacy note for a participant and not for the facilitator; denial reasons are constants that never echo the request; S-17 checks the whole matrix (40 cells in the mock run) against an expected table written inline.
+Actual Result: As expected (policy and visibility tests; the mock showcase S-17 passed) on 2026-10-23.
+Status: [x] Pass
+Defect Raised: None
+Notes: Automated only.
+
+TC-0054: Peer redaction for participants and the S-17 check
+Related Story: US-0043
+Related Task: TASK-0068
+Related AC: AC-0225, AC-0228
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/review/__tests__/visibility.test.ts src/review/__tests__/view.test.ts src/review/__tests__/demo-check.test.ts`.
+  2. Run `pnpm -s demo --showcase --fast --evaluate --eval-out <tmp>` and `pnpm -s demo --showcase --fast --scenario scenarios/friday-escalation --evaluate --eval-out <tmp>`.
+  3. Run `pnpm -s demo`, `pnpm -s demo --resume`, `pnpm -s demo --resume --security` and `pnpm -s demo --showcase --fast`.
+Expected Result: a participant's export of the group report and the index holds no other player's individual result (key, row or link) in the Markdown or the JSON, no facilitator notes, talking points, moment notes or internal comments, and no review state; a withdrawn player's own row is absent; S-17 passes in both `--evaluate` runs (16 checks each), leaves the reports directory untouched and its temporary directory removed even on failure; the default runs keep 29, 39, 42 and 14 checks.
+Actual Result: As expected (tests above; S-17 passed in both showcase --evaluate runs with 16 checks; default counts 29, 39, 42, 14) on 2026-10-23.
+Status: [x] Pass
+Defect Raised: None
+Notes: A live `--evaluate` run records S-17 as skipped (live mode): a live evaluation may have players that cannot be released.
+
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 

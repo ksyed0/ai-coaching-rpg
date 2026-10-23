@@ -51,7 +51,8 @@ describe("pnpm demo --showcase --evaluate (mock mode)", () => {
     const { exitCode, report, stdout } = await run(["--showcase", "--fast", "--no-color", "--evaluate", "--eval-out", out, "--json", json]);
     expect(report!.results.filter((r) => r.status !== "passed")).toEqual([]);
     expect(exitCode).toBe(0);
-    expect(report!.results.map((r) => r.id)).toEqual([...SHOWCASE_CHECKS.map((c) => c.id), "S-16"]);
+    expect(report!.results.map((r) => r.id)).toEqual([...SHOWCASE_CHECKS.map((c) => c.id), "S-16", "S-17"]);
+    expect(report!.results.find((x) => x.id === "S-17")!.details).toMatch(/4 subjects reviewed and released in one event; access matrix \d+ cells checked; peers' results absent from/);
     const dir = path.join(out, "demo");
     expect(readdirSync(dir).sort()).toEqual(["account_manager.json", "account_manager.md", "delivery_lead.json", "delivery_lead.md", "group.json", "group.md", "index.md", "method.md", "tech_lead.json", "tech_lead.md"]);
     expect(stdout).toContain("EVALUATION: feedback reports for the session");
@@ -115,7 +116,8 @@ describe("pnpm demo --showcase --evaluate (mock mode)", () => {
     const s16 = r.report!.results.find((x) => x.id === "S-16")!;
     expect(s16.status).toBe("failed");
     expect(s16.details).toMatch(/quote is not verbatim/);
-    expect(r.report!.results.filter((x) => x.status === "failed").map((x) => x.id)).toEqual(["S-16"]);
+    expect(r.report!.results.filter((x) => x.status === "failed").map((x) => x.id)).toEqual(["S-16", "S-17"]);
+    expect(r.report!.results.find((x) => x.id === "S-17")!.details).toMatch(/did not run \(prerequisite failed: S-16\)/);
   });
 
   it("without --evaluate the run is exactly S-01 to S-14, writes no reports and has no evaluation section", async () => {
@@ -145,6 +147,14 @@ describe("pnpm demo --showcase --evaluate (mock mode)", () => {
     expect(r.exitCode).toBe(2);
     expect(r.stderr).toMatch(/--showcase cannot use that scenario: the rubrics are invalid: .*group_collaboration_v1/);
     expect(r.stdout).toBe("");
+  });
+
+  it("the original Friday scenario with --evaluate has 16 checks, S-16 and S-17 among them, all passed", async () => {
+    const r = await run(["--showcase", "--fast", "--no-color", "--scenario", "scenarios/friday-escalation", "--evaluate", "--eval-out", outDir()]);
+    expect(r.exitCode).toBe(0);
+    expect(r.report!.results).toHaveLength(16);
+    expect(r.report!.results.map((x) => x.id)).toEqual(expect.arrayContaining(["S-16", "S-17"]));
+    expect(r.report!.results.every((x) => x.status === "passed")).toBe(true);
   });
 
   it("never reads the live environment in a mock run", async () => {
@@ -182,6 +192,7 @@ describe("pnpm demo --showcase --live --evaluate (a fake OpenAI-compatible serve
     const r = await run(["--showcase", "--live", "--max-lines", "1", "--fast", "--no-color", "--evaluate", "--eval-out", out], { resolveLiveEnv: () => env(port, { EVAL_MODEL: "judge-1" }) });
     expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
     expect(r.exitCode).toBe(0);
+    expect(r.report!.results.find((x) => x.id === "S-17")).toMatchObject({ status: "skipped", details: expect.stringMatching(/live mode/) });
     expect(seen.eval).toBe(2); // --max-lines 1: only the delivery lead speaks enough to be evaluated, plus the group
     expect(r.stdout).toMatch(/NOTICE: --evaluate sends the whole session transcript .* to the configured model provider/);
     expect(r.stdout).toMatch(/The evaluator sends the session transcript to the configured model provider/);

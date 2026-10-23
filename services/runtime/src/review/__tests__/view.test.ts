@@ -3,7 +3,8 @@ import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { applyCommand, loadReview, openReview } from "../store.js";
 import { viewReport, renderSubjectMarkdown } from "../view.js";
-import { makeDraftDir, fixedClock } from "./fixtures.js";
+import { makeDraftDir, fixedClock, resolveBodies } from "./fixtures.js";
+import { releasedBanner } from "../../evaluator/method.js";
 import { sha256 } from "../hash.js";
 import type { ParticipantReport } from "../../evaluator/report-model.js";
 
@@ -16,6 +17,14 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 const fac = { kind: "facilitator", by: "kamal" } as const;
+/** Resolves every open item of alice and releases her: the released audience reads only the frozen snapshot. */
+const releaseAlice = async () =>
+  (
+    await applyCommand(dir, fixedClock(), (l) => [
+      ...resolveBodies(l.view, "alice").map((body) => ({ actor: fac, body })),
+      { actor: fac, body: { type: "report.released", subjects: ["alice"] } },
+    ])
+  ).loaded;
 const draftOf = async (s: string) =>
   JSON.parse(
     await readFile(path.join(dir, `${s}.json`), "utf8"),
@@ -114,16 +123,38 @@ describe("viewReport / renderSubjectMarkdown", () => {
     );
     expect(f).toContain("INTERNAL-NOTE");
     expect(f).toContain("KIND-WORDS-NOTE");
+    const rl = await releaseAlice();
+    await applyCommand(dir, fixedClock(), () => [
+      {
+        actor: fac,
+        body: {
+          type: "comment.added",
+          subject: "alice",
+          text: "LATE-FEEDBACK",
+          visibility: "feedback",
+        },
+      },
+    ]);
+    const after = await loadReview(dir);
     const p = renderSubjectMarkdown(
-      viewReport(a0, loaded.view, "alice", {
+      viewReport(a0, after.view, "alice", {
         audience: "released",
         line: "Visibility: released",
       }),
       [],
     );
+    expect(rl.view.subjects.get("alice")!.state).toBe("released");
     expect(p).not.toContain("INTERNAL-NOTE");
     expect(p).toContain("KIND-WORDS-NOTE");
-    expect(p).toContain("Released (version 0)");
+    // comments are frozen at the release: a later one is not shown
+    expect(p).not.toContain("LATE-FEEDBACK");
+    expect(p).toMatch(/released \(version \d+\)/i);
+    expect(() =>
+      viewReport(a0, loaded.view, "alice", {
+        audience: "released",
+        line: "L",
+      }),
+    ).toThrow(/released subject/);
   });
   it("rebuilds the group lo_coverage from the view", async () => {
     const l = await loadReview(dir);
@@ -191,7 +222,7 @@ describe("viewReport / renderSubjectMarkdown", () => {
       expect(md).toContain("Rationale edited");
       expect(md).toContain("Summary edited by a facilitator");
       if (states.includes("open")) expect(md).toContain("Needs review");
-      const rel = viewReport(a0, loaded.view, "alice", {
+      const rel = viewReport(a0, (await releaseAlice()).view, "alice", {
         audience: "released",
         line: "L",
       }) as ParticipantReport;
@@ -203,6 +234,10 @@ describe("viewReport / renderSubjectMarkdown", () => {
       expect(rel.criteria.every((c) => c.moderation?.state === undefined)).toBe(
         true,
       );
+      for (const c of rel.criteria) {
+        expect(c.moderation).not.toHaveProperty("accepted");
+        expect(c.moderation).not.toHaveProperty("rationale_edited");
+      }
     });
 
     it("shows an accepted criterion as accepted, and names the acceptor on the released banner", async () => {
@@ -229,7 +264,7 @@ describe("viewReport / renderSubjectMarkdown", () => {
       );
       expect(md).toContain("Accepted by facilitator");
       const rel = renderSubjectMarkdown(
-        viewReport(a0, loaded.view, "alice", {
+        viewReport(a0, (await releaseAlice()).view, "alice", {
           audience: "released",
           line: "L",
         }),
@@ -239,16 +274,9 @@ describe("viewReport / renderSubjectMarkdown", () => {
       expect(rel).not.toContain("zed");
     });
 
-    it("omits the Reviewed by part when no facilitator edited or accepted anything", async () => {
-      const l = await loadReview(dir);
-      const md = renderSubjectMarkdown(
-        viewReport(await draftOf("alice"), l.view, "alice", {
-          audience: "released",
-          line: "L",
-        }),
-        [],
-      );
-      expect(md).toMatch(/> Released \(version 0\)/);
+    it("omits the Reviewed by part when no facilitator edited or accepted anything", () => {
+      const md = releasedBanner(4, []);
+      expect(md).toMatch(/^Released \(version 4\)/);
       expect(md).not.toContain("Reviewed by");
       expect(md).not.toContain("  ");
     });

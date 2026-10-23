@@ -38,7 +38,7 @@ const marks = (c: JsonCriterion, sec: string[]): string => {
 
 function notesSection(r: ParticipantReport | GroupReport, sec: string[]): string[] {
   if (!r.comments?.length) return [];
-  return ["## Facilitator notes", "", ...r.comments.map((c) => `- ${c.criterion ? `${id(c.criterion, sec)}: ` : ""}${safeMd(c.text, 1500, sec)}`), ""];
+  return ["## Notes", "", ...r.comments.map((c) => `- ${c.criterion ? `${id(c.criterion, sec)}: ` : ""}${safeMd(c.text, 1500, sec)}`), ""];
 }
 
 function criteriaTable(cs: JsonCriterion[], sec: string[]): string[] {
@@ -108,13 +108,16 @@ export function renderGroupMarkdown(r: GroupReport, secrets: string[] = []): str
   const team = r.lo_coverage.objectives.some((o) => o.team.score !== null);
   out.push(`| Learning objective | ${players.map((p) => id(p, sec)).join(" | ")}${team ? " | Team (group criteria)" : ""} |`, `| --- | ${players.map(() => "---").join(" | ")}${team ? " | ---" : ""} |`);
   for (const o of r.lo_coverage.objectives) {
-    out.push(`| ${id(o.id, sec)}: ${safeMd(o.statement, 160, sec)} | ${players.map((p) => loScoreText(o.by_role[p]!.score, o.by_role[p]!.label, o.by_role[p]!.incomplete)).join(" | ")}${team ? ` | ${loScoreText(o.team.score, o.team.label, o.team.incomplete)}` : ""} |`);
+    out.push(`| ${id(o.id, sec)}: ${safeMd(o.statement, 160, sec)} | ${players.map((p) => loScoreText(o.by_role[p]?.score ?? null, o.by_role[p]?.label ?? "Not observed", o.by_role[p]?.incomplete ?? false)).join(" | ")}${team ? ` | ${loScoreText(o.team.score, o.team.label, o.team.incomplete)}` : ""} |`);
   }
   out.push("");
   if (r.learning_objectives_note) out.push(NO_GROUP_LO_NOTE, "");
-  out.push("## Talking points for the facilitator", "");
-  if (r.talking_points.from_scenario) out.push("From the scenario author:", "", `- ${safeMd(r.talking_points.from_scenario, 800, sec)}`, "");
-  out.push("Drafted from this session:", "", ...bullets(r.talking_points.from_evaluator, sec, "None were drafted."));
+  // Facilitator-directed: omitted entirely when both sources are empty (the participant view empties them).
+  if (r.talking_points.from_scenario || r.talking_points.from_evaluator.length) {
+    out.push("## Talking points for the facilitator", "");
+    if (r.talking_points.from_scenario) out.push("From the scenario author:", "", `- ${safeMd(r.talking_points.from_scenario, 800, sec)}`, "");
+    out.push("Drafted from this session:", "", ...bullets(r.talking_points.from_evaluator, sec, "None were drafted."));
+  }
   out.push("## Notable moments", "");
   if (r.notable_moments.length === 0) out.push("None with a verified quote.", "");
   else for (const m of r.notable_moments) out.push(`- Scene ${m.scene}, ${m.time} (line #${m.seq}, ${id(m.role, sec)}): "${safeMd(m.quote, 320, sec)}"${m.note ? ` - ${safeMd(m.note, 300, sec)}` : ""}`);

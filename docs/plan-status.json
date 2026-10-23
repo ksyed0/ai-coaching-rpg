@@ -1599,7 +1599,7 @@
         },
         {
           "id": "AC-0199",
-          "text": "`pnpm demo --showcase --fast --scenario scenarios/friday-escalation` passes all 14 showcase checks (15 with `--evaluate`) offline, and the extended scenario's mock demos keep their 29, 42 and 14 checks",
+          "text": "`pnpm demo --showcase --fast --scenario scenarios/friday-escalation` passes all 14 showcase checks (16 with `--evaluate`) offline, and the extended scenario's mock demos keep their 29, 42 and 14 checks",
           "done": true
         },
         {
@@ -1714,7 +1714,7 @@
       "priority": "High",
       "estimate": "M",
       "status": "Complete",
-      "branch": "feature/EPIC-0005-US-0042-release-gate",
+      "branch": "feature/EPIC-0005-US-0042-release",
       "acs": [
         {
           "id": "AC-0217",
@@ -1757,38 +1757,38 @@
       "title": "Result visibility and the audience policy",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
-      "branch": "feature/EPIC-0005-US-0043-visibility",
+      "status": "Complete",
+      "branch": "feature/EPIC-0005-US-0043-audience",
       "acs": [
         {
           "id": "AC-0223",
-          "text": "one pure function `canView` over a constant, versioned policy table decides access; the facilitator sees everything; an unreleased, withdrawn or superseded report is facilitator-only",
-          "done": false
+          "text": "one pure function `canView` over a constant, versioned policy table decides access; the facilitator sees everything; an unreleased, withdrawn or superseded report is facilitator-only (policy.test.ts (canView table), visibility.test.ts; TC-0053)",
+          "done": true
         },
         {
           "id": "AC-0224",
-          "text": "line manager, L&D, HR and programme sponsor are in the table but denied in every shipped command until EPIC-0002 identities exist",
-          "done": false
+          "text": "line manager, L&D, HR and programme sponsor are in the table but denied in every shipped command until EPIC-0002 identities exist (policy.test.ts, visibility.test.ts (inert audiences refused); TC-0053)",
+          "done": true
         },
         {
           "id": "AC-0225",
-          "text": "a participant sees their own released personal report; in the group report and `index.md` peers' individual results are removed (not blanked) from the Markdown and the JSON",
-          "done": false
+          "text": "a participant sees their own released personal report; in the group report and `index.md` peers' individual results are removed (not blanked) from the Markdown and the JSON (visibility.test.ts, view.test.ts (peer removal in Markdown and JSON); TC-0054)",
+          "done": true
         },
         {
           "id": "AC-0226",
-          "text": "during an amendment participants keep seeing the last released version; withdrawal removes participant access",
-          "done": false
+          "text": "during an amendment participants keep seeing the last released version; withdrawal removes participant access (visibility.test.ts (amending keeps the last release, withdrawn removes access); TC-0053)",
+          "done": true
         },
         {
           "id": "AC-0227",
-          "text": "a review on a session recorded before the policy (legacy drafts) or under another policy version is narrowed to participant and facilitator and the report says so",
-          "done": false
+          "text": "a review on a session recorded before the policy (legacy drafts) is narrowed to participant and facilitator and the report says so; a review recorded under another policy version is refused by the fold (no command can load it) and `canView` allows only the facilitator for it (visibility.test.ts (legacy draft sets), policy.test.ts (policy version); TC-0053)",
+          "done": true
         },
         {
           "id": "AC-0228",
-          "text": "the offline check S-17 drives a scripted review (gate, release, access matrix, redaction, export audit) in the showcase `--evaluate` run; the default mock demo counts 29, 39, 42 and 14 are unchanged",
-          "done": false
+          "text": "the offline check S-17 drives a scripted review (gate, release, access matrix, redaction, export audit) in the showcase `--evaluate` run; the default mock demo counts 29, 39, 42 and 14 are unchanged (demo-check.test.ts, showcase-evaluate.test.ts; TC-0054)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -2458,7 +2458,7 @@
       "type": "Dev",
       "assignee": "Agent",
       "status": "Done",
-      "branch": "feature/EPIC-0005-US-0042-release-gate",
+      "branch": "feature/EPIC-0005-US-0042-release",
       "notes": "Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 9-10: fold and gate for release, amend, withdraw and export; `release`, `amend`, `withdraw` and `export --for facilitator`. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md."
     },
     {
@@ -2467,8 +2467,8 @@
       "title": "Result visibility and the audience policy",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "Planned",
-      "branch": "feature/EPIC-0005-US-0043-visibility",
+      "status": "Done",
+      "branch": "feature/EPIC-0005-US-0043-audience",
       "notes": "Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 11-13: policy table, `canView` and redaction; participant exports, review index, legacy handling; offline check S-17. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md."
     },
     {
@@ -2989,6 +2989,26 @@
       "relatedStory": "US-0042",
       "relatedTask": "TASK-0067",
       "relatedAC": "AC-0217, AC-0219, AC-0221, AC-0222",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0053",
+      "title": "The audience policy and `canView`",
+      "relatedStory": "US-0043",
+      "relatedTask": "TASK-0068",
+      "relatedAC": "AC-0223, AC-0224, AC-0226, AC-0227",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0054",
+      "title": "Peer redaction for participants and the S-17 check",
+      "relatedStory": "US-0043",
+      "relatedTask": "TASK-0068",
+      "relatedAC": "AC-0225, AC-0228",
       "type": "Functional",
       "status": "Pass",
       "defect": "None"
@@ -3730,11 +3750,11 @@
       "isAtRisk": false
     },
     "US-0043": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0044": {
       "missingTCs": true,
@@ -3938,10 +3958,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-23T19:12:59.906Z",
-  "commitSha": "6b7d10c",
-  "buildNumber": "358",
-  "branch": "feature/EPIC-0005-US-0042-release",
+  "generatedAt": "2026-10-23T19:58:44.174Z",
+  "commitSha": "d48960c",
+  "buildNumber": "367",
+  "branch": "feature/EPIC-0005-US-0043-audience",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -4073,13 +4093,13 @@
     }
   },
   "budget": {
-    "totalBudget": 2222.1355,
+    "totalBudget": 1422.1354999999999,
     "totalSpent": 622.1355,
     "totalProjected": 37200,
-    "percentUsed": 28,
+    "percentUsed": 44,
     "burnRate": 19.355326666666667,
-    "daysRemaining": 82,
-    "projectedExhaustion": 82,
+    "daysRemaining": 41,
+    "projectedExhaustion": 41,
     "thresholds": [
       50,
       75,
@@ -4115,10 +4135,10 @@
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 1797.952202,
+        "budget": 997.9522019999999,
         "spent": 197.952202,
-        "remaining": 1600,
-        "percentUsed": 11
+        "remaining": 800,
+        "percentUsed": 20
       },
       {
         "id": "EPIC-0003",
@@ -4173,9 +4193,11 @@
       "2026-10-21T18:04:20.937Z",
       "2026-10-22T18:04:20.937Z",
       "2026-10-23T18:32:46.424Z",
-      "2026-10-23T19:12:59.998Z"
+      "2026-10-23T19:12:59.998Z",
+      "2026-10-23T19:58:44.301Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -4241,6 +4263,7 @@
       44,
       44,
       44,
+      44,
       44
     ],
     "aiCosts": [
@@ -4273,6 +4296,7 @@
       559.92195,
       580.6598,
       601.39765,
+      622.1355,
       622.1355,
       622.1355,
       622.1355
@@ -4309,9 +4333,11 @@
       0,
       0,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -4377,9 +4403,11 @@
       1,
       1,
       1,
+      1,
       1
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -4445,6 +4473,7 @@
       0,
       0,
       26394971,
+      26394971,
       26394971
     ],
     "outputTokens": [
@@ -4479,9 +4508,11 @@
       0,
       0,
       4383036,
+      4383036,
       4383036
     ],
     "avgRisk": [
+      1.1545454545454552,
       1.1545454545454552,
       1.1545454545454552,
       1.1545454545454552,

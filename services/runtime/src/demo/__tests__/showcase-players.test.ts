@@ -492,7 +492,7 @@ describe("generated players: logging the private intents (US-0027)", () => {
     const r = await run([...ARGV, "--scenario", dir, ...(noIntents ? ["--no-intents"] : []), "--evaluate", "--eval-out", path.join(out, "rep"), "--transcript", "e.md"], env, { cwd: out });
     expect(r.report!.results.filter((x) => x.status === "failed")).toEqual([]);
     expect(r.exitCode).toBe(0);
-    expect(r.report!.results.map((x) => x.id)).toEqual([...SHOWCASE_CHECKS.map((c) => c.id), "S-15", "S-16", "S-18"]);
+    expect(r.report!.results.map((x) => x.id)).toEqual([...SHOWCASE_CHECKS.map((c) => c.id), "S-15", "S-16", "S-17", "S-18"]);
     expect(seen.evalBodies.length).toBeGreaterThan(0);
     for (const s of sentinels) expect(seen.evalBodies.join("\n")).not.toContain(s);
     expect(seen.evalBodies.join("\n")).toContain("Take 1 as"); // the evaluator saw what was actually said
