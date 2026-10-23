@@ -88,13 +88,21 @@ export function sealEntries(
   const sealed: ReviewEvent[] = [];
   let prev = tailHash;
   for (const [i, en] of entries.entries()) {
+    // chain fields are the log's own: a body cannot override them
+    const {
+      seq: _s,
+      ts: _t,
+      prev: _p,
+      actor: _a,
+      ...body
+    } = en.body as Record<string, unknown>;
     const e = {
       seq: events.length + i + 1,
       ts: now(),
       prev,
       actor: en.actor,
       ...(en.carriedFrom ? { carriedFrom: en.carriedFrom } : {}),
-      ...en.body,
+      ...body,
     } as ReviewEvent;
     sealed.push(e);
     prev = sha256(JSON.stringify(e));
@@ -114,6 +122,7 @@ export async function writeEvents(
     fsConstants.O_APPEND |
     (fsConstants.O_NOFOLLOW ?? 0);
   let fh: FileHandle | null = null;
+  let original: number | null = null;
   try {
     fh = await open(path.join(dir, REVIEW_FILE), flags, 0o600);
     const st = await fh.stat();
@@ -121,11 +130,16 @@ export async function writeEvents(
       throw new ReviewCorruptError(
         "review.jsonl is not a plain file with one link",
       );
-    if ((st.mode & 0o077) !== 0) await fh.chmod(0o600);
     const buf = Buffer.from(
       sealed.map((e) => `${JSON.stringify(e)}\n`).join(""),
       "utf8",
     );
+    if (st.size + buf.length > LIMITS.logBytes)
+      throw new ReviewRefusedError(
+        "the review is full: this write would make review.jsonl larger than it may be",
+      );
+    if ((st.mode & 0o077) !== 0) await fh.chmod(0o600);
+    original = st.size;
     let off = 0;
     while (off < buf.length) {
       const { bytesWritten } = await fh.write(buf, off, buf.length - off);
@@ -133,14 +147,32 @@ export async function writeEvents(
     }
     await fh.datasync();
   } catch (err) {
-    if (err instanceof ReviewCorruptError) throw err;
+    if (err instanceof ReviewCorruptError || err instanceof ReviewRefusedError)
+      throw err;
+    if (fh && original !== null) {
+      try {
+        await fh.truncate(original);
+        await fh.datasync();
+        throw new ReviewCorruptError(
+          "review.jsonl could not be written; nothing was added",
+        );
+      } catch (rb) {
+        if (rb instanceof ReviewCorruptError) throw rb;
+      }
+    }
     throw new ReviewCorruptError(
       "review.jsonl could not be written; run status to check it before trying again",
     );
   } finally {
     await fh?.close().catch(() => undefined);
   }
-  await fsyncDir(dir);
+  try {
+    await fsyncDir(dir);
+  } catch {
+    throw new ReviewCorruptError(
+      "review.jsonl could not be written; run status to check it before trying again",
+    );
+  }
 }
 
 /** One writer at a time (the session lock primitive, file `review.lock`). A held lock is a refusal (exit 1), not a crash. */

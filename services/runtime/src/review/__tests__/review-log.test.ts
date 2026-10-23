@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   chmod,
   mkdtemp,
@@ -6,6 +6,7 @@ import {
   rm,
   stat,
   symlink,
+  mkdir,
   truncate,
   writeFile,
 } from "node:fs/promises";
@@ -17,7 +18,8 @@ import {
   withReviewLock,
   writeEvents,
 } from "../review-log.js";
-import { REVIEW_FILE, ZERO_HASH, type Entry } from "../types.js";
+import { LIMITS, REVIEW_FILE, ZERO_HASH, type Entry } from "../types.js";
+import * as fsp from "node:fs/promises";
 import { ReviewCorruptError, ReviewRefusedError } from "../errors.js";
 
 let dir: string;
@@ -92,7 +94,65 @@ describe("review log", () => {
     await expect(readReview(dir)).rejects.toBeInstanceOf(ReviewCorruptError);
     await expect(
       writeEvents(dir, sealEntries([], ZERO_HASH, [comment("a")], clock())),
-    ).rejects.toThrow();
+    ).rejects.toBeInstanceOf(ReviewCorruptError);
+    expect(await readFile(path.join(dir, "real.jsonl"), "utf8")).toBe("");
+  });
+  it("refuses a directory in place of the file", async () => {
+    await mkdir(path.join(dir, REVIEW_FILE));
+    await expect(readReview(dir)).rejects.toBeInstanceOf(ReviewCorruptError);
+    await expect(
+      writeEvents(dir, sealEntries([], ZERO_HASH, [comment("a")], clock())),
+    ).rejects.toBeInstanceOf(ReviewCorruptError);
+  });
+  it("rejects a first line whose prev is not the zero hash", async () => {
+    const [e] = sealEntries([], "f".repeat(64), [comment("a")], clock());
+    await writeFile(path.join(dir, REVIEW_FILE), JSON.stringify(e) + "\n");
+    await expect(readReview(dir)).rejects.toThrow(/hash chain/);
+  });
+  it("lets a body not override seq, ts, prev or actor", () => {
+    const evil = {
+      actor: fac,
+      body: { ...comment("a").body, seq: 99, ts: 1, prev: "x" },
+    } as unknown as Entry;
+    const [e] = sealEntries([], ZERO_HASH, [evil], () => 5);
+    expect([e!.seq, e!.ts, e!.prev]).toEqual([1, 5, ZERO_HASH]);
+  });
+  it("refuses an append that would pass the byte cap and leaves the file alone", async () => {
+    await append([comment("a")]);
+    const file = path.join(dir, REVIEW_FILE);
+    const before = await readFile(file);
+    await truncate(file, LIMITS.logBytes - 10);
+    const big = await readFile(file);
+    const sealed = sealEntries([], ZERO_HASH, [comment("b")], clock());
+    await expect(writeEvents(dir, sealed)).rejects.toBeInstanceOf(
+      ReviewRefusedError,
+    );
+    expect(Buffer.compare(await readFile(file), big)).toBe(0);
+    expect(before.length).toBeGreaterThan(0);
+  });
+  it("rolls back a partial write and the log stays readable", async () => {
+    await append([comment("a")]);
+    const file = path.join(dir, REVIEW_FILE);
+    const before = await readFile(file);
+    const probe = await fsp.open(file, "r");
+    const proto = Object.getPrototypeOf(probe) as {
+      write: (...a: unknown[]) => Promise<unknown>;
+    };
+    await probe.close();
+    const realWrite = proto.write;
+    const spy = vi.spyOn(proto, "write").mockImplementation(async function (
+      this: unknown,
+      b: unknown,
+    ) {
+      await realWrite.call(this, b, 0, 5);
+      throw Object.assign(new Error("full"), { code: "ENOSPC" });
+    });
+    const { events, tailHash } = await readReview(dir);
+    const sealed = sealEntries(events, tailHash, [comment("b")], clock());
+    await expect(writeEvents(dir, sealed)).rejects.toThrow(/nothing was added/);
+    spy.mockRestore();
+    expect(Buffer.compare(await readFile(file), before)).toBe(0);
+    expect((await readReview(dir)).events).toHaveLength(1);
   });
   it("refuses more than the event cap", async () => {
     const sealed = sealEntries(
