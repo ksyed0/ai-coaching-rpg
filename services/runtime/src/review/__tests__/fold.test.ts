@@ -234,16 +234,7 @@ describe("currentView rejects illegal sequences", () => {
           { type: "score.accepted", subject: "alice", criterion: "listening" },
         ),
     ],
-    [
-      "an event type that arrives in a later story",
-      () =>
-        fold({
-          type: "self.rated",
-          role: "alice",
-          criterion: "listening",
-          level: 3,
-        }),
-    ],
+    ["an unknown event type", () => fold({ type: "nope" } as never)],
   ])("%s", (_name, run) => {
     expect(run).toThrow(ReviewIllegalError);
   });

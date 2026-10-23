@@ -57,6 +57,8 @@ export type ResponseView = {
   criterion?: string;
   text: string;
   dispute: boolean;
+  /** The released version the response answers (the latest at the time it was made). */
+  version: number;
   resolution: {
     seq: number;
     outcome: Outcome;
@@ -350,6 +352,20 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   };
   let superseded: string | null = null;
   let expected = 1;
+  /** Participant-attested events: the actor is the subject's own role, vouched for by a facilitator. */
+  const attested = (e: ReviewEvent, role: unknown): void => {
+    const a = e.actor;
+    if (
+      a.kind !== "participant" ||
+      typeof role !== "string" ||
+      a.role !== role ||
+      typeof a.attestedBy !== "string" ||
+      !isSafeId(a.attestedBy)
+    )
+      ill(e, "this is made by the participant and attested by the facilitator");
+  };
+  /** report.amended seqs per subject: a dispute is only 'amended' by an amendment made after the response. */
+  const amendedAt = new Map<string, number[]>();
 
   for (const e of events) {
     if (e.seq !== expected) ill(e, `expected seq ${expected}`);
@@ -452,6 +468,8 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         break;
       }
       case "review.superseded":
+        if (e.actor.kind === "participant")
+          ill(e, "a participant cannot supersede a review");
         if (typeof e.by !== "string") ill(e, "by must be a string");
         superseded = e.by;
         break;
@@ -502,6 +520,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         if (e.basedOn !== sv.versions.at(-1))
           ill(e, "basedOn is not the current version of the report");
         sv.state = "amending";
+        amendedAt.set(sv.id, [...(amendedAt.get(sv.id) ?? []), e.seq]);
         break;
       }
       case "report.withdrawn": {
@@ -560,6 +579,78 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           destination: e.destination,
           by,
         });
+        break;
+      }
+      case "self.rated": {
+        attested(e, e.role);
+        const sv = subj(e, e.role);
+        if (sv.kind !== "participant") ill(e, "only players rate themselves");
+        if (sv.versions.length > 0 || sv.state !== "draft")
+          ill(e, `${sv.id}'s report was released; self-rating is closed`);
+        const c = crit(e, sv, e.criterion);
+        if (!(
+          e.level === null ||
+          e.level === 1 ||
+          e.level === 2 ||
+          e.level === 3 ||
+          e.level === 4
+        ))
+          ill(e, "level must be 1 to 4 or not observed");
+        c.self = {
+          level: e.level,
+          ...(e.note !== undefined ? { note: text(e, e.note) } : {}),
+          seq: e.seq,
+        };
+        break;
+      }
+      case "response.added": {
+        attested(e, e.role);
+        const sv = subj(e, e.role);
+        if (sv.kind !== "participant") ill(e, "only players respond");
+        const version = sv.versions.at(-1);
+        if (version === undefined || sv.state === "withdrawn")
+          ill(e, `${sv.id}'s report is not released`);
+        if (e.criterion !== undefined) crit(e, sv, e.criterion);
+        if (e.dispute !== undefined && typeof e.dispute !== "boolean")
+          ill(e, "dispute must be true or false");
+        if (sv.responses.length >= LIMITS.responses)
+          ill(e, `too many responses for ${sv.id}`);
+        sv.responses.push({
+          seq: e.seq,
+          role: e.role,
+          ...(e.criterion !== undefined ? { criterion: e.criterion } : {}),
+          text: text(e, e.text),
+          dispute: e.dispute === true,
+          version: version!,
+          resolution: null,
+        });
+        break;
+      }
+      case "dispute.resolved": {
+        const by = facilitator(e);
+        const found = [...subjects.values()]
+          .flatMap((sv) => sv.responses.map((r) => ({ sv, r })))
+          .find((x) => x.r.seq === e.response);
+        if (!found) return ill(e, "no such response");
+        if (!found.r.dispute) ill(e, "that response is not a dispute");
+        if (found.r.resolution) ill(e, "that dispute is already resolved");
+        if (
+          e.outcome !== "upheld" &&
+          e.outcome !== "amended" &&
+          e.outcome !== "declined"
+        )
+          ill(e, "outcome must be upheld, amended or declined");
+        if (
+          e.outcome === "amended" &&
+          !(amendedAt.get(found.sv.id) ?? []).some((s) => s > found.r.seq)
+        )
+          ill(e, "amend the report first, then resolve the dispute as amended");
+        found.r.resolution = {
+          seq: e.seq,
+          outcome: e.outcome,
+          reason: reason(e, e.reason),
+          by,
+        };
         break;
       }
       default:
