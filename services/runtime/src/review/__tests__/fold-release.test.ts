@@ -331,27 +331,60 @@ describe("export", () => {
 });
 
 describe("untrusted payloads and states", () => {
-  it("refuses release, amend, withdraw and export from a participant or system actor", () => {
-    const asRole = (body: Body) =>
-      currentView(
-        drafts,
-        sealEntries(
-          [],
-          ZERO_HASH,
-          [
-            { actor: f.fac, body: f.opened() },
-            ...resolved("alice").map((b) => ({ actor: f.fac, body: b })),
-            ...[body].map((b) => ({
-              actor: { kind: "system" } as Actor,
-              body: b,
-            })),
-          ],
-          fixedClock(),
-        ),
-      );
-    expect(() =>
-      asRole({ type: "report.released", subjects: ["alice"] }),
-    ).toThrow(/facilitator/);
+  const v1of = () => f.fold(...released("alice")).lastSeq;
+  const attacks = (): [string, () => Body][] => [
+    ["report.released", () => ({ type: "report.released", subjects: ["bob"] })],
+    [
+      "report.amended",
+      () => ({
+        type: "report.amended",
+        subject: "alice",
+        reason: "r",
+        basedOn: v1of(),
+      }),
+    ],
+    [
+      "report.withdrawn",
+      () => ({ type: "report.withdrawn", subject: "alice", reason: "r" }),
+    ],
+    [
+      "report.exported",
+      () => ({
+        type: "report.exported",
+        subject: "alice",
+        version: v1of(),
+        principal: "p",
+        destination: "d",
+      }),
+    ],
+  ];
+  const actors: [string, Actor][] = [
+    ["system", { kind: "system" }],
+    [
+      "participant",
+      { kind: "participant", role: "alice", attestedBy: "kamal" },
+    ],
+  ];
+  it.each(
+    attacks().flatMap(([n, mk]) =>
+      actors.map(([an, a]) => [n, an, mk, a] as const),
+    ),
+  )("%s by a %s actor is refused", (_n, _an, mk, actor) => {
+    const base = released("alice").map((body) => ({ actor: f.fac, body }));
+    // bob is resolved by the facilitator so only the actor can make the release illegal
+    const prep = resolved("bob").map((body) => ({ actor: f.fac, body }));
+    const ev = sealEntries(
+      [],
+      ZERO_HASH,
+      [
+        { actor: f.fac, body: f.opened() },
+        ...base,
+        ...prep,
+        { actor, body: mk() },
+      ],
+      fixedClock(),
+    );
+    expect(() => currentView(drafts, ev)).toThrow(/only a facilitator/);
   });
   it("does not echo hostile payloads and survives non-string fields", () => {
     const bad = [
@@ -382,7 +415,7 @@ describe("untrusted payloads and states", () => {
       expect((e as Error).message).not.toMatch(/SECRET-ECHO/);
     }
   });
-  it("rationale edits do not change status; withdraw from amending works; export is refused while amending", () => {
+  it("withdraw from amending works and export is refused while amending", () => {
     const rel = released("alice");
     const v1 = f.fold(...rel).lastSeq;
     const amend: Body = {
@@ -437,5 +470,51 @@ describe("untrusted payloads and states", () => {
       a.snapshot?.criteria.find((c) => c.id === "discovery")?.current,
     ).toBe(crit.current);
     expect(a.criteria.find((c) => c.id === "discovery")?.current).toBe(to);
+  });
+});
+
+describe("group table from released snapshots", () => {
+  const rowOf = (v: ReturnType<typeof f.fold>) =>
+    v.subjects.get("group")!.snapshot!.table!.objectives[0]!.byRole.alice;
+  it("omits a player who has no release", () => {
+    expect(rowOf(f.fold(...released("group")))).toBeNull();
+  });
+  it("includes a player released in the same event", () => {
+    expect(rowOf(f.fold(...released("alice", "group")))).toBeTruthy();
+  });
+  it("uses the last released snapshot while the player is amending, not in-progress edits", () => {
+    const rel = released("alice");
+    const v1 = f.fold(...rel).lastSeq;
+    const crit = f
+      .fold(...rel)
+      .subjects.get("alice")!
+      .criteria.find((c) => c.id === "discovery")!;
+    const before = f.fold(...rel).subjects.get("alice")!.snapshot!.objectives;
+    const v = f.fold(
+      ...rel,
+      { type: "report.amended", subject: "alice", reason: "r", basedOn: v1 },
+      {
+        type: "score.edited",
+        subject: "alice",
+        criterion: "discovery",
+        from: crit.current,
+        to: crit.current === 4 ? 3 : 4,
+        reason: "r",
+      },
+      ...resolved("group"),
+      { type: "report.released", subjects: ["group"] },
+    );
+    expect(v.subjects.get("alice")!.objectives).not.toEqual(before);
+    expect(rowOf(v)).toEqual(before[0]);
+  });
+  it("omits a withdrawn player", () => {
+    const rel = released("alice");
+    const v = f.fold(
+      ...rel,
+      { type: "report.withdrawn", subject: "alice", reason: "r" },
+      ...resolved("group"),
+      { type: "report.released", subjects: ["group"] },
+    );
+    expect(rowOf(v)).toBeNull();
   });
 });
