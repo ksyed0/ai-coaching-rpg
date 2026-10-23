@@ -511,6 +511,7 @@ See §19 (Dependency Management) for all rules on pinning, CVE checking, and lic
 **Releasing moderated reports (US-0042):**
 
 - An agent never runs `pnpm moderate release`, `amend` or `withdraw` unless the owner explicitly names the subjects. Releasing, reopening and withdrawing change what participants may see, and a withdrawal cannot be undone. `export` is allowed only to a destination the owner named.
+- An agent never runs `pnpm moderate self-assess`, `respond` or `resolve` on a participant's behalf unless the owner names the role and supplies the words: those commands attest, in the log, that a participant said it.
 
 ---
 
