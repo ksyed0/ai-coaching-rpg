@@ -1,5 +1,6 @@
 import { isFileSafeId, isReservedRoleId } from "@acr/events";
 import type { GroupReport } from "../evaluator/report-model.js";
+import { RESERVED_NAMES } from "../evaluator/report-write.js";
 import { GROUP, POLICY_VERSION } from "./types.js";
 
 export type Principal =
@@ -20,20 +21,33 @@ export type Access = {
 const INDEX = "index";
 
 /** The default audience policy (PRODUCT_SPEC section 7.3), version 1. A constant: data, not a principal model. */
-export const POLICY = {
+export const POLICY = Object.freeze({
   version: POLICY_VERSION,
-  personal: ["participant", "line_manager", "facilitator", "ld", "hr"],
-  group: ["participant", "line_manager", "facilitator", "ld", "hr", "sponsor"],
-} as const;
+  personal: Object.freeze([
+    "participant",
+    "line_manager",
+    "facilitator",
+    "ld",
+    "hr",
+  ]),
+  group: Object.freeze([
+    "participant",
+    "line_manager",
+    "facilitator",
+    "ld",
+    "hr",
+    "sponsor",
+  ]),
+} as const);
 
 /** Only these audiences can be resolved to a person today (facilitator token, session role). The rest are inert until EPIC-0002 supplies identities. */
 const RESOLVABLE = new Set(["facilitator", "participant"]);
 const INERT = new Set(["line_manager", "ld", "hr", "sponsor"]);
 const PREFIX = "participant:";
 
-/** A role id a participant principal may carry: file safe, and not a word that names something else (facilitator, group, index, prototype keys). */
+/** A role id a participant principal may carry: file safe, and not a word that names something else (facilitator, prototype keys, and every report file name the evaluator reserves: group, index, method). */
 const isRoleId = (id: string): boolean =>
-  isFileSafeId(id) && !isReservedRoleId(id) && id !== GROUP && id !== INDEX;
+  isFileSafeId(id) && !isReservedRoleId(id) && !RESERVED_NAMES.has(id);
 
 /**
  * Grammar: `facilitator | line_manager | ld | hr | sponsor | participant:<file-safe-role-id>`. Exact match only: no trimming,
@@ -115,6 +129,15 @@ export function redactGroupForParticipant(
   role: string,
 ): GroupReport {
   const out = structuredClone(g);
+  // Facilitator-directed material, removed (emptied, so the renderer still gets a valid group report): the scenario author's
+  // notes, the talking points (both sources), each notable moment's note (quote, role and scene stay: P18), and internal comments.
+  out.facilitator_notes = "";
+  out.talking_points = { from_scenario: "", from_evaluator: [] };
+  out.notable_moments = (
+    Array.isArray(out.notable_moments) ? out.notable_moments : []
+  ).map((m) => ({ ...m, note: "" }));
+  if (Array.isArray(out.comments))
+    out.comments = out.comments.filter((c) => c?.visibility === "feedback");
   const cov: unknown = out.lo_coverage;
   const players =
     isObj(cov) && Array.isArray(cov["players"]) ? cov["players"] : [];
