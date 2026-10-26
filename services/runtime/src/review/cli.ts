@@ -30,6 +30,11 @@ import { loadDrafts } from "./draft.js";
 import { releaseProblems } from "./gate.js";
 import { sha256 } from "./hash.js";
 import {
+  canView,
+  parsePrincipal,
+} from "./policy.js";
+import { renderReviewIndex } from "./index-view.js";
+import {
   applyCommand,
   loadReview,
   openReview,
@@ -38,8 +43,19 @@ import {
   type Loaded,
 } from "./store.js";
 import { cleanBy, cleanText, isDraftFileName, parseLevel } from "./text.js";
-import { LIMITS, type Actor, type Entry, type ReviewEvent } from "./types.js";
-import { renderSubjectMarkdown, snapshotReport, viewReport } from "./view.js";
+import {
+  GROUP,
+  LIMITS,
+  type Actor,
+  type Entry,
+  type ReviewEvent,
+} from "./types.js";
+import {
+  participantGroupReport,
+  renderSubjectMarkdown,
+  snapshotReport,
+  viewReport,
+} from "./view.js";
 
 export const MODERATE_USAGE = [
   "usage: pnpm moderate <subcommand> <reports-dir> [options]",
@@ -53,7 +69,7 @@ export const MODERATE_USAGE = [
   "  release <dir> <subject>... --by <name>   |   release <dir> --all --by <name>   all-or-nothing; every open item must be resolved first",
   "  amend <dir> <subject> --reason <text> --by <name>                     reopen a released report for edits (participants keep seeing the last release)",
   "  withdraw <dir> <subject> --reason <text> --by <name>                  take a released report back for good (cannot be undone)",
-  "  export <dir> <subject> --for facilitator --to <new-dir> --by <name>  write the released report as Markdown and JSON (owner-only files) and record the export",
+  "  export <dir> <subject> --for facilitator|participant:<role> --to <new-dir> --by <name>  write the released report (or `index`) as owner-only files and record the export",
   "  supersede <old-dir> <new-dir> --by <name>                            move moderation of unchanged subjects to a re-run of a released session; the old review becomes read-only",
   "exit codes: 0 done, 1 refused (fix and retry), 2 usage error or a damaged review/draft file",
   "A subject is a player role or `group`. Free text is stored after hidden characters are stripped and secrets scrubbed.",
@@ -479,9 +495,11 @@ export const HANDLERS: Record<string, Handler> = {
     const [subject] = c.args;
     if (!subject) throw new ReviewUsageError("export needs <subject>");
     const actor = facilitator(c);
-    if (c.values.for !== "facilitator")
+    const principal =
+      typeof c.values.for === "string" ? parsePrincipal(c.values.for) : null;
+    if (principal === null)
       throw new ReviewUsageError(
-        "--for supports only facilitator in this version",
+        "--for needs facilitator or participant:<role>",
       );
     if (typeof c.values.to !== "string" || c.values.to === "")
       throw new ReviewUsageError("--to needs a destination directory");
@@ -489,13 +507,40 @@ export const HANDLERS: Record<string, Handler> = {
     const label = isSafeId(path.basename(dest))
       ? path.basename(dest)
       : "destination";
-    const names = [`${subject}.md`, `${subject}.json`];
+    const isIndex = subject === "index";
+    // An index export is audited under the group (the export event needs a released subject); the index follows the group's state.
+    const audited = isIndex ? GROUP : subject;
+    const names = isIndex ? ["index.md"] : [`${subject}.md`, `${subject}.json`];
+    const role = principal.startsWith("participant:")
+      ? principal.slice("participant:".length)
+      : null;
+    /** Who may export what, against one loaded view. Messages are constants: nothing from the request is echoed. */
+    const gate = (l: Loaded) => {
+      const sv = need(l.view.subjects.get(audited), "subject");
+      if (role !== null && l.view.subjects.get(role)?.kind !== "participant")
+        throw new ReviewRefusedError("that participant is not in this review");
+      if (principal === "facilitator") {
+        if (sv.state !== "released")
+          throw new ReviewRefusedError(
+            `${isIndex ? GROUP : subject} is ${sv.state}; only a released report is exported`,
+          );
+      } else {
+        const access = canView({
+          principal,
+          subject,
+          state: sv.state,
+          versions: sv.versions.length,
+          view: isIndex ? "index" : "report",
+          superseded: l.view.superseded !== null,
+          policyVersion: l.view.opened.policyVersion,
+        });
+        if (!access.allowed)
+          throw new ReviewRefusedError(`export refused: ${access.why}`);
+      }
+      return sv;
+    };
     const l = await loadReview(c.dir);
-    const sv0 = need(l.view.subjects.get(subject), "subject");
-    if (sv0.state !== "released")
-      throw new ReviewRefusedError(
-        `${subject} is ${sv0.state}; only a released report is exported`,
-      );
+    gate(l);
     // Refuse before auditing what we can already see is unwritable: a symbolic-link or non-directory destination, or a file already there.
     const existing = await lstat(dest).catch(() => null);
     if (existing && (existing.isSymbolicLink() || !existing.isDirectory()))
@@ -510,35 +555,70 @@ export const HANDLERS: Record<string, Handler> = {
           );
     // The audit event comes first (P17): a record of an export that then failed is safer than an export nobody recorded.
     // Version and content are both taken from the locked view inside the callback, so they always belong together.
-    let md = "";
-    let json = "";
-    await applyCommand(c.dir, c.now, (cur) => {
-      const sv = need(cur.view.subjects.get(subject), "subject");
-      if (sv.state !== "released")
-        throw new ReviewRefusedError(
-          `${subject} is ${sv.state}; only a released report is exported`,
-        );
-      const report = snapshotReport(
-        cur.drafts.subjects.get(subject)!.raw as unknown as
-          ParticipantReport | GroupReport,
-        cur.view,
-        subject,
-      );
-      // as strict as `show`: per line, hidden and control characters out, secrets and machine paths redacted (tables and tabs stay)
-      md = `${renderSubjectMarkdown(report, c.secrets)
+    const files: string[] = [];
+    const tidy = (md: string): string =>
+      `${md
         .split("\n")
         .map((line) => cleanLine(line, c.secrets))
         .join("\n")
         .trimEnd()}\n`;
-      json = `${JSON.stringify(scrubDeep(report, c.secrets), null, 2)}\n`;
+    await applyCommand(c.dir, c.now, (cur) => {
+      const sv = gate(cur);
+      files.length = 0;
+      const draftOf = (n: string) =>
+        cur.drafts.subjects.get(n)!.raw as unknown as
+          ParticipantReport | GroupReport;
+      if (isIndex) {
+        files.push(
+          tidy(
+            renderReviewIndex(
+              cur,
+              role === null
+                ? { audience: "facilitator" }
+                : { audience: "participant", role },
+              c.secrets,
+            ),
+          ),
+        );
+      } else {
+        // as strict as `show`: per line, hidden and control characters out, secrets and machine paths redacted (tables and tabs stay)
+        let report: ParticipantReport | GroupReport;
+        if (role === null)
+          report = snapshotReport(draftOf(subject), cur.view, subject);
+        else {
+          const line =
+            subject === GROUP
+              ? "Visibility: the players of this session and the facilitator"
+              : "Visibility: you and the facilitator";
+          const legacy = cur.view.opened.legacy;
+          report =
+            subject === GROUP
+              ? participantGroupReport(
+                  draftOf(subject) as GroupReport,
+                  cur.view,
+                  role,
+                  line,
+                  legacy,
+                )
+              : viewReport(draftOf(subject), cur.view, subject, {
+                  audience: "released",
+                  line,
+                  legacy,
+                });
+        }
+        files.push(
+          tidy(renderSubjectMarkdown(report, c.secrets)),
+          `${JSON.stringify(scrubDeep(report, c.secrets), null, 2)}\n`,
+        );
+      }
       return [
         {
           actor,
           body: {
             type: "report.exported",
-            subject,
+            subject: audited,
             version: sv.versions.at(-1)!,
-            principal: "facilitator",
+            principal,
             destination: label,
           },
         },
@@ -569,10 +649,8 @@ export const HANDLERS: Record<string, Handler> = {
       // Stage every file under a private temp name (created exclusively, owner-only), then link each into place: link never
       // replaces an existing name or follows a symlink there, so a late-appearing file fails the export instead of being overwritten.
       const staged: [string, string][] = [];
-      for (const [n, t] of [
-        [names[0]!, md],
-        [names[1]!, json],
-      ] as const) {
+      for (const [i, n] of names.entries()) {
+        const t = files[i]!;
         const tmp = path.join(dest, `.${n}.${tag}.tmp`);
         await writeExclusive(tmp, t);
         temps.push(tmp);

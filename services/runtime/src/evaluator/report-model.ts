@@ -68,7 +68,7 @@ export type JsonCriterion = {
 /** What the review changed on a criterion; present only on a moderated view. */
 export type Moderation = {
   adjusted: boolean; ai_score: number | null; ai_label: string; /** True when the AI draft was Invalid (not Not observed). */ ai_invalid: boolean;
-  reason: string | null; by: string | null; rationale_edited: boolean; accepted: boolean;
+  reason: string | null; by: string | null; /** Review-state booleans: facilitator audience only (a released view omits them). */ rationale_edited?: boolean; accepted?: boolean;
   /** The review state, set for the facilitator audience only (a released view has no open items). */
   state?: "open" | "accepted" | "edited" | "clear";
 };

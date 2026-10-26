@@ -9,6 +9,7 @@ import type { DraftCriterion, DraftSubject, Drafts } from "./draft.js";
 import { ReviewIllegalError } from "./errors.js";
 import { releaseProblems } from "./gate.js";
 import { sha256 } from "./hash.js";
+import { parsePrincipal } from "./policy.js";
 import { cpLen, isDraftFileName } from "./text.js";
 import {
   GROUP,
@@ -524,7 +525,11 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
       case "report.exported": {
         const by = facilitator(e);
         const sv = subj(e, e.subject);
-        if (sv.state !== "released")
+        // An amending subject still has its last released snapshot, which participants keep seeing (P12): that is exportable.
+        const exportable =
+          sv.state === "released" ||
+          (sv.state === "amending" && sv.versions.length > 0);
+        if (!exportable)
           ill(e, `${sv.id} is ${sv.state}; only a released report is exported`);
         if (typeof e.version !== "number" || !sv.versions.includes(e.version))
           ill(e, "that version does not exist");
@@ -532,6 +537,22 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           typeof v === "string" && cpLen(v) >= 1 && cpLen(v) <= 64;
         if (!short(e.principal) || !short(e.destination))
           ill(e, "principal and destination need 1 to 64 characters");
+        // Principal grammar: facilitator | participant:<file-safe role id> naming a participant subject of this review.
+        const pr = parsePrincipal(e.principal);
+        const role = e.principal.startsWith("participant:")
+          ? e.principal.slice("participant:".length)
+          : null;
+        if (
+          pr === null ||
+          (pr !== "facilitator" &&
+            (role === null || subjects.get(role)?.kind !== "participant"))
+        )
+          ill(e, "the export principal is not valid for this review");
+        // A facilitator export needs a released subject; a participant's personal export is of their own report only.
+        if (pr === "facilitator" && sv.state !== "released")
+          ill(e, "the export principal is not valid for this review");
+        if (role !== null && sv.id !== GROUP && sv.id !== role)
+          ill(e, "the export principal is not valid for this review");
         sv.exports.push({
           seq: e.seq,
           version: e.version,
