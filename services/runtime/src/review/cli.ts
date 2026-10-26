@@ -16,6 +16,7 @@ import {
   ReviewUsageError,
 } from "./errors.js";
 import { loadDrafts } from "./draft.js";
+import { amendedSince } from "./fold.js";
 import { releaseProblems } from "./gate.js";
 import { sha256 } from "./hash.js";
 import { cleanLine, facilitator, need, shownName } from "./cli-util.js";
@@ -626,19 +627,9 @@ export const HANDLERS: Record<string, Handler> = {
         );
       if (found.r.resolution)
         throw new ReviewRefusedError("that dispute is already resolved");
-      if (
-        outcome === "amended" &&
-        !(
-          l.events.some(
-            (e) =>
-              e.type === "report.amended" &&
-              e.subject === found.sv.id &&
-              e.seq > seq,
-          ) || found.sv.versions.some((v) => v > seq)
-        )
-      )
+      if (outcome === "amended" && !amendedSince(found.sv, seq))
         throw new ReviewRefusedError(
-          `${found.sv.id}'s report has not been amended since the response; run amend first (and release again), then resolve the dispute as amended`,
+          `${found.sv.id}'s report has no new released version since the response; run amend, make the change and release again, then resolve the dispute as amended`,
         );
       return [
         {

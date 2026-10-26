@@ -459,7 +459,7 @@ describe("response and dispute", () => {
       ),
     ).toThrow(/no such response/);
   });
-  it("'amended' needs the report amended after the response (in amendment or re-released)", () => {
+  it("'amended' needs a new released version after the response: not while the amendment is open, nor after it was withdrawn", () => {
     const base = [...releaseAlice(), respond({ dispute: true })];
     const seq = f.foldE(...base).lastSeq;
     const res = fb({
@@ -470,16 +470,27 @@ describe("response and dispute", () => {
     });
     expect(() => f.foldE(...base, res)).toThrow(/amend/);
     const v1 = f.foldE(...releaseAlice()).lastSeq;
+    const amend = fb({
+      type: "report.amended",
+      subject: "alice",
+      reason: "r",
+      basedOn: v1,
+    });
+    expect(() => f.foldE(...base, amend, res)).toThrow(/release/);
+    expect(() =>
+      f.foldE(
+        ...base,
+        amend,
+        fb({ type: "report.withdrawn", subject: "alice", reason: "r" }),
+        res,
+      ),
+    ).toThrow(/release/);
     expect(
       f
         .foldE(
           ...base,
-          fb({
-            type: "report.amended",
-            subject: "alice",
-            reason: "r",
-            basedOn: v1,
-          }),
+          amend,
+          fb({ type: "report.released", subjects: ["alice"] }),
           res,
         )
         .subjects.get("alice")!.responses[0]!.resolution?.outcome,
@@ -553,7 +564,7 @@ describe("response and dispute", () => {
       fb({
         type: "dispute.resolved",
         response: seq,
-        outcome: "amended",
+        outcome: "upheld",
         reason: "fixed",
       }),
     );

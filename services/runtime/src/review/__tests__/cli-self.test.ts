@@ -258,7 +258,7 @@ describe("released report: self against final, responses, disputes", () => {
     expect(md).toMatch(/declined/i);
     expect(md).toContain("The recording supports the level");
   });
-  it("resolve 'amended' needs an amend first, then works", async () => {
+  it("resolve 'amended' needs an amend and a new release first, then works", async () => {
     await release();
     await run([
       "respond",
@@ -290,21 +290,25 @@ describe("released report: self against final, responses, disputes", () => {
       ).code,
     ).toBe(1);
     await run(["amend", rel, "alice", "--reason", "dispute", "--by", "kamal"]);
-    expect(
-      (
-        await run([
-          "resolve",
-          rel,
-          String(seq),
-          "--outcome",
-          "amended",
-          "--reason",
-          "fixed",
-          "--by",
-          "kamal",
-        ])
-      ).code,
-    ).toBe(0);
+    const resolveAmended = () =>
+      run([
+        "resolve",
+        rel,
+        String(seq),
+        "--outcome",
+        "amended",
+        "--reason",
+        "fixed",
+        "--by",
+        "kamal",
+      ]);
+    const open = await resolveAmended();
+    expect(open.code).toBe(1);
+    expect(open.err).toMatch(/release/);
+    expect((await run(["release", rel, "alice", "--by", "kamal"])).code).toBe(
+      0,
+    );
+    expect((await resolveAmended()).code).toBe(0);
   });
   it("another participant's export does not carry alice's response", async () => {
     await release();

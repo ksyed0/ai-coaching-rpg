@@ -243,6 +243,13 @@ function takeSnapshot(
     table: structuredClone(table),
   };
 }
+/**
+ * A dispute may be resolved 'amended' only once an amendment PRODUCED a new released version after it (raised during an open
+ * amendment, the re-release counts). An amendment still open, or withdrawn before its release, is not an amended report.
+ */
+export const amendedSince = (sv: SubjectView, responseSeq: number): boolean =>
+  sv.versions.some((v) => v > responseSeq);
+
 const isReleased = (sv: SubjectView): boolean =>
   sv.state === "released" || sv.state === "amending";
 
@@ -389,8 +396,6 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
     )
       ill(e, "this is made by the participant and attested by the facilitator");
   };
-  /** report.amended seqs per subject: a dispute is only 'amended' by an amendment made after the response. */
-  const amendedAt = new Map<string, number[]>();
 
   for (const e of events) {
     if (e.seq !== expected) ill(e, `expected seq ${expected}`);
@@ -550,7 +555,6 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         if (e.basedOn !== sv.versions.at(-1))
           ill(e, "basedOn is not the current version of the report");
         sv.state = "amending";
-        amendedAt.set(sv.id, [...(amendedAt.get(sv.id) ?? []), e.seq]);
         break;
       }
       case "report.withdrawn": {
@@ -677,14 +681,11 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           e.outcome !== "declined"
         )
           ill(e, "outcome must be upheld, amended or declined");
-        if (
-          e.outcome === "amended" &&
-          !(
-            (amendedAt.get(found.sv.id) ?? []).some((s) => s > found.r.seq) ||
-            found.sv.versions.some((v) => v > found.r.seq)
-          )
-        )
-          ill(e, "amend the report first, then resolve the dispute as amended");
+        if (e.outcome === "amended" && !amendedSince(found.sv, found.r.seq))
+          ill(
+            e,
+            "amend the report and release the new version first, then resolve the dispute as amended",
+          );
         found.r.resolution = {
           seq: e.seq,
           outcome: e.outcome,
