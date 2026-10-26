@@ -135,6 +135,11 @@ function needsReview(c: DraftCriterion, incomplete: Set<string>): boolean {
 }
 
 function initSubject(d: DraftSubject): SubjectView {
+  // a duplicate would shadow its twin in every lookup and block the release forever
+  if (new Set(d.criteria.map((c) => c.id)).size !== d.criteria.length)
+    throw new ReviewIllegalError(
+      `the draft of ${d.id} has a criterion id twice`,
+    );
   const incomplete = new Set(
     d.objectives.filter((o) => o.incomplete).flatMap((o) => o.criteria),
   );
@@ -196,6 +201,14 @@ export function groupTable(
       { objectives?: { id: string; statement: string }[] } | undefined
   )?.objectives;
   if (!g || !Array.isArray(cov)) return null;
+  // loadDrafts checks this; the fold re-checks so it stays total on drafts built any other way
+  if (
+    !cov.every(
+      (o: unknown) =>
+        isRec(o) && typeof o.id === "string" && typeof o.statement === "string",
+    )
+  )
+    throw new ReviewIllegalError("the group draft's lo_coverage is invalid");
   const roles = [...subjects.values()].filter((s) => s.kind === "participant");
   const team = subjects.get(GROUP)!;
   return {

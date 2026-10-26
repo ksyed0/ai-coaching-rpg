@@ -57,14 +57,23 @@ function fold(
     return currentView(drafts, events);
   } catch (e) {
     if (e instanceof ReviewIllegalError) throw onIllegal(e.message);
-    // events already on disk that make the fold throw a TypeError are damage, not a bug in the caller
-    if (malformedIsCorrupt && e instanceof TypeError)
+    // Any other error is never echoed (it may quote a payload). Events already on disk that break the fold are damage;
+    // on new entries it is a refusal, and nothing is written.
+    if (malformedIsCorrupt)
       throw new ReviewCorruptError(
         "the review log is not valid: malformed event",
       );
-    throw e;
+    throw new ReviewRefusedError(
+      "this change cannot be applied to the review as it stands; nothing was written",
+    );
   }
 }
+
+const isReviewError = (e: unknown): boolean =>
+  e instanceof ReviewRefusedError ||
+  e instanceof ReviewCorruptError ||
+  e instanceof ReviewUsageError ||
+  e instanceof ReviewIllegalError;
 
 function checkActor(a: Entry["actor"]): void {
   const ok =
@@ -129,7 +138,15 @@ export async function applyCommand(
 ): Promise<{ loaded: Loaded; appended: ReviewEvent[] }> {
   return withReviewLock(dir, async () => {
     const loaded = await loadReview(dir);
-    const entries = build(loaded);
+    let entries: Entry[];
+    try {
+      entries = build(loaded);
+    } catch (e) {
+      if (isReviewError(e)) throw e;
+      throw new ReviewRefusedError(
+        "this command could not be prepared from the review as it stands; nothing was written",
+      );
+    }
     for (const en of entries) checkActor(en.actor);
     if (entries.length === 0) return { loaded, appended: [] };
     if (entries.some((en) => en.body.type === "report.released")) {

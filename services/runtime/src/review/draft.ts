@@ -129,7 +129,7 @@ function checkRaw(file: string, raw: Record<string, unknown>): void {
 function parseCriteria(file: string, raw: unknown): DraftCriterion[] {
   if (!Array.isArray(raw) || raw.length > MAX_ITEMS)
     bad(file, "criteria is missing or too long");
-  return raw.map((c): DraftCriterion => {
+  const out = raw.map((c): DraftCriterion => {
     if (!isObj(c)) bad(file, "a criterion is not an object");
     const id = str(c.id, 64);
     const score = c.score;
@@ -185,6 +185,26 @@ function parseCriteria(file: string, raw: unknown): DraftCriterion[] {
       invalid: c.invalid,
     };
   });
+  if (new Set(out.map((c) => c.id)).size !== out.length)
+    bad(file, "a criterion id appears twice");
+  return out;
+}
+
+/** The group's per-role table: the fold and the renderers read each objective's id and statement. */
+function checkCoverage(file: string, raw: unknown): void {
+  const objs = isObj(raw) ? raw.objectives : undefined;
+  if (
+    !Array.isArray(objs) ||
+    objs.length > MAX_ITEMS ||
+    !objs.every(
+      (o) =>
+        isObj(o) &&
+        typeof o.id === "string" &&
+        isSafeId(o.id) &&
+        str(o.statement, 1000) !== null,
+    )
+  )
+    bad(file, "lo_coverage is missing or invalid");
 }
 
 function parseObjectives(file: string, raw: unknown): DraftObjective[] {
@@ -225,6 +245,7 @@ function parseSubject(
     bad(file, "the role id is not a safe file name");
   if (file !== `${role}.json`)
     bad(file, "the file name does not match the role");
+  if (group) checkCoverage(file, raw.lo_coverage);
   const ev = raw.evaluation;
   if (!isObj(ev) || typeof ev.status !== "string")
     bad(file, "evaluation is missing");
