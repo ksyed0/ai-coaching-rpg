@@ -668,6 +668,7 @@ export const HANDLERS: Record<string, Handler> = {
       c.out(
         `not in the new run (their moderation was not carried): ${r.dropped.join(", ")}`,
       );
+    for (const line of r.notCarried) c.out(`not carried: ${line}`);
     return 0;
   },
   async "edit-summary"(c) {

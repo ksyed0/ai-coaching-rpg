@@ -294,3 +294,80 @@ describe("supersede carries participant events", () => {
     );
   });
 });
+
+describe("fix round F1/F3: supersede never leaves a dead end and says what it did not carry", () => {
+  /** Renames alice's `listening` criterion in the re-run (a rubric fix): the criterion is gone under its old id. */
+  async function renameListening(dir: string) {
+    const p = path.join(dir, "alice.json");
+    const j = JSON.parse(await readFile(p, "utf8"));
+    for (const c of j.criteria)
+      if (c.id === "listening") c.id = "active_listening";
+    for (const o of j.learning_objectives)
+      o.criteria = o.criteria.map((c: string) =>
+        c === "listening" ? "active_listening" : c,
+      );
+    await writeFile(p, JSON.stringify(j, null, 2));
+  }
+  it("drops a self-rating and responses on a criterion missing from the re-run (and the resolution tied to one), carries the rest, and the new review can be released", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    await selfRate(dir1, "alice", 3);
+    await releaseOf(dir1, "alice");
+    const onCrit = (text: string, dispute: boolean) =>
+      apply(dir1, () => [
+        {
+          actor: part("alice"),
+          body: {
+            type: "response.added",
+            role: "alice",
+            criterion: "listening",
+            text,
+            ...(dispute ? { dispute: true } : {}),
+          },
+        },
+      ]);
+    await onCrit("ON-LISTENING-ANSWERED", true);
+    const answered = await lastSeq(dir1);
+    await resolveDispute(dir1, answered, "declined");
+    await onCrit("ON-LISTENING-OPEN", true);
+    await respond(dir1, "alice", "GENERAL-OPEN", true);
+    await renameListening(dir2);
+    const r = await supersedeReview(dir1, dir2, {
+      by: "kamal",
+      now: fixedClock(),
+    });
+    expect(r.fresh).toContain("alice");
+    expect(r.notCarried.join("\n")).toMatch(/alice's self-rating on listening/);
+    expect(r.notCarried.join("\n")).toMatch(
+      /dispute #\d+ by alice on listening/,
+    );
+    expect(r.notCarried.join("\n")).toMatch(
+      /open dispute #\d+ by alice on listening/,
+    );
+    expect(r.notCarried).toHaveLength(3);
+    const l2 = await loadReview(dir2);
+    const a = l2.view.subjects.get("alice")!;
+    expect(a.responses.map((x) => x.text)).toEqual(["GENERAL-OPEN"]);
+    expect(l2.events.some((e) => e.type === "dispute.resolved")).toBe(false);
+    expect(a.selfClosed).toBe(true); // still closed: alice saw her scores
+    await expect(selfRate(dir2, "alice", 4)).rejects.toThrow(/closed/);
+    await releaseOf(dir2, "alice");
+    expect((await loadReview(dir2)).view.subjects.get("alice")!.state).toBe(
+      "released",
+    );
+  });
+  it("the CLI lists what was not carried, including the open disputes of a player missing from the re-run", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    await releaseOf(dir1, "bob");
+    await respond(dir1, "bob", "BOB-OPEN", true);
+    const bobDispute = await lastSeq(dir1);
+    await rm(path.join(dir2, "bob.json"));
+    const run = makeRunner(root);
+    const rel = (d: string) => path.relative(root, d);
+    const r = await run(["supersede", rel(dir1), rel(dir2), "--by", "kamal"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      `not carried: open dispute #${bobDispute} by bob (bob is not in the new run`,
+    );
+    expect(r.out).not.toContain("BOB-OPEN");
+  });
+});

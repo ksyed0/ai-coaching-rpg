@@ -358,6 +358,11 @@ export type SupersedeResult = {
   completed: boolean;
   /** Self-ratings, responses and dispute resolutions carried for the players of the re-run (changed drafts included). */
   participantEvents: number;
+  /**
+   * What a player said that could not be carried: items on a criterion the re-run no longer has (with any resolution tied to
+   * them), and open disputes of players missing from the re-run. One line each, ids and numbers only.
+   */
+  notCarried: string[];
 };
 
 /** A cause from a failed write, made safe to print: printable ASCII only, at most 160 characters. */
@@ -476,17 +481,51 @@ export async function supersedeReview(
       // subject in draft, and a player sees only their own events after a release there.
       const carried: Entry[] = [];
       const newSeq = new Map<number, number>();
+      /** What a player said that is not carried, by old number and ids only (never the text). */
+      const notCarried: string[] = [];
+      const hasCriterion = (role: string, id: string): boolean =>
+        newDrafts.subjects.get(role)?.criteria.some((c) => c.id === id) ??
+        false;
       for (const e of old.events) {
         let body: Body | null = null;
         if (CARRIED_MODERATION.has(e.type))
           body = identical.includes((e as { subject: string }).subject)
             ? stripEnvelope(e)
             : null;
-        else if (e.type === "self.rated" && players.includes(e.role))
-          body = stripEnvelope(e);
-        else if (e.type === "response.added" && players.includes(e.role)) {
-          body = stripEnvelope(e);
-          newSeq.set(e.seq, carried.length + 2); // the opener is seq 1
+        else if (e.type === "self.rated" && players.includes(e.role)) {
+          // a rating on a criterion the re-run no longer has is dropped (selfClosed still blocks a non-blind re-rate)
+          if (hasCriterion(e.role, e.criterion)) body = stripEnvelope(e);
+          else
+            notCarried.push(
+              `${e.role}'s self-rating on ${e.criterion} (the criterion is not in the new run)`,
+            );
+        } else if (e.type === "response.added") {
+          const r = oldView.subjects
+            .get(e.role)
+            ?.responses.find((x) => x.seq === e.seq);
+          const what = !r?.dispute
+            ? "response"
+            : r.resolution
+              ? "answered dispute"
+              : "open dispute";
+          if (!players.includes(e.role)) {
+            // the player is not in the re-run: their moderation is dropped; an open dispute is worth naming
+            if (what === "open dispute")
+              notCarried.push(
+                `open dispute #${e.seq} by ${e.role} (${e.role} is not in the new run; the earlier review becomes read-only)`,
+              );
+          } else if (
+            e.criterion !== undefined &&
+            !hasCriterion(e.role, e.criterion)
+          )
+            // dropped with its resolution, which is skipped below because the response has no new seq
+            notCarried.push(
+              `${what} #${e.seq} by ${e.role} on ${e.criterion} (the criterion is not in the new run)`,
+            );
+          else {
+            body = stripEnvelope(e);
+            newSeq.set(e.seq, carried.length + 2); // the opener is seq 1
+          }
         } else if (e.type === "dispute.resolved" && newSeq.has(e.response))
           body = {
             ...(stripEnvelope(e) as typeof e),
@@ -583,6 +622,7 @@ export async function supersedeReview(
         fresh,
         dropped,
         completed,
+        notCarried,
         participantEvents: carried.filter((en) =>
           CARRIED_PARTICIPANT.has(en.body.type),
         ).length,
