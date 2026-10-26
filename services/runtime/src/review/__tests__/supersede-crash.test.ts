@@ -88,4 +88,53 @@ describe("supersede interrupted between the two writes", () => {
       supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() }),
     ).rejects.toThrow(/already superseded/);
   });
+  it("a retry after the earlier review was used meanwhile says that it changed since the copy was made", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    const { events, tailHash } = await log.readReview(dir1);
+    const open = resolveBodies((await loadReview(dir1)).view, "alice");
+    await log.writeEvents(
+      dir1,
+      log.sealEntries(
+        events,
+        tailHash,
+        [
+          ...open.map((body) => ({ actor: fac, body })),
+          {
+            actor: fac,
+            body: { type: "report.released", subjects: ["alice"] },
+          },
+        ],
+        fixedClock(),
+      ),
+    );
+    const real = vi.mocked(log.writeEvents).getMockImplementation()!;
+    vi.mocked(log.writeEvents).mockImplementation(async (d, ev) => {
+      if (d === dir1 && ev[0]?.type === "review.superseded")
+        throw new Error("disk full");
+      return real(d, ev);
+    });
+    await expect(
+      supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() }),
+    ).rejects.toThrow(/run the same supersede command again/);
+    vi.mocked(log.writeEvents).mockImplementation(real);
+    // the old review is still live, and alice responds there before the retry
+    const after = await log.readReview(dir1);
+    await log.writeEvents(
+      dir1,
+      log.sealEntries(
+        after.events,
+        after.tailHash,
+        [
+          {
+            actor: { kind: "participant", role: "alice", attestedBy: "kamal" },
+            body: { type: "response.added", role: "alice", text: "late" },
+          },
+        ],
+        fixedClock(),
+      ),
+    );
+    await expect(
+      supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() }),
+    ).rejects.toThrow(/earlier review changed since/);
+  });
 });

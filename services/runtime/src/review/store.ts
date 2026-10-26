@@ -594,10 +594,18 @@ export async function supersedeReview(
           want.slice(1).every((w, i) => w === have[i + 1]) &&
           JSON.stringify(stripEnvelope(existing.events[0]!)) ===
             JSON.stringify(opened.body);
-        if (!sameCopies)
+        if (!sameCopies) {
+          // only copies of this earlier review, but not the ones it would write now: it was used after the interrupted supersede
+          const onlyCopies =
+            existing.events.length > 1 &&
+            existing.events.slice(1).every((e) => e.carriedFrom === name) &&
+            existing.events[0]!.type === "review.opened";
           throw new ReviewRefusedError(
-            "a review is already open on the new directory and it is not the copy of this earlier review left by an interrupted supersede; pick a directory with no review.jsonl, or move that file aside if it holds only copies",
+            onlyCopies
+              ? "the new directory holds the copies of an interrupted supersede, but the earlier review changed since they were made (it was used while both were live); move the new directory's review.jsonl aside (it holds only copies) and run supersede again to copy the current state"
+              : "a review is already open on the new directory and it is not the copy of this earlier review left by an interrupted supersede; pick a directory with no review.jsonl, or move that file aside if it holds only copies",
           );
+        }
         completed = true;
       } else {
         fold(
