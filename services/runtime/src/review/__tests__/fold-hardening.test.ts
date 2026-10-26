@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { loadDrafts, type Drafts } from "../draft.js";
 import { ReviewIllegalError } from "../errors.js";
 import type { Body, Entry } from "../types.js";
+import { snapshotReport, viewReport } from "../view.js";
 import { makeDraftDir, makeFold, resolveBodies } from "./fixtures.js";
 
 /** Fold hardening from the independent review of the review-log fold (findings 2 to 9). */
@@ -170,5 +171,42 @@ describe("finding 8: report.exported names the current released version and a cl
     const rel = released("alice");
     const v1 = f.fold(...rel).lastSeq;
     expect(() => f.fold(...rel, ex(v1, d))).toThrow(ReviewIllegalError);
+  });
+});
+
+describe("finding 4: the reviewer names of a released version are frozen", () => {
+  it("a summary accepted by another facilitator during an amendment is not in the released view or the snapshot export", () => {
+    const rel = released("alice");
+    const v1 = f.fold(...rel).lastSeq;
+    const amend: Body = {
+      type: "report.amended",
+      subject: "alice",
+      reason: "r",
+      basedOn: v1,
+    };
+    const v = f.foldE(...rel.map(fb), fb(amend), {
+      actor: { kind: "facilitator", by: "mallory" },
+      body: { type: "summary.accepted", subject: "alice" },
+    });
+    expect(v.subjects.get("alice")!.snapshot!.summaryBy).not.toContain(
+      "mallory",
+    );
+    const draft = drafts.subjects.get("alice")!.raw as unknown as Parameters<
+      typeof viewReport
+    >[0];
+    const released_ = viewReport(draft, v, "alice", {
+      audience: "released",
+      line: "l",
+    });
+    expect(JSON.stringify(released_)).not.toContain("mallory");
+    expect(JSON.stringify(snapshotReport(draft, v, "alice"))).not.toContain(
+      "mallory",
+    );
+    // the facilitator's live view does name the new reviewer
+    expect(
+      JSON.stringify(
+        viewReport(draft, v, "alice", { audience: "facilitator" }),
+      ),
+    ).toContain("mallory");
   });
 });

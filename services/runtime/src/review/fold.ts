@@ -79,6 +79,8 @@ export type Snapshot = {
   criteria: CriterionView[];
   summary: Summary | null;
   summaryEdited: boolean;
+  /** Who edited or accepted the summary up to this release: frozen, so a later amendment cannot change a released version. */
+  summaryBy: string[];
   objectives: LoResult[];
   table: GroupTable | null;
 };
@@ -223,6 +225,7 @@ function takeSnapshot(
     criteria: structuredClone(sv.criteria),
     summary: structuredClone(sv.summary),
     summaryEdited: sv.summaryEdited,
+    summaryBy: [...sv.summaryBy],
     objectives: structuredClone(sv.objectives),
     table: structuredClone(table),
   };

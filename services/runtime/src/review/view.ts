@@ -231,6 +231,7 @@ function frozenView(view: View, subject: string): View {
     summary: snap.summary,
     summaryEdited: snap.summaryEdited,
     summaryStale: false,
+    summaryBy: snap.summaryBy,
     objectives: snap.objectives,
     // frozen at release: the log is append-only, so a comment made before the release has a smaller seq
     comments: sv.comments.filter((c) => c.seq < snap.version),
