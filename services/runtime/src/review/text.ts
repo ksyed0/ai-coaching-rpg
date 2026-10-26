@@ -4,6 +4,16 @@ import { scrubText } from "../demo/report.js";
 import { ReviewUsageError } from "./errors.js";
 import type { Level } from "./types.js";
 
+/**
+ * C0 and C1 controls except line feed and tab (terminal escape sequences start here) and the bidirectional controls
+ * (U+202A-202E, U+2066-2069). One rule for draft fields and for the short labels the fold accepts.
+ */
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+// eslint-disable-next-line no-misleading-character-class
+const BIDI = /[\u202a-\u202e\u2066-\u2069]/;
+export const isDirty = (s: string): boolean => CONTROL.test(s) || BIDI.test(s);
+
 /** Length in code points: the one counting rule for every limit. */
 export const cpLen = (s: string): number => Array.from(s).length;
 

@@ -1,4 +1,4 @@
-import { isSafeId } from "@acr/events";
+import { isFileSafeId, isSafeId } from "@acr/events";
 import {
   aggregateObjectives,
   INVALID,
@@ -10,7 +10,7 @@ import { ReviewIllegalError } from "./errors.js";
 import { releaseProblems } from "./gate.js";
 import { sha256 } from "./hash.js";
 import { parsePrincipal } from "./policy.js";
-import { cpLen, isDraftFileName } from "./text.js";
+import { cpLen, isDirty, isDraftFileName } from "./text.js";
 import {
   GROUP,
   LIMITS,
@@ -276,6 +276,15 @@ export function checkOpened(o: Record<string, unknown>): void {
   if (c !== null && !isRec(c)) bad("codes must be an object or null");
 }
 
+/** An actor as the log may hold it: a facilitator with a safe id, a participant role attested by one, or the system. */
+function actorOk(a: unknown): boolean {
+  if (!isRec(a)) return false;
+  if (a.kind === "facilitator") return isSafeId(a.by as string);
+  if (a.kind === "participant")
+    return isFileSafeId(a.role as string) && isSafeId(a.attestedBy as string);
+  return a.kind === "system";
+}
+
 export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   const first = events[0];
   if (!first || first.type !== "review.opened")
@@ -283,7 +292,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   checkOpened(first as unknown as Record<string, unknown>);
   const ill = (e: ReviewEvent, m: string): never => {
     throw new ReviewIllegalError(
-      `event ${e.seq} (${typeof e.type === "string" ? e.type.slice(0, 40) : "?"}): ${m}`,
+      `event ${typeof e.seq === "number" ? e.seq : "?"} (${typeof e.type === "string" ? e.type.slice(0, 40) : "?"}): ${m}`,
     );
   };
   const subjects = new Map<string, SubjectView>(
@@ -376,6 +385,8 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
     }
     if (superseded !== null)
       ill(e, "the review was superseded and is read-only");
+    // Every actor, not only the opener's: the log on disk is untrusted, and `by` is rendered and compared later.
+    if (!actorOk(e.actor)) ill(e, "the actor is not valid");
     switch (e.type) {
       case "score.edited": {
         const by = facilitator(e);
@@ -468,7 +479,12 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
       }
       case "review.superseded":
         facilitator(e);
-        if (typeof e.by !== "string") ill(e, "by must be a string");
+        // the replacement directory's basename, as supersedeReview writes it
+        if (!isSafeId(e.by))
+          ill(
+            e,
+            "by must be a directory name of 1 to 64 letters, digits, _ or -",
+          );
         superseded = e.by;
         break;
       case "report.released": {
@@ -550,10 +566,15 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ill(e, `${sv.id} is ${sv.state}; only a released report is exported`);
         if (typeof e.version !== "number" || !sv.versions.includes(e.version))
           ill(e, "that version does not exist");
+        // an export always writes the latest released snapshot, so a record of an older version cannot be produced
+        if (e.version !== sv.versions.at(-1))
+          ill(e, "that version is not the current released version");
         const short = (v: unknown): v is string =>
           typeof v === "string" && cpLen(v) >= 1 && cpLen(v) <= 64;
         if (!short(e.principal) || !short(e.destination))
           ill(e, "principal and destination need 1 to 64 characters");
+        if (isDirty(e.destination))
+          ill(e, "the destination contains control characters");
         // Principal grammar: facilitator | participant:<file-safe role id> naming a participant subject of this review.
         const pr = parsePrincipal(e.principal);
         const role = e.principal.startsWith("participant:")

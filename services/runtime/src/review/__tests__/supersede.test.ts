@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   applyCommand,
@@ -262,5 +262,19 @@ describe("re-runs", () => {
       before,
     );
     await expect(readFile(path.join(dir2, "review.jsonl"))).rejects.toThrow();
+  });
+  it("refuses a new directory whose name is not a safe id (it is stored in the marker), writing nothing", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    await forceRelease(dir1);
+    const odd = path.join(root, "re run");
+    await rename(dir2, odd);
+    const before = await readFile(path.join(dir1, "review.jsonl"), "utf8");
+    await expect(
+      supersedeReview(dir1, odd, { by: "kamal", now: fixedClock() }),
+    ).rejects.toThrow(ReviewRefusedError);
+    expect(await readFile(path.join(dir1, "review.jsonl"), "utf8")).toBe(
+      before,
+    );
+    await expect(readFile(path.join(odd, "review.jsonl"))).rejects.toThrow();
   });
 });

@@ -379,6 +379,11 @@ export async function supersedeReview(
     throw new ReviewUsageError(
       "supersede needs two different directories: the earlier one and the re-run",
     );
+  // both names are recorded (the marker's `by`, each copy's carriedFrom), and the fold accepts only safe ids there
+  if (![oldDir, newDir].every((d) => isSafeId(path.basename(d))))
+    throw new ReviewRefusedError(
+      "supersede needs directory names of 1 to 64 letters, digits, _ or - (they are recorded in the review logs); rename the directory first",
+    );
   return withReviewLock(oldDir, () =>
     withReviewLock(newDir, async () => {
       const old = await readReview(oldDir);
