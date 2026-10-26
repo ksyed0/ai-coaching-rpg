@@ -3,29 +3,18 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runModerate, MODERATE_USAGE, HANDLERS } from "../cli.js";
 import { loadReview } from "../store.js";
-import { makeDraftDir, fixedClock } from "./fixtures.js";
+import { makeDraftDir, makeRunner } from "./fixtures.js";
 
 let root: string, dir: string;
 beforeEach(async () => {
   ({ root, dir } = await makeDraftDir());
+  run = makeRunner(root);
 });
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function run(argv: string[], env: NodeJS.ProcessEnv = {}) {
-  let out = "",
-    err = "";
-  const r = await runModerate({
-    argv,
-    stdout: { write: (s) => (out += s) },
-    stderr: { write: (s) => (err += s) },
-    env,
-    cwd: root,
-    now: fixedClock(),
-  });
-  return { code: r.exitCode, out, err };
-}
+let run: ReturnType<typeof makeRunner>;
 const rel = () => path.relative(root, dir);
 const open = () => run(["open", rel(), "--by", "kamal"]);
 const needs = async () => {

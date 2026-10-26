@@ -19,6 +19,8 @@ import type {
 import { type CriterionView, type SubjectView, type View } from "./fold.js";
 import { VIEW_SCHEMA } from "./types.js";
 
+export const TABLE_STALE_NOTE =
+  "Per-role table out of date: a player was released or withdrawn after this group report was released; amend and re-release the group to refresh it.";
 export type RenderAudience =
   { audience: "facilitator" } | { audience: "released"; line: string };
 const AI_PREFIX =
@@ -71,16 +73,9 @@ function criterion(
   };
 }
 
-/** The draft report with the review applied. Pure; the draft object is not modified. Banner and visibility line follow the audience. */
-export function viewReport(
-  draft: ParticipantReport | GroupReport,
-  view: View,
-  subject: string,
-  a: RenderAudience,
-): ParticipantReport | GroupReport {
-  const sv = view.subjects.get(subject) as SubjectView;
-  // Facilitators who changed or accepted something: comment authors are not reviewers of the scores.
-  const names = [
+/** Facilitators who changed or accepted something: comment authors are not reviewers of the scores. */
+function reviewerNames(sv: SubjectView): string[] {
+  return [
     ...new Set([
       ...sv.criteria.flatMap((c) => [
         ...c.edits.map((e) => e.by),
@@ -90,6 +85,17 @@ export function viewReport(
       ...sv.summaryBy,
     ]),
   ];
+}
+
+/** The draft report with the review applied. Pure; the draft object is not modified. Banner and visibility line follow the audience. */
+export function viewReport(
+  draft: ParticipantReport | GroupReport,
+  view: View,
+  subject: string,
+  a: RenderAudience,
+): ParticipantReport | GroupReport {
+  const sv = view.subjects.get(subject) as SubjectView;
+  const names = reviewerNames(sv);
   const edited = sv.criteria.filter((c) => c.edits.length > 0).length;
   const base = {
     ...structuredClone(draft),
@@ -116,6 +122,10 @@ export function viewReport(
     ...base.notes,
     `Scores were moderated by a facilitator${names.length ? ` (${names.join(", ")})` : ""}; ${edited} of ${sv.criteria.length} criteria were changed.`,
   ];
+  if (a.audience === "facilitator" && sv.tableStale)
+    base.notes.push(TABLE_STALE_NOTE);
+  // A "released" audience (US-0043) must be fed a view whose comments are already frozen at the release (see snapshotReport):
+  // this function trusts sv.comments and would otherwise show comments made after the release to participants.
   const comments = sv.comments
     .filter((c) => a.audience === "facilitator" || c.visibility === "feedback")
     .map((c) => ({
@@ -171,4 +181,53 @@ export function renderSubjectMarkdown(
   return report.kind === "participant"
     ? renderParticipantMarkdown(report, secrets)
     : renderGroupMarkdown(report, secrets);
+}
+
+/**
+ * The facilitator-audience report of a subject's last RELEASED snapshot (criteria, summary, objectives and, for the group, the frozen
+ * table), not its live draft state: an export during an amendment still carries what was released. Pure. Needs a released snapshot.
+ */
+export function snapshotReport(
+  draft: ParticipantReport | GroupReport,
+  view: View,
+  subject: string,
+): ParticipantReport | GroupReport {
+  const sv = view.subjects.get(subject) as SubjectView;
+  const snap = sv.snapshot;
+  if (!snap) throw new Error("snapshotReport needs a released subject");
+  const frozen: SubjectView = {
+    ...sv,
+    criteria: snap.criteria,
+    summary: snap.summary,
+    summaryEdited: snap.summaryEdited,
+    summaryStale: false,
+    objectives: snap.objectives,
+    // frozen at release: the log is append-only, so a comment made before the release has a smaller seq
+    comments: sv.comments.filter((c) => c.seq < snap.version),
+  };
+  const subjects = new Map(view.subjects).set(subject, frozen);
+  const r = viewReport(draft, { ...view, subjects }, subject, {
+    audience: "facilitator",
+  });
+  r.draft_notice = releasedBanner(snap.version, reviewerNames(frozen));
+  if (r.kind === "group" && snap.table) {
+    const players = Object.keys(snap.table.objectives[0]?.byRole ?? {});
+    const pick = (x: LoResult | null) => ({
+      score: x?.score ?? null,
+      label: x?.label ?? "Not observed",
+      incomplete: x?.incomplete ?? false,
+    });
+    r.lo_coverage = {
+      players,
+      objectives: snap.table.objectives.map((o) => ({
+        id: o.id,
+        statement: o.statement,
+        by_role: Object.fromEntries(
+          players.map((p) => [p, pick(o.byRole[p] ?? null)]),
+        ),
+        team: pick(o.team),
+      })),
+    };
+  }
+  return r;
 }

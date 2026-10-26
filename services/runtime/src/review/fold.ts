@@ -7,6 +7,7 @@ import {
 } from "../evaluator/aggregate.js";
 import type { DraftCriterion, DraftSubject, Drafts } from "./draft.js";
 import { ReviewIllegalError } from "./errors.js";
+import { releaseProblems } from "./gate.js";
 import { sha256 } from "./hash.js";
 import { cpLen, isDraftFileName } from "./text.js";
 import {
@@ -95,6 +96,13 @@ export type SubjectView = {
   comments: CommentView[];
   responses: ResponseView[];
   tableStale: boolean;
+  exports: {
+    seq: number;
+    version: number;
+    principal: string;
+    destination: string;
+    by: string;
+  }[];
 };
 export type View = {
   opened: Extract<ReviewEvent, { type: "review.opened" }>;
@@ -140,6 +148,7 @@ function initSubject(d: DraftSubject): SubjectView {
     comments: [],
     responses: [],
     tableStale: false,
+    exports: [],
     criteria: d.criteria.map((c) => {
       const nr = needsReview(c, incomplete);
       return {
@@ -191,13 +200,32 @@ export function groupTable(
       byRole: Object.fromEntries(
         roles.map((r) => [
           r.id,
-          r.objectives.find((x) => x.id === o.id) ?? null,
+          (r.state === "withdrawn"
+            ? undefined
+            : r.snapshot?.objectives.find((x) => x.id === o.id)) ?? null,
         ]),
       ),
       team: team.objectives.find((x) => x.id === o.id) ?? null,
     })),
   };
 }
+
+function takeSnapshot(
+  sv: SubjectView,
+  version: number,
+  table: GroupTable | null,
+): Snapshot {
+  return {
+    version,
+    criteria: structuredClone(sv.criteria),
+    summary: structuredClone(sv.summary),
+    summaryEdited: sv.summaryEdited,
+    objectives: structuredClone(sv.objectives),
+    table: structuredClone(table),
+  };
+}
+const isReleased = (sv: SubjectView): boolean =>
+  sv.state === "released" || sv.state === "amending";
 
 /** The current state: drafts plus the review log, folded. Pure and total: a view, or ReviewIllegalError. */
 const HEX64 = /^[0-9a-f]{64}$/;
@@ -426,6 +454,93 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         if (typeof e.by !== "string") ill(e, "by must be a string");
         superseded = e.by;
         break;
+      case "report.released": {
+        facilitator(e);
+        if (
+          !Array.isArray(e.subjects) ||
+          e.subjects.length === 0 ||
+          e.subjects.length > 50 ||
+          new Set(e.subjects).size !== e.subjects.length
+        )
+          ill(e, "name each subject to release once");
+        const svs = e.subjects.map((id) => subj(e, id));
+        for (const sv of svs) {
+          if (sv.state !== "draft" && sv.state !== "amending")
+            ill(e, `${sv.id} is ${sv.state}`);
+          const problems = releaseProblems(sv);
+          if (problems.length)
+            ill(e, `${sv.id} cannot be released: ${problems.join("; ")}`);
+        }
+        // Order matters: (1) mark released and clear the group's tableStale, (2) snapshot the players,
+        // (3) only then build the group table from those snapshots, so it sees the players released in this event.
+        const g = subjects.get(GROUP);
+        for (const sv of svs) {
+          sv.state = "released";
+          sv.versions.push(e.seq);
+          if (sv.kind === "group") sv.tableStale = false;
+        }
+        // a player released alone after the group: the group's frozen table lacks this release
+        if (g && g.versions.length > 0 && !svs.includes(g))
+          if (svs.some((sv) => sv.kind === "participant")) g.tableStale = true;
+        // players first, so a group released with them tabulates their just-released snapshots
+        for (const sv of svs.filter((x) => x.kind !== "group"))
+          sv.snapshot = takeSnapshot(sv, e.seq, null);
+        for (const sv of svs.filter((x) => x.kind === "group"))
+          sv.snapshot = takeSnapshot(sv, e.seq, groupTable(drafts, subjects));
+        break;
+      }
+      case "report.amended": {
+        facilitator(e);
+        const sv = subj(e, e.subject);
+        reason(e, e.reason);
+        if (sv.state !== "released")
+          ill(
+            e,
+            `${sv.id} is ${sv.state}; only a released report can be amended`,
+          );
+        if (e.basedOn !== sv.versions.at(-1))
+          ill(e, "basedOn is not the current version of the report");
+        sv.state = "amending";
+        break;
+      }
+      case "report.withdrawn": {
+        facilitator(e);
+        const sv = subj(e, e.subject);
+        reason(e, e.reason);
+        if (!isReleased(sv))
+          ill(
+            e,
+            `${sv.id} is ${sv.state}; only a released report can be withdrawn`,
+          );
+        sv.state = "withdrawn";
+        // the group's frozen table still holds this player's row
+        {
+          const g = subjects.get(GROUP);
+          if (sv.kind === "participant" && g && g.versions.length > 0)
+            g.tableStale = true;
+        }
+        break;
+      }
+      case "report.exported": {
+        const by = facilitator(e);
+        const sv = subj(e, e.subject);
+        if (sv.state !== "released")
+          ill(e, `${sv.id} is ${sv.state}; only a released report is exported`);
+        if (typeof e.version !== "number" || !sv.versions.includes(e.version))
+          ill(e, "that version does not exist");
+        const short = (v: unknown): v is string =>
+          typeof v === "string" && cpLen(v) >= 1 && cpLen(v) <= 64;
+        if (!short(e.principal) || !short(e.destination))
+          ill(e, "principal and destination need 1 to 64 characters");
+        sv.exports.push({
+          seq: e.seq,
+          version: e.version,
+          principal: e.principal,
+          destination: e.destination,
+          by,
+        });
+        break;
+      }
       default:
         ill(e, "this event type is not supported yet");
     }

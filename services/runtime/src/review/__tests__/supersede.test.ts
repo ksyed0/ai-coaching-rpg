@@ -14,7 +14,7 @@ import {
   ReviewRefusedError,
   ReviewUsageError,
 } from "../errors.js";
-import { makeDraftDir, fixedClock } from "./fixtures.js";
+import { makeDraftDir, fixedClock, resolveBodies } from "./fixtures.js";
 import { writeReports } from "../../evaluator/report-write.js";
 import { sampleEvaluation } from "../../evaluator/__tests__/fixtures.js";
 
@@ -37,18 +37,15 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-/** Marks alice released in dir1 without going through the gate (the release event itself is built in story 2). */
+/** Releases alice in dir through the real gate: every open item accepted, then report.released. */
 async function forceRelease(dir: string) {
-  const { events, tailHash } = await readReview(dir);
-  await writeEvents(
-    dir,
-    sealEntries(
-      events,
-      tailHash,
-      [{ actor: fac, body: { type: "report.released", subjects: ["alice"] } }],
-      fixedClock(),
-    ),
-  );
+  await applyCommand(dir, fixedClock(), (l) => [
+    ...resolveBodies(l.view, "alice").map((body) => ({ actor: fac, body })),
+    {
+      actor: fac,
+      body: { type: "report.released" as const, subjects: ["alice"] },
+    },
+  ]);
 }
 
 describe("re-runs", () => {
@@ -129,7 +126,9 @@ describe("re-runs", () => {
           },
         },
       ]),
-    ).rejects.toThrow(); // passes today because the fold rejects report.released; Task 9 tightens it to ReviewRefusedError
+    ).rejects.toBeInstanceOf(ReviewRefusedError); // read-only: the fold refuses every event after review.superseded
+    const reloaded = await loadReview(dir1);
+    expect(reloaded.view.superseded).toBe(path.basename(dir2));
   });
   it("refuses to supersede when a review is already open on the new directory", async () => {
     await openReview(dir1, { by: "kamal", now: fixedClock() });

@@ -132,6 +132,14 @@ export async function applyCommand(
     const entries = build(loaded);
     for (const en of entries) checkActor(en.actor);
     if (entries.length === 0) return { loaded, appended: [] };
+    if (entries.some((en) => en.body.type === "report.released")) {
+      // Two live reviews of one session instance can exist after an interrupted supersede: only one may release.
+      const other = await siblingReleased(dir);
+      if (other !== null)
+        throw new ReviewRefusedError(
+          `another review of this session (${safeName(other)}) already has a release that was not superseded; finish \`pnpm moderate supersede <old> <new>\` and release from the new directory, or keep working in ${safeName(other)}`,
+        );
+    }
     if (loaded.events.length + entries.length > LIMITS.events)
       throw new ReviewRefusedError("this review has reached its event limit");
     const sealed = sealEntries(loaded.events, loaded.tailHash, entries, now);
