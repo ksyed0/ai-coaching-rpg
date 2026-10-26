@@ -2,9 +2,16 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { rm } from "node:fs/promises";
 import { loadDrafts, type Drafts } from "../draft.js";
 import { ReviewIllegalError } from "../errors.js";
-import type { Body, Entry } from "../types.js";
+import { currentView } from "../fold.js";
+import { sealEntries } from "../review-log.js";
+import { ZERO_HASH, type Body, type Entry } from "../types.js";
 import { snapshotReport, viewReport } from "../view.js";
-import { makeDraftDir, makeFold, resolveBodies } from "./fixtures.js";
+import {
+  fixedClock,
+  makeDraftDir,
+  makeFold,
+  resolveBodies,
+} from "./fixtures.js";
 
 /** Fold hardening from the independent review of the review-log fold (findings 2 to 9). */
 let root: string, drafts: Drafts, f: ReturnType<typeof makeFold>;
@@ -251,5 +258,124 @@ describe("finding 2: an evaluator-error criterion needs a score decision before 
       { type: "report.released", subjects: ["alice"] },
     );
     expect(v.subjects.get("alice")!.state).toBe("released");
+  });
+});
+
+describe("finding 1 (fold side): carried participant events", () => {
+  const withOpener = (over: Record<string, unknown>, ...entries: Entry[]) =>
+    currentView(
+      drafts,
+      sealEntries(
+        [],
+        ZERO_HASH,
+        [
+          { actor: f.fac, body: { ...f.opened(), ...over } as Body },
+          ...entries,
+        ],
+        fixedClock(),
+      ),
+    );
+  const rate = (carriedFrom?: string): Entry => ({
+    actor: f.part("alice"),
+    ...(carriedFrom ? { carriedFrom } : {}),
+    body: {
+      type: "self.rated",
+      role: "alice",
+      criterion: "listening",
+      level: 3,
+    },
+  });
+  const resp = (
+    over: Record<string, unknown>,
+    carriedFrom?: string,
+  ): Entry => ({
+    actor: f.part("alice"),
+    ...(carriedFrom ? { carriedFrom } : {}),
+    body: {
+      type: "response.added",
+      role: "alice",
+      text: "t",
+      dispute: true,
+      ...over,
+    } as Body,
+  });
+  it("selfClosed in the opener closes a new self-rating but keeps a carried one", () => {
+    expect(() => withOpener({ selfClosed: ["alice"] }, rate())).toThrow(
+      /closed/,
+    );
+    const v = withOpener({ selfClosed: ["alice"] }, rate("old"));
+    expect(v.subjects.get("alice")!.selfClosed).toBe(true);
+    expect(
+      v.subjects.get("alice")!.criteria.find((c) => c.id === "listening")!.self
+        ?.level,
+    ).toBe(3);
+    expect(() =>
+      withOpener({ selfClosed: ["alice"] }, rate("old"), rate()),
+    ).toThrow(/closed/);
+  });
+  it.each([
+    ["the group", ["group"]],
+    ["an unknown role", ["zed"]],
+    ["a non-list", "alice"],
+    ["a duplicate", ["alice", "alice"]],
+  ])("refuses a selfClosed naming %s", (_n, selfClosed) => {
+    expect(() => withOpener({ selfClosed })).toThrow(ReviewIllegalError);
+  });
+  it("a carried response needs its version; a new one may not set it", () => {
+    const v = f.foldE(resp({ version: 7 }, "old"));
+    expect(v.subjects.get("alice")!.responses[0]).toMatchObject({
+      version: 7,
+      dispute: true,
+    });
+    expect(v.subjects.get("alice")!.state).toBe("draft");
+    expect(() => f.foldE(resp({}, "old"))).toThrow(/version/);
+    expect(() => f.foldE(resp({ version: 0 }, "old"))).toThrow(/version/);
+    expect(() =>
+      f.foldE(...released("alice").map(fb), resp({ version: 3 })),
+    ).toThrow(/version/);
+  });
+  it("carried events come directly after the opener, from a safe directory name, and only of carried types", () => {
+    expect(() =>
+      f.foldE(
+        fb({
+          type: "comment.added",
+          subject: "alice",
+          text: "x",
+          visibility: "internal",
+        }),
+        rate("old"),
+      ),
+    ).toThrow(/directly follow/);
+    expect(() => f.foldE(rate("../x"))).toThrow(/carriedFrom/);
+    expect(() =>
+      f.foldE(
+        ...resolveBodies(f.fold(), "alice").map((body) => ({
+          ...fb(body),
+          carriedFrom: "old",
+        })),
+        {
+          ...fb({ type: "report.released", subjects: ["alice"] }),
+          carriedFrom: "old",
+        },
+      ),
+    ).toThrow(/never carried/);
+  });
+  it("a carried 'amended' resolution is kept (it was checked in the superseded review); a new one needs a release here", () => {
+    const res = (carriedFrom?: string): Entry => ({
+      ...fb({
+        type: "dispute.resolved",
+        response: 2,
+        outcome: "amended",
+        reason: "r",
+      }),
+      ...(carriedFrom ? { carriedFrom } : {}),
+    });
+    expect(
+      f.foldE(resp({ version: 7 }, "old"), res("old")).subjects.get("alice")!
+        .responses[0]!.resolution?.outcome,
+    ).toBe("amended");
+    expect(() => f.foldE(resp({ version: 7 }, "old"), res())).toThrow(
+      /release/,
+    );
   });
 });

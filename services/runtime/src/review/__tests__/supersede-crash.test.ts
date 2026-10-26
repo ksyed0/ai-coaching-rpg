@@ -7,8 +7,8 @@ vi.mock("../review-log.js", async (orig) => {
   return { ...m, writeEvents: vi.fn(m.writeEvents) };
 });
 import * as log from "../review-log.js";
-import { openReview, supersedeReview } from "../store.js";
-import { makeDraftDir, fixedClock } from "./fixtures.js";
+import { loadReview, openReview, supersedeReview } from "../store.js";
+import { makeDraftDir, fixedClock, resolveBodies } from "./fixtures.js";
 import { writeReports } from "../../evaluator/report-write.js";
 import { sampleEvaluation } from "../../evaluator/__tests__/fixtures.js";
 
@@ -38,12 +38,15 @@ describe("supersede interrupted between the two writes", () => {
   it("leaves both reviews live with an actionable message, and re-running finishes it exactly once", async () => {
     await openReview(dir1, { by: "kamal", now: fixedClock() });
     const { events, tailHash } = await log.readReview(dir1);
+    // a real release (through the gate): supersede folds the old review, so it must be legal
+    const open = resolveBodies((await loadReview(dir1)).view, "alice");
     await log.writeEvents(
       dir1,
       log.sealEntries(
         events,
         tailHash,
         [
+          ...open.map((body) => ({ actor: fac, body })),
           {
             actor: fac,
             body: { type: "report.released", subjects: ["alice"] },

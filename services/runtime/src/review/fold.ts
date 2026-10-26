@@ -16,6 +16,8 @@ import {
   LIMITS,
   POLICY_VERSION,
   REVIEW_SCHEMA,
+  CARRIED_MODERATION,
+  CARRIED_PARTICIPANT,
   type Actor,
   type CurrentLevel,
   type Level,
@@ -101,6 +103,11 @@ export type SubjectView = {
   comments: CommentView[];
   responses: ResponseView[];
   tableStale: boolean;
+  /**
+   * The player has seen a released version (here, or in a review this one superseded), so a blind self-rating is no longer
+   * possible: self.rated is refused from then on, except for the ratings carried from before that release.
+   */
+  selfClosed: boolean;
   exports: {
     seq: number;
     version: number;
@@ -158,6 +165,7 @@ function initSubject(d: DraftSubject): SubjectView {
     comments: [],
     responses: [],
     tableStale: false,
+    selfClosed: false,
     exports: [],
     criteria: d.criteria.map((c) => {
       const nr = needsReview(c, incomplete);
@@ -297,6 +305,15 @@ export function checkOpened(o: Record<string, unknown>): void {
   }
   const c = o.codes;
   if (c !== null && !isRec(c)) bad("codes must be an object or null");
+  const closed = o.selfClosed;
+  if (
+    closed !== undefined &&
+    (!Array.isArray(closed) ||
+      closed.length > 200 ||
+      !closed.every((r) => isFileSafeId(r as string)) ||
+      new Set(closed).size !== closed.length)
+  )
+    bad("selfClosed must be a list of player ids");
 }
 
 /** An actor as the log may hold it: a facilitator with a safe id, a participant role attested by one, or the system. */
@@ -382,7 +399,18 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
       })),
     };
   };
+  // players whose self-rating a superseded review already closed (each must be a player of these drafts)
+  for (const r of first.selfClosed ?? []) {
+    const sv = subjects.get(r);
+    if (sv?.kind !== "participant")
+      throw new ReviewIllegalError(
+        "review.opened: selfClosed names a subject that is not a player",
+      );
+    sv.selfClosed = true;
+  }
   let superseded: string | null = null;
+  /** Copies written by supersede come directly after the opener; once anything else is logged, nothing more is carried. */
+  let carrying = true;
   let expected = 1;
   /** Participant-attested events: the actor is the subject's own role, vouched for by a facilitator. */
   const attested = (e: ReviewEvent, role: unknown): void => {
@@ -408,6 +436,14 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
       ill(e, "the review was superseded and is read-only");
     // Every actor, not only the opener's: the log on disk is untrusted, and `by` is rendered and compared later.
     if (!actorOk(e.actor)) ill(e, "the actor is not valid");
+    const carried = e.carriedFrom !== undefined;
+    if (carried) {
+      if (!carrying) ill(e, "a carried event must directly follow the opener");
+      if (!isSafeId(e.carriedFrom as string))
+        ill(e, "carriedFrom must be a directory name");
+      if (!CARRIED_MODERATION.has(e.type) && !CARRIED_PARTICIPANT.has(e.type))
+        ill(e, "this event type is never carried");
+    } else carrying = false;
     switch (e.type) {
       case "score.edited": {
         const by = facilitator(e);
@@ -531,6 +567,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         for (const sv of svs) {
           sv.state = "released";
           sv.versions.push(e.seq);
+          sv.selfClosed = true;
           if (sv.kind === "group") sv.tableStale = false;
         }
         // a player released alone after the group: the group's frozen table lacks this release
@@ -624,7 +661,12 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         attested(e, e.role);
         const sv = subj(e, e.role);
         if (sv.kind !== "participant") ill(e, "only players rate themselves");
-        if (sv.versions.length > 0 || sv.state !== "draft")
+        // A rating carried from before a release in the superseded review stays; a new one after any release never.
+        if (
+          sv.versions.length > 0 ||
+          sv.state !== "draft" ||
+          (!carried && sv.selfClosed)
+        )
           ill(e, `${sv.id}'s report was released; self-rating is closed`);
         const c = crit(e, sv, e.criterion);
         if (!(
@@ -646,11 +688,21 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         attested(e, e.role);
         const sv = subj(e, e.role);
         if (sv.kind !== "participant") ill(e, "only players respond");
-        const version = sv.versions.at(-1);
-        const ver =
-          version === undefined || sv.state === "withdrawn"
-            ? ill(e, `${sv.id}'s report is not released`)
-            : version;
+        let ver: number;
+        if (carried) {
+          // answered a version of the superseded review; the player wrote it, so carrying it shows nothing new
+          if (!Number.isSafeInteger(e.version) || (e.version as number) < 1)
+            ill(e, "a carried response needs the version it answered");
+          ver = e.version as number;
+        } else {
+          if (e.version !== undefined)
+            ill(e, "a response's version is set by the log");
+          const version = sv.versions.at(-1);
+          ver =
+            version === undefined || sv.state === "withdrawn"
+              ? ill(e, `${sv.id}'s report is not released`)
+              : version;
+        }
         if (e.criterion !== undefined) crit(e, sv, e.criterion);
         if (e.dispute !== undefined && typeof e.dispute !== "boolean")
           ill(e, "dispute must be true or false");
@@ -681,7 +733,12 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           e.outcome !== "declined"
         )
           ill(e, "outcome must be upheld, amended or declined");
-        if (e.outcome === "amended" && !amendedSince(found.sv, found.r.seq))
+        // a carried 'amended' was checked in the superseded review, against versions this log does not hold
+        if (
+          e.outcome === "amended" &&
+          !carried &&
+          !amendedSince(found.sv, found.r.seq)
+        )
           ill(
             e,
             "amend the report and release the new version first, then resolve the dispute as amended",

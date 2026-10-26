@@ -28,6 +28,8 @@ import {
   REVIEW_FILE,
   REVIEW_SCHEMA,
   ZERO_HASH,
+  CARRIED_MODERATION,
+  CARRIED_PARTICIPANT,
   type Body,
   type Entry,
   type ReviewEvent,
@@ -342,15 +344,6 @@ export async function siblingReleased(dir: string): Promise<string | null> {
   return null;
 }
 
-const CARRIED = new Set<string>([
-  "score.edited",
-  "rationale.edited",
-  "summary.edited",
-  "summary.accepted",
-  "score.accepted",
-  "comment.added",
-]);
-
 function stripEnvelope(e: ReviewEvent): Body {
   const { seq: _s, ts: _t, prev: _p, actor: _a, carriedFrom: _c, ...body } = e; // eslint-disable-line @typescript-eslint/no-unused-vars
   return body as Body;
@@ -363,6 +356,8 @@ export type SupersedeResult = {
   dropped: string[];
   /** True when this call finished an interrupted supersede (the new review was already written). */
   completed: boolean;
+  /** Self-ratings, responses and dispute resolutions carried for the players of the re-run (changed drafts included). */
+  participantEvents: number;
 };
 
 /** A cause from a failed write, made safe to print: printable ASCII only, at most 160 characters. */
@@ -374,7 +369,10 @@ const cause = (e: unknown): string =>
 
 /**
  * Moves moderation from an earlier review of the same session to a re-run: subjects whose draft file is byte-identical
- * keep their moderation (copied as events marked carriedFrom); the rest start clean. Ruling P16: the new review is
+ * keep their moderation (copied as events marked carriedFrom); the rest start clean. Every player still in the re-run keeps
+ * their self-ratings, responses and disputes with the facilitator's answers (so an open dispute stays resolvable), and a
+ * player who saw a release in the old review is listed in the new opener's selfClosed (no blind re-rating after seeing
+ * scores). Every subject starts in draft, so nothing becomes visible to a participant before a release there. Ruling P16: the new review is
  * written first, the old one is marked superseded last, so a crash leaves the old review live and never both closed.
  * After such a crash both reviews are live until `supersede old new` is run again: when the new log is exactly the copies
  * this call would write, the call only appends the missing marker to the old log. `o.by` must already be a clean id
@@ -443,6 +441,20 @@ export async function supersedeReview(
         (id) => !newDrafts.subjects.has(id),
       );
       const name = path.basename(oldDir);
+      // the earlier review's state: which players saw a release (their self-rating is closed) and each response's version
+      const oldView = fold(
+        oldDrafts,
+        old.events,
+        (m) =>
+          new ReviewCorruptError(`the earlier review log is not valid: ${m}`),
+        true,
+      );
+      const players = [...newDrafts.subjects.values()]
+        .filter((d) => d.kind === "participant")
+        .map((d) => d.id);
+      const selfClosed = players.filter(
+        (id) => oldView.subjects.get(id)?.selfClosed === true,
+      );
       const opened: Entry = {
         actor: { kind: "facilitator", by: o.by },
         body: {
@@ -455,19 +467,37 @@ export async function supersedeReview(
           rubricHash: newDrafts.rubricHash,
           files: newDrafts.files,
           codes: oldOpened.codes,
+          ...(selfClosed.length > 0 ? { selfClosed } : {}),
         },
       };
-      const carried: Entry[] = old.events
-        .filter(
-          (e) =>
-            CARRIED.has(e.type) &&
-            identical.includes((e as { subject: string }).subject),
-        )
-        .map((e) => ({
-          actor: e.actor,
-          carriedFrom: name,
-          body: stripEnvelope(e),
-        }));
+      // In the old order: moderation of byte-identical subjects, and what every player still in the re-run said (self-ratings,
+      // responses, disputes) with the facilitator's answers. A response keeps the version it answered; a resolution is pointed
+      // at the response's new seq. Nothing is carried that its audience could not already see: the new review starts every
+      // subject in draft, and a player sees only their own events after a release there.
+      const carried: Entry[] = [];
+      const newSeq = new Map<number, number>();
+      for (const e of old.events) {
+        let body: Body | null = null;
+        if (CARRIED_MODERATION.has(e.type))
+          body = identical.includes((e as { subject: string }).subject)
+            ? stripEnvelope(e)
+            : null;
+        else if (e.type === "self.rated" && players.includes(e.role))
+          body = stripEnvelope(e);
+        else if (e.type === "response.added" && players.includes(e.role)) {
+          const version = oldView.subjects
+            .get(e.role)
+            ?.responses.find((r) => r.seq === e.seq)?.version;
+          body = { ...(stripEnvelope(e) as typeof e), version } as Body;
+          newSeq.set(e.seq, carried.length + 2); // the opener is seq 1
+        } else if (e.type === "dispute.resolved" && newSeq.has(e.response))
+          body = {
+            ...(stripEnvelope(e) as typeof e),
+            response: newSeq.get(e.response)!,
+          } as Body;
+        if (body !== null)
+          carried.push({ actor: e.actor, carriedFrom: name, body });
+      }
       for (const en of carried) checkActor(en.actor);
       if (1 + carried.length > LIMITS.events)
         throw new ReviewRefusedError("this review has reached its event limit");
@@ -551,7 +581,15 @@ export async function supersedeReview(
           `the new review was opened but the earlier one could not be marked superseded (${cause(e)}); both are live until you run the same supersede command again, which finishes it`,
         );
       }
-      return { carried: identical, fresh, dropped, completed };
+      return {
+        carried: identical,
+        fresh,
+        dropped,
+        completed,
+        participantEvents: carried.filter((en) =>
+          CARRIED_PARTICIPANT.has(en.body.type),
+        ).length,
+      };
     }),
   );
 }

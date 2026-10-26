@@ -513,9 +513,9 @@ export const HANDLERS: Record<string, Handler> = {
         throw new ReviewRefusedError(
           "this review was superseded and is read-only",
         );
-      if (sv.state !== "draft" || sv.versions.length > 0)
+      if (sv.state !== "draft" || sv.versions.length > 0 || sv.selfClosed)
         throw new ReviewRefusedError(
-          "self-rating is closed: this player's report has already been released (a self-rating is blind, so it can only be made before release)",
+          "self-rating is closed: this player's report has already been released, here or in the review this one superseded (a self-rating is blind, so it can only be made before release)",
         );
       for (const r of rates)
         if (!sv.criteria.some((k) => k.id === r.criterion))
@@ -660,6 +660,10 @@ export const HANDLERS: Record<string, Handler> = {
     c.out(
       `carried forward: ${r.carried.join(", ") || "none"}; starts clean: ${r.fresh.join(", ") || "none"}`,
     );
+    if (r.participantEvents > 0)
+      c.out(
+        `carried ${r.participantEvents} self-rating, response and dispute event(s) of the players; open disputes stay open in the new review, and players already released there cannot self-rate again`,
+      );
     if (r.dropped.length)
       c.out(
         `not in the new run (their moderation was not carried): ${r.dropped.join(", ")}`,

@@ -232,7 +232,7 @@ describe("re-runs", () => {
     ).rejects.toThrow(ReviewCorruptError);
     await expect(siblingReleased(dir2)).rejects.toThrow(ReviewCorruptError);
   });
-  it("refuses to carry an event whose actor is not valid", async () => {
+  it("refuses to carry an event whose actor is not valid (the old log is damaged), writing nothing", async () => {
     await openReview(dir1, { by: "kamal", now: fixedClock() });
     const { events, tailHash } = await readReview(dir1);
     await writeEvents(
@@ -257,7 +257,7 @@ describe("re-runs", () => {
     const before = await readFile(path.join(dir1, "review.jsonl"), "utf8");
     await expect(
       supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() }),
-    ).rejects.toThrow(ReviewRefusedError);
+    ).rejects.toThrow(ReviewCorruptError);
     expect(await readFile(path.join(dir1, "review.jsonl"), "utf8")).toBe(
       before,
     );
