@@ -160,12 +160,31 @@ describe("supersede carries participant events", () => {
     // bob was never released: he may still rate himself
     await expect(selfRate(dir2, "bob", 2)).resolves.toBeTruthy();
 
-    // the open dispute is on the list and resolvable in the new review; 'amended' needs a release here first
+    // the open dispute is on the list and resolvable in the new review; 'amended' needs an amendment released HERE:
+    // the first release of a byte-identical re-run changed nothing, so it does not count
     const open = a.responses[1]!.seq;
     await expect(resolveDispute(dir2, open, "amended")).rejects.toThrow(
       /release/,
     );
     await releaseOf(dir2, "alice");
+    await expect(resolveDispute(dir2, open, "amended")).rejects.toThrow(
+      /amend/,
+    );
+    const v1 = await lastSeq(dir2);
+    await apply(dir2, () => [
+      fb({
+        type: "report.amended",
+        subject: "alice",
+        reason: "r",
+        basedOn: v1,
+      }),
+    ]);
+    await expect(resolveDispute(dir2, open, "amended")).rejects.toThrow(
+      /release/,
+    );
+    await apply(dir2, () => [
+      fb({ type: "report.released", subjects: ["alice"] }),
+    ]);
     await resolveDispute(dir2, open, "amended");
     const after = (await loadReview(dir2)).view;
     expect(after.subjects.get("alice")!.responses[1]!.resolution?.outcome).toBe(

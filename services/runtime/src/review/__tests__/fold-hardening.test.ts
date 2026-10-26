@@ -379,3 +379,42 @@ describe("finding 1 (fold side): carried participant events", () => {
     );
   });
 });
+
+describe("fix round F2: 'amended' depends on amend and release events, never on a carried seq", () => {
+  it("a carried open dispute is not answered by the first release of the re-run, only by an amendment released here", () => {
+    const carriedDispute: Entry = {
+      actor: f.part("alice"),
+      carriedFrom: "old",
+      body: {
+        type: "response.added",
+        role: "alice",
+        text: "t",
+        dispute: true,
+        version: 7,
+      } as Body,
+    };
+    const res = fb({
+      type: "dispute.resolved",
+      response: 2,
+      outcome: "amended",
+      reason: "r",
+    });
+    const first = [carriedDispute, ...released("alice").map(fb)];
+    expect(() => f.foldE(...first, res)).toThrow(/amend/);
+    const v1 = f.foldE(...first).lastSeq;
+    const v = f.foldE(
+      ...first,
+      fb({
+        type: "report.amended",
+        subject: "alice",
+        reason: "r",
+        basedOn: v1,
+      }),
+      fb({ type: "report.released", subjects: ["alice"] }),
+      res,
+    );
+    expect(v.subjects.get("alice")!.responses[0]!.resolution?.outcome).toBe(
+      "amended",
+    );
+  });
+});

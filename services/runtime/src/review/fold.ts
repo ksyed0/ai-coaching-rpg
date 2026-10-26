@@ -99,6 +99,8 @@ export type SubjectView = {
   summaryBy: string[];
   objectives: LoResult[];
   versions: number[];
+  /** The versions released out of an amendment (report.amended, then report.released) in THIS review. */
+  amendedVersions: number[];
   snapshot: Snapshot | null;
   comments: CommentView[];
   responses: ResponseView[];
@@ -161,6 +163,7 @@ function initSubject(d: DraftSubject): SubjectView {
     summaryBy: [],
     objectives: [],
     versions: [],
+    amendedVersions: [],
     snapshot: null,
     comments: [],
     responses: [],
@@ -256,7 +259,9 @@ function takeSnapshot(
  * amendment, the re-release counts). An amendment still open, or withdrawn before its release, is not an amended report.
  */
 export const amendedSince = (sv: SubjectView, responseSeq: number): boolean =>
-  sv.versions.some((v) => v > responseSeq);
+  // Only releases out of an amendment count, never a position: a carried response has a small seq, and the first release of
+  // a re-run comes out of draft, not out of an amendment, so it is not an amended report.
+  sv.amendedVersions.some((v) => v > responseSeq);
 
 const isReleased = (sv: SubjectView): boolean =>
   sv.state === "released" || sv.state === "amending";
@@ -565,6 +570,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         // (3) only then build the group table from those snapshots, so it sees the players released in this event.
         const g = subjects.get(GROUP);
         for (const sv of svs) {
+          if (sv.state === "amending") sv.amendedVersions.push(e.seq);
           sv.state = "released";
           sv.versions.push(e.seq);
           sv.selfClosed = true;
