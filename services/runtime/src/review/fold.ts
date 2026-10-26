@@ -404,9 +404,8 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         c.status = "edited";
         if (sv.summary !== null) sv.summaryStale = true;
         recompute(sv, drafts.subjects.get(sv.id)!);
-        const g = subjects.get(GROUP);
-        if (sv.kind === "participant" && g && g.versions.length > 0)
-          g.tableStale = true;
+        // No tableStale here: the group's frozen table reads player SNAPSHOTS only, so an edit changes it only once
+        // that player is released (or withdrawn), which is where the flag is set.
         break;
       }
       case "rationale.edited": {

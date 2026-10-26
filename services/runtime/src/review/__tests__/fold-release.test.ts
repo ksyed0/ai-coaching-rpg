@@ -248,7 +248,7 @@ describe("amend and withdraw", () => {
       f.fold({ type: "report.withdrawn", subject: "alice", reason: "r" }),
     ).toThrow(ReviewIllegalError);
   });
-  it("marks a released group's player table stale after a player edit and clears it when the group is re-released", () => {
+  it("marks a released group's player table stale when an amended player is re-released (not at the edit) and clears it when the group is re-released", () => {
     const rel = released("alice", "bob", "group");
     const v1 = f.fold(...rel).lastSeq;
     const dis = f
@@ -270,8 +270,19 @@ describe("amend and withdraw", () => {
       reason: "r",
     };
     expect(f.fold(...rel, amendA, edit).subjects.get("group")!.tableStale).toBe(
-      true,
+      false,
     );
+    expect(
+      f
+        .fold(
+          ...rel,
+          amendA,
+          edit,
+          { type: "summary.accepted", subject: "alice" },
+          { type: "report.released", subjects: ["alice"] },
+        )
+        .subjects.get("group")!.tableStale,
+    ).toBe(true);
     const fresh = f.fold(
       ...rel,
       amendA,
