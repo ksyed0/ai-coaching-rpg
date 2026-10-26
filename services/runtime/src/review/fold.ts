@@ -59,8 +59,13 @@ export type ResponseView = {
   criterion?: string;
   text: string;
   dispute: boolean;
-  /** The released version the response answers (the latest at the time it was made). */
-  version: number;
+  /**
+   * The released version of THIS review the response answers (the latest at the time it was made); null for a response carried
+   * from a superseded review, which answered a release of that review, not of this one.
+   */
+  version: number | null;
+  /** Copied by supersede from an earlier review of the session. */
+  carried: boolean;
   resolution: {
     seq: number;
     outcome: Outcome;
@@ -694,15 +699,11 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         attested(e, e.role);
         const sv = subj(e, e.role);
         if (sv.kind !== "participant") ill(e, "only players respond");
-        let ver: number;
-        if (carried) {
-          // answered a version of the superseded review; the player wrote it, so carrying it shows nothing new
-          if (!Number.isSafeInteger(e.version) || (e.version as number) < 1)
-            ill(e, "a carried response needs the version it answered");
-          ver = e.version as number;
-        } else {
-          if (e.version !== undefined)
-            ill(e, "a response's version is set by the log");
+        // the version is the log's: none is ever written in the event, and a carried one answered another review's release
+        if ((e as { version?: unknown }).version !== undefined)
+          ill(e, "a response's version is set by the log");
+        let ver: number | null = null;
+        if (!carried) {
           const version = sv.versions.at(-1);
           ver =
             version === undefined || sv.state === "withdrawn"
@@ -721,6 +722,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           text: text(e, e.text),
           dispute: e.dispute === true,
           version: ver,
+          carried,
           resolution: null,
         });
         break;

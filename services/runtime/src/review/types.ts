@@ -97,8 +97,6 @@ export type Body =
       criterion?: string;
       text: string;
       dispute?: boolean;
-      /** Only on a response carried by supersede: the released version it answered in the superseded review. */
-      version?: number;
     }
   | {
       type: "dispute.resolved";

@@ -471,7 +471,7 @@ export async function supersedeReview(
         },
       };
       // In the old order: moderation of byte-identical subjects, and what every player still in the re-run said (self-ratings,
-      // responses, disputes) with the facilitator's answers. A response keeps the version it answered; a resolution is pointed
+      // responses, disputes) with the facilitator's answers. A response is marked carried (it claims no version of the new review); a resolution is pointed
       // at the response's new seq. Nothing is carried that its audience could not already see: the new review starts every
       // subject in draft, and a player sees only their own events after a release there.
       const carried: Entry[] = [];
@@ -485,10 +485,7 @@ export async function supersedeReview(
         else if (e.type === "self.rated" && players.includes(e.role))
           body = stripEnvelope(e);
         else if (e.type === "response.added" && players.includes(e.role)) {
-          const version = oldView.subjects
-            .get(e.role)
-            ?.responses.find((r) => r.seq === e.seq)?.version;
-          body = { ...(stripEnvelope(e) as typeof e), version } as Body;
+          body = stripEnvelope(e);
           newSeq.set(e.seq, carried.length + 2); // the opener is seq 1
         } else if (e.type === "dispute.resolved" && newSeq.has(e.response))
           body = {

@@ -11,7 +11,7 @@ import {
 import { ReviewRefusedError } from "../errors.js";
 import { canView } from "../policy.js";
 import { POLICY_VERSION, type Body, type Entry } from "../types.js";
-import { viewReport } from "../view.js";
+import { renderSubjectMarkdown, viewReport } from "../view.js";
 import type { ParticipantReport } from "../../evaluator/report-model.js";
 import {
   fixedClock,
@@ -115,8 +115,12 @@ describe("supersede carries participant events", () => {
     // the new review starts alice in draft (not visible to her) with her own events carried
     expect(a.state).toBe("draft");
     expect(a.criteria.find((c) => c.id === "listening")!.self?.level).toBe(3);
-    expect(a.responses.map((x) => [x.text, x.dispute, x.version])).toEqual(
-      old.responses.map((x) => [x.text, x.dispute, x.version]),
+    expect(a.responses.map((x) => [x.text, x.dispute])).toEqual(
+      old.responses.map((x) => [x.text, x.dispute]),
+    );
+    // carried: no claim to a version of the new review
+    expect(a.responses.every((x) => x.carried && x.version === null)).toBe(
+      true,
     );
     expect(a.responses[0]!.resolution?.outcome).toBe("declined");
     expect(a.responses[1]!.resolution).toBeNull();
@@ -200,6 +204,22 @@ describe("supersede carries participant events", () => {
     );
     expect(shown).toContain("OPEN-DISPUTE");
     expect(shown).not.toContain("INTERNAL-NOTE");
+    // rendered as answered in an earlier review, never as "not part of version N" of this one
+    const md = renderSubjectMarkdown(
+      viewReport(draft, after, "alice", { audience: "released", line: "l" }),
+      [],
+    );
+    expect(md).toContain("earlier review");
+    expect(md).not.toMatch(/not part of version/);
+    expect(
+      (
+        JSON.parse(shown) as {
+          responses: { version?: number; earlier_review?: boolean }[];
+        }
+      ).responses.every(
+        (x) => x.version === undefined && x.earlier_review === true,
+      ),
+    ).toBe(true);
   });
   it("a changed draft starts unreviewed but keeps the participant's events, and self-rating stays closed", async () => {
     await oldReview();

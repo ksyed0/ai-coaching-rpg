@@ -98,7 +98,8 @@ export function renderParticipantMarkdown(r: ParticipantReport, secrets: string[
     out.push("## Your responses", "");
     const vs = r.responses.map((x) => x.version).filter((v): v is number => typeof v === "number");
     if (vs.length) out.push(`Responses are added after release and are not part of version ${Math.max(...vs)}.`, "");
-    for (const x of r.responses) out.push(`- ${x.criterion ? `(${id(x.criterion, sec)}) ` : ""}${x.dispute ? "Dispute: " : ""}${safeMd(x.text, 1500, sec)}${x.resolution ? ` - Facilitator's reply (${safeMd(x.resolution.outcome, 20, sec)}): ${safeMd(x.resolution.reason, 1500, sec)}` : x.dispute ? " - awaiting the facilitator's reply" : ""}`);
+    if (r.responses.some((x) => x.earlier_review)) out.push("Responses marked \"earlier review\" were made on a report released in an earlier review of this session.", "");
+    for (const x of r.responses) out.push(`- ${x.earlier_review ? "(earlier review) " : ""}${x.criterion ? `(${id(x.criterion, sec)}) ` : ""}${x.dispute ? "Dispute: " : ""}${safeMd(x.text, 1500, sec)}${x.resolution ? ` - Facilitator's reply (${safeMd(x.resolution.outcome, 20, sec)}): ${safeMd(x.resolution.reason, 1500, sec)}` : x.dispute ? " - awaiting the facilitator's reply" : ""}`);
     out.push("");
   }
   out.push(...notesSection(r, sec));

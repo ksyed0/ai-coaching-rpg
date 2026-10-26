@@ -321,18 +321,23 @@ describe("finding 1 (fold side): carried participant events", () => {
   ])("refuses a selfClosed naming %s", (_n, selfClosed) => {
     expect(() => withOpener({ selfClosed })).toThrow(ReviewIllegalError);
   });
-  it("a carried response needs its version; a new one may not set it", () => {
-    const v = f.foldE(resp({ version: 7 }, "old"));
+  it("a carried response is marked carried and claims no version of this review; no response may set a version", () => {
+    const v = f.foldE(resp({}, "old"));
     expect(v.subjects.get("alice")!.responses[0]).toMatchObject({
-      version: 7,
+      version: null,
+      carried: true,
       dispute: true,
     });
     expect(v.subjects.get("alice")!.state).toBe("draft");
-    expect(() => f.foldE(resp({}, "old"))).toThrow(/version/);
-    expect(() => f.foldE(resp({ version: 0 }, "old"))).toThrow(/version/);
+    expect(() => f.foldE(resp({ version: 7 }, "old"))).toThrow(/version/);
     expect(() =>
       f.foldE(...released("alice").map(fb), resp({ version: 3 })),
     ).toThrow(/version/);
+    const own = f.foldE(...released("alice").map(fb), resp({}));
+    expect(own.subjects.get("alice")!.responses[0]).toMatchObject({
+      carried: false,
+    });
+    expect(own.subjects.get("alice")!.responses[0]!.version).toBeGreaterThan(1);
   });
   it("carried events come directly after the opener, from a safe directory name, and only of carried types", () => {
     expect(() =>
@@ -371,12 +376,10 @@ describe("finding 1 (fold side): carried participant events", () => {
       ...(carriedFrom ? { carriedFrom } : {}),
     });
     expect(
-      f.foldE(resp({ version: 7 }, "old"), res("old")).subjects.get("alice")!
-        .responses[0]!.resolution?.outcome,
+      f.foldE(resp({}, "old"), res("old")).subjects.get("alice")!.responses[0]!
+        .resolution?.outcome,
     ).toBe("amended");
-    expect(() => f.foldE(resp({ version: 7 }, "old"), res())).toThrow(
-      /release/,
-    );
+    expect(() => f.foldE(resp({}, "old"), res())).toThrow(/release/);
   });
 });
 
@@ -390,7 +393,6 @@ describe("fix round F2: 'amended' depends on amend and release events, never on 
         role: "alice",
         text: "t",
         dispute: true,
-        version: 7,
       } as Body,
     };
     const res = fb({

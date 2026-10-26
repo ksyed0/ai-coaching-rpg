@@ -180,7 +180,10 @@ export function viewReport(
         ...(x.criterion !== undefined ? { criterion: x.criterion } : {}),
         text: x.text,
         dispute: x.dispute,
-        version: x.version,
+        // a carried response answered a release of an earlier review of the session, not a version of this one
+        ...(x.version !== null
+          ? { version: x.version }
+          : { earlier_review: true }),
         ...(x.resolution
           ? {
               resolution: {
