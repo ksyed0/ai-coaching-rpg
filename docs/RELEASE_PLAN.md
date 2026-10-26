@@ -53,6 +53,22 @@ Status: In Progress
 Dependencies: EPIC-0001
 ```
 
+```
+EPIC-0007: Brand, graphic design and landing page (SceneCoach.ai)
+Description: Give the product its identity and a public face: the SceneCoach.ai name and wordmark, a documented design system (colour, type, spacing, light and dark themes, WCAG 2.1 AA), a layout and component set applied to every web surface, and a public landing page with search metadata. Private pages stay unindexed. Mockups: the EPIC-0002 web client mockups (name, wordmark, title blocks, landing page).
+Release Target: Release 1.x
+Status: Planned
+Dependencies: EPIC-0002
+```
+
+```
+EPIC-0008: Multi-client service and subdomain provisioning
+Description: Run the product for several client organisations from one deployment. Each client (tenant) gets its own address, either a subdomain such as epam.scenecoach.ai or a path such as scenecoach.ai/epam (to be decided in the design), its own scenarios, sessions, codes and reports kept apart from other clients, and light branding. An administrator provisions a client without a code change.
+Release Target: Release 1.x
+Status: Planned
+Dependencies: EPIC-0002
+```
+
 ## User stories and tasks
 
 ```
@@ -1298,4 +1314,195 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0005-US-0044-self-assessment
 Notes: Implementation plan docs/superpowers/plans/2026-10-23-evaluator-moderation.md, Tasks 14-15: fold for self-ratings, responses and dispute resolution; `self-assess`, `respond`, `resolve`; side-by-side rendering. Spec docs/superpowers/specs/2026-10-22-evaluator-moderation-design.md.
+```
+
+```
+US-0045 (EPIC-0007): As the product owner, I want a documented SceneCoach.ai brand and design system, so that every surface looks like one product and new screens match existing ones automatically.
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0007-US-0045-brand-design-system
+Dependencies: EPIC-0002
+Acceptance Criteria:
+  - [ ] AC-0235: a wordmark and mark, colour palette, type scale, spacing and component states are defined as design tokens, with light and dark values, and recorded in PROJECT.md section 6 as the authoritative design system
+  - [ ] AC-0236: every colour pair in the palette meets WCAG 2.1 AA contrast (4.5:1 text, 3:1 large text and controls) and no state is shown by colour alone; the audit result is recorded
+  - [ ] AC-0237: the name SceneCoach.ai and the tagline "AI role-play and team skills coaching simulator" are used consistently in the wordmark, page titles and share card
+  - [ ] AC-0238: the tokens exist as one importable file used by the web app, so a change in one place changes every surface
+```
+
+```
+TASK-0070 (US-0045): Define wordmark, palette, type scale and tokens
+Type: Design
+Assignee: Human
+Status: To Do
+Branch: feature/EPIC-0007-US-0045-brand-design-system
+Notes: Start from the EPIC-0002 mockups (cool slate, teal accent, Public Sans and JetBrains Mono were used as placeholders). Owner approves the final identity; an agent may draft options.
+```
+
+```
+TASK-0071 (US-0045): Audit palette contrast and record the design system in PROJECT.md
+Type: Docs
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0007-US-0045-brand-design-system
+Notes: Verify every light and dark colour pair; log the result in progress.md.
+```
+
+```
+US-0046 (EPIC-0007): As a participant or facilitator, I want a consistent layout and component set across the lobby, session, console and reports, so that the product is easy to learn and use on a laptop or phone.
+Priority: Medium
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0007-US-0046-layout-components
+Dependencies: US-0045, EPIC-0002
+Acceptance Criteria:
+  - [ ] AC-0239: the app header, title block, status chip, card, table, form and confirmation components are built once from the design tokens and used by every web surface
+  - [ ] AC-0240: each surface has a documented layout for laptop and phone width, with no horizontal page scroll at 400px
+  - [ ] AC-0241: every interactive element has a visible keyboard focus state and a programmatic label, and an accessibility audit of the lobby, session view and console is logged
+  - [ ] AC-0242: irreversible actions (end session, release, amend, withdraw) use one confirmation pattern that names the subject and audience
+```
+
+```
+TASK-0072 (US-0046): Turn the EPIC-0002 mockups into component and layout specifications
+Type: Design
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0007-US-0046-layout-components
+Notes: Input: the web client mockups, including the New session, Readiness, Live console and Report moderation screens.
+```
+
+```
+TASK-0073 (US-0046): Build the shared component library and apply it to all surfaces
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0007-US-0046-layout-components
+Notes: Depends on the Next.js app from EPIC-0002; component tests and an accessibility audit.
+```
+
+```
+US-0047 (EPIC-0007): As a prospective client in learning and development, I want a clear public landing page, so that I can understand what SceneCoach.ai does and book a demo.
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0007-US-0047-landing-page
+Dependencies: US-0045
+Acceptance Criteria:
+  - [ ] AC-0243: a public landing page states what the product is, how it works (rehearse, debrief, improve) and how to book a demo or join a session
+  - [ ] AC-0244: public pages have a descriptive title, a meta description under 160 characters, a canonical URL and a share image, with the name and tagline matching the brand
+  - [ ] AC-0245: join, session, report, console and admin routes send noindex and nofollow and are disallowed in robots.txt; no personal data appears in any URL
+  - [ ] AC-0246: a sitemap lists only public pages
+  - [ ] AC-0247: the landing page meets WCAG 2.1 AA and loads in under 3 seconds on a standard connection
+```
+
+```
+TASK-0074 (US-0047): Build the landing page and public routes
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0007-US-0047-landing-page
+Notes: Pages: home, how it works, scenarios, for L&D teams. Copy to be approved by the owner.
+```
+
+```
+TASK-0075 (US-0047): Add robots.txt, sitemap, noindex headers and metadata tests
+Type: Test
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0007-US-0047-landing-page
+Notes: A test fails if a private route is ever served without noindex.
+```
+
+```
+US-0048 (EPIC-0007): As the product owner, I want the SceneCoach name, domains and trademark checked before launch, so that we do not build a public brand on a name we cannot use.
+Priority: High
+Estimate: S
+Status: Planned
+Branch: feature/EPIC-0007-US-0048-name-clearance
+Dependencies: None
+Acceptance Criteria:
+  - [ ] AC-0248: trademark searches for SceneCoach and Scene Coach in the Canadian and US registers (software and education classes) are done and the result recorded in findings.md
+  - [ ] AC-0249: availability of scenecoach.ai and the .com variant is checked and the decision on which domains to register is recorded
+  - [ ] AC-0250: the owner confirms the name, or chooses an alternative, in writing before the name is used in the landing page or external material
+```
+
+```
+TASK-0076 (US-0048): Run trademark and domain searches and record the outcome
+Type: Docs
+Assignee: Human
+Status: To Do
+Branch: feature/EPIC-0007-US-0048-name-clearance
+Notes: Owner action. Not verified from the agent session; the name is a working choice until this is done.
+```
+
+```
+US-0049 (EPIC-0008): As the product owner, I want every request resolved to a client (tenant) by its address, so that one deployment can serve many organisations.
+Priority: Medium
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0008-US-0049-tenant-routing
+Dependencies: EPIC-0002
+Acceptance Criteria:
+  - [ ] AC-0251: a decision is recorded on subdomain (epam.scenecoach.ai) versus path (scenecoach.ai/epam) addressing, with the trade-offs for cookies, isolation, certificates and search
+  - [ ] AC-0252: a tenant resolver maps the host or path to a tenant id before any route runs, and unknown tenants get a neutral not-found page
+  - [ ] AC-0253: client slugs are validated (lowercase letters, digits and hyphens) and reserved names (www, app, api, admin, console, static, mail) are refused
+  - [ ] AC-0254: the session cookie is scoped to one tenant and is not accepted by another
+  - [ ] AC-0255: the single-tenant local mode still works with no configuration
+```
+
+```
+TASK-0077 (US-0049): Write the tenant resolver and the addressing decision record
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0008-US-0049-tenant-routing
+Notes: Builds on the tenants table and the tenant-per-client stage in ARCHITECTURE.md section 10.
+```
+
+```
+US-0050 (EPIC-0008): As a platform administrator, I want to provision a new client with its own address, so that onboarding a client needs no code change.
+Priority: Medium
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0008-US-0050-provision-client
+Dependencies: US-0049
+Acceptance Criteria:
+  - [ ] AC-0256: an administrator creates a client from a command or an admin screen by giving a name and slug; the system records the tenant and reports its address
+  - [ ] AC-0257: for subdomain addressing, wildcard DNS and a wildcard certificate cover new clients without a per-client DNS or certificate step; for path addressing, no DNS change is needed
+  - [ ] AC-0258: creating a client that already exists, or with an invalid or reserved slug, fails with a clear message and changes nothing
+  - [ ] AC-0259: a client can be suspended and reactivated, and a suspended client's address shows a neutral page; no data is deleted
+  - [ ] AC-0260: every provisioning action is written to an audit log with who, when and what
+```
+
+```
+TASK-0078 (US-0050): Set up wildcard DNS and certificate and the provisioning command
+Type: Infra
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0008-US-0050-provision-client
+Notes: Rollback plan in docs/ROLLBACK.md before any production DNS or certificate change. Needs the owner to own the domain.
+```
+
+```
+US-0051 (EPIC-0008): As a client administrator, I want my organisation's scenarios, sessions, codes and reports kept apart from other clients, with our own name and logo, so that our data stays private and the service feels like ours.
+Priority: High
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0008-US-0051-tenant-isolation
+Dependencies: US-0049
+Acceptance Criteria:
+  - [ ] AC-0261: sessions, logs, join codes, reports, moderation records and scenarios are stored and read per tenant; no route can read another tenant's data
+  - [ ] AC-0262: a cross-tenant test suite tries every read and write route with another tenant's ids and codes and every attempt is refused with the same neutral response
+  - [ ] AC-0263: each tenant can set a display name and logo shown in the app header next to the SceneCoach.ai mark; colours stay within the design system
+  - [ ] AC-0264: a tenant's data can be exported and deleted on request without touching other tenants
+  - [ ] AC-0265: tenant isolation and what it does not protect are documented in the threat model
+```
+
+```
+TASK-0079 (US-0051): Add tenant-scoped storage, isolation tests and tenant branding
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0008-US-0051-tenant-isolation
+Notes: Highest-risk story of the epic: needs an independent review before merge.
 ```
