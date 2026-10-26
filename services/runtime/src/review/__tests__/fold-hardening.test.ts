@@ -210,3 +210,46 @@ describe("finding 4: the reviewer names of a released version are frozen", () =>
     ).toContain("mallory");
   });
 });
+
+describe("finding 2: an evaluator-error criterion needs a score decision before release", () => {
+  const withInvalid = () => {
+    const d = structuredClone(drafts);
+    const a = d.subjects.get("alice")!;
+    a.criteria[0] = {
+      ...a.criteria[0]!,
+      invalid: true,
+      score: null,
+      confidence: null,
+    };
+    return { d, id: a.criteria[0]!.id, g: makeFold(d) };
+  };
+  it("accepting it as-is does not make it releasable, and the gate says to score it by hand", () => {
+    const { id, g } = withInvalid();
+    expect(g.fold().subjects.get("alice")!.evaluationOk).toBe(true);
+    const acc = resolveBodies(g.fold(), "alice");
+    expect(acc.some((b) => "criterion" in b && b.criterion === id)).toBe(true);
+    expect(() =>
+      g.fold(...acc, { type: "report.released", subjects: ["alice"] }),
+    ).toThrow(new RegExp(`by hand[^]*${id}`));
+  });
+  it("an edit to a level (or Not observed) makes it releasable", () => {
+    const { id, g } = withInvalid();
+    const others = resolveBodies(g.fold(), "alice").filter(
+      (b) => !("criterion" in b && b.criterion === id),
+    );
+    const v = g.fold(
+      ...others,
+      {
+        type: "score.edited",
+        subject: "alice",
+        criterion: id,
+        from: "invalid",
+        to: null,
+        reason: "not observed",
+      },
+      { type: "summary.accepted", subject: "alice" },
+      { type: "report.released", subjects: ["alice"] },
+    );
+    expect(v.subjects.get("alice")!.state).toBe("released");
+  });
+});

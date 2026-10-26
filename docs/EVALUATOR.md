@@ -158,6 +158,7 @@ Free text is stored after hidden characters are stripped and secrets and machine
 
 - every criterion that needs review has been accepted or edited;
 - if the AI evaluation of that subject failed, the facilitator has scored every criterion by hand;
+- a criterion the evaluator could not score (shown as an evaluator error) has been scored by hand with `edit` (a level or `na`); accepting it as it stands is not enough;
 - the summary is not out of date after a score change: it has been edited (`edit-summary`) or accepted (`accept <subject> --summary`);
 - the subject is not already released, and is not withdrawn.
 
