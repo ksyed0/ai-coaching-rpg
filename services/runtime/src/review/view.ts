@@ -35,6 +35,13 @@ export const LEGACY_NOTE =
 const AI_PREFIX =
   "AI draft calibration (not the calibration of the final scores): ";
 
+/** One cell of the per-role table: the objective's score and label, or "Not observed" when there is none. */
+const pick = (x: LoResult | null | undefined) => ({
+  score: x?.score ?? null,
+  label: x?.label ?? "Not observed",
+  incomplete: x?.incomplete ?? false,
+});
+
 const jsonLo = (o: LoResult): JsonObjective => ({
   id: o.id,
   statement: o.statement,
@@ -107,6 +114,9 @@ export function viewReport(
   a: RenderAudience,
 ): ParticipantReport | GroupReport {
   // The released audience is built from the snapshot frozen at the last release only (P12): never from live state.
+  // The one exception is the participant's own responses: they are made after the release, so they are read from the live view
+  // and appended; they are never part of the frozen scores, summary or self-ratings.
+  const liveResponses = (view.subjects.get(subject) as SubjectView).responses;
   if (a.audience === "released") view = frozenView(view, subject);
   const sv = view.subjects.get(subject) as SubjectView;
   const names = reviewerNames(sv);
@@ -154,6 +164,35 @@ export function viewReport(
     r.learning_objectives = sv.objectives.map(jsonLo);
     if (sv.summary) r.summary = structuredClone(sv.summary);
     if (comments.length) r.comments = comments;
+    // Self-ratings come from the criteria in use: the frozen ones for the released audience, the live ones for the facilitator.
+    const self: NonNullable<ParticipantReport["self"]> = {};
+    for (const c of sv.criteria)
+      if (c.self)
+        self[c.id] = {
+          level: c.self.level,
+          label: levelLabel(c.self.level),
+          ...(c.self.note !== undefined ? { note: c.self.note } : {}),
+        };
+    if (Object.keys(self).length) r.self = self;
+    const responses = a.audience === "released" ? liveResponses : sv.responses;
+    if (responses.length)
+      r.responses = responses.map((x) => ({
+        ...(x.criterion !== undefined ? { criterion: x.criterion } : {}),
+        text: x.text,
+        dispute: x.dispute,
+        // a carried response answered a release of an earlier review of the session, not a version of this one
+        ...(x.version !== null
+          ? { version: x.version }
+          : { earlier_review: true }),
+        ...(x.resolution
+          ? {
+              resolution: {
+                outcome: x.resolution.outcome,
+                reason: x.resolution.reason,
+              },
+            }
+          : {}),
+      }));
     return r;
   }
   const g = base as GroupReport;
@@ -165,11 +204,6 @@ export function viewReport(
   g.lo_coverage = {
     players: roles.map((r) => r.id),
     objectives: draft.lo_coverage.objectives.map((o) => {
-      const pick = (x: LoResult | undefined) => ({
-        score: x?.score ?? null,
-        label: x?.label ?? "Not observed",
-        incomplete: x?.incomplete ?? false,
-      });
       return {
         id: o.id,
         statement: o.statement,
@@ -200,9 +234,18 @@ function frozenView(view: View, subject: string): View {
     summary: snap.summary,
     summaryEdited: snap.summaryEdited,
     summaryStale: false,
+    summaryBy: snap.summaryBy,
     objectives: snap.objectives,
     // frozen at release: the log is append-only, so a comment made before the release has a smaller seq
     comments: sv.comments.filter((c) => c.seq < snap.version),
+    // a dispute resolved after the release is not part of that version either
+    responses: sv.responses
+      .filter((x) => x.seq < snap.version)
+      .map((x) =>
+        x.resolution && x.resolution.seq >= snap.version
+          ? { ...x, resolution: null }
+          : x,
+      ),
   };
   return { ...view, subjects: new Map(view.subjects).set(subject, frozen) };
 }
@@ -211,11 +254,6 @@ function frozenView(view: View, subject: string): View {
 function applyFrozenTable(r: GroupReport, snap: Snapshot): void {
   if (!snap.table) return;
   const players = Object.keys(snap.table.objectives[0]?.byRole ?? {});
-  const pick = (x: LoResult | null) => ({
-    score: x?.score ?? null,
-    label: x?.label ?? "Not observed",
-    incomplete: x?.incomplete ?? false,
-  });
   r.lo_coverage = {
     players,
     objectives: snap.table.objectives.map((o) => ({
@@ -285,11 +323,6 @@ export function participantGroupReport(
     (own.state === "released" || own.state === "amending")
       ? own.snapshot
       : null;
-  const pick = (x: LoResult | undefined) => ({
-    score: x?.score ?? null,
-    label: x?.label ?? "Not observed",
-    incomplete: x?.incomplete ?? false,
-  });
   g.lo_coverage = {
     players: snap ? [role] : [],
     objectives: g.lo_coverage.objectives.map((o) => ({

@@ -8,6 +8,7 @@ export const LIMITS = {
   reason: 500,
   text: 1500,
   item: 400,
+  responses: 50,
   events: 10_000,
   logBytes: 16 * 1024 * 1024,
 } as const;
@@ -39,6 +40,8 @@ export type Body =
       rubricHash: string | null;
       files: Record<string, string>;
       codes: Record<string, unknown> | null;
+      /** Set by supersede only: players who saw a released version in the superseded review, so their blind self-rating is closed. */
+      selfClosed?: string[];
     }
   | {
       type: "score.edited";
@@ -102,6 +105,22 @@ export type Body =
       reason: string;
     }
   | { type: "review.superseded"; by: string };
+
+/** Moderation of one subject, carried by supersede when that subject's draft is byte-identical. */
+export const CARRIED_MODERATION: ReadonlySet<string> = new Set([
+  "score.edited",
+  "rationale.edited",
+  "summary.edited",
+  "summary.accepted",
+  "score.accepted",
+  "comment.added",
+]);
+/** What a participant said (and the facilitator's answer to a dispute), carried by supersede for every player still in the re-run. */
+export const CARRIED_PARTICIPANT: ReadonlySet<string> = new Set([
+  "self.rated",
+  "response.added",
+  "dispute.resolved",
+]);
 
 /** A body plus who did it, before the log assigns seq, ts and prev. `carriedFrom` marks moderation copied from a superseded review. */
 export type Entry = { actor: Actor; body: Body; carriedFrom?: string };

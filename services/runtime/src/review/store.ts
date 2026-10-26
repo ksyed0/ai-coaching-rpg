@@ -28,6 +28,8 @@ import {
   REVIEW_FILE,
   REVIEW_SCHEMA,
   ZERO_HASH,
+  CARRIED_MODERATION,
+  CARRIED_PARTICIPANT,
   type Body,
   type Entry,
   type ReviewEvent,
@@ -57,14 +59,23 @@ function fold(
     return currentView(drafts, events);
   } catch (e) {
     if (e instanceof ReviewIllegalError) throw onIllegal(e.message);
-    // events already on disk that make the fold throw a TypeError are damage, not a bug in the caller
-    if (malformedIsCorrupt && e instanceof TypeError)
+    // Any other error is never echoed (it may quote a payload). Events already on disk that break the fold are damage;
+    // on new entries it is a refusal, and nothing is written.
+    if (malformedIsCorrupt)
       throw new ReviewCorruptError(
         "the review log is not valid: malformed event",
       );
-    throw e;
+    throw new ReviewRefusedError(
+      "this change cannot be applied to the review as it stands; nothing was written",
+    );
   }
 }
+
+const isReviewError = (e: unknown): boolean =>
+  e instanceof ReviewRefusedError ||
+  e instanceof ReviewCorruptError ||
+  e instanceof ReviewUsageError ||
+  e instanceof ReviewIllegalError;
 
 function checkActor(a: Entry["actor"]): void {
   const ok =
@@ -129,7 +140,15 @@ export async function applyCommand(
 ): Promise<{ loaded: Loaded; appended: ReviewEvent[] }> {
   return withReviewLock(dir, async () => {
     const loaded = await loadReview(dir);
-    const entries = build(loaded);
+    let entries: Entry[];
+    try {
+      entries = build(loaded);
+    } catch (e) {
+      if (isReviewError(e)) throw e;
+      throw new ReviewRefusedError(
+        "this command could not be prepared from the review as it stands; nothing was written",
+      );
+    }
     for (const en of entries) checkActor(en.actor);
     if (entries.length === 0) return { loaded, appended: [] };
     if (entries.some((en) => en.body.type === "report.released")) {
@@ -325,15 +344,6 @@ export async function siblingReleased(dir: string): Promise<string | null> {
   return null;
 }
 
-const CARRIED = new Set<string>([
-  "score.edited",
-  "rationale.edited",
-  "summary.edited",
-  "summary.accepted",
-  "score.accepted",
-  "comment.added",
-]);
-
 function stripEnvelope(e: ReviewEvent): Body {
   const { seq: _s, ts: _t, prev: _p, actor: _a, carriedFrom: _c, ...body } = e; // eslint-disable-line @typescript-eslint/no-unused-vars
   return body as Body;
@@ -346,6 +356,13 @@ export type SupersedeResult = {
   dropped: string[];
   /** True when this call finished an interrupted supersede (the new review was already written). */
   completed: boolean;
+  /** Self-ratings, responses and dispute resolutions carried for the players of the re-run (changed drafts included). */
+  participantEvents: number;
+  /**
+   * What a player said that could not be carried: items on a criterion the re-run no longer has (with any resolution tied to
+   * them), and open disputes of players missing from the re-run. One line each, ids and numbers only.
+   */
+  notCarried: string[];
 };
 
 /** A cause from a failed write, made safe to print: printable ASCII only, at most 160 characters. */
@@ -357,7 +374,10 @@ const cause = (e: unknown): string =>
 
 /**
  * Moves moderation from an earlier review of the same session to a re-run: subjects whose draft file is byte-identical
- * keep their moderation (copied as events marked carriedFrom); the rest start clean. Ruling P16: the new review is
+ * keep their moderation (copied as events marked carriedFrom); the rest start clean. Every player still in the re-run keeps
+ * their self-ratings, responses and disputes with the facilitator's answers (so an open dispute stays resolvable), and a
+ * player who saw a release in the old review is listed in the new opener's selfClosed (no blind re-rating after seeing
+ * scores). Every subject starts in draft, so nothing becomes visible to a participant before a release there. Ruling P16: the new review is
  * written first, the old one is marked superseded last, so a crash leaves the old review live and never both closed.
  * After such a crash both reviews are live until `supersede old new` is run again: when the new log is exactly the copies
  * this call would write, the call only appends the missing marker to the old log. `o.by` must already be a clean id
@@ -378,6 +398,11 @@ export async function supersedeReview(
   if (realOld === realNew)
     throw new ReviewUsageError(
       "supersede needs two different directories: the earlier one and the re-run",
+    );
+  // both names are recorded (the marker's `by`, each copy's carriedFrom), and the fold accepts only safe ids there
+  if (![oldDir, newDir].every((d) => isSafeId(path.basename(d))))
+    throw new ReviewRefusedError(
+      "supersede needs directory names of 1 to 64 letters, digits, _ or - (they are recorded in the review logs); rename the directory first",
     );
   return withReviewLock(oldDir, () =>
     withReviewLock(newDir, async () => {
@@ -421,6 +446,20 @@ export async function supersedeReview(
         (id) => !newDrafts.subjects.has(id),
       );
       const name = path.basename(oldDir);
+      // the earlier review's state: which players saw a release (their self-rating is closed) and each response's version
+      const oldView = fold(
+        oldDrafts,
+        old.events,
+        (m) =>
+          new ReviewCorruptError(`the earlier review log is not valid: ${m}`),
+        true,
+      );
+      const players = [...newDrafts.subjects.values()]
+        .filter((d) => d.kind === "participant")
+        .map((d) => d.id);
+      const selfClosed = players.filter(
+        (id) => oldView.subjects.get(id)?.selfClosed === true,
+      );
       const opened: Entry = {
         actor: { kind: "facilitator", by: o.by },
         body: {
@@ -433,19 +472,68 @@ export async function supersedeReview(
           rubricHash: newDrafts.rubricHash,
           files: newDrafts.files,
           codes: oldOpened.codes,
+          ...(selfClosed.length > 0 ? { selfClosed } : {}),
         },
       };
-      const carried: Entry[] = old.events
-        .filter(
-          (e) =>
-            CARRIED.has(e.type) &&
-            identical.includes((e as { subject: string }).subject),
-        )
-        .map((e) => ({
-          actor: e.actor,
-          carriedFrom: name,
-          body: stripEnvelope(e),
-        }));
+      // In the old order: moderation of byte-identical subjects, and what every player still in the re-run said (self-ratings,
+      // responses, disputes) with the facilitator's answers. A response is marked carried (it claims no version of the new review); a resolution is pointed
+      // at the response's new seq. Nothing is carried that its audience could not already see: the new review starts every
+      // subject in draft, and a player sees only their own events after a release there.
+      const carried: Entry[] = [];
+      const newSeq = new Map<number, number>();
+      /** What a player said that is not carried, by old number and ids only (never the text). */
+      const notCarried: string[] = [];
+      const hasCriterion = (role: string, id: string): boolean =>
+        newDrafts.subjects.get(role)?.criteria.some((c) => c.id === id) ??
+        false;
+      for (const e of old.events) {
+        let body: Body | null = null;
+        if (CARRIED_MODERATION.has(e.type))
+          body = identical.includes((e as { subject: string }).subject)
+            ? stripEnvelope(e)
+            : null;
+        else if (e.type === "self.rated" && players.includes(e.role)) {
+          // a rating on a criterion the re-run no longer has is dropped (selfClosed still blocks a non-blind re-rate)
+          if (hasCriterion(e.role, e.criterion)) body = stripEnvelope(e);
+          else
+            notCarried.push(
+              `${e.role}'s self-rating on ${e.criterion} (the criterion is not in the new run)`,
+            );
+        } else if (e.type === "response.added") {
+          const r = oldView.subjects
+            .get(e.role)
+            ?.responses.find((x) => x.seq === e.seq);
+          const what = !r?.dispute
+            ? "response"
+            : r.resolution
+              ? "answered dispute"
+              : "open dispute";
+          if (!players.includes(e.role)) {
+            // the player is not in the re-run: their moderation is dropped; an open dispute is worth naming
+            if (what === "open dispute")
+              notCarried.push(
+                `open dispute #${e.seq} by ${e.role} (${e.role} is not in the new run; the earlier review becomes read-only)`,
+              );
+          } else if (
+            e.criterion !== undefined &&
+            !hasCriterion(e.role, e.criterion)
+          )
+            // dropped with its resolution, which is skipped below because the response has no new seq
+            notCarried.push(
+              `${what} #${e.seq} by ${e.role} on ${e.criterion} (the criterion is not in the new run)`,
+            );
+          else {
+            body = stripEnvelope(e);
+            newSeq.set(e.seq, carried.length + 2); // the opener is seq 1
+          }
+        } else if (e.type === "dispute.resolved" && newSeq.has(e.response))
+          body = {
+            ...(stripEnvelope(e) as typeof e),
+            response: newSeq.get(e.response)!,
+          } as Body;
+        if (body !== null)
+          carried.push({ actor: e.actor, carriedFrom: name, body });
+      }
       for (const en of carried) checkActor(en.actor);
       if (1 + carried.length > LIMITS.events)
         throw new ReviewRefusedError("this review has reached its event limit");
@@ -506,10 +594,18 @@ export async function supersedeReview(
           want.slice(1).every((w, i) => w === have[i + 1]) &&
           JSON.stringify(stripEnvelope(existing.events[0]!)) ===
             JSON.stringify(opened.body);
-        if (!sameCopies)
+        if (!sameCopies) {
+          // only copies of this earlier review, but not the ones it would write now: it was used after the interrupted supersede
+          const onlyCopies =
+            existing.events.length > 1 &&
+            existing.events.slice(1).every((e) => e.carriedFrom === name) &&
+            existing.events[0]!.type === "review.opened";
           throw new ReviewRefusedError(
-            "a review is already open on the new directory and it is not the copy of this earlier review left by an interrupted supersede; pick a directory with no review.jsonl, or move that file aside if it holds only copies",
+            onlyCopies
+              ? "the new directory holds the copies of an interrupted supersede, but the earlier review changed since they were made (it was used while both were live); move the new directory's review.jsonl aside (it holds only copies) and run supersede again to copy the current state"
+              : "a review is already open on the new directory and it is not the copy of this earlier review left by an interrupted supersede; pick a directory with no review.jsonl, or move that file aside if it holds only copies",
           );
+        }
         completed = true;
       } else {
         fold(
@@ -529,7 +625,16 @@ export async function supersedeReview(
           `the new review was opened but the earlier one could not be marked superseded (${cause(e)}); both are live until you run the same supersede command again, which finishes it`,
         );
       }
-      return { carried: identical, fresh, dropped, completed };
+      return {
+        carried: identical,
+        fresh,
+        dropped,
+        completed,
+        notCarried,
+        participantEvents: carried.filter((en) =>
+          CARRIED_PARTICIPANT.has(en.body.type),
+        ).length,
+      };
     }),
   );
 }

@@ -5,6 +5,7 @@ import { FLAG_CODE_LIST } from "../evaluator/report-model.js";
 import { readRegularCapped } from "../util/read-regular.js";
 import { ReviewCorruptError } from "./errors.js";
 import { sha256 } from "./hash.js";
+import { isDirty } from "./text.js";
 import { GROUP, type Summary } from "./types.js";
 
 export type DraftCriterion = {
@@ -62,16 +63,9 @@ function bad(file: string, why: string): never {
   throw new ReviewCorruptError(`${file}: ${why}`);
 }
 
-/**
- * C0 and C1 controls except line feed and tab (terminal escape sequences start here) and the bidirectional controls
- * (U+202A-202E, U+2066-2069). Other invisible characters (ZWJ in emoji sequences, soft hyphen, U+2028) are legitimate in
- * titles; the renderers and `show` strip them before output.
- */
-// eslint-disable-next-line no-control-regex
-const CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
-// eslint-disable-next-line no-misleading-character-class
-const BIDI = /[\u202a-\u202e\u2066-\u2069]/;
-const dirty = (s: string): boolean => CONTROL.test(s) || BIDI.test(s);
+/** Control and bidirectional characters (text.ts). Other invisible characters (ZWJ in emoji sequences, soft hyphen, U+2028) are
+ * legitimate in titles; the renderers and `show` strip them before output. */
+const dirty = isDirty;
 
 /** Every string anywhere under `v` is free of control and hidden characters. */
 function cleanDeep(file: string, v: unknown, what: string, depth = 0): void {
@@ -135,7 +129,7 @@ function checkRaw(file: string, raw: Record<string, unknown>): void {
 function parseCriteria(file: string, raw: unknown): DraftCriterion[] {
   if (!Array.isArray(raw) || raw.length > MAX_ITEMS)
     bad(file, "criteria is missing or too long");
-  return raw.map((c): DraftCriterion => {
+  const out = raw.map((c): DraftCriterion => {
     if (!isObj(c)) bad(file, "a criterion is not an object");
     const id = str(c.id, 64);
     const score = c.score;
@@ -191,6 +185,26 @@ function parseCriteria(file: string, raw: unknown): DraftCriterion[] {
       invalid: c.invalid,
     };
   });
+  if (new Set(out.map((c) => c.id)).size !== out.length)
+    bad(file, "a criterion id appears twice");
+  return out;
+}
+
+/** The group's per-role table: the fold and the renderers read each objective's id and statement. */
+function checkCoverage(file: string, raw: unknown): void {
+  const objs = isObj(raw) ? raw.objectives : undefined;
+  if (
+    !Array.isArray(objs) ||
+    objs.length > MAX_ITEMS ||
+    !objs.every(
+      (o) =>
+        isObj(o) &&
+        typeof o.id === "string" &&
+        isSafeId(o.id) &&
+        str(o.statement, 1000) !== null,
+    )
+  )
+    bad(file, "lo_coverage is missing or invalid");
 }
 
 function parseObjectives(file: string, raw: unknown): DraftObjective[] {
@@ -231,6 +245,7 @@ function parseSubject(
     bad(file, "the role id is not a safe file name");
   if (file !== `${role}.json`)
     bad(file, "the file name does not match the role");
+  if (group) checkCoverage(file, raw.lo_coverage);
   const ev = raw.evaluation;
   if (!isObj(ev) || typeof ev.status !== "string")
     bad(file, "evaluation is missing");

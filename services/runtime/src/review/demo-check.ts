@@ -20,6 +20,11 @@ const TEXT_GROUP_INTERNAL = "S17-GROUP-INTERNAL-NOTE";
 const TEXT_AMEND_EDIT = "S17-AMEND-RATIONALE";
 const TEXT_FEEDBACK = "S17-FEEDBACK-NOTE";
 const TEXT_REASON = "S17-EDIT-REASON";
+const TEXT_SELF_ME = "S17-SELF-NOTE-OWN";
+const TEXT_SELF_PEER = "S17-SELF-NOTE-PEER";
+const TEXT_RESP_ME = "S17-RESPONSE-OWN";
+const TEXT_RESP_PEER = "S17-RESPONSE-PEER";
+const TEXT_RESOLVE_PEER = "S17-RESOLUTION-PEER";
 /** Fields that exist only while a report is being reviewed; a participant's files must never carry them. */
 const REVIEW_STATE_KEYS = [
   "summary_state",
@@ -183,8 +188,45 @@ export async function runReviewCheck(
       "--by",
       BY,
     ]);
+    // Blind self-ratings (facilitator-attested) before the release, one per player.
+    for (const [r, note] of [
+      [me, TEXT_SELF_ME],
+      [peer, TEXT_SELF_PEER],
+    ] as const)
+      await must("self-assess", [
+        "self-assess",
+        rel,
+        "--role",
+        r,
+        "--rate",
+        `${opened.view.subjects.get(r)!.criteria[0]!.id}=2`,
+        "--note",
+        note,
+        "--by",
+        BY,
+      ]);
+    await mustRefuse("a response before the release", [
+      "respond",
+      rel,
+      "--role",
+      me,
+      "--text",
+      TEXT_RESP_ME,
+      "--by",
+      BY,
+    ]);
     await resolveAll();
     await must("release", ["release", rel, "--all", "--by", BY]);
+    await mustRefuse("a self-rating after the release", [
+      "self-assess",
+      rel,
+      "--role",
+      me,
+      "--rate",
+      `${c0.id}=3`,
+      "--by",
+      BY,
+    ]);
     const released = (await loadReview(work)).events.filter(
       (e) => e.type === "report.released",
     );
@@ -203,6 +245,55 @@ export async function runReviewCheck(
       "--text",
       TEXT_POST_RELEASE,
       "--feedback",
+      "--by",
+      BY,
+    ]);
+
+    // Responses and a resolved dispute after the release: the player's own report and the facilitator's view carry them, nobody else's does.
+    await must("response", [
+      "respond",
+      rel,
+      "--role",
+      me,
+      "--text",
+      TEXT_RESP_ME,
+      "--by",
+      BY,
+    ]);
+    await must("peer dispute", [
+      "respond",
+      rel,
+      "--role",
+      peer,
+      "--text",
+      TEXT_RESP_PEER,
+      "--dispute",
+      "--by",
+      BY,
+    ]);
+    const disputeSeq = (await loadReview(work)).events.find(
+      (e) =>
+        e.type === "response.added" && (e as { role: string }).role === peer,
+    )!.seq;
+    await mustRefuse("resolving a dispute as amended before any amend", [
+      "resolve",
+      rel,
+      String(disputeSeq),
+      "--outcome",
+      "amended",
+      "--reason",
+      TEXT_RESOLVE_PEER,
+      "--by",
+      BY,
+    ]);
+    await must("resolve", [
+      "resolve",
+      rel,
+      String(disputeSeq),
+      "--outcome",
+      "declined",
+      "--reason",
+      TEXT_RESOLVE_PEER,
       "--by",
       BY,
     ]);
@@ -351,6 +442,18 @@ export async function runReviewCheck(
       // The group report's notable moments keep their quotes by design (the quote, role and scene stay for everyone); personal files and the index may not.
       for (const s of /\/group\.(md|json)$/.test(f) ? [] : peerStrings)
         ensure(!text.includes(s), `${f} carries a peer's quote or rationale`);
+      // Self-ratings and responses belong to their author's own report: a peer's never appear, and the author's own appear only there.
+      for (const t of [TEXT_SELF_PEER, TEXT_RESP_PEER, TEXT_RESOLVE_PEER])
+        ensure(
+          !text.includes(t),
+          `${f} carries a peer's self-rating or response`,
+        );
+      if (!f.includes(`/${me}.`))
+        for (const t of [TEXT_SELF_ME, TEXT_RESP_ME])
+          ensure(
+            !text.includes(t),
+            `${f} carries the player's self-rating or response outside their own report`,
+          );
       for (const t of [TEXT_INTERNAL, TEXT_POST_RELEASE, TEXT_GROUP_INTERNAL])
         ensure(
           !text.includes(t),
@@ -378,6 +481,11 @@ export async function runReviewCheck(
       (await read("out/p1/" + me + ".md")).includes(TEXT_FEEDBACK),
       "the participant's own feedback comment is missing",
     );
+    for (const t of [TEXT_SELF_ME, TEXT_RESP_ME])
+      ensure(
+        (await read("out/p1/" + me + ".md")).includes(t),
+        "the participant's own self-rating or response is missing (the check would be vacuous)",
+      );
     const groupJson = JSON.parse(files["out/p2/group.json"]!) as {
       lo_coverage: {
         players: string[];
@@ -396,6 +504,18 @@ export async function runReviewCheck(
 
     // Amend the peer: the participant keeps the last release until it is re-released.
     await ex(peer, `participant:${peer}`, "out/pre");
+    for (const ext of ["md", "json"]) {
+      const theirs = await read(`out/pre/${peer}.${ext}`);
+      for (const t of [TEXT_SELF_ME, TEXT_RESP_ME])
+        ensure(
+          !theirs.includes(t),
+          `${peer}'s own export carries another player's self-rating or response`,
+        );
+      ensure(
+        theirs.includes(TEXT_RESP_PEER),
+        "the peer's own export lacks their response (the check would be vacuous)",
+      );
+    }
     await must("amend", [
       "amend",
       rel,

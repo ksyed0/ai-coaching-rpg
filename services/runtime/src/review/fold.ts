@@ -1,4 +1,4 @@
-import { isSafeId } from "@acr/events";
+import { isFileSafeId, isSafeId } from "@acr/events";
 import {
   aggregateObjectives,
   INVALID,
@@ -10,12 +10,14 @@ import { ReviewIllegalError } from "./errors.js";
 import { releaseProblems } from "./gate.js";
 import { sha256 } from "./hash.js";
 import { parsePrincipal } from "./policy.js";
-import { cpLen, isDraftFileName } from "./text.js";
+import { cpLen, isDirty, isDraftFileName } from "./text.js";
 import {
   GROUP,
   LIMITS,
   POLICY_VERSION,
   REVIEW_SCHEMA,
+  CARRIED_MODERATION,
+  CARRIED_PARTICIPANT,
   type Actor,
   type CurrentLevel,
   type Level,
@@ -57,6 +59,13 @@ export type ResponseView = {
   criterion?: string;
   text: string;
   dispute: boolean;
+  /**
+   * The released version of THIS review the response answers (the latest at the time it was made); null for a response carried
+   * from a superseded review, which answered a release of that review, not of this one.
+   */
+  version: number | null;
+  /** Copied by supersede from an earlier review of the session. */
+  carried: boolean;
   resolution: {
     seq: number;
     outcome: Outcome;
@@ -77,6 +86,8 @@ export type Snapshot = {
   criteria: CriterionView[];
   summary: Summary | null;
   summaryEdited: boolean;
+  /** Who edited or accepted the summary up to this release: frozen, so a later amendment cannot change a released version. */
+  summaryBy: string[];
   objectives: LoResult[];
   table: GroupTable | null;
 };
@@ -93,10 +104,17 @@ export type SubjectView = {
   summaryBy: string[];
   objectives: LoResult[];
   versions: number[];
+  /** The versions released out of an amendment (report.amended, then report.released) in THIS review. */
+  amendedVersions: number[];
   snapshot: Snapshot | null;
   comments: CommentView[];
   responses: ResponseView[];
   tableStale: boolean;
+  /**
+   * The player has seen a released version (here, or in a review this one superseded), so a blind self-rating is no longer
+   * possible: self.rated is refused from then on, except for the ratings carried from before that release.
+   */
+  selfClosed: boolean;
   exports: {
     seq: number;
     version: number;
@@ -131,6 +149,11 @@ function needsReview(c: DraftCriterion, incomplete: Set<string>): boolean {
 }
 
 function initSubject(d: DraftSubject): SubjectView {
+  // a duplicate would shadow its twin in every lookup and block the release forever
+  if (new Set(d.criteria.map((c) => c.id)).size !== d.criteria.length)
+    throw new ReviewIllegalError(
+      `the draft of ${d.id} has a criterion id twice`,
+    );
   const incomplete = new Set(
     d.objectives.filter((o) => o.incomplete).flatMap((o) => o.criteria),
   );
@@ -145,10 +168,12 @@ function initSubject(d: DraftSubject): SubjectView {
     summaryBy: [],
     objectives: [],
     versions: [],
+    amendedVersions: [],
     snapshot: null,
     comments: [],
     responses: [],
     tableStale: false,
+    selfClosed: false,
     exports: [],
     criteria: d.criteria.map((c) => {
       const nr = needsReview(c, incomplete);
@@ -192,6 +217,14 @@ export function groupTable(
       { objectives?: { id: string; statement: string }[] } | undefined
   )?.objectives;
   if (!g || !Array.isArray(cov)) return null;
+  // loadDrafts checks this; the fold re-checks so it stays total on drafts built any other way
+  if (
+    !cov.every(
+      (o: unknown) =>
+        isRec(o) && typeof o.id === "string" && typeof o.statement === "string",
+    )
+  )
+    throw new ReviewIllegalError("the group draft's lo_coverage is invalid");
   const roles = [...subjects.values()].filter((s) => s.kind === "participant");
   const team = subjects.get(GROUP)!;
   return {
@@ -221,10 +254,20 @@ function takeSnapshot(
     criteria: structuredClone(sv.criteria),
     summary: structuredClone(sv.summary),
     summaryEdited: sv.summaryEdited,
+    summaryBy: [...sv.summaryBy],
     objectives: structuredClone(sv.objectives),
     table: structuredClone(table),
   };
 }
+/**
+ * A dispute may be resolved 'amended' only once an amendment PRODUCED a new released version after it (raised during an open
+ * amendment, the re-release counts). An amendment still open, or withdrawn before its release, is not an amended report.
+ */
+export const amendedSince = (sv: SubjectView, responseSeq: number): boolean =>
+  // Only releases out of an amendment count, never a position: a carried response has a small seq, and the first release of
+  // a re-run comes out of draft, not out of an amendment, so it is not an amended report.
+  sv.amendedVersions.some((v) => v > responseSeq);
+
 const isReleased = (sv: SubjectView): boolean =>
   sv.state === "released" || sv.state === "amending";
 
@@ -272,6 +315,24 @@ export function checkOpened(o: Record<string, unknown>): void {
   }
   const c = o.codes;
   if (c !== null && !isRec(c)) bad("codes must be an object or null");
+  const closed = o.selfClosed;
+  if (
+    closed !== undefined &&
+    (!Array.isArray(closed) ||
+      closed.length > 200 ||
+      !closed.every((r) => isFileSafeId(r as string)) ||
+      new Set(closed).size !== closed.length)
+  )
+    bad("selfClosed must be a list of player ids");
+}
+
+/** An actor as the log may hold it: a facilitator with a safe id, a participant role attested by one, or the system. */
+function actorOk(a: unknown): boolean {
+  if (!isRec(a)) return false;
+  if (a.kind === "facilitator") return isSafeId(a.by as string);
+  if (a.kind === "participant")
+    return isFileSafeId(a.role as string) && isSafeId(a.attestedBy as string);
+  return a.kind === "system";
 }
 
 export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
@@ -281,7 +342,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   checkOpened(first as unknown as Record<string, unknown>);
   const ill = (e: ReviewEvent, m: string): never => {
     throw new ReviewIllegalError(
-      `event ${e.seq} (${typeof e.type === "string" ? e.type.slice(0, 40) : "?"}): ${m}`,
+      `event ${typeof e.seq === "number" ? e.seq : "?"} (${typeof e.type === "string" ? e.type.slice(0, 40) : "?"}): ${m}`,
     );
   };
   const subjects = new Map<string, SubjectView>(
@@ -348,8 +409,31 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
       })),
     };
   };
+  // players whose self-rating a superseded review already closed (each must be a player of these drafts)
+  for (const r of first.selfClosed ?? []) {
+    const sv = subjects.get(r);
+    if (sv?.kind !== "participant")
+      throw new ReviewIllegalError(
+        "review.opened: selfClosed names a subject that is not a player",
+      );
+    sv.selfClosed = true;
+  }
   let superseded: string | null = null;
+  /** Copies written by supersede come directly after the opener; once anything else is logged, nothing more is carried. */
+  let carrying = true;
   let expected = 1;
+  /** Participant-attested events: the actor is the subject's own role, vouched for by a facilitator. */
+  const attested = (e: ReviewEvent, role: unknown): void => {
+    const a = e.actor;
+    if (
+      a.kind !== "participant" ||
+      typeof role !== "string" ||
+      a.role !== role ||
+      typeof a.attestedBy !== "string" ||
+      !isSafeId(a.attestedBy)
+    )
+      ill(e, "this is made by the participant and attested by the facilitator");
+  };
 
   for (const e of events) {
     if (e.seq !== expected) ill(e, `expected seq ${expected}`);
@@ -360,6 +444,16 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
     }
     if (superseded !== null)
       ill(e, "the review was superseded and is read-only");
+    // Every actor, not only the opener's: the log on disk is untrusted, and `by` is rendered and compared later.
+    if (!actorOk(e.actor)) ill(e, "the actor is not valid");
+    const carried = e.carriedFrom !== undefined;
+    if (carried) {
+      if (!carrying) ill(e, "a carried event must directly follow the opener");
+      if (!isSafeId(e.carriedFrom as string))
+        ill(e, "carriedFrom must be a directory name");
+      if (!CARRIED_MODERATION.has(e.type) && !CARRIED_PARTICIPANT.has(e.type))
+        ill(e, "this event type is never carried");
+    } else carrying = false;
     switch (e.type) {
       case "score.edited": {
         const by = facilitator(e);
@@ -388,9 +482,8 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         c.status = "edited";
         if (sv.summary !== null) sv.summaryStale = true;
         recompute(sv, drafts.subjects.get(sv.id)!);
-        const g = subjects.get(GROUP);
-        if (sv.kind === "participant" && g && g.versions.length > 0)
-          g.tableStale = true;
+        // No tableStale here: the group's frozen table reads player SNAPSHOTS only, so an edit changes it only once
+        // that player is released (or withdrawn), which is where the flag is set.
         break;
       }
       case "rationale.edited": {
@@ -452,7 +545,13 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         break;
       }
       case "review.superseded":
-        if (typeof e.by !== "string") ill(e, "by must be a string");
+        facilitator(e);
+        // the replacement directory's basename, as supersedeReview writes it
+        if (!isSafeId(e.by))
+          ill(
+            e,
+            "by must be a directory name of 1 to 64 letters, digits, _ or -",
+          );
         superseded = e.by;
         break;
       case "report.released": {
@@ -476,8 +575,10 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         // (3) only then build the group table from those snapshots, so it sees the players released in this event.
         const g = subjects.get(GROUP);
         for (const sv of svs) {
+          if (sv.state === "amending") sv.amendedVersions.push(e.seq);
           sv.state = "released";
           sv.versions.push(e.seq);
+          sv.selfClosed = true;
           if (sv.kind === "group") sv.tableStale = false;
         }
         // a player released alone after the group: the group's frozen table lacks this release
@@ -533,10 +634,15 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ill(e, `${sv.id} is ${sv.state}; only a released report is exported`);
         if (typeof e.version !== "number" || !sv.versions.includes(e.version))
           ill(e, "that version does not exist");
+        // an export always writes the latest released snapshot, so a record of an older version cannot be produced
+        if (e.version !== sv.versions.at(-1))
+          ill(e, "that version is not the current released version");
         const short = (v: unknown): v is string =>
           typeof v === "string" && cpLen(v) >= 1 && cpLen(v) <= 64;
         if (!short(e.principal) || !short(e.destination))
           ill(e, "principal and destination need 1 to 64 characters");
+        if (isDirty(e.destination))
+          ill(e, "the destination contains control characters");
         // Principal grammar: facilitator | participant:<file-safe role id> naming a participant subject of this review.
         const pr = parsePrincipal(e.principal);
         const role = e.principal.startsWith("participant:")
@@ -560,6 +666,97 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           destination: e.destination,
           by,
         });
+        break;
+      }
+      case "self.rated": {
+        attested(e, e.role);
+        const sv = subj(e, e.role);
+        if (sv.kind !== "participant") ill(e, "only players rate themselves");
+        // A rating carried from before a release in the superseded review stays; a new one after any release never.
+        if (
+          sv.versions.length > 0 ||
+          sv.state !== "draft" ||
+          (!carried && sv.selfClosed)
+        )
+          ill(e, `${sv.id}'s report was released; self-rating is closed`);
+        const c = crit(e, sv, e.criterion);
+        if (!(
+          e.level === null ||
+          e.level === 1 ||
+          e.level === 2 ||
+          e.level === 3 ||
+          e.level === 4
+        ))
+          ill(e, "level must be 1 to 4 or not observed");
+        c.self = {
+          level: e.level,
+          ...(e.note !== undefined ? { note: text(e, e.note) } : {}),
+          seq: e.seq,
+        };
+        break;
+      }
+      case "response.added": {
+        attested(e, e.role);
+        const sv = subj(e, e.role);
+        if (sv.kind !== "participant") ill(e, "only players respond");
+        // the version is the log's: none is ever written in the event, and a carried one answered another review's release
+        if ((e as { version?: unknown }).version !== undefined)
+          ill(e, "a response's version is set by the log");
+        let ver: number | null = null;
+        if (!carried) {
+          const version = sv.versions.at(-1);
+          ver =
+            version === undefined || sv.state === "withdrawn"
+              ? ill(e, `${sv.id}'s report is not released`)
+              : version;
+        }
+        if (e.criterion !== undefined) crit(e, sv, e.criterion);
+        if (e.dispute !== undefined && typeof e.dispute !== "boolean")
+          ill(e, "dispute must be true or false");
+        if (sv.responses.length >= LIMITS.responses)
+          ill(e, `too many responses for ${sv.id}`);
+        sv.responses.push({
+          seq: e.seq,
+          role: e.role,
+          ...(e.criterion !== undefined ? { criterion: e.criterion } : {}),
+          text: text(e, e.text),
+          dispute: e.dispute === true,
+          version: ver,
+          carried,
+          resolution: null,
+        });
+        break;
+      }
+      case "dispute.resolved": {
+        const by = facilitator(e);
+        const found = [...subjects.values()]
+          .flatMap((sv) => sv.responses.map((r) => ({ sv, r })))
+          .find((x) => x.r.seq === e.response);
+        if (!found) return ill(e, "no such response");
+        if (!found.r.dispute) ill(e, "that response is not a dispute");
+        if (found.r.resolution) ill(e, "that dispute is already resolved");
+        if (
+          e.outcome !== "upheld" &&
+          e.outcome !== "amended" &&
+          e.outcome !== "declined"
+        )
+          ill(e, "outcome must be upheld, amended or declined");
+        // a carried 'amended' was checked in the superseded review, against versions this log does not hold
+        if (
+          e.outcome === "amended" &&
+          !carried &&
+          !amendedSince(found.sv, found.r.seq)
+        )
+          ill(
+            e,
+            "amend the report and release the new version first, then resolve the dispute as amended",
+          );
+        found.r.resolution = {
+          seq: e.seq,
+          outcome: e.outcome,
+          reason: reason(e, e.reason),
+          by,
+        };
         break;
       }
       default:
