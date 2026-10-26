@@ -1,4 +1,4 @@
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { z } from "zod";
 import { ScenarioSchema } from "./schema.js";
 export * from "./schema.js";
 export * from "./load.js";
@@ -8,4 +8,4 @@ export * from "./rubric.js";
 export * from "./rubric-load.js";
 export * from "./read-capped.js";
 export * from "./fsm.js";
-export const scenarioJsonSchema = zodToJsonSchema(ScenarioSchema, "Scenario");
+export const scenarioJsonSchema = z.toJSONSchema(ScenarioSchema);

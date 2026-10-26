@@ -38,14 +38,14 @@ const SceneScriptSchema = z.object({
    */
   mock: z.object({
     /** A reply is a string, or `{ reply, requires_release: n }`: the reply is only valid once hidden fact `n` of that character has been released (the loader checks that a facilitator step releases it earlier in the scene). */
-    npc: z.record(z.array(z.union([z.string(), z.object({ reply: z.string(), requires_release: z.number().int().min(1).max(50) }).strict()]))).default({}),
+    npc: z.record(z.string(), z.array(z.union([z.string(), z.object({ reply: z.string(), requires_release: z.number().int().min(1).max(50) }).strict()]))).default({}),
     gm: z.array(z.union([z.string(), z.object({ kind: z.enum(["tolerant", "malformed", "forged"]), reply: z.string() })])).default([]),
     /**
      * US-0034: the Game Master's verdicts on a hidden fact's earned_when condition, per AI character and fact number, in the order it is asked
      * (once per Game Master round while the fact is neither judged earned nor released). A true verdict is the release suggestion.
      */
     gm_earned: z.array(z.object({ role: z.string().min(1).max(128), fact: z.number().int().min(1).max(50), replies: z.array(z.string()).min(1).max(50) }).strict()).max(20).default([]),
-  }).default({}).transform((m) => ({
+  }).default({ npc: {}, gm: [], gm_earned: [] }).transform((m) => ({
     npc: Object.fromEntries(Object.entries(m.npc).map(([k, v]) => [k, v.map((r) => (typeof r === "string" ? r : r.reply))])) as Record<string, string[]>,
     /** Per character and reply index: the fact number the reply needs released first, or null. */
     npcNeeds: Object.fromEntries(Object.entries(m.npc).map(([k, v]) => [k, v.map((r) => (typeof r === "string" ? null : r.requires_release))])) as Record<string, (number | null)[]>,

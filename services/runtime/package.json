@@ -22,7 +22,7 @@
     "@acr/script": "workspace:*",
     "ws": "^8.18.0",
     "yaml": "^2.5.0",
-    "zod": "^3.23.0"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/ws": "^8.5.12",

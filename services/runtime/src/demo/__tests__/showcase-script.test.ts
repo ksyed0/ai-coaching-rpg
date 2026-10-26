@@ -57,8 +57,8 @@ describe("parseShowcaseScript", () => {
     expect(m).not.toMatch(/\n\s+at /);
   });
   it("reports a schema problem with its path", () => {
-    expect(err("scenes: []")).toBe(`${SHOWCASE_FILE}: scenes.length Array must contain at least 1 element(s)`.replace("scenes.length", "scenes"));
-    expect(err("scenes:\n  - scene: one\n    lines:\n      - { role: pa }")).toBe(`${SHOWCASE_FILE}: scenes.0.lines.0.text Required`);
+    expect(err("scenes: []")).toBe(`${SHOWCASE_FILE}: scenes Too small: expected array to have >=1 items`);
+    expect(err("scenes:\n  - scene: one\n    lines:\n      - { role: pa }")).toBe(`${SHOWCASE_FILE}: scenes.0.lines.0.text Invalid input: expected string, received undefined`);
     expect(err("scenes:\n  - scene: one\n    lines: []")).toMatch(/^showcase\.yaml: scenes\.0\.lines /);
     expect(err("scenes:\n  - scene: one\n    lines:\n      - { role: pa, text: \"   \" }")).toBe(`${SHOWCASE_FILE}: scenes.0.lines.0.text must not be blank`);
     expect(err(`scenes:\n  - scene: one\n    lines:\n      - { role: pa, text: "${"x".repeat(2001)}" }`)).toBe(`${SHOWCASE_FILE}: scenes.0.lines.0.text is longer than 2000 characters (the server refuses longer lines)`);

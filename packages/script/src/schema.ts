@@ -43,7 +43,7 @@ export const NpcRoleSchema = z.object({
   persona: z.string(), goals: z.array(z.string()), knowledge: z.array(z.string()).default([]),
   hidden: z.array(z.string().trim().min(1, "must not be empty").max(MAX_HIDDEN_FACT_CHARS, `is longer than ${MAX_HIDDEN_FACT_CHARS} characters`)).max(MAX_HIDDEN_FACTS, `has more than ${MAX_HIDDEN_FACTS} facts`).default([]), guardrails: z.array(z.string()).default([]),
   fallback_line: z.string().default("Sorry, give me a moment."),
-  voice: z.object({ style: z.string().default("neutral"), pace: z.string().default("medium") }).default({}),
+  voice: z.object({ style: z.string().default("neutral"), pace: z.string().default("medium") }).default({ style: "neutral", pace: "medium" }),
   /** 1 to 5, higher is more senior. Decides the order of replies when several AI characters are in a scene (junior first) and how the characters see each other. */
   seniority: z.number().int().min(1).max(5).default(3),
   /** The KIND of contribution this character makes (a ruling, a condition, a consequence...). */
@@ -83,7 +83,7 @@ export const SceneSchema = z.object({
 export const ScriptSchema = z.object({ scenes: z.array(SceneSchema).min(1) });
 
 export const ScenarioSchema = z.object({
-  meta: ScenarioMetaSchema, roles: z.record(RoleSchema), script: ScriptSchema,
+  meta: ScenarioMetaSchema, roles: z.record(z.string(), RoleSchema), script: ScriptSchema,
 });
 
 export type ScenarioMeta = z.infer<typeof ScenarioMetaSchema>;
