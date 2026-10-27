@@ -62,9 +62,53 @@ describe("resume and consent (US-0054, R14)", () => {
     expect(info.startedConsents).toBeUndefined();
     expect(code(() => host.join("host", "whoever"))).toBeUndefined();
   });
-  it("a consent under another notice version cannot be seeded and does not open the seat", async () => {
+  it("v1 -> v2 resume: the log's record is history, so the same participant rejoins and a different one is refused", async () => {
     const other: Seats = { credentials: PlayerCredentials.create(BIND), consent: new ConsentStore({ version: "v2", text: "new" }), persist: vi.fn() };
     const { host } = await restart({ firstSeats: true, secondSeats: other });
-    expect(code(() => host.join("host", "alice"))).toBe("consent_required");
+    expect(host.consentGiven("host", "alice")).toBe(true);
+    expect(code(() => host.join("host", "mallory"))).toBe("consent_required");
+    expect(code(() => host.join("host", "alice"))).toBeUndefined();
+  });
+  it("a consent file entry under an old version is still dropped before the start (not adopted)", () => {
+    const store = ConsentStore.fromRecord({ v: 1, ...BIND, entries: { host: { participantId: "alice", noticeVersion: "v1", at: 1 } } }, { version: "v2", text: "n" }, BIND);
+    expect(store.has("host", "alice")).toBe(false);
+  });
+  it("the seeded time is the logged one, and the seed is written to the file (persist)", async () => {
+    const { seats, host } = await restart({ firstSeats: true });
+    expect(seats.consent.snapshot().host).toEqual({ noticeVersion: "v1", at: 1_000 });
+    expect(seats.persist).toHaveBeenCalled();
+    void host;
+  });
+  it("a failing persist while seeding is tolerated", async () => {
+    const seats = newSeats(); (seats.persist as ReturnType<typeof vi.fn>).mockImplementation(() => { throw new Error("disk"); });
+    const { host } = await restart({ firstSeats: true, secondSeats: seats });
+    expect(code(() => host.join("host", "alice"))).toBeUndefined();
+  });
+  it("two roles seed independently, and a role without a participantId in session.started.roles is skipped", async () => {
+    const info = { events: 1, lastTs: 0, format: 2, partialTailBytes: 0, sceneId: null, repairs: [], lastGmSeq: null, pendingLine: false, wasPaused: true,
+      startedConsents: { host: { participantId: "alice", noticeVersion: "v1", at: 7 }, other: { participantId: "bob", noticeVersion: "v1", at: 8 } } };
+    const scenario = await loadScenario(fixture);
+    scenario.roles.other = { id: "other", type: "player", brief: "b", private_facts: [] } as (typeof scenario.roles)[string];
+    const seats = newSeats();
+    const host = new SessionHost({ scenario, engine: new SessionEngine({ scenario, log: new MemoryEventLog("s"), clock: new FakeClock(1) }), npcProvider: new MockModelProvider(), gmProvider: new MockModelProvider(), clock: new FakeClock(1), seats });
+    host.resumeFrom(info as never);
+    expect(seats.consent.snapshot()).toEqual({ host: { noticeVersion: "v1", at: 7 }, other: { noticeVersion: "v1", at: 8 } });
+  });
+  it("the participantId in session.started.roles is the one passed to host.join, so seeding matches the gate", async () => {
+    const { info } = await restart({ firstSeats: true });
+    expect(info.startedConsents?.host?.participantId).toBe("alice");
+  });
+  it("a role the log has a consent for but no participantId is skipped by the engine", async () => {
+    const scenario = await loadScenario(fixture);
+    const log = new MemoryEventLog("s");
+    const e = new SessionEngine({ scenario, log, clock: new FakeClock(1) });
+    await e.start({}, { consents: { host: { noticeVersion: "v1", at: 3 } } });
+    const e2 = new SessionEngine({ scenario, log, clock: new FakeClock(2) });
+    const out = await e2.restore();
+    expect(out.kind === "running" && out.info.startedConsents).toEqual({});
+  });
+  it("grandfathered session: joined.consent.given is true, so the CLI is not told to /consent", async () => {
+    const { host } = await restart({ firstSeats: false });
+    expect(host.consentGiven("host", "anyone")).toBe(true);
   });
 });

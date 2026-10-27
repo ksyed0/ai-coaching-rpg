@@ -271,11 +271,12 @@ describe("consent in the terminal client (US-0054)", () => {
     expect(t.out).toContain("We record the session.");
     expect(t.out.join("\n")).not.toContain("type /consent to agree");
   });
-  it("the notice is sanitised: no escape sequences, hidden characters or forged lines", () => {
+  it("the notice is sanitised: no escape sequences or hidden characters", () => {
     const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "ok\u001b[31m red‮ rtl​\nforged: line" }));
     const text = t.out.join("\n");
     expect(text).not.toMatch(/[\u001b‮​]/);
-    expect(t.out.some((l) => l.startsWith("forged"))).toBe(false);
+    // The notice is printed line by line (operator text); a newline in it is a line break, never a way to emit a control character.
+    expect(t.out.every((l) => !l.includes("\n"))).toBe(true);
   });
   it("/consent sends the notice version the server announced", () => {
     const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent()); t.c.onLine("/consent");
@@ -300,5 +301,27 @@ describe("consent in the terminal client (US-0054)", () => {
     expect(t.errs.join("\n")).toContain("your seat was taken by a newer connection");
     expect(t.errs.join("\n")).not.toContain("--last-seq");
     expect(t.exits).toEqual([1]);
+  });
+  it("a short multi-line notice prints as several lines, not one flattened line", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "line one\nline two\n\nline four" }));
+    expect(t.out).toEqual(expect.arrayContaining(["line one", "line two", "line four"]));
+    expect(t.out.join("\n")).not.toContain("\u23ce");
+  });
+  it("a 4,000 character many-line notice shows nothing cut and no truncation marker", () => {
+    const notice = Array.from({ length: 160 }, (_, i) => `l${String(i).padStart(3, "0")} ${"x".repeat(20)}`).join("\n").slice(0, 4_000);
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice }));
+    const shown = t.out.filter((l) => /^l\d{3}/.test(l));
+    expect(shown).toHaveLength(notice.split("\n").length);
+    expect(shown.at(-1)).toBe(notice.split("\n").at(-1));
+    expect(t.out.join("\n")).not.toContain("truncated");
+    expect(t.out.at(-1)).toBe("type /consent to agree");
+  });
+  it("a notice over the line cap says so visibly", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: Array.from({ length: 3_000 }, () => "x").join("\n") }));
+    expect(t.out.join("\n")).toContain("more lines not shown");
+  });
+  it("escape and control characters in a notice line never reach the output", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "a\u001b]0;title\u0007b\nc\u202ed" }));
+    expect(t.out.join("\n")).not.toMatch(/[\u001b\u0007\u202e]/);
   });
 });

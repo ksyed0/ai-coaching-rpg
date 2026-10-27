@@ -141,6 +141,11 @@ export class SessionHost {
     return { brief: role.brief, privateFacts: role.private_facts };
   }
 
+  /** Whether the seat's consent stands: given by this participant, or not asked for (a session resumed from a log older than the gate). */
+  consentGiven(roleId: string, participantId: string): boolean {
+    return this.consentGrandfathered || (this.seats?.consent.has(roleId, participantId) ?? false);
+  }
+
   /** Frees a role, but only for the participant who holds it. */
   release(roleId: string, participantId: string): void {
     if (this.assignments[roleId] === participantId) delete this.assignments[roleId];
@@ -246,16 +251,18 @@ export class SessionHost {
 
   /**
    * R14: a resumed session counts as started, so every rejoin needs the consent the start recorded. When the consent file is lost
-   * (or lacks a role) the log's session.started is the record: seed the missing entries from it, through the store's own checks (an
-   * entry under another notice version is refused there and stays missing). A log with no consents field predates the gate: skip the check.
+   * (or lacks a role) the log's session.started is the record: seed the missing entries from it (store.adopt: shape checks, and no
+   * version comparison, so a newer notice does not lock the participants out). A log with no consents field predates the gate: skip the check.
    */
   private adoptStartedConsents(info: ResumeInfo): void {
     const seats = this.seats!;
     if (!info.startedConsents) { this.consentGrandfathered = true; return; }
     for (const [roleId, c] of Object.entries(info.startedConsents)) {
       if (seats.consent.hasEntry(roleId)) continue;
-      try { seats.consent.give(roleId, c.participantId, c.noticeVersion, c.at); } catch (err) { this.report(`consent of ${roleId} from the log`, err); }
+      try { seats.consent.adopt(roleId, c.participantId, c.noticeVersion, c.at); this.seatsDirty = true; } catch (err) { this.report(`consent of ${roleId} from the log`, err); }
     }
+    // The file is a cache of the log's record; write the seed when it can be (a failure is reported and retried by the next seat write).
+    try { this.flushSeats(); } catch (err) { this.report("writing the consents seeded from the log", err); }
   }
 
   /** The scene whose unanswered player line waits for /resume (null when none). */

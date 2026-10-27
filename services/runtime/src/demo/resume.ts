@@ -154,6 +154,10 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       const stranger = await connectBot(ctx, "resume stranger", { url: url(b) });
       const refused = await stranger.call(playerJoin(ctx, "delivery_lead", "ZedMalloryParticipant", { sessionId: SID, codes: {} }), isJoinedMsg, { what: "a claim without a code after the restart" });
       ensure(refused.type === "error" && refused.code === "unauthorized", `a claim without a code after the restart gave ${refused.type === "error" ? refused.code : refused.type}`);
+      // US-0054: with the code but not the person who agreed, a seat is refused once the session has started.
+      const intruder = await connectBot(ctx, "resume intruder", { url: url(b) });
+      const intruded = await intruder.call(playerJoin(ctx, "tech_lead", "ZedMalloryParticipant", { sessionId: SID, codes: handedOut }), isJoinedMsg, { what: "a stranger with the code after the restart" });
+      ensure(intruded.type === "error" && intruded.code === "consent_required", `a stranger with the code after the restart gave ${intruded.type === "error" ? intruded.code : intruded.type}`);
       // US-0013: a seq past the restarted log is refused once the code is checked (nothing claimed), then the real rejoins.
       const ahead = await connectBot(ctx, "resume ahead", { url: url(b) });
       const far = await ahead.call(playerJoin(ctx, "delivery_lead", "ZedAlphaParticipant", { sessionId: SID, codes: handedOut, lastSeq: b.engine.state.lastSeq + 1 }), isJoinedMsg, { what: "a rejoin from past the log" });

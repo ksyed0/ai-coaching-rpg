@@ -156,12 +156,21 @@ export function validReplay(v: unknown): { afterSeq: number; toSeq: number; even
   return n(r.afterSeq) && n(r.toSeq) && n(r.events) && typeof r.complete === "boolean" ? { afterSeq: r.afterSeq, toSeq: r.toSeq, events: r.events, complete: r.complete } : null;
 }
 
-/** US-0054: the notice a player is asked to agree to, as printed lines (sanitised like all server text) with a hint while consent is not given. */
+/** Most notice lines printed; more is said so, never cut silently (the notice itself is at most 4,000 characters). */
+export const MAX_NOTICE_LINES = 200;
+
+/**
+ * US-0054: the notice a player is asked to agree to, one terminal line per notice line. Each line is sanitised on its own (the whole-text
+ * sanitiser would turn every newline into a marker and cap the total), so control, escape and bidi characters never reach the terminal.
+ */
 export function renderConsentNotice(c: unknown): string[] {
   if (typeof c !== "object" || c === null) return [];
   const o = c as Record<string, unknown>;
   if (typeof o.notice !== "string" || typeof o.noticeVersion !== "string") return [];
-  return ["", s(o.notice), ...(o.given === true ? ["you have agreed to this notice"] : ["type /consent to agree"])];
+  const all = o.notice.slice(0, 8_000).split(/\r\n|\n|\u2028|\u2029/);
+  const shown = all.slice(0, MAX_NOTICE_LINES).map((l) => s(l));
+  const more = all.length - shown.length;
+  return ["", ...shown, ...(more > 0 ? [`(${more} more lines not shown)`] : []), o.given === true ? "you have agreed to this notice" : "type /consent to agree"];
 }
 
 export function renderError(code: string, message: string, asPlayer = false): string {

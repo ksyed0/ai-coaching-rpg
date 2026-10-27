@@ -317,7 +317,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             sendJoined(h, m.roleId, m.lastSeq, {
               type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId),
               ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
-              ...(seats ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: seats.consent.has(m.roleId, m.participantId) } } : {}),
+              ...(seats ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
             });
           } else {
             if (!h) return fail("unknown_session", "no such session");
