@@ -14,7 +14,7 @@ Dependencies: None
 
 ```
 EPIC-0002: Slice 2 — web lobby, session view and reconnect
-Description: Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect.
+Description: Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064).
 Release Target: MVP
 Status: In Progress
 Dependencies: EPIC-0001
@@ -1505,4 +1505,345 @@ Assignee: Agent
 Status: To Do
 Branch: feature/EPIC-0008-US-0051-tenant-isolation
 Notes: Highest-risk story of the epic: needs an independent review before merge.
+```
+
+```
+US-0052 (EPIC-0002): As a facilitator running a web session, I want the runtime to count logins and connections per client address and role behind a proxy, so that one mistyped code or a shared office address cannot lock other players out.
+Priority: High
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0002-US-0052-proxy-limits
+Dependencies: None
+Acceptance Criteria:
+  - [ ] AC-0266: with TRUST_PROXY=1 the runtime reads the real client address from the last X-Forwarded-For entry and the BFF sets it only from the entry its own proxy appended
+  - [ ] AC-0267: failed-login throttles are keyed by address and role: six wrong codes for one role from one address do not refuse another role or another address
+  - [ ] AC-0268: nine players from one address can join when the per-address and total caps are set for the deployment, and the BFF enforces its own global and per-address connection caps because TRUST_PROXY=1 turns off the runtime raw-socket cap
+  - [ ] AC-0269: a refused credential is never retried by the reconnect loop and never charges the player address
+```
+
+```
+TASK-0080 (US-0052): Per-role throttles, trusted address and connection caps
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0052-proxy-limits
+Notes: Spec section 5.1. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0053 (EPIC-0002): As a player, I want my seat to survive a dropped connection or a backend restart, so that I can carry on without asking for the code again.
+Priority: High
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0002-US-0053-player-credential
+Dependencies: US-0052
+Acceptance Criteria:
+  - [ ] AC-0270: at the first successful join by code the runtime issues a 128-bit credential, stored only as a salted hash with the display name and log identity in a separate versioned <id>.credentials.json (0600), written by atomic rename under the session lock, and never copied into review.opened
+  - [ ] AC-0271: join accepts a credential whether or not an older socket is open; a drop frees the seat but never revokes the credential
+  - [ ] AC-0272: a credential is revoked only by an explicit leave, consent withdrawal, facilitator removal, code reissue or the end of the session
+  - [ ] AC-0273: once a credential exists the join code no longer works for that role until the facilitator reissues it, and a per-role reissue revokes the old credential and shows the new code once
+  - [ ] AC-0274: a second join with the credential closes the old socket with a distinct superseded close code and the BFF does not reconnect on it
+  - [ ] AC-0275: the file survives resume; a start that finds an empty log and issues new codes discards credentials and consent with the old codes
+```
+
+```
+TASK-0081 (US-0053): Credential file, join by credential, revoke rules, superseded close
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0053-player-credential
+Notes: Spec section 5.2. Separate file because JoinCodes.fromRecord rejects extra keys. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0054 (EPIC-0002): As a participant, I want to give recorded consent before play, and as a facilitator I want the start refused until every human seat has consented, so that no one is recorded without agreeing.
+Priority: High
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0002-US-0054-consent
+Dependencies: US-0053
+Acceptance Criteria:
+  - [ ] AC-0276: a consent message from a joined role records role, notice version and time in memory and in <id>.consent.json (0600, atomic, under the lock); the version must equal the server CONSENT_NOTICE_VERSION and the scenario hash is unchanged
+  - [ ] AC-0277: SessionHost.start refuses a start while any human seat is not joined and consented, on every path including the auto-start inside command, and the refusal names the roles missing
+  - [ ] AC-0278: at the start the consents and display names are written to session.started (optional fields); LOG_FORMAT is bumped, the reader accepts the old format, an older runtime refuses format 2, and the rollback note says so
+  - [ ] AC-0279: viewFor redacts consents and names for players, who see only their own consent
+  - [ ] AC-0280: withdrawing consent before the start removes the consent, revokes the credential and frees the seat
+  - [ ] AC-0281: terminal players consent with /consent, pnpm demo and generated players consent through the harness, and existing tests use a helper that consents all roles
+  - [ ] AC-0282: the consent notice states who can see results (ASM-09) and that some roles may be played by an AI
+```
+
+```
+TASK-0082 (US-0054): Consent store, start gate, log format bump, terminal and demo updates
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0054-consent
+Notes: Spec section 5.3. Touches the terminal client, demos and many existing tests. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0055 (EPIC-0002): As a player, I want a live view of who is in the room and a reliable stream after a reconnect, so that the browser always shows a correct, gap-free session.
+Priority: High
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0002-US-0055-roster-projection
+Dependencies: US-0053
+Acceptance Criteria:
+  - [ ] AC-0283: join accepts an optional displayName (1 to 60 characters, cleaned with cleanText, hidden and bidirectional characters stripped); it is stored in the credentials file and never printed to stdout or logs or sent to a model
+  - [ ] AC-0284: a facilitator roster frame (role, name, joined, consented, connected) and a peer roster frame (role, name, ready) come from host memory and are not events; the terminal prints a roster line with role and state only
+  - [ ] AC-0285: the browser player projection is seeded from the joined snapshot, tolerates seq gaps and is replaced wholesale on a reset frame
+  - [ ] AC-0286: the BFF sends reset whenever joined.replay.complete is false, and a log identity carried in joined makes a Last-Event-ID from before a fresh start trigger reset
+  - [ ] AC-0287: ARCHITECTURE.md section 6 and the threat model record that peers now see typed display names and that the web does not run the shared reducer
+```
+
+```
+TASK-0083 (US-0055): Display name, roster frames, player projection, reset and log identity
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0055-roster-projection
+Notes: Spec sections 5.4 and 5.5. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0056 (EPIC-0002): As a participant, I want to join a session from a link in my browser, give consent, play as text and reconnect, so that I can take part without installing anything.
+Priority: High
+Estimate: XL
+Status: Planned
+Branch: feature/EPIC-0002-US-0056-participant-web-app
+Dependencies: US-0052, US-0053, US-0054, US-0055
+Acceptance Criteria:
+  - [ ] AC-0288: a Next.js app under apps/ is part of the pnpm workspace; /join, /session/[id] and the consent page work with a link, a code and a typed name, and every refusal shows one neutral message
+  - [ ] AC-0289: the BFF holds the runtime WebSocket per participant, streams events as SSE with the seq as id and heartbeats, supports Last-Event-ID reconnect, and shows a Reconnecting banner and an open-in-another-tab message
+  - [ ] AC-0290: the participant cookie is HttpOnly, Secure, SameSite=Lax, sealed with a key id and expires at the session end; identity comes only from the cookie, never the request body
+  - [ ] AC-0291: routes live under /api/v1/ with the project response envelope, state-changing requests check Origin and a custom header, the stream route checks Sec-Fetch-Site, and streams are capped
+  - [ ] AC-0292: the session view shows the transcript with a say box, the private brief and facts, the scene status and timer; all text is rendered as text under a strict CSP
+  - [ ] AC-0293: join, session, report and console routes send noindex and nofollow and are disallowed in robots.txt
+  - [ ] AC-0294: a stream scan test finds no facilitator-only events, other roles briefs or facts, other players consent, codes or tokens in anything a player receives
+```
+
+```
+TASK-0084 (US-0056): Next.js app, BFF routes, cookie, SSE stream, lobby and session view
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0056-participant-web-app
+Notes: Spec sections 4 and 6. CI gains a Playwright browser install step. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0065 (EPIC-0002): As the product owner, I want an offline end-to-end test and demo of the web participant flow, so that the browser path is verified on every change.
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0002-US-0065-web-e2e-demo
+Dependencies: US-0056
+Acceptance Criteria:
+  - [ ] AC-0295: a Playwright test in mock mode runs offline: players join with names and consent, the session starts from the terminal, everyone speaks, one connection drops and recovers, and the BFF restarts and recovers
+  - [ ] AC-0296: Axe accessibility checks pass on every participant screen and the layout has no horizontal scroll at 400px
+  - [ ] AC-0297: BFF contract tests run against the real runtime in mock mode as well as the fake runtime
+  - [ ] AC-0298: pnpm demo --web drives the flow with generated players and adds its checks to the demo count list
+  - [ ] AC-0299: the new filesystem, lock and process tests pass once in the node:22 container and the coverage gate passes more than once and once under load
+```
+
+```
+TASK-0085 (US-0065): Playwright flow, contract tests, demo --web, hygiene runs
+Type: Test
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0065-web-e2e-demo
+Notes: Spec section 9. Reconnect backoff uses an injected clock. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0057 (EPIC-0002): As a facilitator, I want to sign in to a browser console with a secret, so that only I can run sessions.
+Priority: High
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0002-US-0057-facilitator-login
+Dependencies: US-0056
+Acceptance Criteria:
+  - [ ] AC-0300: POST /api/v1/console/login compares the secret in constant time against FACILITATOR_SECRET, is throttled, and sets a separate sealed cookie
+  - [ ] AC-0301: the console is disabled with a loud message when FACILITATOR_SECRET is unset
+  - [ ] AC-0302: the BFF, never the browser, holds runtime facilitator tokens, fetched from the control service over loopback
+  - [ ] AC-0303: console routes send noindex and the facilitator cookie is never accepted on participant routes or the reverse
+```
+
+```
+TASK-0086 (US-0057): Facilitator login, console shell and cookie
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0057-facilitator-login
+Notes: Spec section 6. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0058 (EPIC-0002): As a facilitator, I want to create a session from a browser, so that I do not need a terminal.
+Priority: High
+Estimate: XL
+Status: Planned
+Branch: feature/EPIC-0002-US-0058-launcher-control-service
+Dependencies: US-0057
+Acceptance Criteria:
+  - [ ] AC-0304: the control service creates one runtime per session for an allowlisted scenarioId, up to MAX_SESSIONS, callable only by the BFF over loopback with a service token
+  - [ ] AC-0305: every lifecycle and security variable is set explicitly, RUNTIME_HOST is 127.0.0.1, RUNTIME_PORT is 0, and NO_DOTENV=1 stops the runtime reading <root>/.env
+  - [ ] AC-0306: on every start the runtime emits one JSON line on a dedicated file descriptor with port, log identity and status, and with codes only when issued
+  - [ ] AC-0307: the runtime exits when its parent pipe closes; after a launcher restart sessions in its list resume paused with fresh tokens and an ended session is never relaunched
+  - [ ] AC-0308: per-role and whole-session code reissue return the new codes once and revoke the old credentials
+  - [ ] AC-0309: facilitator tokens are never written to disk, and the control service owns the data directory for web operations
+```
+
+```
+TASK-0087 (US-0058): Launcher and control service, machine channel, NO_DOTENV flag
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0058-launcher-control-service
+Notes: Spec section 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0059 (EPIC-0002): As a facilitator, I want a live console to get the room ready, run the scene and step in, so that I can facilitate entirely in the browser.
+Priority: High
+Estimate: XL
+Status: Planned
+Branch: feature/EPIC-0002-US-0059-live-console
+Dependencies: US-0058
+Acceptance Criteria:
+  - [ ] AC-0310: the New session and readiness screens show who has joined and consented, the model status and the codes once, and Start stays disabled until the start gate is met
+  - [ ] AC-0311: the live console shows scene status, timers, the transcript with Game Master notices and alerts, and talk time, and offers pause, resume, advance and end now
+  - [ ] AC-0312: inject, whisper, release hidden fact (including one click on a Game Master suggestion) and NPC stance work and are logged with the facilitator name
+  - [ ] AC-0313: end_now appends session.ended with reason facilitator_end and an optional participant-visible message, stops the scene clock and the Game Master, and is handled by the engine, fold, view policy and docs
+  - [ ] AC-0314: remove_participant before the start revokes the credential, closes the socket, clears consent and frees the seat
+  - [ ] AC-0315: irreversible actions use one confirmation that names the subject and audience
+  - [ ] AC-0316: the layout works at laptop width and keyboard focus and labels pass an accessibility audit
+```
+
+```
+TASK-0088 (US-0059): Console screens, interventions, end_now and remove_participant
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0059-live-console
+Notes: Spec sections 5.6 and 5.7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0060 (EPIC-0002): As a facilitator, I want to fill a player role with an AI player until I start the session, so that a no-show does not stop the session.
+Priority: High
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0002-US-0060-ai-player-roles
+Dependencies: US-0058, US-0059
+Acceptance Criteria:
+  - [ ] AC-0317: any player role can be switched to an AI player or back to human from the New session and readiness screens until the start, and roles are fixed after the start
+  - [ ] AC-0318: switching a joined human to AI asks for confirmation and revokes their credential and consent; switching back stops the bot and issues a new code once
+  - [ ] AC-0319: the player bot code moves from demo/ to a shared module used by the demo and the control service, with its own PLAYER_MODEL and PLAYER_TEMPERATURE settings
+  - [ ] AC-0320: session.started records aiRoles, AI roles skip consent, and the start gate counts human seats and connected AI bots separately
+  - [ ] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only
+  - [ ] AC-0322: an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored
+```
+
+```
+TASK-0089 (US-0060): Toggle, bot lifecycle, shared bot module, labels
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0060-ai-player-roles
+Notes: Spec section 5.9. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0061 (EPIC-0002): As a facilitator, I want to choose whether AI players count toward group scores, so that the team result reflects what I intend.
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0002-US-0061-ai-group-score-option
+Dependencies: US-0060
+Acceptance Criteria:
+  - [ ] AC-0323: the option Include AI players in group scores defaults to on, can be changed until the start and is recorded in session.started
+  - [ ] AC-0324: when on the group rubric treats the AI player lines as team evidence labelled AI; when off they are context only; individual criteria never score an AI player
+  - [ ] AC-0325: a report that includes AI players carries a calibration-stamp note that this case is not covered by the calibration baseline
+  - [ ] AC-0326: the evaluator change has its own independent review and tests for both settings
+```
+
+```
+TASK-0090 (US-0061): Evaluator evidence rule for AI players and stamp note
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0061-ai-group-score-option
+Notes: Spec section 5.9. Touches the evaluator and the calibration stamp. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0062 (EPIC-0002): As a participant, I want to read my report after the session has ended, so that I do not depend on the session still running.
+Priority: High
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0002-US-0062-report-access
+Dependencies: US-0056
+Acceptance Criteria:
+  - [ ] AC-0327: releasing a report issues a 128-bit report-access credential, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in access.json beside the review directory (0600, atomic, outside the review log)
+  - [ ] AC-0328: the console shows the report link with the credential once, and the facilitator can revoke or reissue it
+  - [ ] AC-0329: the control service verifies the credential and serves released views without a live runtime, tied to the session in the credential
+  - [ ] AC-0330: a cross-role or cross-session request and an expired or revoked credential are refused with one neutral response
+```
+
+```
+TASK-0091 (US-0062): Report-access credential and control-service report API
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0062-report-access
+Notes: Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0063 (EPIC-0002): As a participant, I want to rate myself and respond to my released report in the browser, so that I can take part in the review.
+Priority: High
+Estimate: L
+Status: Planned
+Branch: feature/EPIC-0002-US-0063-participant-report
+Dependencies: US-0062
+Acceptance Criteria:
+  - [ ] AC-0331: a versioned actor kind participant_session is accepted only for self-assess, respond (including marking a dispute) and reading the own released report; resolve stays a facilitator action; REVIEW_SCHEMA is bumped and the fold and write checks accept the new kind
+  - [ ] AC-0332: the report page shows levels with evidence, the calibration stamp, the self-rating column and a response box, and works after the runtime has exited
+  - [ ] AC-0333: a held review.lock is retried with backoff and the participant sees try again
+  - [ ] AC-0334: responses and names are scrubbed and escaped in the page, exports strip Markdown link and image syntax, and the threat model records the unkeyed chain and the control service as the only web writer
+  - [ ] AC-0335: tests cover forging, cross-role access and the CLI attested path still working
+```
+
+```
+TASK-0092 (US-0063): Actor kind, report page, self-assess and respond routes
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0063-participant-report
+Notes: Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+US-0064 (EPIC-0002): As a facilitator, I want to evaluate, moderate and release reports in the browser, so that I can finish the whole programme in one place.
+Priority: High
+Estimate: XL
+Status: Planned
+Branch: feature/EPIC-0002-US-0064-report-moderation-web
+Dependencies: US-0062, US-0059
+Acceptance Criteria:
+  - [ ] AC-0336: the control service runs evaluate and moderate open on the facilitator behalf and the console shows the run summary and per-person status
+  - [ ] AC-0337: the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate
+  - [ ] AC-0338: release, amend and withdraw show a confirmation that names the subject and audience, and an agent never performs them without the owner naming the subjects
+  - [ ] AC-0339: the run summary shows scenes ended by the Game Master, fallback counts and alerts before release
+  - [ ] AC-0340: an end-to-end test evaluates and releases a report and its owner reads it after the runtime has exited
+```
+
+```
+TASK-0093 (US-0064): Browser moderation over the review store and the run summary
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0064-report-moderation-web
+Notes: Spec sections 5.8 and 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
