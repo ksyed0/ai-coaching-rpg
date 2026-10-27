@@ -317,6 +317,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             sendJoined(h, m.roleId, m.lastSeq, {
               type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId),
               ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
+              ...(seats ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: seats.consent.has(m.roleId, m.participantId) } } : {}),
             });
           } else {
             if (!h) return fail("unknown_session", "no such session");
@@ -340,6 +341,13 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
           log(`${who} left`);
           dropCounted = true; // frames still queued on a socket that left are not login attempts
           shut(1000, "left");
+          return;
+        }
+        if (m.type === "consent" || m.type === "withdraw_consent") {
+          if (isFacilitator || !participantId) return fail("forbidden", "only a player may give or withdraw consent");
+          // US-0054: refusals (consent_version, already_started, bad_message) come back as HostError through the catch below.
+          if (m.type === "consent") host.giveConsent(who, participantId, m.noticeVersion);
+          else host.withdrawConsent(who, participantId);
           return;
         }
         if (m.type === "start") {

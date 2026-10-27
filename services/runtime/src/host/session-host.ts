@@ -2,10 +2,11 @@ import { visibleTranscript, type SessionEvent, type SessionState } from "@acr/ev
 import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
-import { type ResumeInfo, type SessionEngine } from "../engine/session-engine.js";
+import { type ResumeInfo, type SessionEngine, type SessionStartExtra } from "../engine/session-engine.js";
 import { NpcAgent, type SilentTurn } from "../agents/npc-agent.js";
 import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import type { Seats } from "../engine/seats.js";
+import { ConsentError } from "../engine/consent.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
@@ -21,7 +22,7 @@ export const MAX_REPLAY_BYTES = 256 * 1024;
  */
 export type Replay = { afterSeq: number; toSeq: number; complete: boolean; events: SessionEvent[] };
 
-export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started";
+export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message";
 
 export class HostError extends Error {
   /** `roles`, when given, names the roles the error is about: the message becomes `code: role1,role2`. */
@@ -67,6 +68,8 @@ export class SessionHost {
   readonly seats: Seats | undefined;
   /** US-0053: the seat state changed in memory and is not yet on disk; set before persist and cleared only once it succeeded. */
   private seatsDirty = false;
+  /** US-0054: the time recorded with a consent (the injected clock, so tests and replays never read the wall clock). */
+  private readonly clock: Clock;
 
   constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034, GM_AUTO_RELEASE (default off): the Game Master releases a hidden fact itself instead of only suggesting it. */ gmAutoRelease?: boolean; /** US-0019, GM_TRANSCRIPT_WINDOW (default 40): the latest utterances of the scene each Game Master prompt holds. */ gmTranscriptWindow?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number; /** US-0053: durable credentials and consent; when absent, players join by code or reconnect token only. */ seats?: Seats }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
@@ -80,6 +83,7 @@ export class SessionHost {
     // Fail-stop (US-0018): when the log fails or the lock is lost the engine refuses everything; stop the clock and tell the server.
     opts.engine.onFailure((reason) => this.onEngineFailure(reason));
     this.seats = opts.seats;
+    this.clock = opts.clock;
     // US-0053: a credential is worth nothing after the session ends, so every one is revoked when the end is recorded.
     if (this.seats) opts.engine.subscribe((e) => { if (e.type === "session.ended") { try { this.endSeats(); } catch (err) { this.report("end of session revoke", err); } } });
     this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), maxTokens: opts.gmMaxTokens, temperature: opts.gmTemperature, evaluationTimeoutMs: opts.gmTimeoutMs ?? gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS), reask: opts.gmReask, everyNUtterances: opts.gmEveryN, trace: opts.gmTrace, autoRelease: opts.gmAutoRelease, transcriptWindow: opts.gmTranscriptWindow });
@@ -143,6 +147,7 @@ export class SessionHost {
    * writes again, so a leave never reports success while the revoked credential is still on disk.
    */
   leave(roleId: string, participantId: string): void {
+    this.refuseOnceStarting();
     if (Object.hasOwn(this.assignments, roleId) && this.assignments[roleId] === participantId) {
       if (this.seats) this.seatsDirty = true;
       this.seats?.credentials.revoke(roleId);
@@ -150,6 +155,44 @@ export class SessionHost {
       this.release(roleId, participantId);
     }
     this.flushSeats();
+  }
+
+  /**
+   * US-0054: the holder of the role agrees to the consent notice of `noticeVersion`, recorded with the host clock and persisted.
+   * Only the participant who holds the role may give it (anyone else changes nothing). Another version is refused as
+   * consent_version; input the store refuses as bad_message. A failed write throws and a retry writes again.
+   */
+  giveConsent(roleId: string, participantId: string, noticeVersion: string): void {
+    this.refuseOnceStarting();
+    if (!this.seats || !Object.hasOwn(this.assignments, roleId) || this.assignments[roleId] !== participantId) return this.flushSeats();
+    try {
+      this.seats.consent.give(roleId, participantId, noticeVersion, this.clock.now());
+    } catch (err) {
+      if (err instanceof ConsentError) throw new HostError(err.code === "version_mismatch" ? "consent_version" : "bad_message");
+      throw err;
+    }
+    this.seatsDirty = true;
+    this.flushSeats();
+  }
+
+  /**
+   * US-0054: the holder takes their consent back. Without consent the seat cannot take part, so, like a leave, the credential is
+   * revoked and the role released; then the seat state is persisted. Anyone but the current holder changes nothing.
+   */
+  withdrawConsent(roleId: string, participantId: string): void {
+    this.refuseOnceStarting();
+    if (Object.hasOwn(this.assignments, roleId) && this.assignments[roleId] === participantId) {
+      if (this.seats) this.seatsDirty = true;
+      this.seats?.consent.withdraw(roleId);
+      this.seats?.credentials.revoke(roleId);
+      this.release(roleId, participantId);
+    }
+    this.flushSeats();
+  }
+
+  /** US-0054: the consents and seats go into session.started, so they are frozen from the moment the start begins. */
+  private refuseOnceStarting(): void {
+    if (this.started || this.starting !== null) throw new HostError("already_started");
   }
 
   /**
@@ -188,10 +231,27 @@ export class SessionHost {
   /** `started` is set only after engine.start succeeds, so a failed start can be retried (never wedged). */
   async start(): Promise<void> {
     if (this.started) return;
-    this.starting ??= this.engine.start(this.assignments)
-      .then(() => { this.started = true; })
-      .finally(() => { this.starting = null; });
+    if (this.starting === null) {
+      // US-0054: the gate. Every start (the `start` message and the auto-start of a facilitator command) comes through here.
+      const extra = this.startGate();
+      // A copy: the gate checked these seats, so a release while the engine waits for its mutex must not change what is recorded.
+      this.starting = this.engine.start({ ...this.assignments }, extra)
+        .then(() => { this.started = true; })
+        .finally(() => { this.starting = null; });
+    }
     await this.starting;
+  }
+
+  /**
+   * US-0054: with seats, every player role must be held and its holder must have consented; else seats_not_ready names the roles.
+   * Returns what session.started records of the seats. Without seats (embedders and tests) nothing is checked or recorded.
+   */
+  private startGate(): SessionStartExtra | undefined {
+    const seats = this.seats;
+    if (!seats) return undefined;
+    const missing = Object.keys(this.scenario.roles).filter((r) => this.hasPlayerRole(r) && (!this.assignments[r] || !seats.consent.has(r, this.assignments[r])));
+    if (missing.length > 0) throw new HostError("seats_not_ready", missing);
+    return { consents: seats.consent.snapshot(), names: seats.credentials.names(), logIdentity: seats.credentials.logIdentity };
   }
 
   /** Serialises everything that mutates the session so NPC turns never interleave. */

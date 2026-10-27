@@ -8,7 +8,10 @@ import { MockModelProvider } from "@acr/adapters";
 import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
-import { SessionHost } from "../session-host.js";
+import { HostError, SessionHost } from "../session-host.js";
+import { PlayerCredentials } from "../../engine/credentials.js";
+import { ConsentStore } from "../../engine/consent.js";
+import type { Seats } from "../../engine/seats.js";
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
 let host: SessionHost; let engine: SessionEngine; let npc: MockModelProvider; let clock: FakeClock;
@@ -369,5 +372,112 @@ describe("SessionHost.evaluateFinal", () => {
     await host.onPlayerUtterance("host", "Hello Sam");
     await host.idle();
     await expect(host.evaluateFinal()).resolves.toBe(false);
+  });
+});
+
+describe("consent and the start gate (US-0054)", () => {
+  const BIND = { sessionId: "s", scenarioSha256: "d".repeat(64) };
+  /** A host with seats; `extraPlayers` adds player roles to the minimal fixture (one player, `host`). */
+  async function seated(o: { extraPlayers?: string[]; persist?: () => void } = {}) {
+    const scenario = await loadScenario(fixture);
+    for (const id of o.extraPlayers ?? []) scenario.roles[id] = { id, type: "player", brief: `You are ${id}.`, private_facts: [] } as (typeof scenario.roles)[string];
+    const c = new FakeClock(5_000);
+    const e = new SessionEngine({ scenario, log: new MemoryEventLog("s"), clock: c });
+    const persist = vi.fn(o.persist ?? (() => {}));
+    const seats: Seats = { credentials: PlayerCredentials.create(BIND), consent: new ConsentStore({ version: "v1", text: "notice" }), persist };
+    const h = new SessionHost({ scenario, engine: e, npcProvider: new MockModelProvider(["Hi"]), gmProvider: new MockModelProvider(), clock: c, seats });
+    return { h, e, seats, persist, clock: c };
+  }
+  const code = (f: () => unknown): string | undefined => { try { f(); } catch (err) { return err instanceof HostError ? err.code : String(err); } return undefined; };
+
+  it("consent from another participant who later holds the role does not count", async () => {
+    const { h, e } = await seated();
+    h.join("host", "alice");
+    h.giveConsent("host", "alice", "v1");
+    h.release("host", "alice");
+    h.join("host", "bob");
+    await expect(h.start()).rejects.toThrow("seats_not_ready: host");
+    expect(e.state.status).toBe("idle");
+    h.giveConsent("host", "bob", "v1");
+    await h.start();
+    expect(e.state.status).toBe("running");
+  });
+
+  it("consent with another version is refused as consent_version", async () => {
+    const { h, seats, persist } = await seated();
+    h.join("host", "alice");
+    expect(code(() => h.giveConsent("host", "alice", "v2"))).toBe("consent_version");
+    // Input the store refuses is a bad message, never an internal error.
+    expect(code(() => h.giveConsent("host", "alice", "x".repeat(65)))).toBe("bad_message");
+    expect(seats.consent.has("host", "alice")).toBe(false);
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("consent, withdraw and leave are refused while the start is in progress and after it (already_started)", async () => {
+    const { h, e, seats } = await seated();
+    h.join("host", "alice");
+    h.giveConsent("host", "alice", "v1");
+    const orig = e.start.bind(e);
+    let go!: () => void;
+    const gate = new Promise<void>((r) => { go = r; });
+    e.start = async (a, x) => { await gate; return orig(a, x); };
+    const starting = h.start();
+    for (const phase of ["starting", "started"]) {
+      expect(code(() => h.giveConsent("host", "alice", "v1")), phase).toBe("already_started");
+      expect(code(() => h.withdrawConsent("host", "alice")), phase).toBe("already_started");
+      expect(code(() => h.leave("host", "alice")), phase).toBe("already_started");
+      if (phase === "starting") { go(); await starting; }
+    }
+    expect(seats.consent.has("host", "alice")).toBe(true);
+    expect(h.assignments.host).toBe("alice");
+  });
+
+  it("withdrawing consent removes it, revokes the credential and frees the seat", async () => {
+    const { h, seats, persist } = await seated();
+    h.join("host", "alice");
+    seats.credentials.issue("host", "Alice");
+    h.giveConsent("host", "alice", "v1");
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(seats.consent.snapshot()).toEqual({ host: { noticeVersion: "v1", at: 5_000 } }); // the host clock, not the wall clock
+    h.withdrawConsent("host", "alice");
+    expect(seats.consent.has("host", "alice")).toBe(false);
+    expect(seats.credentials.has("host")).toBe(false);
+    expect(h.assignments.host).toBeUndefined();
+    expect(persist).toHaveBeenCalledTimes(2);
+  });
+
+  it("start is refused with seats_not_ready naming the roles that are missing a join or a consent", async () => {
+    const { h, e } = await seated({ extraPlayers: ["p2", "p3"] });
+    h.join("host", "alice"); h.giveConsent("host", "alice", "v1");
+    h.join("p2", "bob"); // joined, no consent
+    const err = await h.start().catch((x: unknown) => x);
+    expect(err).toBeInstanceOf(HostError);
+    expect((err as HostError).code).toBe("seats_not_ready");
+    expect((err as HostError).message).toBe("seats_not_ready: p2,p3");
+    expect(e.state.status).toBe("idle");
+  });
+
+  it("start succeeds once every player role has joined and consented and writes the consents and names into session.started", async () => {
+    const { h, e, seats } = await seated();
+    h.join("host", "alice");
+    seats.credentials.issue("host", "Alice");
+    h.giveConsent("host", "alice", "v1");
+    const seen: SessionEvent[] = [];
+    e.subscribe((ev) => { seen.push(ev); });
+    await h.start();
+    expect(seen[0]).toMatchObject({ type: "session.started", consents: { host: { noticeVersion: "v1", at: 5_000 } }, names: { host: "Alice" }, logIdentity: seats.credentials.logIdentity });
+  });
+
+  it("a session host built without seats starts as before (regression guard)", async () => {
+    host.join("host", "p1");
+    const seen: SessionEvent[] = [];
+    engine.subscribe((ev) => { seen.push(ev); });
+    await host.start();
+    expect(engine.state.status).toBe("running");
+    const started = seen[0]!;
+    expect(started.type).toBe("session.started");
+    expect(started).not.toHaveProperty("consents");
+    expect(started).not.toHaveProperty("names");
+    expect(started).not.toHaveProperty("logIdentity");
   });
 });
