@@ -32,9 +32,16 @@ export async function fakeRuntime(onMessage: (ws: WebSocket, m: any) => void = (
   };
 }
 
-/** Resolves when `pred` holds, checking on each macrotask; the test timeout guards a hang. */
-export async function until(pred: () => boolean): Promise<void> {
-  while (!pred()) await new Promise((r) => setImmediate(r));
+/**
+ * Resolves when `pred` holds, checking on each macrotask. Gives up after `limitMs` (default 45 s, under the files' 60 to 90 s test
+ * limits) with a message naming what it waited for. A hang guard only: nothing asserts how long anything took.
+ */
+export async function until(pred: () => boolean, o: { what?: string; limitMs?: number } = {}): Promise<void> {
+  const giveUpAt = Date.now() + (o.limitMs ?? 45_000); // hygiene-ok: a hang guard, not an elapsed-time assertion
+  while (!pred()) {
+    if (Date.now() > giveUpAt) throw new Error(`until: gave up waiting for ${o.what ?? "the condition"}`); // hygiene-ok: hang guard
+    await new Promise((r) => setImmediate(r));
+  }
 }
 
 /** Manual timers: nothing fires until the test says so. */

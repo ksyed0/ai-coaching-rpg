@@ -76,7 +76,7 @@ async function join(d: Deps, role: Player, code = typed(codes[role]!), address =
 }
 async function stream(d: Deps, cookie: string, role: Player, o: { lastEventId?: string; signal?: AbortSignal } = {}) {
   const res = await handleStream(new Request(`${ORIGIN}/api/v1/stream?session=${SESSION}`, {
-    headers: { Cookie: `${COOKIE_NAME}=${cookie}`, "Sec-Fetch-Site": "same-origin", "X-Forwarded-For": ADDRESS[role], ...(o.lastEventId ? { "Last-Event-ID": o.lastEventId } : {}) },
+    headers: { Accept: "text/event-stream", Cookie: `${COOKIE_NAME}=${cookie}`, "Sec-Fetch-Site": "same-origin", "X-Forwarded-For": ADDRESS[role], ...(o.lastEventId ? { "Last-Event-ID": o.lastEventId } : {}) },
     signal: o.signal,
   }), d);
   const r = sseReader(res);
@@ -215,7 +215,7 @@ describe("the v1 handlers against the real runtime", () => {
     const s = await stream(deps, a.cookie!, "delivery_lead");
     await until(() => s.r.frames().some((f) => f.event === "joined"));
     const calls = connect.mock.calls.length;
-    const res = await handleStream(new Request(`${ORIGIN}/api/v1/stream?session=${SESSION}`, { headers: { Cookie: `${COOKIE_NAME}=${b.cookie}`, "X-Forwarded-For": ADDRESS.tech_lead } }), deps);
+    const res = await handleStream(new Request(`${ORIGIN}/api/v1/stream?session=${SESSION}`, { headers: { Accept: "text/event-stream", Cookie: `${COOKIE_NAME}=${b.cookie}`, "X-Forwarded-For": ADDRESS.tech_lead } }), deps);
     expect(res.status).toBe(503);
     expect(connect.mock.calls.length).toBe(calls);
   });

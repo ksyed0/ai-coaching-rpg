@@ -63,7 +63,7 @@ const cookieValue = (o: Partial<SessionCookie> = {}, keys = KEYS) =>
   seal({ sessionId: "s1", roleId: "delivery_lead", participantId: "p-1", credential: CRED, logIdentity: "log-1", expiresAt: T0 + 12 * HOUR, ...o }, keys, clock);
 const streamReq = (cookie: string | null, o: { session?: string; headers?: Record<string, string>; signal?: AbortSignal } = {}) =>
   new Request(`${ORIGIN}/api/v1/stream?session=${o.session ?? "s1"}`, {
-    headers: { "Sec-Fetch-Site": "same-origin", "X-Forwarded-For": ADDR, ...(cookie === null ? {} : { Cookie: `other=1; ${COOKIE_NAME}=${cookie}` }), ...o.headers },
+    headers: { Accept: "text/event-stream", "Sec-Fetch-Site": "same-origin", "X-Forwarded-For": ADDR, ...(cookie === null ? {} : { Cookie: `other=1; ${COOKIE_NAME}=${cookie}` }), ...o.headers },
     signal: o.signal,
   });
 const postReq = (path: string, cookie: string | null, body: unknown = {}, headers: Record<string, string> = guarded) =>
@@ -226,6 +226,20 @@ describe("POST /api/v1/join", () => {
     expect(spy).toHaveBeenCalledWith(ADDR, "delivery_lead");
   });
 
+  it("the runtime's own address block (429 at connect) is refused like a wrong code but never charged", async () => {
+    const busy = await fakeRuntime(() => {}, { status: 429 });
+    stops.push(() => busy.stop());
+    const { deps, joinThrottle } = makeDeps({ runtimeUrl: busy.url });
+    const spy = vi.spyOn(joinThrottle, "fail");
+    for (let i = 0; i < 7; i++) {
+      const res = await handleJoin(joinReq(goodJoin), deps);
+      expect(res.status).toBe(401);
+      expect((await res.json()).error.code).toBe("join_refused");
+    }
+    expect(spy).not.toHaveBeenCalled();
+    expect(joinThrottle.blockedForMs(ADDR, "delivery_lead")).toBe(0);
+  });
+
   it("maps a runtime that cannot be reached, or fails, to 503 and a refused name to 400 bad_name", async () => {
     const down = await fakeRuntime();
     const downUrl = down.url;
@@ -326,7 +340,7 @@ describe("GET /api/v1/stream", () => {
     results.push({ name: "tampered", res: await handleStream(streamReq(tampered), deps) });
     results.push({ name: "other key", res: await handleStream(streamReq(otherKey), deps) });
     results.push({ name: "other session", res: await handleStream(streamReq(good, { session: "s2" }), deps) });
-    results.push({ name: "no session param", res: await handleStream(new Request(`${ORIGIN}/api/v1/stream`, { headers: { Cookie: `${COOKIE_NAME}=${good}`, "X-Forwarded-For": ADDR } }), deps) });
+    results.push({ name: "no session param", res: await handleStream(new Request(`${ORIGIN}/api/v1/stream`, { headers: { Accept: "text/event-stream", Cookie: `${COOKIE_NAME}=${good}`, "X-Forwarded-For": ADDR } }), deps) });
     clock += 2_000;
     results.push({ name: "expired", res: await handleStream(streamReq(shortLived), deps) });
     const first = await results[0]!.res.clone().text();
@@ -352,6 +366,20 @@ describe("GET /api/v1/stream", () => {
     const res = await handleStream(streamReq(cookieValue(), { headers: { Origin: ORIGIN } }), deps);
     expect(res.status).toBe(200);
     await res.body!.cancel();
+  });
+
+  it("a stream request that does not accept text/event-stream (a top-level navigation) is 406 and contacts nothing", async () => {
+    const { deps, connect } = makeDeps();
+    for (const accept of [null, "text/html,application/xhtml+xml,*/*;q=0.8", "*/*", "application/json"]) {
+      const req = streamReq(cookieValue());
+      const headers = new Headers(req.headers);
+      if (accept === null) headers.delete("Accept"); else headers.set("Accept", accept);
+      const res = await handleStream(new Request(req.url, { headers }), deps);
+      expect(res.status, String(accept)).toBe(406);
+      expect((await res.json()).error.code).toBe("not_acceptable");
+    }
+    expect(connect).not.toHaveBeenCalled();
+    expect(rt.received).toHaveLength(0);
   });
 
   it("an untrusted X-Forwarded-For on the stream is a neutral 400", async () => {
@@ -472,6 +500,25 @@ describe("GET /api/v1/stream", () => {
     });
   });
 
+  it("after a log-identity reset reissued the cookie and the session then ended, a reload with the reissued cookie gets ended, not signed_out", async () => {
+    logId = "log-2";
+    let sock: WebSocket | null = null;
+    script = (ws, m) => { if (m.type === "join") { sock = ws; defaultScript(ws, m); } };
+    const { deps } = makeDeps();
+    const { res, r } = await openStream(deps, cookieValue({ logIdentity: "log-1" }));
+    const reissued = setCookie(res)!.value;
+    expect(unseal<SessionCookie>(reissued, KEYS, clock)!.logIdentity).toBe("log-2");
+    send(sock!, { type: "event", event: { seq: 6, ts: 6, type: "session.ended" } });
+    await r.finished;
+    expect(r.frames().at(-1)).toEqual({ event: "ended", data: {} });
+    script = (ws, m) => { if (m.type === "join") refuse(ws); };
+    const reload = await handleStream(streamReq(reissued), deps);
+    expect(isCleared(reload)).toBe(true);
+    const again = sseReader(reload);
+    await again.finished;
+    expect(again.frames().at(-1)).toEqual({ event: "ended", data: {} });
+  });
+
   it("the stream cap returns 503 and never contacts the runtime", async () => {
     const { deps, connect } = makeDeps({ hub: { maxStreams: 1 } });
     await openStream(deps);
@@ -520,6 +567,28 @@ describe("GET /api/v1/stream", () => {
     await handleStream(streamReq(cookieValue(), { signal: ac.signal }), deps);
     await rt.closed(1);
     await expect(hub.send({ sessionId: "s1", roleId: "delivery_lead", participantId: "p-1", credential: CRED, logIdentity: "log-1", expiresAt: T0 + HOUR }, { type: "leave" })).rejects.toMatchObject({ code: "no_stream" });
+  });
+
+  it("a throw between the join and hub.open (the reissued cookie cannot be sealed; open itself fails) closes that runtime socket and answers 500", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    // Sealing the reissued cookie: the clock passes the cookie's expiry after the expiry re-check (unseal, re-check, seal).
+    logId = "log-2";
+    const a = makeDeps();
+    let calls = 0;
+    a.deps.now = () => (++calls <= 2 ? clock : clock + 13 * HOUR);
+    const r1 = await handleStream(streamReq(cookieValue({ logIdentity: "log-1" })), a.deps);
+    expect(r1.status).toBe(500);
+    expect(r1.headers.get("Set-Cookie")).toBeNull();
+    await rt.closed(1);
+    // hub.open throws.
+    logId = "log-1";
+    const b = makeDeps();
+    vi.spyOn(b.hub, "open").mockImplementation(() => { throw new Error("open failed"); });
+    const r2 = await handleStream(streamReq(cookieValue()), b.deps);
+    expect(r2.status).toBe(500);
+    await rt.closed(2);
+    expect(log.mock.calls.map((c) => String(c[0]))).toEqual(["web: stream failed: Error", "web: stream failed: Error"]);
+    log.mockRestore();
   });
 
   it("checks the cookie's expiry again once the join is done: a cookie that expired meanwhile is refused and its socket closed", async () => {

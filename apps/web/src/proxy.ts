@@ -17,6 +17,8 @@ export function proxy(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  // Everything but build assets, which carry no secrets and are cached.
-  matcher: [{ source: "/((?!_next/static|_next/image|favicon.ico).*)" }],
+  // Pages only. Never /api: Next copies the request body of every path the proxy runs on into memory (up to
+  // experimental.proxyClientMaxBodySize) before the handler's own 8 KiB limit; the API sets its own headers (envelope.ts, the SSE
+  // response, next.config.ts). Nor build assets or the favicon, which carry nothing private.
+  matcher: [{ source: "/((?!api/|api$|_next/static/|_next/image|favicon\\.ico$).*)" }],
 };

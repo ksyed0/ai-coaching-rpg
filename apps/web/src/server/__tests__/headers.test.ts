@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { contentSecurityPolicy, isPrivatePath, PRIVATE_PREFIXES, ROBOTS_TAG } from "../headers";
-import { proxy } from "../../proxy";
+import { config, proxy } from "../../proxy";
+import nextConfig from "../../../next.config";
 import robots from "../../app/robots";
 
 const directive = (csp: string, name: string) => csp.split(";").map((d) => d.trim()).find((d) => d.startsWith(`${name} `)) ?? "";
@@ -75,5 +76,24 @@ describe("robots", () => {
     expect(isPrivatePath("/session/x/y")).toBe(true);
     expect(isPrivatePath("/joinery")).toBe(false);
     expect(isPrivatePath("/")).toBe(false);
+  });
+});
+
+describe("proxy matcher and body buffering", () => {
+  // Next builds the matcher from this source; as a plain regular expression it must give the same answers for these literal paths.
+  const sources = config.matcher.map((m) => m.source);
+  const runs = (path: string) => sources.some((src) => new RegExp(`^${src}$`).test(path));
+
+  it("never runs the proxy for /api (Next would buffer a copy of every request body in memory before the handler's 8 KiB limit)", () => {
+    for (const p of ["/api", "/api/", "/api/v1/join", "/api/v1/stream", "/api/anything/else"]) expect(runs(p), p).toBe(false);
+  });
+
+  it("runs it for pages (they need the nonce) but not for build assets or the favicon itself", () => {
+    for (const p of ["/", "/join", "/session/abc", "/report/x", "/console", "/apis", "/favicon.ico.html", "/robots.txt"]) expect(runs(p), p).toBe(true);
+    for (const p of ["/_next/static/chunks/a.js", "/_next/image", "/favicon.ico"]) expect(runs(p), p).toBe(false);
+  });
+
+  it("caps what Next buffers for the paths the proxy does run on", () => {
+    expect(nextConfig.experimental?.proxyClientMaxBodySize).toBe("8kb");
   });
 });

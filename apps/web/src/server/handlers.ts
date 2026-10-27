@@ -37,6 +37,7 @@ const A = {
   badName: { status: 400, code: "bad_name", message: "Enter a name of 1 to 60 characters on one line." },
   // The one answer to every refused join: it never tells whether the session, the role or the code was wrong, or the pair is blocked.
   joinRefused: { status: 401, code: "join_refused", message: "That did not work. Check the link and the code, or ask your facilitator for a new code." },
+  notAcceptable: { status: 406, code: "not_acceptable", message: "This address is for the session page's live updates." },
   notSignedIn: { status: 401, code: "unauthorized", message: "You are not signed in to this session. Open your join link again." },
   busy: { status: 503, code: "busy", message: "Too many people are connected right now. Try again in a moment." },
   unavailable: { status: 503, code: "unavailable", message: "The session server cannot be reached. Try again in a moment." },
@@ -229,6 +230,9 @@ export async function handleStream(req: Request, deps: Deps): Promise<Response> 
   if (!checkFetchSite(req)) return answer(A.forbidden);
   const origin = req.headers.get("Origin");
   if (origin !== null && origin !== deps.config.publicOrigin) return answer(A.forbidden);
+  // Only an EventSource (which always sends this) may open a stream: a top-level navigation from another site, in a browser without
+  // Sec-Fetch-Site, would otherwise take the seat over from the player's tab.
+  if (!(req.headers.get("Accept") ?? "").toLowerCase().includes("text/event-stream")) return answer(A.notAcceptable);
   const address = requestAddress(req);
   if (address === null) return answer(A.badRequest);
   const who = signedIn(req, deps);
@@ -259,27 +263,34 @@ export async function handleStream(req: Request, deps: Deps): Promise<Response> 
   // The cookie may have expired while the join was in flight (the hub checks again only at its heartbeat).
   if (cookie.expiresAt <= deps.now()) { conn.close(); return answer(A.notSignedIn, { "Set-Cookie": CLEAR_COOKIE }); }
 
-  // Another log (a fresh start): the hub sends a reset; the cookie is reissued with the new identity, or every reconnect would reset.
-  const current: SessionCookie = typeof joined.logIdentity === "string" && joined.logIdentity !== cookie.logIdentity ? { ...cookie, logIdentity: joined.logIdentity } : cookie;
-  const setCookie = joined.state?.status === "ended" ? CLEAR_COOKIE : current !== cookie ? issueCookie(current, deps) : undefined;
+  // From here the connection is ours until the hub takes it: any throw (a cookie that cannot be sealed, a failing open) closes it.
+  try {
+    // Another log (a fresh start): the hub sends a reset; the cookie is reissued with the new identity, or every reconnect would reset.
+    const current: SessionCookie = typeof joined.logIdentity === "string" && joined.logIdentity !== cookie.logIdentity ? { ...cookie, logIdentity: joined.logIdentity } : cookie;
+    const setCookie = joined.state?.status === "ended" ? CLEAR_COOKIE : current !== cookie ? issueCookie(current, deps) : undefined;
 
-  const body = sseBody();
-  let handle: { close(): void } | null = null;
-  const stop = () => handle?.close();
-  const out: SseOut = {
-    write: (chunk) => {
-      if (chunk.startsWith("event: ended\n")) markEnded(deps.hub, current);
-      return body.out.write(chunk);
-    },
-    end: () => { req.signal.removeEventListener("abort", stop); body.out.end(); },
-  };
-  // The original cookie: its log identity is what tells the hub to reset.
-  const opened = deps.hub.open(cookie, address, conn, joined, out);
-  if (opened === "capacity") return answer(A.busy); // the hub closed the connection; it is not reused
-  handle = opened;
-  body.onCancel(stop);
-  req.signal.addEventListener("abort", stop, { once: true });
-  return new Response(body.stream, { status: 200, headers: sseHeaders(setCookie) });
+    const body = sseBody();
+    let handle: { close(): void } | null = null;
+    const stop = () => handle?.close();
+    const out: SseOut = {
+      write: (chunk) => {
+        if (chunk.startsWith("event: ended\n")) markEnded(deps.hub, current);
+        return body.out.write(chunk);
+      },
+      end: () => { req.signal.removeEventListener("abort", stop); body.out.end(); },
+    };
+    // The original cookie: its log identity is what tells the hub to reset.
+    const opened = deps.hub.open(cookie, address, conn, joined, out);
+    if (opened === "capacity") return answer(A.busy); // the hub closed the connection; it is not reused
+    handle = opened;
+    body.onCancel(stop);
+    req.signal.addEventListener("abort", stop, { once: true });
+    return new Response(body.stream, { status: 200, headers: sseHeaders(setCookie) });
+  } catch (err) {
+    conn.close();
+    logFailure("stream", err);
+    return answer(A.internal);
+  }
 }
 
 /** say, consent and leave: over the participant's open stream connection (a new connection would supersede the stream). */
