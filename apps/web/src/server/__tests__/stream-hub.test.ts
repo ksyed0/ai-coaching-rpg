@@ -20,7 +20,9 @@ class FakeConn {
   private code: number | null = null;
   /** Answers each sent message (an error frame, say), like the runtime would, after the send returns. */
   answer: ((m: ClientMessage) => ServerMessage | null) | null = null;
-  get isOpen() { return this.code === null && this.closed === 0; }
+  /** Like a socket that received the runtime's close frame but has not emitted 'close' yet. */
+  closing = false;
+  get isOpen() { return this.code === null && this.closed === 0 && !this.closing; }
   get closeCode() { return this.code; }
   send(m: ClientMessage) { if (!this.isOpen) throw new Error("closed"); this.sent.push(m); const a = this.answer?.(m); if (a) queueMicrotask(() => this.emit(a)); }
   onFrame(fn: (m: ServerMessage) => void) { this.frameFns.add(fn); return () => { this.frameFns.delete(fn); }; }
@@ -239,6 +241,25 @@ describe("StreamHub: of two streams for one participant, the newest runtime join
   });
 });
 
+describe("StreamHub: a connection still closing", () => {
+  it("never supersedes the live stream: its own close decides (4001 gives superseded)", () => {
+    const { h } = hub();
+    const live = opened(h);
+    const late = new FakeConn(); // joined after the live one by the BFF's clock, but the runtime already kicked it
+    late.closing = true;
+    const rec = sseRecorder();
+    h.open(cookieFor(), "x", asConn(late), joinedFrame(), rec.out);
+    expect(live.rec.ends()).toBe(0);
+    expect(live.conn.closed).toBe(0);
+    expect(rec.chunks).toEqual([]);
+    late.drop(4001);
+    expect(rec.frames().map((f) => f.event)).toEqual(["superseded"]);
+    expect(rec.ends()).toBe(1);
+    live.conn.emit({ type: "event", event: ev(8) });
+    expect(live.rec.events().map((e) => e.seq)).toEqual([8]); // still in the hub
+  });
+});
+
 describe("StreamHub capacity", () => {
   it("hasCapacity tells the route before it connects, without reserving anything", () => {
     const { h } = hub({ maxStreams: 1 });
@@ -368,10 +389,20 @@ describe("StreamHub send", () => {
     const p = h.send(cookieFor(), { type: "say", text: "hi" });
     await until(() => conn.sent.length === 1);
     conn.emit({ type: "error", code: "log_failed", message: "stopping" });
-    conn.emit({ type: "error", code: "rate_limited", message: "slow down" });
     timers.fire(300);
     expect(await p).toBeNull();
-    expect(rec.frames().filter((f) => f.event === "error").map((f) => f.data.code)).toEqual(["log_failed", "rate_limited"]);
+    expect(rec.frames().filter((f) => f.event === "error").map((f) => f.data.code)).toEqual(["log_failed"]);
+  });
+
+  // The runtime answers a message its per-connection bucket dropped with rate_limited: that send was not delivered.
+  it.each<ClientMessage>([
+    { type: "say", text: "hi" }, { type: "consent", noticeVersion: "v1" }, { type: "withdraw_consent" }, { type: "leave" },
+  ])("a rate_limited answer to $type is that send's result, not a stream error", async (m) => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.answer = () => ({ type: "error", code: "rate_limited", message: "too many messages: slow down" });
+    expect(await h.send(cookieFor(), m)).toMatchObject({ type: "error", code: "rate_limited" });
+    expect(rec.chunks.join("")).not.toContain("rate_limited");
   });
 
   // Regression guard: passes before and after the serialised sends (an error with no waiter has always gone to the stream).

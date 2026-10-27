@@ -1,4 +1,5 @@
 import type { IncomingMessage } from "node:http";
+import net from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { SetTimer } from "../runtime-connection";
 
@@ -65,4 +66,35 @@ export function sseRecorder() {
     return f;
   });
   return { out, chunks, frames, ends: () => ends, events: () => frames().filter((f) => f.event === "event").map((f) => f.data) };
+}
+
+/**
+ * A TCP proxy to `port` whose runtime-to-client direction can be held: while held, bytes (and the runtime's end of the connection)
+ * are buffered, then delivered together on release. Simulates one socket's frames arriving late relative to another socket's.
+ */
+export async function holdingProxy(port: number) {
+  let held = false;
+  const pending: { sock: net.Socket; chunks: Buffer[]; ended: boolean }[] = [];
+  const server = net.createServer((client) => {
+    const upstream = net.connect(port, "127.0.0.1");
+    const p = { sock: client, chunks: [] as Buffer[], ended: false };
+    pending.push(p);
+    client.on("data", (d) => upstream.write(d));
+    client.on("error", () => upstream.destroy());
+    client.on("close", () => upstream.destroy());
+    upstream.on("error", () => {});
+    upstream.on("data", (d) => { if (held) p.chunks.push(d); else client.write(d); });
+    upstream.on("end", () => { if (held) p.ended = true; else client.end(); });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  return {
+    url: `ws://127.0.0.1:${(server.address() as { port: number }).port}`,
+    hold: () => { held = true; },
+    /** Delivers everything held, in order, in one write per socket. */
+    release: () => {
+      held = false;
+      for (const p of pending) { if (p.chunks.length) p.sock.write(Buffer.concat(p.chunks)); p.chunks = []; if (p.ended) p.sock.end(); }
+    },
+    stop: () => new Promise<void>((r) => { for (const p of pending) p.sock.destroy(); server.close(() => r()); }),
+  };
 }

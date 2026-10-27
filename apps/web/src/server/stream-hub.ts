@@ -19,13 +19,14 @@ export class NoStreamError extends Error {
 /** The messages a player sends through `send`, and the runtime error codes each one can produce (ws-server.ts, session-host.ts, session-engine.ts). */
 const SEND_ERRORS = {
   // giveConsent: refuseOnceStarting, holds, ConsentError; a failed seat write is `internal`. Facilitator sockets get `forbidden`.
-  consent: ["consent_version", "already_started", "not_joined", "bad_message", "bad_json", "forbidden", "internal"],
+  // `rate_limited` (all four): the runtime answers a message its per-connection bucket dropped, so that send was not delivered.
+  consent: ["consent_version", "already_started", "not_joined", "bad_message", "bad_json", "forbidden", "internal", "rate_limited"],
   // withdrawConsent: refuseOnceStarting, holds.
-  withdraw_consent: ["already_started", "not_joined", "bad_message", "bad_json", "forbidden", "internal"],
+  withdraw_consent: ["already_started", "not_joined", "bad_message", "bad_json", "forbidden", "internal", "rate_limited"],
   // leave: refuseOnceStarting; anything else is a seat write failure.
-  leave: ["already_started", "not_joined", "bad_message", "bad_json", "forbidden", "internal"],
+  leave: ["already_started", "not_joined", "bad_message", "bad_json", "forbidden", "internal", "rate_limited"],
   // onPlayerUtterance and engine.say. `log_failed` is left out: the runtime also sends it to everyone unasked, so it goes to the stream.
-  say: ["not_started", "paused", "ended", "not_in_scene", "stale_scene", "unknown_role", "not_joined", "bad_message", "bad_json", "forbidden", "internal"],
+  say: ["not_started", "paused", "ended", "not_in_scene", "stale_scene", "unknown_role", "not_joined", "bad_message", "bad_json", "forbidden", "internal", "rate_limited"],
 } as const satisfies Record<string, readonly string[]>;
 type SendType = keyof typeof SEND_ERRORS;
 const isSendType = (t: string): t is SendType => Object.hasOwn(SEND_ERRORS, t);
@@ -112,9 +113,16 @@ export class StreamHub {
     const noop = { close: () => {} };
     // An older join than the live stream's: the runtime has kicked it (its 4001 may still be on the way); the live stream stays.
     if (prev && prev.conn.joinOrder > conn.joinOrder) { this.finish(s, "superseded"); return noop; }
-    // Already closed before it could start: never touch the live stream. A socket still closing (code not known yet) goes on below and
-    // its close arrives through onClose with the real code, so a 4001 is never mistaken for a drop that the browser would retry.
+    // Already closed before it could start: never touch the live stream.
     if (conn.closeCode !== null) { this.finish(s, conn.closeCode === CLOSE_SUPERSEDED ? "superseded" : "reconnecting"); return noop; }
+    // Still closing, code not known yet. joinOrder is when the BFF heard `joined`, not when the runtime took the join: a delayed socket
+    // can deliver its `joined` and its 4001 together and look newer than the runtime's real holder. So it never replaces `prev`; it waits
+    // outside the map for its own close, whose code decides (4001: superseded, so the browser does not retry and kick the holder).
+    if (!conn.isOpen) {
+      s.detach = conn.onClose((code) => this.finish(s, code === CLOSE_SUPERSEDED ? "superseded" : "reconnecting"));
+      if (s.ended) s.detach();
+      return { close: () => this.finish(s, null) };
+    }
     if (!this.hasCapacity(cookie, address)) {
       conn.close();
       try { out.end(); } catch { /* the client is gone */ }
@@ -187,7 +195,7 @@ export class StreamHub {
     } else if (m.type === "roster") {
       this.write(s, sse("roster", { audience: m.audience, entries: m.entries }));
     } else if (m.type === "error") {
-      // The answer to the waiting send, if its message can produce this code; anything else (log_failed, rate_limited) goes to the page.
+      // The answer to the waiting send, if its message can produce this code; anything else (log_failed, sent to everyone unasked) goes to the page.
       const w = s.waiter;
       if (w && w.accepts.includes(m.code)) { w.done(m); return; }
       this.write(s, sse("error", { code: m.code, message: ERROR_MESSAGE }));

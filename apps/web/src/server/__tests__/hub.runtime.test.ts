@@ -8,7 +8,7 @@ import WebSocket from "ws";
 import { RuntimeConnection, realTimer } from "../runtime-connection";
 import { StreamHub, type SessionCookie } from "../stream-hub";
 import type { JoinedFrame, PeerRosterEntry, ReplaySummary, ServerMessage } from "../wire";
-import { sseRecorder, until } from "./fakes";
+import { holdingProxy, sseRecorder, until } from "./fakes";
 
 // The real runtime, in-process, mock models, port 0, private temp dirs. A generous explicit limit; nothing measures elapsed time.
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
@@ -197,6 +197,43 @@ describe("RuntimeConnection and StreamHub against the real runtime", () => {
     expect(await hub.send(cookie, { type: "consent", noticeVersion: b.joined.consent!.noticeVersion })).toBeNull();
     expect(runtime!.host.consentGiven("delivery_lead", cookie.participantId)).toBe(true);
     if (hb !== "capacity") hb.close();
+  });
+
+  it("a delayed tab whose joined and 4001 close arrive together, after the newer tab joined, does not supersede the newer tab", async () => {
+    const { cookie } = await joinByCode("delivery_lead");
+    await until(() => runtime!.host.assignments.delivery_lead === undefined); // the join route's socket closed: the seat is free
+    const proxy = await holdingProxy(runtime!.port);
+    closers.push(() => { void proxy.stop(); });
+    const creds = { sessionId: SESSION, roleId: "delivery_lead", participantId: cookie.participantId, credential: cookie.credential, lastSeq: 0 };
+    // Tab A, through the proxy: the runtime takes its join, but A hears nothing yet.
+    const a = await RuntimeConnection.connect(proxy.url, ADDRESS.delivery_lead);
+    closers.push(() => a.close());
+    proxy.hold();
+    const aJoined = a.joinWithCredential(creds);
+    await until(() => runtime!.host.assignments.delivery_lead === cookie.participantId);
+    // Tab B joins directly: the runtime kicks A (its 4001 is held with A's joined) and B becomes the holder.
+    const b = await RuntimeConnection.connect(url(), ADDRESS.delivery_lead);
+    closers.push(() => b.close());
+    const bJoined = await b.joinWithCredential(creds);
+    const recB = sseRecorder();
+    const hb = hub.open(cookie, ADDRESS.delivery_lead, b, bJoined, recB.out);
+    if (hb === "capacity") throw new Error("unexpected capacity");
+    closers.push(() => hb.close());
+    // A's joined and its close arrive in one read: A resolves CLOSING, with its close code not known yet, and looks newer than B.
+    proxy.release();
+    const aj = await aJoined;
+    expect(a.isOpen).toBe(false);
+    const recA = sseRecorder();
+    const ha = hub.open(cookie, ADDRESS.delivery_lead, a, aj, recA.out);
+    if (ha !== "capacity") closers.push(() => ha.close());
+    await until(() => recA.ends() === 1);
+    expect(recA.frames().at(-1)!.event).toBe("superseded");
+    expect(recA.chunks.join("")).not.toContain("reconnecting");
+    expect(recB.ends()).toBe(0);
+    expect(b.isOpen).toBe(true);
+    expect(runtime!.host.assignments.delivery_lead).toBe(cookie.participantId);
+    expect(await hub.send(cookie, { type: "consent", noticeVersion: bJoined.consent!.noticeVersion })).toBeNull();
+    expect(runtime!.host.consentGiven("delivery_lead", cookie.participantId)).toBe(true);
   });
 
   it("closing the output (request abort) closes the runtime socket", async () => {
