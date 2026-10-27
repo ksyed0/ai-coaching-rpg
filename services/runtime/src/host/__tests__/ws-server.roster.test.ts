@@ -85,28 +85,34 @@ describe("roster frames over the socket (US-0055)", () => {
     expect(bFirst.entries.map((e: any) => [e.roleId, e.name, e.ready])).toEqual([["host", "Alice", false], ["p2", "Bob", false]]);
     await a.next((m) => m.type === "roster" && m.entries[1].name === "Bob");
 
+    // Every wait below starts at an offset taken just before its trigger: the first frame already in the inbox must not satisfy it.
+    let fromF = f.inbox.length, fromB = b.inbox.length;
     a.send({ type: "consent", noticeVersion: "v1" });
-    await f.next((m) => m.type === "roster" && entry(m, "host").consented);
-    await b.next((m) => m.type === "roster" && entry(m, "host").ready);
+    await f.next((m) => m.type === "roster" && entry(m, "host").consented, fromF);
+    await b.next((m) => m.type === "roster" && entry(m, "host").ready, fromB);
 
     // withdraw: seat freed, name gone (credential revoked), everyone told
+    fromF = f.inbox.length; fromB = b.inbox.length;
     a.send({ type: "withdraw_consent" });
     await a.closed;
-    await f.next((m) => m.type === "roster" && !entry(m, "host").joined && !entry(m, "host").consented);
-    const afterWithdraw = await b.next((m) => m.type === "roster" && !entry(m, "host").ready && entry(m, "host").name === undefined);
+    await f.next((m) => m.type === "roster" && !entry(m, "host").joined && !entry(m, "host").consented, fromF);
+    const afterWithdraw = await b.next((m) => m.type === "roster" && !entry(m, "host").ready && entry(m, "host").name === undefined, fromB);
     expect(afterWithdraw.audience).toBe("peers");
 
-    // a plain disconnect frees the seat but keeps the credential (and so the name)
+    // a leave frees the seat and revokes the credential (and so the name)
+    fromF = f.inbox.length;
     const { c: b2, j } = await player(port, "host", plain.host!, "carol", "Carol");
     expect(j.roleId).toBe("host");
-    await f.next((m) => m.type === "roster" && entry(m, "host").connected && entry(m, "host").joined);
+    await f.next((m) => m.type === "roster" && entry(m, "host").connected && entry(m, "host").joined && entry(m, "host").name === "Carol", fromF);
+    fromF = f.inbox.length;
     b2.send({ type: "leave" });
     await b2.closed;
-    await f.next((m) => m.type === "roster" && !entry(m, "host").joined && !entry(m, "host").connected && m.entries !== undefined && !entry(m, "host").name);
+    await f.next((m) => m.type === "roster" && !entry(m, "host").joined && !entry(m, "host").connected && !entry(m, "host").name, fromF);
 
+    fromF = f.inbox.length;
     b.send({ type: "leave" });
     await b.closed;
-    const end = await f.next((m) => m.type === "roster" && !entry(m, "p2").joined);
+    const end = await f.next((m) => m.type === "roster" && !entry(m, "p2").joined, fromF);
     expect(entry(end, "p2").connected).toBe(false);
     expect(seats.credentials.has("p2")).toBe(false);
   });
@@ -139,6 +145,42 @@ describe("roster frames over the socket (US-0055)", () => {
     expect(iRoster).toBe(iJoined + 1 + joined.replay.events);
   });
 
+  it("a roster frame follows the replay for a player connection too", async () => {
+    const { port, engine, host, plain } = await setup();
+    const first = await player(port, "host", plain.host!, "alice", "Alice");
+    const cred = first.j.credential as string;
+    host.giveConsent("host", "alice", "v1");
+    await host.start();
+    await engine.say("host", "one"); await engine.say("host", "two");
+    const c2 = await open(port);
+    c2.send({ type: "join", sessionId: "local", roleId: "host", participantId: "alice", credential: cred, lastSeq: 1 });
+    const joined = await c2.next((m) => m.type === "joined");
+    expect(joined.replay.events).toBeGreaterThan(0);
+    const firstRoster = await c2.next((m) => m.type === "roster");
+    const iJoined = c2.inbox.indexOf(joined);
+    expect(c2.inbox.slice(iJoined + 1, iJoined + 1 + joined.replay.events).every((m) => m.type === "event")).toBe(true);
+    expect(c2.inbox.indexOf(firstRoster)).toBe(iJoined + 1 + joined.replay.events);
+  });
+
+  it("when the session ends the credentials are gone first, so the rosters carry no names", async () => {
+    const { port, engine, host, plain } = await setup();
+    const f = await facilitator(port);
+    const { c: a } = await player(port, "host", plain.host!, "alice", "QZXNAME1");
+    a.send({ type: "consent", noticeVersion: "v1" });
+    await f.next((m) => m.type === "roster" && entry(m, "host").consented);
+    await a.next((m) => m.type === "roster" && entry(m, "host").ready); // the name is on the wire before the end, so the offsets below isolate the end's frames
+    await host.start();
+    const fromF = f.inbox.length, fromA = a.inbox.length;
+    await host.command({ command: "advance" }); await engine.tick();
+    await host.command({ command: "advance" }); await engine.tick();
+    expect(engine.state.status).toBe("ended");
+    const fac = await f.next((m) => m.type === "roster" && entry(m, "host").name === undefined, fromF);
+    expect(entry(fac, "host").name).toBeUndefined();
+    const peers = await a.next((m) => m.type === "roster" && entry(m, "host").name === undefined, fromA);
+    expect(peers.audience).toBe("peers");
+    expect(JSON.stringify([...f.inbox.slice(fromF), ...a.inbox.slice(fromA)].filter((m) => m.type === "roster"))).not.toContain("QZXNAME1");
+  });
+
   it("a player never receives the facilitator roster, nor the facilitator a peers roster", async () => {
     const { port, plain } = await setup({ extraPlayers: ["p2"] });
     const f = await facilitator(port);
@@ -161,13 +203,15 @@ describe("roster frames over the socket (US-0055)", () => {
     const cred = first.j.credential as string;
     await f.next((m) => m.type === "roster" && entry(m, "host").connected);
     const before = first.c.inbox.length;
+    const fromF = f.inbox.length;
     const c2 = await open(port);
     c2.send({ type: "join", sessionId: "local", roleId: "host", participantId: "alice", credential: cred });
     await c2.next((m) => m.type === "joined");
     expect((await first.c.closed).code).toBe(4001);
     await c2.next((m) => m.type === "roster");
+    // The facilitator hears the takeover (a frame after the offset), and it shows the seat connected under the same name.
+    const last = await f.next((m) => m.type === "roster" && entry(m, "host").connected && entry(m, "host").name === "Alice", fromF);
     expect(first.c.inbox.slice(before).filter((m) => m.type === "roster")).toEqual([]);
-    const last = f.rosters().at(-1);
     expect(entry(last, "host")).toMatchObject({ joined: true, connected: true, name: "Alice" });
   });
 
@@ -176,14 +220,18 @@ describe("roster frames over the socket (US-0055)", () => {
     const f = await facilitator(port);
     const { c: a } = await player(port, "host", plain.host!, "alice", "QZXNAME1");
     await player(port, "p2", plain.p2!, "bob", "QZXNAME2");
+    let fromF = f.inbox.length;
     a.send({ type: "consent", noticeVersion: "v1" });
-    await f.next((m) => m.type === "roster" && entry(m, "host").consented);
+    await f.next((m) => m.type === "roster" && entry(m, "host").consented, fromF);
+    a.send({ type: "consent", noticeVersion: "v1" }); // a repeat changes nothing: no second line
+    fromF = f.inbox.length;
     a.send({ type: "leave" });
     await a.closed;
-    await f.next((m) => m.type === "roster" && !entry(m, "host").joined);
+    await f.next((m) => m.type === "roster" && !entry(m, "host").joined, fromF);
     const roster = lines.filter((l) => l.startsWith("roster: "));
     expect(roster).toEqual(expect.arrayContaining(["roster: host joined", "roster: host connected", "roster: host consented", "roster: p2 joined", "roster: host left"]));
-    for (const l of roster) expect(l).toMatch(/^roster: \S+ (joined|consented|connected|left)$/);
+    expect(roster.filter((l) => l === "roster: host consented")).toHaveLength(1);
+    for (const l of roster) expect(l).toMatch(/^roster: \S+ (joined|consented|connected|left|withdrew)$/);
     expect(lines.join("\n")).not.toContain("QZXNAME");
   });
 });

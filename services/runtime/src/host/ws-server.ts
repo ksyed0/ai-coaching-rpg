@@ -164,7 +164,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
       c.send(c.facilitator ? { type: "roster", audience: "facilitator", entries: roster.facilitator } : { type: "roster", audience: "peers", entries: roster.peers });
     }
   };
-  const rosterChanged = (role: string, state: "joined" | "consented" | "connected" | "left") => log(`roster: ${role} ${state}`);
+  const rosterChanged = (role: string, state: "joined" | "consented" | "connected" | "left" | "withdrew") => log(`roster: ${role} ${state}`);
   // The end of the session revokes every credential (and so every name) inside the host; the room is told once that has happened.
   const unsubscribeEnd = [...opts.hosts].map(([sessionId, h]) => (h as Partial<SessionHost>).subscribe?.((e) => { if (e.type === "session.ended") broadcastRoster(sessionId, h); }) ?? (() => undefined));
 
@@ -375,16 +375,17 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
           holderKey = null;
           dropCounted = true; // frames still queued on a socket that left are not login attempts
           shut(1000, m.type === "leave" ? "left" : "withdrew");
-          rosterChanged(who, "left");
+          rosterChanged(who, m.type === "leave" ? "left" : "withdrew");
           broadcastRoster(liveEntry!.sessionId, host);
           return;
         }
         if (m.type === "consent") {
           if (isFacilitator || !participantId) return fail("forbidden", "only a player may give or withdraw consent");
           // US-0054: refusals (consent_version, already_started, bad_message, not_joined) come back as HostError through the catch below.
+          const had = host.consentGiven(who, participantId);
           host.giveConsent(who, participantId, m.noticeVersion);
-          rosterChanged(who, "consented");
-          broadcastRoster(liveEntry!.sessionId, host);
+          // A repeat from a player who already agreed changes nothing, so it is neither logged nor broadcast.
+          if (!had) { rosterChanged(who, "consented"); broadcastRoster(liveEntry!.sessionId, host); }
           return;
         }
         if (m.type === "start") {
