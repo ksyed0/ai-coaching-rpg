@@ -1,7 +1,8 @@
 import type { IncomingMessage } from "node:http";
 import net from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
-import type { SetTimer } from "../runtime-connection";
+import type { RuntimeConnection, SetTimer } from "../runtime-connection";
+import type { ClientMessage, ServerMessage } from "../wire";
 
 // Test doubles shared by the connection and hub tests: a scripted runtime on a real socket, manual timers and an SSE recorder.
 
@@ -49,12 +50,9 @@ export function manualTimers() {
 }
 
 export type SseFrame = { id?: string; event?: string; data?: any; comment?: string };
-/** Collects what a hub writes and parses it as an SSE stream. */
-export function sseRecorder() {
-  const chunks: string[] = [];
-  let ends = 0;
-  const out = { write: (c: string) => { if (ends > 0) throw new Error("write after end"); chunks.push(c); return true; }, end: () => { ends++; } };
-  const frames = (): SseFrame[] => chunks.join("").split("\n\n").filter((b) => b !== "").map((block) => {
+/** Parses SSE text into frames (a `retry:` line reads as the event `retry:<ms>`). */
+export function parseSse(text: string): SseFrame[] {
+  return text.split("\n\n").filter((b) => b !== "").map((block) => {
     const f: SseFrame = {};
     for (const line of block.split("\n")) {
       if (line.startsWith(":")) f.comment = line.slice(1).trim();
@@ -65,8 +63,62 @@ export function sseRecorder() {
     }
     return f;
   });
+}
+/** Collects what a hub writes and parses it as an SSE stream. */
+export function sseRecorder() {
+  const chunks: string[] = [];
+  let ends = 0;
+  const out = { write: (c: string) => { if (ends > 0) throw new Error("write after end"); chunks.push(c); return true; }, end: () => { ends++; } };
+  const frames = (): SseFrame[] => parseSse(chunks.join(""));
   return { out, chunks, frames, ends: () => ends, events: () => frames().filter((f) => f.event === "event").map((f) => f.data) };
 }
+
+/** Reads a streaming Response body as it arrives (an EventSource in a test). `cancel` is the browser going away. */
+export function sseReader(res: Response) {
+  let text = "";
+  let done = false;
+  const reader = res.body!.getReader();
+  const dec = new TextDecoder();
+  const pump = (async () => {
+    for (;;) {
+      let r: ReadableStreamReadResult<Uint8Array>;
+      try { r = await reader.read(); } catch { done = true; return; }
+      if (r.done) { done = true; return; }
+      text += dec.decode(r.value, { stream: true });
+    }
+  })();
+  return {
+    text: () => text, done: () => done, frames: () => parseSse(text), finished: pump,
+    events: () => parseSse(text).filter((f) => f.event === "event").map((f) => f.data),
+    cancel: () => reader.cancel(),
+  };
+}
+
+/** A scripted runtime connection: the test pushes frames and closes; what the hub sends is recorded. */
+let fakeJoins = 0;
+export class FakeConn {
+  /** Like RuntimeConnection.joinOrder: each fake "joined" after the previous one. */
+  joinOrder = ++fakeJoins;
+  sent: ClientMessage[] = [];
+  closed = 0;
+  private frameFns = new Set<(m: ServerMessage) => void>();
+  private closeFns = new Set<(code: number) => void>();
+  private code: number | null = null;
+  /** Answers each sent message (an error frame, say), like the runtime would, after the send returns. */
+  answer: ((m: ClientMessage) => ServerMessage | null) | null = null;
+  /** Like a socket that received the runtime's close frame but has not emitted 'close' yet. */
+  closing = false;
+  get isOpen() { return this.code === null && this.closed === 0 && !this.closing; }
+  get closeCode() { return this.code; }
+  send(m: ClientMessage) { if (!this.isOpen) throw new Error("closed"); this.sent.push(m); const a = this.answer?.(m); if (a) queueMicrotask(() => this.emit(a)); }
+  onFrame(fn: (m: ServerMessage) => void) { this.frameFns.add(fn); return () => { this.frameFns.delete(fn); }; }
+  onClose(fn: (code: number) => void) { if (this.code !== null) { fn(this.code); return () => {}; } this.closeFns.add(fn); return () => { this.closeFns.delete(fn); }; }
+  close() { this.closed++; }
+  emit(m: ServerMessage) { for (const fn of [...this.frameFns]) fn(m); }
+  drop(code: number) { this.code = code; for (const fn of [...this.closeFns]) fn(code); }
+  listeners() { return this.frameFns.size + this.closeFns.size; }
+}
+export const asConn = (c: FakeConn) => c as unknown as RuntimeConnection;
 
 /**
  * A TCP proxy to `port` whose runtime-to-client direction can be held: while held, bytes (and the runtime's end of the connection)

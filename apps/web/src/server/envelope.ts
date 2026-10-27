@@ -8,12 +8,16 @@ function respond(body: unknown, status: number, init?: ResponseInit): Response {
   // Set last: caller headers (Set-Cookie, Retry-After) are kept but cannot make a credential-bearing response cacheable.
   headers.set("Cache-Control", "no-store");
   headers.set("Content-Type", "application/json");
+  // Every API answer is private (web spec section 8): never indexed, whatever the caller passed.
+  headers.set("X-Robots-Tag", "noindex, nofollow");
   let text: string;
   try {
     text = JSON.stringify(body);
   } catch {
     // Unserialisable data (BigInt, cycle) must not escape as a throw or a malformed envelope.
     text = JSON.stringify({ success: false, data: null, error: { code: "internal", message: "Internal error." }, meta: meta() });
+    // The caller's cookie belonged to the answer that failed: a 500 must not sign anyone in (or out).
+    headers.delete("Set-Cookie");
     return new Response(text, { ...init, status: 500, headers });
   }
   return new Response(text, { ...init, status, headers });

@@ -50,4 +50,18 @@ describe("envelope", () => {
       expect(res.headers.get("Cache-Control")).toBe("no-store");
     }
   });
+
+  it("the 500 envelope never carries a caller-supplied Set-Cookie header", async () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    const res = ok(circular, { headers: { "Set-Cookie": "__Host-scenecoach=SEALED; Path=/" } });
+    expect(res.status).toBe(500);
+    expect(res.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  it("every envelope tells crawlers not to index or follow it", () => {
+    expect(ok({}).headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    expect(fail(400, "bad_request", "No.").headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    expect(ok({}, { headers: { "X-Robots-Tag": "all" } }).headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+  });
 });

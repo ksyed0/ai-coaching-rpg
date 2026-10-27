@@ -4,35 +4,10 @@ import { initPlayerView } from "@acr/events";
 import { RuntimeConnection } from "../runtime-connection";
 import { NoStreamError, StreamHub, type SessionCookie } from "../stream-hub";
 import type { ClientMessage, JoinedFrame, ServerMessage } from "../wire";
-import { fakeRuntime, manualTimers, sseRecorder, until } from "./fakes";
+import { asConn, FakeConn, fakeRuntime, manualTimers, sseRecorder, until } from "./fakes";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
-/** A scripted runtime connection: the test pushes frames and closes; what the hub sends is recorded. */
-let fakeJoins = 0;
-class FakeConn {
-  /** Like RuntimeConnection.joinOrder: each fake "joined" after the previous one. */
-  joinOrder = ++fakeJoins;
-  sent: ClientMessage[] = [];
-  closed = 0;
-  private frameFns = new Set<(m: ServerMessage) => void>();
-  private closeFns = new Set<(code: number) => void>();
-  private code: number | null = null;
-  /** Answers each sent message (an error frame, say), like the runtime would, after the send returns. */
-  answer: ((m: ClientMessage) => ServerMessage | null) | null = null;
-  /** Like a socket that received the runtime's close frame but has not emitted 'close' yet. */
-  closing = false;
-  get isOpen() { return this.code === null && this.closed === 0 && !this.closing; }
-  get closeCode() { return this.code; }
-  send(m: ClientMessage) { if (!this.isOpen) throw new Error("closed"); this.sent.push(m); const a = this.answer?.(m); if (a) queueMicrotask(() => this.emit(a)); }
-  onFrame(fn: (m: ServerMessage) => void) { this.frameFns.add(fn); return () => { this.frameFns.delete(fn); }; }
-  onClose(fn: (code: number) => void) { if (this.code !== null) { fn(this.code); return () => {}; } this.closeFns.add(fn); return () => { this.closeFns.delete(fn); }; }
-  close() { this.closed++; }
-  emit(m: ServerMessage) { for (const fn of [...this.frameFns]) fn(m); }
-  drop(code: number) { this.code = code; for (const fn of [...this.closeFns]) fn(code); }
-  listeners() { return this.frameFns.size + this.closeFns.size; }
-}
-const asConn = (c: FakeConn) => c as unknown as RuntimeConnection;
 
 const state = (lastSeq: number) => ({ lastSeq, status: "running", paused: false, pausedSince: null, currentScene: null, transcript: [{ seq: 2, ts: 2, roleId: "delivery_lead", text: "hi", sceneId: null, channel: "room" }] }) as unknown as JoinedFrame["state"];
 const joinedFrame = (o: Partial<JoinedFrame> = {}): JoinedFrame => ({

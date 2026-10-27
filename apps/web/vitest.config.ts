@@ -11,8 +11,9 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**"],
-      // Files the Next framework executes (pages, layouts, route handlers, middleware) are covered by e2e; logic in src/server and src/lib is gated.
-      exclude: ["src/app/**", "src/middleware.ts", "src/**/*.test.{ts,tsx}", "src/**/__tests__/**"],
+      // Files the Next framework executes (pages, layouts, route files) are covered by e2e; logic in src/server and src/lib is gated.
+      // src/proxy.ts (Next 16's middleware) is measured: headers.test.ts runs it.
+      exclude: ["src/app/**", "src/**/*.test.{ts,tsx}", "src/**/__tests__/**"],
       thresholds: { lines: 80 },
     },
   },
