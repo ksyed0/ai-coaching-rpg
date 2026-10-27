@@ -8,13 +8,21 @@ function respond(body: unknown, status: number, init?: ResponseInit): Response {
   // Set last: caller headers (Set-Cookie, Retry-After) are kept but cannot make a credential-bearing response cacheable.
   headers.set("Cache-Control", "no-store");
   headers.set("Content-Type", "application/json");
-  return new Response(JSON.stringify(body), { ...init, status, headers });
+  let text: string;
+  try {
+    text = JSON.stringify(body);
+  } catch {
+    // Unserialisable data (BigInt, cycle) must not escape as a throw or a malformed envelope.
+    text = JSON.stringify({ success: false, data: null, error: { code: "internal", message: "Internal error." }, meta: meta() });
+    return new Response(text, { ...init, status: 500, headers });
+  }
+  return new Response(text, { ...init, status, headers });
 }
 
-const meta = () => ({ version: "1.0", timestamp: clock().toISOString() });
+function meta() { return { version: "1.0", timestamp: clock().toISOString() }; }
 
 export function ok<T>(data: T, init?: ResponseInit): Response {
-  return respond({ success: true, data, error: null, meta: meta() }, init?.status ?? 200, init);
+  return respond({ success: true, data: data ?? null, error: null, meta: meta() }, init?.status ?? 200, init);
 }
 
 export function fail(status: number, code: string, message: string, init?: ResponseInit): Response {

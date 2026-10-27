@@ -64,4 +64,13 @@ describe("loadConfig", () => {
     const c = loadConfig({ ...base(), COOKIE_KEYS: Array.from({ length: 8 }, (_, i) => `k${i}:${key()}`).join(",") });
     expect(c.cookieKeys).toHaveLength(8);
   });
+
+  it("trims spaces around entries, ids and keys", () => {
+    const c = loadConfig({ ...base(), COOKIE_KEYS: ` a : ${key()} , b:${key()} ` });
+    expect(c.cookieKeys.map((k) => k.id)).toEqual(["a", "b"]);
+  });
+
+  it("still rejects an empty entry from a trailing comma", () => {
+    expect(() => loadConfig({ ...base(), COOKIE_KEYS: `a:${key()},` })).toThrow(/COOKIE_KEYS/);
+  });
 });

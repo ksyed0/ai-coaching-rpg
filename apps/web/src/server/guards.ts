@@ -12,6 +12,7 @@ export function checkFetchSite(req: Request): boolean {
 
 const MAX_ADDRESS_CHARS = 64;
 
+// Absent header gives "unknown", one shared throttle key: this assumes a trusted proxy that always appends X-Forwarded-For.
 /** The LAST X-Forwarded-For entry: the one our own proxy appended; earlier entries are client-supplied. */
 export function clientAddress(req: Request): string {
   const raw = req.headers.get("X-Forwarded-For");

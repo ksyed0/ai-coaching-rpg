@@ -32,4 +32,22 @@ describe("envelope", () => {
     expect(ok({}, { status: 201 }).status).toBe(201);
     expect(fail(429, "throttled", "Slow down.", { headers: { "Retry-After": "5" } }).headers.get("Retry-After")).toBe("5");
   });
+
+  it("ok(undefined) keeps the data key as null", async () => {
+    const body = await ok(undefined).json();
+    expect(body).toHaveProperty("data", null);
+    expect(body.success).toBe(true);
+  });
+
+  it("data that cannot be serialised becomes an internal-error envelope instead of throwing", async () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    for (const bad of [circular, 10n]) {
+      const res = ok(bad);
+      expect(res.status).toBe(500);
+      const body = await res.json();
+      expect(body).toMatchObject({ success: false, data: null, error: { code: "internal" } });
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+    }
+  });
 });

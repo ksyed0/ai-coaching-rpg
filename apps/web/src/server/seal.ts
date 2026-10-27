@@ -26,6 +26,11 @@ export function seal(payload: unknown, keys: Keys, now: number): string {
   return token;
 }
 
+function canonical(part: string): Buffer | null {
+  const buf = Buffer.from(part, "base64url");
+  return buf.toString("base64url") === part ? buf : null;
+}
+
 /** Null for anything that is not a live token sealed with one of `keys`. Never throws. */
 export function unseal<T>(token: string, keys: Keys, now: number): T | null {
   try {
@@ -35,13 +40,15 @@ export function unseal<T>(token: string, keys: Keys, now: number): T | null {
     const [id, n, c, t] = parts as [string, string, string, string];
     const key = keys.find((k) => k.id === id);
     if (!key) return null;
-    const nonce = Buffer.from(n, "base64url");
-    const tag = Buffer.from(t, "base64url");
-    if (nonce.length !== NONCE_BYTES || tag.length !== TAG_BYTES) return null;
+    // Canonical encoding only: Buffer.from skips junk and accepts other spellings, which would make one token many.
+    const nonce = canonical(n);
+    const tag = canonical(t);
+    const ct = canonical(c);
+    if (!nonce || !tag || !ct || nonce.length !== NONCE_BYTES || tag.length !== TAG_BYTES) return null;
     const decipher = createDecipheriv("aes-256-gcm", key.key, nonce, { authTagLength: TAG_BYTES });
     decipher.setAAD(Buffer.from(id, "utf8"));
     decipher.setAuthTag(tag);
-    const plain = Buffer.concat([decipher.update(Buffer.from(c, "base64url")), decipher.final()]).toString("utf8");
+    const plain = Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
     const value: unknown = JSON.parse(plain);
     if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
     const expiresAt = (value as { expiresAt?: unknown }).expiresAt;

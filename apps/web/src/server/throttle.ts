@@ -13,6 +13,7 @@ const fold = (s: string, max: number): string => s.slice(0, max).replace(/[^A-Za
 export class JoinThrottle {
   private readonly entries = new Map<string, Entry>();
   private readonly maxKeys: number;
+  private saturatedUntil = 0;
 
   constructor(private readonly o: { max: number; windowMs: number; blockMs: number; now: () => number; maxKeys?: number }) {
     this.maxKeys = o.maxKeys ?? DEFAULT_MAX_KEYS;
@@ -32,7 +33,11 @@ export class JoinThrottle {
     // A failure while blocked is not counted: it must not extend the block.
     if (e && e.blockedUntil > now) return;
     if (!e) {
-      if (this.entries.size >= this.maxKeys) this.makeRoom(now);
+      if (this.entries.size >= this.maxKeys && !this.makeRoom(now)) {
+        // Every slot holds an active block. Evicting one would let a flood of new keys lift it, so fail closed instead.
+        this.saturatedUntil = now + this.o.blockMs;
+        return;
+      }
       e = { count: 0, windowStart: now, blockedUntil: 0 };
       this.entries.set(k, e);
     }
@@ -41,18 +46,18 @@ export class JoinThrottle {
   }
 
   blockedForMs(ip: string, role: string): number {
+    const now = this.o.now();
     const e = this.entries.get(this.key(ip, role));
-    if (!e) return 0;
-    return Math.max(0, e.blockedUntil - this.o.now());
+    // An untracked pair is blocked while the table is saturated by blocks: memory stays bounded and no block can be flushed out.
+    if (!e) return Math.max(0, this.saturatedUntil - now);
+    return Math.max(0, e.blockedUntil - now);
   }
 
-  private makeRoom(now: number): void {
-    for (const [k, e] of this.entries) if (!this.live(e, now)) this.entries.delete(k);
-    // Map iterates in insertion order, so the first key is the oldest.
-    while (this.entries.size >= this.maxKeys) {
-      const oldest = this.entries.keys().next();
-      if (oldest.done) break;
-      this.entries.delete(oldest.value);
+  /** Evict the oldest entry that is not currently blocked (insertion order); stops at the first one. False when all are blocked. */
+  private makeRoom(now: number): boolean {
+    for (const [k, e] of this.entries) {
+      if (e.blockedUntil <= now) { this.entries.delete(k); return true; }
     }
+    return false;
   }
 }

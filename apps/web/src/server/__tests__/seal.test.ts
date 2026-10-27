@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { randomBytes } from "node:crypto";
+import { createCipheriv, randomBytes } from "node:crypto";
 import { seal, unseal } from "../seal";
 
 const mk = (id: string) => ({ id, key: randomBytes(32) });
@@ -66,6 +66,23 @@ describe("seal / unseal", () => {
     expect(unseal(seal(payload, rotated, NOW), [oldKey], NOW)).toBeNull();
   });
 
+  it("tokens are not malleable: trailing junk, padding and the +/ spelling are refused", () => {
+    const keys = [mk("k1")];
+    const token = seal(payload, keys, NOW);
+    const [id, n, c, t] = token.split(".") as [string, string, string, string];
+    expect(unseal(token + "!", keys, NOW)).toBeNull();
+    expect(unseal(`${id}.${n}.${c}.${t}=`, keys, NOW)).toBeNull();
+    expect(unseal(`${id}.${n}.${c}!.${t}`, keys, NOW)).toBeNull();
+    expect(unseal(`${id}.${n}!.${c}.${t}`, keys, NOW)).toBeNull();
+    // Re-spell with the standard alphabet: same bytes, different text.
+    const std = (x: string) => Buffer.from(x, "base64url").toString("base64");
+    const respelled = [id, std(n), std(c), std(t)].join(".");
+    if (respelled !== token) expect(unseal(respelled, keys, NOW)).toBeNull();
+    // Non-canonical final character (spare low bits set) decodes to the same bytes.
+    const alt = t.slice(0, -1) + "BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"[("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".indexOf(t.slice(-1)) + 1) % 64];
+    if (alt !== t && Buffer.from(alt, "base64url").equals(Buffer.from(t, "base64url"))) expect(unseal(`${id}.${n}.${c}.${alt}`, keys, NOW)).toBeNull();
+  });
+
   it("returns null, never throws, for malformed input", () => {
     const keys = [mk("k1")];
     const token = seal(payload, keys, NOW);
@@ -101,7 +118,6 @@ describe("seal / unseal", () => {
   });
 });
 
-import { createCipheriv } from "node:crypto";
 function forge(id: string, key: Buffer, plaintext: string): string {
   const nonce = randomBytes(12);
   const c = createCipheriv("aes-256-gcm", key, nonce);

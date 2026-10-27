@@ -60,7 +60,7 @@ describe("JoinThrottle", () => {
   });
 
   it("bounds tracked keys: attacker-chosen roles evict the oldest, memory stays capped", () => {
-    const { th } = make({ maxKeys: 50 } as never);
+    const { th } = make({ maxKeys: 50 });
     for (let i = 0; i < 500; i++) th.fail("1.1.1.1", `role-${i}`);
     expect(th.size).toBeLessThanOrEqual(50);
   });
@@ -85,11 +85,39 @@ describe("JoinThrottle", () => {
     expect(th.blockedForMs("1.1.1.1", "bad")).toBe(0);
   });
 
-  it("sweeps expired entries so idle keys are released", () => {
-    const { th, clock } = make({ maxKeys: 10 } as never);
+  it("reuses the slot of an expired entry when the table is full", () => {
+    const { th, clock } = make({ maxKeys: 10 });
     for (let i = 0; i < 10; i++) th.fail("1.1.1.1", `r${i}`);
     clock.t = 120_000;
     th.fail("1.1.1.1", "fresh");
-    expect(th.size).toBe(1);
+    expect(th.size).toBe(10);
+    expect(th.blockedForMs("1.1.1.1", "fresh")).toBe(0);
+  });
+
+  it("a blocked pair stays blocked after a flood of new keys from the same and from other addresses", () => {
+    const { th } = make({ maxKeys: 20 });
+    failN(th, 6, "9.9.9.9", "R");
+    for (let i = 0; i < 21; i++) th.fail("9.9.9.9", `flood-${i}`);
+    for (let i = 0; i < 21; i++) th.fail(`8.8.8.${i}`, `flood-${i}`);
+    expect(th.blockedForMs("9.9.9.9", "R")).toBeGreaterThan(0);
+    expect(th.size).toBeLessThanOrEqual(20);
+  });
+
+  it("with every entry blocked a new key evicts nothing, stays bounded and fails closed", () => {
+    const { th, clock } = make({ maxKeys: 3 });
+    for (const r of ["a", "b", "c"]) failN(th, 6, "1.1.1.1", r);
+    th.fail("1.1.1.1", "new");
+    expect(th.size).toBe(3);
+    for (const r of ["a", "b", "c"]) expect(th.blockedForMs("1.1.1.1", r)).toBeGreaterThan(0);
+    expect(th.blockedForMs("1.1.1.1", "new")).toBeGreaterThan(0);
+    expect(th.blockedForMs("2.2.2.2", "other")).toBeGreaterThan(0);
+    clock.t = 60_000;
+    expect(th.blockedForMs("1.1.1.1", "new")).toBe(0);
+  });
+
+  it("max 0 blocks on the first failure", () => {
+    const { th } = make({ max: 0 });
+    th.fail("1.1.1.1", "r");
+    expect(th.blockedForMs("1.1.1.1", "r")).toBe(60_000);
   });
 });
