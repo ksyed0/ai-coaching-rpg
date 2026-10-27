@@ -9,7 +9,10 @@ import { fakeRuntime, manualTimers, sseRecorder, until } from "./fakes";
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 /** A scripted runtime connection: the test pushes frames and closes; what the hub sends is recorded. */
+let fakeJoins = 0;
 class FakeConn {
+  /** Like RuntimeConnection.joinOrder: each fake "joined" after the previous one. */
+  joinOrder = ++fakeJoins;
   sent: ClientMessage[] = [];
   closed = 0;
   private frameFns = new Set<(m: ServerMessage) => void>();
@@ -18,6 +21,7 @@ class FakeConn {
   /** Answers each sent message (an error frame, say), like the runtime would, after the send returns. */
   answer: ((m: ClientMessage) => ServerMessage | null) | null = null;
   get isOpen() { return this.code === null && this.closed === 0; }
+  get closeCode() { return this.code; }
   send(m: ClientMessage) { if (!this.isOpen) throw new Error("closed"); this.sent.push(m); const a = this.answer?.(m); if (a) queueMicrotask(() => this.emit(a)); }
   onFrame(fn: (m: ServerMessage) => void) { this.frameFns.add(fn); return () => { this.frameFns.delete(fn); }; }
   onClose(fn: (code: number) => void) { if (this.code !== null) { fn(this.code); return () => {}; } this.closeFns.add(fn); return () => { this.closeFns.delete(fn); }; }
@@ -83,7 +87,8 @@ describe("StreamHub SSE output", () => {
     conn.emit({ type: "error", code: "log_failed", message: "the server is stopping" });
     conn.emit({ type: "mystery", secret: "x" } as unknown as ServerMessage);
     conn.emit(joinedFrame());
-    expect(rec.frames().slice(2)).toEqual([{ event: "error", data: { code: "log_failed", message: "the server is stopping" } }]);
+    // The code goes through; the text is the BFF's own fixed sentence.
+    expect(rec.frames().slice(2)).toEqual([{ event: "error", data: { code: "log_failed", message: "the server reported an error" } }]);
   });
 });
 
@@ -160,7 +165,7 @@ describe("StreamHub endings: out.end() exactly once, timers cancelled, listeners
     const conn = new FakeConn();
     let ends = 0;
     let fail = false;
-    const out = { write: () => { if (fail) throw new Error("gone"); }, end: () => { ends++; } };
+    const out = { write: () => { if (fail) throw new Error("gone"); return true; }, end: () => { ends++; } };
     h.open(cookieFor(), "a", asConn(conn), joinedFrame(), out);
     fail = true;
     conn.emit({ type: "event", event: ev(6) });
@@ -198,7 +203,52 @@ describe("StreamHub one stream per participant", () => {
   });
 });
 
+describe("StreamHub: of two streams for one participant, the newest runtime join wins", () => {
+  it("an open whose connection joined EARLIER than the live stream's is itself superseded; the live stream is untouched", () => {
+    const { h, timers } = hub();
+    const a = new FakeConn(); // joined first: the runtime will kick it with 4001
+    const b = new FakeConn(); // joined second: the runtime's holder
+    const recB = sseRecorder();
+    const recA = sseRecorder();
+    h.open(cookieFor(), "x", asConn(b), joinedFrame(), recB.out);
+    const handleA = h.open(cookieFor(), "x", asConn(a), joinedFrame(), recA.out);
+    expect(recA.frames().map((f) => f.event)).toEqual(["superseded"]);
+    expect(recA.ends()).toBe(1);
+    expect(a.closed).toBe(1);
+    expect(recB.ends()).toBe(0);
+    expect(b.closed).toBe(0);
+    expect(timers.live()).toHaveLength(1);
+    if (handleA !== "capacity") handleA.close();
+    b.emit({ type: "event", event: ev(8) });
+    expect(recB.events().map((e) => e.seq)).toEqual([8]);
+  });
+
+  it("an open on a connection that already closed ends at once (superseded for 4001, else reconnecting) and leaves the live stream alone", () => {
+    const { h } = hub();
+    const live = opened(h);
+    for (const [code, event] of [[4001, "superseded"], [1006, "reconnecting"]] as const) {
+      const conn = new FakeConn();
+      conn.drop(code);
+      const rec = sseRecorder();
+      h.open(cookieFor(), "x", asConn(conn), joinedFrame(), rec.out);
+      expect(rec.frames().map((f) => f.event)).toEqual([event]);
+      expect(rec.ends()).toBe(1);
+    }
+    expect(live.rec.ends()).toBe(0);
+    expect(live.conn.closed).toBe(0);
+  });
+});
+
 describe("StreamHub capacity", () => {
+  it("hasCapacity tells the route before it connects, without reserving anything", () => {
+    const { h } = hub({ maxStreams: 1 });
+    expect(h.hasCapacity(cookieFor("a"), "x")).toBe(true);
+    expect(h.hasCapacity(cookieFor("a"), "x")).toBe(true);
+    opened(h, { cookie: cookieFor("a") });
+    expect(h.hasCapacity(cookieFor("b"), "x")).toBe(false);
+    expect(h.hasCapacity(cookieFor("a"), "x")).toBe(true); // its own stream would be replaced
+  });
+
   it("capacity is returned past the global, per-session and per-address caps", () => {
     const capped = (o: Partial<ConstructorParameters<typeof StreamHub>[0]>, opens: { participant: string; session?: string; address?: string }[]) => {
       const { h, timers } = hub(o);
@@ -245,7 +295,101 @@ describe("StreamHub capacity", () => {
   });
 });
 
+describe("StreamHub backpressure and expiry", () => {
+  it("a consumer that stops taking chunks past maxPendingBytes is ended with reconnecting; one that drains is not", () => {
+    const { h } = hub({ maxPendingBytes: 1_200 }); // each chunk below is about 510 bytes
+    const conn = new FakeConn();
+    const chunks: string[] = [];
+    let taking = true; let ends = 0;
+    const out = { write: (c: string) => { chunks.push(c); return taking; }, end: () => { ends++; } };
+    h.open(cookieFor(), "x", asConn(conn), joinedFrame(), out);
+    const big = (seq: number) => ({ type: "event" as const, event: { ...ev(seq), text: "x".repeat(400) } });
+    taking = false;
+    conn.emit(big(6)); conn.emit(big(7));
+    taking = true;
+    conn.emit(big(8)); // drained: the estimate starts again
+    taking = false;
+    conn.emit(big(9)); conn.emit(big(10));
+    expect(ends).toBe(0);
+    conn.emit(big(11));
+    expect(ends).toBe(1);
+    expect(chunks.at(-1)).toContain("event: reconnecting");
+    expect(conn.closed).toBe(1);
+  });
+
+  it("the stream ends with expired at the first heartbeat after the cookie's expiry (injected clock)", () => {
+    let t = 1_000;
+    const { h, timers } = hub({ now: () => t });
+    const { rec, conn } = opened(h, { cookie: cookieFor("p-1", { expiresAt: 20_000 }) });
+    timers.fire(15_000);
+    expect(rec.ends()).toBe(0);
+    t = 20_000;
+    timers.fire(15_000);
+    expect(rec.frames().at(-1)!.event).toBe("expired");
+    expect(rec.ends()).toBe(1);
+    expect(conn.closed).toBe(1);
+    expect(timers.live()).toEqual([]);
+  });
+});
+
 describe("StreamHub send", () => {
+  it("send refuses message types other than say, consent, withdraw_consent and leave, without echoing anything", async () => {
+    const { h } = hub();
+    const { conn } = opened(h);
+    for (const m of [
+      { type: "join", sessionId: "s1", roleId: "delivery_lead", participantId: "p-1", credential: "SECRET-CRED" },
+      { type: "join_facilitator", sessionId: "s1", token: "SECRET-TOKEN" },
+      { type: "start" },
+    ]) {
+      const err = await h.send(cookieFor(), m as unknown as ClientMessage).then(() => null, (e: unknown) => e as Error);
+      expect(err).toBeInstanceOf(Error);
+      expect(err).not.toBeInstanceOf(NoStreamError);
+      expect(err!.message).not.toMatch(/SECRET|join|start/);
+    }
+    expect(conn.sent).toEqual([]);
+  });
+
+  it("two concurrent sends each get their own answer (they run one at a time)", async () => {
+    const { h, timers } = hub();
+    const { conn } = opened(h);
+    conn.answer = (m) => (m.type === "say" ? { type: "error", code: "not_started", message: "not_started" } : null);
+    const consent = h.send(cookieFor(), { type: "consent", noticeVersion: "v1" });
+    const say = h.send(cookieFor(), { type: "say", text: "hi" });
+    await until(() => conn.sent.length === 1);
+    expect(conn.sent).toEqual([{ type: "consent", noticeVersion: "v1" }]); // the say waits for the consent's window
+    timers.fire(300);
+    expect(await consent).toBeNull();
+    expect(await say).toMatchObject({ code: "not_started" });
+  });
+
+  it("an unsolicited log_failed during a wait reaches the SSE output and not the waiter", async () => {
+    const { h, timers } = hub();
+    const { conn, rec } = opened(h);
+    const p = h.send(cookieFor(), { type: "say", text: "hi" });
+    await until(() => conn.sent.length === 1);
+    conn.emit({ type: "error", code: "log_failed", message: "stopping" });
+    conn.emit({ type: "error", code: "rate_limited", message: "slow down" });
+    timers.fire(300);
+    expect(await p).toBeNull();
+    expect(rec.frames().filter((f) => f.event === "error").map((f) => f.data.code)).toEqual(["log_failed", "rate_limited"]);
+  });
+
+  // Regression guard: passes before and after the serialised sends (an error with no waiter has always gone to the stream).
+  it("a late error (after its send's wait) is not handed to the next send", async () => {
+    const { h, timers } = hub();
+    const { conn, rec } = opened(h);
+    const first = h.send(cookieFor(), { type: "consent", noticeVersion: "v1" });
+    await until(() => conn.sent.length === 1);
+    timers.fire(300);
+    expect(await first).toBeNull();
+    conn.emit({ type: "error", code: "consent_version", message: "late" }); // the first send's answer, too late
+    const second = h.send(cookieFor(), { type: "consent", noticeVersion: "v1" });
+    await until(() => conn.sent.length === 2);
+    timers.fire(300);
+    expect(await second).toBeNull();
+    expect(rec.frames().filter((f) => f.event === "error").map((f) => f.data.code)).toEqual(["consent_version"]);
+  });
+
   it("send with no stream open throws NoStreamError", async () => {
     const { h } = hub();
     await expect(h.send(cookieFor(), { type: "leave" })).rejects.toBeInstanceOf(NoStreamError);

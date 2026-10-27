@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
-import { RuntimeConnection, RuntimeError } from "../runtime-connection";
+import { MAX_QUEUED_FRAMES, RuntimeConnection, RuntimeError } from "../runtime-connection";
 import type { ServerMessage } from "../wire";
 import { fakeRuntime, manualTimers, until } from "./fakes";
 
@@ -105,8 +105,12 @@ describe("RuntimeConnection", () => {
     expect(c.isOpen).toBe(false);
   });
 
-  it.each([[1008, "unauthorized"], [4001, "superseded"], [1011, "unavailable"]])("a close %i before joined rejects with %s", async (closeCode, expected) => {
-    const rt = await runtime((ws, m) => { if (m.type === "join") ws.close(closeCode, "x"); });
+  // A bare 1008 is the runtime's join timeout or queue cap (load), not a refused credential: a later task deletes the cookie on unauthorized.
+  it.each([
+    [1008, "unauthorized", "unauthorized"], [1008, "join timeout", "unavailable"], [1008, "too many queued messages", "unavailable"],
+    [4001, "superseded", "superseded"], [1011, "x", "unavailable"],
+  ])("a close %i (%s) before joined rejects with %s", async (closeCode, reason, expected) => {
+    const rt = await runtime((ws, m) => { if (m.type === "join") ws.close(closeCode, reason); });
     const c = await connect(rt.url);
     expect((await rejection(c.joinWithCredential({ ...ids, credential: "k".repeat(32) }))).code).toBe(expected);
   });
@@ -187,6 +191,46 @@ describe("RuntimeConnection", () => {
     c.close();
     await rt.closed();
     expect(c.isOpen).toBe(false);
+  });
+
+  it("joinOrder records the order in which joins resolved; closeCode the runtime's close code", async () => {
+    const rt = await runtime((ws, m) => { if (m.type === "join") send(ws, { type: "joined", roleId: m.roleId, state: state(0) }); });
+    const a = await connect(rt.url);
+    const b = await connect(rt.url);
+    expect(a.joinOrder).toBe(0);
+    await b.joinWithCredential({ ...ids, credential: "k".repeat(32) });
+    await a.joinWithCredential({ ...ids, credential: "k".repeat(32) });
+    expect(a.joinOrder).toBeGreaterThan(b.joinOrder);
+    expect(a.closeCode).toBeNull();
+    rt.sockets[0]!.close(4001, "superseded");
+    await until(() => a.closeCode !== null || b.closeCode !== null);
+    expect([a.closeCode, b.closeCode]).toContain(4001);
+  });
+
+  it("frames that pile up with nobody listening are bounded: past the cap the socket is dropped", async () => {
+    const rt = await runtime((ws, m) => {
+      if (m.type !== "join") return;
+      send(ws, { type: "joined", roleId: m.roleId, state: state(0) });
+      for (let i = 1; i <= MAX_QUEUED_FRAMES + 1; i++) send(ws, ev(i));
+    });
+    const c = await connect(rt.url);
+    await c.joinWithCredential({ ...ids, credential: "k".repeat(32) });
+    await until(() => !c.isOpen);
+    const seen: ServerMessage[] = [];
+    c.onFrame((m) => seen.push(m));
+    expect(seen).toEqual([]); // dropped, never delivered half
+    // Under the cap nothing is dropped (the replay case).
+    const rt2 = await runtime((ws, m) => {
+      if (m.type !== "join") return;
+      send(ws, { type: "joined", roleId: m.roleId, state: state(0) });
+      for (let i = 1; i <= 1000; i++) send(ws, ev(i));
+    });
+    const c2 = await connect(rt2.url);
+    await c2.joinWithCredential({ ...ids, credential: "k".repeat(32) });
+    const seen2: ServerMessage[] = [];
+    c2.onFrame((m) => seen2.push(m));
+    await until(() => seen2.length === 1000);
+    expect(c2.isOpen).toBe(true);
   });
 
   it("frames that are not JSON objects with a type are ignored", async () => {

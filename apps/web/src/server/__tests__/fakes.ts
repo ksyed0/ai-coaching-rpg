@@ -52,7 +52,7 @@ export type SseFrame = { id?: string; event?: string; data?: any; comment?: stri
 export function sseRecorder() {
   const chunks: string[] = [];
   let ends = 0;
-  const out = { write: (c: string) => { if (ends > 0) throw new Error("write after end"); chunks.push(c); }, end: () => { ends++; } };
+  const out = { write: (c: string) => { if (ends > 0) throw new Error("write after end"); chunks.push(c); return true; }, end: () => { ends++; } };
   const frames = (): SseFrame[] => chunks.join("").split("\n\n").filter((b) => b !== "").map((block) => {
     const f: SseFrame = {};
     for (const line of block.split("\n")) {

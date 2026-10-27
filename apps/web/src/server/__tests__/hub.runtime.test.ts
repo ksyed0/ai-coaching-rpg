@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +15,7 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 // Loaded by a computed path: tsc would otherwise type-check the runtime's sources under this app's settings (Next's ProcessEnv).
 const MAIN = fileURLToPath(new URL("../../../../../services/runtime/src/main.ts", import.meta.url));
+if (!existsSync(MAIN)) throw new Error(`hub.runtime.test.ts needs the runtime's entry point at ${MAIN}; it moved: update MAIN`);
 const SCENARIO = fileURLToPath(new URL("../../../../../scenarios/friday-escalation", import.meta.url));
 type Host = { assignments: Record<string, string>; idle(): Promise<void>; consentGiven(roleId: string, participantId: string): boolean; replayFor(who: string, afterSeq: number): { complete: boolean; events: { seq: number }[] } };
 type Bootstrap = (o: { env: Record<string, string>; root: string; logDir: string; tickMs: number; log: (m: string) => void; warn: (m: string) => void; showJoinCodes: (c: { roleId: string; code: string }[]) => void }) =>
@@ -172,6 +174,31 @@ describe("RuntimeConnection and StreamHub against the real runtime", () => {
     expect(runtime!.host.assignments.delivery_lead).toBe(cookie.participantId);
   });
 
+  it("two tabs whose joins resolve A then B but reach open B then A: B (the runtime's holder) keeps the stream", async () => {
+    const { cookie } = await joinByCode("delivery_lead");
+    const join = async () => {
+      const conn = await RuntimeConnection.connect(url(), ADDRESS.delivery_lead);
+      closers.push(() => conn.close());
+      return { conn, joined: await conn.joinWithCredential({ sessionId: SESSION, roleId: "delivery_lead", participantId: cookie.participantId, credential: cookie.credential, lastSeq: 0 }) };
+    };
+    const a = await join();
+    const b = await join(); // the runtime kicks A (4001)
+    const recA = sseRecorder(); const recB = sseRecorder();
+    const hb = hub.open(cookie, ADDRESS.delivery_lead, b.conn, b.joined, recB.out);
+    const ha = hub.open(cookie, ADDRESS.delivery_lead, a.conn, a.joined, recA.out);
+    expect(hb).not.toBe("capacity");
+    if (ha !== "capacity") closers.push(() => ha.close());
+    await until(() => recA.ends() === 1);
+    expect(recA.frames().at(-1)!.event).toBe("superseded");
+    expect(recB.ends()).toBe(0);
+    expect(b.conn.isOpen).toBe(true);
+    expect(runtime!.host.assignments.delivery_lead).toBe(cookie.participantId);
+    // B still works end to end.
+    expect(await hub.send(cookie, { type: "consent", noticeVersion: b.joined.consent!.noticeVersion })).toBeNull();
+    expect(runtime!.host.consentGiven("delivery_lead", cookie.participantId)).toBe(true);
+    if (hb !== "capacity") hb.close();
+  });
+
   it("closing the output (request abort) closes the runtime socket", async () => {
     const { cookie } = await joinByCode("delivery_lead");
     const s = await openStream(cookie);
@@ -203,30 +230,42 @@ describe("RuntimeConnection and StreamHub against the real runtime", () => {
     await until(() => dl.stream.rec.events().some((e) => e.type === "scene.entered" && e.sceneId === "s3_internal_wrap"));
     await runtime!.host.idle();
     fac.send({ type: "command", command: { command: "advance" } });
-    await until(() => dl.stream.rec.ends() === 1);
-    expect(dl.stream.rec.frames().at(-1)!.event).toBe("ended");
+    for (const r of PLAYERS) {
+      await until(() => seats[r].stream.rec.ends() === 1);
+      expect(seats[r].stream.rec.frames().at(-1)!.event).toBe("ended");
+    }
 
-    const text = dl.stream.rec.chunks.join("");
-    const forbidden = [
-      "Would accept a phased delivery after go-live", // client_sponsor's hidden fact (released to the AI character only)
-      "WHISPER-ONLY-FOR-TECH-LEAD",
-      // other roles' briefs and private facts
-      "You own the architecture", "ingestion layer", "half the effort", "puts the go-live date at",
-      "You own price, commercial terms", "three times this programme", "renewal decision maker",
-      // secrets: every join code (as issued and as typed), every credential and reconnect token, the client addresses
+    // Every player's whole SSE output, and what the facilitator legitimately saw (raw runtime frames).
+    const streamOf = (r: Player) => seats[r].stream.rec.chunks.join("");
+    const facText = JSON.stringify(fac.inbox);
+    // Each marker is checked where it may appear (so the scan can fail: the string really exists in this session) and where it may not.
+    const OWN: Record<Player, string[]> = {
+      delivery_lead: ["You run the programme day to day", "6 person-weeks", "2,400 per person-day"],
+      tech_lead: ["You own the architecture", "ingestion layer", "half the effort", "puts the go-live date at", "WHISPER-ONLY-FOR-TECH-LEAD"],
+      account_manager: ["You own price, commercial terms", "three times this programme", "renewal decision maker"],
+    };
+    for (const owner of PLAYERS) {
+      for (const marker of OWN[owner]) {
+        expect(streamOf(owner), `${owner} lacks its own ${marker.slice(0, 30)}`).toContain(marker);
+        for (const other of PLAYERS.filter((r) => r !== owner)) expect(streamOf(other), `${other} saw ${owner}'s ${marker.slice(0, 30)}`).not.toContain(marker);
+      }
+    }
+    // Facilitator-only: present in the facilitator's frames, absent from every player stream.
+    const FACILITATOR_ONLY = ["Would accept a phased delivery after go-live" /* client_sponsor's hidden fact */, "hiddenFacts", "\"npc.updated\"", "\"gm.no_verdict\""];
+    for (const marker of FACILITATOR_ONLY) expect(facText, `the facilitator never saw ${marker}`).toContain(marker);
+    // Secrets and fields no page may see. Each value below exists in this session (codes captured, credentials and tokens issued).
+    const secrets = [
       ...Object.values(codes).flatMap((c) => [c, typed(c)]),
       ...PLAYERS.flatMap((r) => [seats[r].cookie.credential, seats[r].stream.joined.reconnectToken!, seats[r].joined.reconnectToken!]),
       ...Object.values(ADDRESS),
-      // facilitator-only fields and event types; participant ids
-      "hiddenFacts", "reasoning", "\"npc.updated\"", "\"gm.decision\"", "\"gm.no_verdict\"", "\"gm.fact_earned\"", "\"facilitator.alert\"",
-      "\"credential\"", "\"reconnectToken\"", "-person",
+      "reasoning", "\"gm.decision\"", "\"gm.fact_earned\"", "\"facilitator.alert\"", "\"credential\"", "\"reconnectToken\"", "-person",
     ];
-    for (const s of forbidden) expect(text, `the stream leaked ${s.slice(0, 40)}`).not.toContain(s);
-    // Positive controls: the scan looked at a real stream.
-    expect(text).toContain("You run the programme day to day");
-    expect(text).toContain("Yes, before go-live is a risk.");
-    expect(text).toContain("session.ended");
-    expect(fac.inbox.some((m) => m.type === "event" && ["gm.decision", "gm.no_verdict"].includes(m.event.type))).toBe(true);
+    for (const v of PLAYERS.flatMap((r) => [seats[r].cookie.credential, seats[r].joined.reconnectToken!])) expect(v.length).toBeGreaterThanOrEqual(32);
+    for (const r of PLAYERS) {
+      for (const marker of [...FACILITATOR_ONLY, ...secrets]) expect(streamOf(r), `${r}'s stream leaked ${marker.slice(0, 40)}`).not.toContain(marker);
+      expect(streamOf(r)).toContain("session.ended");
+    }
+    expect(streamOf("delivery_lead")).toContain("Yes, before go-live is a risk."); // another player's line in a shared scene does arrive
   });
 });
 

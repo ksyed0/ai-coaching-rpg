@@ -24,7 +24,17 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 // The runtime's answer to a lastSeq past its last event starts with this (ws-server.ts BEYOND_HEAD); zod's lastSeq issues do too.
 const LAST_SEQ_REFUSAL = /^lastSeq\b/;
 
-const classifyClose = (code: number): string => (code === CLOSE_POLICY ? "unauthorized" : code === CLOSE_SUPERSEDED ? "superseded" : "unavailable");
+/** Bounds on the frames held before anyone listens (a replay is at most 1,000 events and 256 KiB on the runtime side). */
+export const MAX_QUEUED_FRAMES = 2_000;
+export const MAX_QUEUED_CHARS = 1024 * 1024;
+
+// A 1008 means a refused login only with the reason "unauthorized" (which the runtime sends after an `unauthorized` error frame). A bare
+// 1008 comes from the runtime's join timeout or queue cap, under load: the credential is fine, so it must not be reported as unauthorized.
+const classifyClose = (code: number, reason: string): string =>
+  code === CLOSE_POLICY && reason === "unauthorized" ? "unauthorized" : code === CLOSE_SUPERSEDED ? "superseded" : "unavailable";
+
+/** Order in which joins resolved, process-wide: the hub keeps the stream whose runtime join is newest (the runtime's current holder). */
+let joinCounter = 0;
 
 type PendingJoin = { resolve: (j: JoinedFrame) => void; reject: (e: RuntimeError) => void; cancel: () => void; retry: (() => void) | null };
 
@@ -33,13 +43,16 @@ export class RuntimeConnection {
   private readonly closeFns = new Set<(code: number) => void>();
   /** Frames that arrived while nobody listened (the replay right after `joined`, before the hub subscribes): delivered in order later. */
   private readonly queue: ServerMessage[] = [];
+  private queuedChars = 0;
   private pending: PendingJoin | null = null;
   private joinAttempted = false;
   private closedCode: number | null = null;
+  private closedReason = "";
+  private joinedOrder = 0;
 
   private constructor(private readonly ws: WebSocket, private readonly setTimer: SetTimer, private readonly timeoutMs: number) {
     ws.on("message", (d) => this.onMessage(d.toString()));
-    ws.on("close", (code) => this.onSocketClose(code));
+    ws.on("close", (code, reason) => this.onSocketClose(code, reason.toString()));
   }
 
   /** Opens the socket. `clientAddress` goes only into X-Forwarded-For (the runtime runs with TRUST_PROXY=1). */
@@ -70,6 +83,10 @@ export class RuntimeConnection {
   }
 
   get isOpen(): boolean { return this.closedCode === null && this.ws.readyState === WebSocket.OPEN; }
+  /** The runtime's close code once the socket has closed, else null. */
+  get closeCode(): number | null { return this.closedCode; }
+  /** When this connection's join resolved, relative to every other connection in the process (0: not joined). Larger is newer. */
+  get joinOrder(): number { return this.joinedOrder; }
 
   /** First join by code. The code goes through exactly as typed: the runtime normalises case, spaces and hyphens itself. */
   joinWithCode(a: { sessionId: string; roleId: string; participantId: string; joinCode: string; displayName: string }): Promise<JoinedFrame> {
@@ -87,7 +104,7 @@ export class RuntimeConnection {
 
   private join(msg: ClientMessage, fallback: ClientMessage | null = null): Promise<JoinedFrame> {
     if (this.joinAttempted) return Promise.reject(new RuntimeError("already_joined"));
-    if (!this.isOpen) return Promise.reject(new RuntimeError(this.closedCode === null ? "unavailable" : classifyClose(this.closedCode)));
+    if (!this.isOpen) return Promise.reject(new RuntimeError(this.closedCode === null ? "unavailable" : classifyClose(this.closedCode, this.closedReason)));
     this.joinAttempted = true;
     return new Promise((resolve, reject) => {
       const arm = () => this.setTimer(() => this.failJoin(new RuntimeError("unavailable")), this.timeoutMs);
@@ -115,7 +132,7 @@ export class RuntimeConnection {
     const frame = m as ServerMessage;
     const p = this.pending;
     if (p) {
-      if (frame.type === "joined") { this.pending = null; p.cancel(); p.resolve(frame); return; }
+      if (frame.type === "joined") { this.pending = null; p.cancel(); this.joinedOrder = ++joinCounter; p.resolve(frame); return; }
       if (frame.type === "error") {
         if (p.retry && frame.code === "bad_message" && LAST_SEQ_REFUSAL.test(frame.message)) { const retry = p.retry; p.retry = null; retry(); return; }
         this.failJoin(new RuntimeError(frame.code));
@@ -123,20 +140,29 @@ export class RuntimeConnection {
       return; // nothing else is sent before joined
     }
     // Strict order: while older frames wait in the queue, a new one queues behind them.
-    if (this.frameFns.size === 0 || this.queue.length > 0) { this.queue.push(frame); this.flush(); return; }
+    if (this.frameFns.size === 0 || this.queue.length > 0) {
+      this.queue.push(frame);
+      this.queuedChars += text.length;
+      // Nobody is reading (the stream never opened): drop the socket rather than buffer without end. The hub then sees it closed.
+      if (this.queue.length > MAX_QUEUED_FRAMES || this.queuedChars > MAX_QUEUED_CHARS) { this.queue.length = 0; this.queuedChars = 0; this.ws.terminate(); return; }
+      this.flush();
+      return;
+    }
     for (const fn of [...this.frameFns]) fn(frame);
   }
 
   private flush(): void {
     while (this.queue.length > 0 && this.frameFns.size > 0) {
       const frame = this.queue.shift()!;
+      if (this.queue.length === 0) this.queuedChars = 0;
       for (const fn of [...this.frameFns]) fn(frame);
     }
   }
 
-  private onSocketClose(code: number): void {
+  private onSocketClose(code: number, reason: string): void {
     this.closedCode = code;
-    this.failJoin(new RuntimeError(classifyClose(code)));
+    this.closedReason = reason;
+    this.failJoin(new RuntimeError(classifyClose(code, reason)));
     for (const fn of [...this.closeFns]) fn(code);
   }
 
@@ -162,6 +188,7 @@ export class RuntimeConnection {
 
   close(): void {
     this.queue.length = 0;
+    this.queuedChars = 0;
     if (this.ws.readyState === WebSocket.OPEN) this.ws.close(1000, "closed");
     else if (this.ws.readyState === WebSocket.CONNECTING) this.ws.terminate();
   }
