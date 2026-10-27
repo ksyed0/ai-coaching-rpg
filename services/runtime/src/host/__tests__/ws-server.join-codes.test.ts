@@ -182,6 +182,31 @@ describe("player join codes (US-0033, AC-0120 / AC-0121)", () => {
     expect((await d.next((m) => m.type === "joined")).roleId).toBe("host");
   });
 
+  it("the block on an (address, role) expires after blockMs even though attempts kept arriving during it", async () => {
+    let t = 0;
+    const throttle = new CountingThrottle({ max: 2, windowMs: 60_000, blockMs: 60_000, now: () => t });
+    const { port, code } = await setup({ authThrottle: throttle });
+    for (let i = 0; i < 3; i++) {
+      const c = await open(port);
+      c.send(join({ joinCode: `WRNG-000${i}-0000` }));
+      await c.closed;
+    }
+    expect(throttle.calls).toBe(3); // the third failure starts the block
+    t += 30_000;
+    // A neighbour on the same address keeps trying during the block: each is refused alike but not charged, so the block is not extended.
+    for (let i = 0; i < 4; i++) {
+      const c = await open(port);
+      c.send(join({ joinCode: i % 2 ? code : "0000-0000-0000" }));
+      expect(await c.next((m) => m.type === "error")).toEqual({ type: "error", code: "unauthorized", message: "unauthorized" });
+      expect(await c.closed).toBe(1008);
+    }
+    expect(throttle.calls).toBe(3);
+    t += 30_000; // blockMs after the block began
+    const d = await open(port);
+    d.send(join({ joinCode: code }));
+    expect((await d.next((m) => m.type === "joined")).roleId).toBe("host");
+  });
+
   it("test_join_an_unknown_role_id_is_counted_under_player_star_and_cannot_fill_the_map", async () => {
     const throttle = new CountingThrottle({ max: 1_000, windowMs: 60_000, blockMs: 60_000, now: Date.now });
     const { port, code } = await setup({ authThrottle: throttle });
