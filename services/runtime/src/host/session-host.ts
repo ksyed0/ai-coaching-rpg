@@ -1,4 +1,4 @@
-import { visibleTranscript, type SessionEvent, type SessionState } from "@acr/events";
+import { visibleTranscript, type PlayerScene, type SessionEvent, type SessionState } from "@acr/events";
 import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
@@ -404,6 +404,12 @@ export class SessionHost {
   /** Every AI character's hidden facts, in the order `release_hidden` numbers them. For the facilitator's `joined` message ONLY: never put this in a player's message or log. */
   hiddenFacts(): Record<string, string[]> {
     return Object.fromEntries(Object.values(this.scenario.roles).filter((r): r is NpcRole => r.type === "npc" && r.hidden.length > 0).map((r) => [r.id, [...r.hidden]]));
+  }
+
+  /** US-0055: title, goal and time box of only the scenes `roleId` takes part in, in script order (for the player's `joined`). */
+  scenesFor(roleId: string): PlayerScene[] {
+    return this.scenario.script.scenes.filter((sc) => sc.participants.includes(roleId))
+      .map((sc) => ({ id: sc.id, title: sc.title, goal: sc.goal, timeBoxMinutes: sc.time_box_minutes }));
   }
 
   /** State snapshot safe to send to `who`: players never get NPC internals, GM verdicts, participant ids or other scenes' lines. */

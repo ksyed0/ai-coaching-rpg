@@ -283,7 +283,7 @@ describe("per-connection limits (AC-0054)", () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => { release = r; });
     const stub = {
-      join: () => ({ brief: "b", privateFacts: [] }), snapshotFor: () => ({ status: "idle" }), subscribe: () => () => {},
+      join: () => ({ brief: "b", privateFacts: [] }), snapshotFor: () => ({ status: "idle" }), scenesFor: () => [], subscribe: () => () => {},
       release: () => {}, onPlayerUtterance: () => gate,
     } as unknown as SessionHost;
     const { port } = await setup({ host: stub, limits: { maxQueue: 5, msgRate: 1_000, msgBurst: 1_000 } });
