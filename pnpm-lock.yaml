@@ -66,6 +66,9 @@ importers:
         specifier: 8.22.0
         version: 8.22.0
     devDependencies:
+      '@acr/runtime':
+        specifier: workspace:*
+        version: link:../../services/runtime
       '@axe-core/playwright':
         specifier: 4.13.0
         version: 4.13.0(playwright-core@1.64.0)

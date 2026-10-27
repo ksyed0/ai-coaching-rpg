@@ -12,7 +12,7 @@ export default defineConfig({
       provider: "v8",
       include: ["src/**"],
       // Files the Next framework executes (pages, layouts, route handlers, middleware) are covered by e2e; logic in src/server and src/lib is gated.
-      exclude: ["src/app/**", "src/middleware.ts", "src/**/*.test.{ts,tsx}", "src/__tests__/**"],
+      exclude: ["src/app/**", "src/middleware.ts", "src/**/*.test.{ts,tsx}", "src/**/__tests__/**"],
       thresholds: { lines: 80 },
     },
   },
