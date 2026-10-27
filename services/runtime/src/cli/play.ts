@@ -81,7 +81,7 @@ const client = createClient({
 ws.on("open", () => client.onOpen());
 ws.on("error", (err) => client.onError(err as Error));
 ws.on("message", (raw) => { if (connectTimer) { clearTimeout(connectTimer); connectTimer = null; } client.onMessage(raw.toString()); }); // timer covers connect + join
-ws.on("close", () => client.onClose());
+ws.on("close", (code) => client.onClose(code));
 rl.on("line", (l) => client.onLine(l));
 rl.on("close", () => client.onEof());
 rl.on("SIGINT", () => client.onSigint()); // raw-mode TTY swallows Ctrl-C, so process.on("SIGINT") alone never fires

@@ -140,7 +140,7 @@ The client sponsor (`client_sponsor`) is played by an AI.
 
 ### 3. Play
 
-Players just type to speak. Lines starting with `/` are never spoken in character (a mistyped command is not sent as speech); `/help` lists commands, `/quit` leaves.
+Players just type to speak. Lines starting with `/` are never spoken in character (a mistyped command is not sent as speech); `/help` lists commands, `/consent` agrees to the consent notice shown after joining (the facilitator cannot start until every player has), `/withdraw` takes it back and gives up the seat, `/quit` leaves.
 
 The facilitator drives the session:
 

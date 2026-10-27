@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import type { SessionEvent } from "@acr/events";
 import { bootstrap, type Runtime } from "../main.js";
+import { consentAll } from "./consent-helper.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = path.join(here, "../../../../packages/script/src/__tests__/fixtures/minimal");
@@ -66,6 +67,13 @@ class Client {
 }
 const isEv = (type: string, f: (e: SessionEvent) => boolean = () => true) => (m: Msg) => m.type === "event" && m.event?.type === type && f(m.event);
 
+/** US-0054: the player agrees to the notice; the refused `say` comes back in order on the same socket, so the consent is handled before anyone sends `start`. */
+async function consentAndSettle(p: Client) {
+  consentAll([p]);
+  p.send({ type: "say", text: "settle" });
+  await p.waitFor((m) => m.type === "error" && m.code === "not_started", "the consent to be handled");
+}
+
 async function playUntilALine(port: number) {
   const fac = await Client.open(port);
   fac.send({ type: "join_facilitator", sessionId: "r1" });
@@ -73,6 +81,7 @@ async function playUntilALine(port: number) {
   const p = await Client.open(port);
   p.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice", joinCode: codes.host });
   await p.waitFor((m) => m.type === "joined", "player joined");
+  await consentAndSettle(p);
   fac.send({ type: "start" });
   await fac.waitFor(isEv("scene.entered"), "scene 1");
   p.send({ type: "say", text: "a line before the crash" });
@@ -88,6 +97,7 @@ describe("bootstrap: fail-stop when the log cannot be written (US-0018)", () => 
     const p = await Client.open(port);
     p.send({ type: "join", sessionId: "r1", roleId: "host", participantId: "alice", joinCode: codes.host });
     await p.waitFor((m) => m.type === "joined", "player joined");
+    await consentAndSettle(p);
     fac.send({ type: "start" });
     await fac.waitFor(isEv("scene.entered"), "scene 1");
     return { fac, p };

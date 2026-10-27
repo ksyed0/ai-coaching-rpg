@@ -49,6 +49,7 @@ async function converse(rt: Runtime) {
   const seen: { type: string; text?: string; message?: string; fallback?: boolean }[] = [];
   rt.host.subscribe((e) => seen.push(e as never));
   rt.host.join("host", "p1");
+  rt.host.giveConsent("host", "p1", "v1"); // US-0054: the start gate wants the seated player's consent
   await rt.host.start();
   await rt.host.onPlayerUtterance("host", "Hi Sam");
   await rt.host.idle();

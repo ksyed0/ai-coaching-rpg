@@ -68,6 +68,8 @@ export class SessionHost {
   readonly seats: Seats | undefined;
   /** US-0053: the seat state changed in memory and is not yet on disk; set before persist and cleared only once it succeeded. */
   private seatsDirty = false;
+  /** R14: a session resumed from a log that recorded no consents (started before the gate) is not checked on a rejoin. */
+  private consentGrandfathered = false;
   /** US-0054: the time recorded with a consent (the injected clock, so tests and replays never read the wall clock). */
   private readonly clock: Clock;
 
@@ -133,7 +135,7 @@ export class SessionHost {
     if (role.type !== "player") throw new HostError("npc_role");
     // US-0054: from the start on, a seat is only for the participant whose consent the start recorded (or who gave it since):
     // a dropped seat cannot be taken by someone else with the code. The same participant still reconnects.
-    if (this.seats && (this.started || this.starting !== null) && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
+    if (this.seats && !this.consentGrandfathered && (this.started || this.starting !== null) && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
     if (this.assignments[roleId] && this.assignments[roleId] !== participantId) throw new HostError("role_taken");
     this.assignments[roleId] = participantId;
     return { brief: role.brief, privateFacts: role.private_facts };
@@ -235,10 +237,25 @@ export class SessionHost {
    */
   resumeFrom(info: ResumeInfo): void {
     this.started = true;
+    if (this.seats) this.adoptStartedConsents(info);
     const scene = info.sceneId;
     const evaluated = info.lastGmSeq === null ? 0 : this.engine.state.transcript.filter((u) => u.sceneId === scene && u.seq < info.lastGmSeq!).length;
     this.gm.restore(scene, evaluated);
     this.pendingAnswer = info.pendingLine ? scene : null;
+  }
+
+  /**
+   * R14: a resumed session counts as started, so every rejoin needs the consent the start recorded. When the consent file is lost
+   * (or lacks a role) the log's session.started is the record: seed the missing entries from it, through the store's own checks (an
+   * entry under another notice version is refused there and stays missing). A log with no consents field predates the gate: skip the check.
+   */
+  private adoptStartedConsents(info: ResumeInfo): void {
+    const seats = this.seats!;
+    if (!info.startedConsents) { this.consentGrandfathered = true; return; }
+    for (const [roleId, c] of Object.entries(info.startedConsents)) {
+      if (seats.consent.hasEntry(roleId)) continue;
+      try { seats.consent.give(roleId, c.participantId, c.noticeVersion, c.at); } catch (err) { this.report(`consent of ${roleId} from the log`, err); }
+    }
   }
 
   /** The scene whose unanswered player line waits for /resume (null when none). */

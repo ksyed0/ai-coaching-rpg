@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseArgs, parseInput, parseServerMessage, isFatalError, joinMessage, USAGE, FACILITATOR_HELP } from "../commands.js";
+import { parseArgs, parseInput, parseServerMessage, isFatalError, joinMessage, USAGE, FACILITATOR_HELP, PLAYER_HELP } from "../commands.js";
 
 describe("parseArgs", () => {
   it("parses a player with defaults", () => {
@@ -183,5 +183,22 @@ describe("--last-seq (US-0013)", () => {
     expect(joinMessage({ facilitator: false, role: "r", name: "n", url: "ws://x", session: "s", lastSeq: 7 })).toEqual({ type: "join", sessionId: "s", roleId: "r", participantId: "n", lastSeq: 7 });
     expect(joinMessage({ facilitator: true, url: "ws://x", session: "s", lastSeq: 0 })).toEqual({ type: "join_facilitator", sessionId: "s", lastSeq: 0 });
     expect(joinMessage({ facilitator: true, url: "ws://x", session: "s" })).toEqual({ type: "join_facilitator", sessionId: "s" });
+  });
+});
+
+describe("parseInput: /consent and /withdraw (US-0054)", () => {
+  it("a player's /consent and /withdraw are local intents; the client adds the notice version it was told", () => {
+    expect(parseInput("/consent", false)).toEqual({ kind: "consent" });
+    expect(parseInput("/withdraw", false)).toEqual({ kind: "withdraw" });
+    expect(parseInput("  /consent ", false)).toEqual({ kind: "consent" });
+  });
+  it("they take no argument, and the facilitator does not have them", () => {
+    expect(parseInput("/consent v9", false).kind).toBe("help");
+    expect(parseInput("/withdraw now", false).kind).toBe("help");
+    expect(parseInput("/consent", true).kind).toBe("help");
+    expect(parseInput("/withdraw", true).kind).toBe("help");
+    expect(PLAYER_HELP).toContain("/consent");
+    expect(PLAYER_HELP).toContain("/withdraw");
+    expect(FACILITATOR_HELP).not.toContain("/consent");
   });
 });

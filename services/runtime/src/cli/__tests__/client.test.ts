@@ -256,3 +256,49 @@ describe("client: replay review fixes (US-0013 I1, M1)", () => {
     expect(out.filter((l) => l.includes("released"))).toEqual(["[facilitator] released hidden fact #2 of cfo", "[npc cfo] released #2: second"]);
   });
 });
+
+describe("consent in the terminal client (US-0054)", () => {
+  const withConsent = (extra: Record<string, unknown> = {}) => JSON.stringify({ type: "joined", roleId: "host", state: {}, consent: { noticeVersion: "v7", notice: "We record the session.", given: false, ...extra } });
+  it("the notice is printed once after joined, with the hint", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent());
+    expect(t.out.filter((l) => l === "We record the session.")).toHaveLength(1);
+    expect(t.out.at(-1)).toBe("type /consent to agree");
+    t.c.onMessage(ev("hi"));
+    expect(t.out.filter((l) => l === "We record the session.")).toHaveLength(1);
+  });
+  it("an already given consent prints the notice but not the hint", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ given: true }));
+    expect(t.out).toContain("We record the session.");
+    expect(t.out.join("\n")).not.toContain("type /consent to agree");
+  });
+  it("the notice is sanitised: no escape sequences, hidden characters or forged lines", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "ok\u001b[31m red‮ rtl​\nforged: line" }));
+    const text = t.out.join("\n");
+    expect(text).not.toMatch(/[\u001b‮​]/);
+    expect(t.out.some((l) => l.startsWith("forged"))).toBe(false);
+  });
+  it("/consent sends the notice version the server announced", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent()); t.c.onLine("/consent");
+    expect(t.sent.at(-1)).toEqual({ type: "consent", noticeVersion: "v7" });
+  });
+  it("/consent before joining is refused locally", () => {
+    const t = setup(); t.c.onOpen(); t.c.onLine("/consent");
+    expect(t.sent).toHaveLength(1); // only the join
+    expect(t.out.join("\n")).toContain("not joined yet");
+  });
+  it("/consent when the server announced no consent is refused locally", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onLine("/consent");
+    expect(t.sent).toHaveLength(1);
+    expect(t.out.join("\n")).toContain("no consent");
+  });
+  it("/withdraw sends withdraw_consent once joined", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent()); t.c.onLine("/withdraw");
+    expect(t.sent.at(-1)).toEqual({ type: "withdraw_consent" });
+  });
+  it("close code 4001 says the seat was taken by a newer connection, not the reconnect hint", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent()); t.c.onClose(4001);
+    expect(t.errs.join("\n")).toContain("your seat was taken by a newer connection");
+    expect(t.errs.join("\n")).not.toContain("--last-seq");
+    expect(t.exits).toEqual([1]);
+  });
+});

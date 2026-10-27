@@ -40,6 +40,11 @@ export type ResumeInfo = {
   logIdentity?: string;
   /** A format 2 log carries a logIdentity that is not 32 hex: it was ignored, and markResumed says so. */
   identityInvalid?: true;
+  /**
+   * US-0054: the consents session.started recorded, each with the participant who held the role (from `roles`). Present only when the
+   * log carries a `consents` field; absent for a log written before the gate, whose seats are then not checked on a rejoin.
+   */
+  startedConsents?: Record<string, { participantId: string; noticeVersion: string; at: number }>;
 };
 export type Repair =
   | { kind: "npc_init"; roleId: string }
@@ -357,6 +362,7 @@ export class SessionEngine {
     let s = initialState();
     let count = 0; let maxTs = Number.NEGATIVE_INFINITY; let format = 0; let lastGmSeq: number | null = null;
     let logIdentity: string | undefined; let identityInvalid = false;
+    let startedConsents: ResumeInfo["startedConsents"];
     // An inject's AI character updates follow its inject.fired directly; this tracks the ones still due if the log ends here.
     let injectDue: { sceneId: string; injectId: string; roles: string[] } | null = null;
     const recent = new RecentEvents(this.retainEvents); // adopted only when the session is resumed
@@ -375,6 +381,13 @@ export class SessionEngine {
         const li: unknown = e.logIdentity;
         if (typeof li === "string" && /^[0-9a-f]{32}$/.test(li)) logIdentity = li;
         else if (f >= 2 && li !== undefined) identityInvalid = true;
+        if (typeof e.consents === "object" && e.consents !== null && !Array.isArray(e.consents)) {
+          startedConsents = {};
+          for (const [id, c] of Object.entries(e.consents)) {
+            const who = own(e.roles ?? {}, id)?.participantId;
+            if (typeof who === "string" && who.length > 0 && typeof c?.noticeVersion === "string" && typeof c.at === "number") startedConsents[id] = { participantId: who, noticeVersion: c.noticeVersion, at: c.at };
+          }
+        }
         const logged = Object.entries(e.roles ?? {});
         const known = Object.values(sc.roles);
         if (logged.length !== known.length || logged.some(([id, r]) => { const k = own(sc.roles, id); return !k || (k.type === "npc" ? "npc" : "player") !== r?.kind; })) {
@@ -428,7 +441,7 @@ export class SessionEngine {
       const opening = sc.script.scenes.find((x) => x.id === cur.id)?.opening_inject;
       if (opening && !s.injectsFired.includes(opening)) repairs.push({ kind: "opening_inject", sceneId: cur.id });
     }
-    return { kind: "running", info: { events: count, lastTs: maxTs, format, partialTailBytes, sceneId: cur?.id ?? null, lastGmSeq, pendingLine, wasPaused: s.paused, repairs, ...(logIdentity ? { logIdentity } : {}), ...(identityInvalid ? { identityInvalid: true as const } : {}) } };
+    return { kind: "running", info: { events: count, lastTs: maxTs, format, partialTailBytes, sceneId: cur?.id ?? null, lastGmSeq, pendingLine, wasPaused: s.paused, repairs, ...(logIdentity ? { logIdentity } : {}), ...(startedConsents ? { startedConsents } : {}), ...(identityInvalid ? { identityInvalid: true as const } : {}) } };
   }
 
   /**

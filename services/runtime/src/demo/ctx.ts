@@ -132,6 +132,20 @@ export function playerJoin(ctx: Ctx, role: string, participantId: string, extra:
   return { type: "join", sessionId: sessionId ?? ctx.sessionId, roleId: role, participantId, ...(code !== undefined ? { joinCode: code } : {}), ...rest };
 }
 
+/** US-0054: a player's agreement to the notice. The version is the one the player's own `joined.consent` announced (there is no global one). */
+export const playerConsent = (_ctx: Ctx, _role: string, noticeVersion: string): Record<string, unknown> => ({ type: "consent", noticeVersion });
+
+/**
+ * US-0054: consents right after a join, when the server asks for it. The server answers a consent with nothing, so a refused `say` on the
+ * same socket (processed in order, and harmless before the start) tells us the consent has been handled before anyone sends `start`.
+ */
+export async function consentAfterJoin(ctx: Ctx, bot: Bot, role: string, joined: Joined): Promise<void> {
+  const c = joined.consent;
+  if (!c || c.given) return;
+  bot.send(playerConsent(ctx, role, c.noticeVersion));
+  await bot.expectError({ type: "say", text: "consent processed?" }, "not_started");
+}
+
 /**
  * `pnpm demo --url`: the target server's player join codes, as its operator was shown them at start, from JOIN_CODES
  * (`role=CODE,role=CODE`). Errors never quote a value.

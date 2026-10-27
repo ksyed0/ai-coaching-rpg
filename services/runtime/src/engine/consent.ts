@@ -43,6 +43,9 @@ export class ConsentStore {
 
   withdraw(roleId: string): boolean { return this.entries.delete(roleId); }
 
+  /** Whether any entry stands for the role (whoever gave it). */
+  hasEntry(roleId: string): boolean { return this.entries.has(roleId); }
+
   /** True only when this participant gave the consent now held for the role. */
   has(roleId: string, participantId: string): boolean { return this.entries.get(roleId)?.participantId === participantId; }
 

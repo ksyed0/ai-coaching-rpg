@@ -22,6 +22,9 @@ import { openSession, type OpenedSession, type StartMode } from "../engine/sessi
 import type { LockOptions } from "../engine/log-files.js";
 import { JoinCodes } from "../engine/join-codes.js";
 import { scenarioHash } from "../engine/scenario-hash.js";
+import { PlayerCredentials } from "../engine/credentials.js";
+import { ConsentStore } from "../engine/consent.js";
+import type { Seats } from "../engine/seats.js";
 
 /** A distinctive fake key set in the runner's own env object. It is never used to call anything; the audit proves it never leaks. */
 export const FAKE_KEY = "sk-ant-demo-FAKE-DO-NOT-USE-0123456789abcdefghijklmnop";
@@ -250,6 +253,9 @@ export function startPlayerProvider(env: NodeJS.ProcessEnv, model?: string): Mod
   return withModelRetry(selectModelProvider(model === undefined ? env : { ...env, NPC_MODEL: model }, "npc", { sdkRetries: false }), retry, "NPC");
 }
 
+/** The notice version the demo servers announce (the real server's default). */
+export const DEMO_NOTICE_VERSION = "v1";
+
 export async function buildSystem(o: {
   scenario: Scenario; sessionId: string; dataDir: string; clock: Clock; fakeClock?: FakeClock; npc?: RecordingProvider; gm?: RecordingProvider;
   npcProvider: ModelProvider; gmProvider: ModelProvider; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; log?: EventLog; heartbeatMs?: number;
@@ -265,8 +271,14 @@ export async function buildSystem(o: {
   // A throwaway temp log: no fdatasync (see JsonlLogOptions.sync); the server and the resume room always sync.
   const log = o.engine ? undefined : (o.log ?? new JsonlEventLog(o.sessionId, o.dataDir, { sync: false }));
   const engine = o.engine ?? new SessionEngine({ scenario: o.scenario, log: log!, clock: o.clock });
+  // US-0054: in-memory seats (nothing is written), so the demo servers reach the consent gate like the real one. The notice text is a stand-in.
+  const seats: Seats = {
+    credentials: PlayerCredentials.create({ sessionId: o.sessionId, scenarioSha256: scenarioHash(o.scenario) }),
+    consent: new ConsentStore({ version: DEMO_NOTICE_VERSION, text: "Demo notice: this session is recorded for the facilitator and you. Type /consent to agree." }),
+    persist() {},
+  };
   const host = new SessionHost({
-    scenario: o.scenario, engine, npcProvider: o.npcProvider, gmProvider: o.gmProvider, clock: o.clock,
+    seats, scenario: o.scenario, engine, npcProvider: o.npcProvider, gmProvider: o.gmProvider, clock: o.clock,
     log: (m) => hostLog.push(m), firstTokenTimeoutMs: o.firstTokenTimeoutMs, replyTimeoutMs: o.replyTimeoutMs,
     npcMaxTokens: o.npcMaxTokens, gmMaxTokens: o.gmMaxTokens, npcTemperature: o.npcTemperature, gmTemperature: o.gmTemperature,
     gmTimeoutMs: o.gmConfig?.timeoutMs, gmReask: o.gmConfig?.reask, gmEveryN: o.gmConfig?.everyNUtterances, gmAutoRelease: o.gmAutoRelease ?? o.gmConfig?.autoRelease, gmTranscriptWindow: o.gmConfig?.transcriptWindow, gmTrace: o.gmTrace,

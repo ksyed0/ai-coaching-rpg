@@ -1,6 +1,6 @@
 import { Bot, isEvent, type Inbound } from "./bots.js";
 import { ensure } from "./checks.js";
-import { act, attempt, codeSecrets, connectBot, errCode, isJoinedMsg, npcRole, playerJoin, sceneIds, utterancesOf, withTimeout, type Ctx, type Story, type Utter } from "./ctx.js";
+import { act, attempt, codeSecrets, connectBot, errCode, isJoinedMsg, npcRole, consentAfterJoin, playerJoin, sceneIds, utterancesOf, withTimeout, type Ctx, type Story, type Utter } from "./ctx.js";
 import { sanitizeAlert } from "./live-evidence.js";
 import { LAB_FIRST_TOKEN_MS, LAB_HEARTBEAT_MS, startLabSystem } from "./harness.js";
 
@@ -46,8 +46,12 @@ export async function playLab(ctx: Ctx, st: Story): Promise<void> {
     const join = async (bot: Bot, role: string, who: string): Promise<Inbound> => bot.call(playerJoin(ctx, role, who, { sessionId: "lab", codes: lab.joinCodes }), isJoinedMsg, { what: `${role} to join` });
     const dl = await connectBot(ctx, "lab delivery_lead", { url });
     const am = await connectBot(ctx, "lab account_manager", { url });
-    ensure(isJoinedMsg(await join(dl, "delivery_lead", "ZedAlphaParticipant")), "the lab delivery_lead could not join");
-    ensure(isJoinedMsg(await join(am, "account_manager", "ZedCharlieParticipant")), "the lab account_manager could not join");
+    const dlJoined = await join(dl, "delivery_lead", "ZedAlphaParticipant");
+    ensure(isJoinedMsg(dlJoined), "the lab delivery_lead could not join");
+    await consentAfterJoin(ctx, dl, "delivery_lead", dlJoined);
+    const amJoined = await join(am, "account_manager", "ZedCharlieParticipant");
+    ensure(isJoinedMsg(amJoined), "the lab account_manager could not join");
+    await consentAfterJoin(ctx, am, "account_manager", amJoined);
 
     // A client that connects, claims a role and then never answers pings.
     await rec.run("F-23", async () => {
@@ -62,8 +66,9 @@ export async function playLab(ctx: Ctx, st: Story): Promise<void> {
       const taker = await connectBot(ctx, "replacement tech_lead", { url });
       const j = await join(taker, "tech_lead", "ZedDeltaParticipant");
       ensure(isJoinedMsg(j), `the role was not freed: ${errCode(j)}`);
-      taker.close();
-      await n.step("the silent client is terminated by the server and tech_lead is free for someone else");
+      // US-0054: the session can only start with every player seated and consenting, so the replacement stays and agrees.
+      await consentAfterJoin(ctx, taker, "tech_lead", j);
+      await n.step("the silent client is terminated by the server and tech_lead is taken by someone else, who agrees to the notice");
       return silentDropEvidence({ pings, sinceFirstPingMs: pings > 0 ? closedAt - firstPingAt : 0, heartbeatMs: LAB_HEARTBEAT_MS });
     });
 
