@@ -19,7 +19,7 @@ vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 /** A throttle that records how many failures were charged, so tests do not depend on how the OS splits TCP reads. */
 class CountingThrottle extends AuthThrottle {
   calls = 0;
-  override fail(ip: string): void { this.calls++; super.fail(ip); }
+  override fail(ip: string, scope = ""): void { this.calls++; super.fail(ip, scope); }
 }
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");

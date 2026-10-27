@@ -14,6 +14,8 @@ export const MAX_PAYLOAD_BYTES = 16 * 1024;
 const CLOSE_POLICY = 1008;
 /** US-0013: the answer to a `lastSeq` past the session's last event (sent only once the join is authorised, so it probes nothing). */
 const BEYOND_HEAD = "lastSeq: after the last event of this session";
+/** The failed-login scope of a wrong join code: the role if the session has it, else one shared bucket so made-up role ids cannot fill the map. */
+export const playerScope = (known: boolean, roleId: string): string => (known ? `player:${roleId}` : "player:*");
 const beyondHead = (h: SessionHost, lastSeq: number | undefined): boolean => lastSeq !== undefined && lastSeq > h.engine.state.lastSeq;
 const summary = (r: Replay): { replay: ReplaySummary } => ({ replay: { afterSeq: r.afterSeq, toSeq: r.toSeq, events: r.events.length, complete: r.complete } });
 export const MAX_BUFFERED_BYTES = 1024 * 1024; // a client this far behind is dropped rather than buffered forever
@@ -154,6 +156,8 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
     // Once a connection is being closed (refused token, rate limit, queue cap) nothing already queued or still arriving may run.
     let closing = false;
     let authFailed = false;
+    /** The throttle scope the refused login is charged to ("" for the facilitator token), kept for frames dropped after the refusal. */
+    let failScope = "";
     let killTimer: NodeJS.Timeout | null = null;
     const shut = (code: number, reason: string) => {
       if (closing) return;
@@ -167,21 +171,27 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
     let dropCounted = false; let dropParses = 0;
     const dropAfterClose = (raw?: string) => {
       if (dropCounted) return;
-      if (authFailed) { dropCounted = true; authThrottle.fail(ip); return; }
+      if (authFailed) { dropCounted = true; authThrottle.fail(ip, failScope); return; }
       if (raw === undefined || dropParses >= 3) return;
       const facLogin = token !== undefined && raw.includes("join_facilitator");
       const playerLogin = opts.joinCodes !== undefined && raw.includes('"join"');
       if (!facLogin && !playerLogin) return;
       dropParses++;
       try {
-        const t = (JSON.parse(raw) as { type?: unknown } | null)?.type;
-        if ((t === "join_facilitator" && token !== undefined) || (t === "join" && opts.joinCodes !== undefined)) { dropCounted = true; authThrottle.fail(ip); }
+        const msg = JSON.parse(raw) as { type?: unknown; sessionId?: unknown; roleId?: unknown } | null;
+        if (msg?.type === "join_facilitator" && token !== undefined) { dropCounted = true; failScope = ""; authThrottle.fail(ip, failScope); }
+        else if (msg?.type === "join" && opts.joinCodes !== undefined) {
+          // A dropped player login is charged to its own role, like a refused one, never to the whole address.
+          const roleId = typeof msg.roleId === "string" ? msg.roleId : "";
+          failScope = playerScope(typeof msg.sessionId === "string" && (opts.hosts.get(msg.sessionId)?.hasPlayerRole(roleId) ?? false), roleId);
+          dropCounted = true; authThrottle.fail(ip, failScope);
+        }
       } catch { /* not JSON: not a login attempt */ }
     };
     /** One generic answer for every refused login (token or join code); the connection is closed and the address charged. */
-    const refuseLogin = (what: string) => {
-      authFailed = true;
-      authThrottle.fail(ip);
+    const refuseLogin = (what: string, scope: string) => {
+      authFailed = true; failScope = scope;
+      authThrottle.fail(ip, scope);
       log(`${what} join refused: unauthorized`);
       fail("unauthorized", "unauthorized");
       shut(CLOSE_POLICY, "unauthorized");
@@ -230,7 +240,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
           if (m.type === "join_facilitator" && token !== undefined) {
             // One attempt per connection. The answer is generic (it does not say whether the token or the session was wrong) and
             // the token is compared as two SHA-256 digests in constant time. It is never logged or echoed.
-            if (!secretsMatch(m.token ?? "", token)) return refuseLogin("facilitator");
+            if (!secretsMatch(m.token ?? "", token)) return refuseLogin("facilitator", "");
           }
           const h = opts.hosts.get(m.sessionId);
           if (m.type === "join") {
@@ -243,8 +253,11 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
               // Every other case (no or a wrong code, an unknown session or role, an AI character, `facilitator`) gets the same answer,
               // so a refusal never tells whether the role exists or is taken. Only someone with the right code can learn `role_taken`.
               // An unknown session is checked against JoinCodes.none(): the same digest work, always refused.
+              const scope = playerScope(h?.hasPlayerRole(m.roleId) ?? false, m.roleId);
+              // A blocked (address, role) is refused alike, before the code is looked at, so guessing past the limit learns nothing.
+              if (authThrottle.blockedForMs(ip, scope) > 0) return refuseLogin("player", scope);
               const byCode = (opts.joinCodes.get(m.sessionId) ?? JoinCodes.none()).verify(m.roleId, m.joinCode);
-              if (!h || !(byCode || byReconnect)) return refuseLogin("player");
+              if (!h || !(byCode || byReconnect)) return refuseLogin("player", scope);
             } else {
               if (!h) return fail("unknown_session", "no such session");
               if (isReservedRoleId(m.roleId)) return fail("unknown_role", "unknown_role"); // reserved: never a player role

@@ -108,6 +108,20 @@ describe("WindowCounter and AuthThrottle", () => {
     t += 1; expect(th.blockedForMs("1.1.1.1")).toBe(0);
     th.fail("1.1.1.1"); expect(th.blockedForMs("1.1.1.1")).toBe(0); // the counter restarted
   });
+  it("AuthThrottle: failures in one scope do not block another scope of the same address", () => {
+    const th = new AuthThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => 0 });
+    for (let i = 0; i < 6; i++) th.fail("1.1.1.1", "player:a");
+    expect(th.blockedForMs("1.1.1.1", "player:a")).toBeGreaterThan(0);
+    expect(th.blockedForMs("1.1.1.1", "player:b")).toBe(0);
+    expect(th.blockedForMs("1.1.1.1")).toBe(0);
+    expect(th.blockedForMs("2.2.2.2", "player:a")).toBe(0);
+  });
+  it("AuthThrottle: the default scope still blocks the address (regression guard)", () => {
+    const th = new AuthThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => 0 });
+    for (let i = 0; i < 6; i++) th.fail("1.1.1.1");
+    expect(th.blockedForMs("1.1.1.1")).toBe(60_000);
+    expect(th.blockedForMs("1.1.1.1", "")).toBe(60_000);
+  });
   it("failures spread over more than a window never block", () => {
     let t = 0;
     const th = new AuthThrottle({ max: 2, windowMs: 1000, blockMs: 5000, now: () => t });

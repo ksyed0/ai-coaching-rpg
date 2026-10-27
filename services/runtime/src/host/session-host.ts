@@ -91,6 +91,11 @@ export class SessionHost {
     try { this.log(`${what}: ${err instanceof Error ? err.stack ?? err.message : String(err)}`); } catch { /* logging must never throw */ }
   }
 
+  /** Whether the scenario has a player role with this id (own properties only), for the login throttle's scope. */
+  hasPlayerRole(roleId: string): boolean {
+    return Object.hasOwn(this.scenario.roles, roleId) && this.scenario.roles[roleId]?.type === "player";
+  }
+
   join(roleId: string, participantId: string): { brief: string; privateFacts: string[] } {
     // Own properties only: `__proto__`, `constructor` or `toString` are not roles.
     const role = Object.hasOwn(this.scenario.roles, roleId) ? this.scenario.roles[roleId] : undefined;

@@ -28,7 +28,7 @@ afterEach(async () => {
 
 class CountingThrottle extends AuthThrottle {
   calls = 0;
-  override fail(ip: string): void { this.calls++; super.fail(ip); }
+  override fail(ip: string, scope = ""): void { this.calls++; super.fail(ip, scope); }
 }
 
 type Client = { ws: WebSocket; inbox: any[]; closed: Promise<number>; send(m: unknown): void; sendRaw(s: string): void; next(pred: (m: any) => boolean, from?: number): Promise<any>; events(from?: number): SessionEvent[] };

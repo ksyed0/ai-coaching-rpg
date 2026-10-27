@@ -189,7 +189,11 @@ export function authKey(ip: string): string {
 
 export const MAX_TRACKED_ADDRESSES = 10_000;
 
-/** Failed facilitator joins per IP: more than `max` inside the window blocks that IP for `blockMs`. The map is pruned as it is used. */
+/**
+ * Failed logins per (address, scope): more than `max` inside the window blocks that pair for `blockMs`. The scope is "" for the facilitator
+ * token (which blocks the address's handshakes) and names a player role for a wrong join code, so one mistyped code behind a shared
+ * address cannot lock out everyone else. The maps are pruned as they are used.
+ */
 export class AuthThrottle {
   private readonly fails = new Map<string, WindowCounter>();
   private readonly blockedUntil = new Map<string, number>();
@@ -197,16 +201,17 @@ export class AuthThrottle {
   /** Number of full sweeps run (for tests): they are rare by design, never one per failure. */
   sweeps = 0;
   constructor(private readonly o: { max: number; windowMs: number; blockMs: number; now: () => number; maxEntries?: number }) {}
-  fail(ip: string): void {
-    const key = authKey(ip);
+  private keyOf(ip: string, scope: string): string { return `${authKey(ip)}|${scope}`; }
+  fail(ip: string, scope = ""): void {
+    const key = this.keyOf(ip, scope);
     let c = this.fails.get(key);
     if (!c) { c = new WindowCounter(this.o.windowMs, this.o.now); this.fails.set(key, c); }
     if (c.hit() > this.o.max) { this.blockedUntil.set(key, this.o.now() + this.o.blockMs); this.fails.delete(key); }
     this.bound();
   }
-  /** Milliseconds until the IP may connect again, or 0. */
-  blockedForMs(ip: string): number {
-    const key = authKey(ip);
+  /** Milliseconds until the address may try this scope again, or 0. */
+  blockedForMs(ip: string, scope = ""): number {
+    const key = this.keyOf(ip, scope);
     const until = this.blockedUntil.get(key);
     if (until === undefined) return 0;
     const left = until - this.o.now();
