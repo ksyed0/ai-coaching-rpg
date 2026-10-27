@@ -157,6 +157,40 @@ describe("join by durable credential (US-0053)", () => {
     expect(host.assignments.host).toBe(winner);
   });
 
+  it("a say or leave sent by the superseded socket after the kick is dropped", async () => {
+    const { port, host, engine, seats, persist, code } = await setup();
+    const { c: a, j } = await webJoin(port, code);
+    // The old client stops reading, so it has not seen the close frame and can still send after the server kicked it.
+    (a.ws as any)._socket.pause();
+    const b = await open(port);
+    b.send(join({ credential: j.credential }));
+    await b.next((m) => m.type === "joined");
+    a.send({ type: "say", text: "from the kicked socket" });
+    a.send({ type: "leave" });
+    await new Promise((r) => setTimeout(r, 100));
+    expect(host.assignments.host).toBe("alice");
+    expect(seats.credentials.has("host")).toBe(true);
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(engine.state.transcript).toEqual([]);
+    expect(b.ws.readyState).toBe(WebSocket.OPEN);
+    (a.ws as any)._socket.resume();
+    await a.closed;
+  });
+
+  it("two simultaneous terminal joins by code for one role: exactly one succeeds and the other is role_taken", async () => {
+    const { port, host, persist, code } = await setup();
+    const a = await open(port); const b = await open(port);
+    // The same participant id on both (two tabs), so SessionHost.join would accept both: only the live-seat check refuses the second.
+    a.send(join({ joinCode: code }));
+    b.send(join({ joinCode: code }));
+    const ra = await a.next((m) => m.type === "joined" || m.type === "error");
+    const rb = await b.next((m) => m.type === "joined" || m.type === "error");
+    expect([ra, rb].filter((m) => m.type === "joined")).toHaveLength(1);
+    expect([ra, rb].filter((m) => m.type === "error").map((m) => m.code)).toEqual(["role_taken"]);
+    expect(persist).not.toHaveBeenCalled();
+    expect(host.assignments.host).toBe("alice");
+  });
+
   it("leave revokes the credential and frees the seat", async () => {
     const { port, host, seats, persist, code } = await setup();
     const { c, j } = await webJoin(port, code);
@@ -173,6 +207,46 @@ describe("join by durable credential (US-0053)", () => {
     const e = await open(port);
     e.send(join({ participantId: "bob", joinCode: code })); // the seat is free for the code again
     expect((await e.next((m) => m.type === "joined")).roleId).toBe("host");
+  });
+
+  it("a leave whose save fails answers internal and stays open; a retry writes the file and only then closes 1000", async () => {
+    let failing = false;
+    const records: unknown[] = [];
+    const { port, host, seats, persist, code } = await setup({ persist: () => { if (failing) throw new Error("disk full"); records.push(seats.credentials.toRecord()); } });
+    const { c } = await webJoin(port, code);
+    failing = true;
+    c.send({ type: "leave" });
+    expect(await c.next((m) => m.type === "error")).toEqual({ type: "error", code: "internal", message: "internal error" });
+    expect(c.ws.readyState).toBe(WebSocket.OPEN);
+    expect((records.at(-1) as any).roles).toHaveProperty("host"); // the file still holds the credential
+    failing = false;
+    c.send({ type: "leave" });
+    expect(await c.closed).toBe(1000);
+    expect(persist).toHaveBeenCalledTimes(3);
+    expect((records.at(-1) as any).roles).toEqual({});
+    expect(host.assignments).toEqual({});
+  });
+
+  it("after the session ends, a join by code with issueCredential gets no credential and nothing is persisted", async () => {
+    const { port, host, engine, seats, persist, code } = await setup();
+    const t = await open(port);
+    t.send(join({ joinCode: code }));
+    await t.next((m) => m.type === "joined");
+    await host.start();
+    await host.command({ command: "advance" }); await engine.tick();
+    await host.command({ command: "advance" }); await engine.tick();
+    expect(engine.state.status).toBe("ended");
+    t.ws.close(); await t.closed;
+    await until(() => host.assignments.host === undefined);
+    const writes = persist.mock.calls.length;
+    const c = await open(port);
+    c.send(join({ joinCode: code, issueCredential: true }));
+    const err = await c.next((m) => m.type === "error");
+    expect(err.code).toBe("session_ended");
+    expect(c.inbox.some((m) => m.type === "joined" || m.credential !== undefined)).toBe(false);
+    expect(persist).toHaveBeenCalledTimes(writes);
+    expect(seats.credentials.has("host")).toBe(false);
+    expect(host.assignments).toEqual({});
   });
 
   it("a wrong credential is counted under cred:<role> only and does not block the code path of another role", async () => {
@@ -278,6 +352,18 @@ describe("SessionHost seats (US-0053)", () => {
     host.endSeats();
     expect(seats.credentials.has("host")).toBe(false);
     expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it("an endSeats whose save fails throws, and a later call retries the write", async () => {
+    let failing = true;
+    const { host, seats, persist } = await setup({ persist: () => { if (failing) throw new Error("disk full"); } });
+    seats.credentials.issue("host", "Alice");
+    expect(() => host.endSeats()).toThrow(/disk full/);
+    failing = false;
+    host.endSeats(); // nothing new to revoke, but the file is still stale
+    expect(persist).toHaveBeenCalledTimes(2);
+    host.endSeats();
+    expect(persist).toHaveBeenCalledTimes(2); // written: nothing more to do
   });
 
   it("HostError names the roles it is about", () => {

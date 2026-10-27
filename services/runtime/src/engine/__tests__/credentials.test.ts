@@ -95,4 +95,27 @@ describe("PlayerCredentials (US-0053)", () => {
   it("test_issue_refuses_a_reserved_role", () => {
     expect(() => PlayerCredentials.create(BIND).issue("__proto__", "Ada")).toThrow();
   });
+
+  it("test_end_revokes_every_credential_and_latches_so_issue_throws_and_the_latch_survives_the_record", () => {
+    const c = PlayerCredentials.create(BIND);
+    const plain = c.issue("a", "Ada");
+    expect(c.ended).toBe(false);
+    expect(c.toRecord()).not.toHaveProperty("ended"); // a record from before the latch is unchanged
+    expect(c.end()).toEqual(["a"]);
+    expect(c.ended).toBe(true);
+    expect(c.verify("a", plain)).toBe(false);
+    expect(() => c.issue("a", "Ada")).toThrow(/ended/);
+    expect(c.end()).toEqual([]);
+    const again = PlayerCredentials.fromRecord(JSON.parse(JSON.stringify(c.toRecord())));
+    expect(again.ended).toBe(true);
+    expect(() => again.issue("a", "Ada")).toThrow(/ended/);
+  });
+
+  it("test_fromRecord_accepts_a_record_without_ended_and_refuses_an_ended_that_is_not_true", () => {
+    const good = PlayerCredentials.create(BIND).toRecord();
+    expect(PlayerCredentials.fromRecord(good).ended).toBe(false);
+    for (const ended of [false, "true", 1, null]) {
+      expect(() => PlayerCredentials.fromRecord({ ...good, ended })).toThrow(CredentialRecordError);
+    }
+  });
 });

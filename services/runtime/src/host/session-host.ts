@@ -50,6 +50,8 @@ export class SessionHost {
   private fatal: string | null = null;
   /** US-0053: durable credentials and consent (absent for embedders and tests: every credential path is then inactive). */
   readonly seats: Seats | undefined;
+  /** US-0053: the seat state changed in memory and is not yet on disk; set before persist and cleared only once it succeeded. */
+  private seatsDirty = false;
 
   constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034, GM_AUTO_RELEASE (default off): the Game Master releases a hidden fact itself instead of only suggesting it. */ gmAutoRelease?: boolean; /** US-0019, GM_TRANSCRIPT_WINDOW (default 40): the latest utterances of the scene each Game Master prompt holds. */ gmTranscriptWindow?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number; /** US-0053: durable credentials and consent; when absent, players join by code or reconnect token only. */ seats?: Seats }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
@@ -122,20 +124,35 @@ export class SessionHost {
 
   /**
    * US-0053: the holder gives up the seat for good: its credential is revoked, its consent withdrawn, the role released and the seat
-   * state persisted. Anyone but the current holder is ignored.
+   * state persisted. Anyone but the current holder changes nothing. A failed write throws; a retry (even once the role is released)
+   * writes again, so a leave never reports success while the revoked credential is still on disk.
    */
   leave(roleId: string, participantId: string): void {
-    if (!Object.hasOwn(this.assignments, roleId) || this.assignments[roleId] !== participantId) return;
-    this.seats?.credentials.revoke(roleId);
-    this.seats?.consent.withdraw(roleId);
-    this.release(roleId, participantId);
-    this.seats?.persist();
+    if (Object.hasOwn(this.assignments, roleId) && this.assignments[roleId] === participantId) {
+      if (this.seats) this.seatsDirty = true;
+      this.seats?.credentials.revoke(roleId);
+      this.seats?.consent.withdraw(roleId);
+      this.release(roleId, participantId);
+    }
+    this.flushSeats();
   }
 
-  /** US-0053: revokes every credential and persists (once: a second call finds nothing to revoke and writes nothing). */
+  /**
+   * US-0053: revokes every credential, latches the registry so none is issued again, and persists. Idempotent: a later call writes
+   * only when an earlier write failed. A failed write throws.
+   */
   endSeats(): void {
     if (!this.seats) return;
-    if (this.seats.credentials.revokeAll().length > 0) this.seats.persist();
+    if (!this.seats.credentials.ended) this.seatsDirty = true;
+    if (this.seats.credentials.end().length > 0) this.seatsDirty = true;
+    this.flushSeats();
+  }
+
+  /** Writes the seat state when memory is ahead of the file; throws (leaving it marked) when the write fails. */
+  private flushSeats(): void {
+    if (!this.seats || !this.seatsDirty) return;
+    this.seats.persist();
+    this.seatsDirty = false;
   }
 
   /**

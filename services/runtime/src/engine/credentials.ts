@@ -18,6 +18,8 @@ export type Bind = { sessionId: string; scenarioSha256: string };
 export type CredentialRecord = {
   v: 1; sessionId: string; scenarioSha256: string; logIdentity: string; salt: string;
   roles: Record<string, { hash: string; name: string }>;
+  /** Present (and true) only once the session has ended: no credential may be issued again, even after a restart. */
+  ended?: true;
 };
 
 /** A credentials record that cannot be used. The message never contains a value from the record. */
@@ -38,6 +40,7 @@ export class PlayerCredentials {
   private constructor(
     private readonly sessionId: string, private readonly scenarioSha256: string, private readonly id: string,
     private readonly salt: Buffer, private readonly entries: Map<string, { hash: Buffer; name: string }>,
+    private endedLatch = false,
   ) {
     this.dummy = digest(salt, "\u0000no role\u0000", "");
   }
@@ -51,7 +54,10 @@ export class PlayerCredentials {
   static fromRecord(raw: unknown): PlayerCredentials {
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new CredentialRecordError("the credentials file is not a JSON object");
     const r = raw as Record<string, unknown>;
-    if (Object.keys(r).sort().join(",") !== "logIdentity,roles,salt,scenarioSha256,sessionId,v") throw new CredentialRecordError("the credentials file has missing or unexpected fields");
+    // `ended` is optional (records written before the session ended, or by an older runtime, have none) and, when present, exactly true.
+    const keys = Object.keys(r).filter((k) => k !== "ended").sort().join(",");
+    if (keys !== "logIdentity,roles,salt,scenarioSha256,sessionId,v") throw new CredentialRecordError("the credentials file has missing or unexpected fields");
+    if (Object.hasOwn(r, "ended") && r.ended !== true) throw new CredentialRecordError("the credentials file has an invalid end mark");
     if (r.v !== CREDENTIAL_RECORD_VERSION) throw new CredentialRecordError("the credentials file has an unknown format version");
     if (typeof r.sessionId !== "string" || r.sessionId.length === 0 || r.sessionId.length > SAFE_ID_MAX_CHARS) throw new CredentialRecordError("the credentials file has an invalid session id");
     if (typeof r.scenarioSha256 !== "string" || !HEX64.test(r.scenarioSha256)) throw new CredentialRecordError("the credentials file has an invalid scenario hash");
@@ -68,7 +74,7 @@ export class PlayerCredentials {
       if (typeof name !== "string" || name.length === 0 || name.length > MAX_STORED_NAME_CHARS) throw new CredentialRecordError("the credentials file holds an invalid name");
       entries.set(roleId, { hash: Buffer.from(hash, "hex"), name });
     }
-    return new PlayerCredentials(r.sessionId, r.scenarioSha256, r.logIdentity, Buffer.from(r.salt, "hex"), entries);
+    return new PlayerCredentials(r.sessionId, r.scenarioSha256, r.logIdentity, Buffer.from(r.salt, "hex"), entries, r.ended === true);
   }
 
   /** The record to persist: hashes, names, salt and log identity only. */
@@ -76,6 +82,7 @@ export class PlayerCredentials {
     return {
       v: 1, sessionId: this.sessionId, scenarioSha256: this.scenarioSha256, logIdentity: this.id, salt: this.salt.toString("hex"),
       roles: Object.fromEntries([...this.entries].map(([k, e]) => [k, { hash: e.hash.toString("hex"), name: e.name }])),
+      ...(this.endedLatch ? { ended: true as const } : {}),
     };
   }
 
@@ -84,6 +91,7 @@ export class PlayerCredentials {
 
   /** A new credential for `roleId` (replacing any earlier one). The returned plain value is the only copy: hand it over once, then drop it. */
   issue(roleId: string, name: string): string {
+    if (this.endedLatch) throw new Error("the session has ended: no credential may be issued");
     if (isReservedRoleId(roleId) || roleId.length === 0 || roleId.length > CLIENT_ID_MAX_CHARS) throw new Error("not a valid player role");
     if (name.length === 0 || name.length > MAX_STORED_NAME_CHARS) throw new Error("not a valid display name");
     const plain = randomBytes(CREDENTIAL_BYTES).toString("hex");
@@ -108,6 +116,9 @@ export class PlayerCredentials {
   revoke(roleId: string): boolean { return this.entries.delete(roleId); }
   /** Revokes every credential and returns the roles that had one. */
   revokeAll(): string[] { const roles = [...this.entries.keys()]; this.entries.clear(); return roles; }
+  /** The session ended: revokes every credential (returning the roles that had one) and latches, so `issue` refuses from now on. */
+  end(): string[] { this.endedLatch = true; return this.revokeAll(); }
+  get ended(): boolean { return this.endedLatch; }
   nameOf(roleId: string): string | undefined { return this.entries.get(roleId)?.name; }
   names(): Record<string, string> { return Object.fromEntries([...this.entries].map(([k, e]) => [k, e.name])); }
   matches(bind: Bind): boolean { return bind.sessionId === this.sessionId && bind.scenarioSha256 === this.scenarioSha256; }

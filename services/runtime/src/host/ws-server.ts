@@ -284,6 +284,8 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
               byCredential = credAttempt && seats.credentials.verify(m.roleId, m.credential);
               byCode = !credAttempt && codeOk && !seats?.credentials.has(m.roleId);
               if (!h || !(byCode || byCredential || byReconnect)) return refuseLogin("player", scope);
+              // Only an authenticated caller gets here, so it may learn that the session ended; a web seat is never given out after it.
+              if (seats && (m.issueCredential || m.credential !== undefined) && h.engine.state.status === "ended") return fail("session_ended", "the session has ended");
             } else {
               if (!h) return fail("unknown_session", "no such session");
               if (isReservedRoleId(m.roleId)) return fail("unknown_role", "unknown_role"); // reserved: never a player role
