@@ -10,6 +10,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY packages ./packages
 COPY services ./services
 COPY scenarios ./scenarios
+# US-0053: the consent notices players agree to (CONSENT_NOTICE_VERSION picks one).
+COPY consent ./consent
 
 # Only the runtime and the workspace packages it depends on. tsx (a devDependency of
 # @acr/runtime) stays installed because the start script runs `tsx src/main.ts`.

@@ -428,7 +428,7 @@ describe("bootstrap", () => {
       const r = await bootstrap({ env: env(), root: tmp, log: () => {} });
       if (!r.ok) throw new Error(r.errors.join("; "));
       runtime = r.runtime;
-      expect((await readdir(dataDir())).filter((f) => !f.endsWith(".lock") && !f.endsWith(".codes.json"))).toEqual(["local.jsonl"]); // the running server holds local.lock (and its join codes file)
+      expect((await readdir(dataDir())).filter((f) => !/\.(lock|codes\.json|credentials\.json|consent\.json)$/.test(f))).toEqual(["local.jsonl"]); // the running server holds local.lock (and its join codes and seat files)
     });
   });
 });
@@ -573,5 +573,53 @@ describe("bootstrap: player join codes (US-0033)", () => {
     expect(out).toContain("  delivery_lead  ABCD-EFGH-JKMN\n");
     expect(out).toContain("  tl             0000-1111-2222\n");
     expect(out).toMatch(/JOIN_CODE/);
+  });
+});
+
+describe("bootstrap: consent notice and seats (US-0053)", () => {
+  const base = (extra: Record<string, string> = {}) => ({ SCENARIO_DIR: fixture, RUNTIME_PORT: "0", SESSION_ID: "t1", ...extra });
+  const quiet = { log: () => {}, warn: () => {}, showJoinCodes: () => {} };
+
+  it("bootstrap fails with a clear message when the notice file is missing", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    const consentDir = path.join(tmp, "consent"); await mkdir(consentDir);
+    const logDir = path.join(tmp, "logs");
+    const r = await bootstrap({ env: base(), root: tmp, logDir, consentDir, tickMs: 50, ...quiet });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.join("\n")).toMatch(/consent notice notice-v1\.md was not found/);
+    expect(await readdir(logDir).catch(() => [])).toEqual([]); // refused before the session was opened
+  });
+
+  it("CONSENT_NOTICE_VERSION with a bad value (not 1 to 32 characters of [A-Za-z0-9._-]) is refused", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    const secret = "SECRET-VERSION-4b2d";
+    for (const bad of ["a".repeat(33), `../${secret}`, `v1 ${secret}`, "v1/x"]) {
+      const r = await bootstrap({ env: base({ CONSENT_NOTICE_VERSION: bad }), root: tmp, logDir: tmp, tickMs: 50, ...quiet });
+      expect(r.ok, bad).toBe(false);
+      if (r.ok) { await r.runtime.stop(); continue; }
+      expect(r.errors.join("\n"), bad).toMatch(/CONSENT_NOTICE_VERSION must be 1 to 32 letters, digits/);
+      expect(r.errors.join("\n"), bad).not.toContain(secret);
+    }
+  });
+
+  it("bootstrap with root set to a temp directory still finds the notice", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    const r = await bootstrap({ env: base(), root: tmp, logDir: tmp, tickMs: 50, ...quiet });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    runtime = r.runtime;
+    expect(runtime.host.seats?.consent.notice.version).toBe("v1");
+    expect(runtime.host.seats?.consent.notice.text).toMatch(/facilitator/);
+    expect((await readdir(tmp)).filter((n) => /^t1\.(credentials|consent)\.json$/.test(n)).sort()).toEqual(["t1.consent.json", "t1.credentials.json"]);
+  });
+
+  it("CONSENT_NOTICE_VERSION picks the notice file from the consent directory", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    const consentDir = path.join(tmp, "consent"); await mkdir(consentDir);
+    await writeFile(path.join(consentDir, "notice-2026.b_1.md"), "Second notice.\n");
+    const r = await bootstrap({ env: base({ CONSENT_NOTICE_VERSION: "2026.b_1" }), root: tmp, logDir: tmp, consentDir, tickMs: 50, ...quiet });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    runtime = r.runtime;
+    expect(runtime.host.seats?.consent.notice).toEqual({ version: "2026.b_1", text: "Second notice.\n" });
   });
 });

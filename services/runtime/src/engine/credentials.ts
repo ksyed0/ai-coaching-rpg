@@ -45,9 +45,13 @@ export class PlayerCredentials {
     this.dummy = digest(salt, "\u0000no role\u0000", "");
   }
 
-  /** An empty registry for this session and scenario, with a fresh salt and log identity. */
-  static create(bind: Bind): PlayerCredentials {
-    return new PlayerCredentials(bind.sessionId, bind.scenarioSha256, randomBytes(16).toString("hex"), randomBytes(16), new Map());
+  /**
+   * An empty registry for this session and scenario, with a fresh salt and log identity. `logIdentity` (32 hex) keeps the identity a
+   * running session's log already uses, when its credentials file was lost.
+   */
+  static create(bind: Bind, logIdentity?: string): PlayerCredentials {
+    if (logIdentity !== undefined && !HEX32.test(logIdentity)) throw new Error("not a valid log identity");
+    return new PlayerCredentials(bind.sessionId, bind.scenarioSha256, logIdentity ?? randomBytes(16).toString("hex"), randomBytes(16), new Map());
   }
 
   /** Rebuilds the registry from its file. Throws CredentialRecordError (never quoting the record) when it is not a valid record. */
