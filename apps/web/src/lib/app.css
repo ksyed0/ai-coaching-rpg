@@ -1,0 +1,115 @@
+/* The participant pages' classes (layout from the EPIC-0002 mockups). Only classes: the CSP blocks inline style attributes. */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 15px; line-height: 1.45;
+  /* Long names, codes and lines wrap instead of widening the page (no horizontal scroll at 400 px). */
+  overflow-wrap: anywhere;
+}
+h1, h2, h3, p, ul, ol, dl, dd { margin: 0; }
+button, input { font: inherit; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.mono { font-family: var(--mono); }
+
+/* Header: wordmark and session context. */
+.apphdr {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px;
+  padding: 10px max(var(--gutter), env(safe-area-inset-right, 0px)) 10px max(var(--gutter), env(safe-area-inset-left, 0px));
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.apphdr .ctx { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
+.wm { display: inline-flex; align-items: center; gap: 7px; color: var(--ink); font-size: 17px; letter-spacing: -0.01em; }
+.wm .mark { color: var(--accent); flex: none; }
+.wm .ai { font-family: var(--mono); font-weight: 500; color: var(--accent); }
+
+/* Page frame: a 16 px gutter on phones, a centred column on wide screens. */
+.page { max-width: 1120px; margin: 0 auto; padding: 0 var(--gutter) 48px; }
+.tb { padding: 18px 0 0; }
+.tb h1 { font-size: 21px; line-height: 1.25; margin-bottom: 2px; text-wrap: balance; }
+.tb p { color: var(--muted); max-width: 75ch; }
+.body { padding: 16px 0 0; }
+.narrow { max-width: 520px; }
+.row { display: flex; flex-wrap: wrap; gap: 16px; }
+.col { flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.col-main { flex: 2 1 340px; }
+
+h2.s, h3.s { font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 0 0 8px; }
+.card h3.s { margin-top: 12px; }
+
+.card { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--panel); }
+.card.soft { background: var(--panel2); }
+.stack { display: flex; flex-direction: column; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.f { display: block; font-weight: 600; }
+.value { font-size: 15px; }
+.prose { white-space: pre-wrap; margin: 6px 0 10px; }
+.check { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; }
+.check input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+.actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.ok-text { color: var(--ok); margin-bottom: 10px; }
+.err { color: var(--crit); margin-top: 6px; }
+.hint { font-size: 13px; margin-top: 4px; }
+
+.seatcard { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; }
+.seatcard dt { font-weight: 600; }
+
+input.t {
+  width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink);
+}
+input.t:disabled { background: var(--panel2); color: var(--muted); }
+
+.btn {
+  font-weight: 600; border-radius: 6px; padding: 9px 14px; min-height: 40px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--ink); cursor: pointer;
+}
+.btn.pri { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid transparent; white-space: nowrap; }
+.pill.ok { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.pill.ai { background: var(--ai-soft); color: var(--ai); border-color: var(--ai); }
+.pill.mut { background: var(--panel2); color: var(--muted); border-color: var(--line); }
+
+.banner { padding: 8px 12px; border-radius: 6px; margin-top: 12px; }
+.banner.warn { background: var(--warn-soft); border: 1px solid var(--warn); color: var(--ink); }
+
+/* Roster */
+.roster { list-style: none; }
+.seat { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.seat:last-child { border-bottom: 0; }
+.seat .who { min-width: 0; }
+
+/* Scene bar and timer */
+.top {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel2);
+}
+.top .scene { min-width: 0; }
+.top .clock { display: flex; align-items: center; gap: 10px; }
+.timer { font-family: var(--mono); font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+
+/* Transcript */
+.tstream { list-style: none; max-height: 60vh; overflow-y: auto; }
+.msg { padding: 8px 0; border-bottom: 1px solid var(--line); }
+.msg:last-child { border-bottom: 0; }
+.msg .h { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 2px; font-size: 13px; }
+.msg .line { white-space: pre-wrap; }
+.gm { background: var(--ai-soft); border: 1px solid var(--ai); border-radius: 6px; padding: 8px 10px; margin: 6px 0; list-style: none; }
+ul.plain { padding-left: 18px; }
+
+/* Say box: stays at the bottom of the column; on a phone it sticks to the bottom of the screen. */
+.say-form { background: var(--bg); padding-top: 8px; }
+.say { display: flex; gap: 8px; }
+.say input { flex: 1; }
+@media (max-width: 700px) {
+  .say-form { position: sticky; bottom: 0; padding-bottom: 8px; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .btn { transition: background-color 0.12s; }
+}
