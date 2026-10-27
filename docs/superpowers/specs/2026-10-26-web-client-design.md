@@ -26,6 +26,7 @@ Out of scope for this epic: accounts, SSO and emails (a later slice with EPIC-00
 | Sessions | A small launcher starts one runtime process per session |
 | Reconnect | A durable per-player credential issued by the runtime |
 | Reports after the session | A separate report-access credential, issued at release, checked without a live runtime |
+| AI-filled player roles | The facilitator can switch any player role to an AI player until the session starts (covers no-shows). Whether AI lines count toward group scores is a facilitator option, default on |
 | Facilitator login | A shared facilitator secret held by the BFF (stub, local stage) |
 | Name and brand | SceneCoach.ai, tagline "AI role-play and team skills coaching simulator"; trademark and domain not yet verified (US-0048) |
 
@@ -34,7 +35,7 @@ Out of scope for this epic: accounts, SSO and emails (a later slice with EPIC-00
 | Slice | Delivers | Needs from the runtime |
 | --- | --- | --- |
 | 2a Platform and participant | BFF, join with code and name, consent (web and terminal), lobby, session view, reconnect, noindex rules. A session is still started from the terminal. | Sections 5.1 to 5.5 |
-| 2b Facilitator console | Facilitator login, launcher and control service, new session, readiness, live control, monitoring, interventions, remove participant, end session | Sections 5.6 and 5.7, section 7 |
+| 2b Facilitator console | Facilitator login, launcher and control service, new session, readiness, live control, monitoring, interventions, remove participant, AI-filled player roles, end session | Sections 5.6, 5.7 and 5.9, section 7 |
 | 2c Reports | Report-access credential, the participant's own report, self-assessment and response; facilitator evaluate, moderation, release and export in the browser | Section 5.8 |
 
 Each slice has its own implementation plan and pull requests. 2a is usable on its own: the terminal facilitator sees consent state in the roster line (section 5.4) and consents with `/consent`. Before the plans are written, stories and acceptance criteria for each slice are filed in `docs/RELEASE_PLAN.md` and their ids reserved in `docs/ID_REGISTRY.md`.
@@ -84,7 +85,7 @@ Today a reconnect token only takes over a role whose old socket is still open, a
 
 An event cannot be appended before `session.started` (`session-engine.ts:150`, `:352`), and an older runtime treats an unknown event as a corrupt log, so pre-start consent lives outside the log until the start.
 - Consent records `{ role, noticeVersion, at }` are held in host memory and mirrored to `<id>.consent.json` (`0600`, atomic, under the lock).
-- **Who must consent.** Every role of type player in the scenario. A start is refused until each has joined and consented. (Starting with fewer people than roles is not supported today and stays out of scope.)
+- **Who must consent.** Every **human** seat, meaning every role of type player that is not switched to an AI player (section 5.9). A start is refused until each has joined and consented. AI-filled roles do not consent; the facilitator is responsible for the choice.
 - **The notice version** is configured on the server (`CONSENT_NOTICE_VERSION` and a notice file the BFF serves), not in the scenario, so `scenarioHash` is unchanged and sessions in progress still resume (`session-engine.ts:358`). The runtime requires equality with the server's current version. The notice text states who can see results (ASM-09).
 - **Gate** in `SessionHost.start`, which every route to a start uses, including the auto-start inside `command` (`ws-server.ts:286`). A refusal names the roles still missing.
 - **At start** the consents and the display names are written into `session.started` (new optional fields `consents` and `names`). The session log is append-only with seq-order checks (`event-log.ts:108`) but is not hash-chained; only `review.jsonl` is. `viewFor` spreads `session.started` to players (`session-host.ts:305`), so it redacts `consents` and `names` for players: a player sees only their own consent.
@@ -124,6 +125,22 @@ A facilitator command `remove_participant { roleId }`, allowed before the start 
 - `canView` knows roles, not sessions (`review/policy.ts:115`); the control service ties the report directory to the session in the credential.
 - A held `review.lock` is refused, not waited on (`review/review-log.ts:179-190`); the control service retries with backoff and returns "try again".
 
+### 5.9 AI-filled player roles (2b)
+
+The facilitator can fill any player role with an AI player instead of a person. This covers no-shows and small-group practice.
+
+- **When.** The toggle is available from session creation **until the facilitator starts the session**, on the New session screen and on the readiness screen. After the start, roles are fixed. A start is refused until every human seat is joined and consented and every AI seat has a connected bot.
+- **Switching a seat to AI** when a person has already joined it asks for confirmation, then revokes that person's credential and consent (5.2, 5.7) and shows them "the facilitator has filled this role". **Switching back to human** stops the bot, revokes its credential and issues a new code for the seat (the per-role reissue in 5.2); the code is shown once.
+- **Mechanism.** The control service starts a player bot for each AI-filled role and connects it like any player, with its own credential; the runtime needs no special case beyond the marking below. The existing bot code (`services/runtime/src/demo/player-bot.ts`, `player-prompt.ts`, `player-lines.ts`), today used by the demo's generated players (US-0027), is moved out of `demo/` into a shared module that the demo and the control service both use. The bot's model is configured separately from the Game Master's (`PLAYER_MODEL`, `PLAYER_TEMPERATURE`) and falls back to the NPC model.
+- **Marking.** `session.started` records `aiRoles` (the list of AI-filled roles) and the facilitator's scoring option. The role's display name becomes "AI player" plus the role title. The console, transcript, roster, reports and exports label the role as AI everywhere; no frame shows an AI player's lines unlabelled. Peers see the label.
+- **Intent log.** The console shows each bot's logged intent next to its lines, as the demo runs do today. It is facilitator-only and never reaches a participant stream.
+- **Consent.** AI seats are excluded from the consent gate (5.3). The consent notice shown to humans says that some roles may be played by an AI.
+- **Reports.** An AI-filled role gets no individual report, no report-access credential and no self-assessment. Its row in the report index reads "AI player, not scored".
+- **Team scores option.** A facilitator option **Include AI players in group scores** (default **on**) is set at creation, can be changed until the start, and is recorded in `session.started`. When on, the group rubric treats the AI player's lines as team evidence, labelled as AI in the quoted evidence. When off, the group evaluation uses only human participants' lines as evidence, and the AI player's lines are context only (as lines of AI characters are today). Individual criteria never score an AI player.
+- **Evaluator and calibration.** This changes the evidence rule for the group rubric, so it needs an evaluator change and its own review. The calibration baseline (US-0035 to US-0039) was measured on lines from people and AI-written probes; a report that includes AI players carries a calibration-stamp note saying so, and the stamp is not claimed as covering that case until it is measured.
+- **Terminal sessions.** Out of scope for this slice; an `AI_ROLES` setting for the terminal can be added later.
+- **Limits.** One bot per AI role. A human cannot take over an AI-filled role after the start (open questions, section 11). The bot's cost and rate limits are counted in the model-cost accounting (US-0019).
+
 ## 6. BFF design
 
 - **API shape.** Routes live under `/api/v1/` and return the project's response envelope (`AGENTS.md` section 15). Every route derives the session and role from the sealed cookie only, never from the request body, so one participant cannot make the BFF act for another.
@@ -159,6 +176,7 @@ A separate small Node service, not part of Next.js.
 - **Unit:** cookie sealing and rotation, the player projection (gaps, resets), roster and talk-time projections, launcher validation and environment, credential issue, revoke and file atomicity, consent gating (including the auto-start path and the terminal `/consent`), display-name sanitising, report-access expiry.
 - **BFF contract tests** against a fake runtime replaying scripted frames **and** against the real runtime in mock mode, so the fake cannot drift. A readiness probe uses the runtime's 426 reply (`ws-server.ts:69`).
 - **Runtime tests:** a drop does not revoke; a second tab supersedes and the first stops; the join code stops working once a credential exists; an empty-log restart discards credentials and consent; an older runtime refuses format 2; the throttle is keyed by (address, role); nine players behind one address join.
+- **AI players:** toggle before the start works from both screens; switching a joined human to AI revokes their credential; switching back reissues a code; the start gate counts human seats and AI bots separately; AI roles never get a report or credential; the group evaluation differs with the option on and off; an AI player's intent log never reaches a participant stream; labels appear in transcript, roster, report and export.
 - **Security:** XSS payload in a transcript line, a display name and a report; tampered and expired cookies; a replayed credential after revoke; a stream scan for facilitator-only data; a cross-role and a cross-session report request; a forged cross-site request to the stream route.
 - **Playwright end to end**, mock mode, offline and deterministic: the facilitator creates a session, three players join with names and consent, start, everyone speaks, one drop and recovery, a BFF restart and recovery, end, the facilitator evaluates and releases a report through the control service, its owner reads it after the runtime has exited. Axe accessibility checks on every screen. Reconnect backoff uses an injected clock; real-process tests use the generous timeouts from `AGENTS.md` section 8 and assert no elapsed time.
 - **Repo plumbing:** add `apps/*` to `pnpm-workspace.yaml`; add a Playwright browser install step to CI (the Playwright in this environment is pre-installed, CI's is not); run new filesystem, lock and process tests once in the `node:22` Linux container before pushing; `pnpm test:coverage` at least 80 percent, run more than once and once under load.
@@ -173,7 +191,7 @@ New environment variables (documented in `MEMORY.md` and `.env.example`): `FACIL
 - Subdomain or path addressing for clients (EPIC-0008, US-0049); the cookie and origin rules here assume one origin.
 - The scenario list source and ordering for the New session screen (the scenarios folder for now).
 - Retention and deletion of display names with the session log (needs a policy before any hosted deployment).
-- Fewer people than roles (not supported by the consent rule or the scenario format today).
+- Whether a human may take over an AI-filled role after the start (not in the first release; roles are fixed once the session starts).
 
 ## 12. Review findings and where they landed
 
@@ -212,3 +230,5 @@ Second pass (2026-10-26):
 | Undefined remove-participant, end-session shape, log identity location, runtime URL for 2a | 5.7, 5.6, 5.5, 10 |
 | Conflicts with `AGENTS.md` (API envelope, PII in logs), `ARCHITECTURE.md`, ASM-09; ids not reserved | 3, 5.3, 5.4, 5.5, 6 |
 | Minor: `Sec-Fetch-Site`, Markdown in exports, sanitiser name, prompts, launcher caps, rollback note, throttle charging | 5.1, 5.4, 6, 7, 10 |
+
+Owner request (2026-10-27): AI-filled player roles with a toggle until the start and a group-score option. Resolved in 2, 3, 5.3, 5.9, 9 and 11. It also resolves the earlier open question about fewer people than roles.
