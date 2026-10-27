@@ -128,6 +128,11 @@ export class SessionHost {
     return Object.hasOwn(this.scenario.roles, roleId) && this.scenario.roles[roleId]?.type === "player";
   }
 
+  /** The scenario's player roles in its order (never an AI character), for the roster. */
+  playerRoleIds(): string[] {
+    return Object.keys(this.scenario.roles).filter((r) => this.hasPlayerRole(r));
+  }
+
   join(roleId: string, participantId: string): { brief: string; privateFacts: string[] } {
     // Own properties only: `__proto__`, `constructor` or `toString` are not roles.
     const role = Object.hasOwn(this.scenario.roles, roleId) ? this.scenario.roles[roleId] : undefined;

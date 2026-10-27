@@ -1,6 +1,6 @@
 import type { Options } from "./commands.js";
 import { isFatalError, joinMessage, parseInput, parseServerMessage } from "./commands.js";
-import { parseFactsEarned, parseHiddenFacts, renderConsentNotice, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, sanitizeText, validReplay } from "./render.js";
+import { parseFactsEarned, parseHiddenFacts, renderConsentNotice, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, renderRoster, sanitizeText, validReplay } from "./render.js";
 
 export const MAX_PREJOIN_LINES = 100;
 export const DEFAULT_IDLE_MS = 1_500;
@@ -43,6 +43,7 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
   let suggested = new Map<string, number[]>();
   // US-0054: the notice version the server announced at join; /consent sends exactly this one. Null: no consent is asked for.
   let noticeVersion: string | null = null;
+  let lastRoster: string | null = null;
 
   function finish(code: number, message?: string, polite = false): void {
     if (done) return;
@@ -123,6 +124,11 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
           for (const l of renderNewReleases(m.event, hiddenFacts, released)) io.print(l);
           if (Array.isArray(m.event.released)) released.set(m.event.roleId, m.event.released.filter((t): t is string => typeof t === "string"));
         }
+      } else if (m.type === "roster") {
+        // Printed only when it changed: the server repeats the frame to everyone after each change, most of which do not alter this view.
+        const lines = renderRoster(m);
+        const key = lines.join("\n");
+        if (key !== lastRoster) { lastRoster = key; for (const l of lines) io.print(l); }
       } else if (isFatalError(m.code, joined)) {
         finish(1, renderError(m.code, m.message, !opts.facilitator));
       } else {

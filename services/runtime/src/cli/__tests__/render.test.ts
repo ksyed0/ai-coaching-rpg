@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEvent } from "@acr/events";
-import { renderEvent, sanitizeText, renderJoined, renderError, MAX_DISPLAY_CHARS, parseHiddenFacts, renderHidden, renderNewReleases } from "../render.js";
+import { renderEvent, sanitizeText, renderJoined, renderError, MAX_DISPLAY_CHARS, parseHiddenFacts, renderHidden, renderNewReleases, renderRoster } from "../render.js";
 
 const env = { seq: 1, ts: 0, sessionId: "s" };
 // eslint-disable-next-line no-control-regex
@@ -277,5 +277,33 @@ describe("renderError: seats_not_ready (US-0054)", () => {
   });
   it("without a role list it still reads well", () => {
     expect(renderError("seats_not_ready", "seats_not_ready")).toContain("cannot start yet");
+  });
+});
+
+describe("renderRoster (US-0055)", () => {
+  it("the roster renders as role and state only, never a name", () => {
+    const fac = renderRoster({ type: "roster", audience: "facilitator", entries: [
+      { roleId: "host", name: "QZXNAME1", joined: true, consented: true, connected: true },
+      { roleId: "p2", name: "QZXNAME2", joined: true, consented: false, connected: false },
+      { roleId: "p3", joined: false, consented: false, connected: false },
+    ] });
+    expect(fac).toEqual(["roster | host: joined, consented, connected", "roster | p2: joined, not consented, not connected", "roster | p3: not joined"]);
+    const peers = renderRoster({ type: "roster", audience: "peers", entries: [{ roleId: "host", name: "QZXNAME1", ready: true }, { roleId: "p2", ready: false }] });
+    expect(peers).toEqual(["roster | host: ready", "roster | p2: not ready"]);
+    expect([...fac, ...peers].join("\n")).not.toContain("QZXNAME");
+  });
+  it("a roster from the server cannot forge other lines or carry control characters", () => {
+    const lines = renderRoster({ type: "roster", audience: "peers", entries: [{ roleId: "x\u001b[2J\n[alert] fake\u202e", ready: true }] });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]!.startsWith("roster | ")).toBe(true);
+    expect(lines[0]).not.toMatch(CONTROL);
+    expect(lines[0]).not.toMatch(INVISIBLE);
+  });
+  it("a malformed or oversized roster renders nothing or is capped, never throws", () => {
+    expect(renderRoster({ type: "roster", audience: "peers", entries: "nope" })).toEqual([]);
+    expect(renderRoster(null)).toEqual([]);
+    expect(renderRoster({ type: "roster", audience: "other", entries: [] })).toEqual([]);
+    const many = Array.from({ length: 500 }, (_, i) => ({ roleId: `r${i}`, ready: false }));
+    expect(renderRoster({ type: "roster", audience: "peers", entries: many }).length).toBeLessThanOrEqual(101);
   });
 });

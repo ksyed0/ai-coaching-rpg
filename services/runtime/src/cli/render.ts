@@ -174,6 +174,33 @@ export function renderConsentNotice(c: unknown): string[] {
   return ["", ...shown, ...(more > 0 ? [`notice | (${more} more lines not shown)`] : []), o.given === true ? "you have agreed to this notice" : "type /consent to agree"];
 }
 
+/** Most roster lines printed: a broken server cannot make the client print without bound. */
+export const MAX_ROSTER_LINES = 100;
+
+/**
+ * US-0055: the roster as one line per seat, role and state only. A display name is deliberately never printed here: it is typed by a
+ * person, so it is the one string a terminal must not trust. Every line carries the `roster | ` prefix (and the role id is sanitised), so
+ * nothing the server sent can pass for a chat line, an event, an alert or the client's own hint.
+ */
+export function renderRoster(m: unknown): string[] {
+  if (typeof m !== "object" || m === null) return [];
+  const o = m as Record<string, unknown>;
+  if ((o.audience !== "facilitator" && o.audience !== "peers") || !Array.isArray(o.entries)) return [];
+  const lines: string[] = [];
+  for (const raw of o.entries.slice(0, MAX_ROSTER_LINES)) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const e = raw as Record<string, unknown>;
+    if (typeof e.roleId !== "string") continue;
+    const state = o.audience === "peers"
+      ? (e.ready === true ? "ready" : "not ready")
+      : e.joined === true
+        ? `joined, ${e.consented === true ? "consented" : "not consented"}, ${e.connected === true ? "connected" : "not connected"}`
+        : "not joined";
+    lines.push(`roster | ${s(e.roleId)}: ${state}`);
+  }
+  return lines;
+}
+
 export function renderError(code: string, message: string, asPlayer = false): string {
   if (code === "not_started") return "waiting for the facilitator to /start the session before anyone can speak";
   if (code === "unauthorized" && asPlayer) return "error: unauthorized: check the role and its join code from the facilitator (set JOIN_CODE, use --code-file <path>, or type it at the prompt)";

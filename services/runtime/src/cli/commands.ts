@@ -126,6 +126,7 @@ export function parseServerMessage(raw: string): ServerMessage | null {
   const o = m as Record<string, unknown>;
   if (o.type === "joined" && typeof o.roleId === "string") return o as unknown as ServerMessage;
   if (o.type === "event" && typeof o.event === "object" && o.event !== null) return o as unknown as ServerMessage;
+  if (o.type === "roster" && (o.audience === "facilitator" || o.audience === "peers") && Array.isArray(o.entries)) return o as unknown as ServerMessage;
   if (o.type === "error" && typeof o.code === "string" && typeof o.message === "string") return o as unknown as ServerMessage;
   return null;
 }

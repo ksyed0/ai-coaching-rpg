@@ -39,7 +39,9 @@ async function open(port: number): Promise<Client> {
   const waiters: { pred: (m: any) => boolean; from: number; resolve: (m: any) => void }[] = [];
   ws.on("error", () => {});
   ws.on("message", (d) => {
-    const m = JSON.parse(d.toString()); const i = inbox.push(m) - 1;
+    const m = JSON.parse(d.toString());
+    if (m.type === "roster") return; // US-0055: these tests are about the joined/event stream; where the roster frame falls is tested in ws-server.roster.test.ts
+    const i = inbox.push(m) - 1;
     for (const w of [...waiters]) if (i >= w.from && w.pred(m)) { waiters.splice(waiters.indexOf(w), 1); w.resolve(m); }
   });
   const closed = new Promise<number>((r) => ws.on("close", (code) => r(code)));
