@@ -19,6 +19,22 @@ describe("ConsentStore (US-0053)", () => {
     expect(c.has("a", "p1")).toBe(false);
   });
 
+  it("test_give_refuses_invalid_input_without_quoting_it", () => {
+    const c = new ConsentStore(NOTICE);
+    const cases: [string, string, string, number][] = [
+      ["__proto__", "p1", "v1", 5], ["", "p1", "v1", 5], ["r".repeat(129), "p1", "v1", 5],
+      ["a", "", "v1", 5], ["a", "p".repeat(129), "v1", 5],
+      ["a", "p1", "v".repeat(65), 5],
+      ["a", "p1", "v1", NaN], ["a", "p1", "v1", -1], ["a", "p1", "v1", Infinity],
+    ];
+    for (const [r, p, v, at] of cases) {
+      try { c.give(r, p, v, at); expect.unreachable(); }
+      catch (e) { expect(e).toBeInstanceOf(ConsentError); expect((e as ConsentError).code).toBe("invalid_input"); expect((e as Error).message).not.toContain("p1"); }
+    }
+    expect(c.snapshot()).toEqual({});
+    expect(() => ConsentStore.fromRecord(JSON.parse(JSON.stringify(c.toRecord(BIND))), NOTICE, BIND)).not.toThrow();
+  });
+
   it("test_has_is_false_for_a_different_participant_than_the_one_who_consented", () => {
     const c = new ConsentStore(NOTICE);
     c.give("a", "p1", "v1", 5);
@@ -46,6 +62,11 @@ describe("ConsentStore (US-0053)", () => {
     c.give("a", "p1", "v1", 5);
     expect(c.snapshot()).toEqual({ a: { noticeVersion: "v1", at: 5 } });
     expect(JSON.stringify(c.snapshot())).not.toContain("p1");
+  });
+
+  it("test_fromRecord_refuses_an_own___proto___role_key", () => {
+    const rec = JSON.parse(`{"v":1,"sessionId":"s","scenarioSha256":"${"c".repeat(64)}","entries":{"__proto__":{"participantId":"p","noticeVersion":"v1","at":1}}}`);
+    expect(() => ConsentStore.fromRecord(rec, NOTICE, BIND)).toThrow(ConsentRecordError);
   });
 
   it("test_fromRecord_refuses_malformed_or_foreign_records_without_quoting_them", () => {

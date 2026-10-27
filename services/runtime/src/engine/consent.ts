@@ -13,7 +13,7 @@ export type ConsentEntry = { participantId: string; noticeVersion: string; at: n
 export type ConsentRecord = { v: 1; sessionId: string; scenarioSha256: string; entries: Record<string, ConsentEntry> };
 
 export class ConsentError extends Error {
-  constructor(readonly code: "version_mismatch") { super(`consent refused: ${code}`); this.name = "ConsentError"; }
+  constructor(readonly code: "version_mismatch" | "invalid_input") { super(`consent refused: ${code}`); this.name = "ConsentError"; }
 }
 
 /** A consent record that cannot be used. The message never contains a value from the record. */
@@ -32,6 +32,11 @@ export class ConsentStore {
   get notice(): ConsentNotice { return this.noticeValue; }
 
   give(roleId: string, participantId: string, noticeVersion: string, at: number): void {
+    // The same checks fromRecord applies, so nothing is written that a restart would refuse.
+    if (isReservedRoleId(roleId) || roleId.length === 0 || roleId.length > CLIENT_ID_MAX_CHARS) throw new ConsentError("invalid_input");
+    if (participantId.length === 0 || participantId.length > CLIENT_ID_MAX_CHARS) throw new ConsentError("invalid_input");
+    if (noticeVersion.length > 64) throw new ConsentError("invalid_input");
+    if (!Number.isFinite(at) || at < 0) throw new ConsentError("invalid_input");
     if (noticeVersion !== this.noticeValue.version) throw new ConsentError("version_mismatch");
     this.entries.set(roleId, { participantId, noticeVersion, at });
   }

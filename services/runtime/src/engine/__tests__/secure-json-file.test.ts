@@ -1,4 +1,5 @@
-import { link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { closeSync, fstatSync, openSync } from "node:fs";
+import { link, mkdir, mkdtemp, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -17,11 +18,12 @@ const kindOf = (fn: () => unknown): string | undefined => { try { fn(); } catch 
 describe("secure JSON file helper (US-0053)", () => {
   it.skipIf(!isPosix)("test_write_is_0600_and_atomic_and_leaves_no_temp_file_after_a_failing_beforeCommit", async () => {
     writeSecureJson(dir, "x.json", { a: 1 });
-    expect((await stat(path.join(dir, "x.json"))).mode & 0o777).toBe(0o600);
+    const fd = openSync(path.join(dir, "x.json"), "r"); // one handle: no check-then-open gap
+    try { expect(fstatSync(fd).mode & 0o777).toBe(0o600); } finally { closeSync(fd); }
     expect(readSecureJson(dir, "x.json", { maxBytes: 100 })).toEqual({ a: 1 });
     expect(() => writeSecureJson(dir, "x.json", { a: 2 }, () => { throw new Error("lock lost"); })).toThrow("lock lost");
     expect(await readdir(dir)).toEqual(["x.json"]);
-    expect(JSON.parse(await readFile(path.join(dir, "x.json"), "utf8"))).toEqual({ a: 1 });
+    expect(readSecureJson(dir, "x.json", { maxBytes: 100 })).toEqual({ a: 1 }); // the old content survived
     expect(() => writeSecureJson(dir, "x.json", { a: 3 }, (async () => undefined) as unknown as SyncCheck)).toThrow(/synchronous/);
     expect(await readdir(dir)).toEqual(["x.json"]);
   });

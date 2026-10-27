@@ -66,7 +66,8 @@ describe("PlayerCredentials (US-0053)", () => {
       { ...good, extra: 1 }, { ...good, salt: "zz" }, { ...good, v: 2 }, { ...good, logIdentity: "nope" },
       { ...good, roles: { a: { hash: "not-hex", name: "Ada" } } },
       { ...good, roles: { a: { ...good.roles.a, extra: 1 } } },
-      { ...good, roles: { __proto__x: 1 } }, null, [],
+      JSON.parse(`{"v":1,"sessionId":"s","scenarioSha256":"${"c".repeat(64)}","logIdentity":"${"a".repeat(32)}","salt":"${"b".repeat(32)}","roles":{"__proto__":{"hash":"${"d".repeat(64)}","name":"A"}}}`), // a real own key
+      null, [],
     ];
     for (const r of bad) {
       let msg = "";
