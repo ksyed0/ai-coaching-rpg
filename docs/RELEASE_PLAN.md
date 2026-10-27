@@ -1541,7 +1541,7 @@ Acceptance Criteria:
   - [ ] AC-0270: at the first successful join by code the runtime issues a 128-bit credential, stored only as a salted hash with the display name and log identity in a separate versioned <id>.credentials.json (0600), written by atomic rename under the session lock, and never copied into review.opened
   - [ ] AC-0271: join accepts a credential whether or not an older socket is open; a drop frees the seat but never revokes the credential
   - [ ] AC-0272: a credential is revoked only by an explicit leave, consent withdrawal, facilitator removal, code reissue or the end of the session
-  - [ ] AC-0273: once a credential exists the join code no longer works for that role until the facilitator reissues it, and a per-role reissue revokes the old credential and shows the new code once
+  - [ ] AC-0273: once a credential exists the join code no longer works for that role (the per-role reissue that lifts this is delivered by US-0058, slice 2b)
   - [ ] AC-0274: a second join with the credential closes the old socket with a distinct superseded close code and the BFF does not reconnect on it
   - [ ] AC-0275: the file survives resume; a start that finds an empty log and issues new codes discards credentials and consent with the old codes
 ```
