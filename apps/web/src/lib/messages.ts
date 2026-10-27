@@ -14,6 +14,7 @@ export const MESSAGES = {
   serverError: "The server reported a problem. If your last line does not appear, send it again.",
   waiting: "Waiting for the facilitator to start. This page updates by itself; you can close the tab and come back with the same link.",
   paused: "The facilitator has paused the scene. You can speak again when it resumes.",
+  sayOffline: "You can speak again once the connection is back.",
   notStarted: "You can speak once the scene starts.",
   joinRefused: "That did not work. Check the link and the code, or ask your facilitator for a new code.",
   badName: "Enter a name of 1 to 60 characters on one line.",

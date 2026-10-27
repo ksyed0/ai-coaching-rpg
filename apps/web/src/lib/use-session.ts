@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 import { applyPlayerEvent, initPlayerView, type PlayerScene, type PlayerView, type SessionEvent, type SessionState } from "@acr/events";
 import { postJson, type ActionResult } from "./api";
 import { MESSAGES } from "./messages";
@@ -27,7 +27,7 @@ export type Consent = { noticeVersion: string; notice: string; given: boolean };
 /** The joined fields the page uses (the BFF already picked them; the credential never reaches the browser). */
 export type Joined = { roleId: string; brief?: string; privateFacts?: string[]; consent?: Consent; scenes: PlayerScene[]; logIdentity?: string };
 
-export type FinalKind = "superseded" | "signed_out" | "ended" | "expired" | "left" | "unavailable";
+export type FinalKind = "superseded" | "signed_out" | "ended" | "expired" | "left";
 export type SessionUi = {
   /** connecting: no joined yet; live: joined; reconnecting: dropped, the browser is coming back. */
   conn: "connecting" | "live" | "reconnecting";
@@ -44,7 +44,6 @@ const FINAL_MESSAGES: Record<FinalKind, string> = {
   ended: MESSAGES.sessionEnded,
   expired: MESSAGES.expired,
   left: MESSAGES.left,
-  unavailable: MESSAGES.unavailable,
 };
 const CLOSING_EVENTS = ["superseded", "signed_out", "ended", "expired"] as const;
 
@@ -72,12 +71,13 @@ export function sessionReducer(s: SessionUi, a: Action): SessionUi {
       // (and a reset follows when the replay could not be complete).
       const sameLog = s.joined !== null && s.joined.logIdentity === a.joined.logIdentity;
       const view = s.view !== null && sameLog ? s.view : capped(initPlayerView(a.state));
-      return { ...s, conn: "live", joined: a.joined, view };
+      return { ...s, conn: "live", joined: a.joined, view, notice: null };
     }
     case "reset":
-      return { ...s, conn: "live", view: capped(a.view) };
+      return { ...s, conn: "live", view: capped(a.view), notice: null };
     case "event":
-      return s.view === null ? s : { ...s, view: capped(applyPlayerEvent(s.view, a.event)) };
+      // The stream moved on: a server error notice from before is stale.
+      return s.view === null ? s : { ...s, view: capped(applyPlayerEvent(s.view, a.event)), notice: null };
     case "roster":
       return { ...s, roster: a.entries };
     case "notice":
@@ -128,19 +128,20 @@ const toRoster = (d: unknown): PeerRosterEntry[] | null =>
   isObj(d) && Array.isArray(d.entries) && d.entries.every((e) => isObj(e) && typeof e.roleId === "string" && typeof e.ready === "boolean" && (e.name === undefined || typeof e.name === "string"))
     ? (d.entries as PeerRosterEntry[]) : null;
 
-const actionResult = (r: Awaited<ReturnType<typeof postJson>>): ActionResult => (r.ok ? { ok: true } : { ok: false, message: r.message || MESSAGES.generic });
+/** A 409 `no_stream` means the stream is between connections (the browser is reconnecting): say that, not "open the page first". */
+const actionResult = (r: Awaited<ReturnType<typeof postJson>>): ActionResult =>
+  r.ok ? { ok: true } : { ok: false, message: r.code === "no_stream" ? MESSAGES.reconnecting : r.message || MESSAGES.generic };
 
 export const streamUrl = (sessionId: string) => `/api/v1/stream?session=${encodeURIComponent(sessionId)}`;
 
 export function useSession(sessionId: string, deps: SessionDeps) {
   const [ui, dispatch] = useReducer(sessionReducer, initialUi);
-  // Bumped only by an explicit retry (the person pressed Try again): a new EventSource after the browser gave up on the last one.
-  const [generation, setGeneration] = useState(0);
   const esRef = useRef<EventSourceLike | null>(null);
   const uiRef = useRef(ui);
   uiRef.current = ui;
   const { EventSource: ES, fetch: fetchImpl } = deps;
 
+  // React StrictMode (development only) runs this effect twice: the first EventSource is closed at once by the cleanup.
   useEffect(() => {
     dispatch({ type: "open" });
     const es = new ES(streamUrl(sessionId));
@@ -167,14 +168,18 @@ export function useSession(sessionId: string, deps: SessionDeps) {
     // The BFF ends a stream with `reconnecting` when the runtime is away: the browser comes back after `retry` by itself.
     on("reconnecting", () => dispatch({ type: "dropped" }));
     for (const kind of CLOSING_EVENTS) on(kind, () => finish(kind));
-    es.onerror = () => {
+    es.onerror = (e) => {
       if (finished) return;
-      // CLOSED: the browser gave up (a non-200 answer such as 401 or 503) and will not retry. Otherwise it is reconnecting.
-      if (es.readyState === 2) finish("unavailable");
+      // `onerror` handles every event named "error", so a server-sent `event: error` (a MessageEvent on an OPEN stream) lands here
+      // too: that is a notice, handled above, not a connection problem.
+      if (es.readyState === 1 || (typeof MessageEvent !== "undefined" && e instanceof MessageEvent)) return;
+      // CLOSED: the browser gave up, which it does only on an HTTP error or a wrong content type (a dropped network stays
+      // CONNECTING and retries). From this route that is a 401 (no, expired or foreign cookie): signed out, and no retry loop.
+      if (es.readyState === 2) finish("signed_out");
       else dispatch({ type: "dropped" });
     };
     return () => { finished = true; es.close(); if (esRef.current === es) esRef.current = null; };
-  }, [ES, sessionId, generation]);
+  }, [ES, sessionId]);
 
   const closeWith = useCallback((kind: FinalKind) => {
     esRef.current?.close();
@@ -206,7 +211,5 @@ export function useSession(sessionId: string, deps: SessionDeps) {
     return actionResult(await postJson("/api/v1/say", sceneId ? { text, expectSceneId: sceneId } : { text }, fetchImpl));
   }, [fetchImpl]);
 
-  const retry = useCallback(() => setGeneration((g) => g + 1), []);
-
-  return { state: ui, consent, withdraw, leave, say, retry };
+  return { state: ui, consent, withdraw, leave, say };
 }

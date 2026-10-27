@@ -113,16 +113,31 @@ describe("useSession: the stream", () => {
     expect(hook.result.current.state.final?.kind).toBe("ended");
   });
 
-  it("a stream the browser gave up on (a non-200 answer) is reported, and only an explicit retry opens a new one", () => {
+  it("a stream the browser closed (an HTTP error such as a 401: no, expired or foreign cookie) is signed out, with no retry loop", () => {
     const { hook, es } = start();
     act(() => es().fail());
-    expect(hook.result.current.state.final?.kind).toBe("unavailable");
+    expect(hook.result.current.state.final?.kind).toBe("signed_out");
+    expect(hook.result.current.state.final?.message).toContain(SIGNED_OUT_MESSAGE);
+    expect(es().closed).toBe(true);
     expect(FakeEventSource.instances).toHaveLength(1);
-    act(() => hook.result.current.retry());
-    expect(FakeEventSource.instances).toHaveLength(2);
-    expect(FakeEventSource.instances[0]!.closed).toBe(true);
+    expect("retry" in hook.result.current).toBe(false);
+  });
+
+  it("a server error frame (which a browser also hands to onerror, readyState OPEN) keeps the stream live; the notice clears on the next event, joined or reset", () => {
+    const { hook, es } = start();
+    emit(es(), "joined", joinedFrame({ state: snapshot({ status: "running", lastSeq: 1 }) }));
+    emit(es(), "error", { code: "log_failed", message: "x" });
+    expect(hook.result.current.state.conn).toBe("live");
     expect(hook.result.current.state.final).toBeNull();
-    expect(hook.result.current.state.conn).toBe("connecting");
+    expect(hook.result.current.state.notice).toBe(MESSAGES.serverError);
+    emit(es(), "event", ev(2, "utterance", { roleId: "x", text: "a", channel: "text" }));
+    expect(hook.result.current.state.notice).toBeNull();
+    emit(es(), "error", { code: "log_failed", message: "x" });
+    emit(es(), "joined", joinedFrame({ state: snapshot({ status: "running", lastSeq: 2 }) }));
+    expect(hook.result.current.state.notice).toBeNull();
+    emit(es(), "error", { code: "log_failed", message: "x" });
+    emit(es(), "reset", initPlayerView(snapshot({ status: "running", lastSeq: 2 })));
+    expect(hook.result.current.state.notice).toBeNull();
   });
 
   it("an error after a final event does not replace the final message", () => {
@@ -251,6 +266,14 @@ describe("useSession: actions", () => {
     expect(r).toEqual({ ok: false, message: MESSAGES.generic });
     await act(async () => { r = await hook.result.current.withdraw(); });
     expect(FakeEventSource.last().closed).toBe(false);
+  });
+
+  it("a send with no open stream (409 no_stream) reads as reconnecting", async () => {
+    const f = fakeFetch(() => ({ status: 409, body: refused("no_stream", "Open the session page first.") }));
+    const hook = renderHook(() => useSession("sess-1", { EventSource: FakeEventSource, fetch: f.fetch }));
+    let r: unknown;
+    await act(async () => { r = await hook.result.current.say("hi"); });
+    expect(r).toEqual({ ok: false, message: MESSAGES.reconnecting });
   });
 
   it("say sends the text and the current scene id", async () => {

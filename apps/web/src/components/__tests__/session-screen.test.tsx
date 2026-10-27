@@ -56,7 +56,7 @@ describe("SessionScreen", () => {
     emit(m.es(), "event", ev(6, "utterance", { roleId: "delivery_lead", text: "We can size it today.", channel: "text" }, T + 1));
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Play the scene");
     expect(screen.getByText(/Scene 2 of 2: Client call/)).toBeTruthy();
-    expect(screen.getByRole("timer").textContent).toBe("09:00");
+    expect(screen.getByRole("timer").textContent).toBe("Time left in scene: 09:00");
     expect(screen.getByText("We can size it today.")).toBeTruthy();
     expect(screen.getAllByText("Jo").length).toBeGreaterThanOrEqual(2); // the transcript speaker and the roster
     expect(screen.getByText("You own the client relationship.")).toBeTruthy();
@@ -77,15 +77,62 @@ describe("SessionScreen", () => {
     expect(m.container.querySelectorAll("[style]")).toHaveLength(0);
   });
 
-  it("after the end the say box is gone or disabled and the end is announced; the stream is closed", () => {
+  it("after the end the transcript stays, the end is announced, there is no say box and the stream is closed", () => {
     const m = mount();
     emit(m.es(), "joined", joinedFrame({ state: snapshot({ status: "running", lastSeq: 1 }), consent: { noticeVersion: "v1", notice: "n", given: true } }));
-    emit(m.es(), "event", ev(2, "session.ended", { reason: "script_complete" }));
-    expect(screen.getByText(MESSAGES.sessionEnded)).toBeTruthy();
-    const box = screen.queryByLabelText("Say something") as HTMLInputElement | null;
-    if (box) expect(box.disabled).toBe(true);
+    emit(m.es(), "event", ev(2, "utterance", { roleId: "delivery_lead", text: "Last words.", channel: "text" }));
+    emit(m.es(), "event", ev(3, "session.ended", { reason: "script_complete" }));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("The session has ended");
+    expect(screen.queryByLabelText("Say something")).toBeNull();
     emit(m.es(), "ended", {});
     expect(m.es().closed).toBe(true);
+    // The final `ended` does not replace the transcript: it stays readable under the end notice.
+    expect(screen.getByText("Last words.")).toBeTruthy();
+    expect(screen.getAllByText(MESSAGES.sessionEnded).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("The session has ended");
+    expect(screen.getByText("Ended")).toBeTruthy();
+    expect(screen.queryByLabelText("Say something")).toBeNull();
+  });
+
+  it("an ended final that arrives after a drop (the session.ended event was missed) still ends the scene and keeps the transcript", () => {
+    const m = mount();
+    emit(m.es(), "joined", joinedFrame({ state: snapshot({ status: "running", lastSeq: 1 }), consent: { noticeVersion: "v1", notice: "n", given: true } }));
+    emit(m.es(), "event", ev(2, "utterance", { roleId: "delivery_lead", text: "Said before the drop.", channel: "text" }));
+    act(() => m.es().drop());
+    emit(m.es(), "ended", {});
+    expect(m.es().closed).toBe(true);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("The session has ended");
+    expect(screen.getByText("Said before the drop.")).toBeTruthy();
+    expect(screen.queryByLabelText("Say something")).toBeNull();
+    expect(screen.queryByText(MESSAGES.reconnecting)).toBeNull();
+  });
+
+  it("a bare final ended with no view yet shows the end message", () => {
+    const m = mount();
+    emit(m.es(), "ended", {});
+    expect(screen.getByText(MESSAGES.sessionEnded)).toBeTruthy();
+  });
+
+  it("the say box is disabled while the stream is reconnecting", () => {
+    const m = mount();
+    const running = () => joinedFrame({ state: snapshot({ status: "running", lastSeq: 1, currentScene: { id: "s2", enteredAt: m.clock.t, participants: [], pausedMs: 0 } }), consent: { noticeVersion: "v1", notice: "n", given: true } });
+    emit(m.es(), "joined", running());
+    const box = () => screen.getByLabelText("Say something") as HTMLInputElement;
+    expect(box().disabled).toBe(false);
+    act(() => m.es().drop());
+    expect(box().disabled).toBe(true);
+    expect(screen.getByText(MESSAGES.sayOffline)).toBeTruthy();
+    emit(m.es(), "joined", running());
+    expect(box().disabled).toBe(false);
+  });
+
+  it("a server error frame on a healthy stream shows the notice but no Reconnecting banner", () => {
+    const m = mount();
+    emit(m.es(), "joined", joinedFrame({ state: snapshot({ status: "running", lastSeq: 1 }), consent: { noticeVersion: "v1", notice: "n", given: true } }));
+    emit(m.es(), "error", { code: "log_failed", message: "x" });
+    expect(screen.getByText(MESSAGES.serverError)).toBeTruthy();
+    expect(screen.queryByText(MESSAGES.reconnecting)).toBeNull();
+    expect(screen.queryByText("Reconnecting")).toBeNull();
   });
 
   it("shows the reconnecting banner on a drop and removes it once the stream is back", () => {
@@ -110,12 +157,12 @@ describe("SessionScreen", () => {
     expect(screen.queryByText(/ignored/)).toBeNull();
   });
 
-  it("a stream that could not be opened offers a retry, which opens a new one", () => {
+  it("a stream the browser closed (an HTTP 401) shows the new-code message and offers no retry", () => {
     const m = mount();
     act(() => m.es().fail());
-    expect(screen.getByText(MESSAGES.unavailable)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(screen.getByText(MESSAGES.signedOut)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(FakeEventSource.instances).toHaveLength(1);
   });
 
   it("a server error frame is shown as a notice", () => {

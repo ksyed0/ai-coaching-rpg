@@ -30,6 +30,7 @@ export function JoinForm({ sessionId, roleId, fetch: fetchImpl, navigate = goTo 
     e.preventDefault();
     if (busy.current) return;
     const displayName = name.trim();
+    // Counted in code points like the server (no maxLength attribute: it counts UTF-16 units and would cut an emoji name short).
     if (displayName.length === 0 || [...displayName].length > 60) { setError(MESSAGES.badName); return; }
     if (code.trim().length === 0) { setError(MESSAGES.joinRefused); return; }
     busy.current = true;
@@ -50,7 +51,7 @@ export function JoinForm({ sessionId, roleId, fetch: fetchImpl, navigate = goTo 
       </div>
       <div className="field">
         <label className="f" htmlFor="join-name">Your name</label>
-        <input className="t" id="join-name" name="displayName" value={name} maxLength={60} autoComplete="name" required aria-describedby="join-name-help"
+        <input className="t" id="join-name" name="displayName" value={name} autoComplete="name" required aria-describedby="join-name-help"
           onChange={(e) => setName(e.target.value)} />
         <p className="muted small" id="join-name-help">Shown to the others in the room and on your report. You type it; the facilitator does not enter names for you.</p>
       </div>

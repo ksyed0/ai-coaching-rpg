@@ -40,10 +40,13 @@ export function SessionScreen({ sessionId, deps = {} }: SessionScreenProps) {
 
   return (
     <>
-      <AppHeader status={final ? undefined : status} roleId={joined?.roleId} />
+      <AppHeader status={final && final.kind !== "ended" ? undefined : status} roleId={joined?.roleId} />
       <main className="page">
-        {final ? (
-          <FinalScreen kind={final.kind} message={final.message} onRetry={s.retry} />
+        {/* The end keeps what was said readable (Scene shows the end notice above the transcript); other finals replace the page. */}
+        {final && (final.kind === "ended" && joined && view) ? (
+          <Scene state={s.state} clock={resolved.clock} onSay={s.say} />
+        ) : final ? (
+          <FinalScreen kind={final.kind} message={final.message} />
         ) : (
           <>
             {conn === "reconnecting" ? <p className="banner warn" role="status">{MESSAGES.reconnecting}</p> : null}
@@ -65,14 +68,14 @@ export function SessionScreen({ sessionId, deps = {} }: SessionScreenProps) {
   );
 }
 
-function FinalScreen({ kind, message, onRetry }: { kind: string; message: string; onRetry: () => void }) {
-  const title = kind === "ended" ? "The session has ended" : kind === "left" ? "You have left" : kind === "superseded" ? "Open in another tab" : kind === "unavailable" ? "Cannot connect" : "Signed out";
+/** A final state with nothing worth keeping on screen. No retry button: each of these is final (the browser must not come back). */
+function FinalScreen({ kind, message }: { kind: string; message: string }) {
+  const title = kind === "ended" ? "The session has ended" : kind === "left" ? "You have left" : kind === "superseded" ? "Open in another tab" : "Signed out";
   return (
     <>
       <TitleBlock title={title} lede="This page no longer updates." />
       <div className="body">
         <p className="banner warn" role="status">{message}</p>
-        {kind === "unavailable" ? <button className="btn" type="button" onClick={onRetry}>Try again</button> : null}
       </div>
     </>
   );
@@ -131,17 +134,17 @@ function LeaveButton({ onLeave }: { onLeave: Action }) {
 function Scene({ state, clock, onSay }: { state: ReturnType<typeof useSession>["state"]; clock: Clock; onSay: (text: string) => Promise<ActionResult> }) {
   const joined = state.joined!;
   const view = state.view!;
-  const ended = view.status === "ended";
+  const ended = view.status === "ended" || state.final?.kind === "ended";
   const index = view.scene ? joined.scenes.findIndex((x) => x.id === view.scene!.id) : -1;
   const names: Record<string, string> = {};
   for (const e of state.roster) if (e.name !== undefined) names[e.roleId] = e.name;
   const playerRoles = new Set(state.roster.map((e) => e.roleId));
   playerRoles.add(joined.roleId);
-  const disabledReason = ended ? MESSAGES.sessionEnded : view.paused ? MESSAGES.paused : !view.scene ? MESSAGES.notStarted : null;
+  const disabledReason = ended ? MESSAGES.sessionEnded : state.conn !== "live" ? MESSAGES.sayOffline : view.paused ? MESSAGES.paused : !view.scene ? MESSAGES.notStarted : null;
   return (
     <>
-      <TitleBlock title={ended ? "The session has ended" : "Play the scene"} lede={ended ? MESSAGES.sessionEnded : "Talk to the room. Your brief and any updates stay beside the transcript."} />
-      {ended ? null : <SceneStatus scene={index >= 0 ? joined.scenes[index] : undefined} index={index} count={joined.scenes.length} view={view} clock={clock} />}
+      <TitleBlock title={ended ? "The session has ended" : "Play the scene"} lede={ended ? "This page no longer updates. What was said stays below." : "Talk to the room. Your brief and any updates stay beside the transcript."} />
+      {ended ? <p className="banner warn" role="status">{MESSAGES.sessionEnded}</p> : <SceneStatus scene={index >= 0 ? joined.scenes[index] : undefined} index={index} count={joined.scenes.length} view={view} clock={clock} />}
       <div className="body row">
         <section className="col col-main" aria-labelledby="transcript-h">
           <h2 className="s" id="transcript-h">Transcript</h2>

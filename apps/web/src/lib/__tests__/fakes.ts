@@ -37,6 +37,8 @@ export class FakeEventSource {
     this.readyState = 1;
     const ev = new MessageEvent(type, { data: typeof data === "string" ? data : JSON.stringify(data), lastEventId });
     for (const fn of this.listeners.get(type) ?? []) fn(ev);
+    // In a browser `onerror` is the handler for every event named "error", so a server-sent `event: error` reaches it too.
+    if (type === "error") this.onerror?.(ev);
   }
 
   /** The connection dropped; the browser will reconnect by itself (readyState CONNECTING). */

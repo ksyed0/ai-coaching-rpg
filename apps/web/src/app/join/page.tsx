@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CLIENT_ID_MAX_CHARS, isScenarioId, isValidSessionId } from "@acr/events";
 import { AppHeader } from "../../components/AppHeader";
 import { JoinForm } from "../../components/JoinForm";
 import { TitleBlock } from "../../components/TitleBlock";
@@ -9,12 +10,16 @@ import { MESSAGES } from "../../lib/messages";
 export const metadata: Metadata = { title: "Join a session · SceneCoach.ai", robots: { index: false, follow: false } };
 
 type Search = Record<string, string | string[] | undefined>;
-const one = (v: string | string[] | undefined) => (typeof v === "string" && v.length > 0 && v.length <= 128 ? v : null);
+const one = (v: string | string[] | undefined) => (typeof v === "string" ? v : null);
+/** The same shapes the BFF accepts (handlers.ts): a link that cannot work is caught here, before anyone types a code. */
+const isRoleParam = (v: string) => v.length <= CLIENT_ID_MAX_CHARS && isScenarioId(v);
 
 export default async function JoinPage({ searchParams }: { searchParams: Promise<Search> }) {
   const q = await searchParams;
-  const sessionId = one(q.session);
-  const roleId = one(q.role);
+  const s = one(q.session);
+  const r = one(q.role);
+  const sessionId = s !== null && isValidSessionId(s) ? s : null;
+  const roleId = r !== null && isRoleParam(r) ? r : null;
   return (
     <>
       <AppHeader status="lobby" roleId={roleId ?? undefined} />

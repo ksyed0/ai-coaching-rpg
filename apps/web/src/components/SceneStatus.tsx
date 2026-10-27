@@ -34,7 +34,7 @@ export function SceneStatus({ scene, index, count, view, clock }: SceneStatusPro
       </div>
       <div className="clock">
         {view.paused ? <span className="pill warn">Paused</span> : null}
-        <span className="timer" role="timer" aria-label="Time left in scene">{formatRemaining(left)}</span>
+        <span className="timer" role="timer"><span className="sr-only">Time left in scene: </span><span className="timer-value">{formatRemaining(left)}</span></span>
       </div>
     </div>
   );

@@ -74,6 +74,36 @@ describe("Transcript", () => {
     expect(within(items[2]!).getByText("AI")).toBeTruthy();
     expect(items[2]!.textContent).toContain("Client sponsor");
   });
+  it("the scrollable transcript is keyboard focusable and named", () => {
+    render(<Transcript lines={[{ seq: 1, ts: 1, roleId: "am", text: "a", sceneId: null }]} selfRole="am" names={{}} playerRoles={new Set(["am"])} />);
+    const list = screen.getByRole("list", { name: "Transcript" });
+    expect(list.tabIndex).toBe(0);
+  });
+
+  it("follows new lines unless the reader has scrolled up", () => {
+    const line = (seq: number) => ({ seq, ts: seq, roleId: "am", text: `l${seq}`, sceneId: null });
+    const props = { selfRole: "am", names: {}, playerRoles: new Set(["am"]) };
+    const { rerender } = render(<Transcript lines={[line(1)]} {...props} />);
+    const list = screen.getByRole("list", { name: "Transcript" });
+    let height = 1_000;
+    Object.defineProperty(list, "scrollHeight", { configurable: true, get: () => height });
+    Object.defineProperty(list, "clientHeight", { configurable: true, get: () => 200 });
+    rerender(<Transcript lines={[line(1), line(2)]} {...props} />);
+    expect(list.scrollTop).toBe(1_000);
+    // The reader scrolls up to read: new lines no longer pull the view down.
+    list.scrollTop = 300;
+    fireEvent.scroll(list);
+    height = 1_200;
+    rerender(<Transcript lines={[line(1), line(2), line(3)]} {...props} />);
+    expect(list.scrollTop).toBe(300);
+    // Back at the bottom: following again.
+    list.scrollTop = 1_000;
+    fireEvent.scroll(list);
+    height = 1_400;
+    rerender(<Transcript lines={[line(1), line(2), line(3), line(4)]} {...props} />);
+    expect(list.scrollTop).toBe(1_400);
+  });
+
   it("says so when nothing has been said yet", () => {
     render(<Transcript lines={[]} selfRole="am" names={{}} playerRoles={new Set()} />);
     expect(screen.getByText(/Nothing has been said yet/)).toBeTruthy();
@@ -117,6 +147,27 @@ describe("SayBox", () => {
     expect(onSay).not.toHaveBeenCalled();
   });
 
+  it("the input keeps focus across a send", async () => {
+    let release!: () => void;
+    const onSay = vi.fn(() => new Promise<{ ok: true }>((r) => { release = () => r({ ok: true }); }));
+    render(<SayBox disabledReason={null} onSay={onSay} />);
+    const box = screen.getByLabelText("Say something") as HTMLInputElement;
+    box.focus();
+    fireEvent.change(box, { target: { value: "one" } });
+    fireEvent.submit(box.form!);
+    expect(document.activeElement).toBe(box);
+    await act(async () => release());
+    expect(document.activeElement).toBe(box);
+    expect(box.readOnly).toBe(false);
+    // Sent by clicking Say: the disabled button dropped the focus to the body; it comes back to the input.
+    fireEvent.change(box, { target: { value: "two" } });
+    box.blur();
+    expect(document.activeElement).toBe(document.body);
+    fireEvent.click(screen.getByRole("button", { name: "Say" }));
+    await act(async () => release());
+    expect(document.activeElement).toBe(box);
+  });
+
   it("sends the trimmed line once, clears the box on success and keeps it with the message on a refusal", async () => {
     let answer: { ok: true } | { ok: false; message: string } = { ok: false, message: "The scene has changed." };
     let release!: () => void;
@@ -128,7 +179,11 @@ describe("SayBox", () => {
     fireEvent.submit(box.form!);
     expect(onSay).toHaveBeenCalledTimes(1);
     expect(onSay).toHaveBeenCalledWith("hello");
-    expect(box.disabled).toBe(true);
+    // Pending: the input stays enabled (so it keeps focus) but read-only and busy; the button is disabled.
+    expect(box.disabled).toBe(false);
+    expect(box.readOnly).toBe(true);
+    expect(box.getAttribute("aria-busy")).toBe("true");
+    expect((screen.getByRole("button", { name: "Say" }) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => release());
     expect(box.value).toBe("  hello  ");
     expect(screen.getByRole("alert").textContent).toBe("The scene has changed.");
@@ -151,7 +206,10 @@ describe("SceneStatus", () => {
     const clock = new FakeClock(T + 2 * 60_000);
     const view = { paused: false, pausedSince: null, scene: { id: "s2", enteredAt: T, pausedMs: 60_000 } };
     const { rerender, unmount } = render(<SceneStatus scene={scene} index={1} count={3} view={view} clock={clock} />);
-    const timer = () => screen.getByRole("timer").textContent;
+    const timer = () => screen.getByRole("timer").querySelector(".timer-value")!.textContent;
+    // The value is the timer's content (announced), with its label as visually hidden text, not an aria-label that replaces it.
+    expect(screen.getByRole("timer").hasAttribute("aria-label")).toBe(false);
+    expect(screen.getByRole("timer").textContent).toBe("Time left in scene: 09:00");
     expect(timer()).toBe("09:00"); // 10 min box, 2 min since entry, 1 min of it paused
     act(() => clock.tick(18_000));
     expect(timer()).toBe("08:42");
@@ -228,9 +286,25 @@ describe("JoinForm", () => {
 
   it("labels its controls and shows the role it joins as", () => {
     render(<JoinForm sessionId="sess-1" roleId="account_manager" fetch={fakeFetch().fetch} navigate={vi.fn()} />);
-    expect((screen.getByLabelText("Your name") as HTMLInputElement).maxLength).toBe(60);
+    // No maxLength: it counts UTF-16 units, the server counts code points (an emoji name would be cut short).
+    expect(screen.getByLabelText("Your name").hasAttribute("maxlength")).toBe(false);
     expect((screen.getByLabelText("Your join code") as HTMLInputElement).autocomplete).toBe("off");
     expect(screen.getByText("Account manager")).toBeTruthy();
+  });
+
+  it("a name is limited to 60 code points, not 60 UTF-16 units (emoji)", async () => {
+    const f = fakeFetch(() => ({ status: 401, body: refused("join_refused", "x") }));
+    render(<JoinForm sessionId="sess-1" roleId="am" fetch={f.fetch} navigate={vi.fn()} />);
+    const submit = async () => { await act(async () => { fireEvent.submit(screen.getByRole("button", { name: "Join" }).closest("form")!); }); };
+    fireEvent.change(screen.getByLabelText("Your join code"), { target: { value: "C" } });
+    fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "\u{1F600}".repeat(60) } });
+    await submit();
+    expect(f.calls).toHaveLength(1);
+    expect((f.calls[0]!.body as { displayName: string }).displayName).toBe("\u{1F600}".repeat(60));
+    fireEvent.change(screen.getByLabelText("Your name"), { target: { value: "\u{1F600}".repeat(61) } });
+    await submit();
+    expect(f.calls).toHaveLength(1);
+    expect(screen.getByRole("alert").textContent).toBe(MESSAGES.badName);
   });
 
   it("an empty name or code is not sent", async () => {
