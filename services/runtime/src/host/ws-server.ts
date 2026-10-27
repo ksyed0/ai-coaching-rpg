@@ -335,19 +335,22 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
           return;
         }
         if (!host || !who) return fail("not_joined", "join first");
-        if (m.type === "leave") {
-          if (isFacilitator || !participantId) return fail("forbidden", "only a player may leave a role");
-          host.leave(who, participantId);
-          log(`${who} left`);
+        if (m.type === "leave" || m.type === "withdraw_consent") {
+          if (isFacilitator || !participantId) return fail("forbidden", m.type === "leave" ? "only a player may leave a role" : "only a player may give or withdraw consent");
+          // US-0054: withdrawing consent gives the seat up like a leave (credential revoked, role released), so it ends the same way.
+          if (m.type === "leave") host.leave(who, participantId); else host.withdrawConsent(who, participantId);
+          log(`${who} ${m.type === "leave" ? "left" : "withdrew consent"}`);
+          // The role is free now: a join for it must not meet this closing socket as a live holder (role_taken).
+          if (holderKey && holders.get(holderKey)?.ws === ws) holders.delete(holderKey);
+          holderKey = null;
           dropCounted = true; // frames still queued on a socket that left are not login attempts
-          shut(1000, "left");
+          shut(1000, m.type === "leave" ? "left" : "withdrew");
           return;
         }
-        if (m.type === "consent" || m.type === "withdraw_consent") {
+        if (m.type === "consent") {
           if (isFacilitator || !participantId) return fail("forbidden", "only a player may give or withdraw consent");
-          // US-0054: refusals (consent_version, already_started, bad_message) come back as HostError through the catch below.
-          if (m.type === "consent") host.giveConsent(who, participantId, m.noticeVersion);
-          else host.withdrawConsent(who, participantId);
+          // US-0054: refusals (consent_version, already_started, bad_message, not_joined) come back as HostError through the catch below.
+          host.giveConsent(who, participantId, m.noticeVersion);
           return;
         }
         if (m.type === "start") {

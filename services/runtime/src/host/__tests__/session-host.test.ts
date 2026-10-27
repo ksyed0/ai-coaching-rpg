@@ -468,6 +468,87 @@ describe("consent and the start gate (US-0054)", () => {
     expect(seen[0]).toMatchObject({ type: "session.started", consents: { host: { noticeVersion: "v1", at: 5_000 } }, names: { host: "Alice" }, logIdentity: seats.credentials.logIdentity });
   });
 
+  /** Holds engine.start until `go()`, so the host stays in its `starting` window. */
+  function holdStart(e: SessionEngine) {
+    const orig = e.start.bind(e);
+    let go!: () => void;
+    const gate = new Promise<void>((r) => { go = r; });
+    e.start = async (a, x) => { await gate; return orig(a, x); };
+    return () => go();
+  }
+
+  it("after the start a different participant cannot take a dropped role; the same participant can rejoin", async () => {
+    const { h, e } = await seated();
+    h.join("host", "alice"); h.giveConsent("host", "alice", "v1");
+    await h.start();
+    h.release("host", "alice"); // the socket dropped
+    expect(code(() => h.join("host", "bob"))).toBe("consent_required");
+    expect(h.assignments.host).toBeUndefined();
+    expect(h.join("host", "alice").brief).toMatch(/hosting/);
+    expect(e.state.status).toBe("running");
+  });
+
+  it("during the start window a different participant cannot take a dropped role", async () => {
+    const { h, e } = await seated();
+    h.join("host", "alice"); h.giveConsent("host", "alice", "v1");
+    const go = holdStart(e);
+    const starting = h.start();
+    h.release("host", "alice");
+    expect(code(() => h.join("host", "bob"))).toBe("consent_required");
+    expect(h.assignments.host).toBeUndefined();
+    h.join("host", "alice");
+    go(); await starting;
+    expect(e.state.roles.host).toMatchObject({ participantId: "alice" });
+  });
+
+  it("a host without seats lets anyone take a free role after the start (regression guard)", async () => {
+    host.join("host", "p1");
+    await host.start();
+    host.release("host", "p1");
+    expect(host.join("host", "p2").brief).toMatch(/hosting/);
+  });
+
+  it("consent and withdraw from someone who does not hold the role are refused as not_joined", async () => {
+    const { h, seats, persist } = await seated();
+    h.join("host", "alice");
+    expect(code(() => h.giveConsent("host", "bob", "v1"))).toBe("not_joined");
+    h.giveConsent("host", "alice", "v1");
+    expect(code(() => h.withdrawConsent("host", "bob"))).toBe("not_joined");
+    expect(seats.consent.has("host", "alice")).toBe(true);
+    expect(h.assignments.host).toBe("alice");
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed write when giving consent takes the consent back, so the gate does not count it", async () => {
+    let failing = true;
+    const written: Record<string, unknown>[] = [];
+    const { h, e, seats } = await seated({ persist: () => { if (failing) throw new Error("disk full"); written.push(seats.consent.snapshot()); } });
+    h.join("host", "alice");
+    expect(() => h.giveConsent("host", "alice", "v1")).toThrow(/disk full/);
+    expect(seats.consent.has("host", "alice")).toBe(false);
+    await expect(h.start()).rejects.toThrow("seats_not_ready: host");
+    failing = false;
+    h.giveConsent("host", "alice", "v1");
+    expect(written).toEqual([{ host: { noticeVersion: "v1", at: 5_000 } }]);
+    await h.start();
+    expect(e.state.status).toBe("running");
+  });
+
+  it("a failed write when withdrawing consent is written again by a retry", async () => {
+    let failing = false;
+    const { h, seats, persist } = await seated({ persist: () => { if (failing) throw new Error("disk full"); } });
+    h.join("host", "alice"); seats.credentials.issue("host", "Alice"); h.giveConsent("host", "alice", "v1");
+    failing = true;
+    expect(() => h.withdrawConsent("host", "alice")).toThrow(/disk full/);
+    expect(seats.consent.has("host", "alice")).toBe(false); // memory is ahead of the file
+    expect(seats.credentials.has("host")).toBe(false);
+    failing = false;
+    const before = persist.mock.calls.length;
+    h.withdrawConsent("host", "alice"); // the role is already released: the retry only writes
+    expect(persist.mock.calls.length).toBe(before + 1);
+    expect(code(() => h.withdrawConsent("host", "alice"))).toBe("not_joined"); // nothing left to write
+  });
+
   it("a session host built without seats starts as before (regression guard)", async () => {
     host.join("host", "p1");
     const seen: SessionEvent[] = [];

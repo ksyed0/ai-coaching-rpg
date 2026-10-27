@@ -27,18 +27,19 @@ afterEach(async () => {
   await server?.close(); server = null;
 });
 
-type Client = { inbox: any[]; send(m: unknown): void; next(pred: (m: any) => boolean): Promise<any> };
+type Client = { inbox: any[]; closed: Promise<{ code: number; reason: string }>; send(m: unknown): void; next(pred: (m: any) => boolean): Promise<any> };
 async function open(port: number): Promise<Client> {
   const ws = new WebSocket(`ws://127.0.0.1:${port}`);
   sockets.push(ws);
   const inbox: any[] = [];
   const waiters: { pred: (m: any) => boolean; resolve: (m: any) => void }[] = [];
   ws.on("error", () => {});
+  const closed = new Promise<{ code: number; reason: string }>((r) => ws.on("close", (c, why) => r({ code: c, reason: why.toString() })));
   ws.on("message", (d) => { const m = JSON.parse(d.toString()); inbox.push(m); for (const w of [...waiters]) if (w.pred(m)) { waiters.splice(waiters.indexOf(w), 1); w.resolve(m); } });
   // Waits for the effect itself; the test's own timeout is the only guard against a hung server.
   const next = (pred: (m: any) => boolean) => new Promise<any>((resolve) => { const found = inbox.find(pred); if (found) return resolve(found); waiters.push({ pred, resolve }); });
   await new Promise<void>((resolve, reject) => { ws.once("open", () => resolve()); ws.once("error", reject); });
-  return { inbox, next, send: (m) => ws.send(JSON.stringify(m)) };
+  return { inbox, closed, next, send: (m) => ws.send(JSON.stringify(m)) };
 }
 
 async function setup(o: { extraPlayers?: string[] } = {}) {
@@ -68,7 +69,7 @@ async function facilitator(port: number): Promise<Client> {
 /** Sends a consent and waits until the host has it (success sends nothing back). */
 async function consent(c: Client, seats: Seats, roleId: string, participantId: string) {
   c.send({ type: "consent", noticeVersion: "v1" });
-  while (!seats.consent.has(roleId, participantId)) await new Promise((r) => setTimeout(r, 5));
+  await vi.waitFor(() => expect(seats.consent.has(roleId, participantId)).toBe(true), { timeout: 30_000, interval: 5 });
 }
 
 describe("consent messages and the start gate over the socket (US-0054)", () => {
@@ -128,11 +129,29 @@ describe("consent messages and the start gate over the socket (US-0054)", () => 
     f.send({ type: "withdraw_consent" });
     await f.next((m) => m.type === "error" && f.inbox.filter((x) => x.type === "error").length === 2);
     expect(f.inbox.filter((m) => m.type === "error").map((m) => m.code)).toEqual(["forbidden", "forbidden"]);
-    // A player's withdraw over the socket takes back the consent, the credential and the seat.
+  });
+
+  it("withdraw_consent over the socket frees the role at once and closes the connection with 1000", async () => {
+    const { port, host, seats, plain } = await setup();
     const { c: a } = await player(port, "host", plain.host!, "alice", "Alice");
     await consent(a, seats, "host", "alice");
     a.send({ type: "withdraw_consent" });
-    while (seats.credentials.has("host")) await new Promise((r) => setTimeout(r, 5));
+    expect(await a.closed).toEqual({ code: 1000, reason: "withdrew" });
+    expect(seats.consent.has("host", "alice")).toBe(false);
+    expect(seats.credentials.has("host")).toBe(false);
+    // The role is free for the next person with the code, who must consent afresh.
+    const { j } = await player(port, "host", plain.host!, "bob", "Bob");
+    expect(j.roleId).toBe("host");
+    expect(j.consent.given).toBe(false);
+    expect(host.assignments.host).toBe("bob");
+  });
+
+  it("a consent from a connection that no longer holds its role gets an error frame", async () => {
+    const { port, host, seats, plain } = await setup();
+    const { c: a } = await player(port, "host", plain.host!, "alice", "Alice");
+    host.release("host", "alice"); // the seat was freed under this connection
+    a.send({ type: "consent", noticeVersion: "v1" });
+    expect(await a.next((m) => m.type === "error")).toEqual({ type: "error", code: "not_joined", message: "not_joined" });
     expect(seats.consent.has("host", "alice")).toBe(false);
   });
 

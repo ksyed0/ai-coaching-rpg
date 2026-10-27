@@ -22,7 +22,7 @@ export const MAX_REPLAY_BYTES = 256 * 1024;
  */
 export type Replay = { afterSeq: number; toSeq: number; complete: boolean; events: SessionEvent[] };
 
-export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message";
+export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message" | "consent_required" | "not_joined";
 
 export class HostError extends Error {
   /** `roles`, when given, names the roles the error is about: the message becomes `code: role1,role2`. */
@@ -131,6 +131,9 @@ export class SessionHost {
     const role = Object.hasOwn(this.scenario.roles, roleId) ? this.scenario.roles[roleId] : undefined;
     if (!role) throw new HostError("unknown_role");
     if (role.type !== "player") throw new HostError("npc_role");
+    // US-0054: from the start on, a seat is only for the participant whose consent the start recorded (or who gave it since):
+    // a dropped seat cannot be taken by someone else with the code. The same participant still reconnects.
+    if (this.seats && (this.started || this.starting !== null) && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
     if (this.assignments[roleId] && this.assignments[roleId] !== participantId) throw new HostError("role_taken");
     this.assignments[roleId] = participantId;
     return { brief: role.brief, privateFacts: role.private_facts };
@@ -159,12 +162,14 @@ export class SessionHost {
 
   /**
    * US-0054: the holder of the role agrees to the consent notice of `noticeVersion`, recorded with the host clock and persisted.
-   * Only the participant who holds the role may give it (anyone else changes nothing). Another version is refused as
-   * consent_version; input the store refuses as bad_message. A failed write throws and a retry writes again.
+   * Only the participant who holds the role may give it (anyone else: not_joined). Another version is refused as
+   * consent_version; input the store refuses as bad_message. A failed write takes the consent back and throws, so neither the gate
+   * nor session.started counts a consent that is not on disk.
    */
   giveConsent(roleId: string, participantId: string, noticeVersion: string): void {
     this.refuseOnceStarting();
-    if (!this.seats || !Object.hasOwn(this.assignments, roleId) || this.assignments[roleId] !== participantId) return this.flushSeats();
+    if (!this.holds(roleId, participantId)) throw new HostError("not_joined");
+    if (!this.seats) return;
     try {
       this.seats.consent.give(roleId, participantId, noticeVersion, this.clock.now());
     } catch (err) {
@@ -172,22 +177,33 @@ export class SessionHost {
       throw err;
     }
     this.seatsDirty = true;
-    this.flushSeats();
+    try {
+      this.flushSeats();
+    } catch (err) {
+      // Left marked dirty: the next write records the state without it, so the file never keeps a consent memory does not have.
+      this.seats.consent.withdraw(roleId);
+      throw err;
+    }
   }
 
   /**
    * US-0054: the holder takes their consent back. Without consent the seat cannot take part, so, like a leave, the credential is
-   * revoked and the role released; then the seat state is persisted. Anyone but the current holder changes nothing.
+   * revoked and the role released; then the seat state is persisted. A failed write throws; a retry by the same caller (the role is
+   * released by then) writes again. Anyone else, with nothing waiting to be written, gets not_joined.
    */
   withdrawConsent(roleId: string, participantId: string): void {
     this.refuseOnceStarting();
-    if (Object.hasOwn(this.assignments, roleId) && this.assignments[roleId] === participantId) {
+    if (this.holds(roleId, participantId)) {
       if (this.seats) this.seatsDirty = true;
       this.seats?.consent.withdraw(roleId);
       this.seats?.credentials.revoke(roleId);
       this.release(roleId, participantId);
-    }
+    } else if (!this.seatsDirty) throw new HostError("not_joined");
     this.flushSeats();
+  }
+
+  private holds(roleId: string, participantId: string): boolean {
+    return Object.hasOwn(this.assignments, roleId) && this.assignments[roleId] === participantId;
   }
 
   /** US-0054: the consents and seats go into session.started, so they are frozen from the moment the start begins. */
