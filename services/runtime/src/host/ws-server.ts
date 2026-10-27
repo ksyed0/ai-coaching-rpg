@@ -318,6 +318,8 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             if (prevLive && !(byReconnect || byCredential)) return fail("role_taken", "role_taken");
             if (beyondHead(h, m.lastSeq)) return fail("bad_message", BEYOND_HEAD); // authorised, but nothing is claimed or taken over
             // US-0013: from here to the subscribe below there is no await, so no event can fall between the replay and the live stream.
+            // Computed before the seat is taken or a credential saved, so it can never leave a half-joined seat. Omitted when empty (a stand-in host may not offer it).
+            const scenes = (h as Partial<SessionHost>).scenesFor?.(m.roleId) ?? [];
             const { brief, privateFacts } = h.join(m.roleId, m.participantId);
             let credential: string | undefined;
             if (seats && m.issueCredential && byCode) {
@@ -339,7 +341,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             // Its close handler leaves the seat alone: `holders` already points at this socket. A disconnect never revokes.
             if (prevLive) prev.kick();
             sendJoined(h, m.roleId, m.lastSeq, {
-              type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId), scenes: h.scenesFor(m.roleId),
+              type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId), ...(scenes.length > 0 ? { scenes } : {}),
               ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
               ...(seats ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
             });

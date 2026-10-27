@@ -35,20 +35,26 @@ export function initPlayerView(snapshot: SessionState): PlayerView {
  * or stale and changes nothing. The cases mirror `reduce` (state.ts); a test keeps the pause arithmetic from drifting.
  */
 export function applyPlayerEvent(view: PlayerView, e: SessionEvent): PlayerView {
-  if (e.seq <= view.lastSeq) return view;
+  // A malformed seq (NaN, Infinity, fractional, missing) must not poison lastSeq: it is dropped like a duplicate.
+  if (!e || !Number.isSafeInteger(e.seq) || e.seq <= view.lastSeq) return view;
   const v: PlayerView = { ...view, lastSeq: e.seq };
+  // The cases below that do arithmetic on `ts` take a non-finite one as a no-op, so a bad ts cannot turn pausedSince, pausedMs or enteredAt into NaN.
+  const tsOk = Number.isFinite(e.ts);
   switch (e.type) {
     case "session.started":
       return { ...v, status: "running" };
     case "scene.entered":
+      if (!tsOk) return v;
       return { ...v, scene: { id: e.sceneId, enteredAt: e.ts, pausedMs: 0 }, pausedSince: v.paused ? e.ts : null };
     case "scene.exited":
       return { ...v, scene: null };
     case "utterance":
+      if (typeof e.text !== "string") return v;
       return { ...v, transcript: [...v.transcript, { seq: e.seq, ts: e.ts, roleId: e.roleId, text: e.text, sceneId: v.scene?.id ?? null }] };
     case "inject.fired":
       return { ...v, injects: [...v.injects, { seq: e.seq, content: e.content, sceneId: e.sceneId }] };
     case "facilitator.command":
+      if (!tsOk) return v;
       if (e.command === "pause") return v.paused ? v : { ...v, paused: true, pausedSince: e.ts };
       if (e.command === "resume") {
         if (!v.paused) return v;
@@ -59,6 +65,7 @@ export function applyPlayerEvent(view: PlayerView, e: SessionEvent): PlayerView 
     case "session.ended":
       return { ...v, status: "ended", scene: null, ended: { reason: e.reason } };
     case "session.resumed":
+      if (!tsOk) return v;
       if (v.status !== "running") return v;
       return v.paused ? v : { ...v, paused: true, pausedSince: Number.isFinite(e.downFromTs) ? Math.min(e.downFromTs, e.ts) : e.ts };
     default:

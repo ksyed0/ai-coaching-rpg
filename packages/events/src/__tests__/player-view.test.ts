@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialState, reduce, initPlayerView, applyPlayerEvent, type SessionEvent, type SessionState } from "../index.js";
+import { initialState, reduce, initPlayerView, applyPlayerEvent, type PlayerView, type SessionEvent, type SessionState } from "../index.js";
 
 const env = (seq: number, ts = 1_000 + seq) => ({ seq, ts, sessionId: "s1" });
 const started: SessionEvent = { ...env(1), type: "session.started", scenarioId: "sc", version: "1", roles: { me: { kind: "player" }, npc: { kind: "npc" } } };
@@ -95,26 +95,97 @@ describe("applyPlayerEvent", () => {
   });
 });
 
-describe("applyPlayerEvent against reduce", () => {
-  const seq: SessionEvent[] = [started, entered(2), said(3), cmd(4, 3_000, "pause"), cmd(5, 3_900, "resume"), said(6, "b"),
-    { ...env(7), type: "inject.fired", injectId: "i", sceneId: "s1", to: ["me"], content: "c" },
-    { ...env(8), type: "scene.exited", sceneId: "s1", reason: "facilitator_advance" } as SessionEvent, entered(9, 9_000), cmd(10, 9_100, "pause"),
-    { ...env(11, 9_500), type: "session.resumed", downFromTs: 9_200 }, cmd(12, 9_800, "resume"), said(13, "c"),
-    { ...env(14), type: "session.ended", reason: "facilitator_end" }];
-  const project = (s: SessionState) => ({ paused: s.paused, pausedSince: s.pausedSince, scene: s.currentScene && { id: s.currentScene.id, enteredAt: s.currentScene.enteredAt, pausedMs: s.currentScene.pausedMs },
-    transcript: s.transcript.map((u) => ({ seq: u.seq, ts: u.ts, roleId: u.roleId, text: u.text, sceneId: u.sceneId })), status: s.status });
+/** Small deterministic PRNG (mulberry32) so a failing sequence can be replayed from its seed. */
+function prng(seed: number) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+/** A gap-free sequence of events a player could receive, with non-monotonic and equal timestamps. */
+function randomSequence(seed: number, length: number): SessionEvent[] {
+  const rnd = prng(seed);
+  const pick = <T,>(xs: T[]): T => xs[Math.floor(rnd() * xs.length)]!;
+  const out: SessionEvent[] = [];
+  let ts = 10_000;
+  if (rnd() < 0.8) out.push(started);
+  for (let i = out.length; i < length; i++) {
+    const seq = i + 1;
+    ts = rnd() < 0.2 ? ts : ts + Math.floor((rnd() - 0.3) * 2_000); // equal sometimes, going backwards sometimes
+    const e = { seq, ts, sessionId: "s1" };
+    const kind = pick(["pause", "resume", "advance", "scene.entered", "scene.exited", "utterance", "inject.fired", "session.resumed", "facilitator.alert", "session.ended"]);
+    switch (kind) {
+      case "pause": case "resume": case "advance": out.push({ ...e, type: "facilitator.command", command: kind }); break;
+      case "scene.entered": out.push({ ...e, type: "scene.entered", sceneId: pick(["a", "b", "c"]), participants: ["me"] }); break;
+      case "scene.exited": out.push({ ...e, type: "scene.exited", sceneId: "a", reason: "facilitator_advance" } as SessionEvent); break;
+      case "utterance": out.push({ ...e, type: "utterance", roleId: "me", text: `t${seq}`, channel: "text" }); break;
+      case "inject.fired": out.push({ ...e, type: "inject.fired", injectId: `i${seq}`, sceneId: "a", to: ["me"], content: "c" }); break;
+      case "session.resumed": out.push({ ...e, type: "session.resumed", downFromTs: ts + Math.floor((rnd() - 0.7) * 3_000) }); break;
+      case "facilitator.alert": out.push({ ...e, type: "facilitator.alert", level: "info", message: "m" }); break;
+      default: out.push({ ...e, type: "session.ended", reason: "facilitator_end" });
+    }
+  }
+  return out;
+}
+const projectState = (s: SessionState) => ({ paused: s.paused, pausedSince: s.pausedSince,
+  scene: s.currentScene && { id: s.currentScene.id, enteredAt: s.currentScene.enteredAt, pausedMs: s.currentScene.pausedMs },
+  transcript: s.transcript.map((u) => ({ seq: u.seq, ts: u.ts, roleId: u.roleId, text: u.text, sceneId: u.sceneId })), status: s.status });
+const projectView = (v: PlayerView) => ({ paused: v.paused, pausedSince: v.pausedSince, scene: v.scene, transcript: v.transcript, status: v.status });
 
-  it("agrees with reduce on every prefix of a gap-free sequence", () => {
-    let s = initialState(); let v = initPlayerView(s);
-    for (const e of seq) {
-      s = reduce(s, e); v = applyPlayerEvent(v, e);
-      expect({ paused: v.paused, pausedSince: v.pausedSince, scene: v.scene, transcript: v.transcript, status: v.status }).toEqual(project(s));
+describe("applyPlayerEvent against reduce", () => {
+  it("agrees with reduce on every prefix of many random gap-free sequences", () => {
+    for (let seed = 1; seed <= 400; seed++) {
+      let s = initialState(); let v = initPlayerView(s);
+      for (const e of randomSequence(seed, 40)) {
+        s = reduce(s, e); v = applyPlayerEvent(v, e);
+        expect(projectView(v), `seed ${seed} seq ${e.seq} ${e.type}`).toEqual(projectState(s));
+      }
     }
   });
-  it("does not throw when any single event is removed (gaps)", () => {
-    for (let skip = 0; skip < seq.length; skip++) {
+  it("applies without throwing when events are dropped at random (gaps), and lastSeq follows the highest seq seen", () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      const rnd = prng(seed * 7919);
+      const kept = randomSequence(seed, 40).filter(() => rnd() < 0.6);
       let v = initPlayerView(initialState());
-      expect(() => { for (const e of seq.filter((_, i) => i !== skip)) v = applyPlayerEvent(v, e); }).not.toThrow();
+      for (const e of kept) v = applyPlayerEvent(v, e);
+      expect(v.lastSeq).toBe(kept.at(-1)?.seq ?? 0);
+      expect(Number.isFinite(v.pausedSince ?? 0)).toBe(true);
+      expect(v.scene === null || Number.isFinite(v.scene.pausedMs)).toBe(true);
     }
+  });
+});
+
+describe("applyPlayerEvent with malformed events", () => {
+  const v0 = () => initPlayerView(snapshot({ currentScene: { id: "s1", enteredAt: 1_000, participants: ["me"], pausedMs: 5 } }));
+  const bad = (over: Record<string, unknown>) => ({ ...said(6), ...over }) as unknown as SessionEvent;
+  it("a seq that is not a safe positive-order integer leaves the view unchanged", () => {
+    const v = v0();
+    for (const seq of [Number.NaN, undefined, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -3, 7.5, "7"]) expect(applyPlayerEvent(v, bad({ seq }))).toBe(v);
+  });
+  it("a null or undefined event leaves the view unchanged", () => {
+    const v = v0();
+    expect(applyPlayerEvent(v, null as unknown as SessionEvent)).toBe(v);
+    expect(applyPlayerEvent(v, undefined as unknown as SessionEvent)).toBe(v);
+  });
+  it("after a malformed seq a later good event and a duplicate still behave", () => {
+    let v = applyPlayerEvent(v0(), bad({ seq: Number.NaN }));
+    v = applyPlayerEvent(v, said(6));
+    expect(v.lastSeq).toBe(6);
+    expect(applyPlayerEvent(v, said(6, "dup"))).toBe(v);
+  });
+  it("a non-finite ts never reaches pausedSince, pausedMs or enteredAt", () => {
+    for (const ts of [undefined, Number.NaN, Number.POSITIVE_INFINITY]) {
+      let v = applyPlayerEvent(v0(), { ...cmd(6, 0, "pause"), ts } as unknown as SessionEvent);
+      expect(v.pausedSince === null || Number.isFinite(v.pausedSince)).toBe(true);
+      v = applyPlayerEvent(applyPlayerEvent(v0(), cmd(6, 2_000, "pause")), { ...cmd(7, 0, "resume"), ts } as unknown as SessionEvent);
+      expect(Number.isFinite(v.scene!.pausedMs)).toBe(true);
+      v = applyPlayerEvent(v0(), { ...entered(6), ts } as unknown as SessionEvent);
+      expect(v.scene === null || Number.isFinite(v.scene.enteredAt)).toBe(true);
+      expect(v.scene).toEqual(v0().scene);
+      v = applyPlayerEvent(v0(), { ...env(6), type: "session.resumed", downFromTs: 1, ts } as unknown as SessionEvent);
+      expect(v.pausedSince === null || Number.isFinite(v.pausedSince)).toBe(true);
+    }
+  });
+  it("an utterance without text is not added", () => {
+    const v = v0();
+    expect(applyPlayerEvent(v, bad({ text: undefined })).transcript).toEqual(v.transcript);
   });
 });
