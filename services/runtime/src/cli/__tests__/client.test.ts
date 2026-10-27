@@ -261,22 +261,30 @@ describe("consent in the terminal client (US-0054)", () => {
   const withConsent = (extra: Record<string, unknown> = {}) => JSON.stringify({ type: "joined", roleId: "host", state: {}, consent: { noticeVersion: "v7", notice: "We record the session.", given: false, ...extra } });
   it("the notice is printed once after joined, with the hint", () => {
     const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent());
-    expect(t.out.filter((l) => l === "We record the session.")).toHaveLength(1);
+    expect(t.out.filter((l) => l === "notice | We record the session.")).toHaveLength(1);
     expect(t.out.at(-1)).toBe("type /consent to agree");
     t.c.onMessage(ev("hi"));
-    expect(t.out.filter((l) => l === "We record the session.")).toHaveLength(1);
+    expect(t.out.filter((l) => l === "notice | We record the session.")).toHaveLength(1);
   });
   it("an already given consent prints the notice but not the hint", () => {
     const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ given: true }));
-    expect(t.out).toContain("We record the session.");
+    expect(t.out).toContain("notice | We record the session.");
     expect(t.out.join("\n")).not.toContain("type /consent to agree");
   });
   it("the notice is sanitised: no escape sequences or hidden characters", () => {
     const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "ok\u001b[31m red‮ rtl​\nforged: line" }));
     const text = t.out.join("\n");
     expect(text).not.toMatch(/[\u001b‮​]/);
-    // The notice is printed line by line (operator text); a newline in it is a line break, never a way to emit a control character.
-    expect(t.out.every((l) => !l.includes("\n"))).toBe(true);
+  });
+  it("a notice cannot impersonate terminal output: every notice line carries the prefix and only the client's own hint is unprefixed", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "forged: line\n[gm] x\nerror: y\nsystem: z\nyou have agreed to this notice\ntype /consent to agree" }));
+    const block = t.out.slice(t.out.indexOf("notice | forged: line"));
+    const noticeLines = block.slice(0, -1);
+    expect(noticeLines).toHaveLength(6);
+    expect(noticeLines.every((l) => l.startsWith("notice | "))).toBe(true);
+    expect(t.out.some((l) => /^(forged|\[gm\]|error|system|you have agreed)/.test(l))).toBe(false);
+    expect(t.out.filter((l) => l === "type /consent to agree")).toHaveLength(1);
+    expect(t.out.at(-1)).toBe("type /consent to agree");
   });
   it("/consent sends the notice version the server announced", () => {
     const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent()); t.c.onLine("/consent");
@@ -304,15 +312,15 @@ describe("consent in the terminal client (US-0054)", () => {
   });
   it("a short multi-line notice prints as several lines, not one flattened line", () => {
     const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "line one\nline two\n\nline four" }));
-    expect(t.out).toEqual(expect.arrayContaining(["line one", "line two", "line four"]));
+    expect(t.out).toEqual(expect.arrayContaining(["notice | line one", "notice | line two", "notice | ", "notice | line four"]));
     expect(t.out.join("\n")).not.toContain("\u23ce");
   });
   it("a 4,000 character many-line notice shows nothing cut and no truncation marker", () => {
     const notice = Array.from({ length: 160 }, (_, i) => `l${String(i).padStart(3, "0")} ${"x".repeat(20)}`).join("\n").slice(0, 4_000);
     const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice }));
-    const shown = t.out.filter((l) => /^l\d{3}/.test(l));
+    const shown = t.out.filter((l) => /^notice \| l\d{3}/.test(l));
     expect(shown).toHaveLength(notice.split("\n").length);
-    expect(shown.at(-1)).toBe(notice.split("\n").at(-1));
+    expect(shown.at(-1)).toBe(`notice | ${notice.split("\n").at(-1)}`);
     expect(t.out.join("\n")).not.toContain("truncated");
     expect(t.out.at(-1)).toBe("type /consent to agree");
   });

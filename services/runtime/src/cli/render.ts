@@ -168,9 +168,10 @@ export function renderConsentNotice(c: unknown): string[] {
   const o = c as Record<string, unknown>;
   if (typeof o.notice !== "string" || typeof o.noticeVersion !== "string") return [];
   const all = o.notice.slice(0, 8_000).split(/\r\n|\n|\u2028|\u2029/);
-  const shown = all.slice(0, MAX_NOTICE_LINES).map((l) => s(l));
+  // Every notice line (and the cap marker) carries the prefix, so nothing the server wrote can pass for a chat line, an event, an alert or the client's own hint.
+  const shown = all.slice(0, MAX_NOTICE_LINES).map((l) => `notice | ${s(l)}`);
   const more = all.length - shown.length;
-  return ["", ...shown, ...(more > 0 ? [`(${more} more lines not shown)`] : []), o.given === true ? "you have agreed to this notice" : "type /consent to agree"];
+  return ["", ...shown, ...(more > 0 ? [`notice | (${more} more lines not shown)`] : []), o.given === true ? "you have agreed to this notice" : "type /consent to agree"];
 }
 
 export function renderError(code: string, message: string, asPlayer = false): string {
