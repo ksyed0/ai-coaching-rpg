@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -9,10 +9,34 @@ import { FakeClock } from "../clock.js";
 import { SessionStoreError, openSession, type OpenedSession } from "../session-store.js";
 
 // Seam: records which seat files still exist at the moment the old log is moved aside (crash-safety ordering).
-const hooks = vi.hoisted(() => ({ onRotate: null as null | (() => void) }));
+// The other hooks run before (or, for afterCredRead, after) the named file operation; a hook that throws simulates a crash there.
+const hooks = vi.hoisted(() => ({
+  onRotate: null as null | (() => void), afterCredRead: null as null | (() => void), onCredWrite: null as null | (() => void),
+  onConsentWrite: null as null | (() => void), onCodesWrite: null as null | (() => void), onCodesRemove: null as null | (() => void),
+}));
 vi.mock("../log-files.js", async (orig) => {
   const actual = await orig<typeof import("../log-files.js")>();
   return { ...actual, rotateStaleLog: (...a: Parameters<typeof actual.rotateStaleLog>) => { hooks.onRotate?.(); return actual.rotateStaleLog(...a); } };
+});
+vi.mock("../credentials-file.js", async (orig) => {
+  const actual = await orig<typeof import("../credentials-file.js")>();
+  return {
+    ...actual,
+    readCredentialsFile: (...a: Parameters<typeof actual.readCredentialsFile>) => { const r = actual.readCredentialsFile(...a); hooks.afterCredRead?.(); return r; },
+    writeCredentialsFile: (...a: Parameters<typeof actual.writeCredentialsFile>) => { hooks.onCredWrite?.(); actual.writeCredentialsFile(...a); },
+  };
+});
+vi.mock("../consent-file.js", async (orig) => {
+  const actual = await orig<typeof import("../consent-file.js")>();
+  return { ...actual, writeConsentFile: (...a: Parameters<typeof actual.writeConsentFile>) => { hooks.onConsentWrite?.(); actual.writeConsentFile(...a); } };
+});
+vi.mock("../join-code-file.js", async (orig) => {
+  const actual = await orig<typeof import("../join-code-file.js")>();
+  return {
+    ...actual,
+    writeJoinCodesFile: (...a: Parameters<typeof actual.writeJoinCodesFile>) => { hooks.onCodesWrite?.(); actual.writeJoinCodesFile(...a); },
+    removeJoinCodesFile: (...a: Parameters<typeof actual.removeJoinCodesFile>) => { hooks.onCodesRemove?.(); actual.removeJoinCodesFile(...a); },
+  };
 });
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
@@ -23,7 +47,7 @@ let scenario: Scenario;
 let dir: string;
 const open: OpenedSession[] = [];
 beforeEach(async () => { scenario = await loadScenario(fixture); dir = await mkdtemp(path.join(os.tmpdir(), "acr-seats-")); });
-afterEach(async () => { hooks.onRotate = null; for (const o of open.splice(0)) await o.close(); await rm(dir, { recursive: true, force: true }); });
+afterEach(async () => { for (const k of Object.keys(hooks) as (keyof typeof hooks)[]) hooks[k] = null; for (const o of open.splice(0)) await o.close(); await rm(dir, { recursive: true, force: true }); });
 const now = () => new Date("2031-02-03T04:05:06Z");
 const openIt = async (mode: "resume" | "fresh", notice = V1) => {
   const o = await openSession({ scenario, sessionId: "s", dataDir: dir, clock: new FakeClock(T0), mode, now, joinCodes: true, consentNotice: notice });
@@ -42,6 +66,11 @@ const seatHost = async (o: OpenedSession) => {
   o.seats!.persist();
   return plain;
 };
+const crashHere = () => { throw new Error("simulated crash"); };
+const loseLock = () => { rmSync(path.join(dir, "s.lock")); };
+const codesFile = () => path.join(dir, "s.codes.json");
+/** A running session with seats on disk, its process crashed. */
+const crashedRunning = async () => { const a = await openIt("resume"); const plain = await seatHost(a); await crash(a); return plain; };
 const snapshot = async () => {
   const out: Record<string, string> = {};
   for (const n of (await readdir(dir)).sort()) if (n !== "s.lock") out[n] = await readFile(path.join(dir, n), "utf8");
@@ -217,5 +246,98 @@ describe("openSession with seats (US-0053)", () => {
     open.push(o);
     expect(o.seats).toBeUndefined();
     expect(existsSync(credFile()) || existsSync(consentFile())).toBe(false);
+  });
+
+  it("a crash between the new credentials and the new consent never leaves stale consent beside them", async () => {
+    await crashedRunning();
+    await rm(credFile()); // credentials lost; the old consent stays, here bound to other scenario files
+    const r = await readJson(consentFile());
+    await writeFile(consentFile(), JSON.stringify({ ...r, scenarioSha256: "d".repeat(64) }), { mode: 0o600 });
+    hooks.onConsentWrite = crashHere;
+    expect(await openIt("resume").then(() => null, (e: unknown) => e)).toBeInstanceOf(Error);
+    hooks.onConsentWrite = null;
+    expect(existsSync(consentFile())).toBe(false); // removed before the credentials were written
+    const b = await openIt("resume"); // and the next start is not stranded
+    expect(b.outcome).toBe("resumed");
+    expect((await readJson(consentFile())).scenarioSha256).toBe((await readJson(credFile())).scenarioSha256);
+  });
+
+  it("a lock lost before the old seats are removed leaves them untouched and fails the open", async () => {
+    // resume that re-issues codes
+    await crashedRunning();
+    await rm(codesFile());
+    const before = await snapshot();
+    hooks.afterCredRead = loseLock;
+    const err = await openIt("resume").then(() => null, (e: unknown) => e);
+    hooks.afterCredRead = null;
+    expect(err).toBeInstanceOf(SessionStoreError);
+    expect((err as SessionStoreError).code).toBe("lock");
+    expect(await snapshot()).toEqual(before);
+    // fresh start (rotate), on the same running log and seat files
+    const seatFiles = async () => { const s = await snapshot(); return [s["s.credentials.json"], s["s.consent.json"]]; };
+    const seatsBefore = await seatFiles();
+    hooks.onCodesRemove = loseLock;
+    const err2 = await openIt("fresh").then(() => null, (e: unknown) => e);
+    hooks.onCodesRemove = null;
+    expect((err2 as SessionStoreError).code).toBe("lock");
+    expect(await seatFiles()).toEqual(seatsBefore);
+    expect(seatsBefore.every((x) => typeof x === "string")).toBe(true);
+  });
+
+  it("an open that fails after issuing new codes withdraws them", async () => {
+    await crashedRunning();
+    await rm(codesFile()); // the resume re-issues codes
+    hooks.onCredWrite = crashHere;
+    expect(await openIt("resume").then(() => null, (e: unknown) => e)).toBeInstanceOf(SessionStoreError);
+    expect(existsSync(codesFile())).toBe(false); // nobody saw them: never kept
+  });
+
+  it("a resume that re-issues codes removes the old seats before the new codes are written (regression guard)", async () => {
+    const plain = await crashedRunning();
+    await rm(codesFile());
+    const seen: boolean[] = [];
+    hooks.onCodesWrite = () => { seen.push(existsSync(credFile()) || existsSync(consentFile())); };
+    const b = await openIt("resume");
+    expect(b.joinCodes!.issued).not.toBeNull();
+    expect(seen).toEqual([false]);
+    expect(b.seats!.credentials.verify("host", plain)).toBe(false);
+    expect(b.seats!.consent.has("host", "p")).toBe(false);
+  });
+
+  it("kept credentials with a missing consent file get a new empty consent file (regression guard)", async () => {
+    const plain = await crashedRunning();
+    await rm(consentFile());
+    const b = await openIt("resume");
+    expect(b.seats!.credentials.verify("host", plain)).toBe(true);
+    expect(b.seats!.consent.has("host", "p")).toBe(false);
+    expect((await readJson(consentFile())).entries).toEqual({});
+  });
+
+  it("credentials issued for other scenario files are replaced with a warning (regression guard)", async () => {
+    const plain = await crashedRunning();
+    const r = await readJson(credFile());
+    await writeFile(credFile(), JSON.stringify({ ...r, scenarioSha256: "d".repeat(64) }), { mode: 0o600 });
+    const b = await openIt("resume");
+    expect(b.outcome).toBe("resumed");
+    expect(b.seats!.credentials.verify("host", plain)).toBe(false);
+    expect(b.seats!.consent.has("host", "p")).toBe(false);
+    expect(b.notes).toContain("warning: the credentials on file were issued for other scenario files: players join again with their join code");
+  });
+
+  it("discardIssuedCodes removes seats created beside kept codes, and touches nothing once the lock was lost (regression guard)", async () => {
+    await crashedRunning();
+    await rm(credFile());
+    const codesBefore = await readFile(codesFile(), "utf8");
+    const b = await openIt("resume");
+    expect(b.joinCodes!.issued).toBeNull();
+    expect(b.discardIssuedCodes()).toBe(true);
+    expect(existsSync(credFile()) || existsSync(consentFile())).toBe(false);
+    expect(await readFile(codesFile(), "utf8")).toBe(codesBefore); // kept codes are never removed
+    await crash(b);
+    const c = await openIt("resume"); // creates seats again (credentials missing)
+    const before = await snapshot();
+    loseLock();
+    expect(c.discardIssuedCodes()).toBe(false);
+    expect(await snapshot()).toEqual(before);
   });
 });

@@ -135,9 +135,15 @@ export async function openSession(o: {
   };
   const playerRoles = Object.values(o.scenario.roles).filter((r) => r.type === "player").map((r) => r.id);
   const bind = { sessionId: o.sessionId, scenarioSha256: scenarioHash(o.scenario), roleIds: playerRoles };
+  /** The lock check before deleting a seat file: once the lock was lost, the files may be the new holder's live ones. */
+  const holdLockForRemoval = () => {
+    try { holdLockNow(); }
+    catch { throw new SessionStoreError("lock", "cannot open the session: the session lock was lost (removed or taken over by another process); nothing was removed"); }
+  };
   /** US-0053: removes the credentials and consent files (a missing file is fine). */
   const removeSeats = () => {
     if (!o.consentNotice) return;
+    holdLockForRemoval();
     try { removeCredentialsFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); }
     catch (err) { throw new SessionStoreError("io", `cannot remove the previous seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
   };
@@ -153,11 +159,13 @@ export async function openSession(o: {
       return { credentials, consent };
     } catch (err) {
       if (err instanceof CredentialRecordError || err instanceof ConsentRecordError) throw new SessionStoreError("seats", `cannot use the seat files: ${err.message}. Nothing was changed; to seat everyone again by join code, move ${credentialsFileName(o.sessionId)} and ${consentFileName(o.sessionId)} aside and start again`);
-      throw new SessionStoreError("io", `cannot read the seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`);
+      throw new SessionStoreError("io", `cannot read the seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? "error"}`); // fixed text: never a message that could quote the file
     }
   };
   /** Set when this start wrote new seat files (discardIssuedCodes removes those, never kept ones). */
   let seatsCreated = false;
+  /** Set once this start wrote new join codes: a later failure of the open withdraws them (nobody has seen them). */
+  let codesIssued = false;
   /**
    * US-0053: keeps the seats read from disk when the codes were kept and the credentials fit this session, or writes new empty ones.
    * `logIdentity` (a resumed log's own) keeps the pseudonyms of a running session stable when its credentials file was lost.
@@ -179,6 +187,11 @@ export async function openSession(o: {
         : "warning: no credentials file from before the restart was found: players join again with their join code");
       credentials = PlayerCredentials.create(bind, logIdentity);
       consent = new ConsentStore(notice);
+      // The old consent goes first: a crash after the credentials write then leaves no consent file (replaced next start), never
+      // stale consent (possibly bound elsewhere, which would refuse every later start) beside new credentials.
+      holdLockForRemoval();
+      try { removeConsentFile(o.dataDir, o.sessionId); }
+      catch (err) { throw new SessionStoreError("io", `cannot remove the previous consent file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
       try { writeCredentialsFile(o.dataDir, o.sessionId, credentials, holdLockNow); writeConsentFile(o.dataDir, bind, consent, holdLockNow); }
       catch (err) { throw new SessionStoreError("io", `cannot write the seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
       seatsCreated = true;
@@ -211,6 +224,7 @@ export async function openSession(o: {
     const { codes, plain } = JoinCodes.issue(playerRoles, bind);
     try { writeJoinCodesFile(o.dataDir, o.sessionId, codes, holdLockNow); }
     catch (err) { throw new SessionStoreError("io", `cannot write the join codes file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
+    codesIssued = true;
     return { codes, issued: plain };
   };
   const rotate = (because: "fresh" | "ended") => {
@@ -271,6 +285,9 @@ export async function openSession(o: {
     return done(opened, { outcome: "resumed", resume: restored.info, resumeNotes, joinCodes, seats });
   } catch (err) {
     if (opened) { try { await opened.log.close(); } catch { /* best effort */ } }
+    // Codes written by this failed open were never shown: keep them and the next start would hold codes nobody has (the
+    // discardIssuedCodes invariant). Only while the lock is held; a lost lock means the file may be another server's.
+    if (codesIssued) { try { holdLockNow(); removeJoinCodesFile(o.dataDir, o.sessionId); } catch { /* lost or unremovable: nothing more to do */ } }
     lock.release();
     throw err;
   }

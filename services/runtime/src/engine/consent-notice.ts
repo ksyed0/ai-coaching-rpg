@@ -19,7 +19,8 @@ export function loadConsentNotice(dir: string, version: string): ConsentNotice {
   const name = `notice-${version}.md`;
   const file = path.join(dir, name);
   let fd: number;
-  try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW); }
+  // O_NONBLOCK: a FIFO under the notice's name would otherwise block the start forever before fstat can refuse it.
+  try { fd = openSync(file, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK); }
   catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") throw new Error(`the consent notice ${name} was not found in the consent directory`);
