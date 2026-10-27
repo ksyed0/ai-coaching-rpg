@@ -136,6 +136,23 @@ describe("restore outcomes", () => {
     }
   });
 
+  it("an empty consents or names object is not written", async () => {
+    const log = new MemoryEventLog("f");
+    await new SessionEngine({ scenario, log, clock: new FakeClock(T0) }).start({ host: "p1" }, { consents: {}, names: {} });
+    const first = (await log.all())[0]!;
+    expect(Object.hasOwn(first, "consents")).toBe(false);
+    expect(Object.hasOwn(first, "names")).toBe(false);
+  });
+
+  it.each([["short", "abc"], ["upper case", "0123456789ABCDEF0123456789ABCDEF"], ["not hex", "z".repeat(32)]])("start refuses a %s logIdentity with bad_identity and writes nothing", async (_n, bad) => {
+    const log = new MemoryEventLog("f");
+    const engine = new SessionEngine({ scenario, log, clock: new FakeClock(T0) });
+    const err = await engine.start({ host: "p1" }, { logIdentity: bad }).then(() => null, (e: unknown) => e);
+    expect(err).toMatchObject({ code: "bad_identity" });
+    expect((err as Error).message).not.toContain(bad);
+    expect((await log.all()).length).toBe(0);
+  });
+
   it("restore reports the log's logIdentity, and the state does not carry the new fields", async () => {
     const log = new MemoryEventLog("f");
     await new SessionEngine({ scenario, log, clock: new FakeClock(T0) }).start({ host: "p1" }, extra);
@@ -196,6 +213,22 @@ describe("log formats 1 and 2", () => {
     const log = await logOf([startedBody({ logFormat: 2, consents: { host: { noticeVersion: "v1", at: 1 } }, names: { host: "Pat" }, logIdentity: ID }), entered]);
     const engine = new SessionEngine({ scenario, log, clock: new FakeClock(T0) });
     expect(await engine.restore()).toMatchObject({ kind: "running", info: { format: 2, logIdentity: ID } });
+  });
+  it("a format 2 log with an invalid logIdentity restores, ignores it and the resume alert says so", async () => {
+    const log = await logOf([startedBody({ logFormat: 2, logIdentity: "not-hex" }), entered]);
+    const engine = new SessionEngine({ scenario, log, clock: new FakeClock(T0) });
+    const out = await engine.restore();
+    expect(out).toMatchObject({ kind: "running", info: { format: 2, identityInvalid: true } });
+    expect((out as { info: { logIdentity?: string } }).info.logIdentity).toBeUndefined();
+    if (out.kind !== "running") throw new Error("kind");
+    await engine.markResumed(out.info);
+    const alert = (await log.all()).find((e) => e.type === "facilitator.alert");
+    expect(alert).toMatchObject({ message: expect.stringMatching(/identity field is not valid/) });
+  });
+  it("a format 2 log without a logIdentity restores with no warning (regression guard)", async () => {
+    const log = await logOf([startedBody({ logFormat: 2 }), entered]);
+    const out = await new SessionEngine({ scenario, log, clock: new FakeClock(T0) }).restore();
+    expect((out as { info: { identityInvalid?: true } }).info.identityInvalid).toBeUndefined();
   });
   it("a format 1 log without the new fields restores (regression guard)", async () => {
     const log = await logOf([startedBody(), entered]);

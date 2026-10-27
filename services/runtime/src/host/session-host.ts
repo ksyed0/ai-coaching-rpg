@@ -28,6 +28,21 @@ export class HostError extends Error {
   constructor(readonly code: HostErrorCode, roles?: string[]) { super(roles && roles.length > 0 ? `${code}: ${roles.join(",")}` : code); this.name = "HostError"; }
 }
 
+type StartedEvent = Extract<SessionEvent, { type: "session.started" }>;
+/** Fields of session.started copied to a player as they are. A field added to the event type must be listed here (or handled in startedForPlayer) to compile. */
+const STARTED_FOR_PLAYERS: Record<Exclude<keyof StartedEvent, "roles" | "consents" | "names" | "logIdentity">, true> = {
+  type: true, seq: true, ts: true, sessionId: true, scenarioId: true, version: true, logFormat: true, scenarioHash: true,
+};
+function startedForPlayer(e: StartedEvent, who: string): StartedEvent {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(STARTED_FOR_PLAYERS)) if (Object.hasOwn(e, k)) out[k] = (e as Record<string, unknown>)[k];
+  out.roles = redactRoles(e.roles);
+  const own = e.consents && Object.hasOwn(e.consents, who) ? e.consents[who] : undefined;
+  // Copied key by key: a hand-edited log entry with extra keys must not leak them.
+  if (own) out.consents = { [who]: { noticeVersion: own.noticeVersion, at: own.at } };
+  return out as StartedEvent;
+}
+
 export class SessionHost {
   readonly assignments: Record<string, string> = {};
   readonly engine: SessionEngine;
@@ -350,13 +365,9 @@ export class SessionHost {
     const inScene = (sceneId: string | null | undefined) =>
       this.engine.state.sceneHistory.find((s) => s.id === sceneId)?.participants.includes(who) ?? false;
     switch (e.type) {
-      // Redacted copy: roles -> kinds only (participant ids/names are other people's display names).
-      // The three web-seat fields are taken out first so a field added later cannot reach a player by default; only the player's own consent goes back.
-      case "session.started": {
-        const { consents, names: _names, logIdentity: _logIdentity, ...rest } = e;
-        const own = consents && Object.hasOwn(consents, who) ? consents[who] : undefined;
-        return { ...rest, roles: redactRoles(e.roles), ...(own ? { consents: { [who]: own } } : {}) };
-      }
+      // Default-deny: the player copy is built from the allowlist STARTED_FOR_PLAYERS (a new event field is a compile error until decided),
+      // with roles reduced to kinds and only the player's own consent. Names, log identity and unknown keys never reach a player.
+      case "session.started": return startedForPlayer(e, who);
       case "session.ended": return e;
       // Like a pause: every participant learns the session came back paused after a restart.
       case "session.resumed": return e;

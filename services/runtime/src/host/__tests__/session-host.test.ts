@@ -267,6 +267,35 @@ describe("SessionHost.filterFor is default-deny per event type (I1)", () => {
     expect(Object.hasOwn(v, "consents")).toBe(false);
   });
 
+  it("an unknown key on session.started never reaches a player (default-deny), live and in a replay, and the facilitator keeps it", async () => {
+    host.join("host", "p1");
+    await host.start();
+    const real = engine.eventsAfter(0);
+    if (!real.complete) throw new Error("window");
+    const started = { ...[...real.events][0]!, futureField: "SECRET-FUTURE", consents: { host: { noticeVersion: "v1", at: 1 } } } as unknown as SessionEvent;
+    // Replay path: the retained window returns the augmented event.
+    vi.spyOn(engine, "eventsAfter").mockReturnValue({ complete: true, events: [started] });
+    const replayed = host.replayFor("host", 0);
+    expect(replayed.complete).toBe(true);
+    expect(JSON.stringify(replayed.events)).not.toMatch(/SECRET-FUTURE/);
+    expect(JSON.stringify(replayed.events)).toMatch(/"consents"/);
+    expect(JSON.stringify(host.replayFor("facilitator", 0).events)).toMatch(/SECRET-FUTURE/);
+    // Live path: ws-server applies viewFor to what subscribe delivers.
+    vi.spyOn(engine, "subscribe").mockImplementation((fn) => { fn(started); return () => {}; });
+    const live: (SessionEvent | null)[] = [];
+    host.subscribe((e) => { live.push(host.viewFor("host", e)); });
+    expect(JSON.stringify(live)).not.toMatch(/SECRET-FUTURE/);
+    expect(host.viewFor("facilitator", started)).toBe(started);
+  });
+
+  it("a player's own consent is copied key by key, so a hand-edited entry cannot leak extra keys", () => {
+    const ev = withExtra() as Extract<SessionEvent, { type: "session.started" }>;
+    (ev.consents as Record<string, unknown>).host = { noticeVersion: "v1", at: 5, participantId: "LEAK-P", note: "LEAK-N" };
+    const v = host.viewFor("host", ev) as Extract<SessionEvent, { type: "session.started" }>;
+    expect(v.consents).toEqual({ host: { noticeVersion: "v1", at: 5 } });
+    expect(JSON.stringify(v)).not.toMatch(/LEAK/);
+  });
+
   it("the facilitator sees all of them", () => {
     const ev = withExtra();
     expect(host.viewFor("facilitator", ev)).toBe(ev);
