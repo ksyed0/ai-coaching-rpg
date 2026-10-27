@@ -108,12 +108,40 @@ describe("restore outcomes", () => {
     expect(r.engine.state.status).toBe("idle");
   });
 
-  it("new logs carry log format 1 and the scenario's sha256", async () => {
+  it("new logs carry the current log format (2) and the scenario's sha256", async () => {
     const log = new MemoryEventLog("f");
     await liveOn(log);
     const first = (await log.all())[0]!;
     expect(first).toMatchObject({ type: "session.started", logFormat: LOG_FORMAT, scenarioHash: scenarioHash(scenario) });
     expect(scenarioHash(scenario)).toMatch(/^[0-9a-f]{64}$/);
+    expect(LOG_FORMAT).toBe(2);
+  });
+
+  const ID = "0123456789abcdef0123456789abcdef";
+  const extra = { consents: { host: { noticeVersion: "v1", at: 42 } }, names: { host: "Pat" }, logIdentity: ID };
+
+  it("start with extra writes consents, names and logIdentity into session.started", async () => {
+    const log = new MemoryEventLog("f");
+    const engine = new SessionEngine({ scenario, log, clock: new FakeClock(T0) });
+    await engine.start({ host: "p1" }, extra);
+    expect((await log.all())[0]).toMatchObject({ type: "session.started", logFormat: 2, ...extra });
+  });
+
+  it("start without extra, or with an empty one, writes none of the new keys", async () => {
+    for (const x of [undefined, {}]) {
+      const log = new MemoryEventLog("f");
+      await new SessionEngine({ scenario, log, clock: new FakeClock(T0) }).start({ host: "p1" }, x);
+      const first = (await log.all())[0]!;
+      for (const k of ["consents", "names", "logIdentity"]) expect(Object.hasOwn(first, k)).toBe(false);
+    }
+  });
+
+  it("restore reports the log's logIdentity, and the state does not carry the new fields", async () => {
+    const log = new MemoryEventLog("f");
+    await new SessionEngine({ scenario, log, clock: new FakeClock(T0) }).start({ host: "p1" }, extra);
+    const r = await restoreOf(log);
+    expect(r.out).toMatchObject({ kind: "running", info: { format: 2, logIdentity: ID } });
+    expect(JSON.stringify(r.engine.state)).not.toMatch(/Pat|0123456789abcdef/);
   });
 
   it("restore() only runs on a fresh engine, and start() refuses a restored one", async () => {
@@ -154,12 +182,28 @@ describe("restore refuses what it cannot trust (fail closed, nothing appended)",
   it("another scenario id", () => refuses([startedBody({ scenarioId: "other" }), entered], "scenario_mismatch", /different scenario/));
   it("another scenario version", () => refuses([startedBody({ version: "9.9" }), entered], "scenario_mismatch", /different scenario/));
   it("changed scenario files (format 1 hash)", () => refuses([startedBody({ scenarioHash: "0".repeat(64) }), entered], "scenario_mismatch", /sha256 differs/));
-  it("a newer log format", () => refuses([startedBody({ logFormat: 2 }), entered], "log_format", /format 2, newer/));
+  it("a newer log format (regression guard: 3 is refused before and after format 2 was added)", () => refuses([startedBody({ logFormat: 3 }), entered], "log_format", /format 3, newer/));
   it.each([[-1], [1.5], ["1"]])("a format that is not a whole number (%j)", (f) => refuses([startedBody({ logFormat: f }), entered], "log_format", /not a whole number/));
   it("roles that do not match the scenario", () => refuses([startedBody({ roles: { host: { kind: "player" } } }), entered], "scenario_mismatch", /roles/));
   it("a role of the wrong kind", () => refuses([startedBody({ roles: { host: { kind: "npc" }, guest: { kind: "npc" } } }), entered], "scenario_mismatch", /roles/));
   it("a scene the scenario does not have", () => refuses([startedBody(), { ...entered, sceneId: "nope" }], "scenario_mismatch", /scene the scenario does not have/));
   it("a second session.started", () => refuses([startedBody(), entered, startedBody()], "invalid_log", /second session.started/));
+});
+
+describe("log formats 1 and 2", () => {
+  const ID = "0123456789abcdef0123456789abcdef";
+  it("a format 2 log restores", async () => {
+    const log = await logOf([startedBody({ logFormat: 2, consents: { host: { noticeVersion: "v1", at: 1 } }, names: { host: "Pat" }, logIdentity: ID }), entered]);
+    const engine = new SessionEngine({ scenario, log, clock: new FakeClock(T0) });
+    expect(await engine.restore()).toMatchObject({ kind: "running", info: { format: 2, logIdentity: ID } });
+  });
+  it("a format 1 log without the new fields restores (regression guard)", async () => {
+    const log = await logOf([startedBody(), entered]);
+    const engine = new SessionEngine({ scenario, log, clock: new FakeClock(T0) });
+    const out = await engine.restore();
+    expect(out).toMatchObject({ kind: "running", info: { format: 1 } });
+    expect((out as { info: { logIdentity?: string } }).info.logIdentity).toBeUndefined();
+  });
 });
 
 describe("format 0 logs (written before US-0018)", () => {

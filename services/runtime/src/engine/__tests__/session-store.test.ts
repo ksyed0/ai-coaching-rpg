@@ -55,7 +55,7 @@ describe("openSession", () => {
     await crash(a);
     const b = await openIt("resume", new FakeClock(T0 + 90_000));
     expect(b.outcome).toBe("resumed");
-    expect(b.resume).toMatchObject({ sceneId: "s1_open", pendingLine: true, format: 1 });
+    expect(b.resume).toMatchObject({ sceneId: "s1_open", pendingLine: true, format: 2 });
     expect(b.engine.state.paused).toBe(true);
     const types = (await b.log.all()).map((e) => e.type);
     expect(types.slice(-2)).toEqual(["session.resumed", "facilitator.alert"]);

@@ -51,6 +51,12 @@ export const describeRepair = (r: Repair): string =>
   r.kind === "npc_init" ? `set up AI character ${r.roleId}` : r.kind === "inject_effect" ? `applied inject ${r.injectId} to ${r.roleId}`
     : r.kind === "gm_release" ? `released hidden fact ${r.fact} of ${r.roleId} (Game Master auto-release)`
     : r.kind === "opening_inject" ? `fired the opening inject of ${r.sceneId}` : r.kind === "enter_scene" ? `entered scene ${r.sceneId}` : "ended the session (the last scene had ended)";
+/** US-0054: what the web seats add to session.started (log format 2). */
+export type SessionStartExtra = {
+  consents?: Record<string, { noticeVersion: string; at: number }>;
+  names?: Record<string, string>;
+  logIdentity?: string;
+};
 /** What markResumed reports for the operator. */
 export type ResumeNotes = { downSecs: number; clockBehindSecs: number; repairs: string[] };
 export type RestoreOutcome = { kind: "empty" } | { kind: "ended"; events: number } | { kind: "running"; info: ResumeInfo };
@@ -146,15 +152,17 @@ export class SessionEngine {
     return e;
   }
 
-  start(assignments: Record<string, string>): Promise<void> { return this.mutex.run(() => this.doStart(assignments)); }
-  private async doStart(assignments: Record<string, string>): Promise<void> {
+  start(assignments: Record<string, string>, extra?: SessionStartExtra): Promise<void> { return this.mutex.run(() => this.doStart(assignments, extra)); }
+  private async doStart(assignments: Record<string, string>, extra?: SessionStartExtra): Promise<void> {
     // Starting on a non-empty log would corrupt the seq order: a log with events is resumed (restore) or rotated aside, never started over.
     if (this.state.status !== "idle" || (await this.log.all()).length > 0) throw new EngineError("log_not_empty", "the session log already has events; resume it (SESSION_START=resume) or start fresh (SESSION_START=fresh)");
     const roles: Record<string, { kind: "player" | "npc"; participantId?: string }> = {};
     for (const [id, role] of Object.entries(this.scenario.roles)) {
       roles[id] = role.type === "npc" ? { kind: "npc" } : { kind: "player", participantId: assignments[id] };
     }
-    await this.emit({ type: "session.started", scenarioId: this.scenario.meta.id, version: this.scenario.meta.version, roles, logFormat: LOG_FORMAT, scenarioHash: scenarioHash(this.scenario) });
+    await this.emit({ type: "session.started", scenarioId: this.scenario.meta.id, version: this.scenario.meta.version, roles, logFormat: LOG_FORMAT, scenarioHash: scenarioHash(this.scenario),
+      // Only what was given: an absent field and an empty one must not both appear in the log.
+      ...(extra?.consents ? { consents: extra.consents } : {}), ...(extra?.names ? { names: extra.names } : {}), ...(extra?.logIdentity ? { logIdentity: extra.logIdentity } : {}) });
     for (const [id, role] of Object.entries(this.scenario.roles)) {
       if (role.type === "npc") await this.emit({ type: "npc.updated", roleId: id, goals: role.goals, knowledge: role.knowledge, released: [] });
     }
@@ -359,8 +367,8 @@ export class SessionEngine {
         if (f > LOG_FORMAT) throw new RestoreError("log_format", `the log has format ${f}, newer than this version reads (${LOG_FORMAT}); upgrade, or start fresh`);
         if (f >= 1 && e.scenarioHash !== scenarioHash(sc)) throw new RestoreError("scenario_mismatch", "the scenario files changed since this session started (its sha256 differs)");
         format = f;
-        // Read defensively: the event type gains the field later (US-0053); anything but 32 hex is ignored.
-        const li = (e as { logIdentity?: unknown }).logIdentity;
+        // Anything but 32 hex is ignored: a damaged identity must not stop a resume.
+        const li: unknown = e.logIdentity;
         if (typeof li === "string" && /^[0-9a-f]{32}$/.test(li)) logIdentity = li;
         const logged = Object.entries(e.roles ?? {});
         const known = Object.values(sc.roles);

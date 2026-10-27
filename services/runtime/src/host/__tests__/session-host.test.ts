@@ -246,6 +246,31 @@ describe("SessionHost.filterFor is default-deny per event type (I1)", () => {
     expect(JSON.stringify(forPlayer)).not.toMatch(/"P"/);
     expect(host.viewFor("facilitator", ev)).toBe(ev);
   });
+
+  const withExtra = (): SessionEvent => ({
+    seq: 1, ts: 0, sessionId: "s", type: "session.started", scenarioId: "x", version: "1", logFormat: 2,
+    roles: { host: { kind: "player", participantId: "P" }, guest: { kind: "npc" } },
+    consents: { host: { noticeVersion: "v1", at: 5 }, other: { noticeVersion: "v1", at: 6 } },
+    names: { host: "Pat", other: "Sam" }, logIdentity: "0123456789abcdef0123456789abcdef",
+  });
+
+  it("viewFor gives a player only their own consent and no names or log identity", () => {
+    const v = host.viewFor("host", withExtra()) as Extract<SessionEvent, { type: "session.started" }>;
+    expect(v.consents).toEqual({ host: { noticeVersion: "v1", at: 5 } });
+    expect(Object.hasOwn(v, "names")).toBe(false);
+    expect(Object.hasOwn(v, "logIdentity")).toBe(false);
+    expect(JSON.stringify(v)).not.toMatch(/Pat|Sam|0123456789abcdef|"other"|"P"/);
+  });
+
+  it("a player without a consent entry gets no consents key", () => {
+    const v = host.viewFor("guest", withExtra()) as Extract<SessionEvent, { type: "session.started" }>;
+    expect(Object.hasOwn(v, "consents")).toBe(false);
+  });
+
+  it("the facilitator sees all of them", () => {
+    const ev = withExtra();
+    expect(host.viewFor("facilitator", ev)).toBe(ev);
+  });
 });
 
 describe("SessionHost.snapshotFor scene visibility (M4)", () => {

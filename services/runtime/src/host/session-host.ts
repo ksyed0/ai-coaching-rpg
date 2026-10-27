@@ -351,7 +351,12 @@ export class SessionHost {
       this.engine.state.sceneHistory.find((s) => s.id === sceneId)?.participants.includes(who) ?? false;
     switch (e.type) {
       // Redacted copy: roles -> kinds only (participant ids/names are other people's display names).
-      case "session.started": return { ...e, roles: redactRoles(e.roles) };
+      // The three web-seat fields are taken out first so a field added later cannot reach a player by default; only the player's own consent goes back.
+      case "session.started": {
+        const { consents, names: _names, logIdentity: _logIdentity, ...rest } = e;
+        const own = consents && Object.hasOwn(consents, who) ? consents[who] : undefined;
+        return { ...rest, roles: redactRoles(e.roles), ...(own ? { consents: { [who]: own } } : {}) };
+      }
       case "session.ended": return e;
       // Like a pause: every participant learns the session came back paused after a restart.
       case "session.resumed": return e;
