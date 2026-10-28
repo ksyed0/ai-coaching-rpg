@@ -33,6 +33,8 @@
     "test:watch": "vitest",
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r run typecheck",
+    "web:dev": "pnpm --filter @acr/web dev",
+    "web:test": "pnpm --filter @acr/web test",
     "dev:runtime": "pnpm --filter @acr/runtime dev",
     "play": "pnpm --filter @acr/runtime play",
     "demo": "pnpm -s --filter @acr/runtime demo",
