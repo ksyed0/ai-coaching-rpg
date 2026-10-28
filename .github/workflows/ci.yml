@@ -194,6 +194,13 @@ jobs:
         working-directory: apps/web
       # US-0065: builds apps/web, then the participant flow and the Axe checks against the runtime in mock mode and `next start`.
       - run: pnpm --filter @acr/web e2e
+      # A failed spec leaves its trace and page snapshot here (playwright.config.ts: trace retain-on-failure).
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: web-e2e-test-results
+          path: apps/web/test-results/
+          if-no-files-found: ignore
       # US-0065: the web demo (checks W-01 to W-08) through the demo runner's --web flag (offline, no secrets).
       - run: pnpm demo --web
 

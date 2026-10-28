@@ -58,15 +58,22 @@ export async function say(page: Page, text: string): Promise<void> {
 
 export const transcript = (page: Page) => page.getByRole("list", { name: "Transcript" });
 
-/** Every stream request the page makes from now on, with the Last-Event-ID it carried (null on a first open). */
-export function trackStreams(page: Page): { lastEventId: string | null }[] {
-  const seen: { lastEventId: string | null }[] = [];
+/**
+ * Every stream request the page makes from now on: the Last-Event-ID it carried (null on a first open) and the status of its
+ * response (null while none came, or for good when the request failed, such as a retry that met a closed port).
+ */
+export type StreamOpen = { lastEventId: string | null; status: number | null };
+export function trackStreams(page: Page): StreamOpen[] {
+  const seen: StreamOpen[] = [];
+  const byRequest = new WeakMap<object, StreamOpen>();
   page.on("request", (r) => {
     if (new URL(r.url()).pathname !== "/api/v1/stream") return;
-    const entry: { lastEventId: string | null } = { lastEventId: null };
+    const entry: StreamOpen = { lastEventId: null, status: null };
     seen.push(entry);
+    byRequest.set(r, entry);
     // allHeaders: the headers the network stack really sent (Last-Event-ID is added below the page).
     void r.allHeaders().then((h) => { entry.lastEventId = h["last-event-id"] ?? null; }, () => undefined);
   });
+  page.on("response", (res) => { const entry = byRequest.get(res.request()); if (entry) entry.status = res.status(); });
   return seen;
 }

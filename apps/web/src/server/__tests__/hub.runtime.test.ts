@@ -288,7 +288,15 @@ describe("RuntimeConnection and StreamHub against the real runtime", () => {
       }
     }
     // Facilitator-only: present in the facilitator's frames, absent from every player stream.
-    const FACILITATOR_ONLY = ["Would accept a phased delivery after go-live" /* client_sponsor's hidden fact */, "hiddenFacts", "\"npc.updated\"", "\"gm.no_verdict\""];
+    const FACILITATOR_ONLY = [
+      "Would accept a phased delivery after go-live" /* client_sponsor's hidden fact */, "hiddenFacts", "\"npc.updated\"", "\"gm.no_verdict\"",
+      // The facilitator roster and its per-seat fields (players get the peer roster: role, name, ready).
+      "\"audience\":\"facilitator\"", "\"consented\"", "\"connected\"",
+      // Facilitator commands players never see (only pause, resume and their own whisper reach them).
+      "\"command\":\"advance\"", "\"command\":\"release_hidden\"",
+      // An AI character's goal and knowledge, and the facilitator-only notice of a server without FACILITATOR_TOKEN.
+      "Avoid a change request going to her CFO", "The CFO has already asked why the programme costs what it does", "anyone who can reach it can join as facilitator",
+    ];
     for (const marker of FACILITATOR_ONLY) expect(facText, `the facilitator never saw ${marker}`).toContain(marker);
     // Secrets and fields no page may see. Each value below exists in this session (codes captured, credentials and tokens issued).
     const secrets = [

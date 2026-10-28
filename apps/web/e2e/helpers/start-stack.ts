@@ -204,11 +204,19 @@ function startRelay(target: () => string): Promise<{ port: number; pairs: Set<Pa
 
 // ---- next start ----
 
+/** What a Node process needs from the caller's environment to run at all; nothing that configures the app. */
+function passThrough(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const k of ["PATH", "HOME", "TMPDIR", "LANG", "SYSTEMROOT"]) { const v = process.env[k]; if (v !== undefined) out[k] = v; }
+  return out;
+}
+
 async function startNext(port: number, env: Record<string, string>, baseUrl: string, out: (l: string) => void): Promise<ChildProcess> {
   if (!existsSync(path.join(WEB_DIR, ".next", "BUILD_ID"))) throw new Error("apps/web has no production build: run `pnpm --filter @acr/web build` first (the e2e and demo scripts do)");
   const child = spawn(process.execPath, [NEXT, "start", "-p", String(port), "-H", "127.0.0.1"], {
     cwd: WEB_DIR, detached: true, stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, ...env, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" },
+    // An explicit environment, never the caller's: no stray RUNTIME_URL, COOKIE_KEYS, WEB_* limit or proxy setting can reach the BFF.
+    env: { ...passThrough(), ...env, NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" },
   });
   lines(child, (l) => out(`next: ${l}`));
   let exited = false;

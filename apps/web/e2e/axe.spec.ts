@@ -26,7 +26,7 @@ async function checkBothSchemes(page: Page, screen: string) {
 const noHorizontalScroll = (page: Page) => page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
 
 /** All three seats joined and consented (the session is not started yet), each page at `width`. */
-async function runningSession(browser: Browser, width?: number): Promise<Record<Player, Page>> {
+async function seatedAndConsented(browser: Browser, width?: number): Promise<Record<Player, Page>> {
   const pages = {} as Record<Player, Page>;
   for (const role of PLAYERS) pages[role] = (await seat(browser, stack!, role, `Person ${role}`, { width })).page;
   return pages;
@@ -48,7 +48,7 @@ test("no serious or critical Axe violations on /join, the lobby and the session 
   await expect(join.locator("p.err[role=alert]")).toBeVisible();
   await checkBothSchemes(join, "/join (refused)");
 
-  const pages = await runningSession(browser);
+  const pages = await seatedAndConsented(browser);
   await checkBothSchemes(pages.delivery_lead, "the lobby");
 
   await stack.terminalFacilitator.start();
@@ -70,7 +70,7 @@ test("no horizontal scroll at 400 px", async ({ browser }) => {
   await expect(join.getByLabel("Your join code")).toBeVisible();
   expect(await noHorizontalScroll(join)).toEqual({ scroll: 400, client: 400 });
 
-  const pages = await runningSession(browser, 400);
+  const pages = await seatedAndConsented(browser, 400);
   expect(await noHorizontalScroll(pages.delivery_lead), "the lobby").toEqual({ scroll: 400, client: 400 });
   await stack.terminalFacilitator.start();
   await expect(pages.delivery_lead.getByRole("heading", { name: "Play the scene" })).toBeVisible();

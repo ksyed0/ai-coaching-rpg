@@ -21,12 +21,14 @@ test("three players join with names and consent, the terminal facilitator starts
   const pages = {} as Record<Player, Page>;
   for (const role of PLAYERS) pages[role] = (await seat(browser, stack, role, NAMES[role])).page;
   const streams = Object.fromEntries(PLAYERS.map((r) => [r, trackStreams(pages[r])])) as Record<Player, ReturnType<typeof trackStreams>>;
-  /** Waits until `role`'s page has opened a new stream since `before`, and returns the Last-Event-ID that request carried. */
+  /**
+   * Waits until `role`'s page has reopened its stream since `before` with success (a 200 answer to a request that carried a
+   * Last-Event-ID) and returns that id. Retries that failed (connection refused while the BFF was down) are skipped, not counted.
+   */
   const reopened = async (role: Player, before: number) => {
-    await expect.poll(() => streams[role].length, { timeout: 60_000 }).toBeGreaterThan(before);
-    const entry = streams[role].at(-1)!;
-    await expect.poll(() => entry.lastEventId, { timeout: 30_000 }).not.toBeNull();
-    return entry.lastEventId;
+    const good = () => streams[role].slice(before).find((e) => e.status === 200 && e.lastEventId !== null);
+    await expect.poll(() => good() !== undefined, { timeout: 60_000 }).toBe(true);
+    return good()!.lastEventId;
   };
 
   // The production cookie, unchanged: Chromium keeps a Secure, __Host- cookie on http://localhost (a secure context), so the test

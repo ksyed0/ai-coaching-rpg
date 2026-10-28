@@ -194,11 +194,14 @@ export async function runWebDemo(o: { write: (s: string) => void; color: boolean
 
     await run("W-04", async () => {
       const before = live.tech_lead;
-      const lastId = before.lastId();
-      check(lastId !== undefined, "the tech lead's stream carried no event id");
+      // Settle first: the whisper (the last event addressed to this seat) is on the stream, so no frame is still in flight to it.
+      await until(() => before.raw().includes("WHISPER-ONLY-FOR-TECH-LEAD"), "the whisper on the tech lead's stream");
       s.dropSocket("tech_lead");
       await until(() => before.ended, "the dropped stream to end");
       check(before.frames.at(-1)?.event === "reconnecting", `the dropped stream ended with ${before.frames.at(-1)?.event ?? "nothing"}, not reconnecting`);
+      // The Last-Event-ID a browser really holds: the last id that reached it before the stream ended (read after the end, never before).
+      const lastId = before.lastId();
+      check(lastId !== undefined, "the tech lead's stream carried no event id");
       const missed = "Said while the tech lead was away.";
       check((await web.post("say", cookies.delivery_lead, { text: missed })).status === 200, "the say during the drop was refused");
       const after = await web.stream("tech_lead", cookies.tech_lead, lastId);
@@ -264,21 +267,37 @@ export async function runWebDemo(o: { write: (s: string) => void; color: boolean
     await run("W-07", async () => {
       // The scan below runs first: a leak is reported even when the session could not be played to its end.
       const facText = JSON.stringify(s.terminalFacilitator.frames());
-      const FACILITATOR_ONLY = ["Would accept a phased delivery after go-live" /* client_sponsor's hidden fact */, "hiddenFacts", "\"npc.updated\"", "\"gm.no_verdict\""];
+      const FACILITATOR_ONLY = [
+        "Would accept a phased delivery after go-live" /* client_sponsor's hidden fact */, "hiddenFacts", "\"npc.updated\"", "\"gm.no_verdict\"",
+        // The facilitator roster (players get the peer roster: role, name, ready) and its per-seat fields.
+        "\"audience\":\"facilitator\"", "\"consented\"", "\"connected\"",
+        // Facilitator commands players never see (pause, resume and their own whisper are the only ones they do).
+        "\"command\":\"advance\"", "\"command\":\"release_hidden\"",
+        // An AI character's goal and knowledge (the facilitator's state carries them; no player prompt or line does).
+        "Avoid a change request going to her CFO", "The CFO has already asked why the programme costs what it does",
+        // The facilitator-only notice of a server without FACILITATOR_TOKEN.
+        "anyone who can reach it can join as facilitator",
+      ];
       // Each marker really exists in this session (the facilitator saw it), so the scan below can fail.
       for (const m of FACILITATOR_ONLY) check(facText.includes(m), `the facilitator never saw ${m}: the scan would prove nothing`);
-      const secrets = [...Object.values(codes).flatMap((c) => [c, typed(c)]), ...Object.values(cookies), "\"credential\"", "\"reconnectToken\"", "reasoning", "\"gm.decision\"", "\"facilitator.alert\""];
+      const secrets = [...Object.values(codes).flatMap((c) => [c, typed(c)]), ...Object.values(cookies), "\"credential\"", "\"reconnectToken\"", "reasoning", "\"gm.decision\"", "\"facilitator.alert\"", "\"gm.fact_earned\""];
+      // Each player's own brief and private facts (the Task 12 markers): on that player's streams, on no other player's.
+      const OWN: Record<Player, string[]> = {
+        delivery_lead: ["You run the programme day to day", "6 person-weeks", "2,400 per person-day"],
+        tech_lead: ["You own the architecture", "ingestion layer", "half the effort", "puts the go-live date at", "WHISPER-ONLY-FOR-TECH-LEAD"],
+        account_manager: ["You own price, commercial terms", "three times this programme", "renewal decision maker"],
+      };
       let frames = 0;
       for (const { role, r } of web.streams) {
         frames += r.frames.length;
         const raw = r.raw();
         for (const m of [...FACILITATOR_ONLY, ...secrets]) check(!raw.includes(m), `${role}'s stream leaked ${m.slice(0, 12)}…`);
-        if (role !== "tech_lead") check(!raw.includes("WHISPER-ONLY-FOR-TECH-LEAD"), `${role} saw the tech lead's whisper`);
+        for (const owner of PLAYERS) if (owner !== role) for (const m of OWN[owner]) check(!raw.includes(m), `${role}'s stream carried ${owner}'s private ${m.slice(0, 12)}…`);
       }
-      check(web.streams.filter((x) => x.role === "tech_lead").some((x) => x.r.raw().includes("WHISPER-ONLY-FOR-TECH-LEAD")), "the tech lead never got its own whisper");
+      for (const owner of PLAYERS) for (const m of OWN[owner]) check(web.streams.some((x) => x.role === owner && x.r.raw().includes(m)), `${owner} never got its own ${m.slice(0, 12)}…: the scan would prove nothing`);
       if (toTheEnd !== null) throw toTheEnd;
       for (const role of PLAYERS) check(live[role].frames.at(-1)?.event === "ended", `${role}'s stream did not end with ended`);
-      return `${frames} SSE frames on ${web.streams.length} streams (every stream every role opened) carry none of the ${FACILITATOR_ONLY.length} facilitator-only markers the facilitator saw, no join code, cookie, credential or token; the whisper reached only its addressee`;
+      return `${frames} SSE frames on ${web.streams.length} streams (every stream every role opened) carry none of the ${FACILITATOR_ONLY.length} facilitator-only markers the facilitator saw (hidden fact, facilitator roster, advance and release commands, an AI character's goals and knowledge, the open-server notice), no join code, cookie, credential or token; each player's brief, private facts and whisper reached only that player`;
     });
 
     await run("W-08", async () => {
