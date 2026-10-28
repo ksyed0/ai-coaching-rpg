@@ -19,6 +19,9 @@
 | `EVAL_TIMEOUT_MS`, `EVAL_TRANSCRIPT_CHARS` | 180000 | evaluator calls, one per player plus one for the group |
 | `FACILITATOR_TOKEN`, `RUNTIME_HOST`, `ALLOWED_ORIGINS`, `TRUST_PROXY`, `WS_*` | token unset (server open, loud warning) | see `docs/THREAT_MODEL.md` |
 | `SESSION_START`, `SESSION_LOCK_STALE_MS` | `resume`, 30000 (10000 to 600000) | `fresh` moves the old log aside |
+| `CONSENT_NOTICE_VERSION` | `v1` | runtime reads `consent/notice-<v>.md`; does not start without it; bump = new file + new value + restart (THREAT_MODEL "Consent notice versions") |
+| Web app (`apps/web`, read by `next start`/`next dev`, NOT from the root `.env`): `RUNTIME_URL`, `PUBLIC_ORIGIN`, `COOKIE_KEYS` | required | `COOKIE_KEYS=id:base64key,...` newest first, 32-byte keys |
+| `COOKIE_MAX_AGE_HOURS`, `WEB_MAX_STREAMS`, `WEB_MAX_STREAMS_PER_SESSION`, `WEB_MAX_STREAMS_PER_ADDRESS` | 12, 200, 64, 16 | the runtime behind the web app needs `TRUST_PROXY=1`, loopback bind |
 
 ## The local endpoint (owner's Mac: Apple M5 Pro, 64 GB)
 Osaurus at `http://127.0.0.1:1337/v1`. Models served on 2026-10-06: `foundation`, `gemma-4-31b-it-qat-mxfp4`, `nemotron-3-nano-omni-30b-a3b-jangtq4`, `qwen3.8-27b-mxfp8`, `raptor-v0.5-8b-a1b-jang_6m`.

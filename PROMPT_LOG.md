@@ -506,3 +506,22 @@ Every user prompt of each working session, in order, with its UTC timestamp (AGE
 > the 8 starter probes are drafted with my approval
 > I will rotate the OpenRouter key later
 > update session documents
+
+## EPIC-0002 slice 2a (web client) — 2026-10-26 to 2026-10-28
+
+Summarised, not verbatim: the exact owner prompts of these sessions were not available to the agent that wrote this entry (it was a subagent of the controlling session). Times are dates only. No secret was given in them as far as the slice's ledger records.
+
+### 2026-10-26 (approximate, summarised)
+
+> Brainstorm the EPIC-0002 web client (browser lobby with consent, participant session view, facilitator console, reconnect); decisions taken with the owner are recorded in docs/superpowers/specs/2026-10-26-web-client-design.md section 2 (Next.js with a backend-for-frontend, a link plus a per-role code, typed display names and no emails, consent always required, the product name SceneCoach.ai).
+> Review the spec and publish the mockups.
+
+### 2026-10-27 (approximate, summarised)
+
+> File the stories (US-0052..US-0065, AC-0266..AC-0340, TASK-0080..TASK-0093) as Planned.
+> Write the implementation plan for slice 2a (US-0052..US-0056, US-0065) and have it reviewed by two independent Opus passes (docs/superpowers/plans/2026-10-27-web-client-slice-2a.md).
+> Execute it subagent-driven: one implementer per task (Sonnet for normal tasks, Opus for large or delicate ones), an independent review per task (spec and quality) with fix rounds, one feature branch and one draft pull request per story into develop; the owner merges.
+
+### 2026-10-28 (approximate, summarised)
+
+> Task 16: documentation, threat model and bookkeeping, then a final whole-branch review and one fix round on its findings (X-Forwarded-For documentation, the consent notice wording, a seated player reopening the join link, the closed-stream wording, small doc fixes, this prompt log entry).

@@ -179,6 +179,9 @@ jobs:
   web-e2e:
     name: Web E2E
     runs-on: ubuntu-latest
+    # Two production builds of apps/web (about 1 min each), the five Playwright specs (each starts its own runtime and next start) and
+    # the web demo: a few minutes on a normal runner. The limit only stops a hang from holding a runner for the default 6 hours.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -189,8 +192,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
         working-directory: apps/web
-      # --pass-with-no-tests until the first browser specs land (US-0065).
-      - run: pnpm --filter @acr/web e2e --pass-with-no-tests
+      # US-0065: builds apps/web, then the participant flow and the Axe checks against the runtime in mock mode and `next start`.
+      - run: pnpm --filter @acr/web e2e
+      # A failed spec leaves its trace and page snapshot here (playwright.config.ts: trace retain-on-failure).
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: web-e2e-test-results
+          path: apps/web/test-results/
+          if-no-files-found: ignore
+      # US-0065: the web demo (checks W-01 to W-08) through the demo runner's --web flag (offline, no secrets).
+      - run: pnpm demo --web
 
   docker-build:
     name: Docker Build

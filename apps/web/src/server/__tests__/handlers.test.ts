@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import type { Config } from "../config";
 import { setEnvelopeClock } from "../envelope";
-import { COOKIE_NAME, handleConsent, handleJoin, handleLeave, handleSay, handleStream, SIGNED_OUT_MESSAGE, type Deps } from "../handlers";
+import { COOKIE_NAME, handleConsent, handleJoin, handleLeave, handleSay, handleStream, seatedIn, SIGNED_OUT_MESSAGE, type Deps } from "../handlers";
 import { RuntimeConnection } from "../runtime-connection";
 import { seal, unseal } from "../seal";
 import { StreamHub, type SessionCookie } from "../stream-hub";
@@ -747,5 +747,18 @@ describe("POST /api/v1/say, /consent and /leave", () => {
     // Logged by name only: an error message could carry anything.
     expect(log.mock.calls.map((c) => String(c[0]))).toEqual(["web: say failed: Error", "web: consent failed: Error", "web: leave failed: Error"]);
     log.mockRestore();
+  });
+});
+
+describe("seatedIn (the /join page sends a seated player back to their session)", () => {
+  it("is true only for an unexpired cookie that opens and names this session", () => {
+    expect(seatedIn(cookieValue(), "s1", KEYS, T0)).toBe(true);
+    expect(seatedIn(cookieValue(), "s2", KEYS, T0)).toBe(false);
+    expect(seatedIn(undefined, "s1", KEYS, T0)).toBe(false);
+    expect(seatedIn("", "s1", KEYS, T0)).toBe(false);
+    expect(seatedIn(cookieValue() + "x", "s1", KEYS, T0)).toBe(false);
+    expect(seatedIn(cookieValue({}, [{ id: "k1", key: Buffer.alloc(32, 9) }]), "s1", KEYS, T0)).toBe(false);
+    expect(seatedIn(cookieValue({ expiresAt: T0 + 1000 }), "s1", KEYS, T0 + 1000)).toBe(false);
+    expect(seatedIn(seal({ sessionId: "s1", expiresAt: T0 + 1000 }, KEYS, T0), "s1", KEYS, T0)).toBe(false);
   });
 });

@@ -1511,148 +1511,148 @@ Notes: Highest-risk story of the epic: needs an independent review before merge.
 US-0052 (EPIC-0002): As a facilitator running a web session, I want the runtime to count logins and connections per client address and role behind a proxy, so that one mistyped code or a shared office address cannot lock other players out.
 Priority: High
 Estimate: M
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0002-US-0052-proxy-limits
 Dependencies: None
 Acceptance Criteria:
-  - [ ] AC-0266: with TRUST_PROXY=1 the runtime reads the real client address from the last X-Forwarded-For entry and the BFF sets it only from the entry its own proxy appended
-  - [ ] AC-0267: failed-login throttles are keyed by address and role: six wrong codes for one role from one address do not refuse another role or another address
-  - [ ] AC-0268: nine players from one address can join when the per-address and total caps are set for the deployment, and the BFF enforces its own global and per-address connection caps because TRUST_PROXY=1 turns off the runtime raw-socket cap
-  - [ ] AC-0269: a refused credential is never retried by the reconnect loop and never charges the player address
+  - [x] AC-0266: with TRUST_PROXY=1 the runtime reads the real client address from the last X-Forwarded-For entry and the BFF sets it only from the entry its own proxy appended (runtime part since US-0017; the BFF accepts exactly one X-Forwarded-For entry, normalised, refuses a list or an empty value with a neutral 400 and passes the address to the runtime: guards.test.ts, handlers.test.ts, runtime-connection.test.ts; TC-0058. Deployment requirement: the proxy replaces the header with one entry. `next start` fills an absent header with the socket address, so behind a proxy that does not set it every client shares the proxy's address, and with no proxy a client can forge a one-entry header to choose its own key: docs/THREAT_MODEL.md)
+  - [x] AC-0267: failed-login throttles are keyed by address and role: six wrong codes for one role from one address do not refuse another role or another address (security.test.ts, ws-server.join-codes.test.ts; the BFF's JoinThrottle likewise: throttle.test.ts; TC-0057)
+  - [x] AC-0268: nine players from one address can join when the per-address and total caps are set for the deployment, and the BFF enforces its own global and per-address connection caps because TRUST_PROXY=1 turns off the runtime raw-socket cap (ws-server.join-codes.test.ts nine players; StreamHub caps WEB_MAX_STREAMS, WEB_MAX_STREAMS_PER_SESSION, WEB_MAX_STREAMS_PER_ADDRESS answer 503 before the runtime is contacted: stream-hub.test.ts, handlers.test.ts; TC-0057, TC-0058)
+  - [x] AC-0269: a refused credential is never retried by the reconnect loop and never charges the player address (charged to `cred:<role>` only: ws-server.credentials.test.ts; the BFF answers `signed_out` and clears the cookie, the browser closes its EventSource: handlers.test.ts, use-session.test.ts; TC-0058)
 ```
 
 ```
 TASK-0080 (US-0052): Per-role throttles, trusted address and connection caps
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0002-US-0052-proxy-limits
-Notes: Spec section 5.1. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Task 1 (draft PR #53). Spec section 5.1. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```
 US-0053 (EPIC-0002): As a player, I want my seat to survive a dropped connection or a backend restart, so that I can carry on without asking for the code again.
 Priority: High
 Estimate: L
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0002-US-0053-player-credential
 Dependencies: US-0052
 Acceptance Criteria:
-  - [ ] AC-0270: at the first successful join by code the runtime issues a 128-bit credential, stored only as a salted hash with the display name and log identity in a separate versioned <id>.credentials.json (0600), written by atomic rename under the session lock, and never copied into review.opened
-  - [ ] AC-0271: join accepts a credential whether or not an older socket is open; a drop frees the seat but never revokes the credential
-  - [ ] AC-0272: a credential is revoked only by an explicit leave, consent withdrawal, facilitator removal, code reissue or the end of the session
-  - [ ] AC-0273: once a credential exists the join code no longer works for that role (the per-role reissue that lifts this is delivered by US-0058, slice 2b)
-  - [ ] AC-0274: a second join with the credential closes the old socket with a distinct superseded close code and the BFF does not reconnect on it
-  - [ ] AC-0275: the file survives resume; a start that finds an empty log and issues new codes discards credentials and consent with the old codes
+  - [x] AC-0270: at the first successful join by code the runtime issues a 128-bit credential, stored only as a salted hash with the display name and log identity in a separate versioned <id>.credentials.json (0600), written by atomic rename under the session lock, and never copied into review.opened (credentials.test.ts, secure-json-file.test.ts, ws-server.credentials.test.ts, cli-open-credentials.test.ts; TC-0059. Issued only when the join asks with issueCredential, which the BFF does; terminal joins by code are unchanged)
+  - [x] AC-0271: join accepts a credential whether or not an older socket is open; a drop frees the seat but never revokes the credential (ws-server.credentials.test.ts; TC-0059)
+  - [x] AC-0272: a credential is revoked only by an explicit leave, consent withdrawal, facilitator removal, code reissue or the end of the session (leave, withdrawal and the end are built and tested: ws-server.credentials.test.ts, ws-server.consent.test.ts; facilitator removal (US-0059) and code reissue (US-0058) do not exist yet, and no other path revokes; a start that discards the old codes discards the seat files too, AC-0275; TC-0060)
+  - [x] AC-0273: once a credential exists the join code no longer works for that role (ws-server.credentials.test.ts, participant-flow.spec.ts, demo W-01; TC-0059. The per-role reissue that lifts this moved to US-0058, AC-0308: until it ships a web player who loses their cookie cannot rejoin; the workaround is a whole-session fresh start)
+  - [x] AC-0274: a second join with the credential closes the old socket with a distinct superseded close code and the BFF does not reconnect on it (close code 4001: ws-server.credentials.test.ts; the BFF ends the stream with `superseded` and never reconnects, the page closes its EventSource: stream-hub.test.ts, hub.runtime.test.ts, use-session.test.ts, participant-flow.spec.ts, demo W-06; TC-0060)
+  - [x] AC-0275: the file survives resume; a start that finds an empty log and issues new codes discards credentials and consent with the old codes (session-store.seats.test.ts, main.test.ts, participant-flow.spec.ts empty-log restart; TC-0061, TC-0072)
 ```
 
 ```
 TASK-0081 (US-0053): Credential file, join by credential, revoke rules, superseded close
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0002-US-0053-player-credential
-Notes: Spec section 5.2. Separate file because JoinCodes.fromRecord rejects extra keys. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 2 to 4 (draft PR #54). Spec section 5.2. Separate file because JoinCodes.fromRecord rejects extra keys. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```
 US-0054 (EPIC-0002): As a participant, I want to give recorded consent before play, and as a facilitator I want the start refused until every human seat has consented, so that no one is recorded without agreeing.
 Priority: High
 Estimate: L
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0002-US-0054-consent
 Dependencies: US-0053
 Acceptance Criteria:
-  - [ ] AC-0276: a consent message from a joined role records role, notice version and time in memory and in <id>.consent.json (0600, atomic, under the lock); the version must equal the server CONSENT_NOTICE_VERSION and the scenario hash is unchanged
-  - [ ] AC-0277: SessionHost.start refuses a start while any human seat is not joined and consented, on every path including the auto-start inside command, and the refusal names the roles missing
-  - [ ] AC-0278: at the start the consents and display names are written to session.started (optional fields); LOG_FORMAT is bumped, the reader accepts the old format, an older runtime refuses format 2, and the rollback note says so
-  - [ ] AC-0279: viewFor redacts consents and names for players, who see only their own consent
-  - [ ] AC-0280: withdrawing consent before the start removes the consent, revokes the credential and frees the seat
-  - [ ] AC-0281: terminal players consent with /consent, pnpm demo and generated players consent through the harness, and existing tests use a helper that consents all roles
-  - [ ] AC-0282: the consent notice states who can see results (ASM-09) and that some roles may be played by an AI
+  - [x] AC-0276: a consent message from a joined role records role, notice version and time in memory and in <id>.consent.json (0600, atomic, under the lock); the version must equal the server CONSENT_NOTICE_VERSION and the scenario hash is unchanged (each entry also records the participant who gave it; consent.test.ts, session-host.test.ts, ws-server.consent.test.ts, session-store.seats.test.ts; TC-0062)
+  - [x] AC-0277: SessionHost.start refuses a start while any human seat is not joined and consented, on every path including the auto-start inside command, and the refusal names the roles missing (`seats_not_ready: <roles>`: session-host.test.ts, ws-server.consent.test.ts, participant-flow.spec.ts; TC-0062)
+  - [x] AC-0278: at the start the consents and display names are written to session.started (optional fields); LOG_FORMAT is bumped, the reader accepts the old format, an older runtime refuses format 2, and the rollback note says so (LOG_FORMAT 2 with consents, names and logIdentity; formats 0 to 2 restore, 3 is refused by the same check that makes an older runtime refuse 2: session-engine-restore.test.ts, state.test.ts; docs/ROLLBACK.md; TC-0063)
+  - [x] AC-0279: viewFor redacts consents and names for players, who see only their own consent (an allowlist with compile-time exhaustiveness: session-host.test.ts, ws-server.consent.test.ts; TC-0063)
+  - [x] AC-0280: withdrawing consent before the start removes the consent, revokes the credential and frees the seat (and closes the connection with 1000: session-host.test.ts, ws-server.consent.test.ts; TC-0062)
+  - [x] AC-0281: terminal players consent with /consent, pnpm demo and generated players consent through the harness, and existing tests use a helper that consents all roles (commands.test.ts, client.test.ts, `consentAll` in src/__tests__/consent-helper.ts; demo counts unchanged at 29 / 32 / 39 / 42 / 14 / 16; TC-0064)
+  - [x] AC-0282: the consent notice states who can see results (ASM-09) and that some roles may be played by an AI (consent/notice-v1.md; consent-notice.test.ts checks the topics; TC-0064)
 ```
 
 ```
 TASK-0082 (US-0054): Consent store, start gate, log format bump, terminal and demo updates
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0002-US-0054-consent
-Notes: Spec section 5.3. Touches the terminal client, demos and many existing tests. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 5 to 7 (draft PR #55). Spec section 5.3. Touches the terminal client, demos and many existing tests. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```
 US-0055 (EPIC-0002): As a player, I want a live view of who is in the room and a reliable stream after a reconnect, so that the browser always shows a correct, gap-free session.
 Priority: High
 Estimate: M
-Status: Planned
-Branch: feature/EPIC-0002-US-0055-roster-projection
+Status: Complete
+Branch: feature/EPIC-0002-US-0055-roster
 Dependencies: US-0053
 Acceptance Criteria:
-  - [ ] AC-0283: join accepts an optional displayName (1 to 60 characters, cleaned with cleanText, hidden and bidirectional characters stripped); it is stored in the credentials file and never printed to stdout or logs or sent to a model
-  - [ ] AC-0284: a facilitator roster frame (role, name, joined, consented, connected) and a peer roster frame (role, name, ready) come from host memory and are not events; the terminal prints a roster line with role and state only
-  - [ ] AC-0285: the browser player projection is seeded from the joined snapshot, tolerates seq gaps and is replaced wholesale on a reset frame
-  - [ ] AC-0286: the BFF sends reset whenever joined.replay.complete is false, and a log identity carried in joined makes a Last-Event-ID from before a fresh start trigger reset
-  - [ ] AC-0287: ARCHITECTURE.md section 6 and the threat model record that peers now see typed display names and that the web does not run the shared reducer
+  - [x] AC-0283: join accepts an optional displayName (1 to 60 characters, cleaned with cleanText, hidden and bidirectional characters stripped); it is stored in the credentials file and never printed to stdout or logs or sent to a model (60 code points; `\r`, `\n` and `\t` are refused in the raw input: display-name.test.ts, ws-server.credentials.test.ts, roster.prompt-leak.test.ts, ws-server.roster.test.ts; TC-0065)
+  - [x] AC-0284: a facilitator roster frame (role, name, joined, consented, connected) and a peer roster frame (role, name, ready) come from host memory and are not events; the terminal prints a roster line with role and state only (roster.test.ts, ws-server.roster.test.ts, render.test.ts; TC-0066)
+  - [x] AC-0285: the browser player projection is seeded from the joined snapshot, tolerates seq gaps and is replaced wholesale on a reset frame (player-view.test.ts, use-session.test.ts; TC-0067)
+  - [x] AC-0286: the BFF sends reset whenever joined.replay.complete is false, and a log identity carried in joined makes a Last-Event-ID from before a fresh start trigger reset (stream-hub.test.ts, hub.runtime.test.ts, handlers.test.ts (the cookie is reissued with the new identity); TC-0067)
+  - [x] AC-0287: ARCHITECTURE.md section 6 and the threat model record that peers now see typed display names and that the web does not run the shared reducer (docs/ARCHITECTURE.md section 6 "Participant web client (slice 2a)", docs/THREAT_MODEL.md "The web client"; TC-0067)
 ```
 
 ```
 TASK-0083 (US-0055): Display name, roster frames, player projection, reset and log identity
 Type: Dev
 Assignee: Agent
-Status: To Do
-Branch: feature/EPIC-0002-US-0055-roster-projection
-Notes: Spec sections 5.4 and 5.5. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Status: Done
+Branch: feature/EPIC-0002-US-0055-roster
+Notes: Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 8 and 9 (draft PR #56). Spec sections 5.4 and 5.5. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```
 US-0056 (EPIC-0002): As a participant, I want to join a session from a link in my browser, give consent, play as text and reconnect, so that I can take part without installing anything.
 Priority: High
 Estimate: XL
-Status: Planned
+Status: Complete
 Branch: feature/EPIC-0002-US-0056-participant-web-app
 Dependencies: US-0052, US-0053, US-0054, US-0055
 Acceptance Criteria:
-  - [ ] AC-0288: a Next.js app under apps/ is part of the pnpm workspace; /join, /session/[id] and the consent page work with a link, a code and a typed name, and every refusal shows one neutral message
-  - [ ] AC-0289: the BFF holds the runtime WebSocket per participant, streams events as SSE with the seq as id and heartbeats, supports Last-Event-ID reconnect, and shows a Reconnecting banner and an open-in-another-tab message
-  - [ ] AC-0290: the participant cookie is HttpOnly, Secure, SameSite=Lax, sealed with a key id and expires at the session end; identity comes only from the cookie, never the request body
-  - [ ] AC-0291: routes live under /api/v1/ with the project response envelope, state-changing requests check Origin and a custom header, the stream route checks Sec-Fetch-Site, and streams are capped
-  - [ ] AC-0292: the session view shows the transcript with a say box, the private brief and facts, the scene status and timer; all text is rendered as text under a strict CSP
-  - [ ] AC-0293: join, session, report and console routes send noindex and nofollow and are disallowed in robots.txt
-  - [ ] AC-0294: a stream scan test finds no facilitator-only events, other roles briefs or facts, other players consent, codes or tokens in anything a player receives
+  - [x] AC-0288: a Next.js app under apps/ is part of the pnpm workspace; /join, /session/[id] and the consent page work with a link, a code and a typed name, and every refusal shows one neutral message (apps/web, Next 16.4.1; consent is given in the lobby of /session/[id] because it travels over the live stream; every authentication refusal is one `401 join_refused` and one page message, a bad name is a separate `400 bad_name`: handlers.test.ts, components.test.tsx, participant-flow.spec.ts; TC-0068, TC-0070)
+  - [x] AC-0289: the BFF holds the runtime WebSocket per participant, streams events as SSE with the seq as id and heartbeats, supports Last-Event-ID reconnect, and shows a Reconnecting banner and an open-in-another-tab message (stream-hub.test.ts, handlers.test.ts, use-session.test.ts, session-screen.test.tsx, participant-flow.spec.ts; TC-0069, TC-0070)
+  - [x] AC-0290: the participant cookie is HttpOnly, Secure, SameSite=Lax, sealed with a key id and expires at the session end; identity comes only from the cookie, never the request body (`__Host-scenecoach`, AES-256-GCM with the key id as associated data, rotation by COOKIE_KEYS. As clarified in the plan (clarification 6) the lifetime is COOKIE_MAX_AGE_HOURS because the BFF does not know the session end in 2a: the end revokes the credential and the next request after `ended` clears the cookie: seal.test.ts, handlers.test.ts; TC-0068, TC-0069; interpretation accepted by the owner (Kamal Syed) on 2026-10-28)
+  - [x] AC-0291: routes live under /api/v1/ with the project response envelope, state-changing requests check Origin and a custom header, the stream route checks Sec-Fetch-Site, and streams are capped (envelope.test.ts, guards.test.ts, handlers.test.ts, routes.test.ts; TC-0068, TC-0069)
+  - [x] AC-0292: the session view shows the transcript with a say box, the private brief and facts, the scene status and timer; all text is rendered as text under a strict CSP (per-request nonce, no `unsafe-inline` for scripts, styles by class only: components.test.tsx, session-screen.test.tsx, source-rules.test.ts, headers.test.ts, participant-flow.spec.ts; TC-0070)
+  - [x] AC-0293: join, session, report and console routes send noindex and nofollow and are disallowed in robots.txt (also /admin and /api; headers.test.ts, pages.test.tsx, demo W-08; TC-0070)
+  - [x] AC-0294: a stream scan test finds no facilitator-only events, other roles briefs or facts, other players consent, codes or tokens in anything a player receives (hub.runtime.test.ts with positive controls and mutation proofs, demo W-07; TC-0071)
 ```
 
 ```
 TASK-0084 (US-0056): Next.js app, BFF routes, cookie, SSE stream, lobby and session view
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0002-US-0056-participant-web-app
-Notes: Spec sections 4 and 6. CI gains a Playwright browser install step. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 10 to 14 (draft PR #57). Spec sections 4 and 6. CI gains a Playwright browser install step. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```
 US-0065 (EPIC-0002): As the product owner, I want an offline end-to-end test and demo of the web participant flow, so that the browser path is verified on every change.
 Priority: Medium
 Estimate: M
-Status: Planned
-Branch: feature/EPIC-0002-US-0065-web-e2e-demo
+Status: In Progress
+Branch: feature/EPIC-0002-US-0065-web-e2e
 Dependencies: US-0056
 Acceptance Criteria:
-  - [ ] AC-0295: a Playwright test in mock mode runs offline: players join with names and consent, the session starts from the terminal, everyone speaks, one connection drops and recovers, and the BFF restarts and recovers
-  - [ ] AC-0296: Axe accessibility checks pass on every participant screen and the layout has no horizontal scroll at 400px
-  - [ ] AC-0297: BFF contract tests run against the real runtime in mock mode as well as the fake runtime
-  - [ ] AC-0298: pnpm demo --web drives the flow with generated players and adds its checks to the demo count list
-  - [ ] AC-0299: the new filesystem, lock and process tests pass once in the node:22 container and the coverage gate passes more than once and once under load
+  - [x] AC-0295: a Playwright test in mock mode runs offline: players join with names and consent, the session starts from the terminal, everyone speaks, one connection drops and recovers, and the BFF restarts and recovers (apps/web/e2e/participant-flow.spec.ts; run locally with the sandbox Chromium; its first CI run (Chromium build 1248) is still to come; TC-0072)
+  - [x] AC-0296: Axe accessibility checks pass on every participant screen and the layout has no horizontal scroll at 400px (apps/web/e2e/axe.spec.ts, light and dark, WCAG 2.0 and 2.1 A and AA, serious and critical findings only (moderate and minor ones are not checked); screens: /join, /join with a refusal, the lobby, the running and the paused session view, open in another tab, connection closed and the ended view; the signed-out screen shares the closed screen's component and is not scanned separately; 400 px: /join, the lobby and the session view; TC-0073; interpretation accepted by the owner (Kamal Syed) on 2026-10-28)
+  - [x] AC-0297: BFF contract tests run against the real runtime in mock mode as well as the fake runtime (hub.runtime.test.ts, handlers.runtime.test.ts beside the fake-runtime tests; TC-0072)
+  - [x] AC-0298: pnpm demo --web drives the flow with generated players and adds its checks to the demo count list (W-01 to W-08, listed in docs/memory/demo-and-testing.md; the players are scripted HTTP clients in mock mode, not model-written `--players generated` bots; TC-0074; interpretation accepted by the owner (Kamal Syed) on 2026-10-28)
+  - [ ] AC-0299: the new filesystem, lock and process tests pass once in the node:22 container and the coverage gate passes more than once and once under load (coverage gate: passed twice, once under load, TC-0075; the node:22 container run is NOT done: no Docker daemon in the build environment, TC-0076 Not Run; owner approved running it on their local OrbStack Docker on 2026-10-28; it needs the Remote Control connection to that machine, so it is still open)
 ```
 
 ```
 TASK-0085 (US-0065): Playwright flow, contract tests, demo --web, hygiene runs
 Type: Test
 Assignee: Agent
-Status: To Do
-Branch: feature/EPIC-0002-US-0065-web-e2e-demo
-Notes: Spec section 9. Reconnect backoff uses an injected clock. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Status: In Progress
+Branch: feature/EPIC-0002-US-0065-web-e2e
+Notes: Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 15 and 16. Open: the node:22 container run (AC-0299; the owner offered a local OrbStack Docker instance on 2026-10-28) and two Web E2E specs that failed on the first CI runs for timing reasons (BUG-0009, BUG-0010). Spec section 9. Reconnect backoff uses an injected clock. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```
@@ -1690,7 +1690,7 @@ Acceptance Criteria:
   - [ ] AC-0305: every lifecycle and security variable is set explicitly, RUNTIME_HOST is 127.0.0.1, RUNTIME_PORT is 0, and NO_DOTENV=1 stops the runtime reading <root>/.env
   - [ ] AC-0306: on every start the runtime emits one JSON line on a dedicated file descriptor with port, log identity and status, and with codes only when issued
   - [ ] AC-0307: the runtime exits when its parent pipe closes; after a launcher restart sessions in its list resume paused with fresh tokens and an ended session is never relaunched
-  - [ ] AC-0308: per-role and whole-session code reissue return the new codes once and revoke the old credentials
+  - [ ] AC-0308: per-role and whole-session code reissue return the new codes once and revoke the old credentials (this also carries the per-role reissue clause moved from AC-0273: it is the way back for a web player who lost their cookie)
   - [ ] AC-0309: facilitator tokens are never written to disk, and the control service owns the data directory for web operations
 ```
 

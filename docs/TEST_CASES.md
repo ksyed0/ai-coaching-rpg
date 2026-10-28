@@ -867,3 +867,306 @@ Notes: Facilitator-attested only: no participant is authenticated (see docs/THRE
 
 Demo against a running server (no TC id; covered by runner.test.ts): `JOIN_CODES=delivery_lead=<code>,tech_lead=<code>,account_manager=<code> pnpm demo --url ws://localhost:8080 --fast` passes the external checks and prints no code.
 
+
+## US-0052: logins and connections per client address and role
+
+TC-0057: Failed logins are throttled per (address, role) and nine players share one address
+Related Story: US-0052
+Related Task: TASK-0080
+Related AC: AC-0267, AC-0268
+Type: Negative
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/host/__tests__/security.test.ts src/host/__tests__/ws-server.join-codes.test.ts`.
+Expected Result: six wrong codes for one role from one address block that (address, role) only: another role from the same address, the same role from another address and the facilitator handshake are not refused; a blocked pair is refused with the same `unauthorized` without the code being checked, attempts during the block do not extend it, and the block expires after its time (injected clock); an unknown role id is counted under `player:*` and cannot fill the table; nine players join from one address when `WS_MAX_CONNECTIONS_PER_IP` allows it; the default scope still blocks an address after wrong facilitator tokens.
+Actual Result: As expected (security.test.ts, ws-server.join-codes.test.ts) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 5 (six wrong codes from an office address while a colleague joins). The nine-player test is a regression guard (the connection cap was already per connection).
+
+TC-0058: The web server keys its own limits on the proxy's address and never retries a refused credential
+Related Story: US-0052
+Related Task: TASK-0080
+Related AC: AC-0266, AC-0268, AC-0269
+Type: Negative
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/web exec vitest run src/server/__tests__/guards.test.ts src/server/__tests__/throttle.test.ts src/server/__tests__/stream-hub.test.ts src/server/__tests__/handlers.test.ts`.
+  2. Run `pnpm --filter @acr/runtime exec vitest run src/host/__tests__/ws-server.credentials.test.ts`.
+Expected Result: the web server takes the client address from a single `X-Forwarded-For` entry, normalised (IPv4-mapped IPv6 folds to IPv4); an empty or comma-separated value is a neutral 400 (an absent header cannot reach a route under `next start`, which fills in the socket address; in unit tests it is the key `unknown`); it passes the address to the runtime in `X-Forwarded-For`; its join throttle blocks one (address, role) and not another, fails closed when its table is full of blocks, and is not charged while a pair is blocked; its stream caps (total, per session, per address) answer 503 before the runtime is contacted; a refused credential is charged to `cred:<role>` at the runtime, never to the address-level scope, and the web server answers it with `signed_out` and a cleared cookie, so the browser does not retry it.
+Actual Result: As expected (guards, throttle, stream-hub, handlers and ws-server.credentials tests) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: The runtime reading the last `X-Forwarded-For` entry under `TRUST_PROXY=1` predates this story (US-0017); the deployment requirement that the proxy replaces the header with one entry is in docs/THREAT_MODEL.md.
+
+## US-0053: a seat that survives a drop or a restart
+
+TC-0059: A web join by code issues a credential that rejoins without the code
+Related Story: US-0053
+Related Task: TASK-0081
+Related AC: AC-0270, AC-0271, AC-0273
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/engine/__tests__/credentials.test.ts src/engine/__tests__/secure-json-file.test.ts src/host/__tests__/ws-server.credentials.test.ts src/review/__tests__/cli-open-credentials.test.ts`.
+Expected Result: the first join by code with `issueCredential` returns a 32-hex credential once, after it was saved (persist before `joined`); the file holds only a salted SHA-256, the name and the log identity, mode 0600, written by atomic rename; a dropped connection frees the seat and the credential rejoins without the code; the join code is refused for that role once a credential exists; `review.opened` holds no credential data; a terminal join without `issueCredential` still rejoins by code (regression guard).
+Actual Result: As expected (the four test files) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Per-role reissue of a code (the way back for a player who lost their cookie) is US-0058.
+
+TC-0060: Supersede, leave and the end of the session
+Related Story: US-0053
+Related Task: TASK-0081
+Related AC: AC-0272, AC-0274
+Type: Edge Case
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/host/__tests__/ws-server.credentials.test.ts src/host/__tests__/ws-server.replay.test.ts`.
+  2. Run `pnpm --filter @acr/web exec vitest run src/server/__tests__/stream-hub.test.ts src/server/__tests__/hub.runtime.test.ts`.
+Expected Result: a second join with the credential closes the first socket with 4001 `superseded`, and a say or leave the old socket sends afterwards is dropped; two simultaneous joins by code for one role seat exactly one; `leave` revokes the credential and frees the seat; a failed save answers `internal` and a retry writes the file; `session.ended` revokes every credential and latches, so a later web join gets `session_ended`; in the web server a second open for one participant ends the first with `superseded` and the first does not reconnect, and a delayed older tab whose `joined` and 4001 arrive together does not supersede the newer tab.
+Actual Result: As expected (runtime and web tests above) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 1. Facilitator removal (US-0059) and code reissue (US-0058) are not built yet; no other path revokes a credential. Residual race: if an older tab's `joined` reaches the web server after the newer tab's and its 4001 arrives in a later read, both tabs end superseded; a reload recovers (docs/THREAT_MODEL.md).
+
+TC-0061: Seat files across resume, an empty log and rotation
+Related Story: US-0053
+Related Task: TASK-0081
+Related AC: AC-0275
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/engine/__tests__/session-store.seats.test.ts src/engine/__tests__/consent-notice.test.ts src/__tests__/main.test.ts`.
+Expected Result: a resume keeps the credentials and consent files that match the scenario and notice version; a start that finds an empty log and issues new codes discards both with the old codes; a fresh start and an ended session remove both before the log moves; a malformed file stops the start and changes nothing; a crash between the new credentials and the new consent never leaves stale consent; the lock is checked before files are removed; codes issued by a start that then fails are withdrawn; the server does not start without `consent/notice-<version>.md` or with a bad `CONSENT_NOTICE_VERSION`.
+Actual Result: As expected (store, notice and main tests) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 3 (runtime restart). The browser side of an empty-log restart is TC-0072.
+
+## US-0054: recorded consent and the start gate
+
+TC-0062: The start waits for every human seat to join and consent
+Related Story: US-0054
+Related Task: TASK-0082
+Related AC: AC-0276, AC-0277, AC-0280
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/engine/__tests__/consent.test.ts src/host/__tests__/session-host.test.ts src/host/__tests__/ws-server.consent.test.ts`.
+Expected Result: consent records role, participant, notice version and time (injected clock) in memory and in the consent file; another version is refused as `consent_version`; `start`, and the auto-start inside a facilitator command, are refused with `seats_not_ready` naming the roles missing a join or a consent; a consent from another participant who later holds the role does not count; withdrawing before the start removes the consent, revokes the credential, frees the seat and closes with 1000; consent, withdraw and leave are refused `already_started` from the start on; a failed write takes the consent back; a host without seats starts as before (regression guard).
+Actual Result: As expected (consent, session-host and ws-server.consent tests) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Ruling R13: `leave` after the start is refused, so disconnecting is the only exit mid-session.
+
+TC-0063: Log format 2, redaction for players and resume of recorded consent
+Related Story: US-0054
+Related Task: TASK-0082
+Related AC: AC-0278, AC-0279
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/events exec vitest run`.
+  2. Run `pnpm --filter @acr/runtime exec vitest run src/engine/__tests__/session-engine-restore.test.ts src/host/__tests__/session-host.test.ts src/host/__tests__/session-host-resume-consent.test.ts`.
+Expected Result: new logs carry format 2 and `session.started` holds the consents, names and log identity; logs of format 0, 1 and 2 restore and format 3 is refused with `log_format` (the same check makes an older runtime refuse format 2); a player's copy of `session.started` carries only their own consent (allowlist), the facilitator's everything; a resumed session seeds missing consent entries from `session.started`, keeps them across a notice-version change for the same participant, and skips the consent check on rejoin for a log written before the gate.
+Actual Result: As expected (events suite and the three runtime test files) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: The rollback consequence is in docs/ROLLBACK.md.
+
+TC-0064: Terminal `/consent`, the notice and the demo counts
+Related Story: US-0054
+Related Task: TASK-0082
+Related AC: AC-0281, AC-0282
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/cli src/engine/__tests__/consent-notice.test.ts`.
+  2. Run `pnpm demo --fast`, `pnpm demo --fast --security`, `pnpm demo --fast --resume`, `pnpm demo --fast --security --resume`, `pnpm demo --showcase --fast` and `pnpm demo --showcase --fast --evaluate`.
+Expected Result: after joining, the terminal prints the notice once, every notice line prefixed `notice | ` so it cannot pass for chat or a system line, then `type /consent to agree`; `/consent` sends the announced version and is refused locally before joining; `/withdraw` sends `withdraw_consent`; close code 4001 is reported as a newer connection; the shipped `consent/notice-v1.md` says who sees results, that some roles may be played by an AI and how to leave; the demos seat and consent every player and keep 29, 32, 39, 42, 14 and 16 checks.
+Actual Result: As expected (cli and notice tests; the six demos gave 29 / 32 / 39 / 42 / 14 / 16) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Existing tests consent through `consentAll` (`services/runtime/src/__tests__/consent-helper.ts`).
+
+## US-0055: display names, roster and a gap-free player view
+
+TC-0065: Hostile display names are cleaned or refused and never logged or sent to a model
+Related Story: US-0055
+Related Task: TASK-0083
+Related AC: AC-0283
+Type: Negative
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/host/__tests__/display-name.test.ts src/host/__tests__/ws-server.credentials.test.ts src/host/__tests__/roster.prompt-leak.test.ts src/host/__tests__/ws-server.roster.test.ts`.
+  2. Run `pnpm --filter @acr/web exec vitest run src/components/__tests__/components.test.tsx src/server/__tests__/handlers.test.ts`.
+Expected Result: 60 code points are accepted (60 emoji too) and 61 refused; a right-to-left override and zero-width characters are stripped; a name that is empty, only spaces or only zero-width characters, or contains `\r`, `\n` or `\t`, is refused as `bad_message` (`400 bad_name` at the web server) and is not charged to any throttle; the name is stored in the credentials file and never appears in a log line or a prompt to an AI character or the Game Master; HTML and Markdown link syntax in a name render as text in the roster.
+Actual Result: As expected (runtime and web tests above) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 2. The prompt-leak test is a regression guard. `\n` and `\t` are refused in the raw input (ruling R6: `cleanText` turns them into visible marks, it does not keep them).
+
+TC-0066: Roster frames per audience
+Related Story: US-0055
+Related Task: TASK-0083
+Related AC: AC-0284
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/host/__tests__/roster.test.ts src/host/__tests__/ws-server.roster.test.ts src/cli/__tests__/render.test.ts`.
+Expected Result: every connection gets a roster frame after a join, consent, withdraw, leave, disconnect, takeover and the end of the session; the facilitator frame has role, name, joined, consented and connected and the peer frame role, name and ready; a player never receives the facilitator frame; AI characters are not listed; the frame follows `joined` and its replay, never between them; a repeated consent is neither logged nor broadcast; after the end no frame carries a name; the server log has role ids and states only; the terminal prints `roster | <role>: <state>` without names, only when it changed.
+Actual Result: As expected (roster, ws-server.roster and render tests) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Peers see each other's typed names and see that a seat is reserved (docs/THREAT_MODEL.md).
+
+TC-0067: The player view tolerates gaps and is reset when the log changed
+Related Story: US-0055
+Related Task: TASK-0083
+Related AC: AC-0285, AC-0286, AC-0287
+Type: Edge Case
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/events exec vitest run src/__tests__/player-view.test.ts`.
+  2. Run `pnpm --filter @acr/runtime exec vitest run src/host/__tests__/ws-server.scenes.test.ts`.
+  3. Run `pnpm --filter @acr/web exec vitest run src/server/__tests__/stream-hub.test.ts src/server/__tests__/hub.runtime.test.ts src/lib/__tests__/use-session.test.ts`.
+Expected Result: `initPlayerView` takes the redacted snapshot as is; `applyPlayerEvent` skips a gap, ignores a duplicate, an unknown type and a malformed seq or time, and equals the shared reducer on 400 seeded gap-free sequences; `joined.scenes` lists only the player's scenes; the web server sends `reset` when the replay is incomplete or missing, when `Last-Event-ID` is beyond the head and when the log identity differs from the cookie's, and skips the replayed frames then; a resumed stream after a drop holds exactly the role's replay with no gap or duplicate; the browser replaces its view wholesale on `reset`; docs/ARCHITECTURE.md section 6 and docs/THREAT_MODEL.md record the player projection and peers seeing names.
+Actual Result: As expected (events, runtime and web tests above; docs written 2026-10-28) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 4.
+
+## US-0056: the participant web app
+
+TC-0068: Join route: cookie, neutral refusals, throttle and request guards
+Related Story: US-0056
+Related Task: TASK-0084
+Related AC: AC-0288, AC-0290, AC-0291
+Type: Negative
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/web exec vitest run src/server/__tests__/seal.test.ts src/server/__tests__/config.test.ts src/server/__tests__/envelope.test.ts src/server/__tests__/handlers.test.ts src/server/__tests__/handlers.runtime.test.ts src/server/__tests__/runtime-connection.test.ts`.
+Expected Result: a right code sets the sealed `__Host-scenecoach` cookie (HttpOnly, Secure, SameSite=Lax, Path=/, Max-Age from `COOKIE_MAX_AGE_HOURS`) and the body holds neither the code nor the credential; every authentication refusal (wrong code, blocked, role taken, ended, consent required, the runtime's 429, unknown codes) is one identical `401 join_refused` envelope; the throttle runs before the runtime is contacted and only a real code refusal is charged; a code typed in lower case with spaces and hyphens reaches the runtime unchanged; a missing Origin or `X-Requested-With: scenecoach` is refused; a tampered, expired, relabelled or unknown-key cookie does not open; a rotated key still opens an older cookie; a configuration error never quotes a value.
+Actual Result: As expected (web server tests above) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 5. A bad display name is `400 bad_name` (input validation, not an authentication refusal).
+
+TC-0069: Stream route: cookies, cross-site requests, caps, resets and aborts
+Related Story: US-0056
+Related Task: TASK-0084
+Related AC: AC-0289, AC-0290, AC-0291
+Type: Negative
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/web exec vitest run src/server/__tests__/handlers.test.ts src/server/__tests__/handlers.runtime.test.ts src/server/__tests__/sse.test.ts src/server/__tests__/stream-hub.test.ts`.
+Expected Result: no cookie, a tampered, expired or other-session cookie get 401 with the neutral envelope; `Sec-Fetch-Site: cross-site` is 403 and a request that does not accept `text/event-stream` is 406, before any runtime work; the stream cap is 503 without contacting the runtime; the stream starts with `retry:`, carries the seq as `id:`, a heartbeat every 15 s and `Last-Event-ID` resume; a changed log identity gives `reset` and a reissued cookie; a revoked credential gives `signed_out` with "ask your facilitator for a new code" and a cleared cookie; an aborted request closes its runtime socket; a consumer that stops reading is dropped past the backpressure bound; after an ended stream the next request gets `ended` and a cleared cookie.
+Actual Result: As expected (handlers, sse and stream-hub tests) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 4 and 5. Known limits (non-transient refusals loop as Reconnecting; a closed stream (401, 403, 406 or 503) says only "reload, then ask your facilitator") are in docs/THREAT_MODEL.md.
+
+TC-0070: Pages render everything as text under a nonce CSP and stay out of search
+Related Story: US-0056
+Related Task: TASK-0084
+Related AC: AC-0288, AC-0289, AC-0292, AC-0293
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/web exec vitest run src/__tests__ src/components src/lib src/server/__tests__/headers.test.ts src/server/__tests__/routes.test.ts`.
+Expected Result: HTML in a transcript line, a speaker, a roster name, the brief, a fact, an update and the notice renders as text; no source file uses `dangerouslySetInnerHTML`, inline styles, `document.cookie` or web storage; the CSP carries a fresh nonce per request and no `unsafe-inline` for scripts; private paths send `X-Robots-Tag: noindex, nofollow`, pages carry the robots meta tag and `robots.txt` disallows `/join`, `/session`, `/report`, `/console`, `/admin` and `/api`; the proxy never runs for `/api`; the Reconnecting banner appears on a drop and clears on `joined` or `reset`; `superseded`, `signed_out`, `ended` and `expired` close the EventSource and show their messages; the say box is disabled while paused, after the end and while not live, and keeps focus across a send; a double-click on Join sends one request; the timer counts from `enteredAt`, `pausedMs` and `pausedSince` with an injected clock and freezes while paused.
+Actual Result: As expected (302 web tests, 99.62% lines) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 1 and 2 (the browser side).
+
+TC-0071: Nothing a player may not see reaches a player stream
+Related Story: US-0056
+Related Task: TASK-0084
+Related AC: AC-0294
+Type: Negative
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/web exec vitest run src/server/__tests__/hub.runtime.test.ts`.
+Expected Result: in a full mock session (three players, a whisper, a hidden-fact release, an AI character, the end) no player stream holds a facilitator-only event type or field, the facilitator roster, facilitator commands, an AI character's goals or knowledge, the hidden fact, another role's brief, facts or whisper, another player's consent, any join code (as issued and as typed), credential, reconnect token, client address or participant id; each marker is first proven present where it belongs.
+Actual Result: As expected (hub.runtime.test.ts; mutations that leak the reconnect token, the credential, fan-out, the facilitator roster or facilitator commands each fail it) during the slice 2a build, 2026-10-27/28.
+Status: [x] Pass
+Defect Raised: None
+Notes: The marker list must grow with every new facilitator-only field; `pnpm demo --web` check W-07 scans the same way (TC-0074).
+
+## US-0065: web end-to-end test and demo
+
+TC-0072: Playwright participant flow in mock mode
+Related Story: US-0065
+Related Task: TASK-0085
+Related AC: AC-0295, AC-0297
+Type: Functional
+Preconditions: A checkout of the branch; a Chromium for the pinned Playwright (`pnpm --filter @acr/web exec playwright install chromium`, or `PLAYWRIGHT_CHROMIUM_EXECUTABLE`).
+Steps:
+  1. Run `pnpm --filter @acr/web e2e`.
+  2. Run `pnpm --filter @acr/web exec vitest run src/server/__tests__/hub.runtime.test.ts src/server/__tests__/handlers.runtime.test.ts`.
+Expected Result: `participant-flow.spec.ts`: three players join with names (an HTML name stays text) and consent, the terminal facilitator starts, the scene, goal, inject and timer show, everyone speaks and each line arrives once, pause disables the say box, a dropped socket recovers from `Last-Event-ID` with no duplicate, a web server restart keeps every seat, a second tab supersedes the first, the end keeps the transcript; a start is refused while one player has not consented and the roster shows Joined against Ready, and the code no longer seats anyone once a credential exists; after a runtime restart with an empty log the page says "ask your facilitator for a new code" and a new code seats the player again; the contract tests pass against the real runtime as well as the fake.
+Actual Result: As expected (5 specs passed, 15 of 15 with `--repeat-each 3`, 10 of 10 under load; contract tests pass) on 2026-10-28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Review Focus 1 and 3. Locally the sandbox Chromium (build 1243) was used through `PLAYWRIGHT_CHROMIUM_EXECUTABLE`; CI installs build 1248 for the pinned Playwright, and its first run there is still to be seen.
+
+TC-0073: Axe and 400 px on every participant screen
+Related Story: US-0065
+Related Task: TASK-0085
+Related AC: AC-0296
+Type: Accessibility
+Preconditions: As TC-0072.
+Steps:
+  1. Run `pnpm --filter @acr/web e2e` and read `axe.spec.ts`.
+Expected Result: no serious or critical Axe violation (WCAG 2.0 and 2.1, A and AA) on `/join`, `/join` with a refusal, the lobby, the running session view, the paused view, the open-in-another-tab screen, the connection-closed screen and the ended view, in light and dark (moderate and minor findings are not checked) (the colour-scheme media query is checked to match); no horizontal scroll at 400 px on `/join`, the lobby and the session view with an unbroken 180-character word in the transcript.
+Actual Result: As expected on 2026-10-28.
+Status: [x] Pass
+Defect Raised: None
+Notes: Mutations that lowered the dark-theme contrast or forced a 560 px minimum width each failed the spec. The spec waits for every animation and transition to finish after switching the colour scheme (L-0024): the first CI run measured a button mid-transition.
+
+TC-0074: `pnpm demo --web` checks W-01 to W-08
+Related Story: US-0065
+Related Task: TASK-0085
+Related AC: AC-0298
+Type: Functional
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm demo --web`.
+  2. Run `pnpm --filter @acr/runtime exec vitest run src/demo/__tests__/web-flag.test.ts`.
+  3. Run `pnpm demo --fast` and compare the count.
+Expected Result: W-01 the join cookie and the code refused once a credential exists; W-02 the opening scene on every stream after consent and the start; W-03 a said line reaches every player once; W-04 a cut runtime socket ends with `reconnecting` and the reopen from `Last-Event-ID` equals a full replay with nothing twice; W-05 a web server restart keeps every seat; W-06 a second stream supersedes the first; W-07 no facilitator-only marker, code, cookie or token on any player stream (each marker proven present in the facilitator's frames) and each player's brief only on their own stream; W-08 `robots.txt` and the noindex headers and meta tag; exit 0; `--web` stands alone (only `--no-color` may go with it); `pnpm demo --fast` still has 29 checks.
+Actual Result: As expected (8 of 8 passed in each of 6 runs; web-flag tests pass; 29 checks) on 2026-10-28.
+Status: [x] Pass
+Defect Raised: None
+Notes: The demo's three players are scripted HTTP clients named "Generated <role>" in mock mode; model-written players (`--players generated`) are not used.
+
+TC-0075: Coverage gate twice and once under load
+Related Story: US-0065
+Related Task: TASK-0085
+Related AC: AC-0299
+Type: Performance
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm test:coverage`.
+  2. Run it again while `yes > /dev/null` runs eight times in the background.
+Expected Result: every package passes with at least 80 percent line coverage both times, with the same results.
+Actual Result: Both runs passed (events 62 tests 100% lines, adapters 256 98.82%, script 222 97.42%, runtime 3601 98.39%, web 302 99.62%) on 2026-10-28; a third plain run at the session close gave the same numbers.
+Status: [x] Pass
+Defect Raised: None
+Notes: Web coverage excludes `src/app/**` and `src/demo/**` (Next route files and the demo need a production build; the demo runs as its own CI step).
+
+TC-0076: New filesystem, lock and process tests in the node:22 container
+Related Story: US-0065
+Related Task: TASK-0085
+Related AC: AC-0299
+Type: Regression
+Preconditions: Docker with a running daemon.
+Steps:
+  1. Run the container recipe from AGENTS.md section 8 (`node:22`, as root and with `--user node`) on `src/engine/__tests__/secure-json-file.test.ts`, `credentials.test.ts`, `consent.test.ts`, `consent-notice.test.ts`, `session-store.seats.test.ts`, `src/__tests__/main.test.ts` and `src/demo/__tests__/web-flag.test.ts`.
+Expected Result: every file passes in the container.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Not run in slice 2a: the build environment had the docker CLI but no daemon. CI's Ubuntu jobs will be the first Linux run of these files; stacked pull requests get no CI until they are retargeted to `develop`. Update 2026-10-28: the stack is retargeted to `develop` and CI runs; the owner offered a local OrbStack Docker instance for this container run, which needs a Remote Control connection to that machine.

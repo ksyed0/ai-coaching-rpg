@@ -152,3 +152,43 @@ _Learned when a copy loop synced `acr-demo-*` directories (another demo mode) an
 **Rule:** If a written rule says "an agent never does X" and an agent does X on explicit owner instruction, change the rule the same day to say who may do it, under what instruction, and where the record lives (here: `approve` may be run by an agent only on the owner's explicit instruction naming the items, and the approval is recorded in `approved_by`, the commit history and the docs Limits section). Otherwise the docs describe something that is no longer true and the next reader cannot tell a sanctioned exception from a breach.
 _Learned when the `approve` help and docs said an agent never approves probes while an agent approved 26 probes on the owner's chat instruction of 2026-10-08; the rule was reworded and the Limits section now lists the approval records._
 **Date:** 2026-10-08
+
+## L-0020 — A test double of a platform API must copy the platform's dispatch rules
+
+@agent: all
+
+**Rule:** When a fake stands in for a browser or runtime API (EventSource, WebSocket, fetch), make it behave as the specification does in the cases the code branches on, and write one test that pins each such rule on the fake itself. A fake that is simpler than the platform hides exactly the bugs that live in the difference. Where the real thing is cheap to run (a real runtime in mock mode, Chromium under Playwright), run the same scenario against it as well.
+_Learned when the web client's fake EventSource never called `onerror` for a server-sent `event: error` frame, while browsers do: every jsdom test passed and the real page would have shown a Reconnecting banner that never cleared on a healthy stream. Only an independent review caught it (Task 14 of slice 2a)._
+**Date:** 2026-10-28
+
+## L-0021 — Find where a framework buffers a request body before trusting your own size cap
+
+@agent: all
+
+**Rule:** A size cap in a route handler protects nothing if a layer before it (middleware, a proxy, a body parser) has already read the whole body into memory. For every new HTTP entry point, check which layers see the body and their limits, keep middleware off routes that do not need it, set the framework's own body limit, and test with an oversized request against the built server, not only the handler.
+_Learned when Next 16 copied up to 10 MB of every POST into memory for the request proxy (`src/proxy.ts`) before the BFF's 8 KiB cap ran; the fix excluded `/api` from the proxy matcher and set `proxyClientMaxBodySize`, and a 12 MB POST to the built app was then refused without buffering._
+**Date:** 2026-10-28
+
+## L-0022 — The order frames arrive at a client is not the order the server decided
+
+@agent: all
+
+**Rule:** When a server decides an order (which of two joins is newer) and several client connections observe it, never infer that order from when each connection's frames were read: TCP reads of different sockets interleave arbitrarily, and a frame and its connection's close can arrive in one read. Carry the server's order explicitly (a counter, a sequence number) or wait for the authoritative signal (the close code), and reproduce the interleaving in a test with a proxy that holds and releases bytes.
+_Learned when two browser tabs joining one seat could both end "superseded": the stream hub treated "the connection I heard from last" as the newest, and a delayed tab whose `joined` and 4001 close arrived together replaced the live tab. A holding TCP proxy in `hub.runtime.test.ts` reproduced it; one narrow ordering remains documented in the threat model._
+**Date:** 2026-10-28
+
+## L-0023 — A wait for "a frame that matches" must start after the trigger
+
+@agent: all
+
+**Rule:** When a test waits for a message that a trigger should cause, take the position in the inbox (or a counter) just before the trigger and wait only for messages after it. A predicate that an earlier message already satisfies makes the test pass with the feature removed. Prove each such test by deleting the behaviour once and seeing it fail.
+_Learned when the roster tests waited for a roster frame with `f.next()` that matched the roster sent at join, so removing the consent, leave or disconnect broadcast still passed (Task 8 of slice 2a); the fix took an offset before each trigger and every broadcast was then proven by mutation._
+**Date:** 2026-10-28
+
+## L-0024 — Let the page settle before an accessibility scan measures it
+
+@agent: all
+
+**Rule:** Before Axe (or any check that reads computed colours or layout) runs, wait for a settled page: the state you mean to test is reached (the message shown, the control enabled, not busy) and `document.getAnimations()` has nothing running or pending. A colour transition that starts when the colour scheme changes leaves a half-way background beside text that switched at once, so a contrast check passes or fails depending on timing. Reproduce such a failure by slowing the transition (or the animation playback rate) in a scratch build, never by waiting longer.
+_Learned when the first two CI runs of the web Axe spec failed in different places: once a button's contrast on the refused join screen right after switching from dark to light (its 0.12 s background transition was mid-way), once a line that never reached the transcript; a 3 s transition in a scratch build made the first failure happen every time, and waiting for the animations to finish fixed it._
+**Date:** 2026-10-28

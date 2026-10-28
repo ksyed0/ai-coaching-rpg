@@ -13,7 +13,9 @@ export default defineConfig({
       include: ["src/**"],
       // Files the Next framework executes (pages, layouts, route files) are covered by e2e; logic in src/server and src/lib is gated.
       // src/proxy.ts (Next 16's middleware) is measured: headers.test.ts runs it.
-      exclude: ["src/app/**", "src/**/*.test.{ts,tsx}", "src/**/__tests__/**"],
+      // src/demo is the web demo (`pnpm demo --web`): a test harness over a production build and real processes, run as its own
+      // CI step (Web E2E), never by vitest.
+      exclude: ["src/app/**", "src/demo/**", "src/**/*.test.{ts,tsx}", "src/**/__tests__/**"],
       thresholds: { lines: 80 },
     },
   },

@@ -12,17 +12,6 @@ export function checkFetchSite(req: Request): boolean {
   return site === null || site === "same-origin" || site === "none";
 }
 
-const MAX_ADDRESS_CHARS = 64;
-
-// Absent header gives "unknown", one shared throttle key: this assumes a trusted proxy that always appends X-Forwarded-For.
-/** The LAST X-Forwarded-For entry: the one our own proxy appended; earlier entries are client-supplied. */
-export function clientAddress(req: Request): string {
-  const raw = req.headers.get("X-Forwarded-For");
-  if (!raw) return "unknown";
-  const last = raw.split(",").pop()!.trim();
-  return last.length > 0 && last.length <= MAX_ADDRESS_CHARS ? last : "unknown";
-}
-
 /**
  * One spelling per address, so a throttle or cap key cannot be dodged by writing the same address another way: IPv4 as is, IPv6 in
  * the WHATWG canonical form (lower case, compressed), and an IPv4-mapped IPv6 address (::ffff:a.b.c.d in any spelling) as its IPv4.
@@ -44,9 +33,13 @@ export function normalizeAddress(raw: string): string | null {
 }
 
 /**
- * The client address for throttle and cap keys, normalised. Our proxy (Caddy) REPLACES X-Forwarded-For with exactly one entry, so an
- * empty value, a list or a non-address means the header did not come from it: null (untrusted; the routes answer a neutral 400).
- * Absent gives the shared key "unknown" (a deployment without the proxy; the threat model records the proxy as a requirement).
+ * The client address for throttle and cap keys, normalised. It reads exactly one X-Forwarded-For entry. `next start` itself fills an
+ * ABSENT X-Forwarded-For with the socket's address before a route runs, so: behind a TLS proxy that replaces the header (the supported
+ * deployment) it is the client's address; behind a proxy that does not set it, every client is the proxy's address (one shared key);
+ * with no proxy it is each client's socket address, but a client can also send its own one-entry header and so choose its key here
+ * and at the runtime (TRUST_PROXY=1): that lets it dodge the per-address stream cap and spread its join guesses over many keys, which
+ * gains nothing against a 60-bit join code. A proxy that appends instead of replacing produces a list. An empty value, a list or a
+ * non-address is not from a proxy we support: null (the routes answer a neutral 400). An absent header gives "unknown" (reachable only outside `next start`, as in unit tests).
  */
 export function requestAddress(req: Request): string | null {
   const raw = req.headers.get("X-Forwarded-For");

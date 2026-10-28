@@ -157,10 +157,12 @@ describe("SessionScreen", () => {
     expect(screen.queryByText(/ignored/)).toBeNull();
   });
 
-  it("a stream the browser closed (an HTTP 401) shows the new-code message and offers no retry", () => {
+  it("a stream the browser closed (an HTTP 401, 403, 406 or 503) says to reload first, then ask the facilitator, and offers no retry", () => {
     const m = mount();
     act(() => m.es().fail());
-    expect(screen.getByText(MESSAGES.signedOut)).toBeTruthy();
+    expect(screen.getByText("The connection to this session was closed. Reload the page; if that does not help, ask your facilitator.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Connection closed" })).toBeTruthy();
+    expect(screen.queryByText(MESSAGES.signedOut)).toBeNull();
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(FakeEventSource.instances).toHaveLength(1);
   });
