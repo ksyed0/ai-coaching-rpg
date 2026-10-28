@@ -67,8 +67,10 @@ function makeDeps(o: { maxStreams?: number } = {}) {
 const guarded = { Origin: ORIGIN, "X-Requested-With": "scenecoach", "Content-Type": "application/json" };
 const cookieOf = (res: Response) => {
   const raw = res.headers.get("Set-Cookie") ?? "";
-  const m = new RegExp(`^${COOKIE_NAME.replace(/[-]/g, "\\-")}=([^;]*)`).exec(raw);
-  return m ? m[1]! : null;
+  const prefix = `${COOKIE_NAME}=`;
+  if (!raw.startsWith(prefix)) return null;
+  const end = raw.indexOf(";");
+  return raw.slice(prefix.length, end === -1 ? undefined : end);
 };
 async function join(d: Deps, role: Player, code = typed(codes[role]!), address = ADDRESS[role]) {
   const res = await handleJoin(new Request(`${ORIGIN}/api/v1/join`, { method: "POST", headers: { ...guarded, "X-Forwarded-For": address }, body: JSON.stringify({ sessionId: SESSION, role, joinCode: code, displayName: `Name ${role}` }) }), d);
