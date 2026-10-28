@@ -7,15 +7,20 @@ import { ClientMessageSchema, type ReplaySummary, type ServerMessage } from "./p
 import { HostError, MAX_REPLAY_BYTES, type Replay, type SessionHost } from "./session-host.js";
 import { EngineError } from "../engine/session-engine.js";
 import { JoinCodes } from "../engine/join-codes.js";
+import { normalizeDisplayName } from "./display-name.js";
 import { AuthThrottle, DEFAULT_LIMITS, OPEN_SERVER_NOTICE, TokenBucket, WindowCounter, clientIp, ipKey, isValidToken, normalizeOrigin, secretsMatch, type Limits } from "./security.js";
 
 /** A 2,000 character utterance is at most about 8 KiB of JSON, so 16 KiB leaves room and bounds what one frame can cost. */
 export const MAX_PAYLOAD_BYTES = 16 * 1024;
 const CLOSE_POLICY = 1008;
+/** US-0053: a later join with the role's credential (or reconnect token) took the seat. A client must not reconnect on it. */
+export const CLOSE_SUPERSEDED = 4001;
 /** US-0013: the answer to a `lastSeq` past the session's last event (sent only once the join is authorised, so it probes nothing). */
 const BEYOND_HEAD = "lastSeq: after the last event of this session";
 /** The failed-login scope of a wrong join code: the role if the session has it, else one shared bucket so made-up role ids cannot fill the map. */
 export const playerScope = (known: boolean, roleId: string): string => (known ? `player:${roleId}` : "player:*");
+/** US-0053: the failed-login scope of a refused credential, bounded the same way. */
+export const credentialScope = (known: boolean, roleId: string): string => (known ? `cred:${roleId}` : "cred:*");
 const beyondHead = (h: SessionHost, lastSeq: number | undefined): boolean => lastSeq !== undefined && lastSeq > h.engine.state.lastSeq;
 const summary = (r: Replay): { replay: ReplaySummary } => ({ replay: { afterSeq: r.afterSeq, toSeq: r.toSeq, events: r.events.length, complete: r.complete } });
 export const MAX_BUFFERED_BYTES = 1024 * 1024; // a client this far behind is dropped rather than buffered forever
@@ -137,8 +142,8 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
     for (const c of wss.clients) { if (c.readyState === c.OPEN) { try { c.send(fatalNotice); } catch { /* the peer is gone */ } } }
   }) ?? (() => undefined)); // (a stand-in host in a test may not offer onFatal)
 
-  /** Which connection currently holds each player role, so a stale socket closing cannot free a rejoined role. */
-  const holders = new Map<string, { ws: WebSocket; token: string }>();
+  /** Which connection currently holds each player role, so a stale socket closing cannot free a rejoined role. `kick` supersedes it. */
+  const holders = new Map<string, { ws: WebSocket; token: string; kick: () => void }>();
 
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
     const ip = clientIp(req, trustProxy);
@@ -188,10 +193,14 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
         }
       } catch { /* not JSON: not a login attempt */ }
     };
-    /** One generic answer for every refused login (token or join code); the connection is closed and the address charged. */
-    const refuseLogin = (what: string, scope: string) => {
+    /**
+     * One generic answer for every refused login (token, join code or credential); the connection is closed and the address charged.
+     * A refusal because the (address, scope) is already blocked is NOT charged, nor are frames dropped after it: otherwise a neighbour
+     * on a shared address would keep the block alive for ever (R5).
+     */
+    const refuseLogin = (what: string, scope: string, charge = true) => {
       authFailed = true; failScope = scope;
-      authThrottle.fail(ip, scope);
+      if (charge) authThrottle.fail(ip, scope); else dropCounted = true;
       log(`${what} join refused: unauthorized`);
       fail("unauthorized", "unauthorized");
       shut(CLOSE_POLICY, "unauthorized");
@@ -242,36 +251,73 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             // the token is compared as two SHA-256 digests in constant time. It is never logged or echoed.
             if (!secretsMatch(m.token ?? "", token)) return refuseLogin("facilitator", "");
           }
+          // US-0053: a name is checked before any authentication and a refused one is not charged (it proves nothing about a secret).
+          let name: string | null = null;
+          if (m.type === "join" && m.displayName !== undefined) {
+            name = normalizeDisplayName(m.displayName);
+            if (name === null) return fail("bad_message", "displayName: 1 to 60 visible characters on one line");
+          }
           const h = opts.hosts.get(m.sessionId);
           if (m.type === "join") {
             const key = `${m.sessionId}:${m.roleId}`;
             const prev = holders.get(key);
             const prevLive = !!prev && prev.ws !== ws && prev.ws.readyState === prev.ws.OPEN;
             const byReconnect = !!prev && prevLive && !!m.reconnectToken && secretsMatch(m.reconnectToken, prev.token);
+            // US-0053: durable credentials exist only with join codes on and a host that keeps seats.
+            const seats = opts.joinCodes !== undefined ? h?.seats : undefined;
+            let byCredential = false;
+            let byCode = false;
             if (opts.joinCodes !== undefined) {
               // US-0033: the role's code (constant-time, against a hash), or the reconnect token of the live connection that holds it.
               // Every other case (no or a wrong code, an unknown session or role, an AI character, `facilitator`) gets the same answer,
               // so a refusal never tells whether the role exists or is taken. Only someone with the right code can learn `role_taken`.
               // An unknown session is checked against JoinCodes.none(): the same digest work, always refused.
-              const scope = playerScope(h?.hasPlayerRole(m.roleId) ?? false, m.roleId);
-              // A blocked (address, role) is refused alike, before the code is looked at, so guessing past the limit learns nothing.
-              if (authThrottle.blockedForMs(ip, scope) > 0) return refuseLogin("player", scope);
-              const byCode = (opts.joinCodes.get(m.sessionId) ?? JoinCodes.none()).verify(m.roleId, m.joinCode);
-              if (!h || !(byCode || byReconnect)) return refuseLogin("player", scope);
+              // US-0053: a join that presents a credential is a credential attempt only (its code is not considered), charged to
+              // `cred:<role>`, so adding a junk credential cannot move code guesses into another budget. Once a role has a credential
+              // its code no longer opens it: the person who took the seat on the web keeps it until they leave or the session ends.
+              const known = h?.hasPlayerRole(m.roleId) ?? false;
+              const credAttempt = seats !== undefined && m.credential !== undefined;
+              const scope = credAttempt ? credentialScope(known, m.roleId) : playerScope(known, m.roleId);
+              // A blocked (address, scope) is refused alike, before any secret is looked at, so guessing past the limit learns nothing.
+              if (authThrottle.blockedForMs(ip, scope) > 0) return refuseLogin("player", scope, false);
+              const codeOk = (opts.joinCodes.get(m.sessionId) ?? JoinCodes.none()).verify(m.roleId, m.joinCode);
+              byCredential = credAttempt && seats.credentials.verify(m.roleId, m.credential);
+              byCode = !credAttempt && codeOk && !seats?.credentials.has(m.roleId);
+              if (!h || !(byCode || byCredential || byReconnect)) return refuseLogin("player", scope);
+              // Only an authenticated caller gets here, so it may learn that the session ended; a web seat is never given out after it.
+              if (seats && (m.issueCredential || m.credential !== undefined) && h.engine.state.status === "ended") return fail("session_ended", "the session has ended");
             } else {
               if (!h) return fail("unknown_session", "no such session");
               if (isReservedRoleId(m.roleId)) return fail("unknown_role", "unknown_role"); // reserved: never a player role
             }
-            // A role held by a live socket can only be taken over with that role's reconnect token (C1).
-            if (prevLive && !byReconnect) return fail("role_taken", "role_taken");
+            // A role held by a live socket can only be taken over with that role's reconnect token (C1) or its credential (US-0053).
+            if (prevLive && !(byReconnect || byCredential)) return fail("role_taken", "role_taken");
             if (beyondHead(h, m.lastSeq)) return fail("bad_message", BEYOND_HEAD); // authorised, but nothing is claimed or taken over
             // US-0013: from here to the subscribe below there is no await, so no event can fall between the replay and the live stream.
             const { brief, privateFacts } = h.join(m.roleId, m.participantId);
+            let credential: string | undefined;
+            if (seats && m.issueCredential && byCode) {
+              // US-0053: the credential is on disk before the browser learns it, so a restart can never lose a seat it was told about.
+              try {
+                credential = seats.credentials.issue(m.roleId, name ?? m.roleId);
+                seats.persist(); // synchronous: the block stays free of awaits
+              } catch (err) {
+                // Undo everything: an unsaved credential left in memory would lock the role's code out until a restart.
+                seats.credentials.revoke(m.roleId);
+                if (!prevLive) h.release(m.roleId, m.participantId); // a superseded holder (same participant) keeps its seat
+                log(`credential not saved for ${m.roleId}: ${err instanceof Error ? err.message : String(err)}`);
+                return fail("internal", "internal error");
+              }
+            }
             const token = randomUUID();
-            holders.set(key, { ws, token });
+            holders.set(key, { ws, token, kick: () => { dropCounted = true; shut(CLOSE_SUPERSEDED, "superseded"); } });
             holderKey = key; participantId = m.participantId; who = m.roleId;
-            if (prevLive) prev.ws.terminate();
-            sendJoined(h, m.roleId, m.lastSeq, { type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId) });
+            // Its close handler leaves the seat alone: `holders` already points at this socket. A disconnect never revokes.
+            if (prevLive) prev.kick();
+            sendJoined(h, m.roleId, m.lastSeq, {
+              type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId),
+              ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
+            });
           } else {
             if (!h) return fail("unknown_session", "no such session");
             if (beyondHead(h, m.lastSeq)) return fail("bad_message", BEYOND_HEAD);
@@ -288,6 +334,14 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
           return;
         }
         if (!host || !who) return fail("not_joined", "join first");
+        if (m.type === "leave") {
+          if (isFacilitator || !participantId) return fail("forbidden", "only a player may leave a role");
+          host.leave(who, participantId);
+          log(`${who} left`);
+          dropCounted = true; // frames still queued on a socket that left are not login attempts
+          shut(1000, "left");
+          return;
+        }
         if (m.type === "start") {
           if (!isFacilitator) return fail("forbidden", "only the facilitator may start the session");
           await host.start();

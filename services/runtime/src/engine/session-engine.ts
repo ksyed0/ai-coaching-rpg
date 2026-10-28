@@ -36,6 +36,8 @@ export type ResumeInfo = {
   pendingLine: boolean;
   /** The session was already paused when the server stopped. */
   wasPaused: boolean;
+  /** US-0053: session.started's logIdentity (32 hex), when the log records one; a lost credentials file is rebuilt with it. */
+  logIdentity?: string;
 };
 export type Repair =
   | { kind: "npc_init"; roleId: string }
@@ -342,6 +344,7 @@ export class SessionEngine {
     const sceneIds = new Set(sc.script.scenes.map((x) => x.id));
     let s = initialState();
     let count = 0; let maxTs = Number.NEGATIVE_INFINITY; let format = 0; let lastGmSeq: number | null = null;
+    let logIdentity: string | undefined;
     // An inject's AI character updates follow its inject.fired directly; this tracks the ones still due if the log ends here.
     let injectDue: { sceneId: string; injectId: string; roles: string[] } | null = null;
     const recent = new RecentEvents(this.retainEvents); // adopted only when the session is resumed
@@ -356,6 +359,9 @@ export class SessionEngine {
         if (f > LOG_FORMAT) throw new RestoreError("log_format", `the log has format ${f}, newer than this version reads (${LOG_FORMAT}); upgrade, or start fresh`);
         if (f >= 1 && e.scenarioHash !== scenarioHash(sc)) throw new RestoreError("scenario_mismatch", "the scenario files changed since this session started (its sha256 differs)");
         format = f;
+        // Read defensively: the event type gains the field later (US-0053); anything but 32 hex is ignored.
+        const li = (e as { logIdentity?: unknown }).logIdentity;
+        if (typeof li === "string" && /^[0-9a-f]{32}$/.test(li)) logIdentity = li;
         const logged = Object.entries(e.roles ?? {});
         const known = Object.values(sc.roles);
         if (logged.length !== known.length || logged.some(([id, r]) => { const k = own(sc.roles, id); return !k || (k.type === "npc" ? "npc" : "player") !== r?.kind; })) {
@@ -409,7 +415,7 @@ export class SessionEngine {
       const opening = sc.script.scenes.find((x) => x.id === cur.id)?.opening_inject;
       if (opening && !s.injectsFired.includes(opening)) repairs.push({ kind: "opening_inject", sceneId: cur.id });
     }
-    return { kind: "running", info: { events: count, lastTs: maxTs, format, partialTailBytes, sceneId: cur?.id ?? null, lastGmSeq, pendingLine, wasPaused: s.paused, repairs } };
+    return { kind: "running", info: { events: count, lastTs: maxTs, format, partialTailBytes, sceneId: cur?.id ?? null, lastGmSeq, pendingLine, wasPaused: s.paused, repairs, ...(logIdentity ? { logIdentity } : {}) } };
   }
 
   /**

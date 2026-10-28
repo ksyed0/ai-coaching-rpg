@@ -4,9 +4,11 @@ import { parseEnv } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { loadScenario, validateScenario } from "@acr/script";
 import { describeModelProvider, selectModelProvider } from "@acr/adapters";
-import { SESSION_ID_RULE_TEXT, isValidSessionId } from "@acr/events";
+import { NOTICE_VERSION_RULE_TEXT, SESSION_ID_RULE_TEXT, isNoticeVersion, isValidSessionId } from "@acr/events";
 import { SessionStoreError, openSession, parseLockStaleMs, parseStartMode, type OpenedSession } from "./engine/session-store.js";
 import { SystemClock } from "./engine/clock.js";
+import { loadConsentNotice } from "./engine/consent-notice.js";
+import type { ConsentNotice } from "./engine/consent.js";
 import { SessionHost } from "./host/session-host.js";
 import { startServer } from "./host/ws-server.js";
 import { parseNpcTimeouts } from "./agents/timeouts.js";
@@ -42,6 +44,8 @@ export async function bootstrap(opts: {
    * Deliberately not `log` or `warn`: the codes never go through the log channel. Default: printJoinCodes to stdout.
    */
   showJoinCodes?: (codes: { roleId: string; code: string }[]) => void;
+  /** US-0053: where `notice-<CONSENT_NOTICE_VERSION>.md` lives. Default `<repo>/consent`, whatever `root` is (it ships with the code). */
+  consentDir?: string;
 }): Promise<BootstrapResult> {
   // Validate the session id before ANY filesystem action: it becomes a file name under the data dir.
   const requestedId = (opts.env.SESSION_ID ?? "local");
@@ -85,6 +89,12 @@ export async function bootstrap(opts: {
   if (!startMode.ok) return { ok: false, errors: [startMode.error] };
   const lockStale = parseLockStaleMs(env.SESSION_LOCK_STALE_MS);
   if (!lockStale.ok) return { ok: false, errors: [lockStale.error] };
+  // US-0053: the notice players agree to; the value is never echoed.
+  const noticeVersion = (env.CONSENT_NOTICE_VERSION ?? "").trim() || "v1";
+  if (!isNoticeVersion(noticeVersion)) return { ok: false, errors: [`CONSENT_NOTICE_VERSION must be ${NOTICE_VERSION_RULE_TEXT}`] };
+  let consentNotice: ConsentNotice;
+  try { consentNotice = loadConsentNotice(opts.consentDir ?? path.join(REPO_ROOT, "consent"), noticeVersion); }
+  catch (err) { return { ok: false, errors: [`cannot start without the consent notice: ${(err as Error).message}`] }; }
 
   let scenario;
   try { scenario = await loadScenario(scenarioDir); }
@@ -101,7 +111,7 @@ export async function bootstrap(opts: {
   const clock = new SystemClock();
   let store: OpenedSession;
   const lost: { halt?: () => void } = {};
-  try { store = await openSession({ scenario, sessionId, dataDir, clock, mode: startMode.mode, now: opts.now, joinCodes: true, lock: { staleMs: lockStale.staleMs, onLost: () => lost.halt?.() } }); }
+  try { store = await openSession({ scenario, sessionId, dataDir, clock, mode: startMode.mode, now: opts.now, joinCodes: true, consentNotice, lock: { staleMs: lockStale.staleMs, onLost: () => lost.halt?.() } }); }
   catch (err) { return { ok: false, errors: [err instanceof SessionStoreError ? err.message : `cannot open the session log: ${err instanceof Error ? err.message : String(err)}`] }; }
   /**
    * US-0033 (review I-1): every failure from here on withdraws join codes this start issued but never showed, then closes the store,
@@ -130,7 +140,7 @@ export async function bootstrap(opts: {
     // Never log the provider object, its name, an endpoint or any env-derived value: describeModelProvider returns a
     // fixed label plus a literal yes/no for "custom endpoint".
     log(`model provider: ${describeModelProvider(env)}`);
-    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmAutoRelease: gmCfg.autoRelease, gmTranscriptWindow: gmCfg.transcriptWindow, gmTrace });
+    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmAutoRelease: gmCfg.autoRelease, gmTranscriptWindow: gmCfg.transcriptWindow, gmTrace, seats: store.seats });
     if (store.resume) host.resumeFrom(store.resume);
     // Fail-stop (US-0018): a lost lock stops the engine too; one log line (no paths or values), then the owner's onFatal.
     let fatalSeen = false;

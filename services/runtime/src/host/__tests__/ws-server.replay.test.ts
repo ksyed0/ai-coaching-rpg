@@ -261,7 +261,7 @@ describe("replay-from-seq over the WebSocket protocol (US-0013)", () => {
     c.send({ type: "join", sessionId: "local", roleId: "tech_lead", participantId: "tech_lead-person", reconnectToken: j1.reconnectToken, lastSeq: seen });
     const j2 = await c.next(isJoined);
     expect(j2.type).toBe("joined");
-    expect(await old.closed).toBe(1006);
+    expect(await old.closed).toBe(4001); // US-0053: a takeover closes the old connection as superseded (it used to be terminated: 1006)
     const end = await fence(engine, c, "tech_lead");
     const replayed = c.inbox.slice(1, end).map((m) => m.event);
     expect(replayed).toEqual(live.tech_lead!.filter((e) => e.seq > seen && e.seq <= j2.replay.toSeq));

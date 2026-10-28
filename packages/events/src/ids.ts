@@ -50,6 +50,11 @@ export const LEARNING_OBJECTIVE_ID_MESSAGE = "learning objective ids are 1 to 64
 export const CLIENT_ROLE_KEY_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 export const isClientRoleKey = (v: string): boolean => typeof v === "string" && CLIENT_ROLE_KEY_PATTERN.test(v);
 
+/** US-0053: a consent notice version (CONSENT_NOTICE_VERSION; part of the file name `notice-<version>.md`): letters, digits, `.`, `_`, `-`, 1 to 32. */
+export const NOTICE_VERSION_PATTERN = /^[A-Za-z0-9._-]{1,32}$/;
+export const isNoticeVersion = (v: string): boolean => typeof v === "string" && NOTICE_VERSION_PATTERN.test(v);
+export const NOTICE_VERSION_RULE_TEXT = "1 to 32 letters, digits, '.', '_' or '-'";
+
 /** The single source of truth for what a session id may be (it becomes a file name). */
 export const isValidSessionId = (id: string): boolean => isSafeId(id);
 /** The rule in words, for refusals. */
