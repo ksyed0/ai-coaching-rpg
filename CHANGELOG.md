@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Recorded
+- Owner decisions for web client slice 2a, 2026-10-28: consent notice v1 wording approved; the AC-0290 (cookie lifetime), AC-0296 (Axe serious and critical findings only) and AC-0298 (scripted web demo players) interpretations accepted. Two Web E2E specs failed on the first CI runs and are tracked as BUG-0009 and BUG-0010; the CodeQL alert in the web handler test is fixed (BUG-0011).
+
 Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs (EPIC-0001, US-0001 to US-0012).
 
 ### Added

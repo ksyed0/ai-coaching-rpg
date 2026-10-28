@@ -95,3 +95,39 @@ Lesson Encoded: No
 ```
 
 Seen twice on 2026-10-08 during the US-0037 session close: the file failed in a full `npm run plan:test` run and passed on its own and on rerun. The concurrency tests use real file locks and a shared `tests/.tmp-atomic` directory and are probably sensitive to machine load (compare BUG-0006 and BUG-0007). Not investigated yet: capture the failing assertion on the next occurrence, then inject clocks or hooks instead of relying on timing (L-0002).
+
+```
+BUG-0009: Web E2E "no horizontal scroll at 400 px" does not see its own say line in the transcript on the first CI run
+Severity: Medium
+Related Story: US-0065
+Related Task: TASK-0085
+Status: Open
+Fix Branch: feature/EPIC-0002-US-0065-web-e2e
+Lesson Encoded: No
+```
+
+First CI run of the Web E2E job (run 40716795094, head 81148e0, pinned Chromium 1248): axe.spec.ts "no horizontal scroll at 400 px" failed in the `say()` helper. After a 190-character unbroken word was sent, the transcript never showed it (0 matches for 20 s). The spec passed 15 of 15 locally under repeat and under CPU load (Chromium 1243). Hypotheses under investigation: the say is sent before the scene is running or the stream is live, the long word is split across text nodes so the exact-text locator cannot match, or state shared between specs (one stack, one address, one join throttle). Not yet reproduced.
+
+```
+BUG-0010: Web E2E Axe check reports a serious color-contrast violation on a /join button in one CI run and not in another
+Severity: Medium
+Related Story: US-0065
+Related Task: TASK-0085
+Status: Open
+Fix Branch: feature/EPIC-0002-US-0065-web-e2e
+Lesson Encoded: No
+```
+
+Second CI run (run 40717328008, head ec335ef): axe.spec.ts "no serious or critical Axe violations" failed on `/join (refused) (light)` with one `color-contrast` violation on a `button`, after 2.3 s; the same check passed in the first run and locally. The result depends on timing, so Axe is probably measuring the button during a CSS transition or in a pending or disabled state, or a real state has too little contrast. To be settled: reproduce under load, check every button state against 4.5:1, and make the spec wait for a settled page.
+
+```
+BUG-0011: CodeQL "incomplete string escaping" alert on a regex built in the web runtime handler test
+Severity: Low
+Related Story: US-0056
+Related Task: TASK-0084
+Status: Fixed (b451052)
+Fix Branch: feature/EPIC-0002-US-0056-participant-web-app
+Lesson Encoded: No
+```
+
+`cookieOf` in apps/web/src/server/__tests__/handlers.runtime.test.ts escaped the cookie name with a hand-written `replace` before building a RegExp, which CodeQL flagged as not escaping backslashes (high severity, failed the CodeQL check on the stacked PRs). Fixed by reading the Set-Cookie value with `startsWith` and `indexOf`, with no regular expression.
