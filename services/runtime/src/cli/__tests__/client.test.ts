@@ -333,3 +333,15 @@ describe("consent in the terminal client (US-0054)", () => {
     expect(t.out.join("\n")).not.toMatch(/[\u001b\u0007\u202e]/);
   });
 });
+
+describe("client core: roster frames (US-0055)", () => {
+  it("prints a roster once per change as role and state, and never treats it as an error", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedMsg);
+    const roster = (ready: boolean) => JSON.stringify({ type: "roster", audience: "peers", entries: [{ roleId: "host", name: "QZXNAME1", ready }] });
+    t.c.onMessage(roster(false)); t.c.onMessage(roster(false)); t.c.onMessage(roster(true));
+    expect(t.out.filter((l) => l.startsWith("roster | "))).toEqual(["roster | host: not ready", "roster | host: ready"]);
+    expect(t.out.join("\n")).not.toContain("QZXNAME");
+    expect(t.out.some((l) => l.includes("error"))).toBe(false);
+    expect(t.exits).toEqual([]);
+  });
+});

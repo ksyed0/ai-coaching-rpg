@@ -8,6 +8,7 @@ import { HostError, MAX_REPLAY_BYTES, type Replay, type SessionHost } from "./se
 import { EngineError } from "../engine/session-engine.js";
 import { JoinCodes } from "../engine/join-codes.js";
 import { normalizeDisplayName } from "./display-name.js";
+import { buildRoster } from "./roster.js";
 import { AuthThrottle, DEFAULT_LIMITS, OPEN_SERVER_NOTICE, TokenBucket, WindowCounter, clientIp, ipKey, isValidToken, normalizeOrigin, secretsMatch, type Limits } from "./security.js";
 
 /** A 2,000 character utterance is at most about 8 KiB of JSON, so 16 KiB leaves room and bounds what one frame can cost. */
@@ -145,6 +146,28 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
   /** Which connection currently holds each player role, so a stale socket closing cannot free a rejoined role. `kick` supersedes it. */
   const holders = new Map<string, { ws: WebSocket; token: string; kick: () => void }>();
 
+  /** US-0055: every joined connection that is still open, so a change can be told to the whole room. */
+  type Live = { sessionId: string; h: SessionHost; facilitator: boolean; ws: WebSocket; send: (m: ServerMessage) => void; closing: () => boolean };
+  const live = new Set<Live>();
+  /**
+   * Sends each live connection of the session the roster for its own audience (the facilitator's has consent and connection, a player's
+   * only who is ready), or just `only`. A closing socket gets nothing. The server log gets role ids and states, never a name.
+   */
+  const broadcastRoster = (sessionId: string, h: SessionHost, only?: Live) => {
+    if (typeof (h as Partial<SessionHost>).playerRoleIds !== "function") return; // (a stand-in host in a test)
+    const playerRoles = h.playerRoleIds();
+    const connected = new Set<string>();
+    for (const role of playerRoles) { const held = holders.get(`${sessionId}:${role}`); if (held && held.ws.readyState === held.ws.OPEN) connected.add(role); }
+    const roster = buildRoster({ playerRoles, assignments: h.assignments, connected, seats: h.seats });
+    for (const c of only ? [only] : live) {
+      if (c.h !== h || c.closing() || c.ws.readyState !== c.ws.OPEN) continue;
+      c.send(c.facilitator ? { type: "roster", audience: "facilitator", entries: roster.facilitator } : { type: "roster", audience: "peers", entries: roster.peers });
+    }
+  };
+  const rosterChanged = (role: string, state: "joined" | "consented" | "connected" | "left" | "withdrew") => log(`roster: ${role} ${state}`);
+  // The end of the session revokes every credential (and so every name) inside the host; the room is told once that has happened.
+  const unsubscribeEnd = [...opts.hosts].map(([sessionId, h]) => (h as Partial<SessionHost>).subscribe?.((e) => { if (e.type === "session.ended") broadcastRoster(sessionId, h); }) ?? (() => undefined));
+
   wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
     const ip = clientIp(req, trustProxy);
     alive.add(ws);
@@ -154,6 +177,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
     let participantId: string | null = null;
     let holderKey: string | null = null;
     let unsubscribe: (() => void) | null = null;
+    let liveEntry: Live | null = null;
     const bucket = new TokenBucket(limits.msgRate, limits.msgBurst, now);
     const drops = new WindowCounter(limits.dropWindowMs, now);
     let queued = 0;
@@ -294,6 +318,8 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             if (prevLive && !(byReconnect || byCredential)) return fail("role_taken", "role_taken");
             if (beyondHead(h, m.lastSeq)) return fail("bad_message", BEYOND_HEAD); // authorised, but nothing is claimed or taken over
             // US-0013: from here to the subscribe below there is no await, so no event can fall between the replay and the live stream.
+            // Computed before the seat is taken or a credential saved, so it can never leave a half-joined seat. Omitted when empty (a stand-in host may not offer it).
+            const scenes = (h as Partial<SessionHost>).scenesFor?.(m.roleId) ?? [];
             const { brief, privateFacts } = h.join(m.roleId, m.participantId);
             let credential: string | undefined;
             if (seats && m.issueCredential && byCode) {
@@ -315,7 +341,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             // Its close handler leaves the seat alone: `holders` already points at this socket. A disconnect never revokes.
             if (prevLive) prev.kick();
             sendJoined(h, m.roleId, m.lastSeq, {
-              type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId),
+              type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId), ...(scenes.length > 0 ? { scenes } : {}),
               ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
               ...(seats ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
             });
@@ -332,6 +358,12 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
           const viewer = who;
           // Subscribed in the same synchronous step as the snapshot and the replay: every later event has a seq above replay.toSeq.
           unsubscribe = h.subscribe((e) => { const view = h.viewFor(viewer, e); if (view) send({ type: "event", event: view }); });
+          // US-0055: only now, after `joined`, the replay and the subscription (all synchronous above), so the roster can never fall between
+          // `joined` and its replayed events. The newcomer gets the current roster; everyone else hears the change.
+          liveEntry = { sessionId: m.sessionId, h, facilitator: isFacilitator, ws, send, closing: () => closing };
+          live.add(liveEntry);
+          if (!isFacilitator) { rosterChanged(viewer, "joined"); rosterChanged(viewer, "connected"); broadcastRoster(m.sessionId, h); }
+          else broadcastRoster(m.sessionId, h, liveEntry);
           return;
         }
         if (!host || !who) return fail("not_joined", "join first");
@@ -345,12 +377,17 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
           holderKey = null;
           dropCounted = true; // frames still queued on a socket that left are not login attempts
           shut(1000, m.type === "leave" ? "left" : "withdrew");
+          rosterChanged(who, m.type === "leave" ? "left" : "withdrew");
+          broadcastRoster(liveEntry!.sessionId, host);
           return;
         }
         if (m.type === "consent") {
           if (isFacilitator || !participantId) return fail("forbidden", "only a player may give or withdraw consent");
           // US-0054: refusals (consent_version, already_started, bad_message, not_joined) come back as HostError through the catch below.
+          const had = host.consentGiven(who, participantId);
           host.giveConsent(who, participantId, m.noticeVersion);
+          // A repeat from a player who already agreed changes nothing, so it is neither logged nor broadcast.
+          if (!had) { rosterChanged(who, "consented"); broadcastRoster(liveEntry!.sessionId, host); }
           return;
         }
         if (m.type === "start") {
@@ -391,9 +428,14 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
       if (killTimer) clearTimeout(killTimer);
       closing = true;
       unsubscribe?.();
+      if (liveEntry) live.delete(liveEntry);
       if (holderKey && holders.get(holderKey)?.ws === ws) {
         holders.delete(holderKey);
-        if (host && who && !isFacilitator && participantId) { host.release(who, participantId); log(`released ${who}`); }
+        if (host && who && !isFacilitator && participantId) {
+          host.release(who, participantId); log(`released ${who}`);
+          rosterChanged(who, "left");
+          if (liveEntry) broadcastRoster(liveEntry.sessionId, host);
+        }
       }
     });
   });
@@ -402,6 +444,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
     port,
     close: () => new Promise<void>((resolve) => {
       for (const u of unsubscribeFatal) u();
+      for (const u of unsubscribeEnd) u();
       clearInterval(heartbeat);
       for (const c of wss.clients) c.terminate();
       wss.close();

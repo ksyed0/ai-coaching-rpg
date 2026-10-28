@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { CLIENT_ID_MAX_CHARS, type SessionEvent, type SessionState } from "@acr/events";
+import { CLIENT_ID_MAX_CHARS, type PlayerScene, type SessionEvent, type SessionState } from "@acr/events";
 import { MAX_JOIN_CODE_INPUT_CHARS } from "../engine/join-codes.js";
 import { MAX_CREDENTIAL_INPUT_CHARS } from "../engine/credentials.js";
+import type { FacilitatorRosterEntry, PeerRosterEntry } from "./roster.js";
 
 export const MAX_UTTERANCE_CHARS = 2_000;
 const Id = z.string().min(1).max(CLIENT_ID_MAX_CHARS);
@@ -57,9 +58,14 @@ export type ServerMessage =
       replay?: ReplaySummary;
       /** US-0053: the durable credential, only on the join by code that asked for it (issueCredential). The one copy: never sent again. */
       credential?: string;
+      /** US-0055: player joins only: title, goal and time box of the scenes this role takes part in, in script order. Never sent to the facilitator, never lists another role's scene. */
+      scenes?: PlayerScene[];
       /** US-0053: the session's random log identity, on every player join when the server keeps seats. */
       logIdentity?: string;
       /** US-0054: players only, when the server keeps seats: the notice to agree to and whether this participant has agreed. Never another role's. */
       consent?: { noticeVersion: string; notice: string; given: boolean } }
   | { type: "event"; event: SessionEvent }
+  // US-0055: who sits where. Each audience gets only its own frame: the facilitator's shows consent and connection, a player's only who is ready.
+  | { type: "roster"; audience: "facilitator"; entries: FacilitatorRosterEntry[] }
+  | { type: "roster"; audience: "peers"; entries: PeerRosterEntry[] }
   | { type: "error"; code: string; message: string };
