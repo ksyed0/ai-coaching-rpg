@@ -1635,24 +1635,24 @@ Notes: Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 10 to
 US-0065 (EPIC-0002): As the product owner, I want an offline end-to-end test and demo of the web participant flow, so that the browser path is verified on every change.
 Priority: Medium
 Estimate: M
-Status: In Progress
+Status: Complete
 Branch: feature/EPIC-0002-US-0065-web-e2e
 Dependencies: US-0056
 Acceptance Criteria:
-  - [x] AC-0295: a Playwright test in mock mode runs offline: players join with names and consent, the session starts from the terminal, everyone speaks, one connection drops and recovers, and the BFF restarts and recovers (apps/web/e2e/participant-flow.spec.ts; run locally with the sandbox Chromium; its first CI run (Chromium build 1248) is still to come; TC-0072)
+  - [x] AC-0295: a Playwright test in mock mode runs offline: players join with names and consent, the session starts from the terminal, everyone speaks, one connection drops and recovers, and the BFF restarts and recovers (apps/web/e2e/participant-flow.spec.ts; run locally with the sandbox Chromium; first CI run on Chromium build 1248 hit two timing failures (BUG-0009, BUG-0010); the job has since passed on develop; TC-0072)
   - [x] AC-0296: Axe accessibility checks pass on every participant screen and the layout has no horizontal scroll at 400px (apps/web/e2e/axe.spec.ts, light and dark, WCAG 2.0 and 2.1 A and AA, serious and critical findings only (moderate and minor ones are not checked); screens: /join, /join with a refusal, the lobby, the running and the paused session view, open in another tab, connection closed and the ended view; the signed-out screen shares the closed screen's component and is not scanned separately; 400 px: /join, the lobby and the session view; TC-0073; interpretation accepted by the owner (Kamal Syed) on 2026-10-28)
   - [x] AC-0297: BFF contract tests run against the real runtime in mock mode as well as the fake runtime (hub.runtime.test.ts, handlers.runtime.test.ts beside the fake-runtime tests; TC-0072)
   - [x] AC-0298: pnpm demo --web drives the flow with generated players and adds its checks to the demo count list (W-01 to W-08, listed in docs/memory/demo-and-testing.md; the players are scripted HTTP clients in mock mode, not model-written `--players generated` bots; TC-0074; interpretation accepted by the owner (Kamal Syed) on 2026-10-28)
-  - [ ] AC-0299: the new filesystem, lock and process tests pass once in the node:22 container and the coverage gate passes more than once and once under load (coverage gate: passed twice, once under load, TC-0075; the node:22 container run is NOT done: no Docker daemon in the build environment, TC-0076 Not Run; owner approved running it on their local OrbStack Docker on 2026-10-28; it needs the Remote Control connection to that machine, so it is still open)
+  - [x] AC-0299: the new filesystem, lock and process tests pass once in the node:22 container and the coverage gate passes more than once and once under load (coverage gate: passed twice, once under load, TC-0075; node:22 container run on the owner's local OrbStack Docker, 2026-10-28, run as root and as the `node` user, 7 files, TC-0076)
 ```
 
 ```
 TASK-0085 (US-0065): Playwright flow, contract tests, demo --web, hygiene runs
 Type: Test
 Assignee: Agent
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0002-US-0065-web-e2e
-Notes: Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 15 and 16. Open: the node:22 container run (AC-0299; the owner offered a local OrbStack Docker instance on 2026-10-28) and two Web E2E specs that failed on the first CI runs for timing reasons (BUG-0009, BUG-0010). Spec section 9. Reconnect backoff uses an injected clock. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 15 and 16. The node:22 container run is done (AC-0299). Two Web E2E specs failed on the first CI runs for timing reasons (BUG-0009 still Open, watching; BUG-0010 Fixed). Spec section 9. Reconnect backoff uses an injected clock. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```

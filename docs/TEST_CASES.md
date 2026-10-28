@@ -1166,7 +1166,7 @@ Preconditions: Docker with a running daemon.
 Steps:
   1. Run the container recipe from AGENTS.md section 8 (`node:22`, as root and with `--user node`) on `src/engine/__tests__/secure-json-file.test.ts`, `credentials.test.ts`, `consent.test.ts`, `consent-notice.test.ts`, `session-store.seats.test.ts`, `src/__tests__/main.test.ts` and `src/demo/__tests__/web-flag.test.ts`.
 Expected Result: every file passes in the container.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: Run 2026-10-28 on the owner's local OrbStack Docker (server 29.8.2, linux/arm64), `node:22`, a clean `git archive` of the branch, `pnpm install --frozen-lockfile`, `pnpm@9.15.9`, from `services/runtime`. As root: 7 files passed, 127 tests passed, 1 skipped (the read-only data-dir rotation test, which `skipIf` root by design). As `node`: 7 files passed, 128 tests passed, 0 skipped.
+Status: [x] Pass
 Defect Raised: None
 Notes: Not run in slice 2a: the build environment had the docker CLI but no daemon. CI's Ubuntu jobs will be the first Linux run of these files; stacked pull requests get no CI until they are retargeted to `develop`. Update 2026-10-28: the stack is retargeted to `develop` and CI runs; the owner offered a local OrbStack Docker instance for this container run, which needs a Remote Control connection to that machine.
