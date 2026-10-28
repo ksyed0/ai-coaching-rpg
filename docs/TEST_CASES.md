@@ -1169,4 +1169,4 @@ Expected Result: every file passes in the container.
 Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
-Notes: Not run in slice 2a: the build environment had the docker CLI but no daemon. CI's Ubuntu jobs will be the first Linux run of these files; stacked pull requests get no CI until they are retargeted to `develop`.
+Notes: Not run in slice 2a: the build environment had the docker CLI but no daemon. CI's Ubuntu jobs will be the first Linux run of these files; stacked pull requests get no CI until they are retargeted to `develop`. Update 2026-10-28: the stack is retargeted to `develop` and CI runs; the owner offered a local OrbStack Docker instance for this container run, which needs a Remote Control connection to that machine.
