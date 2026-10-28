@@ -6,7 +6,7 @@ import { MAX_HIDDEN_FACT_NUMBER, MAX_UTTERANCE_CHARS } from "../host/protocol.js
 export const USAGE = "usage: pnpm play --role <roleId> --name <you> [--url ws://host:8080] [--session local] [--code-file <path>] [--last-seq <n>]\n       pnpm play --facilitator [--url ws://host:8080] [--session local] [--token-file <path>] [--last-seq <n>]\n       (--last-seq: after a dropped connection, the number the client printed, to receive the events you missed)\n       (a player needs the join code of their role from the facilitator: set JOIN_CODE, use --code-file, or type it at the hidden prompt;\n        a server that sets FACILITATOR_TOKEN needs it: set the same variable, use --token-file, or type it at the hidden prompt)";
 export const CODE_ARGV_REFUSED = "error: --code is not supported: a value on the command line is visible to other users (ps) and stays in shell history. Set JOIN_CODE, use --code-file <path>, or type it at the prompt";
 export const TOKEN_ARGV_REFUSED = "error: --token is not supported: a value on the command line is visible to other users (ps) and stays in shell history. Set FACILITATOR_TOKEN, use --token-file <path>, or type it at the prompt";
-export const PLAYER_HELP = "type to speak to the room; /quit to leave";
+export const PLAYER_HELP = "type to speak to the room; /consent to agree to the notice, /withdraw to take it back and give up the seat; /quit to leave";
 export const FACILITATOR_HELP = "commands: /start /pause /resume /advance /inject <id> /whisper <role> <text> /hidden /release <role> <n> /quit";
 const MAX_NAME_CHARS = 64;
 
@@ -73,7 +73,7 @@ export function joinMessage(o: Options): ClientMessage {
     : { type: "join", sessionId: o.session, roleId: o.role!, participantId: o.name!, ...(o.joinCode !== undefined && o.joinCode !== "" ? { joinCode: o.joinCode } : {}), ...since };
 }
 
-export type Input = { kind: "none" } | { kind: "quit" } | { kind: "hidden" } | { kind: "help"; message: string } | { kind: "send"; message: ClientMessage };
+export type Input = { kind: "none" } | { kind: "quit" } | { kind: "hidden" } | { kind: "consent" } | { kind: "withdraw" } | { kind: "help"; message: string } | { kind: "send"; message: ClientMessage };
 
 /** Parses one typed line. A mistyped slash command is never sent as in-character speech. */
 export function parseInput(line: string, isFacilitator: boolean): Input {
@@ -84,6 +84,10 @@ export function parseInput(line: string, isFacilitator: boolean): Input {
   if (text === "/quit") return { kind: "quit" };
   if (text === "/help") return help(base);
   if (!isFacilitator) {
+    // US-0054: the client adds the notice version the server announced, so the player never types it.
+    if (text === "/consent") return { kind: "consent" };
+    if (text === "/withdraw") return { kind: "withdraw" };
+    if (/^\/(consent|withdraw)\s/.test(text)) return help(`usage: ${text.split(/\s/)[0]}`);
     if (text.startsWith("/")) return help(`unknown command. ${base}`);
     if (text.length > MAX_UTTERANCE_CHARS) return help(`too long (max ${MAX_UTTERANCE_CHARS} characters)`);
     return { kind: "send", message: { type: "say", text } };

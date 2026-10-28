@@ -226,7 +226,7 @@ describe("event types", () => {
     expect(isKnownEventType("toString")).toBe(false);
     expect(isKnownEventType("session.future")).toBe(false);
     expect(isKnownEventType(7)).toBe(false);
-    expect(LOG_FORMAT).toBe(1);
+    expect(LOG_FORMAT).toBe(2);
   });
 });
 

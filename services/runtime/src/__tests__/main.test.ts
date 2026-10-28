@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { bootstrap, type Runtime } from "../main.js";
+import { consentAll } from "./consent-helper.js";
 // Whole-demo and real-process/socket tests: a generous explicit limit (a loaded machine or coverage can be several times slower). Nothing here measures elapsed time.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
@@ -207,6 +208,7 @@ describe("bootstrap", () => {
       expect(logs.join("\n")).not.toContain("sk-from-dotenv");
       // the event log lands under <root>/data/sessions
       await connect(runtime.port, { type: "join_facilitator", sessionId: "fromdotenv" });
+      runtime.host.join("host", "p1"); runtime.host.giveConsent("host", "p1", "v1"); // US-0054: the start gate wants the seated player's consent
       await runtime.host.start();
       expect((await stat(path.join(tmp, "data", "sessions", "fromdotenv.jsonl"))).isFile()).toBe(true);
     });
@@ -246,13 +248,23 @@ describe("bootstrap", () => {
     const rotated = async () => (await readdir(dataDir()).catch(() => [] as string[])).filter((f) => /^local\.\d{8}T\d{6}Z(-\d+)?\.jsonl$/.test(f));
 
     async function runOnce(logs: string[]) {
-      const r = await bootstrap({ env: env(), root: tmp, tickMs: 1_000, log: (m) => logs.push(m) });
+      let hostCode = "";
+      const r = await bootstrap({ env: env(), root: tmp, tickMs: 1_000, log: (m) => logs.push(m), showJoinCodes: (list) => { hostCode = list.find((c) => c.roleId === "host")!.code; } });
       if (!r.ok) throw new Error(r.errors.join("; "));
       const fac = await wsOpen(r.runtime.port);
       const started = waitMsg(fac, (m) => m.type === "event" && m.event.type === "scene.entered");
       const joined = waitMsg(fac, (m) => m.type === "joined");
       fac.send(JSON.stringify({ type: "join_facilitator", sessionId: "local" }));
       await joined;
+      // US-0054: the start gate wants the player seated and consenting; the refused `say` comes back in order, so the consent is handled first.
+      const player = await wsOpen(r.runtime.port);
+      const playerJoined = waitMsg(player, (m) => m.type === "joined");
+      player.send(JSON.stringify({ type: "join", sessionId: "local", roleId: "host", participantId: "alice", joinCode: hostCode }));
+      await playerJoined;
+      const settled = waitMsg(player, (m) => m.type === "error" && m.code === "not_started");
+      consentAll([{ send: (m) => player.send(JSON.stringify(m)) }]);
+      player.send(JSON.stringify({ type: "say", text: "settle" }));
+      await settled;
       fac.send(JSON.stringify({ type: "start" }));
       await started;
       return { runtime: r.runtime, fac };
@@ -467,6 +479,7 @@ describe("bootstrap: player join codes (US-0033)", () => {
     const show = (c: { roleId: string; code: string }[]) => shown.push(c);
     const a = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: show });
     if (!a.ok) throw new Error(a.errors.join("; "));
+    a.runtime.host.join("host", "a"); a.runtime.host.giveConsent("host", "a", "v1"); // US-0054
     await a.runtime.host.start(); // the session has begun: its codes are now in people's hands
     await a.runtime.stop();
     const logs: string[] = [];
@@ -524,6 +537,7 @@ describe("bootstrap: player join codes (US-0033)", () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
     const a = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: () => {} });
     if (!a.ok) throw new Error(a.errors.join("; "));
+    a.runtime.host.join("host", "p1"); a.runtime.host.giveConsent("host", "p1", "v1"); // US-0054
     await a.runtime.host.start();
     await a.runtime.stop();
     await rm(codesFile()); // the operator moved the codes aside to get new ones...
@@ -557,6 +571,7 @@ describe("bootstrap: player join codes (US-0033)", () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
     const a = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: () => {} });
     if (!a.ok) throw new Error(a.errors.join("; "));
+    a.runtime.host.join("host", "p1"); a.runtime.host.giveConsent("host", "p1", "v1"); // US-0054
     await a.runtime.host.start(); // a running session resumes, so its codes file is read
     await a.runtime.stop();
     await writeFile(path.join(tmp, "jc.codes.json"), "{ broken", { mode: 0o600 });

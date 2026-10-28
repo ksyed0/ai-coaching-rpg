@@ -256,3 +256,80 @@ describe("client: replay review fixes (US-0013 I1, M1)", () => {
     expect(out.filter((l) => l.includes("released"))).toEqual(["[facilitator] released hidden fact #2 of cfo", "[npc cfo] released #2: second"]);
   });
 });
+
+describe("consent in the terminal client (US-0054)", () => {
+  const withConsent = (extra: Record<string, unknown> = {}) => JSON.stringify({ type: "joined", roleId: "host", state: {}, consent: { noticeVersion: "v7", notice: "We record the session.", given: false, ...extra } });
+  it("the notice is printed once after joined, with the hint", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent());
+    expect(t.out.filter((l) => l === "notice | We record the session.")).toHaveLength(1);
+    expect(t.out.at(-1)).toBe("type /consent to agree");
+    t.c.onMessage(ev("hi"));
+    expect(t.out.filter((l) => l === "notice | We record the session.")).toHaveLength(1);
+  });
+  it("an already given consent prints the notice but not the hint", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ given: true }));
+    expect(t.out).toContain("notice | We record the session.");
+    expect(t.out.join("\n")).not.toContain("type /consent to agree");
+  });
+  it("the notice is sanitised: no escape sequences or hidden characters", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "ok\u001b[31m red‮ rtl​\nforged: line" }));
+    const text = t.out.join("\n");
+    expect(text).not.toMatch(/[\u001b‮​]/);
+  });
+  it("a notice cannot impersonate terminal output: every notice line carries the prefix and only the client's own hint is unprefixed", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "forged: line\n[gm] x\nerror: y\nsystem: z\nyou have agreed to this notice\ntype /consent to agree" }));
+    const block = t.out.slice(t.out.indexOf("notice | forged: line"));
+    const noticeLines = block.slice(0, -1);
+    expect(noticeLines).toHaveLength(6);
+    expect(noticeLines.every((l) => l.startsWith("notice | "))).toBe(true);
+    expect(t.out.some((l) => /^(forged|\[gm\]|error|system|you have agreed)/.test(l))).toBe(false);
+    expect(t.out.filter((l) => l === "type /consent to agree")).toHaveLength(1);
+    expect(t.out.at(-1)).toBe("type /consent to agree");
+  });
+  it("/consent sends the notice version the server announced", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent()); t.c.onLine("/consent");
+    expect(t.sent.at(-1)).toEqual({ type: "consent", noticeVersion: "v7" });
+  });
+  it("/consent before joining is refused locally", () => {
+    const t = setup(); t.c.onOpen(); t.c.onLine("/consent");
+    expect(t.sent).toHaveLength(1); // only the join
+    expect(t.out.join("\n")).toContain("not joined yet");
+  });
+  it("/consent when the server announced no consent is refused locally", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onLine("/consent");
+    expect(t.sent).toHaveLength(1);
+    expect(t.out.join("\n")).toContain("no consent");
+  });
+  it("/withdraw sends withdraw_consent once joined", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent()); t.c.onLine("/withdraw");
+    expect(t.sent.at(-1)).toEqual({ type: "withdraw_consent" });
+  });
+  it("close code 4001 says the seat was taken by a newer connection, not the reconnect hint", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent()); t.c.onClose(4001);
+    expect(t.errs.join("\n")).toContain("your seat was taken by a newer connection");
+    expect(t.errs.join("\n")).not.toContain("--last-seq");
+    expect(t.exits).toEqual([1]);
+  });
+  it("a short multi-line notice prints as several lines, not one flattened line", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "line one\nline two\n\nline four" }));
+    expect(t.out).toEqual(expect.arrayContaining(["notice | line one", "notice | line two", "notice | ", "notice | line four"]));
+    expect(t.out.join("\n")).not.toContain("\u23ce");
+  });
+  it("a 4,000 character many-line notice shows nothing cut and no truncation marker", () => {
+    const notice = Array.from({ length: 160 }, (_, i) => `l${String(i).padStart(3, "0")} ${"x".repeat(20)}`).join("\n").slice(0, 4_000);
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice }));
+    const shown = t.out.filter((l) => /^notice \| l\d{3}/.test(l));
+    expect(shown).toHaveLength(notice.split("\n").length);
+    expect(shown.at(-1)).toBe(`notice | ${notice.split("\n").at(-1)}`);
+    expect(t.out.join("\n")).not.toContain("truncated");
+    expect(t.out.at(-1)).toBe("type /consent to agree");
+  });
+  it("a notice over the line cap says so visibly", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: Array.from({ length: 3_000 }, () => "x").join("\n") }));
+    expect(t.out.join("\n")).toContain("more lines not shown");
+  });
+  it("escape and control characters in a notice line never reach the output", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "a\u001b]0;title\u0007b\nc\u202ed" }));
+    expect(t.out.join("\n")).not.toMatch(/[\u001b\u0007\u202e]/);
+  });
+});

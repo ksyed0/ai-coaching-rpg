@@ -8,7 +8,10 @@ import { MockModelProvider } from "@acr/adapters";
 import { SessionEngine } from "../../engine/session-engine.js";
 import { MemoryEventLog } from "../../engine/event-log.js";
 import { FakeClock } from "../../engine/clock.js";
-import { SessionHost } from "../session-host.js";
+import { HostError, SessionHost } from "../session-host.js";
+import { PlayerCredentials } from "../../engine/credentials.js";
+import { ConsentStore } from "../../engine/consent.js";
+import type { Seats } from "../../engine/seats.js";
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../packages/script/src/__tests__/fixtures/minimal");
 let host: SessionHost; let engine: SessionEngine; let npc: MockModelProvider; let clock: FakeClock;
@@ -246,6 +249,60 @@ describe("SessionHost.filterFor is default-deny per event type (I1)", () => {
     expect(JSON.stringify(forPlayer)).not.toMatch(/"P"/);
     expect(host.viewFor("facilitator", ev)).toBe(ev);
   });
+
+  const withExtra = (): SessionEvent => ({
+    seq: 1, ts: 0, sessionId: "s", type: "session.started", scenarioId: "x", version: "1", logFormat: 2,
+    roles: { host: { kind: "player", participantId: "P" }, guest: { kind: "npc" } },
+    consents: { host: { noticeVersion: "v1", at: 5 }, other: { noticeVersion: "v1", at: 6 } },
+    names: { host: "Pat", other: "Sam" }, logIdentity: "0123456789abcdef0123456789abcdef",
+  });
+
+  it("viewFor gives a player only their own consent and no names or log identity", () => {
+    const v = host.viewFor("host", withExtra()) as Extract<SessionEvent, { type: "session.started" }>;
+    expect(v.consents).toEqual({ host: { noticeVersion: "v1", at: 5 } });
+    expect(Object.hasOwn(v, "names")).toBe(false);
+    expect(Object.hasOwn(v, "logIdentity")).toBe(false);
+    expect(JSON.stringify(v)).not.toMatch(/Pat|Sam|0123456789abcdef|"other"|"P"/);
+  });
+
+  it("a player without a consent entry gets no consents key", () => {
+    const v = host.viewFor("guest", withExtra()) as Extract<SessionEvent, { type: "session.started" }>;
+    expect(Object.hasOwn(v, "consents")).toBe(false);
+  });
+
+  it("an unknown key on session.started never reaches a player (default-deny), live and in a replay, and the facilitator keeps it", async () => {
+    host.join("host", "p1");
+    await host.start();
+    const real = engine.eventsAfter(0);
+    if (!real.complete) throw new Error("window");
+    const started = { ...[...real.events][0]!, futureField: "SECRET-FUTURE", consents: { host: { noticeVersion: "v1", at: 1 } } } as unknown as SessionEvent;
+    // Replay path: the retained window returns the augmented event.
+    vi.spyOn(engine, "eventsAfter").mockReturnValue({ complete: true, events: [started] });
+    const replayed = host.replayFor("host", 0);
+    expect(replayed.complete).toBe(true);
+    expect(JSON.stringify(replayed.events)).not.toMatch(/SECRET-FUTURE/);
+    expect(JSON.stringify(replayed.events)).toMatch(/"consents"/);
+    expect(JSON.stringify(host.replayFor("facilitator", 0).events)).toMatch(/SECRET-FUTURE/);
+    // Live path: ws-server applies viewFor to what subscribe delivers.
+    vi.spyOn(engine, "subscribe").mockImplementation((fn) => { fn(started); return () => {}; });
+    const live: (SessionEvent | null)[] = [];
+    host.subscribe((e) => { live.push(host.viewFor("host", e)); });
+    expect(JSON.stringify(live)).not.toMatch(/SECRET-FUTURE/);
+    expect(host.viewFor("facilitator", started)).toBe(started);
+  });
+
+  it("a player's own consent is copied key by key, so a hand-edited entry cannot leak extra keys", () => {
+    const ev = withExtra() as Extract<SessionEvent, { type: "session.started" }>;
+    (ev.consents as Record<string, unknown>).host = { noticeVersion: "v1", at: 5, participantId: "LEAK-P", note: "LEAK-N" };
+    const v = host.viewFor("host", ev) as Extract<SessionEvent, { type: "session.started" }>;
+    expect(v.consents).toEqual({ host: { noticeVersion: "v1", at: 5 } });
+    expect(JSON.stringify(v)).not.toMatch(/LEAK/);
+  });
+
+  it("the facilitator sees all of them", () => {
+    const ev = withExtra();
+    expect(host.viewFor("facilitator", ev)).toBe(ev);
+  });
 });
 
 describe("SessionHost.snapshotFor scene visibility (M4)", () => {
@@ -315,5 +372,193 @@ describe("SessionHost.evaluateFinal", () => {
     await host.onPlayerUtterance("host", "Hello Sam");
     await host.idle();
     await expect(host.evaluateFinal()).resolves.toBe(false);
+  });
+});
+
+describe("consent and the start gate (US-0054)", () => {
+  const BIND = { sessionId: "s", scenarioSha256: "d".repeat(64) };
+  /** A host with seats; `extraPlayers` adds player roles to the minimal fixture (one player, `host`). */
+  async function seated(o: { extraPlayers?: string[]; persist?: () => void } = {}) {
+    const scenario = await loadScenario(fixture);
+    for (const id of o.extraPlayers ?? []) scenario.roles[id] = { id, type: "player", brief: `You are ${id}.`, private_facts: [] } as (typeof scenario.roles)[string];
+    const c = new FakeClock(5_000);
+    const e = new SessionEngine({ scenario, log: new MemoryEventLog("s"), clock: c });
+    const persist = vi.fn(o.persist ?? (() => {}));
+    const seats: Seats = { credentials: PlayerCredentials.create(BIND), consent: new ConsentStore({ version: "v1", text: "notice" }), persist };
+    const h = new SessionHost({ scenario, engine: e, npcProvider: new MockModelProvider(["Hi"]), gmProvider: new MockModelProvider(), clock: c, seats });
+    return { h, e, seats, persist, clock: c };
+  }
+  const code = (f: () => unknown): string | undefined => { try { f(); } catch (err) { return err instanceof HostError ? err.code : String(err); } return undefined; };
+
+  it("consent from another participant who later holds the role does not count", async () => {
+    const { h, e } = await seated();
+    h.join("host", "alice");
+    h.giveConsent("host", "alice", "v1");
+    h.release("host", "alice");
+    h.join("host", "bob");
+    await expect(h.start()).rejects.toThrow("seats_not_ready: host");
+    expect(e.state.status).toBe("idle");
+    h.giveConsent("host", "bob", "v1");
+    await h.start();
+    expect(e.state.status).toBe("running");
+  });
+
+  it("consent with another version is refused as consent_version", async () => {
+    const { h, seats, persist } = await seated();
+    h.join("host", "alice");
+    expect(code(() => h.giveConsent("host", "alice", "v2"))).toBe("consent_version");
+    // Input the store refuses is a bad message, never an internal error.
+    expect(code(() => h.giveConsent("host", "alice", "x".repeat(65)))).toBe("bad_message");
+    expect(seats.consent.has("host", "alice")).toBe(false);
+    expect(persist).not.toHaveBeenCalled();
+  });
+
+  it("consent, withdraw and leave are refused while the start is in progress and after it (already_started)", async () => {
+    const { h, e, seats } = await seated();
+    h.join("host", "alice");
+    h.giveConsent("host", "alice", "v1");
+    const orig = e.start.bind(e);
+    let go!: () => void;
+    const gate = new Promise<void>((r) => { go = r; });
+    e.start = async (a, x) => { await gate; return orig(a, x); };
+    const starting = h.start();
+    for (const phase of ["starting", "started"]) {
+      expect(code(() => h.giveConsent("host", "alice", "v1")), phase).toBe("already_started");
+      expect(code(() => h.withdrawConsent("host", "alice")), phase).toBe("already_started");
+      expect(code(() => h.leave("host", "alice")), phase).toBe("already_started");
+      if (phase === "starting") { go(); await starting; }
+    }
+    expect(seats.consent.has("host", "alice")).toBe(true);
+    expect(h.assignments.host).toBe("alice");
+  });
+
+  it("withdrawing consent removes it, revokes the credential and frees the seat", async () => {
+    const { h, seats, persist } = await seated();
+    h.join("host", "alice");
+    seats.credentials.issue("host", "Alice");
+    h.giveConsent("host", "alice", "v1");
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(seats.consent.snapshot()).toEqual({ host: { noticeVersion: "v1", at: 5_000 } }); // the host clock, not the wall clock
+    h.withdrawConsent("host", "alice");
+    expect(seats.consent.has("host", "alice")).toBe(false);
+    expect(seats.credentials.has("host")).toBe(false);
+    expect(h.assignments.host).toBeUndefined();
+    expect(persist).toHaveBeenCalledTimes(2);
+  });
+
+  it("start is refused with seats_not_ready naming the roles that are missing a join or a consent", async () => {
+    const { h, e } = await seated({ extraPlayers: ["p2", "p3"] });
+    h.join("host", "alice"); h.giveConsent("host", "alice", "v1");
+    h.join("p2", "bob"); // joined, no consent
+    const err = await h.start().catch((x: unknown) => x);
+    expect(err).toBeInstanceOf(HostError);
+    expect((err as HostError).code).toBe("seats_not_ready");
+    expect((err as HostError).message).toBe("seats_not_ready: p2,p3");
+    expect(e.state.status).toBe("idle");
+  });
+
+  it("start succeeds once every player role has joined and consented and writes the consents and names into session.started", async () => {
+    const { h, e, seats } = await seated();
+    h.join("host", "alice");
+    seats.credentials.issue("host", "Alice");
+    h.giveConsent("host", "alice", "v1");
+    const seen: SessionEvent[] = [];
+    e.subscribe((ev) => { seen.push(ev); });
+    await h.start();
+    expect(seen[0]).toMatchObject({ type: "session.started", consents: { host: { noticeVersion: "v1", at: 5_000 } }, names: { host: "Alice" }, logIdentity: seats.credentials.logIdentity });
+  });
+
+  /** Holds engine.start until `go()`, so the host stays in its `starting` window. */
+  function holdStart(e: SessionEngine) {
+    const orig = e.start.bind(e);
+    let go!: () => void;
+    const gate = new Promise<void>((r) => { go = r; });
+    e.start = async (a, x) => { await gate; return orig(a, x); };
+    return () => go();
+  }
+
+  it("after the start a different participant cannot take a dropped role; the same participant can rejoin", async () => {
+    const { h, e } = await seated();
+    h.join("host", "alice"); h.giveConsent("host", "alice", "v1");
+    await h.start();
+    h.release("host", "alice"); // the socket dropped
+    expect(code(() => h.join("host", "bob"))).toBe("consent_required");
+    expect(h.assignments.host).toBeUndefined();
+    expect(h.join("host", "alice").brief).toMatch(/hosting/);
+    expect(e.state.status).toBe("running");
+  });
+
+  it("during the start window a different participant cannot take a dropped role", async () => {
+    const { h, e } = await seated();
+    h.join("host", "alice"); h.giveConsent("host", "alice", "v1");
+    const go = holdStart(e);
+    const starting = h.start();
+    h.release("host", "alice");
+    expect(code(() => h.join("host", "bob"))).toBe("consent_required");
+    expect(h.assignments.host).toBeUndefined();
+    h.join("host", "alice");
+    go(); await starting;
+    expect(e.state.roles.host).toMatchObject({ participantId: "alice" });
+  });
+
+  it("a host without seats lets anyone take a free role after the start (regression guard)", async () => {
+    host.join("host", "p1");
+    await host.start();
+    host.release("host", "p1");
+    expect(host.join("host", "p2").brief).toMatch(/hosting/);
+  });
+
+  it("consent and withdraw from someone who does not hold the role are refused as not_joined", async () => {
+    const { h, seats, persist } = await seated();
+    h.join("host", "alice");
+    expect(code(() => h.giveConsent("host", "bob", "v1"))).toBe("not_joined");
+    h.giveConsent("host", "alice", "v1");
+    expect(code(() => h.withdrawConsent("host", "bob"))).toBe("not_joined");
+    expect(seats.consent.has("host", "alice")).toBe(true);
+    expect(h.assignments.host).toBe("alice");
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed write when giving consent takes the consent back, so the gate does not count it", async () => {
+    let failing = true;
+    const written: Record<string, unknown>[] = [];
+    const { h, e, seats } = await seated({ persist: () => { if (failing) throw new Error("disk full"); written.push(seats.consent.snapshot()); } });
+    h.join("host", "alice");
+    expect(() => h.giveConsent("host", "alice", "v1")).toThrow(/disk full/);
+    expect(seats.consent.has("host", "alice")).toBe(false);
+    await expect(h.start()).rejects.toThrow("seats_not_ready: host");
+    failing = false;
+    h.giveConsent("host", "alice", "v1");
+    expect(written).toEqual([{ host: { noticeVersion: "v1", at: 5_000 } }]);
+    await h.start();
+    expect(e.state.status).toBe("running");
+  });
+
+  it("a failed write when withdrawing consent is written again by a retry", async () => {
+    let failing = false;
+    const { h, seats, persist } = await seated({ persist: () => { if (failing) throw new Error("disk full"); } });
+    h.join("host", "alice"); seats.credentials.issue("host", "Alice"); h.giveConsent("host", "alice", "v1");
+    failing = true;
+    expect(() => h.withdrawConsent("host", "alice")).toThrow(/disk full/);
+    expect(seats.consent.has("host", "alice")).toBe(false); // memory is ahead of the file
+    expect(seats.credentials.has("host")).toBe(false);
+    failing = false;
+    const before = persist.mock.calls.length;
+    h.withdrawConsent("host", "alice"); // the role is already released: the retry only writes
+    expect(persist.mock.calls.length).toBe(before + 1);
+    expect(code(() => h.withdrawConsent("host", "alice"))).toBe("not_joined"); // nothing left to write
+  });
+
+  it("a session host built without seats starts as before (regression guard)", async () => {
+    host.join("host", "p1");
+    const seen: SessionEvent[] = [];
+    engine.subscribe((ev) => { seen.push(ev); });
+    await host.start();
+    expect(engine.state.status).toBe("running");
+    const started = seen[0]!;
+    expect(started.type).toBe("session.started");
+    expect(started).not.toHaveProperty("consents");
+    expect(started).not.toHaveProperty("names");
+    expect(started).not.toHaveProperty("logIdentity");
   });
 });

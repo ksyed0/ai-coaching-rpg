@@ -266,3 +266,16 @@ describe("renderJoined with a replay (US-0013)", () => {
     expect(joined(null)).toContain("guest: missed");
   });
 });
+
+describe("renderError: seats_not_ready (US-0054)", () => {
+  it("names the roles that have not joined or consented, readably and sanitised", () => {
+    const line = renderError("seats_not_ready", "seats_not_ready: cfo,tech\u001b[0m_lead");
+    expect(line).toContain("cannot start yet");
+    expect(line).toContain("cfo");
+    expect(line).toContain("/consent");
+    expect(line).not.toContain("\u001b");
+  });
+  it("without a role list it still reads well", () => {
+    expect(renderError("seats_not_ready", "seats_not_ready")).toContain("cannot start yet");
+  });
+});

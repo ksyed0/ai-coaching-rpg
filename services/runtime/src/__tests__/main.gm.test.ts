@@ -44,7 +44,7 @@ describe("bootstrap: Game Master settings (US-0025)", () => {
     expect(r.ok).toBe(true);
     const file = path.join(tmp, "gm-trace.log");
     const host = runtime!.host;
-    host.join("host", "p1"); await host.start();
+    host.join("host", "p1"); host.giveConsent("host", "p1", "v1"); await host.start();
     await host.onPlayerUtterance("host", "hello"); await host.idle();
     // the mock model answers "[mock reply]": no verdict, asked twice
     const seen = readOnce(file);

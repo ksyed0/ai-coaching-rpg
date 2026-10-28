@@ -1,6 +1,6 @@
 import type { Options } from "./commands.js";
 import { isFatalError, joinMessage, parseInput, parseServerMessage } from "./commands.js";
-import { parseFactsEarned, parseHiddenFacts, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, sanitizeText, validReplay } from "./render.js";
+import { parseFactsEarned, parseHiddenFacts, renderConsentNotice, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, sanitizeText, validReplay } from "./render.js";
 
 export const MAX_PREJOIN_LINES = 100;
 export const DEFAULT_IDLE_MS = 1_500;
@@ -41,6 +41,8 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
   let dedupeUpTo: number | null = null;
   // US-0034: the facts the Game Master suggested releasing (joined snapshot, then live gm.fact_earned events).
   let suggested = new Map<string, number[]>();
+  // US-0054: the notice version the server announced at join; /consent sends exactly this one. Null: no consent is asked for.
+  let noticeVersion: string | null = null;
 
   function finish(code: number, message?: string, polite = false): void {
     if (done) return;
@@ -63,9 +65,11 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
       const e = err as NodeJS.ErrnoException;
       finish(1, `connection failed: ${sanitizeText(e.message || e.code || "unknown error")} (${sanitizeText(opts.url)})`);
     },
-    onClose(): void {
+    onClose(code?: number): void {
       if (done) return;
       if (eof && joined) return finish(0);
+      // 4001: a newer connection with the same credential took the seat; reconnecting would only fight it.
+      if (code === 4001) return finish(1, "your seat was taken by a newer connection");
       finish(1, seen === null ? "disconnected from server" : `disconnected from server; to receive what you missed, run pnpm play again with --last-seq ${seen}`);
     },
     onMessage(raw: string): void {
@@ -90,6 +94,11 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
           }
         }
         for (const l of renderJoined(m)) io.print(l);
+        if (!opts.facilitator) {
+          const c = m.consent as { noticeVersion?: unknown } | undefined;
+          noticeVersion = typeof c?.noticeVersion === "string" ? c.noticeVersion : null;
+          for (const l of renderConsentNotice(m.consent)) io.print(l);
+        }
         for (const queued of pending.splice(0)) send(queued);
         if (eof) armIdle();
       } else if (m.type === "event") {
@@ -132,6 +141,14 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
           io.print("hidden facts (the numbers are for /release <role> <n>):");
           for (const l of renderHidden(hiddenFacts, released, suggested)) io.print(l);
           return;
+        case "consent":
+          if (!joined) return io.print("not joined yet: join first, then type /consent");
+          if (noticeVersion === null) return io.print("this server asks for no consent");
+          return send({ type: "consent", noticeVersion });
+        case "withdraw":
+          if (!joined) return io.print("not joined yet");
+          if (noticeVersion === null) return io.print("this server asks for no consent");
+          return send({ type: "withdraw_consent" });
         case "send":
           if (joined) send(input.message);
           else if (pending.length < MAX_PREJOIN_LINES) pending.push(input.message);

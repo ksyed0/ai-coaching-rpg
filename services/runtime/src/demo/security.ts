@@ -1,6 +1,6 @@
 import { Bot, isEvent } from "./bots.js";
 import { ensure } from "./checks.js";
-import { act, codeSecrets, connectBot, isJoinedMsg, playerJoin, sceneIds, utterancesOf, withTimeout, type Ctx, type Story } from "./ctx.js";
+import { act, codeSecrets, connectBot, consentAfterJoin, isJoinedMsg, playerJoin, sceneIds, utterancesOf, withTimeout, type Ctx, type Story } from "./ctx.js";
 import { newSecurityToken, startSecuritySystem } from "./harness.js";
 
 /** The rates the security room runs with: a tight message budget and a short join timeout, so abuse is visible in milliseconds. */
@@ -91,8 +91,18 @@ export async function playSecurityRoom(ctx: Ctx, st: Story): Promise<void> {
       ensure(fac?.isOpen, "no authenticated facilitator in the security room (F-31 must pass first)");
       const dl = await connectBot(ctx, "secure delivery_lead", { url });
       const am = await connectBot(ctx, "secure account_manager", { url });
-      ensure(isJoinedMsg(await dl.call(playerJoin(ctx, "delivery_lead", "ZedAlphaParticipant", { sessionId: "secure", codes: room.joinCodes }), isJoinedMsg)), "the bystander could not join");
-      ensure(isJoinedMsg(await am.call(playerJoin(ctx, "account_manager", "ZedCharlieParticipant", { sessionId: "secure", codes: room.joinCodes }), isJoinedMsg)), "the flooder could not join");
+      const dlJoined = await dl.call(playerJoin(ctx, "delivery_lead", "ZedAlphaParticipant", { sessionId: "secure", codes: room.joinCodes }), isJoinedMsg);
+      ensure(isJoinedMsg(dlJoined), "the bystander could not join");
+      const amJoined = await am.call(playerJoin(ctx, "account_manager", "ZedCharlieParticipant", { sessionId: "secure", codes: room.joinCodes }), isJoinedMsg);
+      ensure(isJoinedMsg(amJoined), "the flooder could not join");
+      // US-0054: both agree to the notice before the start (the flood comes later, so it does not meet the gate).
+      await consentAfterJoin(ctx, dl, "delivery_lead", dlJoined);
+      await consentAfterJoin(ctx, am, "account_manager", amJoined);
+      // The third player role must be seated too, or the start is refused; a quiet seat that takes no part in the checks.
+      const tl = await connectBot(ctx, "secure tech_lead", { url });
+      const tlJoined = await tl.call(playerJoin(ctx, "tech_lead", "ZedBravoParticipant", { sessionId: "secure", codes: room.joinCodes }), isJoinedMsg);
+      ensure(isJoinedMsg(tlJoined), "the third player could not join");
+      await consentAfterJoin(ctx, tl, "tech_lead", tlJoined);
       fac.send({ type: "start" });
       await fac.waitFor(isEvent("scene.entered", (e) => e.sceneId === s1), { what: "the security room's scene 1" });
       const lines = ["A line before the flood.", "A line after the flood."];

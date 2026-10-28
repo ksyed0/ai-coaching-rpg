@@ -4,7 +4,7 @@ import { isEvent, type Inbound } from "./bots.js";
 import { UNSAFE_CHARS, ensure, findMarkers } from "./checks.js";
 import { collectLiveEvidence, countText, sanitizeAlert } from "./live-evidence.js";
 import {
-  ROLE_PLAYERS, act, advanceTo, attempt, awaitNpc, codeFor, command, connectBot, errCode, facilitatorJoin, got, isJoinedMsg,
+  ROLE_PLAYERS, act, advanceTo, attempt, awaitNpc, codeFor, command, connectBot, errCode, consentAfterJoin, facilitatorJoin, got, isJoinedMsg,
   npcRole, playerJoin, playerRole, sceneIds, say, settle, utterancesByScene, withTimeout, type Ctx, type PlayerId, type Story,
 } from "./ctx.js";
 import { MIN } from "./harness.js";
@@ -56,6 +56,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
         const bot = await connectBot(ctx, role);
         const j = await bot.call(playerJoin(ctx, role, who), isJoinedMsg, { what: `${role} to join` });
         ensure(isJoinedMsg(j), `${role} could not join: ${errCode(j)}`);
+        await consentAfterJoin(ctx, bot, role, j); // US-0054: every player agrees to the notice before the facilitator starts
         const spec = playerRole(ctx.scenario, role);
         ensure(j.brief === spec.brief, `${role} received a brief that is not their own`);
         ensure(JSON.stringify(j.privateFacts) === JSON.stringify(spec.private_facts), `${role} received private facts that are not their own`);

@@ -6,7 +6,7 @@ import { FakeClock } from "../engine/clock.js";
 import { SessionStoreError } from "../engine/session-store.js";
 import { isEvent, type Bot } from "./bots.js";
 import { ensure } from "./checks.js";
-import { act, codeSecrets, connectBot, isJoinedMsg, npcRole, playerJoin, sceneIds, type Ctx, type Joined, type Story } from "./ctx.js";
+import { ROLE_PLAYERS, act, codeSecrets, connectBot, consentAfterJoin, isJoinedMsg, npcRole, playerJoin, sceneIds, type Ctx, type Joined, type Story } from "./ctx.js";
 import { GatedProvider, MIN, T0, startResumableSystem, type ResumableSystem } from "./harness.js";
 
 /** How long the server stays down in the room: longer than what is left of the scene's time box, and past its timed inject. */
@@ -68,10 +68,11 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       ensure(isJoinedMsg(j), `${label} could not join`);
       return { fac, joined: j };
     };
-    const joinPlayer = async (s: ResumableSystem, role: string, who: string, lastSeq?: number): Promise<{ bot: Bot; joined: Joined }> => {
+    const joinPlayer = async (s: ResumableSystem, role: string, who: string, lastSeq?: number, codes: Record<string, string> = handedOut): Promise<{ bot: Bot; joined: Joined }> => {
       const bot = await connectBot(ctx, `resume ${role}`, { url: url(s) });
-      const j = await bot.call(playerJoin(ctx, role, who, { sessionId: SID, codes: handedOut, lastSeq }), isJoinedMsg, { what: `${role} to join` });
+      const j = await bot.call(playerJoin(ctx, role, who, { sessionId: SID, codes, lastSeq }), isJoinedMsg, { what: `${role} to join` });
       ensure(isJoinedMsg(j), `${role} could not join: ${j.type === "error" ? j.code : j.type}`);
+      await consentAfterJoin(ctx, bot, role, j); // US-0054: a first join agrees to the notice (a rejoin already has: nothing is sent)
       return { bot, joined: j };
     };
 
@@ -153,6 +154,10 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       const stranger = await connectBot(ctx, "resume stranger", { url: url(b) });
       const refused = await stranger.call(playerJoin(ctx, "delivery_lead", "ZedMalloryParticipant", { sessionId: SID, codes: {} }), isJoinedMsg, { what: "a claim without a code after the restart" });
       ensure(refused.type === "error" && refused.code === "unauthorized", `a claim without a code after the restart gave ${refused.type === "error" ? refused.code : refused.type}`);
+      // US-0054: with the code but not the person who agreed, a seat is refused once the session has started.
+      const intruder = await connectBot(ctx, "resume intruder", { url: url(b) });
+      const intruded = await intruder.call(playerJoin(ctx, "tech_lead", "ZedMalloryParticipant", { sessionId: SID, codes: handedOut }), isJoinedMsg, { what: "a stranger with the code after the restart" });
+      ensure(intruded.type === "error" && intruded.code === "consent_required", `a stranger with the code after the restart gave ${intruded.type === "error" ? intruded.code : intruded.type}`);
       // US-0013: a seq past the restarted log is refused once the code is checked (nothing claimed), then the real rejoins.
       const ahead = await connectBot(ctx, "resume ahead", { url: url(b) });
       const far = await ahead.call(playerJoin(ctx, "delivery_lead", "ZedAlphaParticipant", { sessionId: SID, codes: handedOut, lastSeq: b.engine.state.lastSeq + 1 }), isJoinedMsg, { what: "a rejoin from past the log" });
@@ -161,7 +166,7 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       ahead.close();
       const dl = await joinPlayer(b, "delivery_lead", "ZedAlphaParticipant", seenAtCrash.delivery_lead);
       const am = await joinPlayer(b, "account_manager", "ZedCharlieParticipant", seenAtCrash.account_manager);
-      const tl = await joinPlayer(b, "tech_lead", "ZedDeltaParticipant", 0); // someone else (claims are not kept across a restart), asking for everything
+      const tl = await joinPlayer(b, "tech_lead", "ZedBravoParticipant", 0); // claims are not kept across a restart, so it rejoins by code (US-0054: only the person who agreed may take a seat once started), asking for everything
       const replayOf = async (p: { bot: Bot; joined: Joined }) => {
         const r = p.joined.replay;
         ensure(r?.complete === true, `${p.bot.label} got no complete replay: ${JSON.stringify(r)}`);
@@ -311,6 +316,10 @@ export async function playResumeRoom(ctx: Ctx, st: Story): Promise<void> {
       const oldR = await old.call(playerJoin(ctx, "delivery_lead", "ZedAlphaParticipant", { sessionId: SID, codes: handedOut }), isJoinedMsg, { what: "a join with the old session's code" });
       ensure(oldR.type === "error" && oldR.code === "unauthorized", "the previous session's join code opened the fresh session");
       const { fac } = await joinFac(f, "fresh facilitator");
+      // US-0054: the fresh session starts only with every player seated (by the new codes) and consenting.
+      for (const [role, who] of ROLE_PLAYERS) {
+        await joinPlayer(f, role, who, undefined, f.store.joinCodes!.issued!);
+      }
       fac.send({ type: "start" });
       const startedMsg = await fac.waitFor(isEvent("session.started"), { what: "the fresh session" });
       ensure(startedMsg.type === "event" && startedMsg.event.seq === 1, "the fresh session did not start at seq 1");

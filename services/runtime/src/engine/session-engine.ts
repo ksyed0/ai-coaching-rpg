@@ -38,6 +38,13 @@ export type ResumeInfo = {
   wasPaused: boolean;
   /** US-0053: session.started's logIdentity (32 hex), when the log records one; a lost credentials file is rebuilt with it. */
   logIdentity?: string;
+  /** A format 2 log carries a logIdentity that is not 32 hex: it was ignored, and markResumed says so. */
+  identityInvalid?: true;
+  /**
+   * US-0054: the consents session.started recorded, each with the participant who held the role (from `roles`). Present only when the
+   * log carries a `consents` field; absent for a log written before the gate, whose seats are then not checked on a rejoin.
+   */
+  startedConsents?: Record<string, { participantId: string; noticeVersion: string; at: number }>;
 };
 export type Repair =
   | { kind: "npc_init"; roleId: string }
@@ -51,6 +58,12 @@ export const describeRepair = (r: Repair): string =>
   r.kind === "npc_init" ? `set up AI character ${r.roleId}` : r.kind === "inject_effect" ? `applied inject ${r.injectId} to ${r.roleId}`
     : r.kind === "gm_release" ? `released hidden fact ${r.fact} of ${r.roleId} (Game Master auto-release)`
     : r.kind === "opening_inject" ? `fired the opening inject of ${r.sceneId}` : r.kind === "enter_scene" ? `entered scene ${r.sceneId}` : "ended the session (the last scene had ended)";
+/** US-0054: what the web seats add to session.started (log format 2). */
+export type SessionStartExtra = {
+  consents?: Record<string, { noticeVersion: string; at: number }>;
+  names?: Record<string, string>;
+  logIdentity?: string;
+};
 /** What markResumed reports for the operator. */
 export type ResumeNotes = { downSecs: number; clockBehindSecs: number; repairs: string[] };
 export type RestoreOutcome = { kind: "empty" } | { kind: "ended"; events: number } | { kind: "running"; info: ResumeInfo };
@@ -58,7 +71,7 @@ export type RestoreOutcome = { kind: "empty" } | { kind: "ended"; events: number
 /** Own-property lookup: a client-supplied role id such as `__proto__` or `constructor` must never resolve to an inherited member. */
 const own = <T>(map: Record<string, T>, key: string): T | undefined => (Object.hasOwn(map, key) ? map[key] : undefined);
 
-export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released" | "log_failed";
+export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released" | "log_failed" | "bad_identity";
 export class EngineError extends Error {
   constructor(readonly code: EngineErrorCode, message: string = code) { super(message); this.name = "EngineError"; }
 }
@@ -146,15 +159,19 @@ export class SessionEngine {
     return e;
   }
 
-  start(assignments: Record<string, string>): Promise<void> { return this.mutex.run(() => this.doStart(assignments)); }
-  private async doStart(assignments: Record<string, string>): Promise<void> {
+  start(assignments: Record<string, string>, extra?: SessionStartExtra): Promise<void> { return this.mutex.run(() => this.doStart(assignments, extra)); }
+  private async doStart(assignments: Record<string, string>, extra?: SessionStartExtra): Promise<void> {
+    // The same rule as PlayerCredentials: anything else would be written, ignored on restore and bypass the identity binding.
+    if (extra?.logIdentity !== undefined && !/^[0-9a-f]{32}$/.test(extra.logIdentity)) throw new EngineError("bad_identity", "the log identity must be 32 lowercase hex characters");
     // Starting on a non-empty log would corrupt the seq order: a log with events is resumed (restore) or rotated aside, never started over.
     if (this.state.status !== "idle" || (await this.log.all()).length > 0) throw new EngineError("log_not_empty", "the session log already has events; resume it (SESSION_START=resume) or start fresh (SESSION_START=fresh)");
     const roles: Record<string, { kind: "player" | "npc"; participantId?: string }> = {};
     for (const [id, role] of Object.entries(this.scenario.roles)) {
       roles[id] = role.type === "npc" ? { kind: "npc" } : { kind: "player", participantId: assignments[id] };
     }
-    await this.emit({ type: "session.started", scenarioId: this.scenario.meta.id, version: this.scenario.meta.version, roles, logFormat: LOG_FORMAT, scenarioHash: scenarioHash(this.scenario) });
+    await this.emit({ type: "session.started", scenarioId: this.scenario.meta.id, version: this.scenario.meta.version, roles, logFormat: LOG_FORMAT, scenarioHash: scenarioHash(this.scenario),
+      // Only what was given: an absent field and an empty one must not both appear in the log.
+      ...(extra?.consents && Object.keys(extra.consents).length > 0 ? { consents: extra.consents } : {}), ...(extra?.names && Object.keys(extra.names).length > 0 ? { names: extra.names } : {}), ...(extra?.logIdentity ? { logIdentity: extra.logIdentity } : {}) });
     for (const [id, role] of Object.entries(this.scenario.roles)) {
       if (role.type === "npc") await this.emit({ type: "npc.updated", roleId: id, goals: role.goals, knowledge: role.knowledge, released: [] });
     }
@@ -344,7 +361,8 @@ export class SessionEngine {
     const sceneIds = new Set(sc.script.scenes.map((x) => x.id));
     let s = initialState();
     let count = 0; let maxTs = Number.NEGATIVE_INFINITY; let format = 0; let lastGmSeq: number | null = null;
-    let logIdentity: string | undefined;
+    let logIdentity: string | undefined; let identityInvalid = false;
+    let startedConsents: ResumeInfo["startedConsents"];
     // An inject's AI character updates follow its inject.fired directly; this tracks the ones still due if the log ends here.
     let injectDue: { sceneId: string; injectId: string; roles: string[] } | null = null;
     const recent = new RecentEvents(this.retainEvents); // adopted only when the session is resumed
@@ -359,9 +377,17 @@ export class SessionEngine {
         if (f > LOG_FORMAT) throw new RestoreError("log_format", `the log has format ${f}, newer than this version reads (${LOG_FORMAT}); upgrade, or start fresh`);
         if (f >= 1 && e.scenarioHash !== scenarioHash(sc)) throw new RestoreError("scenario_mismatch", "the scenario files changed since this session started (its sha256 differs)");
         format = f;
-        // Read defensively: the event type gains the field later (US-0053); anything but 32 hex is ignored.
-        const li = (e as { logIdentity?: unknown }).logIdentity;
+        // Anything but 32 hex is ignored: a damaged identity must not stop a resume.
+        const li: unknown = e.logIdentity;
         if (typeof li === "string" && /^[0-9a-f]{32}$/.test(li)) logIdentity = li;
+        else if (f >= 2 && li !== undefined) identityInvalid = true;
+        if (typeof e.consents === "object" && e.consents !== null && !Array.isArray(e.consents)) {
+          startedConsents = {};
+          for (const [id, c] of Object.entries(e.consents)) {
+            const who = own(e.roles ?? {}, id)?.participantId;
+            if (typeof who === "string" && who.length > 0 && typeof c?.noticeVersion === "string" && typeof c.at === "number") startedConsents[id] = { participantId: who, noticeVersion: c.noticeVersion, at: c.at };
+          }
+        }
         const logged = Object.entries(e.roles ?? {});
         const known = Object.values(sc.roles);
         if (logged.length !== known.length || logged.some(([id, r]) => { const k = own(sc.roles, id); return !k || (k.type === "npc" ? "npc" : "player") !== r?.kind; })) {
@@ -415,7 +441,7 @@ export class SessionEngine {
       const opening = sc.script.scenes.find((x) => x.id === cur.id)?.opening_inject;
       if (opening && !s.injectsFired.includes(opening)) repairs.push({ kind: "opening_inject", sceneId: cur.id });
     }
-    return { kind: "running", info: { events: count, lastTs: maxTs, format, partialTailBytes, sceneId: cur?.id ?? null, lastGmSeq, pendingLine, wasPaused: s.paused, repairs, ...(logIdentity ? { logIdentity } : {}) } };
+    return { kind: "running", info: { events: count, lastTs: maxTs, format, partialTailBytes, sceneId: cur?.id ?? null, lastGmSeq, pendingLine, wasPaused: s.paused, repairs, ...(logIdentity ? { logIdentity } : {}), ...(startedConsents ? { startedConsents } : {}), ...(identityInvalid ? { identityInvalid: true as const } : {}) } };
   }
 
   /**
@@ -434,13 +460,14 @@ export class SessionEngine {
         ? `the server clock is ${notes.clockBehindSecs} s BEHIND the last recorded event (it moved backwards), so the downtime is unknown and counted as 0 s`
         : `${notes.downSecs} s after the last recorded event`;
       const cut = info.partialTailBytes > 0 ? `; a cut-off last line (${info.partialTailBytes} bytes, an event that was never confirmed) was dropped` : "";
+      const badId = info.identityInvalid ? "; the log's identity field is not valid and was ignored, so the web seats are not tied to this log" : "";
       const v0 = info.format === 0 ? "; this log predates log format 1, so it was matched on scenario id and version only" : "";
       // Written BEFORE the completion, so it says what is being completed, never that it is done; a crash during the completion is
       // completed again by the next restart (which says so in its own alert).
       const fixed = notes.repairs.length > 0 ? `; it now completes what the crash cut short: ${notes.repairs.join(", ")}` : "";
       const ends = info.repairs.some((r) => r.kind === "end_session");
       const next = ends ? ". The last scene had already ended, so the session ends now" : `. It is paused: /resume to continue${info.pendingLine ? " (the last player line is then answered)" : ""}`;
-      await this.emit({ type: "facilitator.alert", level: "warning", message: `session resumed after a server restart, ${down}${cut}${v0}${fixed}${next}` });
+      await this.emit({ type: "facilitator.alert", level: "warning", message: `session resumed after a server restart, ${down}${cut}${v0}${badId}${fixed}${next}` });
       for (const r of info.repairs) await this.applyRepair(r);
       return notes;
     });

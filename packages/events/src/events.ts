@@ -25,7 +25,15 @@ export type EventBody =
       /** The session log's format (US-0018): LOG_FORMAT for new logs; absent in older logs, which count as format 0. */
       logFormat?: number;
       /** sha256 (hex) of the loaded scenario, so a restart can refuse to resume a log against a different scenario. Absent in format 0. */
-      scenarioHash?: string }
+      scenarioHash?: string;
+      /**
+       * Log format 2 (US-0054), all optional and never in SessionState. consents: per role, the notice version and time of the consent given
+       * before the start. names: per role, the cleaned display name. logIdentity: 32 hex ties the web seats to this log. Players see only
+       * their own consent; names and logIdentity are facilitator-only.
+       */
+      consents?: Record<string, { noticeVersion: string; at: number }>;
+      names?: Record<string, string>;
+      logIdentity?: string }
   | { type: "scene.entered"; sceneId: string; participants: string[] }
   | { type: "scene.exited"; sceneId: string; reason: ExitReason }
   | { type: "utterance"; roleId: string; text: string; channel: Channel;
@@ -58,7 +66,7 @@ export type SessionEvent = EventEnvelope & EventBody;
 export type EventType = EventBody["type"];
 
 /** The session log format this version writes (session.started.logFormat). A log without the field is format 0. */
-export const LOG_FORMAT = 1;
+export const LOG_FORMAT = 2;
 
 const EVENT_TYPE_SET: Record<EventType, true> = {
   "session.started": true, "scene.entered": true, "scene.exited": true, utterance: true, "inject.fired": true, "npc.updated": true,

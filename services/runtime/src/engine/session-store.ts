@@ -174,7 +174,9 @@ export async function openSession(o: {
     const notice = o.consentNotice;
     if (!notice) return undefined;
     let credentials: PlayerCredentials; let consent: ConsentStore;
-    if (codesKept && found?.credentials?.matches(bind)) {
+    // A log that records an identity the credentials do not carry belongs to other seats (a restored or swapped file): they are not used.
+    const identityKept = !logIdentity || found?.credentials?.logIdentity === logIdentity;
+    if (codesKept && found?.credentials?.matches(bind) && identityKept) {
       credentials = found.credentials;
       consent = found.consent ?? new ConsentStore(notice); // entries under another notice version were dropped on read
       if (!found.consent) {
@@ -183,7 +185,9 @@ export async function openSession(o: {
       }
     } else {
       if (codesKept && found) notes.push(found.credentials
-        ? "warning: the credentials on file were issued for other scenario files: players join again with their join code"
+        ? found.credentials.matches(bind)
+          ? "warning: the web seats were reset: the credentials on file belong to another copy of this session log, so players join again with their join code"
+          : "warning: the credentials on file were issued for other scenario files: players join again with their join code"
         : "warning: no credentials file from before the restart was found: players join again with their join code");
       credentials = PlayerCredentials.create(bind, logIdentity);
       consent = new ConsentStore(notice);

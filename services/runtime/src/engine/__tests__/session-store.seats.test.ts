@@ -173,6 +173,62 @@ describe("openSession with seats (US-0053)", () => {
     expect(b.notes.some((n) => /credentials/.test(n))).toBe(true);
   });
 
+  it("credentials with another log identity than the log are replaced by ones carrying the log's, and the consent file is dropped", async () => {
+    const a = await openIt("resume");
+    const plain = await seatHost(a);
+    const old = a.seats!.credentials.logIdentity;
+    await crash(a);
+    const identity = "fedcba9876543210fedcba9876543210";
+    const lines = (await readFile(path.join(dir, "s.jsonl"), "utf8")).split("\n");
+    lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), logIdentity: identity });
+    await writeFile(path.join(dir, "s.jsonl"), lines.join("\n"));
+    const b = await openIt("resume");
+    expect(b.outcome).toBe("resumed");
+    expect(old).not.toBe(identity);
+    expect(b.seats!.credentials.logIdentity).toBe(identity);
+    expect(b.seats!.credentials.verify("host", plain)).toBe(false);
+    expect(b.seats!.consent.has("host", "p")).toBe(false);
+    expect((await readJson(credFile())).logIdentity).toBe(identity);
+    expect((await readJson(credFile())).roles).toEqual({});
+    expect((await readJson(consentFile())).entries).toEqual({});
+    expect(b.notes.some((n) => /the web seats were reset/.test(n))).toBe(true);
+  });
+
+  it("when the scenario files AND the log identity differ, the scenario note is shown and the seats are replaced once (regression guard)", async () => {
+    const a = await openIt("resume");
+    const plain = await seatHost(a);
+    await crash(a);
+    const identity = "fedcba9876543210fedcba9876543210";
+    const lines = (await readFile(path.join(dir, "s.jsonl"), "utf8")).split("\n");
+    lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), logIdentity: identity });
+    await writeFile(path.join(dir, "s.jsonl"), lines.join("\n"));
+    const rec = await readJson(credFile());
+    await writeFile(credFile(), JSON.stringify({ ...rec, scenarioSha256: "0".repeat(64) }), { mode: 0o600 });
+    const writes: string[] = [];
+    hooks.onCredWrite = () => writes.push("cred");
+    const b = await openIt("resume");
+    expect(b.outcome).toBe("resumed");
+    expect(b.notes.filter((n) => /credentials on file/.test(n))).toEqual(["warning: the credentials on file were issued for other scenario files: players join again with their join code"]);
+    expect(b.notes.some((n) => /web seats were reset/.test(n))).toBe(false);
+    expect(writes).toEqual(["cred"]);
+    expect(b.seats!.credentials.logIdentity).toBe(identity);
+    expect(b.seats!.credentials.verify("host", plain)).toBe(false);
+  });
+
+  it("credentials whose log identity equals the log's are kept (regression guard)", async () => {
+    const a = await openIt("resume");
+    const plain = await seatHost(a);
+    const id = a.seats!.credentials.logIdentity;
+    await crash(a);
+    const lines = (await readFile(path.join(dir, "s.jsonl"), "utf8")).split("\n");
+    lines[0] = JSON.stringify({ ...JSON.parse(lines[0]!), logIdentity: id });
+    await writeFile(path.join(dir, "s.jsonl"), lines.join("\n"));
+    const b = await openIt("resume");
+    expect(b.seats!.credentials.verify("host", plain)).toBe(true);
+    expect(b.seats!.consent.has("host", "p")).toBe(true);
+    expect(b.notes.some((n) => /web seats were reset/.test(n))).toBe(false);
+  });
+
   it("a missing credentials file on a resume of a log without a log identity gets a new identity", async () => {
     const a = await openIt("resume");
     await seatHost(a);

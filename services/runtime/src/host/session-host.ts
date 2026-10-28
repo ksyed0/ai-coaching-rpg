@@ -2,10 +2,11 @@ import { visibleTranscript, type SessionEvent, type SessionState } from "@acr/ev
 import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
-import { type ResumeInfo, type SessionEngine } from "../engine/session-engine.js";
+import { type ResumeInfo, type SessionEngine, type SessionStartExtra } from "../engine/session-engine.js";
 import { NpcAgent, type SilentTurn } from "../agents/npc-agent.js";
 import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import type { Seats } from "../engine/seats.js";
+import { ConsentError } from "../engine/consent.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
@@ -21,11 +22,26 @@ export const MAX_REPLAY_BYTES = 256 * 1024;
  */
 export type Replay = { afterSeq: number; toSeq: number; complete: boolean; events: SessionEvent[] };
 
-export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started";
+export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message" | "consent_required" | "not_joined";
 
 export class HostError extends Error {
   /** `roles`, when given, names the roles the error is about: the message becomes `code: role1,role2`. */
   constructor(readonly code: HostErrorCode, roles?: string[]) { super(roles && roles.length > 0 ? `${code}: ${roles.join(",")}` : code); this.name = "HostError"; }
+}
+
+type StartedEvent = Extract<SessionEvent, { type: "session.started" }>;
+/** Fields of session.started copied to a player as they are. A field added to the event type must be listed here (or handled in startedForPlayer) to compile. */
+const STARTED_FOR_PLAYERS: Record<Exclude<keyof StartedEvent, "roles" | "consents" | "names" | "logIdentity">, true> = {
+  type: true, seq: true, ts: true, sessionId: true, scenarioId: true, version: true, logFormat: true, scenarioHash: true,
+};
+function startedForPlayer(e: StartedEvent, who: string): StartedEvent {
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(STARTED_FOR_PLAYERS)) if (Object.hasOwn(e, k)) out[k] = (e as Record<string, unknown>)[k];
+  out.roles = redactRoles(e.roles);
+  const own = e.consents && Object.hasOwn(e.consents, who) ? e.consents[who] : undefined;
+  // Copied key by key: a hand-edited log entry with extra keys must not leak them.
+  if (own) out.consents = { [who]: { noticeVersion: own.noticeVersion, at: own.at } };
+  return out as StartedEvent;
 }
 
 export class SessionHost {
@@ -52,6 +68,10 @@ export class SessionHost {
   readonly seats: Seats | undefined;
   /** US-0053: the seat state changed in memory and is not yet on disk; set before persist and cleared only once it succeeded. */
   private seatsDirty = false;
+  /** R14: a session resumed from a log that recorded no consents (started before the gate) is not checked on a rejoin. */
+  private consentGrandfathered = false;
+  /** US-0054: the time recorded with a consent (the injected clock, so tests and replays never read the wall clock). */
+  private readonly clock: Clock;
 
   constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034, GM_AUTO_RELEASE (default off): the Game Master releases a hidden fact itself instead of only suggesting it. */ gmAutoRelease?: boolean; /** US-0019, GM_TRANSCRIPT_WINDOW (default 40): the latest utterances of the scene each Game Master prompt holds. */ gmTranscriptWindow?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number; /** US-0053: durable credentials and consent; when absent, players join by code or reconnect token only. */ seats?: Seats }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
@@ -65,6 +85,7 @@ export class SessionHost {
     // Fail-stop (US-0018): when the log fails or the lock is lost the engine refuses everything; stop the clock and tell the server.
     opts.engine.onFailure((reason) => this.onEngineFailure(reason));
     this.seats = opts.seats;
+    this.clock = opts.clock;
     // US-0053: a credential is worth nothing after the session ends, so every one is revoked when the end is recorded.
     if (this.seats) opts.engine.subscribe((e) => { if (e.type === "session.ended") { try { this.endSeats(); } catch (err) { this.report("end of session revoke", err); } } });
     this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), maxTokens: opts.gmMaxTokens, temperature: opts.gmTemperature, evaluationTimeoutMs: opts.gmTimeoutMs ?? gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS), reask: opts.gmReask, everyNUtterances: opts.gmEveryN, trace: opts.gmTrace, autoRelease: opts.gmAutoRelease, transcriptWindow: opts.gmTranscriptWindow });
@@ -112,9 +133,17 @@ export class SessionHost {
     const role = Object.hasOwn(this.scenario.roles, roleId) ? this.scenario.roles[roleId] : undefined;
     if (!role) throw new HostError("unknown_role");
     if (role.type !== "player") throw new HostError("npc_role");
+    // US-0054: from the start on, a seat is only for the participant whose consent the start recorded (or who gave it since):
+    // a dropped seat cannot be taken by someone else with the code. The same participant still reconnects.
+    if (this.seats && !this.consentGrandfathered && (this.started || this.starting !== null) && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
     if (this.assignments[roleId] && this.assignments[roleId] !== participantId) throw new HostError("role_taken");
     this.assignments[roleId] = participantId;
     return { brief: role.brief, privateFacts: role.private_facts };
+  }
+
+  /** Whether the seat's consent stands: given by this participant, or not asked for (a session resumed from a log older than the gate). */
+  consentGiven(roleId: string, participantId: string): boolean {
+    return this.consentGrandfathered || (this.seats?.consent.has(roleId, participantId) ?? false);
   }
 
   /** Frees a role, but only for the participant who holds it. */
@@ -128,6 +157,7 @@ export class SessionHost {
    * writes again, so a leave never reports success while the revoked credential is still on disk.
    */
   leave(roleId: string, participantId: string): void {
+    this.refuseOnceStarting();
     if (Object.hasOwn(this.assignments, roleId) && this.assignments[roleId] === participantId) {
       if (this.seats) this.seatsDirty = true;
       this.seats?.credentials.revoke(roleId);
@@ -135,6 +165,57 @@ export class SessionHost {
       this.release(roleId, participantId);
     }
     this.flushSeats();
+  }
+
+  /**
+   * US-0054: the holder of the role agrees to the consent notice of `noticeVersion`, recorded with the host clock and persisted.
+   * Only the participant who holds the role may give it (anyone else: not_joined). Another version is refused as
+   * consent_version; input the store refuses as bad_message. A failed write takes the consent back and throws, so neither the gate
+   * nor session.started counts a consent that is not on disk.
+   */
+  giveConsent(roleId: string, participantId: string, noticeVersion: string): void {
+    this.refuseOnceStarting();
+    if (!this.holds(roleId, participantId)) throw new HostError("not_joined");
+    if (!this.seats) return;
+    try {
+      this.seats.consent.give(roleId, participantId, noticeVersion, this.clock.now());
+    } catch (err) {
+      if (err instanceof ConsentError) throw new HostError(err.code === "version_mismatch" ? "consent_version" : "bad_message");
+      throw err;
+    }
+    this.seatsDirty = true;
+    try {
+      this.flushSeats();
+    } catch (err) {
+      // Left marked dirty: the next write records the state without it, so the file never keeps a consent memory does not have.
+      this.seats.consent.withdraw(roleId);
+      throw err;
+    }
+  }
+
+  /**
+   * US-0054: the holder takes their consent back. Without consent the seat cannot take part, so, like a leave, the credential is
+   * revoked and the role released; then the seat state is persisted. A failed write throws; a retry by the same caller (the role is
+   * released by then) writes again. Anyone else, with nothing waiting to be written, gets not_joined.
+   */
+  withdrawConsent(roleId: string, participantId: string): void {
+    this.refuseOnceStarting();
+    if (this.holds(roleId, participantId)) {
+      if (this.seats) this.seatsDirty = true;
+      this.seats?.consent.withdraw(roleId);
+      this.seats?.credentials.revoke(roleId);
+      this.release(roleId, participantId);
+    } else if (!this.seatsDirty) throw new HostError("not_joined");
+    this.flushSeats();
+  }
+
+  private holds(roleId: string, participantId: string): boolean {
+    return Object.hasOwn(this.assignments, roleId) && this.assignments[roleId] === participantId;
+  }
+
+  /** US-0054: the consents and seats go into session.started, so they are frozen from the moment the start begins. */
+  private refuseOnceStarting(): void {
+    if (this.started || this.starting !== null) throw new HostError("already_started");
   }
 
   /**
@@ -161,10 +242,27 @@ export class SessionHost {
    */
   resumeFrom(info: ResumeInfo): void {
     this.started = true;
+    if (this.seats) this.adoptStartedConsents(info);
     const scene = info.sceneId;
     const evaluated = info.lastGmSeq === null ? 0 : this.engine.state.transcript.filter((u) => u.sceneId === scene && u.seq < info.lastGmSeq!).length;
     this.gm.restore(scene, evaluated);
     this.pendingAnswer = info.pendingLine ? scene : null;
+  }
+
+  /**
+   * R14: a resumed session counts as started, so every rejoin needs the consent the start recorded. When the consent file is lost
+   * (or lacks a role) the log's session.started is the record: seed the missing entries from it (store.adopt: shape checks, and no
+   * version comparison, so a newer notice does not lock the participants out). A log with no consents field predates the gate: skip the check.
+   */
+  private adoptStartedConsents(info: ResumeInfo): void {
+    const seats = this.seats!;
+    if (!info.startedConsents) { this.consentGrandfathered = true; return; }
+    for (const [roleId, c] of Object.entries(info.startedConsents)) {
+      if (seats.consent.hasEntry(roleId)) continue;
+      try { seats.consent.adopt(roleId, c.participantId, c.noticeVersion, c.at); this.seatsDirty = true; } catch (err) { this.report(`consent of ${roleId} from the log`, err); }
+    }
+    // The file is a cache of the log's record; write the seed when it can be (a failure is reported and retried by the next seat write).
+    try { this.flushSeats(); } catch (err) { this.report("writing the consents seeded from the log", err); }
   }
 
   /** The scene whose unanswered player line waits for /resume (null when none). */
@@ -173,10 +271,27 @@ export class SessionHost {
   /** `started` is set only after engine.start succeeds, so a failed start can be retried (never wedged). */
   async start(): Promise<void> {
     if (this.started) return;
-    this.starting ??= this.engine.start(this.assignments)
-      .then(() => { this.started = true; })
-      .finally(() => { this.starting = null; });
+    if (this.starting === null) {
+      // US-0054: the gate. Every start (the `start` message and the auto-start of a facilitator command) comes through here.
+      const extra = this.startGate();
+      // A copy: the gate checked these seats, so a release while the engine waits for its mutex must not change what is recorded.
+      this.starting = this.engine.start({ ...this.assignments }, extra)
+        .then(() => { this.started = true; })
+        .finally(() => { this.starting = null; });
+    }
     await this.starting;
+  }
+
+  /**
+   * US-0054: with seats, every player role must be held and its holder must have consented; else seats_not_ready names the roles.
+   * Returns what session.started records of the seats. Without seats (embedders and tests) nothing is checked or recorded.
+   */
+  private startGate(): SessionStartExtra | undefined {
+    const seats = this.seats;
+    if (!seats) return undefined;
+    const missing = Object.keys(this.scenario.roles).filter((r) => this.hasPlayerRole(r) && (!this.assignments[r] || !seats.consent.has(r, this.assignments[r])));
+    if (missing.length > 0) throw new HostError("seats_not_ready", missing);
+    return { consents: seats.consent.snapshot(), names: seats.credentials.names(), logIdentity: seats.credentials.logIdentity };
   }
 
   /** Serialises everything that mutates the session so NPC turns never interleave. */
@@ -350,8 +465,9 @@ export class SessionHost {
     const inScene = (sceneId: string | null | undefined) =>
       this.engine.state.sceneHistory.find((s) => s.id === sceneId)?.participants.includes(who) ?? false;
     switch (e.type) {
-      // Redacted copy: roles -> kinds only (participant ids/names are other people's display names).
-      case "session.started": return { ...e, roles: redactRoles(e.roles) };
+      // Default-deny: the player copy is built from the allowlist STARTED_FOR_PLAYERS (a new event field is a compile error until decided),
+      // with roles reduced to kinds and only the player's own consent. Names, log identity and unknown keys never reach a player.
+      case "session.started": return startedForPlayer(e, who);
       case "session.ended": return e;
       // Like a pause: every participant learns the session came back paused after a restart.
       case "session.resumed": return e;

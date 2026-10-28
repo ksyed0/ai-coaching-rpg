@@ -6,7 +6,7 @@ import { bootstrap } from "../main.js";
 import { isEvent, type Inbound } from "./bots.js";
 import { assertRotatedOnly, ensure, findInjectLeaks, findMarkers, logShapeProblems, missingMarkers, sceneTrace } from "./checks.js";
 import {
-  PARTICIPANT_NAMES, ROLE_PLAYERS, act, codeSecrets, connectBot, got, isJoinedMsg, npcRole, sceneIds, utterancesByScene,
+  PARTICIPANT_NAMES, ROLE_PLAYERS, act, codeSecrets, connectBot, consentAfterJoin, got, isJoinedMsg, playerJoin, npcRole, sceneIds, utterancesByScene,
   type Ctx, type PlayerId, type Story,
 } from "./ctx.js";
 import { FAKE_KEY } from "./harness.js";
@@ -178,6 +178,15 @@ export async function playAudit(ctx: Ctx, st: Story): Promise<void> {
       const f2 = await connectBot(ctx, "restart facilitator", { url: `ws://127.0.0.1:${r.runtime.port}` });
       const j = await f2.call({ type: "join_facilitator", sessionId: ctx.sessionId }, isJoinedMsg, { what: "the restarted server" });
       ensure(isJoinedMsg(j), "the facilitator could not join the restarted server");
+      // US-0054: the restarted server has no players seated, and a start now needs every player role held and consented: seat all three
+      // with the join codes it showed, and have each agree to the notice, before the start whose rotation this check is about.
+      const codes = Object.fromEntries(shown[0]!.map((x) => [x.roleId, x.code]));
+      for (const [role, who] of ROLE_PLAYERS) {
+        const p = await connectBot(ctx, `restart ${role}`, { url: `ws://127.0.0.1:${r.runtime.port}` });
+        const pj = await p.call(playerJoin(ctx, role, who, { codes }), isJoinedMsg, { what: `${role} to join the restarted server` });
+        ensure(isJoinedMsg(pj), `${role} could not join the restarted server with the join code it showed`);
+        await consentAfterJoin(ctx, p, role, pj);
+      }
       f2.send({ type: "start" });
       const started = await f2.waitFor(isEvent("session.started"), { what: "the new session's start" });
       const first = (started as Extract<Inbound, { type: "event" }>).event;

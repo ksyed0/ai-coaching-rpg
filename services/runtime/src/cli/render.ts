@@ -156,10 +156,34 @@ export function validReplay(v: unknown): { afterSeq: number; toSeq: number; even
   return n(r.afterSeq) && n(r.toSeq) && n(r.events) && typeof r.complete === "boolean" ? { afterSeq: r.afterSeq, toSeq: r.toSeq, events: r.events, complete: r.complete } : null;
 }
 
+/** Most notice lines printed; more is said so, never cut silently (the notice itself is at most 4,000 characters). */
+export const MAX_NOTICE_LINES = 200;
+
+/**
+ * US-0054: the notice a player is asked to agree to, one terminal line per notice line. Each line is sanitised on its own (the whole-text
+ * sanitiser would turn every newline into a marker and cap the total), so control, escape and bidi characters never reach the terminal.
+ */
+export function renderConsentNotice(c: unknown): string[] {
+  if (typeof c !== "object" || c === null) return [];
+  const o = c as Record<string, unknown>;
+  if (typeof o.notice !== "string" || typeof o.noticeVersion !== "string") return [];
+  const all = o.notice.slice(0, 8_000).split(/\r\n|\n|\u2028|\u2029/);
+  // Every notice line (and the cap marker) carries the prefix, so nothing the server wrote can pass for a chat line, an event, an alert or the client's own hint.
+  const shown = all.slice(0, MAX_NOTICE_LINES).map((l) => `notice | ${s(l)}`);
+  const more = all.length - shown.length;
+  return ["", ...shown, ...(more > 0 ? [`notice | (${more} more lines not shown)`] : []), o.given === true ? "you have agreed to this notice" : "type /consent to agree"];
+}
+
 export function renderError(code: string, message: string, asPlayer = false): string {
   if (code === "not_started") return "waiting for the facilitator to /start the session before anyone can speak";
   if (code === "unauthorized" && asPlayer) return "error: unauthorized: check the role and its join code from the facilitator (set JOIN_CODE, use --code-file <path>, or type it at the prompt)";
   if (code === "unauthorized") return "error: unauthorized: this server needs the facilitator token (set FACILITATOR_TOKEN, use --token-file <path>, or type it at the prompt)";
+  if (code === "seats_not_ready") {
+    // The message is `seats_not_ready: role1,role2`: the roles that have not joined or have not agreed to the notice.
+    const roles = message.includes(":") ? message.slice(message.indexOf(":") + 1).trim() : "";
+    return `cannot start yet: ${roles ? `waiting for ${s(roles)} to join and type /consent` : "every player must join and type /consent"}`;
+  }
+  if (code === "consent_required") return "you have not agreed to the notice for this seat: type /consent";
   if (code === "rate_limited") return "slow down: too many messages, some were dropped";
   if (code === "log_failed") return "the server can no longer record this session and is stopping; when it is back, rejoin: the session resumes, paused, from its log";
   return `error: ${s(code)}: ${s(message)}`;

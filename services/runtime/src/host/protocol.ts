@@ -36,6 +36,10 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("command"), command: FacilitatorCommandSchema, expectSceneId: Id.optional() }),
   // US-0053: a player gives up the seat for good: the credential is revoked, consent withdrawn and the connection closed (1000).
   z.object({ type: z.literal("leave") }),
+  // US-0054: a player agrees to the consent notice of this version (it must be the server's current one), or takes the consent back
+  // (which, like leave, revokes the credential and frees the seat). Both are refused once the start has begun.
+  z.object({ type: z.literal("consent"), noticeVersion: z.string().min(1).max(32) }),
+  z.object({ type: z.literal("withdraw_consent") }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
@@ -54,6 +58,8 @@ export type ServerMessage =
       /** US-0053: the durable credential, only on the join by code that asked for it (issueCredential). The one copy: never sent again. */
       credential?: string;
       /** US-0053: the session's random log identity, on every player join when the server keeps seats. */
-      logIdentity?: string }
+      logIdentity?: string;
+      /** US-0054: players only, when the server keeps seats: the notice to agree to and whether this participant has agreed. Never another role's. */
+      consent?: { noticeVersion: string; notice: string; given: boolean } }
   | { type: "event"; event: SessionEvent }
   | { type: "error"; code: string; message: string };

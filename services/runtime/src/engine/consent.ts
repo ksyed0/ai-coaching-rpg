@@ -41,7 +41,22 @@ export class ConsentStore {
     this.entries.set(roleId, { participantId, noticeVersion, at });
   }
 
+  /**
+   * R14: records a consent the session log holds, without comparing its notice version with the current one: the log is the history of what
+   * this participant agreed to at the start, and a restart under a newer notice must not lock them out. Same shape checks as give.
+   */
+  adopt(roleId: string, participantId: string, noticeVersion: string, at: number): void {
+    if (isReservedRoleId(roleId) || roleId.length === 0 || roleId.length > CLIENT_ID_MAX_CHARS) throw new ConsentError("invalid_input");
+    if (participantId.length === 0 || participantId.length > CLIENT_ID_MAX_CHARS) throw new ConsentError("invalid_input");
+    if (noticeVersion.length === 0 || noticeVersion.length > 64) throw new ConsentError("invalid_input");
+    if (!Number.isFinite(at) || at < 0) throw new ConsentError("invalid_input");
+    this.entries.set(roleId, { participantId, noticeVersion, at });
+  }
+
   withdraw(roleId: string): boolean { return this.entries.delete(roleId); }
+
+  /** Whether any entry stands for the role (whoever gave it). */
+  hasEntry(roleId: string): boolean { return this.entries.has(roleId); }
 
   /** True only when this participant gave the consent now held for the role. */
   has(roleId: string, participantId: string): boolean { return this.entries.get(roleId)?.participantId === participantId; }

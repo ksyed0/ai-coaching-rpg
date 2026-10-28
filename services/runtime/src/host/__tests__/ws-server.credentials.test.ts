@@ -232,6 +232,7 @@ describe("join by durable credential (US-0053)", () => {
     const t = await open(port);
     t.send(join({ joinCode: code }));
     await t.next((m) => m.type === "joined");
+    host.giveConsent("host", "alice", "v1"); // US-0054: a seats host starts only once every player consented
     await host.start();
     await host.command({ command: "advance" }); await engine.tick();
     await host.command({ command: "advance" }); await engine.tick();
@@ -290,12 +291,13 @@ describe("join by durable credential (US-0053)", () => {
   it("session.ended revokes every credential", async () => {
     const { port, host, engine, seats, persist, code } = await setup();
     const { c, j } = await webJoin(port, code);
+    host.giveConsent("host", "alice", "v1"); // US-0054: a seats host starts only once every player consented
     await host.start();
     await host.command({ command: "advance" }); await engine.tick();
     await host.command({ command: "advance" }); await engine.tick();
     expect(engine.state.status).toBe("ended");
     expect(seats.credentials.has("host")).toBe(false);
-    expect(persist).toHaveBeenCalledTimes(2);
+    expect(persist).toHaveBeenCalledTimes(3); // the issue, the consent, the end-of-session revoke
     c.ws.close(); await c.closed;
     await until(() => host.assignments.host === undefined);
     const d = await open(port);
