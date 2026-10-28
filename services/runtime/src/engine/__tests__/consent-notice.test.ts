@@ -25,6 +25,10 @@ describe("loadConsentNotice (US-0053)", () => {
     expect(n.text).toMatch(/facilitator/i);
     expect(n.text).toMatch(/\bAI\b/);
     expect(n.text).toMatch(/leave/i);
+    // The final review: peers see the typed name, and leave is refused after the start (so the notice must not promise a Leave button then).
+    expect(n.text).toMatch(/other participants see the display name/i);
+    expect(n.text).toMatch(/\/withdraw/);
+    expect(n.text).toMatch(/Once it has started, simply close the page/);
   });
 
   it("refuses a missing file, a bad version, an over-long text and control characters without quoting the file", async () => {

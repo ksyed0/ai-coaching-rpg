@@ -38,7 +38,7 @@ const A = {
   // The one answer to every refused join: it never tells whether the session, the role or the code was wrong, or the pair is blocked.
   joinRefused: { status: 401, code: "join_refused", message: "That did not work. Check the link and the code, or ask your facilitator for a new code." },
   notAcceptable: { status: 406, code: "not_acceptable", message: "This address is for the session page's live updates." },
-  notSignedIn: { status: 401, code: "unauthorized", message: "You are not signed in to this session. Open your join link again." },
+  notSignedIn: { status: 401, code: "unauthorized", message: "You are not signed in to this session. If you have not joined yet, use your join link; if you had joined, ask your facilitator." },
   busy: { status: 503, code: "busy", message: "Too many people are connected right now. Try again in a moment." },
   unavailable: { status: 503, code: "unavailable", message: "The session server cannot be reached. Try again in a moment." },
   noStream: { status: 409, code: "no_stream", message: "Open the session page first." },
@@ -90,6 +90,17 @@ const isSessionCookie = (v: unknown): v is SessionCookie => {
   const c = v as Record<string, unknown>;
   return ["sessionId", "roleId", "participantId", "credential", "logIdentity"].every((k) => typeof c[k] === "string") && typeof c.expiresAt === "number";
 };
+
+/**
+ * Whether a cookie value holds a seat in `sessionId` (it opens with one of the keys, is unexpired and names that session). The /join
+ * page uses it server side to send a seated player to their session instead of asking again for a code that no longer works. It
+ * returns only the yes or no: nothing from the cookie reaches the page.
+ */
+export function seatedIn(token: string | undefined, sessionId: string, keys: Config["cookieKeys"], now: number): boolean {
+  if (!token) return false;
+  const c = unseal<unknown>(token, keys, now);
+  return isSessionCookie(c) && c.sessionId === sessionId;
+}
 
 /** The cookie, or the 401 to answer. A cookie that cannot be opened (tampered, other key, expired) is cleared. */
 function signedIn(req: Request, deps: Deps): { cookie: SessionCookie } | { response: Response } {

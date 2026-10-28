@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkFetchSite, checkOrigin, clientAddress, normalizeAddress, requestAddress } from "../guards";
+import { checkFetchSite, checkOrigin, normalizeAddress, requestAddress } from "../guards";
 
 const ORIGIN = "https://play.example.org";
 const req = (headers: Record<string, string>) => new Request("https://play.example.org/api/v1/x", { method: "POST", headers });
@@ -33,20 +33,6 @@ describe("checkFetchSite", () => {
     expect(checkFetchSite(req({ "Sec-Fetch-Site": "cross-site" }))).toBe(false);
     expect(checkFetchSite(req({ "Sec-Fetch-Site": "same-site" }))).toBe(false);
     expect(checkFetchSite(req({ "Sec-Fetch-Site": "weird" }))).toBe(false);
-  });
-});
-
-describe("clientAddress", () => {
-  it("clientAddress takes the last entry", () => {
-    expect(clientAddress(req({ "X-Forwarded-For": "6.6.6.6, 10.0.0.1 ,  203.0.113.9 " }))).toBe("203.0.113.9");
-    expect(clientAddress(req({ "X-Forwarded-For": "203.0.113.9" }))).toBe("203.0.113.9");
-  });
-  it("is unknown when absent, empty or oversize", () => {
-    expect(clientAddress(req({}))).toBe("unknown");
-    expect(clientAddress(req({ "X-Forwarded-For": "1.1.1.1, " }))).toBe("unknown");
-    expect(clientAddress(req({ "X-Forwarded-For": " " }))).toBe("unknown");
-    expect(clientAddress(req({ "X-Forwarded-For": "a".repeat(65) }))).toBe("unknown");
-    expect(clientAddress(req({ "X-Forwarded-For": "a".repeat(64) }))).toBe("a".repeat(64));
   });
 });
 

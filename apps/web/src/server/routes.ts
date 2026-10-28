@@ -1,6 +1,6 @@
 import { loadConfig } from "./config";
 import { fail } from "./envelope";
-import { handleConsent, handleJoin, handleLeave, handleSay, handleStream, type Deps } from "./handlers";
+import { handleConsent, handleJoin, handleLeave, handleSay, handleStream, seatedIn, type Deps } from "./handlers";
 import { RuntimeConnection, realTimer } from "./runtime-connection";
 import { StreamHub } from "./stream-hub";
 import { JoinThrottle } from "./throttle";
@@ -26,6 +26,16 @@ function sharedDeps(): Deps {
   const g = globalThis as { [SHARED]?: Deps };
   // A configuration error throws every time (nothing cached), so fixing the environment and restarting is enough.
   return (g[SHARED] ??= createDeps(process.env));
+}
+
+/** For the /join page (server side only): whether this cookie value holds a seat in `sessionId`. False on a configuration error. */
+export function hasSeat(token: string | undefined, sessionId: string, getDeps: () => Deps = sharedDeps): boolean {
+  try {
+    const d = getDeps();
+    return seatedIn(token, sessionId, d.config.cookieKeys, d.now());
+  } catch {
+    return false;
+  }
 }
 
 type Handler = (req: Request, deps: Deps) => Promise<Response>;

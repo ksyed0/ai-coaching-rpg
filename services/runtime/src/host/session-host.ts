@@ -477,7 +477,8 @@ export class SessionHost {
       this.engine.state.sceneHistory.find((s) => s.id === sceneId)?.participants.includes(who) ?? false;
     switch (e.type) {
       // Default-deny: the player copy is built from the allowlist STARTED_FOR_PLAYERS (a new event field is a compile error until decided),
-      // with roles reduced to kinds and only the player's own consent. Names, log identity and unknown keys never reach a player.
+      // with roles reduced to kinds and only the player's own consent. Names and unknown keys never reach a player. The log identity is not
+      // copied here either, but it is not a secret: a player's `joined` carries it so a web client can tell a new log apart.
       case "session.started": return startedForPlayer(e, who);
       case "session.ended": return e;
       // Like a pause: every participant learns the session came back paused after a restart.

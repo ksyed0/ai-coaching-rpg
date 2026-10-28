@@ -1,9 +1,9 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { joinUrl, playerContext, PLAYERS, say, seat, type Player } from "./helpers/players";
-import { startStack, type Stack } from "./helpers/start-stack";
+import { SESSION_ID, startStack, type Stack } from "./helpers/start-stack";
 
-// Accessibility on the three participant screens, in the light and the dark scheme (prefers-color-scheme emulated), and the phone
+// Accessibility on the participant screens (join, lobby, session view, and the other-tab, connection-closed and ended screens), in the light and the dark scheme (prefers-color-scheme emulated), and the phone
 // width. Styling is class-only (the CSP allows only nonce'd styles), so what Axe sees is what a participant sees.
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
@@ -32,8 +32,8 @@ async function seatedAndConsented(browser: Browser, width?: number): Promise<Rec
   return pages;
 }
 
-test("no serious or critical Axe violations on /join, the lobby and the session view, in light and dark", async ({ browser }) => {
-  test.setTimeout(150_000);
+test("no serious or critical Axe violations on /join, the lobby, the session view and the final screens, in light and dark", async ({ browser }) => {
+  test.setTimeout(240_000);
   stack = await startStack();
 
   const joinCtx = await playerContext(browser);
@@ -59,6 +59,20 @@ test("no serious or critical Axe violations on /join, the lobby and the session 
   await stack.terminalFacilitator.command({ command: "pause" });
   await expect(pages.delivery_lead.getByLabel("Say something")).toBeDisabled();
   await checkBothSchemes(pages.delivery_lead, "the session view (paused)");
+
+  // The final screens: another tab took the seat; a stream the browser closed (no cookie, a 401); the end with the transcript kept.
+  const second = await pages.delivery_lead.context().newPage();
+  await second.goto(`${stack.baseUrl}/session/${SESSION_ID}`);
+  await expect(pages.delivery_lead.getByRole("heading", { name: "Open in another tab" })).toBeVisible({ timeout: 30_000 });
+  await checkBothSchemes(pages.delivery_lead, "open in another tab");
+  const stranger = await (await playerContext(browser)).newPage();
+  await stranger.goto(`${stack.baseUrl}/session/${SESSION_ID}`);
+  await expect(stranger.getByRole("heading", { name: "Connection closed" })).toBeVisible({ timeout: 30_000 });
+  await checkBothSchemes(stranger, "connection closed");
+  await stack.terminalFacilitator.command({ command: "resume" });
+  for (let i = 0; i < 3; i++) await stack.terminalFacilitator.command({ command: "advance" });
+  await expect(pages.tech_lead.getByRole("heading", { name: "The session has ended" })).toBeVisible({ timeout: 30_000 });
+  await checkBothSchemes(pages.tech_lead, "the end");
 });
 
 test("no horizontal scroll at 400 px", async ({ browser }) => {

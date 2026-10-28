@@ -27,7 +27,7 @@ export type Consent = { noticeVersion: string; notice: string; given: boolean };
 /** The joined fields the page uses (the BFF already picked them; the credential never reaches the browser). */
 export type Joined = { roleId: string; brief?: string; privateFacts?: string[]; consent?: Consent; scenes: PlayerScene[]; logIdentity?: string };
 
-export type FinalKind = "superseded" | "signed_out" | "ended" | "expired" | "left";
+export type FinalKind = "superseded" | "signed_out" | "ended" | "expired" | "left" | "closed";
 export type SessionUi = {
   /** connecting: no joined yet; live: joined; reconnecting: dropped, the browser is coming back. */
   conn: "connecting" | "live" | "reconnecting";
@@ -44,6 +44,7 @@ const FINAL_MESSAGES: Record<FinalKind, string> = {
   ended: MESSAGES.sessionEnded,
   expired: MESSAGES.expired,
   left: MESSAGES.left,
+  closed: MESSAGES.streamClosed,
 };
 const CLOSING_EVENTS = ["superseded", "signed_out", "ended", "expired"] as const;
 
@@ -174,8 +175,10 @@ export function useSession(sessionId: string, deps: SessionDeps) {
       // too: that is a notice, handled above, not a connection problem.
       if (es.readyState === 1 || (typeof MessageEvent !== "undefined" && e instanceof MessageEvent)) return;
       // CLOSED: the browser gave up, which it does only on an HTTP error or a wrong content type (a dropped network stays
-      // CONNECTING and retries). From this route that is a 401 (no, expired or foreign cookie): signed out, and no retry loop.
-      if (es.readyState === 2) finish("signed_out");
+      // CONNECTING and retries). From this route that is a 401 (no, expired or foreign cookie), a 403 (cross-site), a 406 (not an
+      // event stream) or a 503 (the stream cap is full), and EventSource does not say which. Some are fixed by a reload, so the page
+      // says "reload, then ask your facilitator" (a real `signed_out` event keeps its own text); no retry loop of our own.
+      if (es.readyState === 2) finish("closed");
       else dispatch({ type: "dropped" });
     };
     return () => { finished = true; es.close(); if (esRef.current === es) esRef.current = null; };

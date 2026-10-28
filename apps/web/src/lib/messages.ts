@@ -7,6 +7,9 @@ export const MESSAGES = {
   superseded: "This session is open in another tab. Use that tab, or reload this page to continue here.",
   // The second half is SIGNED_OUT_MESSAGE in src/server/handlers.ts (a test keeps them together).
   signedOut: "You are signed out of this session: ask your facilitator for a new code.",
+  // The browser closed the stream itself after an HTTP error it does not show us (401, 403, 406 or a 503 from a full stream cap): a
+  // reload fixes the recoverable ones, so do not send the player straight to the facilitator.
+  streamClosed: "The connection to this session was closed. Reload the page; if that does not help, ask your facilitator.",
   expired: "Your sign-in for this session has expired: ask your facilitator for a new code.",
   sessionEnded: "The session has ended. Thank you for taking part.",
   left: "You have left the session and your seat is free. To come back, open your join link again or ask your facilitator.",

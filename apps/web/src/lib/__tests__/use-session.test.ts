@@ -113,11 +113,12 @@ describe("useSession: the stream", () => {
     expect(hook.result.current.state.final?.kind).toBe("ended");
   });
 
-  it("a stream the browser closed (an HTTP error such as a 401: no, expired or foreign cookie) is signed out, with no retry loop", () => {
+  it("a stream the browser closed (an HTTP error: 401, 403, 406 or a 503 from a full cap) says to reload, then ask the facilitator, with no retry loop", () => {
     const { hook, es } = start();
     act(() => es().fail());
-    expect(hook.result.current.state.final?.kind).toBe("signed_out");
-    expect(hook.result.current.state.final?.message).toContain(SIGNED_OUT_MESSAGE);
+    expect(hook.result.current.state.final?.kind).toBe("closed");
+    expect(hook.result.current.state.final?.message).toBe("The connection to this session was closed. Reload the page; if that does not help, ask your facilitator.");
+    expect(hook.result.current.state.final?.message).not.toContain(SIGNED_OUT_MESSAGE);
     expect(es().closed).toBe(true);
     expect(FakeEventSource.instances).toHaveLength(1);
     expect("retry" in hook.result.current).toBe(false);

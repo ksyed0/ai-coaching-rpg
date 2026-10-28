@@ -9,7 +9,7 @@ export type Player = (typeof PLAYERS)[number];
 /**
  * A browser context for one person. The browser talks to `next start` directly, so there is no Caddy to set X-Forwarded-For: each
  * context sends the one local address Caddy would append (a single entry, as in production), so the BFF and the runtime key their
- * throttles and caps on a real address rather than the shared "unknown" key of a proxy-less deployment.
+ * throttles and caps on that address. (Without it `next start` would fill in the socket address, also local here.)
  */
 export function playerContext(browser: Browser, o: { width?: number; colorScheme?: "light" | "dark" } = {}): Promise<BrowserContext> {
   return browser.newContext({

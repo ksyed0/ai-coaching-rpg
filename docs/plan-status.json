@@ -2126,7 +2126,7 @@
       "acs": [
         {
           "id": "AC-0266",
-          "text": "with TRUST_PROXY=1 the runtime reads the real client address from the last X-Forwarded-For entry and the BFF sets it only from the entry its own proxy appended (runtime part since US-0017; the BFF accepts exactly one X-Forwarded-For entry, normalised, refuses a list or an empty value with a neutral 400 and passes the address to the runtime: guards.test.ts, handlers.test.ts, runtime-connection.test.ts; TC-0058. Deployment requirement: the proxy replaces the header with one entry, and without it every client shares the key `unknown`: docs/THREAT_MODEL.md)",
+          "text": "with TRUST_PROXY=1 the runtime reads the real client address from the last X-Forwarded-For entry and the BFF sets it only from the entry its own proxy appended (runtime part since US-0017; the BFF accepts exactly one X-Forwarded-For entry, normalised, refuses a list or an empty value with a neutral 400 and passes the address to the runtime: guards.test.ts, handlers.test.ts, runtime-connection.test.ts; TC-0058. Deployment requirement: the proxy replaces the header with one entry. `next start` fills an absent header with the socket address, so behind a proxy that does not set it every client shares the proxy's address, and with no proxy a client can forge a one-entry header to choose its own key: docs/THREAT_MODEL.md)",
           "done": true
         },
         {
@@ -2347,7 +2347,7 @@
         },
         {
           "id": "AC-0296",
-          "text": "Axe accessibility checks pass on every participant screen and the layout has no horizontal scroll at 400px (apps/web/e2e/axe.spec.ts, light and dark; TC-0073)",
+          "text": "Axe accessibility checks pass on every participant screen and the layout has no horizontal scroll at 400px (apps/web/e2e/axe.spec.ts, light and dark, WCAG 2.0 and 2.1 A and AA, serious and critical findings only (moderate and minor ones are not checked); screens: /join, /join with a refusal, the lobby, the running and the paused session view, open in another tab, connection closed and the ended view; the signed-out screen shares the closed screen's component and is not scanned separately; 400 px: /join, the lobby and the session view; TC-0073)",
           "done": true
         },
         {
@@ -5573,9 +5573,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-28T01:00:03.589Z",
-  "commitSha": "4d28f6f",
-  "buildNumber": "329",
+  "generatedAt": "2026-10-28T01:17:57.022Z",
+  "commitSha": "22a74c9",
+  "buildNumber": "330",
   "branch": "feature/EPIC-0002-US-0065-web-e2e",
   "sessionTimeline": [
     {
@@ -5833,7 +5833,7 @@
       "2026-10-25T00:57:59.794Z",
       "2026-10-26T00:57:59.794Z",
       "2026-10-27T00:57:59.794Z",
-      "2026-10-28T01:00:03.618Z"
+      "2026-10-28T01:17:57.054Z"
     ],
     "doneCounts": [
       0,

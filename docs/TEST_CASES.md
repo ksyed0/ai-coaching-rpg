@@ -893,7 +893,7 @@ Preconditions: A checkout of the branch.
 Steps:
   1. Run `pnpm --filter @acr/web exec vitest run src/server/__tests__/guards.test.ts src/server/__tests__/throttle.test.ts src/server/__tests__/stream-hub.test.ts src/server/__tests__/handlers.test.ts`.
   2. Run `pnpm --filter @acr/runtime exec vitest run src/host/__tests__/ws-server.credentials.test.ts`.
-Expected Result: the web server takes the client address from a single `X-Forwarded-For` entry, normalised (IPv4-mapped IPv6 folds to IPv4); an empty or comma-separated value is a neutral 400 and an absent header is the shared key `unknown`; it passes the address to the runtime in `X-Forwarded-For`; its join throttle blocks one (address, role) and not another, fails closed when its table is full of blocks, and is not charged while a pair is blocked; its stream caps (total, per session, per address) answer 503 before the runtime is contacted; a refused credential is charged to `cred:<role>` at the runtime, never to the address-level scope, and the web server answers it with `signed_out` and a cleared cookie, so the browser does not retry it.
+Expected Result: the web server takes the client address from a single `X-Forwarded-For` entry, normalised (IPv4-mapped IPv6 folds to IPv4); an empty or comma-separated value is a neutral 400 (an absent header cannot reach a route under `next start`, which fills in the socket address; in unit tests it is the key `unknown`); it passes the address to the runtime in `X-Forwarded-For`; its join throttle blocks one (address, role) and not another, fails closed when its table is full of blocks, and is not charged while a pair is blocked; its stream caps (total, per session, per address) answer 503 before the runtime is contacted; a refused credential is charged to `cred:<role>` at the runtime, never to the address-level scope, and the web server answers it with `signed_out` and a cleared cookie, so the browser does not retry it.
 Actual Result: As expected (guards, throttle, stream-hub, handlers and ws-server.credentials tests) during the slice 2a build, 2026-10-27/28.
 Status: [x] Pass
 Defect Raised: None
@@ -1065,7 +1065,7 @@ Expected Result: no cookie, a tampered, expired or other-session cookie get 401 
 Actual Result: As expected (handlers, sse and stream-hub tests) during the slice 2a build, 2026-10-27/28.
 Status: [x] Pass
 Defect Raised: None
-Notes: Review Focus 4 and 5. Known limits (non-transient refusals loop as Reconnecting; a 503 or 406 reads as "ask your facilitator for a new code") are in docs/THREAT_MODEL.md.
+Notes: Review Focus 4 and 5. Known limits (non-transient refusals loop as Reconnecting; a closed stream (401, 403, 406 or 503) says only "reload, then ask your facilitator") are in docs/THREAT_MODEL.md.
 
 TC-0070: Pages render everything as text under a nonce CSP and stay out of search
 Related Story: US-0056
@@ -1120,7 +1120,7 @@ Type: Accessibility
 Preconditions: As TC-0072.
 Steps:
   1. Run `pnpm --filter @acr/web e2e` and read `axe.spec.ts`.
-Expected Result: no serious or critical Axe violation (WCAG 2.0 and 2.1, A and AA) on `/join`, `/join` with a refusal, the lobby, the running session view and the paused view, in light and dark (the colour-scheme media query is checked to match); no horizontal scroll at 400 px on `/join`, the lobby and the session view with an unbroken 180-character word in the transcript.
+Expected Result: no serious or critical Axe violation (WCAG 2.0 and 2.1, A and AA) on `/join`, `/join` with a refusal, the lobby, the running session view, the paused view, the open-in-another-tab screen, the connection-closed screen and the ended view, in light and dark (moderate and minor findings are not checked) (the colour-scheme media query is checked to match); no horizontal scroll at 400 px on `/join`, the lobby and the session view with an unbroken 180-character word in the transcript.
 Actual Result: As expected on 2026-10-28.
 Status: [x] Pass
 Defect Raised: None

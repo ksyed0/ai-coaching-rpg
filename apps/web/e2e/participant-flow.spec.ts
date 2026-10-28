@@ -152,11 +152,19 @@ test("start is refused while one player has not consented and the page shows the
   await expect(other.locator("p.err[role=alert]")).toHaveText(REFUSED);
   await expect(other).toHaveURL(/\/join\?/);
 
+  // The seated player who opens their join link again is sent back to their session, not asked for the code that no longer works.
+  const again = await am.page.context().newPage();
+  await again.goto(`${stack.baseUrl}/join?session=${SESSION_ID}&role=account_manager`);
+  await again.waitForURL(`**/session/${SESSION_ID}`);
+  await expect(again.getByLabel("Your join code")).toHaveCount(0);
+  // The new tab took the seat (the older tab is superseded), so the account manager carries on in it.
+  await expect(again.getByRole("heading", { name: /Consent, notice/ })).toBeVisible();
+
   // Once the last player consents, the roster says so and the start goes through.
-  await consent(am.page);
+  await consent(again);
   await expect(seatOf(dl.page, "Ama")).toContainText("Ready");
   await stack.terminalFacilitator.start();
-  await expect(am.page.getByRole("heading", { name: "Play the scene" })).toBeVisible();
+  await expect(again.getByRole("heading", { name: "Play the scene" })).toBeVisible();
 });
 
 test("after a runtime restart with an empty log the player sees 'ask your facilitator for a new code'", async ({ browser }) => {
@@ -173,9 +181,10 @@ test("after a runtime restart with an empty log the player sees 'ask your facili
   expect(stack.codes.tech_lead).not.toBe(oldCode);
   await expect(page.getByText("You are signed out of this session: ask your facilitator for a new code.")).toBeVisible({ timeout: 60_000 });
   await expect(page.getByRole("heading", { name: "Signed out" })).toBeVisible();
-  // The page does not keep retrying: a reload with the cleared cookie reads the same.
+  // The page does not keep retrying. A reload with the cleared cookie gets a 401, which the browser does not show the page: it says
+  // to reload, then ask the facilitator (a full stream cap reads the same, and a reload fixes that one).
   await page.reload();
-  await expect(page.getByText("You are signed out of this session: ask your facilitator for a new code.")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("The connection to this session was closed. Reload the page; if that does not help, ask your facilitator.")).toBeVisible({ timeout: 30_000 });
 
   // The facilitator's new code seats the player again.
   await joinAs(page, stack, "tech_lead", "Tomás");

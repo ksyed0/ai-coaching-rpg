@@ -16,6 +16,7 @@ version before slice 2a for any other reason.
 
 - **Log format 2.** The runtime now writes `LOG_FORMAT` 2: `session.started` gains `consents`, `names` and `logIdentity`. It still reads logs of formats 0, 1 and 2.
 - **An older runtime refuses format 2.** A runtime from before slice 2a reads formats up to 1 and refuses to resume a log of format 2 with `the log has format 2, newer than this version reads (1); upgrade, or start fresh` (`RestoreError` `log_format`). It does not modify the log.
+- **An older evaluator still reads format 2.** `pnpm evaluate` before slice 2a (`evaluator/log-reader.ts`) has no format check and replays the log through the reducer, which ignores the new `session.started` fields, so it scores a format 2 log as before (checked by reading the code at `d9c0e69`, not by running it). It does not use the new `names` and `consents` fields.
 - **New files beside each session log:** `data/sessions/<id>.credentials.json` (salted credential hashes, typed display names, the log identity) and `<id>.consent.json` (who consented, under which notice version, when), both mode `0600`. An older runtime does not read, write or remove them.
 - **New runtime setting:** `CONSENT_NOTICE_VERSION` (default `v1`) and the `consent/` directory, which the new runtime needs at start. An older runtime ignores both.
 - **The web app** (`apps/web`) is a separate process (`next start`) with its own settings (`RUNTIME_URL`, `PUBLIC_ORIGIN`, `COOKIE_KEYS`, `COOKIE_MAX_AGE_HOURS`, `WEB_MAX_STREAMS*`). It keeps no data of its own; participants' cookies hold their seats.
