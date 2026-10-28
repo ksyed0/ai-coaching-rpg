@@ -20,6 +20,10 @@ async function checkBothSchemes(page: Page, screen: string) {
   for (const scheme of ["light", "dark"] as const) {
     await page.emulateMedia({ colorScheme: scheme });
     expect(await page.evaluate(() => matchMedia("(prefers-color-scheme: dark)").matches), `${screen}: the ${scheme} scheme is in effect`).toBe(scheme === "dark");
+    // Switching the scheme starts the buttons' background-colour transition while their text colour flips at once; Axe measures
+    // computed colours, so measuring mid-transition reads a half-way background (seen in CI as a failing button contrast). Wait for
+    // every animation and transition on the page to finish first.
+    await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== "running" && !a.pending));
     expect(await seriousViolations(page), `${screen} (${scheme})`).toEqual([]);
   }
 }
@@ -87,7 +91,7 @@ test("no horizontal scroll at 400 px", async ({ browser }) => {
   const pages = await seatedAndConsented(browser, 400);
   expect(await noHorizontalScroll(pages.delivery_lead), "the lobby").toEqual({ scroll: 400, client: 400 });
   await stack.terminalFacilitator.start();
-  await expect(pages.delivery_lead.getByRole("heading", { name: "Play the scene" })).toBeVisible();
+  for (const role of PLAYERS) await expect(pages[role].getByRole("heading", { name: "Play the scene" })).toBeVisible();
   // A long unbroken word must wrap, not widen the page.
   await say(pages.tech_lead, `A${"a".repeat(180)}h, said without a single space to break it.`);
   await say(pages.delivery_lead, "A short reply.");

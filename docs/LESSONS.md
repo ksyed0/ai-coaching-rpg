@@ -184,3 +184,11 @@ _Learned when two browser tabs joining one seat could both end "superseded": the
 **Rule:** When a test waits for a message that a trigger should cause, take the position in the inbox (or a counter) just before the trigger and wait only for messages after it. A predicate that an earlier message already satisfies makes the test pass with the feature removed. Prove each such test by deleting the behaviour once and seeing it fail.
 _Learned when the roster tests waited for a roster frame with `f.next()` that matched the roster sent at join, so removing the consent, leave or disconnect broadcast still passed (Task 8 of slice 2a); the fix took an offset before each trigger and every broadcast was then proven by mutation._
 **Date:** 2026-10-28
+
+## L-0024 — Let the page settle before an accessibility scan measures it
+
+@agent: all
+
+**Rule:** Before Axe (or any check that reads computed colours or layout) runs, wait for a settled page: the state you mean to test is reached (the message shown, the control enabled, not busy) and `document.getAnimations()` has nothing running or pending. A colour transition that starts when the colour scheme changes leaves a half-way background beside text that switched at once, so a contrast check passes or fails depending on timing. Reproduce such a failure by slowing the transition (or the animation playback rate) in a scratch build, never by waiting longer.
+_Learned when the first two CI runs of the web Axe spec failed in different places: once a button's contrast on the refused join screen right after switching from dark to light (its 0.12 s background transition was mid-way), once a line that never reached the transcript; a 3 s transition in a scratch build made the first failure happen every time, and waiting for the animations to finish fixed it._
+**Date:** 2026-10-28

@@ -47,13 +47,32 @@ export async function seat(browser: Browser, stack: Stack, role: Player, name: s
   return { context, page };
 }
 
-/** Says a line through the say box and waits until it is in this page's transcript. */
+/**
+ * Says a line through the say box and waits until it is in this page's transcript. It first waits for a settled box (enabled, not
+ * busy, holding exactly the typed text), then requires the BFF to accept the POST: a refused line fails here with the BFF's answer,
+ * instead of as a transcript line that never comes.
+ */
 export async function say(page: Page, text: string): Promise<void> {
   const box = page.getByLabel("Say something");
+  const button = page.getByRole("button", { name: "Say", exact: true });
   await expect(box).toBeEnabled();
+  await expect(box).not.toHaveAttribute("aria-busy", "true");
   await box.fill(text);
-  await page.getByRole("button", { name: "Say", exact: true }).click();
-  await expect(transcript(page).getByText(text, { exact: true })).toHaveCount(1);
+  await expect(box).toHaveValue(text);
+  await expect(button).toBeEnabled();
+  const [answer] = await Promise.all([
+    page.waitForResponse((r) => new URL(r.url()).pathname === "/api/v1/say" && r.request().method() === "POST"),
+    button.click(),
+  ]);
+  expect(answer.status(), `POST /api/v1/say answered ${answer.status()}: ${await answer.text()}`).toBe(200);
+  try {
+    await expect(transcript(page).getByText(text, { exact: true })).toHaveCount(1);
+  } catch (err) {
+    // The runtime may refuse a line after the BFF's short send window (the refusal then reaches the page as a notice): say what the
+    // page shows, so a CI failure names its cause.
+    const shown = await page.locator("[role=status], [role=alert]").allInnerTexts();
+    throw new Error(`the line never reached the transcript; the page shows: ${JSON.stringify(shown)}`, { cause: err });
+  }
 }
 
 export const transcript = (page: Page) => page.getByRole("list", { name: "Transcript" });

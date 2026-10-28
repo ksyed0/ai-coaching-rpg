@@ -1124,7 +1124,7 @@ Expected Result: no serious or critical Axe violation (WCAG 2.0 and 2.1, A and A
 Actual Result: As expected on 2026-10-28.
 Status: [x] Pass
 Defect Raised: None
-Notes: Mutations that lowered the dark-theme contrast or forced a 560 px minimum width each failed the spec.
+Notes: Mutations that lowered the dark-theme contrast or forced a 560 px minimum width each failed the spec. The spec waits for every animation and transition to finish after switching the colour scheme (L-0024): the first CI run measured a button mid-transition.
 
 TC-0074: `pnpm demo --web` checks W-01 to W-08
 Related Story: US-0065
