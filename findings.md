@@ -22,6 +22,7 @@ All pinned to exact versions. Release dates are the publish date of the pinned v
 | @vitejs/plugin-react | 5.2.0 | React transform for vitest (6.x needs Vite 8; the workspace is on Vite 7) | MIT | 2026-03-12 | 2026-10-05 |
 | @playwright/test | 1.64.0 | Browser end-to-end tests | Apache-2.0 | 2026-10-07 | 2026-10-27 |
 | @axe-core/playwright | 4.13.0 | Accessibility checks in the e2e tests | MPL-2.0 | 2026-08-11 | 2026-10-27 |
+| tsx | 4.23.15 | Runs `src/demo/web-demo.ts` and the e2e runtime child (`pnpm demo --web`, US-0065); the version the workspace lockfile already resolves, so no new package | MIT | 2026-09-20 | 2026-09-20 |
 
 ## Exceptions to the two-week rule
 

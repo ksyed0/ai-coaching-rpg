@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { stat, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -93,7 +94,23 @@ export type RunDeps = {
   setTimer?: (fire: () => void, ms: number) => () => void;
   /** Test hook: runs right after the run's temp directory is created, before it is filled and handed to the run (tests abort the run here, BUG-0007). */
   afterTempCreated?: (root: string) => Promise<void> | void;
+  /** `--web`: starts the web package's demo and resolves with its exit code. Default: spawnWebDemo in the repo root. */
+  spawnWeb?: (o: { env: NodeJS.ProcessEnv }) => Promise<number>;
 };
+
+/**
+ * `pnpm demo --web`: runs `pnpm --filter @acr/web demo` (it builds apps/web and runs src/demo/web-demo.ts) with the terminal's own
+ * stdio, and resolves with its exit code (1 when a signal ended it). The runtime package never imports from apps/web.
+ */
+export function spawnWebDemo(o: { cwd: string; env: NodeJS.ProcessEnv; command?: readonly [string, readonly string[]] }): Promise<number> {
+  const [cmd, args] = o.command ?? spawnWebDemo.defaultCommand;
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, [...args], { cwd: o.cwd, env: o.env, stdio: "inherit" });
+    child.once("error", reject);
+    child.once("exit", (code) => resolve(code ?? 1));
+  });
+}
+spawnWebDemo.defaultCommand = ["pnpm", ["--filter", "@acr/web", "demo"]] as const;
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const realTimer = (fire: () => void, ms: number): (() => void) => { const t = setTimeout(fire, ms); return () => clearTimeout(t); };
@@ -124,6 +141,14 @@ export async function runDemo(deps: RunDeps): Promise<{ exitCode: number; report
   if (!parsed.ok) { deps.stderr.write(`${scrubText(parsed.error)}\n${parsed.usage}\n`); return { exitCode: 2 }; }
   const opts = parsed.opts;
   if (opts.help) { deps.stdout.write(`${DEMO_USAGE}\n`); return { exitCode: 0 }; }
+  if (opts.web) {
+    const env = opts.noColor ? { ...deps.env, NO_COLOR: "1" } : { ...deps.env };
+    try { return { exitCode: await (deps.spawnWeb ?? ((o) => spawnWebDemo({ cwd: deps.repoRoot ?? REPO_ROOT, env: o.env })))({ env }) }; }
+    catch (err) {
+      deps.stderr.write(`error: could not start the web demo (pnpm --filter @acr/web demo): ${scrubText(err instanceof Error ? err.message : String(err))}\n`);
+      return { exitCode: 1 };
+    }
+  }
 
   const repoRoot = deps.repoRoot ?? REPO_ROOT;
   const now = deps.now ?? Date.now;

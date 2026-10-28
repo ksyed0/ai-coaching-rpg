@@ -13,6 +13,7 @@ const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/+-]*$/;
 
 export const DEMO_USAGE = [
   "usage: pnpm demo [--fast] [--speed <x>] [--json <path|->] [--live] [--max-fallbacks <n>] [--url <ws://host:port>] [--session <id>] [--transcript <path.md>] [--security] [--resume] [--no-color] [--help]",
+  "       pnpm demo --web [--no-color]",
   "       pnpm demo --showcase [--scenario <dir>] [--max-lines <n>] [--max-fallbacks <n>] [--watchdog <minutes>] [--players scripted|generated] [--player-model <id>] [--no-intents] [--evaluate] [--eval-out <dir>] [--gm-trace <path.jsonl>] [--min-gm-exits <n>] [--max-false-exits <n>] [--live] [--fast] [--json <path|->]",
   `  --fast            no pacing delays (instant narration)`,
   `  --speed <x>       scale the pacing, ${MIN_SPEED} to ${MAX_SPEED} (default 1; 2 is twice as fast)`,
@@ -26,6 +27,8 @@ export const DEMO_USAGE = [
   "                    on two extra in-process servers (not with --url or --showcase)",
   "  --resume          also run the resume room (F-34 to F-43): a server killed mid-scene and restarted on its log, what a restart",
   "                    refuses (another scenario, a corrupt log, a log another server holds) and the fresh and ended rotations (not with --url or --showcase)",
+  "  --web             the participant web client instead: builds apps/web and runs its own demo (checks W-01 to W-08) against the runtime",
+  "                    in mock mode, `next start` and three generated players over HTTP; runs on its own (only --no-color may go with it)",
   "  --session <id>    session id (default: demo, or local with --url)",
   "  --no-color        plain output (also: NO_COLOR, or output that is not a terminal)",
   "  --showcase        play the longer scenario so the AI characters and the Game Master do substantial work (works with --live;",
@@ -68,11 +71,13 @@ export type DemoOptions = {
   security?: true;
   /** Only set with `--resume`: adds the resume room checks F-34 to F-43 to the default run. */
   resume?: true;
+  /** Only set with `--web`: the runner hands over to the web package's demo (W-01 to W-08) and runs nothing of its own. */
+  web?: true;
 };
 export type DemoArgsResult = { ok: true; opts: DemoOptions } | { ok: false; error: string; usage: string };
 
 const fail = (error: string): DemoArgsResult => ({ ok: false, error, usage: DEMO_USAGE });
-const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript", "players", "player-model", "no-intents", "evaluate", "eval-out", "gm-trace", "min-gm-exits", "max-false-exits", "security", "resume"];
+const FLAGS = ["fast", "speed", "json", "live", "url", "session", "no-color", "help", "showcase", "scenario", "max-lines", "max-fallbacks", "watchdog", "transcript", "players", "player-model", "no-intents", "evaluate", "eval-out", "gm-trace", "min-gm-exits", "max-false-exits", "security", "resume", "web"];
 const hasControl = hasControlCharacters;
 
 /** Validates a --url value. The error never echoes the value (it may carry credentials). */
@@ -94,18 +99,22 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
     const n = argv.filter((a) => a === `--${f}` || a.startsWith(`--${f}=`)).length;
     if (n > 1) return fail(`error: --${f} was given more than once`);
   }
-  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string; transcript?: string; players?: string; "player-model"?: string; "no-intents"?: boolean; evaluate?: boolean; "eval-out"?: string; "gm-trace"?: string; "min-gm-exits"?: string; "max-false-exits"?: string; security?: boolean; resume?: boolean };
+  let values: { fast?: boolean; speed?: string; json?: string; live?: boolean; url?: string; session?: string; "no-color"?: boolean; help?: boolean; showcase?: boolean; scenario?: string; "max-lines"?: string; "max-fallbacks"?: string; watchdog?: string; transcript?: string; players?: string; "player-model"?: string; "no-intents"?: boolean; evaluate?: boolean; "eval-out"?: string; "gm-trace"?: string; "min-gm-exits"?: string; "max-false-exits"?: string; security?: boolean; resume?: boolean; web?: boolean };
   try {
     ({ values } = nodeParseArgs({
       args: argv, allowPositionals: false, strict: true,
       options: {
         fast: { type: "boolean" }, speed: { type: "string" }, json: { type: "string" }, live: { type: "boolean" },
         url: { type: "string" }, session: { type: "string" }, "no-color": { type: "boolean" }, help: { type: "boolean" },
-        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" }, transcript: { type: "string" }, players: { type: "string" }, "player-model": { type: "string" }, "no-intents": { type: "boolean" }, evaluate: { type: "boolean" }, "eval-out": { type: "string" }, "gm-trace": { type: "string" }, "min-gm-exits": { type: "string" }, "max-false-exits": { type: "string" }, security: { type: "boolean" }, resume: { type: "boolean" },
+        showcase: { type: "boolean" }, scenario: { type: "string" }, "max-lines": { type: "string" }, "max-fallbacks": { type: "string" }, watchdog: { type: "string" }, transcript: { type: "string" }, players: { type: "string" }, "player-model": { type: "string" }, "no-intents": { type: "boolean" }, evaluate: { type: "boolean" }, "eval-out": { type: "string" }, "gm-trace": { type: "string" }, "min-gm-exits": { type: "string" }, "max-false-exits": { type: "string" }, security: { type: "boolean" }, resume: { type: "boolean" }, web: { type: "boolean" },
       },
     }));
   } catch (err) { return fail(`error: ${(err as Error).message.split("\n")[0]}`); }
 
+  // --web hands over to apps/web's own demo: nothing else here applies to it (only --no-color, passed on as NO_COLOR).
+  if (values.web && Object.entries(values).some(([k, v]) => v !== undefined && k !== "web" && k !== "no-color")) {
+    return fail("error: --web runs on its own (only --no-color may go with it): it starts the web stack's own demo");
+  }
   if (values.fast && values.speed !== undefined) return fail("error: --fast and --speed cannot be combined");
 
   let speed = 1;
@@ -181,7 +190,7 @@ export function parseDemoArgs(argv: string[]): DemoArgsResult {
       session: values.session, noColor: values["no-color"] === true, help: values.help === true,
       showcase: values.showcase === true ? true : undefined, scenario: values.scenario, maxLines, maxFallbacks, watchdog, transcript: values.transcript,
       players: values.players === "generated" ? "generated" : undefined, playerModel: values["player-model"], noIntents: values["no-intents"] === true ? true : undefined,
-      evaluate: values.evaluate === true ? true : undefined, evalOut: values["eval-out"], gmTrace: values["gm-trace"], minGmExits, maxFalseExits, ...(values.security === true ? { security: true as const } : {}), ...(values.resume === true ? { resume: true as const } : {}),
+      evaluate: values.evaluate === true ? true : undefined, evalOut: values["eval-out"], gmTrace: values["gm-trace"], minGmExits, maxFalseExits, ...(values.security === true ? { security: true as const } : {}), ...(values.resume === true ? { resume: true as const } : {}), ...(values.web === true ? { web: true as const } : {}),
     },
   };
 }
