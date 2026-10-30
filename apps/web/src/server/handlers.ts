@@ -14,7 +14,7 @@ import type { ClientMessage, JoinedFrame } from "./wire";
 // The /api/v1 handlers: plain Request -> Response, no Next imports (route files re-export them through routes.ts). Identity comes only
 // from the sealed cookie, never from a body or a query. Nothing here logs a code, a credential, a cookie, a name or an address.
 
-export type Deps = { config: Config; now: () => number; connect: typeof RuntimeConnection.connect; joinThrottle: JoinThrottle; hub: StreamHub };
+export type Deps = { config: Config; now: () => number; connect: typeof RuntimeConnection.connect; joinThrottle: JoinThrottle; consoleThrottle: JoinThrottle; hub: StreamHub };
 
 /** `__Host-`: the browser accepts it only Secure, with Path=/ and no Domain, so a sibling subdomain cannot plant or shadow it. */
 export const COOKIE_NAME = "__Host-scenecoach";
@@ -114,7 +114,7 @@ function signedIn(req: Request, deps: Deps): { cookie: SessionCookie } | { respo
 // ---- request bodies ----
 
 /** A JSON object of at most MAX_BODY_BYTES, read without ever holding more; null for anything else. */
-async function readJson(req: Request): Promise<Record<string, unknown> | null> {
+export async function readJson(req: Request): Promise<Record<string, unknown> | null> {
   if (!req.body) return null;
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];

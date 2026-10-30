@@ -50,7 +50,7 @@ function makeDeps(o: { hub?: Partial<ConstructorParameters<typeof StreamHub>[0]>
   const joinThrottle = new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock, ...o.throttle });
   const connect = vi.fn((url: string, address: string) => RuntimeConnection.connect(url, address));
   const config: Config = { runtimeUrl: o.runtimeUrl ?? rt.url, publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10 };
-  const deps: Deps = { config, now: () => clock, connect: connect as unknown as Deps["connect"], joinThrottle, hub };
+  const deps: Deps = { config, now: () => clock, connect: connect as unknown as Deps["connect"], joinThrottle, consoleThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), hub };
   return { deps, timers, connect, hub, joinThrottle };
 }
 

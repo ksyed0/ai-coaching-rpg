@@ -9,7 +9,10 @@ const MAX_TOKEN_CHARS = 4096;
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 
-export function seal(payload: unknown, keys: Keys, now: number): string {
+/** The authenticated data: the key id, plus the purpose when there is one, so a token sealed for one audience opens for no other. */
+const aad = (id: string, purpose?: "fac"): Buffer => Buffer.from(purpose ? `${id}|${purpose}` : id, "utf8");
+
+export function seal(payload: unknown, keys: Keys, now: number, purpose?: "fac"): string {
   const first = keys[0];
   if (!first) throw new Error("seal needs at least one key");
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) throw new Error("seal payload must be an object");
@@ -18,7 +21,7 @@ export function seal(payload: unknown, keys: Keys, now: number): string {
   if (expiresAt <= now) throw new Error("seal payload is already expired");
   const nonce = randomBytes(NONCE_BYTES);
   const cipher = createCipheriv("aes-256-gcm", first.key, nonce, { authTagLength: TAG_BYTES });
-  cipher.setAAD(Buffer.from(first.id, "utf8"));
+  cipher.setAAD(aad(first.id, purpose));
   const ct = Buffer.concat([cipher.update(JSON.stringify(payload), "utf8"), cipher.final()]);
   const token = [first.id, nonce.toString("base64url"), ct.toString("base64url"), cipher.getAuthTag().toString("base64url")].join(".");
   // A cookie that unseal would refuse is a bug in the caller, not something to hand to a browser.
@@ -32,7 +35,7 @@ function canonical(part: string): Buffer | null {
 }
 
 /** Null for anything that is not a live token sealed with one of `keys`. Never throws. */
-export function unseal<T>(token: string, keys: Keys, now: number): T | null {
+export function unseal<T>(token: string, keys: Keys, now: number, purpose?: "fac"): T | null {
   try {
     if (typeof token !== "string" || token.length > MAX_TOKEN_CHARS) return null;
     const parts = token.split(".");
@@ -46,7 +49,7 @@ export function unseal<T>(token: string, keys: Keys, now: number): T | null {
     const ct = canonical(c);
     if (!nonce || !tag || !ct || nonce.length !== NONCE_BYTES || tag.length !== TAG_BYTES) return null;
     const decipher = createDecipheriv("aes-256-gcm", key.key, nonce, { authTagLength: TAG_BYTES });
-    decipher.setAAD(Buffer.from(id, "utf8"));
+    decipher.setAAD(aad(id, purpose));
     decipher.setAuthTag(tag);
     const plain = Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
     const value: unknown = JSON.parse(plain);

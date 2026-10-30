@@ -1,4 +1,5 @@
-import { loadConfig } from "./config";
+import { loadConfig, missingConsoleVars } from "./config";
+import { handleConsoleLogin, handleConsoleLogout } from "./console-handlers";
 import { fail } from "./envelope";
 import { handleConsent, handleJoin, handleLeave, handleSay, handleStream, seatedIn, type Deps } from "./handlers";
 import { RuntimeConnection, realTimer } from "./runtime-connection";
@@ -14,9 +15,14 @@ const JOIN_THROTTLE = { max: 5, windowMs: 60_000, blockMs: 60_000 };
 export function createDeps(env: Record<string, string | undefined>): Deps {
   const config = loadConfig(env);
   const now = () => Date.now();
+  const missing = missingConsoleVars(config);
+  // Names only, never values. A player-only deployment sets none of them, which is fine, but it is said once, loudly.
+  if (missing.length > 0) console.warn(`web: the facilitator console is DISABLED; unset: ${missing.join(", ")}`);
   return {
     config, now, connect: RuntimeConnection.connect,
     joinThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
+    // The console login throttle: the same 5 failures per 60 s and 60 s block, keyed by address.
+    consoleThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
     hub: new StreamHub({ maxStreams: config.maxStreams, maxStreamsPerSession: config.maxStreamsPerSession, maxStreamsPerAddress: config.maxStreamsPerAddress, setTimer: realTimer, now }),
   };
 }
@@ -63,3 +69,5 @@ export const streamGET = route(handleStream);
 export const sayPOST = route(handleSay);
 export const consentPOST = route(handleConsent);
 export const leavePOST = route(handleLeave);
+export const consoleLoginPOST = route(handleConsoleLogin);
+export const consoleLogoutPOST = route(handleConsoleLogout);
