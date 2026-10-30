@@ -23,13 +23,22 @@ let config: ControlConfig;
 const supervisors: Supervisor[] = [];
 /** Pids of every child forked, in order (the handle carries it for tests and diagnostics). */
 let pids: number[] = [];
+/** How often the service had to signal a child (the disconnect path needs neither). */
+let signals = { kill: 0, forceKill: 0 };
 
 /** The environment the service would hold: no HOME, nothing but what the child allowlist copies. */
 const parentEnv = (): NodeJS.ProcessEnv => ({ PATH: process.env.PATH, MODEL_PROVIDER: "mock" });
 
 function makeSupervisor(): Supervisor {
   const sup = new Supervisor({
-    config, list: new SessionList(config.listFile), scenarios: () => listScenarios(config.scenariosDir), spawn: (o) => { const h = forkSpawn()(o); pids.push((h as unknown as { pid: number }).pid); return h; }, parentEnv: parentEnv(),
+    config, list: new SessionList(config.listFile), scenarios: () => listScenarios(config.scenariosDir), spawn: (o) => {
+      const h = forkSpawn()(o);
+      pids.push((h as unknown as { pid: number }).pid);
+      const { kill, forceKill } = h;
+      h.kill = () => { signals.kill++; kill(); };
+      h.forceKill = () => { signals.forceKill++; forceKill(); };
+      return h;
+    }, parentEnv: parentEnv(),
   });
   supervisors.push(sup);
   return sup;
@@ -61,6 +70,7 @@ function join(port: number, sessionId: string, roleId: string, joinCode: string)
 
 beforeEach(() => {
   pids = [];
+  signals = { kill: 0, forceKill: 0 };
   root = mkdtempSync(path.join(tmpdir(), "acr-real-"));
   config = loadControlConfig({
     CONTROL_DATA_DIR: root, LAUNCHER_TOKEN: "r".repeat(40), CONTROL_GRACE_MS: "10000", CONTROL_READY_TIMEOUT_MS: "40000", MAX_SESSIONS: "5",
@@ -98,9 +108,11 @@ describe("Supervisor with real runtime children", () => {
   it("the child exits when the service disconnects (shutdown)", async () => {
     const sup = makeSupervisor();
     const r = await sup.create(SCENARIO);
-    const started = Date.now();
     await sup.shutdown(); // resolves only when every child has exited (or the grace period passed)
-    expect(Date.now() - started).toBeLessThan(config.graceMs); // the exit came from the disconnect, not from the force-kill backstop
+    // The exit came from the disconnect: neither kill (SIGTERM) nor the force-kill backstop was needed.
+    expect(signals).toEqual({ kill: 0, forceKill: 0 });
+    expect(pids.length).toBe(1);
+    expect(() => process.kill(pids[0]!, 0)).toThrow(); // the process is gone
     // The port no longer answers.
     await expect(join(r.port, r.sessionId, ROLES[0]!, "x")).rejects.toThrow();
   });

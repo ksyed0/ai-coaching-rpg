@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
-import { isValidSessionId } from "@acr/events";
+import { isSafeId, isValidSessionId } from "@acr/events";
 import { z } from "zod";
 import type { ControlConfig } from "./config.js";
 import { ControlError, type ControlErrorCode, type Supervisor } from "./supervisor.js";
@@ -84,9 +84,10 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   return r.data;
 }
 
+/** The error's name when it is a plain identifier (the shared rule), else a fixed word: never a message, never free text. */
 const errorName = (err: unknown): string => {
-  const n = err instanceof Error ? err.name : "";
-  return /^[A-Za-z0-9_]{1,64}$/.test(n) ? n : err instanceof Error ? "Error" : "unknown";
+  if (!(err instanceof Error)) return "unknown";
+  return isSafeId(err.name) ? err.name : "Error";
 };
 
 /**
