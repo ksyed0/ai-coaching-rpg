@@ -96,3 +96,24 @@ export function trackStreams(page: Page): StreamOpen[] {
   page.on("response", (res) => { const entry = byRequest.get(res.request()); if (entry) entry.status = res.status(); });
   return seen;
 }
+
+// ---- launcher mode (the session id and the origin come from the control service and the stack, not from SESSION_ID) ----
+
+/** Fills the join form for a launcher-mode session and lands on its session page with the stream open. */
+export async function joinAsLauncher(page: Page, baseUrl: string, sessionId: string, role: string, code: string, name: string): Promise<void> {
+  await page.goto(`${baseUrl}/join?session=${sessionId}&role=${role}`);
+  await page.getByLabel("Your name").fill(name);
+  await page.getByLabel("Your join code").fill(code);
+  await page.getByRole("button", { name: "Join" }).click();
+  await page.waitForURL(`**/session/${sessionId}`);
+  await expect(page.getByRole("heading", { name: /Consent, notice|Play the scene/ })).toBeVisible();
+}
+
+/** A new context and page for `role` in a launcher-mode session, joined and (unless told otherwise) consented. */
+export async function seatLauncher(browser: Browser, baseUrl: string, sessionId: string, role: Player, code: string, name: string, o: { consent?: boolean; width?: number; colorScheme?: "light" | "dark" } = {}): Promise<{ context: BrowserContext; page: Page }> {
+  const context = await playerContext(browser, o);
+  const page = await context.newPage();
+  await joinAsLauncher(page, baseUrl, sessionId, role, code, name);
+  if (o.consent !== false) await consent(page);
+  return { context, page };
+}

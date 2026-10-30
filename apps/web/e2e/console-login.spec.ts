@@ -1,33 +1,28 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { playerContext } from "./helpers/players";
-import { freePort, startStack, type Stack } from "./helpers/start-stack";
+import {
+  startLauncherStack,
+  type LauncherStack,
+} from "./helpers/start-launcher-stack";
+import { startStack, type Stack } from "./helpers/start-stack";
 
 // The facilitator console's sign-in and shell: a wrong secret, a right one, noindex on the page, robots.txt, and Axe on both states at
-// 400 px and laptop width in light and dark. The control service does not exist yet in this slice, so LAUNCHER_URL points at a port
-// nothing listens on: the shell never calls it.
+// 400 px and laptop width in light and dark. It runs on the launcher stack (the real control service, empty), because the signed-in
+// shell lists the sessions through the BFF. The "not set up" test needs no control service and keeps the plain stack.
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
-const SECRET = "e2e-facilitator-secret-0123456789";
 const NAME = "Ann Facilitator";
 const WIDTHS = [400, 1280] as const;
 
-let stack: Stack | null = null;
+let stack: LauncherStack | null = null;
+let plain: Stack | null = null;
 test.afterEach(async () => {
   await stack?.stop();
   stack = null;
+  await plain?.stop();
+  plain = null;
 });
-
-async function consoleStack(): Promise<Stack> {
-  const unused = await freePort();
-  return startStack({
-    webEnv: {
-      FACILITATOR_SECRET: SECRET,
-      LAUNCHER_TOKEN: "e2e-launcher-token-0123456789-abcdef",
-      LAUNCHER_URL: `http://127.0.0.1:${unused}`,
-    },
-  });
-}
 
 async function seriousViolations(page: Page) {
   const r = await new AxeBuilder({ page }).withTags(WCAG).analyze();
@@ -65,7 +60,12 @@ const noHorizontalScroll = (page: Page, width: number) =>
     }))
     .then((m) => expect(m).toEqual({ scroll: width, client: width }));
 
-async function signIn(page: Page, s: Stack, secret = SECRET, name = NAME) {
+async function signIn(
+  page: Page,
+  s: LauncherStack,
+  secret = s.facilitatorSecret,
+  name = NAME,
+) {
   await page.goto(`${s.baseUrl}/console`);
   await page.getByLabel("Facilitator secret").fill(secret);
   await page.getByLabel("Your name").fill(name);
@@ -76,7 +76,7 @@ const newPage = async (browser: Browser, width = 1280) =>
 
 test("wrong secret shows the neutral message", async ({ browser }) => {
   test.setTimeout(150_000);
-  stack = await consoleStack();
+  stack = await startLauncherStack();
   const page = await newPage(browser);
   await signIn(page, stack, "this-is-not-the-secret-at-all");
   await expect(
@@ -97,11 +97,11 @@ test("right secret reaches the shell and /console sends noindex", async ({
   browser,
 }) => {
   test.setTimeout(150_000);
-  stack = await consoleStack();
+  stack = await startLauncherStack();
   const page = await newPage(browser);
   const response = await page.goto(`${stack.baseUrl}/console`);
   expect(response!.headers()["x-robots-tag"]).toBe("noindex, nofollow");
-  await page.getByLabel("Facilitator secret").fill(SECRET);
+  await page.getByLabel("Facilitator secret").fill(stack.facilitatorSecret);
   await page.getByLabel("Your name").fill(NAME);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page.getByText(`Signed in as ${NAME}`)).toBeVisible();
@@ -118,7 +118,7 @@ test("right secret reaches the shell and /console sends noindex", async ({
 
 test("robots.txt disallows /console", async () => {
   test.setTimeout(150_000);
-  stack = await consoleStack();
+  stack = await startLauncherStack();
   const text = await (await fetch(`${stack.baseUrl}/robots.txt`)).text();
   expect(text.split("\n")).toContain("Disallow: /console");
 });
@@ -127,9 +127,9 @@ test("without the console settings the page says it is not set up and has no for
   browser,
 }) => {
   test.setTimeout(150_000);
-  stack = await startStack();
+  plain = await startStack();
   const page = await newPage(browser);
-  await page.goto(`${stack.baseUrl}/console`);
+  await page.goto(`${plain.baseUrl}/console`);
   await expect(
     page.getByText("The console is not set up on this server."),
   ).toBeVisible();
@@ -141,7 +141,7 @@ for (const width of WIDTHS) {
     browser,
   }) => {
     test.setTimeout(180_000);
-    stack = await consoleStack();
+    stack = await startLauncherStack();
     const page = await newPage(browser, width);
     await page.goto(`${stack.baseUrl}/console`);
     await expect(page.getByLabel("Facilitator secret")).toBeVisible();
@@ -159,7 +159,7 @@ for (const width of WIDTHS) {
       `the console sign-in, refused, at ${width} px`,
     );
 
-    await page.getByLabel("Facilitator secret").fill(SECRET);
+    await page.getByLabel("Facilitator secret").fill(stack.facilitatorSecret);
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page.getByText(`Signed in as ${NAME}`)).toBeVisible();
     await checkBothSchemes(page, `the console shell at ${width} px`);
