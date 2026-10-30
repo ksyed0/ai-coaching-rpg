@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +42,16 @@ afterEach(() => {
 });
 
 describe("forkSpawn", () => {
+  it("refuses a log path that is a symlink and never writes through it", () => {
+    mkdirSync(path.join(dir, "logs"), { recursive: true });
+    const target = path.join(dir, "victim.txt");
+    writeFileSync(target, "keep");
+    const link = path.join(dir, "logs", "s.log");
+    symlinkSync(target, link);
+    expect(() => forkSpawn(command)({ env: {}, logFile: link })).toThrow(/ELOOP|symbolic|symlink/i);
+    expect(readFileSync(target, "utf8")).toBe("keep");
+  });
+
   it("round-trips messages and exits 0 when the parent disconnects", async () => {
     const s = start();
     await until("up", () => s.messages.some((m) => (m as { type?: string }).type === "up"));

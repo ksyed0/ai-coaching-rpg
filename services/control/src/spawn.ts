@@ -1,5 +1,5 @@
 import { fork } from "node:child_process";
-import { closeSync, fchmodSync, mkdirSync, openSync } from "node:fs";
+import { closeSync, constants as fsConstants, fchmodSync, mkdirSync, openSync } from "node:fs";
 import path from "node:path";
 import type { ChildMessage } from "./protocol.js";
 import { runtimeCommand, runtimeCwd } from "./runtime-command.js";
@@ -17,7 +17,8 @@ const noop = (): void => {};
 export function forkSpawn(command: ReturnType<typeof runtimeCommand> = runtimeCommand()): SpawnFn {
   return ({ env, logFile }) => {
     mkdirSync(path.dirname(logFile), { recursive: true, mode: 0o700 });
-    const fd = openSync(logFile, "a", 0o600);
+    // O_NOFOLLOW: a symlink planted at the log path is refused (ELOOP), never written through.
+    const fd = openSync(logFile, fsConstants.O_APPEND | fsConstants.O_CREAT | fsConstants.O_WRONLY | fsConstants.O_NOFOLLOW, 0o600);
     let child;
     try {
       fchmodSync(fd, 0o600); // the mode argument only applies to a new file

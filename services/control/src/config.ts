@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -32,10 +32,16 @@ const TOKEN_MIN_CHARS = 32;
  */
 export function loadControlEnv(root: string = REPO_ROOT, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const file = path.join(root, ".env");
-  if (!existsSync(file)) return { ...env };
+  // Read and look at the error, never "does it exist" first: nothing can change between the check and the read.
+  let text: string;
+  try { text = readFileSync(file, "utf8"); }
+  catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return { ...env };
+    throw new Error(`cannot read .env (${(err as NodeJS.ErrnoException).code ?? "unreadable"})`);
+  }
   let fileEnv: NodeJS.ProcessEnv;
-  try { fileEnv = parseEnv(readFileSync(file, "utf8")); }
-  catch (err) { throw new Error(`cannot read .env (${(err as NodeJS.ErrnoException).code ?? "unreadable"})`); }
+  try { fileEnv = parseEnv(text); }
+  catch { throw new Error("cannot read .env (unreadable)"); }
   return { ...fileEnv, ...env };
 }
 

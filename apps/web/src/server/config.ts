@@ -16,7 +16,12 @@ export type Config = {
 
 /** The console variables that are unset (names only). Empty means the console is enabled. */
 export function missingConsoleVars(c: Pick<Config, "facilitatorSecret" | "launcherUrl" | "launcherToken">): string[] {
-  return [["FACILITATOR_SECRET", c.facilitatorSecret], ["LAUNCHER_URL", c.launcherUrl], ["LAUNCHER_TOKEN", c.launcherToken]].filter(([, v]) => !v).map(([n]) => n as string);
+  // Names only: a value (the secret, the token) is tested for presence and never placed in a structure that reaches a log line.
+  const missing: string[] = [];
+  if (!c.facilitatorSecret) missing.push("FACILITATOR_SECRET");
+  if (!c.launcherUrl) missing.push("LAUNCHER_URL");
+  if (!c.launcherToken) missing.push("LAUNCHER_TOKEN");
+  return missing;
 }
 
 const KEY_ID = /^[A-Za-z0-9_-]{1,16}$/;
