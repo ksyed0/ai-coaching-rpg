@@ -20,6 +20,8 @@ export type ChildHandle = {
   onMessage(fn: (m: ChildMessage) => void): void;
   onExit(fn: (code: number | null) => void): void;
   kill(): void;
+  /** SIGKILL: used when kill() was not enough. */
+  forceKill(): void;
   disconnect(): void;
 };
 export type SpawnFn = (o: { env: NodeJS.ProcessEnv; logFile: string }) => ChildHandle;
@@ -42,6 +44,8 @@ const NOT_IMPLEMENTED = "not implemented";
 export class Supervisor {
   protected readonly live = new Map<string, Live>();
   private inflight = 0;
+  /** Children that survived kill and forceKill: their slots stay reserved so MAX_SESSIONS stays honest until they exit. */
+  private zombies = 0;
   private readonly setTimer: SetTimer;
   private readonly logFn: (m: string) => void;
   private readonly newSessionId: () => string;
@@ -59,7 +63,7 @@ export class Supervisor {
 
   /** Sessions that hold a slot: everything not ended, plus creates still starting. */
   private slotsUsed(): number {
-    return this.o.list.read().filter((e) => e.status !== "ended").length + this.inflight;
+    return this.o.list.read().filter((e) => e.status !== "ended").length + this.inflight + this.zombies;
   }
 
   async create(scenarioId: string): Promise<CreateResult> {
@@ -71,6 +75,7 @@ export class Supervisor {
     const sessionId = this.newSessionId();
     let listed = false;
     let child: ChildHandle | undefined;
+    const exit: { done: boolean; promise?: Promise<void> } = { done: false };
     const timer: { cancel?: () => void } = {};
     const logFile = path.join(this.o.config.logDir, `${sessionId}.log`);
     try {
@@ -82,6 +87,7 @@ export class Supervisor {
       chmodSync(this.o.config.logDir, 0o700);
       const spawned = this.o.spawn({ env, logFile });
       child = spawned;
+      exit.promise = new Promise<void>((resolve) => spawned.onExit(() => { exit.done = true; resolve(); }));
 
       const ready = await new Promise<{ port: number; modelLabel: string; codes: { roleId: string; code: string }[] }>((resolve, reject) => {
         let codes: { roleId: string; code: string }[] | undefined;
@@ -111,25 +117,60 @@ export class Supervisor {
       return { sessionId, status: "running", port: ready.port, modelLabel: ready.modelLabel, codes: ready.codes };
     } catch (err) {
       timer.cancel?.();
-      this.rollback(sessionId, listed, child, logFile);
+      const clean = await this.rollback(sessionId, listed, child, exit, logFile);
       this.logFn(`session ${sessionId} create failed`);
+      if (!clean) throw new ControlError("start_failed", "the session could not be started");
       throw err instanceof ControlError ? err : new ControlError("start_failed", "the session could not be started");
     } finally {
       this.inflight--;
     }
   }
 
-  /** Undo a failed create: stop the child, drop the list entry, delete every `<id>.*` file and the child log. Tolerates missing files. */
-  private rollback(sessionId: string, listed: boolean, child: ChildHandle | undefined, logFile: string): void {
+  /** Resolves true when the child exited within `ms`, false otherwise (the injected timer, cancelled on exit). */
+  private waitExit(exit: { done: boolean; promise?: Promise<void> }, ms: number): Promise<boolean> {
+    if (exit.done || !exit.promise) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      const cancel = this.setTimer(() => resolve(false), ms);
+      void exit.promise!.then(() => { cancel(); resolve(true); });
+    });
+  }
+
+  /**
+   * Undo a failed create. The child is stopped FIRST and its exit awaited (kill, then forceKill, each bounded by graceMs); only then are
+   * the list entry, every `<id>.*` file and the child log removed, so a dying child cannot recreate them. The slot (held by the
+   * caller's `inflight`) is released only after that. A child that survives forceKill is a bug we cannot resolve: its slot stays reserved
+   * (`zombies`) until it does exit, and the cleanup then runs. Returns false in that case. Every step is guarded on its own.
+   */
+  private async rollback(sessionId: string, listed: boolean, child: ChildHandle | undefined, exit: { done: boolean; promise?: Promise<void> }, logFile: string): Promise<boolean> {
     this.live.delete(sessionId);
-    try { child?.kill(); } catch { /* already gone */ }
+    if (child && !exit.done) {
+      try { child.kill(); } catch { /* already gone */ }
+      let gone = await this.waitExit(exit, this.o.config.graceMs);
+      if (!gone) {
+        try { child.forceKill(); } catch { /* already gone */ }
+        gone = await this.waitExit(exit, this.o.config.graceMs);
+      }
+      if (!gone) {
+        this.logFn(`session ${sessionId} child did not exit`);
+        this.zombies++;
+        void exit.promise!.then(() => { this.cleanup(sessionId, listed, logFile); this.zombies--; });
+        return false;
+      }
+    }
+    this.cleanup(sessionId, listed, logFile);
+    return true;
+  }
+
+  private cleanup(sessionId: string, listed: boolean, logFile: string): void {
     if (listed) { try { this.o.list.remove(sessionId); } catch { /* the entry was never written */ } }
+    if (!isValidSessionId(sessionId)) return; // never build a path to delete from an id that is not one
     try {
       for (const name of readdirSync(this.o.config.sessionsDir)) {
-        if (name.startsWith(`${sessionId}.`)) rmSync(path.join(this.o.config.sessionsDir, name), { force: true });
+        if (!name.startsWith(`${sessionId}.`)) continue;
+        try { rmSync(path.join(this.o.config.sessionsDir, name), { force: true }); } catch { this.logFn(`session ${sessionId} cleanup step failed`); }
       }
     } catch { /* no sessions directory yet */ }
-    rmSync(logFile, { force: true });
+    try { rmSync(logFile, { force: true }); } catch { this.logFn(`session ${sessionId} cleanup step failed`); }
   }
 
   private info(id: string, scenarioId: string, status: SessionStatus): SessionInfo {

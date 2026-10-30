@@ -10,6 +10,9 @@ import { ControlError, Supervisor, type ChildHandle, type SetTimer, type SpawnFn
 class FakeChild implements ChildHandle {
   sent: ParentMessage[] = [];
   killed = 0;
+  forced = 0;
+  onKill?: () => void;
+  onForce?: () => void;
   disconnected = 0;
   private msg: ((m: ChildMessage) => void)[] = [];
   private exitFns: ((c: number | null) => void)[] = [];
@@ -17,7 +20,8 @@ class FakeChild implements ChildHandle {
   send(m: ParentMessage): boolean { this.sent.push(m); return true; }
   onMessage(fn: (m: ChildMessage) => void): void { this.msg.push(fn); }
   onExit(fn: (c: number | null) => void): void { this.exitFns.push(fn); }
-  kill(): void { this.killed++; }
+  kill(): void { this.killed++; this.onKill?.(); }
+  forceKill(): void { this.forced++; this.onForce?.(); }
   disconnect(): void { this.disconnected++; }
   emit(m: unknown): void { for (const f of this.msg) f(m as ChildMessage); }
   exit(code: number | null = 1): void { for (const f of this.exitFns) f(code); }
@@ -44,7 +48,7 @@ beforeEach(() => {
   mkdirSync(path.join(scenariosDir, "other"), { recursive: true });
   config = {
     port: 1, serviceToken: "t".repeat(40), maxSessions: 3, dataDir: root, sessionsDir: path.join(root, "sessions"),
-    listFile: path.join(root, "sessions.json"), scenariosDir, logDir: path.join(root, "child-logs"), graceMs: 10, readyTimeoutMs: 5000,
+    listFile: path.join(root, "sessions.json"), scenariosDir, logDir: path.join(root, "child-logs"), graceMs: 777, readyTimeoutMs: 5000,
   };
   mkdirSync(config.sessionsDir, { recursive: true });
   list = new SessionList(config.listFile);
@@ -149,6 +153,7 @@ describe("Supervisor.create", () => {
     expect(timers).toHaveLength(1);
     expect(timers[0]!.ms).toBe(config.readyTimeoutMs);
     children[0]!.emit({ type: "codes", codes: CODES });
+    children[0]!.onKill = () => setImmediate(() => children[0]!.exit(null));
     timers[0]!.fn();
     await expect(p).rejects.toMatchObject({ code: "timeout" });
     expect(children[0]!.killed).toBe(1);
@@ -176,6 +181,7 @@ describe("Supervisor.create", () => {
     const p = sup.create("other");
     p.catch(() => {});
     await flush();
+    children[0]!.onKill = () => setImmediate(() => children[0]!.exit(null));
     children[0]!.emit(READY);
     await expect(p).rejects.toMatchObject({ code: "start_failed" });
     expect(children[0]!.killed).toBe(1);
@@ -255,5 +261,111 @@ describe("Supervisor.create", () => {
     const sup = make();
     await expect(sup.restart(sid(1))).rejects.toThrow("not implemented");
     await expect(sup.shutdown()).rejects.toThrow("not implemented");
+  });
+
+  describe("rollback of a live child", () => {
+    const hang = async (sup: Supervisor) => {
+      const p = sup.create("other");
+      const settled = p.then(() => "ok" as const, (e: ControlError) => e);
+      await flush();
+      children[0]!.emit({ type: "codes", codes: CODES });
+      timers[0]!.fn(); // ready timeout
+      await flush();
+      return { settled };
+    };
+    const seatFiles = () => readdirSync(config.sessionsDir);
+
+    it("waits for the child to exit after kill: files written meanwhile are removed too", async () => {
+      const sup = make();
+      const p = sup.create("other");
+      const settled = p.then(() => "ok", (e: ControlError) => e);
+      await flush();
+      const c = children[0]!;
+      c.emit({ type: "codes", codes: CODES });
+      c.onKill = () => {
+        writeFileSync(path.join(config.sessionsDir, `${c.env.SESSION_ID}.late.jsonl`), "late");
+        setImmediate(() => c.exit(null));
+      };
+      timers[0]!.fn();
+      const err = await settled;
+      expect(err).toMatchObject({ code: "timeout" });
+      expect(c.killed).toBe(1);
+      expect(c.forced).toBe(0);
+      expect(seatFiles()).toEqual([]);
+      expect(readdirSync(config.logDir)).toEqual([]);
+    });
+
+    it("keeps the slot and files until the child exits, forcing it after graceMs", async () => {
+      list.upsert({ sessionId: sid(1), scenarioId: "other", status: "running" });
+      list.upsert({ sessionId: sid(2), scenarioId: "other", status: "running" });
+      const sup = make();
+      const { settled } = await hang(sup);
+      const c = children[0]!;
+      expect(c.killed).toBe(1);
+      expect(c.forced).toBe(0);
+      expect(seatFiles().length).toBeGreaterThan(0);
+      expect(timers[1]!.ms).toBe(config.graceMs);
+      await expect(sup.create("other")).rejects.toMatchObject({ code: "capacity" });
+      timers[1]!.fn();
+      await flush();
+      expect(c.forced).toBe(1);
+      expect(seatFiles().length).toBeGreaterThan(0);
+      c.exit(null);
+      await expect(settled).resolves.toMatchObject({ code: "timeout" });
+      expect(seatFiles()).toEqual([]);
+      expect(readdirSync(config.logDir)).toEqual([]);
+      const p2 = sup.create("other"); await flush(); await finish(children[1]!);
+      await expect(p2).resolves.toBeDefined();
+    });
+
+    it("a child that survives forceKill keeps its slot reserved and create rejects plainly", async () => {
+      list.upsert({ sessionId: sid(1), scenarioId: "other", status: "running" });
+      list.upsert({ sessionId: sid(2), scenarioId: "other", status: "running" });
+      const sup = make();
+      const { settled } = await hang(sup);
+      timers[1]!.fn(); await flush();
+      timers[2]!.fn();
+      const err = await settled;
+      expect(err).toMatchObject({ code: "start_failed", message: "the session could not be started" });
+      expect(logs.some((l) => l.includes("child did not exit"))).toBe(true);
+      expect(seatFiles().length).toBeGreaterThan(0);
+      await expect(sup.create("other")).rejects.toMatchObject({ code: "capacity" });
+      children[0]!.exit(null); // it finally dies: cleanup runs and the slot frees
+      await flush();
+      expect(seatFiles()).toEqual([]);
+      const p2 = sup.create("other"); await flush(); await finish(children[1]!);
+      await expect(p2).resolves.toBeDefined();
+    });
+
+    it("a cleanup step that throws does not escape and the other steps still run", async () => {
+      spawn = ({ env, logFile }) => {
+        const c = new FakeChild(env, logFile);
+        writeFileSync(path.join(env.SESSION_DATA_DIR!, `${env.SESSION_ID}.jsonl`), "x");
+        mkdirSync(logFile); // rmSync(force) of a directory throws EISDIR
+        children.push(c);
+        return c;
+      };
+      const sup = make();
+      const p = sup.create("other");
+      p.catch(() => {});
+      await flush();
+      children[0]!.exit(1);
+      const err = await p.catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ControlError);
+      expect((err as ControlError).message).toBe("the session could not be started");
+      expect(seatFiles()).toEqual([]);
+      expect(list.read()).toEqual([]);
+    });
+
+    it("an id like ../x never deletes outside the sessions and log directories", async () => {
+      writeFileSync(path.join(root, "x.log"), "keep");
+      writeFileSync(path.join(root, "x.jsonl"), "keep");
+      writeFileSync(path.join(root, "sessions.json.keep"), "keep");
+      const sup = make({ newSessionId: () => "../x" });
+      await expect(sup.create("other")).rejects.toMatchObject({ code: "start_failed" });
+      expect(children).toHaveLength(0);
+      expect(readFileSync(path.join(root, "x.log"), "utf8")).toBe("keep");
+      expect(readFileSync(path.join(root, "x.jsonl"), "utf8")).toBe("keep");
+    });
   });
 });
