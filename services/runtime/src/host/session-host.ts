@@ -357,6 +357,10 @@ export class SessionHost {
    * a time via the queue), so a caller, and its connection's next message, never waits behind a model call.
    */
   async onPlayerUtterance(roleId: string, text: string, opts: { expectSceneId?: string } = {}): Promise<void> {
+    // BUG-0009: each opening event (session.started, the AI characters, scene.entered, the opening inject) reaches the clients as
+    // soon as it is on disk, but `started` turns true only once the last one is written. A line from a page that already shows the
+    // scene waits for that start in flight (engine.say would queue behind its mutex anyway); only a failed start refuses it.
+    if (!this.started && this.starting !== null) await this.starting.catch(() => undefined);
     if (!this.started) throw new HostError("not_started");
     await this.engine.say(roleId, text, "text", opts); // throws EngineError (paused, ended, ...) before any NPC turn can start
     this.pendingAnswer = null; // a new line supersedes the one from before a restart: the round below answers the conversation as it now stands
