@@ -401,6 +401,46 @@ describe("Supervisor lifecycle", () => {
       expect(await errOf(sup.reissueAll(sid(5)))).toMatchObject({ code: "conflict", message: "the session has ended" });
     });
 
+    const STARTED_MSG = "codes can only be reissued for the whole session before it starts";
+    const startDuringStop = async (sup: Supervisor) => {
+      const { id, c } = await boot(sup);
+      const codesFile = path.join(config.sessionsDir, `${id}.codes.json`);
+      writeFileSync(codesFile, '{"hashes":"old"}');
+      c.onKill = () => {
+        writeFileSync(path.join(config.sessionsDir, `${id}.jsonl`), '{"type":"session.started"}\n'); // a player starts it mid-stop
+        setImmediate(() => c.exit(null));
+      };
+      return { id, c, codesFile };
+    };
+
+    it("a session that starts while the old child is stopping keeps its codes file and is relaunched unchanged, then the call is refused", async () => {
+      const sup = make();
+      const { id, c, codesFile } = await startDuringStop(sup);
+      const q = errOf(sup.reissueAll(id)); await settle();
+      expect(children).toHaveLength(2);
+      const c2 = children[1]!;
+      expect(c2.env.SESSION_START).toBe("resume");
+      expect(c2.env.FACILITATOR_TOKEN).not.toBe(c.env.FACILITATOR_TOKEN);
+      c2.emit(READY);
+      expect(await q).toMatchObject({ code: "conflict", message: STARTED_MSG });
+      expect(existsSync(codesFile)).toBe(true);
+      expect(readdirSync(config.sessionsDir).filter((f) => f.includes("reissued"))).toEqual([]);
+      expect(sup.get(id)!.status).toBe("running");
+      expect(sup.facilitator(id)).toEqual({ port: 4321, token: c2.env.FACILITATOR_TOKEN });
+      expect(logs.join("\n")).not.toContain("alpha-1");
+    });
+
+    it("if that relaunch fails the session ends stopped and the call is still refused", async () => {
+      const sup = make();
+      const { id, codesFile } = await startDuringStop(sup);
+      const q = errOf(sup.reissueAll(id)); await settle();
+      children[1]!.exit(1);
+      expect(await q).toMatchObject({ code: "conflict", message: STARTED_MSG });
+      expect(existsSync(codesFile)).toBe(true);
+      expect(sup.get(id)!.status).toBe("stopped");
+      expect(list.read()[0]!.status).toBe("stopped");
+    });
+
     it("a ready timeout stops the new child, keeps the session files and marks the session stopped", async () => {
       const sup = make();
       const { id, c } = await boot(sup);

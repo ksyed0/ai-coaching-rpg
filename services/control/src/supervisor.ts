@@ -47,6 +47,7 @@ const defaultSetTimer: SetTimer = (fn, ms) => {
   return () => clearTimeout(t);
 };
 const DEFAULT_REISSUE_TIMEOUT_MS = 15_000;
+const REISSUE_BEFORE_START = "codes can only be reissued for the whole session before it starts";
 const START_FAILED = "the session could not be started";
 
 export class Supervisor {
@@ -422,13 +423,23 @@ export class Supervisor {
       let status: "empty" | "running" | "ended";
       try { status = readLogStatus(path.join(this.o.config.sessionsDir, `${id}.jsonl`)); }
       catch { throw new ControlError("unavailable", "the session log cannot be read"); }
-      if (status !== "empty") throw new ControlError("conflict", "codes can only be reissued for the whole session before it starts");
+      if (status !== "empty") throw new ControlError("conflict", REISSUE_BEFORE_START);
 
       const p = this.procs.get(id);
       if (p && !p.exit.done && !(await this.stopChild(p.child, p.exit))) {
         this.markStopped(id, e.scenarioId);
         this.logFn(`session ${id} child did not exit`);
         throw new ControlError("unavailable", "the session could not be stopped");
+      }
+      // The early check above only fails fast: the child was live and accepting players until now. With it gone the log is stable, so
+      // check AGAIN. If the session started meanwhile, the codes file is NOT touched (reissue is "before the start only", a guarantee):
+      // the session is relaunched unchanged (resume, new token, as restart does) so it is not left down, or left stopped if that
+      // fails, and the call is refused. The per-session lock is held throughout.
+      let after: "empty" | "running" | "ended" | "unreadable";
+      try { after = readLogStatus(path.join(this.o.config.sessionsDir, `${id}.jsonl`)); } catch { after = "unreadable"; }
+      if (after !== "empty") {
+        try { await this.launch(id, e.scenarioId, false); } catch { /* launch() marked it stopped and logged */ }
+        throw new ControlError("conflict", REISSUE_BEFORE_START);
       }
       const codesFile = path.join(this.o.config.sessionsDir, `${id}.codes.json`);
       try { renameSync(codesFile, `${codesFile}.reissued-${this.now()}`); }
