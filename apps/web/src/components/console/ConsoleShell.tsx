@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { postJson } from "../../lib/api";
+import { SessionList } from "./SessionList";
 
-// The signed-in console. This slice is the shell only: who is signed in, a way out and the empty list.
+// The signed-in console. This slice is the shell: who is signed in, a way out and the session list.
 
 export type ConsoleShellProps = {
   name: string;
@@ -40,8 +41,7 @@ export function ConsoleShell({
         </div>
       </div>
       <div className="card soft">
-        <h2 className="s">Sessions</h2>
-        <p className="muted">No sessions yet</p>
+        <SessionList fetch={fetchImpl} />
       </div>
     </div>
   );

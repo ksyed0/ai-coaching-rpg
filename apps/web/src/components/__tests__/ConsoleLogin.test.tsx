@@ -141,10 +141,10 @@ describe("ConsoleShell", () => {
     );
     expect(screen.getByText(`Signed in as ${XSS}`)).toBeTruthy();
     expect(container.querySelector("img")).toBeNull();
-    expect(screen.getByText("No sessions yet")).toBeTruthy();
+    expect(await screen.findByText("No sessions yet")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
-    expect(f.calls[0]!.url).toBe("/api/v1/console/logout");
-    expect(f.calls[0]!.init.method).toBe("POST");
+    const logout = f.calls.find((c) => c.url === "/api/v1/console/logout")!;
+    expect(logout.init.method).toBe("POST");
   });
 });
