@@ -95,6 +95,9 @@ describe("startControl", () => {
     await running.close();
     running = undefined;
     expect(children[0]!.disconnected).toBeGreaterThan(0);
+    // an orderly shutdown is not a crash: the list still says running and nothing is logged as unexpected
+    const listed = new SessionList(path.join(env.CONTROL_DATA_DIR!, "sessions.json")).read();
+    expect(listed.map((e) => e.status)).toEqual(["running"]);
   });
 
   it("passes the merged environment (including values read from .env) to the allowlist, not process.env", async () => {

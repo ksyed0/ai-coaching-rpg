@@ -310,8 +310,11 @@ export class Supervisor {
     delete l.child; delete l.token; delete l.port; delete l.modelLabel;
     if (l.status !== "ended") {
       l.status = "stopped";
-      this.persist(id, l.scenarioId, "stopped");
-      this.logFn(`session ${id} stopped unexpectedly`);
+      // During shutdown() the exits are expected: the list keeps "running", so a service restart resumes the lobby either way.
+      if (!this.closed) {
+        this.persist(id, l.scenarioId, "stopped");
+        this.logFn(`session ${id} stopped unexpectedly`);
+      }
     }
   }
 
