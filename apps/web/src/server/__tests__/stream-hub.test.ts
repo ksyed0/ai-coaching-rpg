@@ -103,6 +103,26 @@ describe("StreamHub endings: out.end() exactly once, timers cancelled, listeners
     expect(conn.listeners()).toBe(0);
   });
 
+  it("a 4002 close ends the stream with the signed-out message and does not reconnect", () => {
+    const { h, timers } = hub();
+    const { conn, rec } = opened(h);
+    conn.drop(4002);
+    expect(rec.frames().at(-1)).toEqual({ event: "signed_out", data: { message: "ask your facilitator for a new code" } });
+    expect(rec.chunks.join("")).not.toContain("reconnecting");
+    expect(rec.ends()).toBe(1);
+    expect(timers.live()).toEqual([]);
+    expect(conn.listeners()).toBe(0);
+  });
+
+  it("a connection already closed with 4002 when it is opened ends at once with signed_out", () => {
+    const { h } = hub();
+    const conn = new FakeConn();
+    conn.drop(4002);
+    const rec = sseRecorder();
+    h.open(cookieFor(), "198.51.100.1", asConn(conn), joinedFrame(), rec.out);
+    expect(rec.frames().map((f) => f.event)).toEqual(["signed_out"]);
+  });
+
   it("on any other runtime close it writes reconnecting and ends (the browser reconnects with Last-Event-ID)", () => {
     const { h, timers } = hub();
     const { conn, rec, handle } = opened(h);

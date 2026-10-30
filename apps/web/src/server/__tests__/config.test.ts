@@ -74,3 +74,34 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...base(), COOKIE_KEYS: `a:${key()},` })).toThrow(/COOKIE_KEYS/);
   });
 });
+
+describe("loadConfig launcher mode", () => {
+  const launcher = (): Record<string, string> => ({ PUBLIC_ORIGIN: "https://play.example.org", COOKIE_KEYS: `k1:${key()}`, LAUNCHER_URL: "http://127.0.0.1:4000", LAUNCHER_TOKEN: "t".repeat(32) });
+
+  it("launcher mode needs the token, and the error names the variable and not a value", () => {
+    const { LAUNCHER_TOKEN: _omit, ...env } = launcher();
+    let message = "";
+    try { loadConfig({ ...env, FACILITATOR_SECRET: "s".repeat(20) }); } catch (e) { message = (e as Error).message; }
+    expect(message).toContain("LAUNCHER_TOKEN");
+    expect(message).not.toContain("s".repeat(20));
+    expect(() => loadConfig({ ...env, LAUNCHER_TOKEN: "" })).toThrow(/LAUNCHER_TOKEN/);
+  });
+
+  it("launcher mode loads for the player routes without FACILITATOR_SECRET or RUNTIME_URL", () => {
+    const c = loadConfig(launcher());
+    expect([c.launcherUrl, c.launcherToken, c.runtimeUrl, c.facilitatorSecret]).toEqual(["http://127.0.0.1:4000", "t".repeat(32), "", undefined]);
+  });
+
+  it("single mode is unchanged: no launcher variables are needed, and a stray LAUNCHER_TOKEN alone is harmless", () => {
+    const c = loadConfig(base());
+    expect([c.launcherUrl, c.launcherToken]).toEqual([undefined, undefined]);
+    expect(loadConfig({ ...base(), LAUNCHER_TOKEN: "t".repeat(32) }).launcherUrl).toBeUndefined();
+  });
+
+  it("a player-only deployment with only RUNTIME_URL still loads", () => {
+    const c = loadConfig({ RUNTIME_URL: "ws://127.0.0.1:8787", PUBLIC_ORIGIN: "https://play.example.org", COOKIE_KEYS: `k1:${key()}` });
+    expect(c.runtimeUrl).toBe("ws://127.0.0.1:8787");
+    expect([c.facilitatorSecret, c.launcherUrl, c.launcherToken]).toEqual([undefined, undefined, undefined]);
+  });
+});
+

@@ -4,22 +4,27 @@ import type { Config } from "./config";
 import { fail, ok } from "./envelope";
 import { checkFetchSite, checkOrigin, requestAddress } from "./guards";
 import { ROBOTS_TAG } from "./headers";
+import type { LauncherClient } from "./launcher-client";
 import { RuntimeError, type RuntimeConnection } from "./runtime-connection";
+import { resolveRuntimeUrl } from "./runtime-lookup";
 import { seal, unseal } from "./seal";
 import { sseBody } from "./sse";
-import { NoStreamError, type SessionCookie, type SseOut, type StreamHub } from "./stream-hub";
+import { NoStreamError, SIGNED_OUT_MESSAGE, type SessionCookie, type SseOut, type StreamHub } from "./stream-hub";
 import type { JoinThrottle } from "./throttle";
 import type { ClientMessage, JoinedFrame } from "./wire";
 
 // The /api/v1 handlers: plain Request -> Response, no Next imports (route files re-export them through routes.ts). Identity comes only
 // from the sealed cookie, never from a body or a query. Nothing here logs a code, a credential, a cookie, a name or an address.
 
-export type Deps = { config: Config; now: () => number; connect: typeof RuntimeConnection.connect; joinThrottle: JoinThrottle; consoleThrottle: JoinThrottle; hub: StreamHub };
+export type Deps = {
+  config: Config; now: () => number; connect: typeof RuntimeConnection.connect; joinThrottle: JoinThrottle; consoleThrottle: JoinThrottle; hub: StreamHub;
+  /** Set when LAUNCHER_URL is: each session's runtime is then looked up through the control service (runtime-lookup.ts). */
+  launcher?: LauncherClient;
+};
 
 /** `__Host-`: the browser accepts it only Secure, with Path=/ and no Domain, so a sibling subdomain cannot plant or shadow it. */
 export const COOKIE_NAME = "__Host-scenecoach";
-/** What a player whose credential the runtime refused is told (the stream's `signed_out` event). */
-export const SIGNED_OUT_MESSAGE = "ask your facilitator for a new code";
+export { SIGNED_OUT_MESSAGE };
 
 const HOUR_MS = 3_600_000;
 const RETRY_MS = 3_000;
@@ -203,8 +208,13 @@ export async function handleJoin(req: Request, deps: Deps): Promise<Response> {
   const throttle = deps.joinThrottle;
   if (throttle.blockedForMs(address, role) > 0) return answer(A.joinRefused);
 
+  // Launcher mode: the session's own runtime. An unknown, stopped or ended session is refused like any other join (no code was
+  // guessed, so nothing is charged); a launcher that cannot be reached is "unavailable".
+  let runtimeUrl: string | null;
+  try { runtimeUrl = await resolveRuntimeUrl(deps, sessionId); } catch { return answer(A.unavailable); }
+  if (runtimeUrl === null) return answer(A.joinRefused);
   let conn: RuntimeConnection;
-  try { conn = await deps.connect(deps.config.runtimeUrl, address); }
+  try { conn = await deps.connect(runtimeUrl, address); }
   // 429 is the runtime's own address block: a refusal like any other. Anything else: the runtime is not there.
   catch (err) { return err instanceof RuntimeError && err.code === "rate_limited" ? answer(A.joinRefused) : answer(A.unavailable); }
   // Opaque and minted here: the person's name is the display name, never an id.
@@ -254,8 +264,12 @@ export async function handleStream(req: Request, deps: Deps): Promise<Response> 
   // Before any connection: once open() answers "capacity" the connection is already gone.
   if (!deps.hub.hasCapacity(cookie, address)) return answer(A.busy);
 
+  // A stopped or unknown session, or an unreachable launcher, reads as a runtime that is not there: the browser retries.
+  let runtimeUrl: string | null;
+  try { runtimeUrl = await resolveRuntimeUrl(deps, cookie.sessionId); } catch { return sseFinal("reconnecting"); }
+  if (runtimeUrl === null) return sseFinal("reconnecting");
   let conn: RuntimeConnection;
-  try { conn = await deps.connect(deps.config.runtimeUrl, address); }
+  try { conn = await deps.connect(runtimeUrl, address); }
   catch { return sseFinal("reconnecting"); }
   let joined: JoinedFrame;
   try {
@@ -267,6 +281,8 @@ export async function handleStream(req: Request, deps: Deps): Promise<Response> 
     if (code === "unauthorized") return hasEnded(deps.hub, cookie) ? sseFinal("ended", {}, CLEAR_COOKIE) : sseFinal("signed_out", { message: SIGNED_OUT_MESSAGE }, CLEAR_COOKIE);
     if (code === "session_ended") return sseFinal("ended", {}, CLEAR_COOKIE);
     if (code === "superseded") return sseFinal("superseded");
+    // The role's code was reissued while this stream was joining: the credential is revoked, exactly as for a refused one.
+    if (code === "reissued") return sseFinal("signed_out", { message: SIGNED_OUT_MESSAGE }, CLEAR_COOKIE);
     return sseFinal("reconnecting");
   }
   // Nobody is listening any more.

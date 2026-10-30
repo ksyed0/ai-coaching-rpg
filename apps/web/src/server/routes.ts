@@ -3,6 +3,7 @@ import { handleConsoleLogin, handleConsoleLogout } from "./console-handlers";
 import { consoleSessionFromToken } from "./console-session";
 import { fail } from "./envelope";
 import { handleConsent, handleJoin, handleLeave, handleSay, handleStream, seatedIn, type Deps } from "./handlers";
+import { LauncherClient } from "./launcher-client";
 import { RuntimeConnection, realTimer } from "./runtime-connection";
 import { StreamHub } from "./stream-hub";
 import { JoinThrottle } from "./throttle";
@@ -25,6 +26,8 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     // The console login throttle: the same 5 failures per 60 s and 60 s block, keyed by address.
     consoleThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
     hub: new StreamHub({ maxStreams: config.maxStreams, maxStreamsPerSession: config.maxStreamsPerSession, maxStreamsPerAddress: config.maxStreamsPerAddress, setTimer: realTimer, now }),
+    // loadConfig guarantees the token whenever the URL is set.
+    ...(config.launcherUrl !== undefined && config.launcherToken !== undefined && { launcher: new LauncherClient({ baseUrl: config.launcherUrl, token: config.launcherToken }) }),
   };
 }
 

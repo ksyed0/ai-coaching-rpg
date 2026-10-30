@@ -1,5 +1,5 @@
 import { initPlayerView } from "@acr/events";
-import type { RuntimeConnection, SetTimer } from "./runtime-connection";
+import { CLOSE_REISSUED, CLOSE_SUPERSEDED, type RuntimeConnection, type SetTimer } from "./runtime-connection";
 import type { ClientMessage, JoinedFrame, ServerMessage } from "./wire";
 
 // Bridges one participant's runtime socket to one server-sent-events response. No Next imports: the route hands in an `out` writer.
@@ -35,7 +35,8 @@ const RETRY_MS = 3_000;
 const HEARTBEAT_MS = 15_000;
 const DEFAULT_SEND_WAIT_MS = 300;
 const DEFAULT_MAX_PENDING_BYTES = 256 * 1024;
-const CLOSE_SUPERSEDED = 4001;
+/** What a player whose credential is gone is told (the stream's `signed_out` event). */
+export const SIGNED_OUT_MESSAGE = "ask your facilitator for a new code";
 /** Sent instead of the runtime's own text, so nothing the BFF did not choose reaches the page as a sentence. */
 const ERROR_MESSAGE = "the server reported an error";
 
@@ -51,7 +52,9 @@ type Stream = {
   waiter: Waiter | null;
   sendChain: Promise<unknown>;
 };
-type FinalEvent = "superseded" | "reconnecting" | "ended" | "expired";
+type FinalEvent = "superseded" | "reconnecting" | "ended" | "expired" | "signed_out";
+/** How a runtime close code ends a stream. 4001 and 4002 are terminal (a retry would kick the new holder, or fail with a revoked credential). */
+const endingFor = (code: number): FinalEvent => (code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "signed_out" : "reconnecting");
 
 // JSON.stringify escapes CR and LF, so a data line can never break the SSE framing.
 const sse = (event: string, data: unknown, id?: number) => `${id === undefined ? "" : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -114,12 +117,12 @@ export class StreamHub {
     // An older join than the live stream's: the runtime has kicked it (its 4001 may still be on the way); the live stream stays.
     if (prev && prev.conn.joinOrder > conn.joinOrder) { this.finish(s, "superseded"); return noop; }
     // Already closed before it could start: never touch the live stream.
-    if (conn.closeCode !== null) { this.finish(s, conn.closeCode === CLOSE_SUPERSEDED ? "superseded" : "reconnecting"); return noop; }
+    if (conn.closeCode !== null) { this.finish(s, endingFor(conn.closeCode)); return noop; }
     // Still closing, code not known yet. joinOrder is when the BFF heard `joined`, not when the runtime took the join: a delayed socket
     // can deliver its `joined` and its 4001 together and look newer than the runtime's real holder. So it never replaces `prev`; it waits
     // outside the map for its own close, whose code decides (4001: superseded, so the browser does not retry and kick the holder).
     if (!conn.isOpen) {
-      s.detach = conn.onClose((code) => this.finish(s, code === CLOSE_SUPERSEDED ? "superseded" : "reconnecting"));
+      s.detach = conn.onClose((code) => this.finish(s, endingFor(code)));
       if (s.ended) s.detach();
       return { close: () => this.finish(s, null) };
     }
@@ -151,7 +154,7 @@ export class StreamHub {
     beat();
     // onFrame first: frames queued in the connection come out before a close that already happened.
     const offFrame = conn.onFrame((m) => this.onFrame(s, m));
-    const offClose = conn.onClose((code) => this.finish(s, code === CLOSE_SUPERSEDED ? "superseded" : "reconnecting"));
+    const offClose = conn.onClose((code) => this.finish(s, endingFor(code)));
     s.detach = () => { offFrame(); offClose(); };
     if (s.ended) s.detach(); // the close was reported during onClose, before detach existed
     return { close: () => this.finish(s, null) };
@@ -223,7 +226,7 @@ export class StreamHub {
     s.cancelHeartbeat();
     s.detach();
     s.waiter?.done(null);
-    if (event) { try { s.out.write(sse(event, {})); } catch { /* the client is gone */ } }
+    if (event) { try { s.out.write(sse(event, event === "signed_out" ? { message: SIGNED_OUT_MESSAGE } : {})); } catch { /* the client is gone */ } }
     try { s.out.end(); } catch { /* already closed by the client */ }
     s.conn.close();
   }

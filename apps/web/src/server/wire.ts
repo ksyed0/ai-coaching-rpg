@@ -1,13 +1,19 @@
-// Types only, no runtime code. Hand-written mirror of the runtime's wire protocol, because services/runtime/src/host/protocol.ts
+// Types and one small guard. Hand-written mirror of the runtime's wire protocol, because services/runtime/src/host/protocol.ts
 // (zod schemas, runtime imports) is not importable from a Next app. SOURCE: services/runtime/src/host/protocol.ts (ClientMessageSchema,
-// ServerMessage) and host/roster.ts (roster entries). Only the messages the BFF sends or reads are mirrored. A contract test against the
-// real runtime (Task 12) pins this file against drift: change both together.
+// ServerMessage) and host/roster.ts (roster entries). Only the messages the BFF sends or reads are mirrored. The contract tests against the
+// real runtime (hub.runtime.test.ts) pin this file against drift: change both together.
 import type { PlayerScene, SessionEvent, SessionState } from "@acr/events";
+
+export type SessionStatus = SessionState["status"];
 
 export type ClientMessage =
   | { type: "join"; sessionId: string; roleId: string; participantId: string; reconnectToken?: string; joinCode?: string; lastSeq?: number;
       /** Ask a join by code for a durable credential (returned once in `joined`). */
       issueCredential?: boolean; /** Rejoin with the credential instead of the code. */ credential?: string; displayName?: string }
+  /** The facilitator's login. The token is the control service's per-start secret; never logged. */
+  | { type: "join_facilitator"; sessionId: string; token: string }
+  /** The facilitator's Start (refused by the runtime until its start gate is met). */
+  | { type: "start" }
   | { type: "consent"; noticeVersion: string }
   | { type: "withdraw_consent" }
   | { type: "leave" }
@@ -45,3 +51,7 @@ export type ServerMessage =
   | { type: "roster"; audience: "facilitator"; entries: FacilitatorRosterEntry[] }
   | { type: "roster"; audience: "peers"; entries: PeerRosterEntry[] }
   | { type: "error"; code: string; message: string };
+
+export type FacilitatorRoster = Extract<ServerMessage, { type: "roster"; audience: "facilitator" }>;
+/** A roster frame meant for the facilitator (the runtime sends it right after `joined`, and again on every change). */
+export const isFacilitatorRoster = (m: ServerMessage): m is FacilitatorRoster => m.type === "roster" && m.audience === "facilitator";

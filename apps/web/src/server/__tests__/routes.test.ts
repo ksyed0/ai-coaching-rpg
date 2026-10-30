@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { LauncherClient } from "../launcher-client";
 import { consoleView, createDeps, route } from "../routes";
 import { RuntimeConnection } from "../runtime-connection";
 import { StreamHub } from "../stream-hub";
@@ -27,12 +28,22 @@ describe("createDeps", () => {
     for (const name of Object.keys(full) as (keyof typeof full)[]) {
       warn.mockClear();
       const { [name]: _gone, ...rest } = full;
+      // LAUNCHER_URL without its token is not a disabled console but a configuration error: the player routes need the token too.
+      if (name === "LAUNCHER_TOKEN") { expect(() => createDeps({ ...ENV, ...rest })).toThrow(/LAUNCHER_TOKEN/); continue; }
       createDeps({ ...ENV, ...rest });
       expect(warn).toHaveBeenCalledTimes(1);
       const line = String(warn.mock.calls[0]![0]);
       expect(line).toContain(name);
       for (const v of Object.values(full)) expect(line).not.toContain(v);
     }
+  });
+
+  it("builds the launcher client only when LAUNCHER_URL is set (single mode has none)", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(createDeps(ENV).launcher).toBeUndefined();
+    const d = createDeps({ ...ENV, RUNTIME_URL: "", LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) });
+    expect(d.launcher).toBeInstanceOf(LauncherClient);
+    expect(createDeps({ ...ENV, LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) }).launcher).toBeInstanceOf(LauncherClient);
   });
 
   it("the BFF join throttle blocks after more than five failures for one (address, role), like the runtime's", () => {

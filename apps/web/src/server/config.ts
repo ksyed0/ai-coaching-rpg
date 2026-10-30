@@ -71,6 +71,9 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   if (facilitatorSecret !== undefined && facilitatorSecret.length < 16) problems.push("FACILITATOR_SECRET must be at least 16 characters");
   const launcherToken = env.LAUNCHER_TOKEN === "" ? undefined : env.LAUNCHER_TOKEN;
   if (launcherToken !== undefined && launcherToken.length < 32) problems.push("LAUNCHER_TOKEN must be at least 32 characters");
+  // With LAUNCHER_URL the PLAYER routes look each session's runtime up through the control service, which needs the token: without it
+  // no join or stream could work, so this is a configuration error, not a disabled console. (FACILITATOR_SECRET stays optional.)
+  if (launcherRaw !== undefined && launcherToken === undefined) problems.push("LAUNCHER_TOKEN is required when LAUNCHER_URL is set (the player routes look up each session's runtime through the control service)");
 
   // RUNTIME_URL stays required only for a player-only deployment (no LAUNCHER_URL).
   const runtime = parseUrl(env.RUNTIME_URL);
