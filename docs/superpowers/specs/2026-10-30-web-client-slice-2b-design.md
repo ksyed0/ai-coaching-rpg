@@ -103,7 +103,7 @@ Loopback only, service token header, callable only by the BFF. Bodies are valida
 
 | Route | Behaviour |
 |---|---|
-| `POST /sessions { scenarioId }` | `scenarioId` must be in an allowlist built from the scenarios folder and pass the existing loader. Capped by `MAX_SESSIONS` (default 10, live sessions only). Generates an unguessable session id that satisfies `isValidSessionId`. Returns `{ sessionId, status, port, modelLabel, codes }` once |
+| `POST /sessions { scenarioId }` | `scenarioId` must be in an allowlist built from the scenarios folder and pass the existing loader. Capped by `MAX_SESSIONS` (default 10; counts every non-ended session, stopped ones included, until 2b-2 adds end/remove). Generates an unguessable session id that satisfies `isValidSessionId`. Returns `{ sessionId, status, port, modelLabel, codes }` once |
 | `GET /scenarios` | `[{ id, title }]` from the allowlist, for the New session screen |
 | `GET /sessions`, `GET /sessions/:id` | `{ sessionId, scenarioId, status, port, modelLabel }`; status is `running`, `stopped` or `ended` |
 | `GET /sessions/:id/facilitator` | `{ port, token }` together, for the BFF only |
@@ -121,7 +121,7 @@ After the start the runtime refuses anyone whose participant id has no consent o
 - **Session list:** `sessions.json` holds `sessionId, scenarioId, status` only. It is written atomically, mode 0600, with the existing `secure-json-file` helper. The status becomes `ended` the moment the `ended` IPC message arrives.
 - **Start up:** the service first checks each listed session's log tail with a lock-free read (so a crash that happened after `session.ended` still counts as ended), then resumes every non-ended session paused, with fresh tokens. It waits for any previous child of that session to exit before resuming, because an old child still draining holds the session lock.
 - **Crash:** a child that exits unexpectedly becomes `stopped`. **Restart is manual only**; there is no auto-restart, so a bad scenario or a lost lock cannot loop.
-- **Ended sessions:** after the `ended` message the child is stopped after a grace period. An ended session does not count against `MAX_SESSIONS`. The control service later serves released reports without a runtime (2c, AC-0329).
+- **Ended sessions:** after the `ended` message the child is stopped after a grace period. An ended session does not count against `MAX_SESSIONS`; a stopped one does until it is ended or removed (2b-2). The control service later serves released reports without a runtime (2c, AC-0329).
 - **Logs:** each child's stdout and stderr go to a per-session log file in the control service's directory. Codes travel only over IPC, so these logs need no redaction.
 - The session-id-to-port mapping lives in the control service and BFF, never in a cookie.
 

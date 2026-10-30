@@ -179,7 +179,7 @@ jobs:
   web-e2e:
     name: Web E2E
     runs-on: ubuntu-latest
-    # Two production builds of apps/web (about 1 min each), the five Playwright specs (each starts its own runtime and next start) and
+    # Two production builds of apps/web (about 1 min each), the Playwright suite, launcher-mode console specs included (each test starts its own stack: a runtime or a control service, and next start) and
     # the web demo: a few minutes on a normal runner. The limit only stops a hang from holding a runner for the default 6 hours.
     timeout-minutes: 20
     steps:
