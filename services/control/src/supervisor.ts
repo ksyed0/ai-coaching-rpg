@@ -60,6 +60,7 @@ export class Supervisor {
   private readonly newSessionId: () => string;
   private readonly newToken: () => string;
   private readonly now: () => number;
+  private readonly parentEnv: NodeJS.ProcessEnv;
   private readonly reissueTimeoutMs: number;
   /** The newest child process of each session until it exits (also children we gave up stopping): the next start waits for it. */
   private readonly procs = new Map<string, Proc>();
@@ -72,7 +73,10 @@ export class Supervisor {
     config: ControlConfig; list: SessionList; scenarios: () => Promise<{ id: string; title: string }[]>; spawn: SpawnFn;
     setTimer?: SetTimer; log?: (m: string) => void; newSessionId?: () => string; newToken?: () => string;
     reissueTimeoutMs?: number; now?: () => number;
+    /** What the allowlist copies from (default: this process's environment; the entry point passes it with `.env` merged under). */
+    parentEnv?: NodeJS.ProcessEnv;
   }) {
+    this.parentEnv = o.parentEnv ?? process.env;
     this.now = o.now ?? Date.now;
     this.reissueTimeoutMs = o.reissueTimeoutMs ?? DEFAULT_REISSUE_TIMEOUT_MS;
     this.setTimer = o.setTimer ?? defaultSetTimer;
@@ -102,7 +106,7 @@ export class Supervisor {
       if (!isValidSessionId(sessionId)) throw new ControlError("start_failed", START_FAILED);
       const folder = scenarioDir(this.o.config.scenariosDir, scenarioId);
       const token = this.newToken();
-      const env = buildChildEnv({ config: this.o.config, parentEnv: process.env, sessionId, scenarioDir: folder, token, start: "fresh" });
+      const env = buildChildEnv({ config: this.o.config, parentEnv: this.parentEnv, sessionId, scenarioDir: folder, token, start: "fresh" });
       mkdirSync(this.o.config.logDir, { recursive: true, mode: 0o700 });
       chmodSync(this.o.config.logDir, 0o700);
       const spawned = this.o.spawn({ env, logFile });
@@ -348,7 +352,7 @@ export class Supervisor {
     try {
       const folder = scenarioDir(this.o.config.scenariosDir, scenarioId);
       const token = this.newToken();
-      const env = buildChildEnv({ config: this.o.config, parentEnv: process.env, sessionId: id, scenarioDir: folder, token, start: "resume" });
+      const env = buildChildEnv({ config: this.o.config, parentEnv: this.parentEnv, sessionId: id, scenarioDir: folder, token, start: "resume" });
       mkdirSync(this.o.config.logDir, { recursive: true, mode: 0o700 });
       chmodSync(this.o.config.logDir, 0o700);
       const spawned = this.o.spawn({ env, logFile: path.join(this.o.config.logDir, `${id}.log`) });
