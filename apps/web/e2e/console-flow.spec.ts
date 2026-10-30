@@ -71,7 +71,7 @@ test("facilitator logs in, creates a session, three players join with the shown 
   for (const role of PLAYERS) await expectSeatReady(fac, role);
   await expect(startButton(fac)).toBeEnabled();
   await startButton(fac).click();
-  await expect(fac.getByText("The session has started.")).toBeVisible();
+  await expect(fac.getByText("The session has started.", { exact: true })).toBeVisible();
 
   for (const role of PLAYERS) {
     await expect(sceneHeading(players[role])).toBeVisible();
@@ -171,7 +171,7 @@ test("reissue after the start rebinds consent: a player who lost their cookie re
   await fac.goto(`${stack.baseUrl}/console/${sessionId}`);
   for (const role of PLAYERS) await expectSeatReady(fac, role);
   await startButton(fac).click();
-  await expect(fac.getByText("The session has started.")).toBeVisible();
+  await expect(fac.getByText("The session has started.", { exact: true })).toBeVisible();
   await expect(
     fac.getByRole("button", { name: "Reissue all codes" }),
   ).toBeDisabled();
@@ -273,7 +273,7 @@ test("a control-service restart in the lobby keeps the codes, joined seats and c
   for (const role of PLAYERS) await expectSeatReady(fac, role);
   await expect(startButton(fac)).toBeEnabled();
   await startButton(fac).click();
-  await expect(fac.getByText("The session has started.")).toBeVisible();
+  await expect(fac.getByText("The session has started.", { exact: true })).toBeVisible();
 });
 
 test("a player cookie on /api/v1/console/sessions returns 401 and a facilitator cookie on /api/v1/say returns 401", async ({
