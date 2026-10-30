@@ -525,3 +525,13 @@ Summarised, not verbatim: the exact owner prompts of these sessions were not ava
 ### 2026-10-28 (approximate, summarised)
 
 > Task 16: documentation, threat model and bookkeeping, then a final whole-branch review and one fix round on its findings (X-Forwarded-For documentation, the consent notice wording, a seated player reopening the join link, the closed-stream wording, small doc fixes, this prompt log entry).
+
+### 2026-10-30 (approximate, summarised)
+
+> "whats next" — status of the project: read the develop-side progress and release plan; worktree found 474 commits behind develop.
+> Close out slice 2a (a local OrbStack Docker host is available): run the node:22 container recipe, tick AC-0299/TC-0076, update the docs; then push the branch and open the PR (PR #59).
+> Brainstorm slice 2b (facilitator console, control service, AI players). Decisions taken: one spec with three plans (2b-1 control plane and readiness, 2b-2 live console, 2b-3 AI players); dual-mode runtime lookup (LAUNCHER_URL set, else RUNTIME_URL); facilitator name typed at login; separate control service with one runtime process per session; reactive AI turn policy; Remove always reissues; reissue after the start rebinds consent (recorded); readiness page and Start move into 2b-1.
+> Add an option for the facilitator to prompt an AI player to respond; have an Opus model review the spec and provide feedback and fixes (21 findings, all addressed).
+> Approve the spec and write the plan for 2b-1; have an Opus model review the plan (fixes applied, task ids and pins corrected).
+> Execute the plan subagent-driven (per-task implementer, spec and quality review, fix rounds, final whole-branch review, one fix wave).
+> "after completion of the plan implementation, update all session docs, commit all changes, wait for CI to go green, fix any issues, merge PR and clean up unused branches".
