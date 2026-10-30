@@ -23,10 +23,18 @@ export class ConsentRecordError extends Error {
 
 const HEX64 = /^[0-9a-f]{64}$/;
 
+/**
+ * US-0058: the participant id a seat's consent carries between a code reissue after the start and the next person who joins with the
+ * new code. It passes the record shape checks (so the existing file format persists it) and cannot collide with a participant id the
+ * web layer mints (a random UUID). `has` is false for everyone while it stands, and `claimRebind` refuses it as a participant.
+ */
+export const REBIND_PENDING = "rebind-pending";
+
 export class ConsentStore {
   private readonly entries: Map<string, ConsentEntry>;
   constructor(private readonly noticeValue: ConsentNotice, initial: Record<string, ConsentEntry> = {}) {
-    this.entries = new Map(Object.entries(initial).filter(([, e]) => e.noticeVersion === noticeValue.version));
+    // A pending rebind is kept under any version: it holds no person's agreement, only the right to inherit the one the log records.
+    this.entries = new Map(Object.entries(initial).filter(([, e]) => e.noticeVersion === noticeValue.version || e.participantId === REBIND_PENDING));
   }
 
   get notice(): ConsentNotice { return this.noticeValue; }
@@ -55,11 +63,34 @@ export class ConsentStore {
 
   withdraw(roleId: string): boolean { return this.entries.delete(roleId); }
 
+  /**
+   * US-0058: after a code reissue past the start, the role's consent waits for the next participant (see REBIND_PENDING). Keeps the
+   * notice version and time. True when an entry existed.
+   */
+  releaseForRebind(roleId: string): boolean {
+    const e = this.entries.get(roleId);
+    if (!e) return false;
+    this.entries.set(roleId, { participantId: REBIND_PENDING, noticeVersion: e.noticeVersion, at: e.at });
+    return true;
+  }
+
+  isRebindPending(roleId: string): boolean { return this.entries.get(roleId)?.participantId === REBIND_PENDING; }
+
+  /** US-0058: binds the waiting consent to `participantId` (only while pending; same shape checks as give). `at` is when the rebind happened. */
+  claimRebind(roleId: string, participantId: string, at: number): boolean {
+    const e = this.entries.get(roleId);
+    if (!e || e.participantId !== REBIND_PENDING) return false;
+    if (participantId === REBIND_PENDING || participantId.length === 0 || participantId.length > CLIENT_ID_MAX_CHARS) return false;
+    if (!Number.isFinite(at) || at < 0) return false;
+    this.entries.set(roleId, { participantId, noticeVersion: e.noticeVersion, at });
+    return true;
+  }
+
   /** Whether any entry stands for the role (whoever gave it). */
   hasEntry(roleId: string): boolean { return this.entries.has(roleId); }
 
-  /** True only when this participant gave the consent now held for the role. */
-  has(roleId: string, participantId: string): boolean { return this.entries.get(roleId)?.participantId === participantId; }
+  /** True only when this participant gave the consent now held for the role (never while a rebind is pending, for anyone). */
+  has(roleId: string, participantId: string): boolean { return participantId !== REBIND_PENDING && this.entries.get(roleId)?.participantId === participantId; }
 
   /** What a client may see: when each role agreed and to what, never who. */
   snapshot(): Record<string, { noticeVersion: string; at: number }> {
