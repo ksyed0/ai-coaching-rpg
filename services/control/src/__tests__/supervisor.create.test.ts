@@ -3,38 +3,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ControlConfig } from "../config.js";
-import type { ChildMessage, ParentMessage } from "../protocol.js";
+import { CODES, FakeChild, READY, flush, sid } from "./fake-child.js";
 import { SessionList } from "../session-list.js";
-import { ControlError, Supervisor, type ChildHandle, type SetTimer, type SpawnFn } from "../supervisor.js";
+import { ControlError, Supervisor, type SetTimer, type SpawnFn } from "../supervisor.js";
 
-class FakeChild implements ChildHandle {
-  sent: ParentMessage[] = [];
-  killed = 0;
-  forced = 0;
-  onKill?: () => void;
-  onForce?: () => void;
-  disconnected = 0;
-  private msg: ((m: ChildMessage) => void)[] = [];
-  private exitFns: ((c: number | null) => void)[] = [];
-  constructor(readonly env: NodeJS.ProcessEnv, readonly logFile: string) {}
-  send(m: ParentMessage): boolean { this.sent.push(m); return true; }
-  onMessage(fn: (m: ChildMessage) => void): void { this.msg.push(fn); }
-  onExit(fn: (c: number | null) => void): void { this.exitFns.push(fn); }
-  kill(): void { this.killed++; this.onKill?.(); }
-  forceKill(): void { this.forced++; this.onForce?.(); }
-  disconnect(): void { this.disconnected++; }
-  emit(m: unknown): void { for (const f of this.msg) f(m as ChildMessage); }
-  exit(code: number | null = 1): void { for (const f of this.exitFns) f(code); }
-}
-
-const CODES = [{ roleId: "cfo", code: "alpha-1" }, { roleId: "cto", code: "beta-2" }];
-const READY = { type: "ready", port: 4321, status: "new", modelLabel: "test-model" } as const;
-const sid = (n: number) => n.toString(16).padStart(32, "0");
 
 let root: string, config: ControlConfig, list: SessionList, children: FakeChild[], spawn: SpawnFn, logs: string[];
 let timers: { fn: () => void; ms: number; cancelled: boolean }[];
 const setTimer: SetTimer = (fn, ms) => { const t = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; };
-const flush = () => new Promise<void>((r) => setImmediate(r));
 const make = (extra: Partial<ConstructorParameters<typeof Supervisor>[0]> = {}) => new Supervisor({
   config, list, scenarios: async () => [{ id: "friday-escalation", title: "Friday" }, { id: "other", title: "Other" }], spawn, setTimer,
   log: (m) => logs.push(m), ...extra,
@@ -255,12 +231,6 @@ describe("Supervisor.create", () => {
     const sup = make({ spawn: () => { throw new Error("EACCES /secret/path"); } });
     await expect(sup.create("other")).rejects.toMatchObject({ code: "start_failed", message: "the session could not be started" });
     expect(list.read()).toEqual([]);
-  });
-
-  it("11b methods are stubs", async () => {
-    const sup = make();
-    await expect(sup.restart(sid(1))).rejects.toThrow("not implemented");
-    await expect(sup.shutdown()).rejects.toThrow("not implemented");
   });
 
   describe("rollback of a live child", () => {
