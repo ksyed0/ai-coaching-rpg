@@ -40,3 +40,37 @@ A slice 2a runtime reads the logs an older runtime wrote (formats 0 and 1). A se
 
 - Log the incident in `progress.md` with the timeline, root cause and resolution.
 - Open a `bugfix/*` branch for the root cause before deploying again, and add a post-mortem entry to `docs/LESSONS.md`.
+
+## EPIC-0002 slice 2b-1: facilitator console and control service (US-0057 to US-0059)
+
+```
+Release: unreleased (the stacked branches feature/EPIC-0002-US-0057-facilitator-login, ...-US-0058-launcher-control-service and ...-US-0059-readiness, after their pull requests are merged)
+Date: not deployed
+Rollback trigger: the control service or the console misbehaves (sessions cannot be created or resumed, a runtime is orphaned, players cannot join through the launcher lookup, a code reissue locks a player out), or the web app must go back to single-runtime mode for any other reason.
+```
+
+### What changes on disk and in the log
+
+- **No log-format change.** Slice 2b-1 writes `LOG_FORMAT` 2, exactly as slice 2a, and reads formats 0 to 2. Nothing in 2b-1 makes an older runtime that reads format 2 refuse a log. (Log format 3 belongs to slice 2b-3, when sessions record AI roles; its rollback note will be added then.)
+- **New service and directory.** `services/control` keeps `<CONTROL_DATA_DIR>/sessions.json` (session id, scenario id, status; mode `0600`), `<CONTROL_DATA_DIR>/sessions/` (each session's own log, codes, seat and consent files, written by the runtime) and per-session child logs (`CONTROL_LOG_DIR`, default `<CONTROL_DATA_DIR>/child-logs`; no codes or tokens are written to them). The control service never stores join codes.
+- **Data directories stay compatible with a terminal-started runtime, with one exception.** A runtime started from the terminal with `SESSION_DATA_DIR` pointed at a session directory reads the same log, codes, seat and consent files. The exception is `CONTROL_MANAGED=1`: only a managed runtime keeps the lobby files (codes, seats, consent) when it restarts on an empty log. A runtime started without it discards them and issues new codes on an empty log, as before, and moves an ended log aside instead of refusing it.
+- **Facilitator-only alerts.** A reissue after the start appends facilitator-only alerts about the consent rebind. They are ordinary events that an older runtime ignores.
+- **New settings** (all optional, all ignored by a runtime started from the terminal): web app `FACILITATOR_SECRET`, `LAUNCHER_URL`, `LAUNCHER_TOKEN`; control service `CONTROL_PORT`, `CONTROL_DATA_DIR`, `MAX_SESSIONS`, `SCENARIOS_DIR`, `CONTROL_LOG_DIR`, `CONTROL_GRACE_MS`, `CONTROL_READY_TIMEOUT_MS`. The control service sets `CONTROL_MANAGED`, `SESSION_DATA_DIR` and `NO_DOTENV` on its children.
+
+### Steps
+
+1. **Disable the console.** Unset `FACILITATOR_SECRET`, `LAUNCHER_URL` and `LAUNCHER_TOKEN` in the web app's environment and restart `next start`. With `LAUNCHER_URL` unset the web app is in single-runtime mode again (`RUNTIME_URL`, as in slice 2a) and `/console` shows "The console is not set up on this server."
+2. **Stop the control service** (SIGINT or SIGTERM: it stops its runtimes and exits). If it was killed instead, its runtimes see the IPC channel close and exit by themselves (a hard-exit backstop follows a hung stop), so none is left holding a session lock; check with `ps` and for a leftover session lock file before starting anything on the same data directory.
+3. **Decide what happens to the sessions that ran under the control service.** Their logs, codes, seats and consent are in `<CONTROL_DATA_DIR>/sessions/`. To continue one from the terminal, start a runtime with `SESSION_DATA_DIR` set to that directory and the same `SESSION_ID` and `SCENARIO_DIR`; it resumes from the log. A session that has not started (an empty log) loses its lobby files on that start, since the runtime is not managed, and gets new codes, so players join and consent again. An ended session is moved aside as usual.
+4. **Redeploy the previous web app and runtime** if needed. No database and no log migration exists; nothing else to reverse. Delete `<CONTROL_DATA_DIR>` only when no session in it is still wanted: it holds the sessions' display names and consents.
+5. **Smoke test:** `pnpm demo --fast` passes its 29 checks and a terminal-started runtime with `pnpm play` still works; `pnpm demo --web` covers single-runtime mode.
+6. **Notify** the facilitators: sessions are started from the terminal again until the console is restored. Players who joined through the launcher keep their cookies (`__Host-scenecoach`); they need new codes if a session is started afresh.
+
+### Rolling forward again
+
+Set the console variables again and start `pnpm control` on the same `CONTROL_DATA_DIR`: it resumes every non-ended session paused from its log and keeps a lobby's codes, seats and consent. Run one control service per data directory.
+
+### Post-rollback
+
+- Log the incident in `progress.md` with the timeline, root cause and resolution.
+- Open a `bugfix/*` branch for the root cause before deploying again, and add a post-mortem entry to `docs/LESSONS.md`.

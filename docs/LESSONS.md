@@ -192,3 +192,51 @@ _Learned when the roster tests waited for a roster frame with `f.next()` that ma
 **Rule:** Before Axe (or any check that reads computed colours or layout) runs, wait for a settled page: the state you mean to test is reached (the message shown, the control enabled, not busy) and `document.getAnimations()` has nothing running or pending. A colour transition that starts when the colour scheme changes leaves a half-way background beside text that switched at once, so a contrast check passes or fails depending on timing. Reproduce such a failure by slowing the transition (or the animation playback rate) in a scratch build, never by waiting longer.
 _Learned when the first two CI runs of the web Axe spec failed in different places: once a button's contrast on the refused join screen right after switching from dark to light (its 0.12 s background transition was mid-way), once a line that never reached the transcript; a 3 s transition in a scratch build made the first failure happen every time, and waiting for the animations to finish fixed it._
 **Date:** 2026-10-28
+
+## L-0025 — Never append an event before the start: a non-empty log wedges `engine.start`
+
+@agent: all
+
+**Rule:** The engine refuses to start on a log that already holds an event (`log_not_empty`). Any code that runs before the session starts (a reissue, a roster change, an operator action) must keep its audit trail in memory or in a side file, never as a facilitator alert in the session log. Add a test that performs the action on a lobby and then starts the session.
+_Learned when the first design of the parent-only code reissue appended a facilitator alert before the start; the review found that one pre-start reissue made the later `start` fail. Alerts are appended only after `session.started` (slice 2b-1, Task 9)._
+**Date:** 2026-10-30
+
+## L-0026 — A rollback that deletes files must first wait for the child to exit
+
+@agent: all
+
+**Rule:** When a supervisor rolls back a half-created child (failed start, timeout), kill it, await its exit (bounded by a timer), force-kill if it survives, and only then delete its files and free its slot. A dying process can still write a file after you removed it, and a freed slot lets a second create race the first child's lock. A child that survives SIGKILL keeps its slot reserved.
+_Learned when the control service's rollback deleted the session files at once after `kill()`; the review showed a late write could resurrect them and the slot count could exceed `MAX_SESSIONS` (slice 2b-1, Task 11a; ruling R9)._
+**Date:** 2026-10-30
+
+## L-0027 — A fake child that exits synchronously hides shutdown races
+
+@agent: all
+
+**Rule:** In tests for process supervision, model `kill()`, `exit` and `message` asynchronously (a later tick), the way a real child behaves. A fake that emits `exit` inside `kill()` makes "await the exit" and "persist after the exit" look correct, and the same code then races against a real process. Back the unit tests with at least one test on a real forked child, and check a test is red against the old code.
+_Learned when the first rollback test for the control service passed against code that did not wait for the child: its fake exited inside `kill()`. Fixed by writing the late file in `setImmediate` before the exit (slice 2b-1, Task 11a)._
+**Date:** 2026-10-30
+
+## L-0028 — A client-chosen id must never equal a server placeholder
+
+@agent: all
+
+**Rule:** If the server stores a placeholder value in a field the client also fills (for example `rebind-pending` in the consent file's participant id), refuse that value from every client path (the schema, `give`, `adopt`) and make `has()` false for it. Otherwise a client can claim the waiting state by naming it. Test each entry point with the placeholder itself.
+_Learned when the consent rebind marker `rebind-pending` could be chosen as a participant id through `give`, `adopt` and the protocol schema, which would have let a joining client inherit a seat's consent (slice 2b-1, Task 9 review)._
+**Date:** 2026-10-30
+
+## L-0029 — A failed seat persist needs an in-memory rollback
+
+@agent: all
+
+**Rule:** When an operation changes in-memory state and then persists it (revoke a credential, release a consent), a failed persist must restore the memory too, in the same order it was changed. Otherwise the running process and the file disagree: a role can stay open to the old code, or the old holder is locked out for a change that was never saved. Make the failure test assert the in-memory state, not only that an error was thrown.
+_Learned when a failed seat persist in the reissue left the role open to the OLD code and the consent released in memory, and the test only checked the error (slice 2b-1, Task 9 review). Remaining gap: the two-file persist (credentials, then consent) can still diverge on disk if the second write fails._
+**Date:** 2026-10-30
+
+## L-0030 — Repo-wide scanner tests run in one package and read all of them
+
+@agent: all
+
+**Rule:** Tests that walk the whole repository (`id-rules.files.test.ts`, `test-hygiene.test.ts` in `services/runtime`) apply to every package, including new ones, but a per-file container run of the new package does not execute them. Before closing a slice that adds a package or test files, run the full `pnpm test:coverage` (or those scanner files) and not only the recipe on the files you changed.
+_Learned at the close of slice 2b-1: the scanners reported `services/control/src/api.ts:89` (an identifier-rule regex) and `services/control/src/__tests__/supervisor.real.test.ts:103` (an elapsed-time assertion) that sixteen task-level runs had not executed._
+**Date:** 2026-10-30

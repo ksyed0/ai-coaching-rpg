@@ -268,7 +268,49 @@ services/runtime (TRUST_PROXY=1), started from the terminal; the facilitator use
 - **Roster.** Roster frames come from host memory, not events: the facilitator frame lists each player role with its display name and joined, consented and connected state; the peer frame lists each player role with its name and whether it is ready. Peers therefore see the typed display names of the other players (new in slice 2a; see docs/THREAT_MODEL.md). AI characters are not listed.
 - **Consent and the start gate.** The notice text comes from `consent/notice-<CONSENT_NOTICE_VERSION>.md` in `joined.consent`; the lobby page posts consent over the open stream, so the stream always opens first. `SessionHost.start` refuses until every player role is held by a participant who consented; the consents, names and log identity go into `session.started` (log format 2).
 - **Pages.** `/join?session=<id>&role=<role>` (name and code), `/session/[id]` (lobby with notice, "I agree", "Leave", the peer roster; then the scene bar and timer, transcript, say box, brief, facts and updates; Reconnecting banner; final messages for another tab, signed out and the end). The CSP is built per request in `src/proxy.ts` (Next 16's name for middleware) with a nonce, so every page renders dynamically and styles come only from style sheets (no inline styles). Private paths send `X-Robots-Tag: noindex, nofollow` and are disallowed in `robots.txt`.
-- **Not in 2a:** the facilitator console, the launcher and control service (a session is started from the terminal; `RUNTIME_URL` points at that runtime), per-role code reissue, reports in the browser, AI-filled player roles. These are slices 2b and 2c.
+- **Not in 2a:** the facilitator console, the launcher and control service (a session is started from the terminal; `RUNTIME_URL` points at that runtime), per-role code reissue, reports in the browser, AI-filled player roles. These are slices 2b and 2c; slice 2b-1 adds the console, control service and reissue (next section).
+
+### Facilitator console and control service (slice 2b-1)
+
+Built in EPIC-0002 slice 2b-1 (US-0057 to US-0059, readiness part; design `docs/superpowers/specs/2026-10-30-web-client-slice-2b-design.md` sections 4 to 6, plan `docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md`). A facilitator signs in to a console, creates a session, sees who has joined and consented, gets codes once, reissues codes and presses Start. The live view (intervene, remove, end) and AI-filled player roles are slices 2b-2 and 2b-3.
+
+```
+Browser --> BFF (apps/web) --loopback HTTP + x-service-token--> Control service (services/control)
+              |  sealed cookies: player | facilitator              |  fork() + IPC, one child per session, owns the session list
+              |                                                     v
+              +--- WebSocket per participant / per console ---> Runtime (127.0.0.1:port, one process per session)
+```
+
+| Unit | One job | Where |
+| --- | --- | --- |
+| Control service | Create, supervise, resume and restart runtimes; hold each session's join codes in memory only until the BFF has shown them; reissue a code over IPC; keep the session list (`sessions.json`: id, scenario, status; mode 0600, atomic) | `services/control` (`api.ts`, `supervisor.ts`, `spawn.ts`, `child-env.ts`, `session-list.ts`, `log-tail.ts`, `main.ts`), `pnpm control` |
+| Managed runtime | Run one session. With `CONTROL_MANAGED=1` and an IPC channel: no `.env`, `SESSION_DATA_DIR` for its files, lobby files (codes, seats, consent) kept across a restart, an ended log refused (never rotated), exit when the parent disconnects; sends `codes`, `ready` and `ended`, and answers a parent-only `reissue` | `services/runtime` (`host/parent-channel.ts`, `host/reissue.ts`, `engine/session-store.ts`, `main.ts`) |
+| BFF console | Authenticate the browser (facilitator cookie), hold every facilitator token, look up each session's runtime, and serve `/api/v1/console/*` | `apps/web/src/server` (`console-handlers.ts`, `console-sessions.ts`, `console-session.ts`, `launcher-client.ts`, `runtime-lookup.ts`, `facilitator-socket.ts`) |
+| Console pages | Presentation only (session list, New session, readiness), `noindex` | `apps/web/src/app/console`, `src/components/console` |
+
+Message flow for a session, from sign-in to Start:
+
+```
+facilitator   BFF                      control service            runtime (child)
+  login ----> seal fac cookie
+  New session -> POST /sessions ------> allowlist, MAX_SESSIONS
+                                        fork() ------------------> bootstrap (managed)
+                                        <------ IPC codes --------- (only when this start issued codes)
+                                        <------ IPC ready {port, logIdentity, status, modelLabel}
+              <- codes once (create answer) -- never in a later read
+players       join ---- lookup(session) -> GET /sessions/:id -> running: ws://127.0.0.1:<port> (cookie as in 2a)
+  readiness   GET .../readiness -> GET /sessions/:id/facilitator {port, token}; short facilitator socket; roster
+  reissue     POST .../reissue --> POST /sessions/:id/codes/reissue -> IPC reissue {roleId} -> reply {code}
+                                                                       (revoke, kick 4002, new code; after the start: rebind consent)
+  Start       POST .../start ----> facilitator socket: start; waits for session.started (10 s)
+                                        <------ IPC ended -> status ended in sessions.json, slot freed
+```
+
+- **Dual-mode runtime lookup.** `apps/web/src/server/runtime-lookup.ts` returns the runtime for a session. With `LAUNCHER_URL` set (launcher mode) each join and stream asks the control service: a `running` session is reached at its loopback port, a stopped, ended or unknown one gets the usual neutral join refusal or a reconnecting stream, and an unreachable control service is the "server cannot be reached" answer. Without it, `RUNTIME_URL` is used exactly as in slice 2a (single-runtime mode, the terminal facilitator). `LAUNCHER_URL` requires `LAUNCHER_TOKEN`; the console additionally needs `FACILITATOR_SECRET`.
+- **Facilitator sockets.** The BFF fetches `{ port, token }` together, sends no `X-Forwarded-For` on a facilitator socket and, on a refused token, fetches one fresh pair and retries once. A runtime close code 4002 (the player's code was reissued) is terminal for the player's stream.
+- **Readiness vocabulary.** The readiness answer has two statuses on purpose: `status` is the runtime's state (`idle`, `running`, `ended`) and `launcherStatus` is the control service's (`running`, `stopped`, `ended`).
+- **Restart.** A control-service restart resumes every non-ended session paused from its log, with fresh tokens, keeping a lobby's codes, seats and consent. A crashed child is `stopped`; restart is manual only.
+- **Not in 2b-1:** the live console, intervene, remove, end, AI-filled roles, reports in the browser (2b-2, 2b-3, 2c). The control service is not part of the runtime container image.
 
 ### Client architecture
 

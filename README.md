@@ -172,7 +172,7 @@ Each session is recorded to `data/sessions/<session-id>.jsonl` (the facilitator 
 
 ### 4. Players in a browser (web client, slice 2a)
 
-Players can join from a browser instead of the terminal (EPIC-0002 slice 2a). The facilitator still starts and runs the session from the terminal (`pnpm play --facilitator`); a browser console for the facilitator comes in slice 2b.
+Players can join from a browser instead of the terminal (EPIC-0002 slice 2a). The facilitator still starts and runs the session from the terminal (`pnpm play --facilitator`); a browser console for the facilitator is described in [section 5](#5-facilitator-console-control-service-slice-2b-1).
 
 The web client is `apps/web`, a Next.js app whose server side (the BFF) talks to the runtime for each browser. The browser never connects to the runtime. To try it on one machine:
 
@@ -198,6 +198,36 @@ Things to know:
 - **Connection limits.** Every browser stream holds one runtime connection, keyed by the browser's address. The runtime's defaults (`WS_MAX_CONNECTIONS=32` in total, `WS_MAX_CONNECTIONS_PER_IP=8` per address) are below the web app's (200 streams, 16 per address): raise `WS_MAX_CONNECTIONS` to at least the web app's stream total plus the facilitators, and `WS_MAX_CONNECTIONS_PER_IP` to the number of players behind one office address (nine players behind one address need more than 8).
 - **`COOKIE_KEYS` are secrets.** Generate each with `openssl rand -base64 32`; to rotate, put a new key first and keep the old one until its cookies are no longer needed (dropping it signs those players out, and in this slice they cannot rejoin).
 - `pnpm demo --web` runs the whole path automatically (see [What each mode verifies](#what-each-mode-verifies)).
+
+### 5. Facilitator console (control service, slice 2b-1)
+
+The facilitator can also run sessions from a browser console instead of the terminal (EPIC-0002 slice 2b-1). A small **control service** (`services/control`) starts one runtime per session, so a facilitator can create a session, share its codes, watch who has joined and consented and press Start without a terminal. The live view (intervening during a scene, removing a participant, ending a session) and AI-filled player roles come in later slices; in 2b-1 the console covers the lobby up to Start (a session started from the console has no terminal facilitator, because its facilitator token stays inside the control service and the web server).
+
+```bash
+# 1. secrets (once): the token the web server uses to call the control service, and the shared facilitator secret
+export LAUNCHER_TOKEN=$(openssl rand -hex 32)          # at least 32 characters; the same value in both processes
+export FACILITATOR_SECRET=$(openssl rand -base64 24)   # at least 16 characters; facilitators type this to sign in
+
+# 2. the control service (loopback only, default port 8787; reads the root .env, the real environment wins)
+export CONTROL_DATA_DIR="$HOME/.scenecoach/control"    # REQUIRED, an absolute directory
+pnpm control
+
+# 3. the web app in launcher mode
+export LAUNCHER_URL=http://127.0.0.1:8787 PUBLIC_ORIGIN=http://localhost:3000 COOKIE_KEYS="k1:$(openssl rand -base64 32)"
+pnpm --filter @acr/web build && pnpm --filter @acr/web start -H 127.0.0.1
+```
+
+Then open `http://localhost:3000/console`, type the facilitator secret and your name (a label for the audit trail, not an account), and:
+
+1. **New session** picks a scenario from the scenarios folder and shows each role's join code **once**, with a warning. Copy them before pressing "I have copied the codes".
+2. Share each player's link (`/join?session=<id>&role=<role>`) and code. Players join and consent as described in [section 4](#4-players-in-a-browser-web-client-slice-2a).
+3. The session page shows the model, who has joined, consented and connected, and **Start**, which stays disabled with the reason ("Waiting for: <roles>") until every player role is held by someone who agreed.
+4. **Reissue code** (per role, with a confirmation) gives a player who lost their cookie a new code; **Reissue all codes** does it for everyone before the start. After the start a reissue keeps the seat's consent and hands it to the next person who joins with the new code (a facilitator-attested admission; see `docs/THREAT_MODEL.md`).
+5. The session list shows Running, Stopped and Ended sessions; a session whose runtime crashed is Stopped and is restarted by hand with **Restart**. Restarting the control service resumes every non-ended session paused, keeping a lobby's codes, seats and consent.
+
+**Two modes, one web app.** With `LAUNCHER_URL` set (launcher mode) each player join and stream looks up its session's own runtime through the control service, and `LAUNCHER_TOKEN` is required for player routes too. With it unset, `RUNTIME_URL` works exactly as in section 4 (single-runtime mode). **The terminal facilitator path is unchanged**: `./run.sh`, `pnpm play --facilitator` and every demo run as before, and a runtime started without the control service ignores all of the new settings. The console is disabled ("The console is not set up on this server.") unless `FACILITATOR_SECRET`, `LAUNCHER_URL` and `LAUNCHER_TOKEN` are all set.
+
+Settings (documented in `.env.example`): web app `FACILITATOR_SECRET`, `LAUNCHER_URL`, `LAUNCHER_TOKEN`; control service `LAUNCHER_TOKEN`, `CONTROL_PORT` (8787), `CONTROL_DATA_DIR` (required), `MAX_SESSIONS` (10), `SCENARIOS_DIR`, `CONTROL_LOG_DIR`, `CONTROL_GRACE_MS` (30000), `CONTROL_READY_TIMEOUT_MS` (30000). `CONTROL_MANAGED`, `SESSION_DATA_DIR` and `NO_DOTENV` are set by the control service on the runtimes it starts; do not set them yourself. Run one control service per `CONTROL_DATA_DIR`. The control service is not part of the Docker image built by `./run.sh`. `pnpm --filter @acr/web e2e` runs the browser tests against this stack.
 
 ### Resuming a session
 
@@ -532,6 +562,7 @@ The default test run never calls a real model or touches the network.
 packages/events     session event types, the state reducer and the shared identifier rules (`src/ids.ts`: one definition used by the scenario schema, protocol, client and session files)
 packages/script     scenario schema, loader, validator, scene state machine
 packages/adapters   model provider adapters (mock, Anthropic, OpenAI-compatible)
+services/control    control service: starts one runtime per session for the facilitator console (`pnpm control`)
 services/runtime    session engine, NPC agents, Game Master, WebSocket server, terminal client, demo runner (src/demo), post-session evaluator (src/evaluator)
 scenarios/          playable scenarios (YAML): friday-escalation (3 scenes, 1 AI character) and friday-escalation-extended (6 scenes, 2 AI characters); both have a showcase.yaml script for `pnpm demo --showcase` (the extended one is the default); each has rubrics/ (BARS rubric files)
 docs/               architecture, release plan, plans and the generated plan dashboard

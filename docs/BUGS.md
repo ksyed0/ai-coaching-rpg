@@ -135,3 +135,27 @@ Lesson Encoded: No
 ```
 
 `cookieOf` in apps/web/src/server/__tests__/handlers.runtime.test.ts escaped the cookie name with a hand-written `replace` before building a RegExp, which CodeQL flagged as not escaping backslashes (high severity, failed the CodeQL check on the stacked PRs). Fixed by reading the Set-Cookie value with `startsWith` and `indexOf`, with no regular expression.
+
+```
+BUG-0012: apps/web handlers.test.ts "consent gives consent; withdrawing and leaving also clear the cookie" fails about one run in three
+Severity: Medium
+Related Story: US-0056
+Related Task: TASK-0084
+Status: Open
+Fix Branch: None
+Lesson Encoded: No
+```
+
+`apps/web/src/server/__tests__/handlers.test.ts`, test "consent gives consent; withdrawing and leaving also clear the cookie" is flaky. It fails about one run in three on the pre-branch baseline too (the slice 2b-1 branches only inherited it), and was seen by Tasks 2, 3 and 13 to 16; run alone it failed consistently in Task 16. It receives `withdraw_consent` where it expects `leave`, an ordering race between the requests the test sends over the participant's stream. Not fixed yet: find out whether the test or the hub's ordering is wrong before changing either, and make the test wait for the specific frame after each trigger (L-0023).
+
+```
+BUG-0013: runtime secure-json-file sweep test fails on macOS (case-insensitive file system)
+Severity: Low
+Related Story: US-0053
+Related Task: TASK-0081
+Status: Open
+Fix Branch: None
+Lesson Encoded: No
+```
+
+`services/runtime/src/engine/__tests__/secure-json-file.test.ts`, test `test_sweepSecureTemps_removes_only_matching_temp_files` creates `f.json.0123456789ab.tmp` (a file the sweep must remove) and `f.json.0123456789AB.tmp` (an upper-case look-alike it must keep). On macOS' default case-insensitive file system both names are the same file, so the sweep removes it and the "kept" file is missing: `expected ['f.json', ...4] to deeply equal ['f.json', ...5]`. Passes in the node:22 container (Linux, as root and as `node`), so CI is unaffected; seen locally from Task 5 of slice 2b-1 and again at its close. Fix later by using a name that differs by more than case (for example a 13th character) or by skipping the case-only look-alike when the file system folds case.
