@@ -257,7 +257,7 @@ describe("console login", () => {
     expect(consoleSessionFromToken(value, rotated.config, clock)).toBeNull();
   });
 
-  it("login is disabled with the loud message when FACILITATOR_SECRET or LAUNCHER_URL is unset", async () => {
+  it("login is disabled with a generic message when FACILITATOR_SECRET, LAUNCHER_URL or LAUNCHER_TOKEN is unset", async () => {
     for (const o of [
       { facilitatorSecret: undefined },
       { launcherUrl: undefined },
@@ -271,8 +271,9 @@ describe("console login", () => {
       expect(res.status).toBe(503);
       expect(res.headers.get("Set-Cookie")).toBeNull();
       const msg = (await res.json()).error.message as string;
-      expect(msg).toContain("FACILITATOR_SECRET");
-      expect(msg).toContain("LAUNCHER_URL");
+      expect(msg).toBe("The console is not set up on this server.");
+      for (const name of ["FACILITATOR_SECRET", "LAUNCHER_URL", "LAUNCHER_TOKEN"])
+        expect(msg).not.toContain(name);
       expect(msg).not.toContain(SECRET);
       const req = requireConsole(withCookie("x"), deps);
       expect((req as Response).status).toBe(503);

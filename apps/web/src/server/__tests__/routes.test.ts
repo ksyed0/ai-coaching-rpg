@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createDeps, route } from "../routes";
+import { consoleView, createDeps, route } from "../routes";
 import { RuntimeConnection } from "../runtime-connection";
 import { StreamHub } from "../stream-hub";
 import { JoinThrottle } from "../throttle";
@@ -19,6 +19,20 @@ describe("createDeps", () => {
     expect(d.joinThrottle).toBeInstanceOf(JoinThrottle);
     expect(d.connect).toBe(RuntimeConnection.connect);
     expect(typeof d.now()).toBe("number");
+  });
+
+  it("a disabled console is logged once with the unset variable names, never a value", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const full = { FACILITATOR_SECRET: "s".repeat(20), LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) };
+    for (const name of Object.keys(full) as (keyof typeof full)[]) {
+      warn.mockClear();
+      const { [name]: _gone, ...rest } = full;
+      createDeps({ ...ENV, ...rest });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const line = String(warn.mock.calls[0]![0]);
+      expect(line).toContain(name);
+      for (const v of Object.values(full)) expect(line).not.toContain(v);
+    }
   });
 
   it("the BFF join throttle blocks after more than five failures for one (address, role), like the runtime's", () => {
@@ -97,5 +111,16 @@ describe("route files", () => {
   it("the re-exported handlers exist", async () => {
     const routes = await import("../routes");
     for (const [name, method] of Object.entries(FILES)) expect(typeof (routes as Record<string, unknown>)[`${name}${method}`], name).toBe("function");
+  });
+});
+
+describe("consoleView", () => {
+  const FULL = { ...ENV, FACILITATOR_SECRET: "s".repeat(20), LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) };
+  it("is disabled when a console variable is unset or the configuration is broken, signed out without a cookie", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(consoleView(undefined, () => createDeps(ENV))).toEqual({ kind: "disabled" });
+    expect(consoleView("x", () => { throw new Error("config"); })).toEqual({ kind: "disabled" });
+    expect(consoleView(undefined, () => createDeps(FULL))).toEqual({ kind: "signed_out" });
+    expect(consoleView("not-a-cookie", () => createDeps(FULL))).toEqual({ kind: "signed_out" });
   });
 });

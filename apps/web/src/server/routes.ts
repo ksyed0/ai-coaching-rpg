@@ -1,5 +1,6 @@
 import { loadConfig, missingConsoleVars } from "./config";
 import { handleConsoleLogin, handleConsoleLogout } from "./console-handlers";
+import { consoleSessionFromToken } from "./console-session";
 import { fail } from "./envelope";
 import { handleConsent, handleJoin, handleLeave, handleSay, handleStream, seatedIn, type Deps } from "./handlers";
 import { RuntimeConnection, realTimer } from "./runtime-connection";
@@ -41,6 +42,19 @@ export function hasSeat(token: string | undefined, sessionId: string, getDeps: (
     return seatedIn(token, sessionId, d.config.cookieKeys, d.now());
   } catch {
     return false;
+  }
+}
+
+/** For the /console page (server side only): the console's state for this cookie value. A configuration error reads as disabled. */
+export type ConsoleView = { kind: "disabled" } | { kind: "signed_out" } | { kind: "signed_in"; name: string };
+export function consoleView(token: string | undefined, getDeps: () => Deps = sharedDeps): ConsoleView {
+  try {
+    const d = getDeps();
+    if (missingConsoleVars(d.config).length > 0) return { kind: "disabled" };
+    const s = consoleSessionFromToken(token, d.config, d.now());
+    return s ? { kind: "signed_in", name: s.name } : { kind: "signed_out" };
+  } catch {
+    return { kind: "disabled" };
   }
 }
 

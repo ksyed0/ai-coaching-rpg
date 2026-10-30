@@ -38,13 +38,10 @@ const throttled = (retryMs: number) =>
   fail(429, "rate_limited", "Too many attempts. Wait a minute and try again.", {
     headers: { "Retry-After": String(Math.max(1, Math.ceil(retryMs / 1000))) },
   });
-/** Names the variables, never a value. */
-const disabled = (deps: Deps) =>
-  fail(
-    503,
-    "console_disabled",
-    `The facilitator console is disabled. Set ${missingConsoleVars(deps.config).join(", ")} and restart the web server (FACILITATOR_SECRET and LAUNCHER_URL are both required).`,
-  );
+/** Generic on purpose: which variables are unset is in the server log (createDeps), never in a browser. */
+export const CONSOLE_DISABLED_MESSAGE =
+  "The console is not set up on this server.";
+const disabled = () => fail(503, "console_disabled", CONSOLE_DISABLED_MESSAGE);
 
 const cookieHeader = (value: string, maxAgeSeconds: number) =>
   `${CONSOLE_COOKIE}=${value}; Path=/; Max-Age=${maxAgeSeconds}; HttpOnly; Secure; SameSite=Strict`;
@@ -64,7 +61,7 @@ export async function handleConsoleLogin(
 ): Promise<Response> {
   const { config } = deps;
   if (missingConsoleVars(config).length > 0 || !config.facilitatorSecret)
-    return disabled(deps);
+    return disabled();
   if (!checkOrigin(req, config.publicOrigin) || !checkFetchSite(req))
     return forbidden();
   const address = requestAddress(req);
@@ -120,7 +117,7 @@ export function requireConsole(
   req: Request,
   deps: Deps,
 ): ConsoleSession | Response {
-  if (missingConsoleVars(deps.config).length > 0) return disabled(deps);
+  if (missingConsoleVars(deps.config).length > 0) return disabled();
   const session = readConsoleSession(req, deps.config, deps.now());
   if (session) return session;
   const unauthorized = (headers?: Record<string, string>) =>

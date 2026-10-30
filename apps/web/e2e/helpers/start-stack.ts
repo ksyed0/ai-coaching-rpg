@@ -64,9 +64,11 @@ export type StackOptions = {
   tempParent?: string;
   /** Diagnostic output of the child processes (default: discarded). Never carries codes, credentials, cookies or names. */
   onOutput?: (line: string) => void;
+  /** Extra environment for `next start`, merged over the stack's own (RUNTIME_URL, PUBLIC_ORIGIN and COOKIE_KEYS cannot be overridden). */
+  webEnv?: Record<string, string>;
 };
 
-function freePort(): Promise<number> {
+export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const s = createNetServer();
     s.once("error", reject);
@@ -294,7 +296,7 @@ export async function startStack(o: StackOptions = {}): Promise<Stack> {
     const port = await freePort();
     const baseUrl = `http://localhost:${port}`;
     // Fresh keys per stack, the same across restartBff (a sealed cookie must survive a BFF restart).
-    const nextEnv = { RUNTIME_URL: `ws://127.0.0.1:${relay.port}`, PUBLIC_ORIGIN: baseUrl, COOKIE_KEYS: `e2e:${randomBytes(32).toString("base64")}` };
+    const nextEnv = { ...o.webEnv, RUNTIME_URL: `ws://127.0.0.1:${relay.port}`, PUBLIC_ORIGIN: baseUrl, COOKIE_KEYS: `e2e:${randomBytes(32).toString("base64")}` };
     let next = await startNext(port, nextEnv, baseUrl, out);
     cleanups.push(() => killGroup(next));
 
