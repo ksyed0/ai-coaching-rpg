@@ -35,6 +35,18 @@ const get = (port: number, p: string, token: string | null = TOKEN): Promise<Res
   fetch(`http://127.0.0.1:${port}${p}`, { headers: token === null ? {} : { "x-service-token": token } });
 
 describe("startControl", () => {
+  it("warns when CONTROL_READY_TIMEOUT_MS + 2 * CONTROL_GRACE_MS exceeds what the web server waits, and stays quiet otherwise", async () => {
+    const logs: string[] = [];
+    running = await startControl({ ...env, CONTROL_READY_TIMEOUT_MS: "100000", CONTROL_GRACE_MS: "10000" }, { port: 0, log: (m) => logs.push(m) });
+    expect(logs.filter((l) => l.startsWith("warning: CONTROL_READY_TIMEOUT_MS"))).toHaveLength(1);
+    expect(logs.join("\n")).toContain("120000 ms");
+    expect(logs.join("\n")).not.toContain(TOKEN);
+    await running.close();
+    logs.length = 0;
+    running = await startControl({ ...env, CONTROL_READY_TIMEOUT_MS: "90000", CONTROL_GRACE_MS: "10000" }, { port: 0, log: (m) => logs.push(m) });
+    expect(logs.filter((l) => l.includes("CONTROL_READY_TIMEOUT_MS"))).toEqual([]);
+  });
+
   it("listens on loopback, answers with the token only and close() stops it", async () => {
     const logs: string[] = [];
     running = await startControl(env, { port: 0, log: (m) => logs.push(m) });

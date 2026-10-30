@@ -15,6 +15,8 @@ const HEADERS_TIMEOUT_MS = 10_000;
 const KEEP_ALIVE_TIMEOUT_MS = 5_000;
 /** Slack added to the longest operation before any server-side limit applies. */
 const MARGIN_MS = 10_000;
+/** The BFF waits 120 s for a create, restart or whole-session reissue; the longest of those here must stay below this (with margin). */
+export const BFF_SAFE_OPERATION_MS = 110_000;
 
 export type RunningControl = {
   port: number;
@@ -35,6 +37,9 @@ export async function startControl(
 ): Promise<RunningControl> {
   const config = loadControlConfig(env);
   const log = opts.log ?? (() => {});
+  const longest = config.readyTimeoutMs + 2 * config.graceMs;
+  if (longest > BFF_SAFE_OPERATION_MS)
+    log(`warning: CONTROL_READY_TIMEOUT_MS + 2 * CONTROL_GRACE_MS is ${longest} ms; the web server gives up on a create or restart after 120000 ms, so keep the sum under ${BFF_SAFE_OPERATION_MS} ms`);
   mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
   const scenarios = () => listScenarios(config.scenariosDir, (folder) => log(`scenario folder skipped: ${folder}`));
   const supervisor = new Supervisor({
