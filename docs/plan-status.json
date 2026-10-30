@@ -2337,12 +2337,12 @@
       "title": "As the product owner, I want an offline end-to-end test and demo of the web participant flow, so that the browser path is verified on every change.",
       "priority": "Medium",
       "estimate": "M",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0002-US-0065-web-e2e",
       "acs": [
         {
           "id": "AC-0295",
-          "text": "a Playwright test in mock mode runs offline: players join with names and consent, the session starts from the terminal, everyone speaks, one connection drops and recovers, and the BFF restarts and recovers (apps/web/e2e/participant-flow.spec.ts; run locally with the sandbox Chromium; its first CI run (Chromium build 1248) is still to come; TC-0072)",
+          "text": "a Playwright test in mock mode runs offline: players join with names and consent, the session starts from the terminal, everyone speaks, one connection drops and recovers, and the BFF restarts and recovers (apps/web/e2e/participant-flow.spec.ts; run locally with the sandbox Chromium; first CI run on Chromium build 1248 hit two timing failures (BUG-0009, BUG-0010); the job has since passed on develop; TC-0072)",
           "done": true
         },
         {
@@ -2362,8 +2362,8 @@
         },
         {
           "id": "AC-0299",
-          "text": "the new filesystem, lock and process tests pass once in the node:22 container and the coverage gate passes more than once and once under load (coverage gate: passed twice, once under load, TC-0075; the node:22 container run is NOT done: no Docker daemon in the build environment, TC-0076 Not Run; owner approved running it on their local OrbStack Docker on 2026-10-28; it needs the Remote Control connection to that machine, so it is still open)",
-          "done": false
+          "text": "the new filesystem, lock and process tests pass once in the node:22 container and the coverage gate passes more than once and once under load (coverage gate: passed twice, once under load, TC-0075; node:22 container run on the owner's local OrbStack Docker, 2026-10-28, run as root and as the `node` user, 7 files, TC-0076)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -3537,9 +3537,9 @@
       "title": "Playwright flow, contract tests, demo --web, hygiene runs",
       "type": "Test",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0065-web-e2e",
-      "notes": "Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 15 and 16. Open: the node:22 container run (AC-0299; the owner offered a local OrbStack Docker instance on 2026-10-28) and two Web E2E specs that failed on the first CI runs for timing reasons (BUG-0009, BUG-0010). Spec section 9. Reconnect backoff uses an injected clock. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "notes": "Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 15 and 16. The node:22 container run is done (AC-0299). Two Web E2E specs failed on the first CI runs for timing reasons (BUG-0009 still Open, watching; BUG-0010 Fixed). Spec section 9. Reconnect backoff uses an injected clock. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
     },
     {
       "id": "TASK-0086",
@@ -4380,7 +4380,7 @@
       "relatedTask": "TASK-0085",
       "relatedAC": "AC-0299",
       "type": "Regression",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     },
     {
@@ -5889,9 +5889,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-30T21:31:32.124Z",
-  "commitSha": "ab1feb8",
-  "buildNumber": "514",
+  "generatedAt": "2026-10-30T22:10:31.389Z",
+  "commitSha": "f92822c",
+  "buildNumber": "517",
   "branch": "feature/EPIC-0002-US-0059-readiness",
   "sessionTimeline": [
     {
@@ -6151,9 +6151,11 @@
       "2026-10-27T18:11:23.806Z",
       "2026-10-28T18:11:23.800Z",
       "2026-10-30T18:04:01.651Z",
-      "2026-10-30T21:31:32.515Z"
+      "2026-10-30T21:31:32.515Z",
+      "2026-10-30T22:10:31.915Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6221,6 +6223,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6254,6 +6257,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862
@@ -6291,9 +6295,11 @@
       0,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -6361,9 +6367,11 @@
       1,
       2,
       2,
+      4,
       4
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -6431,6 +6439,7 @@
       0,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -6464,6 +6473,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518
@@ -6501,7 +6511,8 @@
       1.1553846153846152,
       1.146153846153846,
       1.1507692307692308,
-      1.1692307692307693
+      1.1692307692307693,
+      1.1646153846153846
     ],
     "velocityByWeek": {
       "labels": [
