@@ -17,7 +17,8 @@ import { parseTemperatures } from "./agents/temperatures.js";
 import { parseModelRetry, withModelRetry } from "./agents/retry-config.js";
 import { parseGmConfig } from "./agents/gm-config.js";
 import { createGmTraceWriter, parseGmTraceEnv } from "./agents/gm-trace.js";
-import { openParentChannel, type ParentChannel } from "./host/parent-channel.js";
+import { openParentChannel, type ParentChannel, type ParentMessage } from "./host/parent-channel.js";
+import { reissueRole } from "./host/reissue.js";
 import { OPEN_SERVER_WARNING, parseSecurityConfig } from "./host/security.js";
 
 /** services/runtime/src/main.ts: the repo root is three levels up from this file's directory. */
@@ -224,6 +225,25 @@ export async function bootstrap(opts: {
     }
     let endedSent = false;
     unsubscribeEnded = host.subscribe((e) => { if (e.type === "session.ended" && !endedSent) { endedSent = true; parent.send({ type: "ended" }); } });
+    // US-0058: the only way a code is ever reissued. The replies carry the new code (reissued) or a FIXED reason (reissue_failed): never
+    // a path, a value or an Error message. The handler never throws (the channel does not isolate handler exceptions).
+    let current = store.joinCodes?.codes;
+    const seats = store.seats;
+    const answer = (m: ParentMessage) => {
+      if (!current || !seats) { parent.send({ type: "reissue_failed", requestId: m.requestId, reason: "this session has no join codes to reissue" }); return; }
+      if (!host.hasPlayerRole(m.roleId)) { parent.send({ type: "reissue_failed", requestId: m.requestId, reason: "not a player role of this session" }); return; }
+      reissueRole({
+        host, seats, sessionId, server,
+        codes: () => current!,
+        setCodes: (c) => { current = c; server.replaceCodes(sessionId, c); },
+        writeCodes: (c) => store.writeJoinCodes(c),
+        report: (what, err) => warn(`${what}: ${err instanceof Error ? err.name : "error"}`), // the name only: a message could quote a path
+      }, m.roleId, m.by).then(
+        (code) => { if (!parent.send({ type: "reissued", requestId: m.requestId, code })) warn("a reissued code could not be handed to the control service; reissue it again"); },
+        () => { parent.send({ type: "reissue_failed", requestId: m.requestId, reason: "the code could not be reissued" }); },
+      );
+    };
+    parent.onMessage((m) => { try { answer(m); } catch { parent.send({ type: "reissue_failed", requestId: m.requestId, reason: "the code could not be reissued" }); } });
   }
   return { ok: true, runtime: { port: server.port, host, stop: async () => { unsubscribeEnded?.(); host.stopTicker(); await server.close(); gmTrace?.close(); await store.close(); } } };
 }

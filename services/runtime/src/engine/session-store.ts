@@ -61,6 +61,11 @@ export type OpenedSession = {
    * are removed too (best effort: empty ones are harmless, the next start replaces them).
    */
   discardIssuedCodes(): boolean;
+  /**
+   * US-0058: replaces the codes file with `c` (hashes only) under the session lock. Throws SessionStoreError "lock" when the lock was
+   * lost and "io" when the write failed, each with a fixed message (no path and no value from the file); the old file stays then.
+   */
+  writeJoinCodes(c: JoinCodes): void;
   /** Closes the log handle and releases the lock. Never throws. */
   close(): Promise<void>;
 };
@@ -252,6 +257,13 @@ export async function openSession(o: {
   try {
     const done = (x: { log: JsonlEventLog; engine: SessionEngine }, rest: Pick<OpenedSession, "outcome" | "rotatedTo" | "rotatedBecause" | "resume" | "resumeNotes" | "joinCodes" | "seats">): OpenedSession => ({
       ...x, lock, notes, ...rest,
+      writeJoinCodes: (c) => {
+        try { writeJoinCodesFile(o.dataDir, o.sessionId, c, holdLockNow); }
+        catch (err) {
+          if (err instanceof SessionLockError) throw new SessionStoreError("lock", "cannot write the join codes file: the session lock was lost");
+          throw new SessionStoreError("io", "cannot write the join codes file");
+        }
+      },
       discardIssuedCodes: () => {
         if (!rest.joinCodes?.issued && !seatsCreated) return true;
         try { holdLockNow(); } catch { return false; } // lost: the files may be another server's now, never touch them

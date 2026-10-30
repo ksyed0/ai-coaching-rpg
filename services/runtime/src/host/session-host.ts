@@ -133,17 +133,48 @@ export class SessionHost {
     return Object.keys(this.scenario.roles).filter((r) => this.hasPlayerRole(r));
   }
 
-  join(roleId: string, participantId: string): { brief: string; privateFacts: string[] } {
+  /**
+   * `rebound` is true when this join took over the consent a code reissue after the start had left waiting for the next participant
+   * (US-0058); the caller that then fails to save the seat calls `undoRebind`.
+   */
+  join(roleId: string, participantId: string): { brief: string; privateFacts: string[]; rebound: boolean } {
     // Own properties only: `__proto__`, `constructor` or `toString` are not roles.
     const role = Object.hasOwn(this.scenario.roles, roleId) ? this.scenario.roles[roleId] : undefined;
     if (!role) throw new HostError("unknown_role");
     if (role.type !== "player") throw new HostError("npc_role");
+    // US-0058: a code reissued after the start left the seat's consent waiting (REBIND_PENDING) with no credential on the role: the
+    // next participant to hold the seat inherits it. A credential still on the role means the seat is not free: the check below refuses.
+    const rebinding = !!this.seats && this.seats.consent.isRebindPending(roleId) && !this.seats.credentials.has(roleId);
     // US-0054: from the start on, a seat is only for the participant whose consent the start recorded (or who gave it since):
     // a dropped seat cannot be taken by someone else with the code. The same participant still reconnects.
-    if (this.seats && !this.consentGrandfathered && (this.started || this.starting !== null) && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
+    if (this.seats && !this.consentGrandfathered && (this.started || this.starting !== null) && !rebinding && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
     if (this.assignments[roleId] && this.assignments[roleId] !== participantId) throw new HostError("role_taken");
+    let rebound = false;
+    if (rebinding && this.seats!.consent.claimRebind(roleId, participantId, this.clock.now())) {
+      rebound = true;
+      this.seatsDirty = true; // the next seat write records it (the web join writes the credential straight after)
+      void this.noteFacilitator(`consent for ${roleId} rebound after a code reissue`);
+    }
     this.assignments[roleId] = participantId;
-    return { brief: role.brief, privateFacts: role.private_facts };
+    return { brief: role.brief, privateFacts: role.private_facts, rebound };
+  }
+
+  /**
+   * US-0058: the caller could not save the seat of a join that claimed a rebind (`rebound`): the consent goes back to waiting for the
+   * next participant. Marks the seat state dirty so the next write records it.
+   */
+  undoRebind(roleId: string): void {
+    if (!this.seats?.consent.releaseForRebind(roleId)) return;
+    this.seatsDirty = true;
+    void this.noteFacilitator(`rebind of consent for ${roleId} undone: the seat could not be saved and is waiting again`);
+  }
+
+  /** US-0058: true once the start has begun (its consents are frozen into session.started), so a reissue then rebinds consent instead of clearing it. */
+  get hasStartedOrStarting(): boolean { return this.started || this.starting !== null; }
+
+  /** A facilitator-only info alert from synchronous code: never awaited, never throws; a failure goes to the log callback. */
+  noteFacilitator(message: string): Promise<void> {
+    return this.engine.alert(message, "info").then(() => undefined, (err) => this.report("facilitator alert", err));
   }
 
   /** Whether the seat's consent stands: given by this participant, or not asked for (a session resumed from a log older than the gate). */

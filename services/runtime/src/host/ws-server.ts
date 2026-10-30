@@ -338,7 +338,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
             // US-0013: from here to the subscribe below there is no await, so no event can fall between the replay and the live stream.
             // Computed before the seat is taken or a credential saved, so it can never leave a half-joined seat. Omitted when empty (a stand-in host may not offer it).
             const scenes = (h as Partial<SessionHost>).scenesFor?.(m.roleId) ?? [];
-            const { brief, privateFacts } = h.join(m.roleId, m.participantId);
+            const { brief, privateFacts, rebound } = h.join(m.roleId, m.participantId);
             let credential: string | undefined;
             if (seats && m.issueCredential && byCode) {
               // US-0053: the credential is on disk before the browser learns it, so a restart can never lose a seat it was told about.
@@ -348,6 +348,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
               } catch (err) {
                 // Undo everything: an unsaved credential left in memory would lock the role's code out until a restart.
                 seats.credentials.revoke(m.roleId);
+                if (rebound) h.undoRebind(m.roleId); // US-0058: the consent goes back to waiting for the next participant
                 if (!prevLive) h.release(m.roleId, m.participantId); // a superseded holder (same participant) keeps its seat
                 log(`credential not saved for ${m.roleId}: ${err instanceof Error ? err.message : String(err)}`);
                 return fail("internal", "internal error");
