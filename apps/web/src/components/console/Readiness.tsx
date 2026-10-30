@@ -218,6 +218,7 @@ function View(p: ViewProps) {
   const stopped = data.launcherStatus === "stopped";
   const unreachable = data.launcherStatus === "running" && data.status === null;
   const idle = data.status === "idle";
+  const running = data.status === "running";
   const started = p.startedHere || data.status === "running";
   const reason = !idle
     ? null
@@ -335,7 +336,7 @@ function View(p: ViewProps) {
                       <button
                         className="btn"
                         type="button"
-                        disabled={!idle || p.working}
+                        disabled={!(idle || running) || p.working}
                         aria-label={`Reissue code for ${roleLabel(e.roleId)}`}
                         onClick={(ev) =>
                           p.onAskRole(e.roleId, ev.currentTarget)
@@ -398,7 +399,11 @@ function View(p: ViewProps) {
       {p.confirm?.kind === "role" ? (
         <ConfirmDialog
           title={`Reissue the code for ${roleLabel(p.confirm.roleId)}?`}
-          description={`The old code and this person's seat stop working. The new code is shown once. This affects the ${roleLabel(p.confirm.roleId)} role only.`}
+          description={
+            running
+              ? `The old code stops working. The next person who joins with the new code takes over this seat and keeps its existing consent. The new code is shown once. This affects the ${roleLabel(p.confirm.roleId)} role only.`
+              : `The old code and this person's seat stop working. The new code is shown once. This affects the ${roleLabel(p.confirm.roleId)} role only.`
+          }
           confirmLabel="Reissue code"
           pending={p.working}
           opener={p.confirm.opener}

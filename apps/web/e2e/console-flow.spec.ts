@@ -106,13 +106,11 @@ test("reissue issues a new code and the old code is refused", async ({
     .getByRole("button", { name: "Reissue code", exact: true })
     .click();
   await expect(dialog).toHaveCount(0);
-  const row = fac
-    .locator(".code-row")
-    .filter({
-      has: fac.locator(".code-role", {
-        hasText: new RegExp(`^${ROLE_LABEL.tech_lead}$`),
-      }),
-    });
+  const row = fac.locator(".code-row").filter({
+    has: fac.locator(".code-role", {
+      hasText: new RegExp(`^${ROLE_LABEL.tech_lead}$`),
+    }),
+  });
   await expect(row).toBeVisible();
   const fresh = (await row.locator("code").innerText()).trim();
   expect(fresh).not.toBe("");
@@ -143,8 +141,7 @@ test("reissue issues a new code and the old code is refused", async ({
   ).toBeVisible();
 });
 
-// The console disables per-role Reissue once the session has started (Task 15's UI rule, spec 5.4: the buttons need status idle), so
-// this goes through the API route directly with the facilitator's cookie; the runtime does the rebind.
+// Per-role Reissue stays available while the session runs (the lost-cookie recovery); Reissue all does not.
 test("reissue after the start rebinds consent: a player who lost their cookie rejoins with the new code and sees the consent notice read-only", async ({
   browser,
 }) => {
@@ -175,24 +172,27 @@ test("reissue after the start rebinds consent: a player who lost their cookie re
   for (const role of PLAYERS) await expectSeatReady(fac, role);
   await startButton(fac).click();
   await expect(fac.getByText("The session has started.")).toBeVisible();
-  // The UI rule this test works around: with the session running, the per-role button is off.
   await expect(
-    fac.getByRole("button", {
-      name: `Reissue code for ${ROLE_LABEL.tech_lead}`,
-    }),
+    fac.getByRole("button", { name: "Reissue all codes" }),
   ).toBeDisabled();
-
-  const answer = await fac
-    .context()
-    .request.post(
-      `${stack.baseUrl}/api/v1/console/sessions/${sessionId}/reissue`,
-      {
-        headers: ORIGIN_HEADERS(stack.baseUrl),
-        data: { roleId: "tech_lead" },
-      },
-    );
-  expect(answer.status(), await answer.text()).toBe(200);
-  const fresh = ((await answer.json()) as { data: { code: string } }).data.code;
+  await fac
+    .getByRole("button", { name: `Reissue code for ${ROLE_LABEL.tech_lead}` })
+    .click();
+  const dialog = fac.getByRole("dialog");
+  await expect(dialog).toContainText(
+    "takes over this seat and keeps its existing consent",
+  );
+  await dialog
+    .getByRole("button", { name: "Reissue code", exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
+  const row = fac.locator(".code-row").filter({
+    has: fac.locator(".code-role", {
+      hasText: new RegExp(`^${ROLE_LABEL.tech_lead}$`),
+    }),
+  });
+  await expect(row).toBeVisible();
+  const fresh = (await row.locator("code").innerText()).trim();
   expect(fresh).not.toBe(codes.tech_lead);
 
   // The tech lead lost their cookie: a fresh context rejoins with the new code, straight into the running scene.

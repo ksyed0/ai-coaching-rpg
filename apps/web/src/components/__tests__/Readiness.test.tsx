@@ -291,13 +291,57 @@ describe("Readiness", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
-    expect(
-      (
-        screen.getAllByRole("button", {
-          name: /^Reissue code for/,
-        })[0] as HTMLButtonElement
-      ).disabled,
-    ).toBe(true);
+  });
+
+  const roleButton = () =>
+    screen.getAllByRole("button", {
+      name: /^Reissue code for/,
+    })[0] as HTMLButtonElement;
+
+  it("per-role Reissue is enabled while idle or running and disabled when ended, stopped or unreachable", async () => {
+    for (const [data, enabled] of [
+      [readiness(), true],
+      [readiness({ status: "running" }), true],
+      [readiness({ status: "ended" }), false],
+      [readiness({ status: null }), false],
+      [
+        readiness({
+          launcherStatus: "stopped",
+          status: null,
+          roster: READY.roster,
+        }),
+        false,
+      ],
+    ] as const) {
+      mount(data);
+      await screen.findByText(/Model:/);
+      expect(roleButton().disabled, JSON.stringify(data.status)).toBe(!enabled);
+      cleanup();
+    }
+  });
+
+  it("while running, the confirmation says the next joiner takes over the seat and keeps its consent, and sends the same reissue request", async () => {
+    const m = mount(readiness({ status: "running" }), {
+      "/reissue": {
+        status: 200,
+        body: ok({ roleId: "account_manager", code: "REBIND-7" }),
+      },
+    });
+    await ready();
+    fireEvent.click(roleButton());
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain(
+      "The old code stops working. The next person who joins with the new code takes over this seat and keeps its existing consent. The new code is shown once.",
+    );
+    expect(dialog.textContent).not.toContain("seat stop working");
+    await act(async () => {
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Reissue code" }),
+      );
+    });
+    await screen.findByText("REBIND-7");
+    expect(m.posts()[0]!.body).toEqual({ roleId: "account_manager" });
+    expect(m.posts()[0]!.url).toContain(`/${SID}/reissue`);
   });
 
   it("the unreachable state is shown for launcherStatus running with status null", async () => {
