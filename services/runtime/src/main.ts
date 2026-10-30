@@ -214,7 +214,7 @@ export async function bootstrap(opts: {
   if (parent) {
     // `ready` comes after the codes (sent above, inside the display hook), so the parent never sees a ready session whose codes it lacks.
     const logIdentity = store.seats?.credentials.logIdentity ?? store.resume?.logIdentity;
-    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new", modelLabel: describeModelProvider(env) });
+    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new" /* an empty-lobby restart reports "new" with no codes (they are kept); the supervisor treats ready-without-codes as normal */, modelLabel: describeModelProvider(env) });
     if (!sent) {
       // A start failure, but the join codes are deliberately NOT withdrawn: the parent already holds them (they were sent first), and
       // withdrawing would make them stale. The parent reissues them if it restarts this session. Nothing may stay running or locked.
@@ -237,15 +237,22 @@ function sendCodesToParent(parent: ParentChannel): (codes: { roleId: string; cod
   return (codes) => { if (!parent.send({ type: "codes", codes })) throw new Error("parent channel refused the codes"); };
 }
 
-/** US-0058: when the parent goes away, stop the runtime and exit 0 (an orphaned session must not keep running). Never throws. */
-export function watchParent(parent: ParentChannel, stop: () => Promise<void>, exit: (code: number) => void): void {
+/**
+ * US-0058: when the parent goes away, stop the runtime and exit 0 (an orphaned session must not keep running). Never throws.
+ * A stop that hangs (for example on a log stuck in a failing write) must not leave an orphan holding the session lock: an unref'd
+ * timer exits FATAL_HARD_EXIT_MS after the disconnect whatever happens. The exit runs at most once.
+ */
+export function watchParent(parent: ParentChannel, stop: () => Promise<void>, exit: (code: number) => void, hardMs: number = FATAL_HARD_EXIT_MS): void {
   let seen = false;
+  let exited = false;
+  const exitOnce = () => { if (!exited) { exited = true; exit(0); } };
   parent.onDisconnect(() => {
     if (seen) return;
     seen = true;
+    setTimeout(exitOnce, hardMs).unref();
     let p: Promise<void>;
     try { p = stop(); } catch { p = Promise.resolve(); }
-    void p.catch(() => undefined).finally(() => exit(0));
+    void p.catch(() => undefined).finally(exitOnce);
   });
 }
 

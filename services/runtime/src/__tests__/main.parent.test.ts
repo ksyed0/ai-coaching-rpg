@@ -3,8 +3,9 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import WebSocket from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { bootstrap, watchParent, type Runtime } from "../main.js";
+import { FATAL_HARD_EXIT_MS, bootstrap, watchParent, type Runtime } from "../main.js";
 import { SessionHost } from "../host/session-host.js";
 import type { ChildMessage, ParentChannel } from "../host/parent-channel.js";
 
@@ -52,20 +53,50 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     expect(ready.modelLabel.length).toBeGreaterThan(0);
   });
 
-  it("a resumed start sends ready with status resumed and no codes", async () => {
+  it("an empty-lobby restart keeps its codes: ready with status new and no codes", async () => {
     const data = await mk();
     const first = await boot(fakeParent().parent, data);
     if (!first.r.ok) throw new Error(first.r.errors.join("; "));
-    // Start the session so the log is non-empty and the next start resumes it.
-    await first.r.runtime.host.start().catch(() => undefined);
     await first.r.runtime.stop(); runtimes.pop();
     const { parent, sent } = fakeParent();
     const second = await boot(parent, data);
     if (!second.r.ok) throw new Error(second.r.errors.join("; "));
-    expect(sent.map((m) => m.type)).toEqual(["ready"]); // the codes issued earlier still apply: nothing to show
+    expect(sent.map((m) => m.type)).toEqual(["ready"]);
+    expect((sent[0] as Extract<ChildMessage, { type: "ready" }>).status).toBe("new");
+  });
+
+  it("a resumed start sends ready with status resumed and no codes", async () => {
+    const data = await mk();
+    const firstParent = fakeParent();
+    const first = await boot(firstParent.parent, data);
+    if (!first.r.ok) throw new Error(first.r.errors.join("; "));
+    const hostCode = (firstParent.sent[0] as Extract<ChildMessage, { type: "codes" }>).codes.find((c) => c.roleId === "host")!.code;
+    // Produce a non-empty log: seat and consent the player, then start the session over the real socket path.
+    const inbox: { type: string; code?: string; event?: { type: string } }[] = [];
+    const wait = async (pred: (m: (typeof inbox)[number]) => boolean) => vi.waitFor(() => { if (!inbox.some(pred)) throw new Error("not yet"); }, { timeout: 30_000, interval: 20 });
+    const open = (port: number) => new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.on("message", (d) => inbox.push(JSON.parse(d.toString()))); w.on("open", () => res(w)); w.on("error", rej); });
+    const fac = await open(first.r.runtime.port);
+    const player = await open(first.r.runtime.port);
+    try {
+      fac.send(JSON.stringify({ type: "join_facilitator", sessionId: "p1" }));
+      player.send(JSON.stringify({ type: "join", sessionId: "p1", roleId: "host", participantId: "alice", joinCode: hostCode }));
+      await wait((m) => m.type === "joined");
+      player.send(JSON.stringify({ type: "consent", noticeVersion: "v1" }));
+      player.send(JSON.stringify({ type: "say", text: "settle" }));
+      await wait((m) => m.type === "error" && m.code === "not_started");
+      fac.send(JSON.stringify({ type: "start" }));
+      await wait((m) => m.type === "event" && m.event?.type === "scene.entered");
+    } finally { fac.close(); player.close(); }
+    await first.r.runtime.stop(); runtimes.pop();
+
+    const { parent, sent } = fakeParent();
+    const second = await boot(parent, data);
+    if (!second.r.ok) throw new Error(second.r.errors.join("; "));
+    expect(sent.map((m) => m.type)).toEqual(["ready"]); // no codes: the ones issued earlier still apply
     const ready = sent[0] as Extract<ChildMessage, { type: "ready" }>;
-    // An empty log (the lobby never started) is a "new" start that keeps its codes; a started one is "resumed".
-    expect(["new", "resumed"]).toContain(ready.status);
+    expect(ready.status).toBe("resumed");
+    expect(ready.logIdentity).toMatch(/^[0-9a-f]{32}$/);
+    expect(ready.logIdentity!.length).toBeLessThanOrEqual(200);
   });
 
   it("a failed codes send aborts the start and the issued codes are withdrawn (the .codes.json is removed)", async () => {
@@ -164,6 +195,39 @@ describe("watchParent", () => {
     watchParent(p2, async () => { throw new Error("stuck"); }, exit2);
     expect(() => fire2()).not.toThrow();
     await vi.waitFor(() => expect(exit2).toHaveBeenCalledWith(0));
+  });
+
+  it("a stop that never resolves still exits 0 once via the hard backstop", () => {
+    vi.useFakeTimers();
+    try {
+      let fire = () => {};
+      const parent: ParentChannel = { send: () => true, onMessage() {}, onDisconnect(fn) { fire = fn; } };
+      const exit = vi.fn();
+      watchParent(parent, () => new Promise<void>(() => {}), exit);
+      fire();
+      vi.advanceTimersByTime(FATAL_HARD_EXIT_MS - 1);
+      expect(exit).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(exit).toHaveBeenCalledTimes(1);
+      expect(exit).toHaveBeenCalledWith(0);
+      vi.advanceTimersByTime(FATAL_HARD_EXIT_MS * 3);
+      expect(exit).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("a normal stop exits once only (the backstop does not exit again)", async () => {
+    vi.useFakeTimers();
+    try {
+      let fire = () => {};
+      const parent: ParentChannel = { send: () => true, onMessage() {}, onDisconnect(fn) { fire = fn; } };
+      const exit = vi.fn();
+      watchParent(parent, async () => undefined, exit);
+      fire();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(exit).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(FATAL_HARD_EXIT_MS * 2);
+      expect(exit).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
   });
 
   it("a stop that throws synchronously still exits", async () => {
