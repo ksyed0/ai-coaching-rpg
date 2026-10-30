@@ -2300,7 +2300,7 @@
         },
         {
           "id": "AC-0290",
-          "text": "the participant cookie is HttpOnly, Secure, SameSite=Lax, sealed with a key id and expires at the session end; identity comes only from the cookie, never the request body (`__Host-scenecoach`, AES-256-GCM with the key id as associated data, rotation by COOKIE_KEYS. As clarified in the plan (clarification 6) the lifetime is COOKIE_MAX_AGE_HOURS because the BFF does not know the session end in 2a: the end revokes the credential and the next request after `ended` clears the cookie: seal.test.ts, handlers.test.ts; TC-0068, TC-0069)",
+          "text": "the participant cookie is HttpOnly, Secure, SameSite=Lax, sealed with a key id and expires at the session end; identity comes only from the cookie, never the request body (`__Host-scenecoach`, AES-256-GCM with the key id as associated data, rotation by COOKIE_KEYS. As clarified in the plan (clarification 6) the lifetime is COOKIE_MAX_AGE_HOURS because the BFF does not know the session end in 2a: the end revokes the credential and the next request after `ended` clears the cookie: seal.test.ts, handlers.test.ts; TC-0068, TC-0069; interpretation accepted by the owner (Kamal Syed) on 2026-10-28)",
           "done": true
         },
         {
@@ -2337,17 +2337,17 @@
       "title": "As the product owner, I want an offline end-to-end test and demo of the web participant flow, so that the browser path is verified on every change.",
       "priority": "Medium",
       "estimate": "M",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0002-US-0065-web-e2e",
       "acs": [
         {
           "id": "AC-0295",
-          "text": "a Playwright test in mock mode runs offline: players join with names and consent, the session starts from the terminal, everyone speaks, one connection drops and recovers, and the BFF restarts and recovers (apps/web/e2e/participant-flow.spec.ts; run locally with the sandbox Chromium; its first CI run (Chromium build 1248) is still to come; TC-0072)",
+          "text": "a Playwright test in mock mode runs offline: players join with names and consent, the session starts from the terminal, everyone speaks, one connection drops and recovers, and the BFF restarts and recovers (apps/web/e2e/participant-flow.spec.ts; run locally with the sandbox Chromium; first CI run on Chromium build 1248 hit two timing failures (BUG-0009, BUG-0010); the job has since passed on develop; TC-0072)",
           "done": true
         },
         {
           "id": "AC-0296",
-          "text": "Axe accessibility checks pass on every participant screen and the layout has no horizontal scroll at 400px (apps/web/e2e/axe.spec.ts, light and dark, WCAG 2.0 and 2.1 A and AA, serious and critical findings only (moderate and minor ones are not checked); screens: /join, /join with a refusal, the lobby, the running and the paused session view, open in another tab, connection closed and the ended view; the signed-out screen shares the closed screen's component and is not scanned separately; 400 px: /join, the lobby and the session view; TC-0073)",
+          "text": "Axe accessibility checks pass on every participant screen and the layout has no horizontal scroll at 400px (apps/web/e2e/axe.spec.ts, light and dark, WCAG 2.0 and 2.1 A and AA, serious and critical findings only (moderate and minor ones are not checked); screens: /join, /join with a refusal, the lobby, the running and the paused session view, open in another tab, connection closed and the ended view; the signed-out screen shares the closed screen's component and is not scanned separately; 400 px: /join, the lobby and the session view; TC-0073; interpretation accepted by the owner (Kamal Syed) on 2026-10-28)",
           "done": true
         },
         {
@@ -2357,13 +2357,13 @@
         },
         {
           "id": "AC-0298",
-          "text": "pnpm demo --web drives the flow with generated players and adds its checks to the demo count list (W-01 to W-08, listed in docs/memory/demo-and-testing.md; the players are scripted HTTP clients in mock mode, not model-written `--players generated` bots; TC-0074)",
+          "text": "pnpm demo --web drives the flow with generated players and adds its checks to the demo count list (W-01 to W-08, listed in docs/memory/demo-and-testing.md; the players are scripted HTTP clients in mock mode, not model-written `--players generated` bots; TC-0074; interpretation accepted by the owner (Kamal Syed) on 2026-10-28)",
           "done": true
         },
         {
           "id": "AC-0299",
-          "text": "the new filesystem, lock and process tests pass once in the node:22 container and the coverage gate passes more than once and once under load (coverage gate: passed twice, once under load, TC-0075; the node:22 container run is NOT done: no Docker daemon in the build environment, TC-0076 Not Run)",
-          "done": false
+          "text": "the new filesystem, lock and process tests pass once in the node:22 container and the coverage gate passes more than once and once under load (coverage gate: passed twice, once under load, TC-0075; node:22 container run on the owner's local OrbStack Docker, 2026-10-28, run as root and as the `node` user, 7 files, TC-0076)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -3487,9 +3487,9 @@
       "title": "Playwright flow, contract tests, demo --web, hygiene runs",
       "type": "Test",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0065-web-e2e",
-      "notes": "Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 15 and 16. Open: the node:22 container run (AC-0299). Spec section 9. Reconnect backoff uses an injected clock. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "notes": "Plan docs/superpowers/plans/2026-10-27-web-client-slice-2a.md Tasks 15 and 16. The node:22 container run is done (AC-0299). Two Web E2E specs failed on the first CI runs for timing reasons (BUG-0009 still Open, watching; BUG-0010 Fixed). Spec section 9. Reconnect backoff uses an injected clock. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
     },
     {
       "id": "TASK-0086",
@@ -4320,7 +4320,7 @@
       "relatedTask": "TASK-0085",
       "relatedAC": "AC-0299",
       "type": "Regression",
-      "status": "Not Run",
+      "status": "Pass",
       "defect": "None"
     }
   ],
@@ -4420,403 +4420,439 @@
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0009",
+      "title": "Web E2E \"no horizontal scroll at 400 px\" does not see its own say line in the transcript on the first CI run",
+      "severity": "Medium",
+      "relatedStory": "US-0065",
+      "relatedTask": "TASK-0085",
+      "status": "Open (hardened in 5537920, not root-caused; watch the next CI runs)",
+      "fixBranch": "feature/EPIC-0002-US-0065-web-e2e",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0010",
+      "title": "Web E2E Axe check reports a serious color-contrast violation on a /join button in one CI run and not in another",
+      "severity": "Medium",
+      "relatedStory": "US-0065",
+      "relatedTask": "TASK-0085",
+      "status": "Fixed (5537920)",
+      "fixBranch": "feature/EPIC-0002-US-0065-web-e2e",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0011",
+      "title": "CodeQL \"incomplete string escaping\" alert on a regex built in the web runtime handler test",
+      "severity": "Low",
+      "relatedStory": "US-0056",
+      "relatedTask": "TASK-0084",
+      "status": "Fixed (b451052)",
+      "fixBranch": "feature/EPIC-0002-US-0056-participant-web-app",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
     }
   ],
   "costs": {
     "US-0001": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 400,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 3200,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 3200,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 3200,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 10.902165,
+      "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "_totals": {
-      "costUsd": 708.6406999999999,
-      "inputTokens": 30870317,
-      "outputTokens": 5549989
+      "costUsd": 799.4862,
+      "inputTokens": 33019880,
+      "outputTokens": 5997518
     },
     "_bugs": {
       "BUG-0001": {
@@ -4876,6 +4912,30 @@
         "projectedUsd": 400
       },
       "BUG-0008": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0009": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0010": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0011": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -5581,10 +5641,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-28T16:08:34.018Z",
-  "commitSha": "ec335ef",
-  "buildNumber": "333",
-  "branch": "feature/EPIC-0002-US-0065-web-e2e",
+  "generatedAt": "2026-10-28T18:11:23.585Z",
+  "commitSha": "d1eb8bb",
+  "buildNumber": "476",
+  "branch": "chore/EPIC-0002-slice-2a-closeout",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -5611,8 +5671,8 @@
       "cumCost": 677.1552
     },
     {
-      "date": "2026-10-27",
-      "cumCost": 708.6407
+      "date": "2026-10-28",
+      "cumCost": 799.4862
     }
   ],
   "costHistory": {
@@ -5642,8 +5702,8 @@
         "costUsd": 211.7385
       },
       {
-        "date": "2026-10-27",
-        "costUsd": 31.4855
+        "date": "2026-10-28",
+        "costUsd": 122.331
       }
     ],
     "docs/ai-cost-log-moderation-session": [
@@ -5653,7 +5713,7 @@
       }
     ]
   },
-  "deltaSpend": 31.49,
+  "deltaSpend": 122.33,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
   "version": "1.0.0",
@@ -5726,13 +5786,13 @@
     }
   },
   "budget": {
-    "totalBudget": 25108.6407,
-    "totalSpent": 708.6406999999999,
+    "totalBudget": 25199.4862,
+    "totalSpent": 799.4862,
     "totalProjected": 70400,
     "percentUsed": 3,
-    "burnRate": 22.238833333333332,
-    "daysRemaining": 1097,
-    "projectedExhaustion": 1097,
+    "burnRate": 25.862161444444446,
+    "daysRemaining": 943,
+    "projectedExhaustion": 943,
     "thresholds": [
       50,
       75,
@@ -5744,48 +5804,48 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 152.63030999999998,
-        "spent": 152.63030999999998,
+        "budget": 172.19703200000004,
+        "spent": 172.19703200000004,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 152.63030999999998,
-        "spent": 152.63030999999998,
+        "budget": 172.19703200000004,
+        "spent": 172.19703200000004,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 163.53247499999998,
-        "spent": 163.53247499999998,
+        "budget": 184.49682000000004,
+        "spent": 184.49682000000004,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 16163.532475,
-        "spent": 163.53247499999998,
+        "budget": 16184.49682,
+        "spent": 184.49682000000004,
         "remaining": 16000,
         "percentUsed": 1
       },
       {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 3643.60866,
-        "spent": 43.60866,
+        "budget": 3649.199152,
+        "spent": 49.199152,
         "remaining": 3600,
         "percentUsed": 1
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 4832.706495,
-        "spent": 32.706495000000004,
+        "budget": 4836.899364,
+        "spent": 36.899364,
         "remaining": 4800,
         "percentUsed": 1
       },
@@ -5811,41 +5871,39 @@
   "completion": null,
   "trends": {
     "dates": [
-      "2026-09-28T00:57:59.794Z",
-      "2026-09-29T00:57:59.794Z",
-      "2026-09-30T00:57:59.794Z",
-      "2026-10-01T00:57:59.794Z",
-      "2026-10-02T00:57:59.794Z",
-      "2026-10-03T00:57:59.794Z",
-      "2026-10-04T00:57:59.794Z",
-      "2026-10-05T00:57:59.794Z",
-      "2026-10-06T00:57:59.794Z",
-      "2026-10-07T00:57:59.794Z",
-      "2026-10-08T00:57:59.794Z",
-      "2026-10-09T00:57:59.794Z",
-      "2026-10-10T00:57:59.794Z",
-      "2026-10-11T00:57:59.794Z",
-      "2026-10-12T00:57:59.794Z",
-      "2026-10-13T00:57:59.794Z",
-      "2026-10-14T00:57:59.794Z",
-      "2026-10-15T00:57:59.794Z",
-      "2026-10-16T00:57:59.794Z",
-      "2026-10-17T00:57:59.794Z",
-      "2026-10-18T00:57:59.794Z",
-      "2026-10-19T00:57:59.794Z",
-      "2026-10-20T00:57:59.794Z",
-      "2026-10-21T00:57:59.794Z",
-      "2026-10-22T00:57:59.794Z",
-      "2026-10-23T00:57:59.794Z",
-      "2026-10-24T00:57:59.794Z",
-      "2026-10-25T00:57:59.794Z",
-      "2026-10-26T00:57:59.794Z",
-      "2026-10-27T00:57:59.794Z",
-      "2026-10-28T01:17:57.054Z",
-      "2026-10-28T16:08:34.063Z"
+      "2026-09-28T18:11:23.806Z",
+      "2026-09-29T18:11:23.806Z",
+      "2026-09-30T18:11:23.806Z",
+      "2026-10-01T18:11:23.806Z",
+      "2026-10-02T18:11:23.806Z",
+      "2026-10-03T18:11:23.806Z",
+      "2026-10-04T18:11:23.806Z",
+      "2026-10-05T18:11:23.806Z",
+      "2026-10-06T18:11:23.806Z",
+      "2026-10-07T18:11:23.806Z",
+      "2026-10-08T18:11:23.806Z",
+      "2026-10-09T18:11:23.806Z",
+      "2026-10-10T18:11:23.806Z",
+      "2026-10-11T18:11:23.806Z",
+      "2026-10-12T18:11:23.806Z",
+      "2026-10-13T18:11:23.806Z",
+      "2026-10-14T18:11:23.806Z",
+      "2026-10-15T18:11:23.806Z",
+      "2026-10-16T18:11:23.806Z",
+      "2026-10-17T18:11:23.806Z",
+      "2026-10-18T18:11:23.806Z",
+      "2026-10-19T18:11:23.806Z",
+      "2026-10-20T18:11:23.806Z",
+      "2026-10-21T18:11:23.806Z",
+      "2026-10-22T18:11:23.806Z",
+      "2026-10-23T18:11:23.806Z",
+      "2026-10-24T18:11:23.806Z",
+      "2026-10-25T18:11:23.806Z",
+      "2026-10-26T18:11:23.806Z",
+      "2026-10-27T18:11:23.806Z",
+      "2026-10-28T18:11:23.800Z"
     ],
     "doneCounts": [
-      0,
       0,
       0,
       0,
@@ -5879,72 +5937,70 @@
       0
     ],
     "totalStories": [
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
-      44,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
+      65,
       65,
       65
     ],
     "aiCosts": [
-      20.737849999999998,
-      41.475699999999996,
-      62.21355,
-      82.95139999999999,
-      103.68924999999999,
-      124.4271,
-      145.16495,
-      165.90279999999998,
-      186.64065,
-      207.37849999999997,
-      228.11634999999998,
-      248.8542,
-      269.59205,
-      290.3299,
-      311.06775,
-      331.80559999999997,
-      352.54345,
-      373.2813,
-      394.01914999999997,
-      414.75699999999995,
-      435.49485,
-      456.23269999999997,
-      476.97055,
-      497.7084,
-      518.44625,
-      539.1841,
-      559.92195,
-      580.6598,
-      601.39765,
-      622.1355,
+      23.621356666666664,
+      47.24271333333333,
+      70.86407,
+      94.48542666666665,
+      118.10678333333331,
+      141.72814,
+      165.34949666666665,
+      188.9708533333333,
+      212.59220999999997,
+      236.21356666666662,
+      259.8349233333333,
+      283.45628,
+      307.07763666666665,
+      330.6989933333333,
+      354.32034999999996,
+      377.9417066666666,
+      401.5630633333333,
+      425.18441999999993,
+      448.8057766666666,
+      472.42713333333324,
+      496.0484899999999,
+      519.6698466666666,
+      543.2912033333333,
+      566.91256,
+      590.5339166666666,
+      614.1552733333333,
+      637.77663,
+      661.3979866666666,
+      685.0193433333333,
       708.6406999999999,
-      708.6406999999999
+      799.4862
     ],
     "coverage": [
       0,
@@ -5977,11 +6033,9 @@
       0,
       0,
       0,
-      null,
       null
     ],
     "velocity": [
-      0,
       0,
       0,
       0,
@@ -6045,11 +6099,9 @@
       1,
       1,
       1,
-      1,
-      1
+      2
     ],
     "atRisk": [
-      0,
       0,
       0,
       0,
@@ -6113,8 +6165,7 @@
       0,
       0,
       0,
-      30870317,
-      30870317
+      33019880
     ],
     "outputTokens": [
       0,
@@ -6147,42 +6198,40 @@
       0,
       0,
       0,
-      5549989,
-      5549989
+      5997518
     ],
     "avgRisk": [
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
-      1.1545454545454552,
       1.1415384615384616,
-      1.1415384615384616
+      1.1415384615384616,
+      1.1415384615384616,
+      1.1415384615384616,
+      1.1415384615384616,
+      1.1415384615384616,
+      1.1415384615384616,
+      1.1415384615384616,
+      1.1415384615384616,
+      1.146153846153846,
+      1.146153846153846,
+      1.146153846153846,
+      1.146153846153846,
+      1.146153846153846,
+      1.146153846153846,
+      1.146153846153846,
+      1.146153846153846,
+      1.146153846153846,
+      1.146153846153846,
+      1.1507692307692308,
+      1.1507692307692308,
+      1.1507692307692308,
+      1.1507692307692308,
+      1.1507692307692308,
+      1.1507692307692308,
+      1.1507692307692308,
+      1.1507692307692308,
+      1.1507692307692308,
+      1.1507692307692308,
+      1.1553846153846152,
+      1.146153846153846
     ],
     "velocityByWeek": {
       "labels": [
