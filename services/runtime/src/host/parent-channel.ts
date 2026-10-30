@@ -12,6 +12,8 @@ const RequestId = z.string().refine(isSafeId, { message: "invalid request id" })
 const RoleId = z.string().min(1).max(CLIENT_ID_MAX_CHARS).refine((v) => isScenarioId(v) && !isReservedRoleId(v), { message: "invalid role id" });
 const MAX_CODE_CHARS = 64;
 const MAX_REASON_CHARS = 200;
+const MAX_LABEL_CHARS = 200;
+const MAX_CODES = 256;
 /** Raw bound only; the runtime cleans the name later. */
 const MAX_BY_CHARS = 200;
 
@@ -24,10 +26,10 @@ export const ParentMessageSchema = z.strictObject({
 export type ParentMessage = z.infer<typeof ParentMessageSchema>;
 
 export const ChildMessageSchema = z.discriminatedUnion("type", [
-  z.strictObject({ type: z.literal("codes"), codes: z.array(z.strictObject({ roleId: z.string().min(1).max(CLIENT_ID_MAX_CHARS), code: z.string().min(1).max(MAX_CODE_CHARS) })) }),
+  z.strictObject({ type: z.literal("codes"), codes: z.array(z.strictObject({ roleId: RoleId, code: z.string().min(1).max(MAX_CODE_CHARS) })).max(MAX_CODES) }),
   z.strictObject({
-    type: z.literal("ready"), port: z.number().int().min(0).max(65535), logIdentity: z.string().optional(),
-    status: z.enum(["new", "resumed"]), modelLabel: z.string(),
+    type: z.literal("ready"), port: z.number().int().min(1).max(65535), logIdentity: z.string().max(MAX_LABEL_CHARS).optional(),
+    status: z.enum(["new", "resumed"]), modelLabel: z.string().min(1).max(MAX_LABEL_CHARS),
   }),
   z.strictObject({ type: z.literal("ended") }),
   z.strictObject({ type: z.literal("reissued"), requestId: RequestId, code: z.string().min(1).max(MAX_CODE_CHARS) }),

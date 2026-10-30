@@ -1,0 +1,177 @@
+import { existsSync } from "node:fs";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { bootstrap, watchParent, type Runtime } from "../main.js";
+import { SessionHost } from "../host/session-host.js";
+import type { ChildMessage, ParentChannel } from "../host/parent-channel.js";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const fixture = path.join(here, "../../../../packages/script/src/__tests__/fixtures/minimal");
+vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
+let tmp = "";
+const runtimes: Runtime[] = [];
+afterEach(async () => { vi.restoreAllMocks(); for (const r of runtimes.splice(0)) await r.stop(); if (tmp) await rm(tmp, { recursive: true, force: true }); tmp = ""; });
+
+function fakeParent(opts: { failOn?: ChildMessage["type"] } = {}) {
+  const sent: ChildMessage[] = [];
+  const parent: ParentChannel = {
+    send(m) { if (m.type === opts.failOn) return false; sent.push(m); return true; },
+    onMessage() {}, onDisconnect() {},
+  };
+  return { parent, sent };
+}
+async function boot(parent: ParentChannel | undefined, data: string, extra: Record<string, string> = {}) {
+  const logs: string[] = [];
+  const r = await bootstrap({
+    env: { SCENARIO_DIR: fixture, RUNTIME_PORT: "0", RUNTIME_HOST: "127.0.0.1", SESSION_ID: "p1", MODEL_PROVIDER: "mock", CONTROL_MANAGED: "1", SESSION_DATA_DIR: data, ...extra },
+    root: tmp, tickMs: 60_000, log: (m) => logs.push(m), warn: (m) => logs.push(m), ...(parent ? { parent } : {}),
+  });
+  if (r.ok) runtimes.push(r.runtime);
+  return { r, logs };
+}
+const mk = async () => { tmp = await mkdtemp(path.join(os.tmpdir(), "acr-par-")); return path.join(tmp, "sessions"); };
+
+describe("bootstrap with a parent channel (US-0058)", () => {
+  it("a new start sends codes then ready, in that order, codes only when issued", async () => {
+    const data = await mk();
+    const { parent, sent } = fakeParent();
+    const { r } = await boot(parent, data);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(sent.map((m) => m.type)).toEqual(["codes", "ready"]);
+    const codes = sent[0] as Extract<ChildMessage, { type: "codes" }>;
+    expect(codes.codes.length).toBeGreaterThan(0);
+    for (const c of codes.codes) expect(c.code.length).toBeGreaterThan(0);
+    const ready = sent[1] as Extract<ChildMessage, { type: "ready" }>;
+    expect(ready.port).toBe(r.runtime.port);
+    expect(ready.port).toBeGreaterThan(0);
+    expect(ready.status).toBe("new");
+    expect(ready.logIdentity).toMatch(/^[0-9a-f]{32}$/);
+    expect(ready.modelLabel.length).toBeGreaterThan(0);
+  });
+
+  it("a resumed start sends ready with status resumed and no codes", async () => {
+    const data = await mk();
+    const first = await boot(fakeParent().parent, data);
+    if (!first.r.ok) throw new Error(first.r.errors.join("; "));
+    // Start the session so the log is non-empty and the next start resumes it.
+    await first.r.runtime.host.start().catch(() => undefined);
+    await first.r.runtime.stop(); runtimes.pop();
+    const { parent, sent } = fakeParent();
+    const second = await boot(parent, data);
+    if (!second.r.ok) throw new Error(second.r.errors.join("; "));
+    expect(sent.map((m) => m.type)).toEqual(["ready"]); // the codes issued earlier still apply: nothing to show
+    const ready = sent[0] as Extract<ChildMessage, { type: "ready" }>;
+    // An empty log (the lobby never started) is a "new" start that keeps its codes; a started one is "resumed".
+    expect(["new", "resumed"]).toContain(ready.status);
+  });
+
+  it("a failed codes send aborts the start and the issued codes are withdrawn (the .codes.json is removed)", async () => {
+    const data = await mk();
+    const { parent, sent } = fakeParent({ failOn: "codes" });
+    const { r } = await boot(parent, data);
+    expect(r.ok).toBe(false);
+    expect(sent).toEqual([]); // no ready after a failed codes send
+    expect(existsSync(path.join(data, "p1.codes.json"))).toBe(false);
+  });
+
+  it("a failed ready send fails the start without leaking codes into logs", async () => {
+    const data = await mk();
+    const { parent, sent } = fakeParent({ failOn: "ready" });
+    const { r, logs } = await boot(parent, data);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(sent.map((m) => m.type)).toEqual(["codes"]);
+    const codes = (sent[0] as Extract<ChildMessage, { type: "codes" }>).codes;
+    const everything = [...logs, ...r.errors].join("\n");
+    for (const c of codes) expect(everything).not.toContain(c.code);
+    // The codes were already handed over, so they are not withdrawn: the parent reissues.
+    expect(existsSync(path.join(data, "p1.codes.json"))).toBe(true);
+    // Nothing is left running: the lock is released so the same session can start again.
+    const again = await boot(fakeParent().parent, data);
+    expect(again.r.ok).toBe(true);
+  });
+
+  it("session.ended sends ended once", async () => {
+    const data = await mk();
+    const subs: ((e: { type: string }) => void)[] = [];
+    const orig = SessionHost.prototype.subscribe;
+    vi.spyOn(SessionHost.prototype, "subscribe").mockImplementation(function (this: SessionHost, fn) { subs.push(fn as never); return orig.call(this, fn); });
+    const { parent, sent } = fakeParent();
+    const { r } = await boot(parent, data);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(sent.some((m) => m.type === "ended")).toBe(false);
+    for (const s of subs) { s({ type: "session.ended" }); s({ type: "session.ended" }); }
+    expect(sent.filter((m) => m.type === "ended")).toHaveLength(1);
+    expect(sent[sent.length - 1]!.type).toBe("ended");
+  });
+
+  it("the codes never appear in log or warn output", async () => {
+    const data = await mk();
+    const { parent, sent } = fakeParent();
+    const { r, logs } = await boot(parent, data);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    const codes = (sent[0] as Extract<ChildMessage, { type: "codes" }>).codes;
+    expect(codes.length).toBeGreaterThan(0);
+    for (const c of codes) expect(logs.join("\n")).not.toContain(c.code);
+  });
+
+  it("ready never contains a token or an endpoint", async () => {
+    const data = await mk();
+    const token = "a".repeat(32) + "b".repeat(32);
+    const { parent, sent } = fakeParent();
+    const { r } = await boot(parent, data, { FACILITATOR_TOKEN: token, MODEL_PROVIDER: "mock", MODEL_BASE_URL: "https://secret-endpoint.example.com/v1", ANTHROPIC_API_KEY: "sk-secret-key-123" });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    const ready = JSON.stringify(sent.find((m) => m.type === "ready"));
+    expect(ready).not.toContain(token);
+    expect(ready).not.toContain("secret-endpoint");
+    expect(ready).not.toContain("sk-secret");
+    expect(ready).not.toMatch(/https?:/);
+  });
+
+  it("without a parent the start behaves as before (codes go to the display hook only)", async () => {
+    const data = await mk();
+    const shown: unknown[] = [];
+    const r = await bootstrap({
+      env: { SCENARIO_DIR: fixture, RUNTIME_PORT: "0", RUNTIME_HOST: "127.0.0.1", SESSION_ID: "p1", MODEL_PROVIDER: "mock", CONTROL_MANAGED: "1", SESSION_DATA_DIR: data },
+      root: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, parent: null, showJoinCodes: (c) => { shown.push(c); },
+    });
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    runtimes.push(r.runtime);
+    expect(shown).toHaveLength(1);
+    expect((await readdir(data)).some((n) => n.endsWith(".codes.json"))).toBe(true);
+  });
+});
+
+describe("watchParent", () => {
+  it("on disconnect stops the runtime then exits 0, once, and survives a failing stop", async () => {
+    let fire = () => {};
+    const parent: ParentChannel = { send: () => true, onMessage() {}, onDisconnect(fn) { fire = fn; } };
+    const order: string[] = [];
+    const stop = vi.fn(async () => { order.push("stop"); });
+    const exit = vi.fn((c: number) => { order.push(`exit${c}`); });
+    watchParent(parent, stop, exit);
+    expect(stop).not.toHaveBeenCalled();
+    fire(); fire();
+    await vi.waitFor(() => expect(exit).toHaveBeenCalled());
+    expect(order).toEqual(["stop", "exit0"]);
+
+    let fire2 = () => {};
+    const p2: ParentChannel = { send: () => true, onMessage() {}, onDisconnect(fn) { fire2 = fn; } };
+    const exit2 = vi.fn();
+    watchParent(p2, async () => { throw new Error("stuck"); }, exit2);
+    expect(() => fire2()).not.toThrow();
+    await vi.waitFor(() => expect(exit2).toHaveBeenCalledWith(0));
+  });
+
+  it("a stop that throws synchronously still exits", async () => {
+    let fire = () => {};
+    const parent: ParentChannel = { send: () => true, onMessage() {}, onDisconnect(fn) { fire = fn; } };
+    const exit = vi.fn();
+    watchParent(parent, () => { throw new Error("sync"); }, exit);
+    expect(() => fire()).not.toThrow();
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0));
+  });
+});

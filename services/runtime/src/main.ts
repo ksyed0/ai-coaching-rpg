@@ -17,6 +17,7 @@ import { parseTemperatures } from "./agents/temperatures.js";
 import { parseModelRetry, withModelRetry } from "./agents/retry-config.js";
 import { parseGmConfig } from "./agents/gm-config.js";
 import { createGmTraceWriter, parseGmTraceEnv } from "./agents/gm-trace.js";
+import { openParentChannel, type ParentChannel } from "./host/parent-channel.js";
 import { OPEN_SERVER_WARNING, parseSecurityConfig } from "./host/security.js";
 
 /** services/runtime/src/main.ts: the repo root is three levels up from this file's directory. */
@@ -46,6 +47,11 @@ export async function bootstrap(opts: {
   showJoinCodes?: (codes: { roleId: string; code: string }[]) => void;
   /** US-0053: where `notice-<CONSENT_NOTICE_VERSION>.md` lives. Default `<repo>/consent`, whatever `root` is (it ships with the code). */
   consentDir?: string;
+  /**
+   * US-0058: the IPC channel to the control service that forked this process (null/absent: the terminal; behaviour unchanged).
+   * With one, the join codes go to the parent instead of stdout, `ready` follows once listening, and `ended` when the session ends.
+   */
+  parent?: ParentChannel | null;
 }): Promise<BootstrapResult> {
   // Validate the session id before ANY filesystem action: it becomes a file name under the data dir.
   const requestedId = (opts.env.SESSION_ID ?? "local");
@@ -71,6 +77,7 @@ export async function bootstrap(opts: {
   if ((opts.env.FACILITATOR_TOKEN ?? "") === "" && (fileEnv.FACILITATOR_TOKEN ?? "") !== "") env.FACILITATOR_TOKEN = fileEnv.FACILITATOR_TOKEN;
   const log = opts.log ?? console.log;
   const warn = opts.warn ?? console.warn;
+  const parent = opts.parent ?? null;
   const scenarioDir = path.resolve(root, env.SCENARIO_DIR ?? "scenarios/friday-escalation"); // absolute values are used as given
   const sessionId = env.SESSION_ID ?? "local";
   if (!isValidSessionId(sessionId)) { // an id coming from <root>/.env gets the same check
@@ -186,7 +193,7 @@ export async function bootstrap(opts: {
     const issued = Object.entries(store.joinCodes.issued).map(([roleId, code]) => ({ roleId, code }));
     // Codes nobody saw lock everyone out: a display that fails stops the start (and withdraws them), never silently.
     try {
-      const r: unknown = (opts.showJoinCodes ?? printJoinCodes)(issued);
+      const r: unknown = (opts.showJoinCodes ?? (parent ? sendCodesToParent(parent) : printJoinCodes))(issued);
       // review I-A: an async display could fail after the start reported success; refuse it (and never leave its rejection unhandled).
       if (r !== undefined && typeof (r as { then?: unknown }).then === "function") { (r as Promise<unknown>).then(undefined, () => undefined); throw new Error("async display"); }
     }
@@ -203,7 +210,43 @@ export async function bootstrap(opts: {
     if (notes && notes.clockBehindSecs > 0) warn(`warning: the system clock is ${notes.clockBehindSecs} s behind the last event in the session log (it moved backwards); the downtime is unknown and counted as 0 s, and new events keep the last recorded time until the clock catches up`);
     if (notes && notes.repairs.length > 0) log(`the restart completed what the crash cut short: ${notes.repairs.join(", ")}`);
   }
-  return { ok: true, runtime: { port: server.port, host, stop: async () => { host.stopTicker(); await server.close(); gmTrace?.close(); await store.close(); } } };
+  let unsubscribeEnded: (() => void) | undefined;
+  if (parent) {
+    // `ready` comes after the codes (sent above, inside the display hook), so the parent never sees a ready session whose codes it lacks.
+    const logIdentity = store.seats?.credentials.logIdentity ?? store.resume?.logIdentity;
+    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new", modelLabel: describeModelProvider(env) });
+    if (!sent) {
+      // A start failure, but the join codes are deliberately NOT withdrawn: the parent already holds them (they were sent first), and
+      // withdrawing would make them stale. The parent reissues them if it restarts this session. Nothing may stay running or locked.
+      host.stopTicker(); await server.close(); gmTrace?.close();
+      await store.close();
+      return { ok: false, errors: ["could not report the session as ready to the control service (the start was stopped; start again)"] };
+    }
+    let endedSent = false;
+    unsubscribeEnded = host.subscribe((e) => { if (e.type === "session.ended" && !endedSent) { endedSent = true; parent.send({ type: "ended" }); } });
+  }
+  return { ok: true, runtime: { port: server.port, host, stop: async () => { unsubscribeEnded?.(); host.stopTicker(); await server.close(); gmTrace?.close(); await store.close(); } } };
+}
+
+/**
+ * US-0058: the display hook of a managed start. It is synchronous (an async return is refused) and THROWS when the channel did not take
+ * the message, which triggers the abort-and-withdraw path. `process.send` returning false is backpressure, not loss, but the start is
+ * still treated as failed: aborting and withdrawing is safe, whereas a start whose codes may not have arrived is not.
+ */
+function sendCodesToParent(parent: ParentChannel): (codes: { roleId: string; code: string }[]) => void {
+  return (codes) => { if (!parent.send({ type: "codes", codes })) throw new Error("parent channel refused the codes"); };
+}
+
+/** US-0058: when the parent goes away, stop the runtime and exit 0 (an orphaned session must not keep running). Never throws. */
+export function watchParent(parent: ParentChannel, stop: () => Promise<void>, exit: (code: number) => void): void {
+  let seen = false;
+  parent.onDisconnect(() => {
+    if (seen) return;
+    seen = true;
+    let p: Promise<void>;
+    try { p = stop(); } catch { p = Promise.resolve(); }
+    void p.catch(() => undefined).finally(() => exit(0));
+  });
 }
 
 /** The one display of newly issued player join codes (stdout, not the log). Each person should get only their own role's code. */
@@ -238,7 +281,9 @@ async function main(): Promise<void> {
 
 async function run(): Promise<void> {
   const fatal: { handler?: () => void } = {};
-  const result = await bootstrap({ env: process.env, onFatal: () => fatal.handler?.() });
+  // US-0058: the IPC channel exists only for a process the control service forked (CONTROL_MANAGED=1).
+  const parent = process.env.CONTROL_MANAGED === "1" ? openParentChannel() : null;
+  const result = await bootstrap({ env: process.env, onFatal: () => fatal.handler?.(), parent });
   if (!result.ok) {
     for (const e of result.errors) console.error(`error: ${e}`);
     process.exit(1);
@@ -248,6 +293,7 @@ async function run(): Promise<void> {
   fatal.handler = () => scheduleFatalExit({ stop: () => runtime.stop(), exit: (c) => process.exit(c) });
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+  if (parent) watchParent(parent, () => runtime.stop(), (c) => process.exit(c));
 }
 
 // Only run when executed directly (tsx src/main.ts), never on import.

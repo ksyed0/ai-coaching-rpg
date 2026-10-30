@@ -78,4 +78,23 @@ describe("parent channel", () => {
     expect(ChildMessageSchema.safeParse({ type: "reissued", requestId: "r", code: "c".repeat(65) }).success).toBe(false);
     expect(ChildMessageSchema.safeParse({ type: "reissue_failed", requestId: "r", reason: "r".repeat(201) }).success).toBe(false);
   });
+
+  it("ready, codes and their fields are bounded (the parent validates with the same schema)", () => {
+    const ready = { type: "ready", port: 4000, status: "new", modelLabel: "Mock" };
+    const ok = (m: unknown) => ChildMessageSchema.safeParse(m).success;
+    expect(ok(ready)).toBe(true);
+    expect(ok({ ...ready, logIdentity: "x".repeat(200) })).toBe(true);
+    expect(ok({ ...ready, logIdentity: "x".repeat(201) })).toBe(false);
+    expect(ok({ ...ready, modelLabel: "" })).toBe(false);
+    expect(ok({ ...ready, modelLabel: "m".repeat(201) })).toBe(false);
+    expect(ok({ ...ready, port: 0 })).toBe(false);
+    expect(ok({ ...ready, port: 65536 })).toBe(false);
+    expect(ok({ ...ready, port: 1.5 })).toBe(false);
+    const entry = (i: number) => ({ roleId: `r${i}`, code: "c" });
+    expect(ok({ type: "codes", codes: Array.from({ length: 256 }, (_, i) => entry(i)) })).toBe(true);
+    expect(ok({ type: "codes", codes: Array.from({ length: 257 }, (_, i) => entry(i)) })).toBe(false);
+    expect(ok({ type: "codes", codes: [{ roleId: "facilitator", code: "c" }] })).toBe(false);
+    expect(ok({ type: "codes", codes: [{ roleId: "Bad Id", code: "c" }] })).toBe(false);
+    expect(ok({ type: "codes", codes: [{ roleId: "a", code: "c".repeat(65) }] })).toBe(false);
+  });
 });
