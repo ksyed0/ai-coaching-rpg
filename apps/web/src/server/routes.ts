@@ -1,5 +1,9 @@
 import { loadConfig, missingConsoleVars } from "./config";
 import { handleConsoleLogin, handleConsoleLogout } from "./console-handlers";
+import {
+  handleConsoleReadiness, handleConsoleReissue, handleConsoleReissueAll, handleConsoleRestart, handleConsoleScenarios,
+  handleConsoleSessionGet, handleConsoleSessionsCreate, handleConsoleSessionsList, handleConsoleStart,
+} from "./console-sessions";
 import { consoleSessionFromToken } from "./console-session";
 import { fail } from "./envelope";
 import { handleConsent, handleJoin, handleLeave, handleSay, handleStream, seatedIn, type Deps } from "./handlers";
@@ -88,3 +92,12 @@ export const consentPOST = route(handleConsent);
 export const leavePOST = route(handleLeave);
 export const consoleLoginPOST = route(handleConsoleLogin);
 export const consoleLogoutPOST = route(handleConsoleLogout);
+export const consoleScenariosGET = route(handleConsoleScenarios);
+export const consoleSessionsGET = route(handleConsoleSessionsList);
+export const consoleSessionsPOST = route(handleConsoleSessionsCreate);
+export const consoleSessionGET = route(handleConsoleSessionGet);
+export const consoleReadinessGET = route(handleConsoleReadiness);
+export const consoleStartPOST = route(handleConsoleStart);
+export const consoleReissuePOST = route(handleConsoleReissue);
+export const consoleReissueAllPOST = route(handleConsoleReissueAll);
+export const consoleRestartPOST = route(handleConsoleRestart);

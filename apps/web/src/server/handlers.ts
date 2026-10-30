@@ -5,7 +5,7 @@ import { fail, ok } from "./envelope";
 import { checkFetchSite, checkOrigin, requestAddress } from "./guards";
 import { ROBOTS_TAG } from "./headers";
 import type { LauncherClient } from "./launcher-client";
-import { RuntimeError, type RuntimeConnection } from "./runtime-connection";
+import { RuntimeError, type RuntimeConnection, type SetTimer } from "./runtime-connection";
 import { resolveRuntimeUrl } from "./runtime-lookup";
 import { seal, unseal } from "./seal";
 import { sseBody } from "./sse";
@@ -20,6 +20,8 @@ export type Deps = {
   config: Config; now: () => number; connect: typeof RuntimeConnection.connect; joinThrottle: JoinThrottle; consoleThrottle: JoinThrottle; hub: StreamHub;
   /** Set when LAUNCHER_URL is: each session's runtime is then looked up through the control service (runtime-lookup.ts). */
   launcher?: LauncherClient;
+  /** The timer the console's Start wait uses (default: real timers); tests drive it by hand. */
+  setTimer?: SetTimer;
 };
 
 /** `__Host-`: the browser accepts it only Secure, with Path=/ and no Domain, so a sibling subdomain cannot plant or shadow it. */

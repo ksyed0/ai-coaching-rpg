@@ -107,11 +107,27 @@ describe("route", () => {
 
 describe("route files", () => {
   const FILES = { join: "POST", stream: "GET", say: "POST", consent: "POST", leave: "POST" } as const;
+  // Console routes: [path under api/v1, exported handler, method, depth of ../ up to src/server/routes].
+  const CONSOLE: [string, string, string][] = [
+    ["console/login", "consoleLogin", "POST"],
+    ["console/logout", "consoleLogout", "POST"],
+    ["console/scenarios", "consoleScenarios", "GET"],
+    ["console/sessions", "consoleSessions", "GET"],
+    ["console/sessions", "consoleSessions", "POST"],
+    ["console/sessions/[id]", "consoleSession", "GET"],
+    ["console/sessions/[id]/readiness", "consoleReadiness", "GET"],
+    ["console/sessions/[id]/start", "consoleStart", "POST"],
+    ["console/sessions/[id]/reissue", "consoleReissue", "POST"],
+    ["console/sessions/[id]/reissue-all", "consoleReissueAll", "POST"],
+    ["console/sessions/[id]/restart", "consoleRestart", "POST"],
+  ];
+  const codeOf = (path: string) =>
+    readFileSync(fileURLToPath(new URL(`../../app/api/v1/${path}/route.ts`, import.meta.url)), "utf8")
+      .split("\n")
+      .filter((l) => l.trim() !== "" && !l.trim().startsWith("//"));
   it("only re-export a handler and declare the Node runtime and dynamic rendering", () => {
     for (const [name, method] of Object.entries(FILES)) {
-      const text = readFileSync(fileURLToPath(new URL(`../../app/api/v1/${name}/route.ts`, import.meta.url)), "utf8");
-      const code = text.split("\n").filter((l) => l.trim() !== "" && !l.trim().startsWith("//"));
-      expect(code, name).toEqual([
+      expect(codeOf(name), name).toEqual([
         `export { ${name}${method} as ${method} } from "../../../../server/routes";`,
         `export const runtime = "nodejs";`,
         `export const dynamic = "force-dynamic";`,
@@ -119,9 +135,23 @@ describe("route files", () => {
     }
   });
 
+  it("the console routes do the same, with the exact re-export for their depth", () => {
+    for (const [path, handler, method] of CONSOLE) {
+      const up = "../".repeat(path.split("/").length + 3);
+      const exports = codeOf(path).filter((l) => l.includes(` as ${method} }`));
+      expect(codeOf(path), path + method).toContain(`export { ${handler}${method} as ${method} } from "${up}server/routes";`);
+      expect(exports.length, path).toBeGreaterThan(0);
+      expect(codeOf(path), path).toContain(`export const runtime = "nodejs";`);
+      expect(codeOf(path), path).toContain(`export const dynamic = "force-dynamic";`);
+      // Nothing but re-exports and the two declarations.
+      expect(codeOf(path).every((l) => l.startsWith("export ")), path).toBe(true);
+    }
+  });
+
   it("the re-exported handlers exist", async () => {
     const routes = await import("../routes");
     for (const [name, method] of Object.entries(FILES)) expect(typeof (routes as Record<string, unknown>)[`${name}${method}`], name).toBe("function");
+    for (const [, handler, method] of CONSOLE) expect(typeof (routes as Record<string, unknown>)[`${handler}${method}`], handler).toBe("function");
   });
 });
 
