@@ -28,7 +28,7 @@ export type ReadinessProps = {
 type Confirm =
   | { kind: "role"; roleId: string; opener: HTMLElement }
   | { kind: "all"; opener: HTMLElement };
-type Shown = { heading: string; codes: CodeEntry[] };
+type Shown = { seq: number; heading: string; codes: CodeEntry[] };
 
 const yesNo = (v: boolean) => (v ? "Yes" : "No");
 const url = (id: string, tail: string) =>
@@ -51,6 +51,10 @@ export function Readiness({
   const [error, setError] = useState<string | null>(null);
   const [startedHere, setStartedHere] = useState(false);
   const busy = useRef(false);
+  // Every issue gets its own number, so a new code is never shown by a panel that still holds the previous one.
+  const seq = useRef(0);
+  const show = (heading: string, codes: CodeEntry[]) =>
+    setShown({ seq: ++seq.current, heading, codes });
 
   async function act<T>(
     run: () => ReturnType<typeof postJson>,
@@ -80,10 +84,7 @@ export function Readiness({
           unknown
         >;
         if (typeof o.code === "string")
-          setShown({
-            heading: `New code for ${roleLabel(roleId)}`,
-            codes: [{ roleId, code: o.code }],
-          });
+          show(`New code for ${roleLabel(roleId)}`, [{ roleId, code: o.code }]);
       },
     );
     setConfirm(null);
@@ -96,10 +97,7 @@ export function Readiness({
           string,
           unknown
         >;
-        setShown({
-          heading: "New codes for every role",
-          codes: parseCodes(o.codes),
-        });
+        show("New codes for every role", parseCodes(o.codes));
       },
     );
     setConfirm(null);
@@ -113,7 +111,7 @@ export function Readiness({
           unknown
         >;
         const codes = parseCodes(o.codes);
-        if (codes.length > 0) setShown({ heading: "New join codes", codes });
+        if (codes.length > 0) show("New join codes", codes);
       },
     );
   }
@@ -286,7 +284,7 @@ function View(p: ViewProps) {
 
       {p.shown ? (
         <CodesPanel
-          key={p.shown.heading}
+          key={p.shown.seq}
           codes={p.shown.codes}
           heading={p.shown.heading}
           onDismiss={p.onDismissCodes}

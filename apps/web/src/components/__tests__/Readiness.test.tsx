@@ -381,6 +381,98 @@ describe("Readiness", () => {
   });
 });
 
+describe("Readiness: a new code replaces an undismissed one", () => {
+  const reissueFlow = async (name: string) => {
+    fireEvent.click(screen.getByRole("button", { name }));
+    await act(async () => {
+      fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: /^Reissue/,
+        }),
+      );
+    });
+  };
+
+  it("reissuing the same role twice shows the second code and not the first", async () => {
+    let n = 0;
+    const f = fakeFetch((url) => {
+      if (url.endsWith("/readiness"))
+        return { status: 200, body: ok(readiness()) };
+      return {
+        status: 200,
+        body: ok({ roleId: "delivery_lead", code: `CODE-${++n}` }),
+      };
+    });
+    render(
+      <Readiness
+        sessionId={SID}
+        fetch={f.fetch}
+        setTimer={fakeTimer().setTimer}
+      />,
+    );
+    await ready();
+    await reissueFlow("Reissue code for Delivery lead");
+    await screen.findByText("CODE-1");
+    await reissueFlow("Reissue code for Delivery lead");
+    await screen.findByText("CODE-2");
+    expect(document.body.textContent).not.toContain("CODE-1");
+  });
+
+  it("Reissue all twice shows the second set only", async () => {
+    let n = 0;
+    const f = fakeFetch((url) => {
+      if (url.endsWith("/readiness"))
+        return { status: 200, body: ok(readiness()) };
+      n++;
+      return {
+        status: 200,
+        body: ok({
+          codes: [
+            { roleId: "account_manager", code: `ALL-A${n}` },
+            { roleId: "delivery_lead", code: `ALL-B${n}` },
+          ],
+        }),
+      };
+    });
+    render(
+      <Readiness
+        sessionId={SID}
+        fetch={f.fetch}
+        setTimer={fakeTimer().setTimer}
+      />,
+    );
+    await ready();
+    await reissueFlow("Reissue all codes");
+    await screen.findByText("ALL-A1");
+    await reissueFlow("Reissue all codes");
+    await screen.findByText("ALL-A2");
+    expect(screen.getByText("ALL-B2")).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/ALL-[AB]1/);
+  });
+
+  it("reissuing role A then role B shows B's code only (the panel shows the latest issue)", async () => {
+    const f = fakeFetch((url, body) => {
+      if (url.endsWith("/readiness"))
+        return { status: 200, body: ok(readiness()) };
+      const roleId = (body as { roleId: string }).roleId;
+      return { status: 200, body: ok({ roleId, code: `FOR-${roleId}` }) };
+    });
+    render(
+      <Readiness
+        sessionId={SID}
+        fetch={f.fetch}
+        setTimer={fakeTimer().setTimer}
+      />,
+    );
+    await ready();
+    await reissueFlow("Reissue code for Account manager");
+    await screen.findByText("FOR-account_manager");
+    await reissueFlow("Reissue code for Delivery lead");
+    await screen.findByText("FOR-delivery_lead");
+    expect(document.body.textContent).not.toContain("FOR-account_manager");
+  });
+});
+
 describe("ConfirmDialog", () => {
   function Harness({ onConfirm = () => {} }: { onConfirm?: () => void }) {
     const [open, setOpen] = useState(false);

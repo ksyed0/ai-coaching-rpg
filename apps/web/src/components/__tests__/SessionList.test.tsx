@@ -154,4 +154,55 @@ describe("SessionList", () => {
     await screen.findByText(XSS);
     expect(container.querySelector("img")).toBeNull();
   });
+
+  it("a second restart that returns codes shows the latest codes, not the first", async () => {
+    const two = [
+      {
+        sessionId: "bbbbbbbb22222222",
+        scenarioId: "launch_day",
+        status: "stopped",
+      },
+      {
+        sessionId: "eeeeeeee55555555",
+        scenarioId: "launch_day",
+        status: "stopped",
+      },
+    ];
+    const f = fakeFetch((url) => {
+      if (url.includes("bbbbbbbb22222222/restart"))
+        return {
+          status: 200,
+          body: ok({
+            sessionId: "bbbbbbbb22222222",
+            launcherStatus: "running",
+            codes: [{ roleId: "account_manager", code: "FIRST-CODE" }],
+          }),
+        };
+      if (url.includes("eeeeeeee55555555/restart"))
+        return {
+          status: 200,
+          body: ok({
+            sessionId: "eeeeeeee55555555",
+            launcherStatus: "running",
+            codes: [{ roleId: "account_manager", code: "SECOND-CODE" }],
+          }),
+        };
+      return { status: 200, body: ok(two) };
+    });
+    render(<SessionList fetch={f.fetch} />);
+    await screen.findByText("bbbbbbbb");
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Restart session bbbbbbbb" }),
+      );
+    });
+    await screen.findByText("FIRST-CODE");
+    await act(async () => {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Restart session eeeeeeee" }),
+      );
+    });
+    await screen.findByText("SECOND-CODE");
+    expect(document.body.textContent).not.toContain("FIRST-CODE");
+  });
 });

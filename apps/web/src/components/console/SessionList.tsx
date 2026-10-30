@@ -29,9 +29,11 @@ export function SessionList({ fetch: fetchImpl }: SessionListProps) {
   const [restarting, setRestarting] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [shown, setShown] = useState<{
+    seq: number;
     sessionId: string;
     codes: CodeEntry[];
   } | null>(null);
+  const seq = useRef(0); // a new restart never reuses the panel that still holds older codes
   const busy = useRef(false);
 
   const load = useCallback(async () => {
@@ -66,7 +68,9 @@ export function SessionList({ fetch: fetchImpl }: SessionListProps) {
       typeof r.data === "object" && r.data !== null ? r.data : {}
     ) as Record<string, unknown>;
     const codes = parseCodes(d.codes);
-    setShown(codes.length > 0 ? { sessionId: id, codes } : null);
+    setShown(
+      codes.length > 0 ? { seq: ++seq.current, sessionId: id, codes } : null,
+    );
     await load();
   }
 
@@ -80,7 +84,7 @@ export function SessionList({ fetch: fetchImpl }: SessionListProps) {
       </div>
       {shown ? (
         <CodesPanel
-          key={shown.sessionId}
+          key={shown.seq}
           codes={shown.codes}
           heading={`New join codes for session ${shortId(shown.sessionId)}`}
           onDismiss={() => setShown(null)}
