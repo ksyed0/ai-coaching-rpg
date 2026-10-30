@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { readLogStatus } from "../log-tail.js";
+import { TAIL_BYTES, readLogStatus } from "../log-tail.js";
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -47,6 +47,31 @@ describe("readLogStatus", () => {
     const big = line({ type: "x", pad: "p".repeat(200_000) });
     expect(readLogStatus(file(line({ type: "session.ended" }) + big))).toBe("running");
     expect(readLogStatus(file(big + line({ type: "session.ended" })))).toBe("ended");
+  });
+  it("a huge last line with no trailing newline is running (an in-progress write), never a raw error", () => {
+    const ended = line({ type: "session.ended" });
+    expect(readLogStatus(file(ended + "x".repeat(100_000)))).toBe("running");
+    expect(readLogStatus(file(ended + '{"type":"x","pad":"' + "p".repeat(100_000)))).toBe("running");
+    expect(readLogStatus(file("x".repeat(100_000)))).toBe("running");
+  });
+  it("a file of exactly the window size, with and without a trailing newline", () => {
+    const body = (n: number): string => { const head = '{"type":"session.ended","pad":"'; return head + "p".repeat(n - head.length - 2) + '"}'; };
+    const exact = body(TAIL_BYTES - 1) + "\n";
+    expect(Buffer.byteLength(exact)).toBe(TAIL_BYTES);
+    expect(readLogStatus(file(exact))).toBe("ended");
+    const bare = body(TAIL_BYTES);
+    expect(Buffer.byteLength(bare)).toBe(TAIL_BYTES);
+    expect(readLogStatus(file(bare))).toBe("ended");
+    expect(readLogStatus(file("a\n" + exact))).toBe("ended"); // the window starts right after a newline: the whole line counts
+    expect(readLogStatus(file("a" + exact))).toBe("running"); // the line is one byte longer than the window
+  });
+  it("a window that starts mid-line and holds exactly one complete line", () => {
+    expect(readLogStatus(file(line({ type: "x", pad: "p".repeat(100_000) }) + line({ type: "session.ended" })))).toBe("ended");
+    expect(readLogStatus(file(line({ type: "session.ended", pad: "p".repeat(100_000) }) + line({ type: "turn" })))).toBe("running");
+  });
+  it("CRLF line endings", () => {
+    expect(readLogStatus(file('{"type":"session.started"}\r\n{"type":"session.ended"}\r\n'))).toBe("ended");
+    expect(readLogStatus(file('{"type":"session.ended"}\r\n{"type":"turn"}\r\n'))).toBe("running");
   });
   it("a file that cannot be read for another reason throws a plain error", () => {
     const f = file("x\n");

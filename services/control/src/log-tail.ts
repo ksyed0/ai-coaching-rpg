@@ -26,8 +26,9 @@ export function readLogStatus(file: string): "empty" | "running" | "ended" {
     const st = fstatSync(fd);
     if (!st.isFile()) throw new Error("not a file");
     if (st.size === 0) return "empty";
-    const len = Math.min(st.size, TAIL_BYTES);
+    // One extra byte when the front is cut off: if it is a newline, the line after it is complete and counts.
     truncatedFront = st.size > TAIL_BYTES;
+    const len = truncatedFront ? TAIL_BYTES + 1 : st.size;
     const buf = Buffer.alloc(len);
     let got = 0;
     while (got < len) {
@@ -41,7 +42,7 @@ export function readLogStatus(file: string): "empty" | "running" | "ended" {
 
   const lines = text.split("\n");
   if (truncatedFront) lines.shift(); // the first segment may start mid-line
-  const tail = lines.pop() as string; // text after the last newline ("" when the file ends with one)
+  const tail = lines.pop() ?? ""; // text after the last newline ("" when the file ends with one)
   const complete = lines.filter((l) => l.trim() !== "");
   if (tail.trim() !== "" && parsesAsObject(tail)) complete.push(tail);
   const last = complete[complete.length - 1];
