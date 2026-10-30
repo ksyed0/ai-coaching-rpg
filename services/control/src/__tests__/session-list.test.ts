@@ -1,8 +1,9 @@
-import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SessionList, type Entry } from "../session-list.js";
+import { dirMode, readOnce } from "./read-once.js";
 
 const dirs: string[] = [];
 afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
@@ -18,7 +19,7 @@ describe("SessionList", () => {
     const l = new SessionList(file);
     expect(l.read()).toEqual([]);
     l.upsert(e("a"));
-    expect(statSync(path.dirname(file)).mode & 0o777).toBe(0o700);
+    expect(dirMode(path.dirname(file))).toBe(0o700);
   });
 
   it("upserts by session id and removes", () => {
@@ -42,14 +43,15 @@ describe("SessionList", () => {
     const file = path.join(d, "sessions.json");
     const l = new SessionList(file);
     l.upsert(e("a"));
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    const ino1 = statSync(file).ino;
+    const first = readOnce(file);
+    expect(first.mode).toBe(0o600);
     l.upsert(e("b"));
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(statSync(file).ino).not.toBe(ino1); // a new file was renamed over the old one
+    const second = readOnce(file);
+    expect(second.mode).toBe(0o600);
+    expect(second.ino).not.toBe(first.ino); // a new file was renamed over the old one
     expect(readdirSync(d)).toEqual(["sessions.json"]); // no temp file left behind
     // a reader never sees a partial file: the content is always complete JSON
-    expect(JSON.parse(readFileSync(file, "utf8"))).toHaveLength(2);
+    expect(JSON.parse(second.text)).toHaveLength(2);
   });
 
   it("a failed write leaves the old file intact and no temp file", () => {
@@ -146,7 +148,7 @@ describe("SessionList", () => {
     writeFileSync(path.join(d, ".sessions.json.tmp-1"), "junk");
     const l = new SessionList(file);
     l.upsert(e("a"));
-    expect(existsSync(file)).toBe(true);
+    expect(JSON.parse(readOnce(file).text)).toEqual([e("a")]);
     expect(l.read()).toEqual([e("a")]);
   });
 
@@ -157,6 +159,6 @@ describe("SessionList", () => {
     l.upsert(e("a"));
     chmodSync(file, 0o644);
     l.upsert(e("b"));
-    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(readOnce(file).mode).toBe(0o600);
   });
 });

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -68,9 +68,13 @@ export async function bootstrap(opts: {
   const skipDotenv = managed || opts.env.NO_DOTENV === "1";
   const envFile = path.join(root, ".env");
   let fileEnv: NodeJS.ProcessEnv = {};
-  if (!skipDotenv && existsSync(envFile)) {
+  if (!skipDotenv) {
+    // One read; a missing .env is no error (never exists-then-read: L-0003).
     try { fileEnv = parseEnv(readFileSync(envFile, "utf8")); }
-    catch (err) { return { ok: false, errors: [`cannot read ${envFile}: ${(err as NodeJS.ErrnoException).code ?? "unreadable"}`] }; }
+    catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") return { ok: false, errors: [`cannot read ${envFile}: ${code ?? "unreadable"}`] };
+    }
   }
   const env: NodeJS.ProcessEnv = { ...fileEnv, ...opts.env };
   // An EMPTY real FACILITATOR_TOKEN (for example `FACILITATOR_TOKEN=` exported by a wrapper) is "unset", so it cannot silently

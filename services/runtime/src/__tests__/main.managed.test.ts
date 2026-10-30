@@ -24,7 +24,8 @@ async function boot(extra: Record<string, string>, o: { logDir?: string } = {}) 
   if (r.ok) runtimes.push(r.runtime);
   return { r, logs, shown };
 }
-const files = async (d: string) => (existsSync(d) ? (await readdir(d)).sort() : []);
+/** The names in `d`, sorted; a missing directory reads as empty (one readdir, no exists-then-read). */
+const files = (d: string) => readdir(d).then((n) => n.sort(), (err: NodeJS.ErrnoException) => { if (err.code === "ENOENT") return []; throw err; });
 
 describe("bootstrap managed mode (US-0058)", () => {
   it("bootstrap with CONTROL_MANAGED=1 ignores a <root>/.env that sets SESSION_START=fresh and FACILITATOR_TOKEN", async () => {

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runtimeCommand } from "../runtime-command.js";
 import { forkSpawn } from "../spawn.js";
 import type { ChildHandle } from "../supervisor.js";
+import { dirMode, readOnce } from "./read-once.js";
 
 const fixture = fileURLToPath(new URL("./fixtures/spawn-child.ts", import.meta.url));
 const command = { ...runtimeCommand(), entry: fixture };
@@ -134,8 +135,8 @@ describe("forkSpawn", () => {
     const s = start({}, command, logFile);
     await until("up", () => s.messages.length > 0);
     await until("log line", () => readFileSync(logFile, "utf8").includes("child-log-line"));
-    expect(statSync(logFile).mode & 0o777).toBe(0o600);
-    expect(statSync(path.dirname(logFile)).mode & 0o777).toBe(0o700);
+    expect(readOnce(logFile).mode).toBe(0o600);
+    expect(dirMode(path.dirname(logFile))).toBe(0o700);
     s.child.disconnect();
     await until("exit", () => s.exit.count > 0);
     // a second start appends rather than truncating
@@ -143,7 +144,7 @@ describe("forkSpawn", () => {
     await until("up", () => again.messages.length > 0);
     again.child.disconnect();
     await until("exit", () => again.exit.count > 0);
-    expect(readFileSync(logFile, "utf8").split("child-log-line").length - 1).toBe(2);
+    expect(readOnce(logFile).text.split("child-log-line").length - 1).toBe(2);
   });
 
   it("an existing log file with a loose mode is tightened to 0600", async () => {
@@ -153,7 +154,7 @@ describe("forkSpawn", () => {
     writeFileSync(logFile, "old\n", { mode: 0o644 });
     const s = start({}, command, logFile);
     await until("up", () => s.messages.length > 0);
-    expect(statSync(logFile).mode & 0o777).toBe(0o600);
+    expect(readOnce(logFile).mode).toBe(0o600);
     s.child.disconnect();
     await until("exit", () => s.exit.count > 0);
   });

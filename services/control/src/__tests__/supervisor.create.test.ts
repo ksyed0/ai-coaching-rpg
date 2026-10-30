@@ -1,9 +1,10 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ControlConfig } from "../config.js";
 import { CODES, FakeChild, READY, flush, sid } from "./fake-child.js";
+import { dirMode } from "./read-once.js";
 import { SessionList } from "../session-list.js";
 import { ControlError, Supervisor, type SetTimer, type SpawnFn } from "../supervisor.js";
 
@@ -59,7 +60,7 @@ describe("Supervisor.create", () => {
     expect(sup.list()).toHaveLength(1);
     expect(sup.get(sid(99))).toBeUndefined();
     expect(timers.every((t) => t.cancelled)).toBe(true);
-    expect((statSync(config.logDir).mode & 0o777).toString(8)).toBe("700");
+    expect(dirMode(config.logDir).toString(8)).toBe("700");
   });
 
   it("a scenarioId outside the allowlist is refused before any spawn", async () => {
@@ -70,7 +71,7 @@ describe("Supervisor.create", () => {
     await expect(sup.create(undefined as unknown as string)).rejects.toBeInstanceOf(ControlError);
     expect(children).toHaveLength(0);
     expect(readdirSync(config.sessionsDir)).toEqual([]);
-    expect(() => statSync(config.logDir)).toThrow();
+    expect(() => dirMode(config.logDir)).toThrow(/ENOENT/);
   });
 
   it("two concurrent creates at MAX_SESSIONS - 1 produce one session, not two", async () => {
@@ -221,7 +222,7 @@ describe("Supervisor.create", () => {
     const c = children[0]!;
     await finish(c);
     await p;
-    expect((statSync(config.logDir).mode & 0o777).toString(8)).toBe("700");
+    expect(dirMode(config.logDir).toString(8)).toBe("700");
     expect(readFileSync(config.listFile, "utf8")).not.toContain(c.env.FACILITATOR_TOKEN!);
     expect(logs.join("\n")).not.toContain(c.env.FACILITATOR_TOKEN!);
     // the 0600 mode of the log FILE belongs to the real spawn and is asserted in the Task 12 test

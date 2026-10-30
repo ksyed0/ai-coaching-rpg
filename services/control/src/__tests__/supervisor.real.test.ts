@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
@@ -9,6 +9,7 @@ import { listScenarios } from "../scenarios.js";
 import { SessionList } from "../session-list.js";
 import { forkSpawn } from "../spawn.js";
 import { ControlError, Supervisor } from "../supervisor.js";
+import { dirMode, readOnce } from "./read-once.js";
 
 /**
  * REAL runtime children (services/runtime, mock provider), a temp CONTROL_DATA_DIR so nothing is written under the repository, and the
@@ -98,9 +99,10 @@ describe("Supervisor with real runtime children", () => {
     const sup = makeSupervisor();
     const r = await sup.create(SCENARIO);
     const logFile = path.join(config.logDir, `${r.sessionId}.log`);
-    expect(statSync(logFile).mode & 0o777).toBe(0o600);
-    expect(statSync(config.logDir).mode & 0o777).toBe(0o700);
-    const text = readFileSync(logFile, "utf8");
+    const log = readOnce(logFile);
+    expect(log.mode).toBe(0o600);
+    expect(dirMode(config.logDir)).toBe(0o700);
+    const text = log.text;
     for (const c of r.codes) expect(text).not.toContain(c.code);
     expect(text).not.toContain(sup.facilitator(r.sessionId)!.token);
   });
