@@ -1181,8 +1181,8 @@ Steps:
   1. Start the runtime in managed mode, restart it on the same empty log.
   2. Start it on an ended log.
 Expected Result: The codes, seats and consent survive the restart; the ended log is refused with a clear error and is not rotated aside.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected (services/runtime session-store.managed.test.ts "managed: a restart on an empty log keeps the issued codes, the credentials and the consent" and "an ended log is refused and the log file is not renamed"; main.managed.test.ts; node:22 as root and node).
+Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
 
@@ -1197,8 +1197,8 @@ Steps:
   2. Make the codes send throw or return false.
   3. End the session.
 Expected Result: A codes message arrives only when the start issued codes, then ready with port, logIdentity, status and modelLabel, then ended when the session ends; a failed codes send aborts the start and withdraws the codes.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected (services/runtime main.parent.test.ts: codes then ready, codes only when issued, a failed codes send aborts the start and removes .codes.json, ended once; main.parent.process.test.ts over a real fork(); node:22 as root and node).
+Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
 
@@ -1212,8 +1212,8 @@ Steps:
   1. Disconnect the IPC channel from the parent.
   2. Check the child exit and the lock.
 Expected Result: The runtime stops and exits and the session lock is released.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected (main.parent.test.ts "on disconnect stops the runtime then exits 0, once" and the hard-exit backstop; main.parent.process.test.ts and services/control supervisor.real.test.ts "the child exits when the service disconnects"; node:22 as root and node).
+Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
 
@@ -1225,9 +1225,9 @@ Type: Functional
 Preconditions: A lobby with a joined role.
 Steps:
   1. Send reissue for the role and record the order of effects.
-Expected Result: The order is revoke and persist, kick the socket, build a new code, swap the codes, broadcast the roster, then the reply with the new code.
-Actual Result:
-Status: [ ] Not Run
+Expected Result: The order is write the new codes file, revoke and persist the seat, kick the socket, swap the codes, broadcast the roster, then the reply with the new code; a failed codes write changes nothing.
+Actual Result: As expected, in the implemented order write the new codes file, revoke and persist, kick, swap, roster (host/__tests__/reissue.test.ts "reissue order" and the failed-write cases; ws-server.handle.test.ts; main.reissue.test.ts; node:22 as root and node).
+Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
 
@@ -1241,8 +1241,8 @@ Steps:
   1. Reissue a role before the start.
   2. Reissue a role after the start and join with the new code.
 Expected Result: Before the start the seat's consent is cleared; after the start it is rebound to the next joiner, recorded with the facilitator name and shown as a facilitator-only alert.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected (reissue.test.ts "reissue before the start clears consent", "host.join after a post-start reissue admits the new participant ... and appends the alert", "the facilitator name appears in a facilitator-only alert and in no player view"; reissue.restart.test.ts; consent.rebind.test.ts; Web E2E console-flow.spec.ts "reissue after the start rebinds consent").
+Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
 
@@ -1258,8 +1258,8 @@ Steps:
   3. Create sessions up to MAX_SESSIONS.
   4. Restart the service.
 Expected Result: A crashed child is stopped and is restarted only by hand; ended is persisted at once and frees the slot; each session writes its own child log; non-ended sessions resume paused with fresh tokens.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected (services/control supervisor.lifecycle.test.ts: unexpected exit is stopped and not restarted, ended persisted at once and frees the slot, resumeAll paused with fresh tokens; supervisor.create.test.ts MAX_SESSIONS and child log; supervisor.real.test.ts SIGKILL and restart; node:22 as root and node).
+Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
 
@@ -1272,8 +1272,8 @@ Preconditions: A control service starting a child.
 Steps:
   1. Inspect the environment passed to fork().
 Expected Result: Only allowlisted variables reach the child, GM_TRACE_FILE is never set, and FACILITATOR_TOKEN is 64 hex characters, fresh per start.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected (services/control child-env.test.ts: no variable outside the allowlist, no GM_TRACE_FILE, token 64 hex and different per start, SESSION_DATA_DIR absolute; supervisor.create.test.ts default generator).
+Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
 
@@ -1288,8 +1288,8 @@ Steps:
   2. Rotate FACILITATOR_SECRET.
   3. Post login with a foreign Origin.
 Expected Result: Each route family accepts only its own purpose; a rotated secret signs the cookie out; a foreign Origin is refused.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected (apps/web console-handlers.test.ts login Origin, throttle, neutral refusal, secret-epoch cookie; seal.purpose.test.ts both directions; Web E2E console-flow.spec.ts "a player cookie on /api/v1/console/sessions returns 401 and a facilitator cookie on /api/v1/say returns 401").
+Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
 
@@ -1304,8 +1304,8 @@ Steps:
   2. Present a refused facilitator token.
   3. Inspect the headers on a facilitator socket.
 Expected Result: Mode follows LAUNCHER_URL, else RUNTIME_URL; the port and token are fetched together; a refused token fetches a fresh pair once and is not retried blindly; no X-Forwarded-For is sent.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected (apps/web runtime-lookup.test.ts both modes; facilitator-socket.test.ts port and token together, one fresh pair after a refused token, no X-Forwarded-For; facilitator-throttle.runtime.test.ts against the real runtime).
+Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
 
@@ -1321,7 +1321,7 @@ Steps:
   3. Join the players and consent.
   4. Press Start.
 Expected Result: The session starts from the browser and the opening scene reaches every player.
-Actual Result:
-Status: [ ] Not Run
+Actual Result: As expected (Web E2E apps/web/e2e/console-flow.spec.ts, launcher mode: sign in, create, three players join with the shown codes and consent, readiness, Start; 12/12 and 36/36 with --repeat-each 3 in Task 16; full web suite 17/17; pnpm demo --web 8/8).
+Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
