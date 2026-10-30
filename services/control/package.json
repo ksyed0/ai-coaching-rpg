@@ -9,6 +9,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@acr/events": "workspace:*",
+    "@acr/script": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "22.20.5",
     "tsx": "4.23.15",

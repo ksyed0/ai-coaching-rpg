@@ -130,6 +130,13 @@ importers:
         version: 4.6.7
 
   services/control:
+    dependencies:
+      '@acr/events':
+        specifier: workspace:*
+        version: link:../../packages/events
+      '@acr/script':
+        specifier: workspace:*
+        version: link:../../packages/script
     devDependencies:
       '@types/node':
         specifier: 22.20.5

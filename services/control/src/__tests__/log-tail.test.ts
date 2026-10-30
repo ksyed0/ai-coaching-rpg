@@ -1,0 +1,62 @@
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { readLogStatus } from "../log-tail.js";
+
+const dirs: string[] = [];
+afterEach(() => { for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true }); });
+const file = (content?: string): string => {
+  const d = mkdtempSync(path.join(tmpdir(), "acr-ctl-log-")); dirs.push(d);
+  const f = path.join(d, "events.jsonl");
+  if (content !== undefined) writeFileSync(f, content);
+  return f;
+};
+const line = (o: unknown): string => `${JSON.stringify(o)}\n`;
+
+describe("readLogStatus", () => {
+  it("empty for a missing or empty file", () => {
+    expect(readLogStatus(file())).toBe("empty");
+    expect(readLogStatus(file(""))).toBe("empty");
+  });
+  it("empty when there is no complete line yet", () => {
+    expect(readLogStatus(file('{"type":"session.sta'))).toBe("empty");
+  });
+  it("running after a normal line", () => {
+    expect(readLogStatus(file(line({ type: "session.started" })))).toBe("running");
+  });
+  it("ended after a session.ended last line", () => {
+    expect(readLogStatus(file(line({ type: "session.started" }) + line({ type: "session.ended" })))).toBe("ended");
+  });
+  it("running after a cut-off tail following a normal line", () => {
+    expect(readLogStatus(file(line({ type: "session.started" }) + '{"type":"session.en'))).toBe("running");
+  });
+  it("a cut-off tail does not hide an earlier session.ended (the last COMPLETE line decides)", () => {
+    expect(readLogStatus(file(line({ type: "session.ended" }) + '{"type":"turn.'))).toBe("ended");
+  });
+  it("a final line without a newline that parses counts", () => {
+    expect(readLogStatus(file(line({ type: "a" }) + JSON.stringify({ type: "session.ended" })))).toBe("ended");
+  });
+  it("blank trailing lines are ignored", () => {
+    expect(readLogStatus(file(line({ type: "session.ended" }) + "\n\n"))).toBe("ended");
+  });
+  it("an unparseable complete last line is running, not ended or empty", () => {
+    expect(readLogStatus(file(line({ type: "session.ended" }) + "garbage\n"))).toBe("running");
+  });
+  it("reads only the tail: a huge file with a normal tail is running; a last line over the window is running", () => {
+    const big = line({ type: "x", pad: "p".repeat(200_000) });
+    expect(readLogStatus(file(line({ type: "session.ended" }) + big))).toBe("running");
+    expect(readLogStatus(file(big + line({ type: "session.ended" })))).toBe("ended");
+  });
+  it("a file that cannot be read for another reason throws a plain error", () => {
+    const f = file("x\n");
+    const dir = path.dirname(f);
+    mkdirSync(path.join(dir, "d"));
+    expect(() => readLogStatus(path.join(dir, "d"))).toThrow(/session log cannot be read/);
+    if ((process.getuid?.() ?? 0) !== 0) {
+      chmodSync(f, 0o000);
+      expect(() => readLogStatus(f)).toThrow(/session log cannot be read/);
+      chmodSync(f, 0o600);
+    }
+  });
+});
