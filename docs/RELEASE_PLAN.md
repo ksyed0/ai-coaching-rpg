@@ -1665,7 +1665,7 @@ Dependencies: US-0056
 Acceptance Criteria:
   - [ ] AC-0300: POST /api/v1/console/login compares the secret in constant time against FACILITATOR_SECRET, is throttled, and sets a separate sealed cookie
   - [ ] AC-0301: the console is disabled with a loud message when FACILITATOR_SECRET is unset
-  - [ ] AC-0302: the BFF, never the browser, holds runtime facilitator tokens, fetched from the control service over loopback
+  - [ ] AC-0302: the BFF, never the browser, holds runtime facilitator tokens, fetched together with the runtime port from the control service over loopback, never retried blindly, and sent without X-Forwarded-For on facilitator sockets
   - [ ] AC-0303: console routes send noindex and the facilitator cookie is never accepted on participant routes or the reverse
 ```
 
@@ -1675,7 +1675,7 @@ Type: Dev
 Assignee: Agent
 Status: To Do
 Branch: feature/EPIC-0002-US-0057-facilitator-login
-Notes: Spec section 6. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Spec docs/superpowers/specs/2026-10-30-web-client-slice-2b-design.md section 6 (purpose-bound cookie `__Host-scenecoach-fac`, secret epoch, login Origin check, throttle, noindex) and plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md. Parent spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```
@@ -1687,11 +1687,21 @@ Branch: feature/EPIC-0002-US-0058-launcher-control-service
 Dependencies: US-0057
 Acceptance Criteria:
   - [ ] AC-0304: the control service creates one runtime per session for an allowlisted scenarioId, up to MAX_SESSIONS, callable only by the BFF over loopback with a service token
-  - [ ] AC-0305: every lifecycle and security variable is set explicitly, RUNTIME_HOST is 127.0.0.1, RUNTIME_PORT is 0, and NO_DOTENV=1 stops the runtime reading <root>/.env
-  - [ ] AC-0306: on every start the runtime emits one JSON line on a dedicated file descriptor with port, log identity and status, and with codes only when issued
-  - [ ] AC-0307: the runtime exits when its parent pipe closes; after a launcher restart sessions in its list resume paused with fresh tokens and an ended session is never relaunched
-  - [ ] AC-0308: per-role and whole-session code reissue return the new codes once and revoke the old credentials (this also carries the per-role reissue clause moved from AC-0273: it is the way back for a web player who lost their cookie)
-  - [ ] AC-0309: facilitator tokens are never written to disk, and the control service owns the data directory for web operations
+  - [ ] AC-0305: the control service starts each runtime with fork() and an allowlisted environment; RUNTIME_HOST is 127.0.0.1, RUNTIME_PORT is 0, and managed mode (which implies NO_DOTENV=1) stops the runtime reading <root>/.env, keeps the lobby codes, seats and consent on an empty log and refuses an ended log
+  - [ ] AC-0306: over the fork() IPC channel the runtime sends a codes message only when the start issued codes, then a ready message with port, log identity, status and modelLabel, and an ended message when the session ends
+  - [ ] AC-0307: the runtime stops and exits when the IPC channel disconnects; after a control service restart sessions in its list resume paused with fresh tokens and an ended session is never relaunched
+  - [ ] AC-0308: per-role reissue is a parent-only IPC call with a fixed order (revoke, kick, new code, swap, roster) that returns the new code once, and after the start it rebinds consent; Remove always reissues (this also carries the per-role reissue clause moved from AC-0273: it is the way back for a web player who lost their cookie)
+  - [ ] AC-0309: facilitator tokens are never written to disk (32 random bytes as hex, in memory only), and the control service owns the data directory for web operations, set explicitly with SESSION_DATA_DIR
+  - [ ] AC-0341: managed mode keeps the lobby codes, seats and consent on an empty log and refuses an ended log without rotating it
+  - [ ] AC-0342: the codes, ready and ended messages are sent as specified, and a failed codes send aborts the start and withdraws the codes
+  - [ ] AC-0343: a parent disconnect stops the runtime and releases the session lock
+  - [ ] AC-0344: per-role reissue runs in the order revoke, kick, new code, swap, roster
+  - [ ] AC-0345: a reissue after the start rebinds the seat's consent to the next joiner and records it with the facilitator name; a reissue before the start clears the consent
+  - [ ] AC-0346: the control service restarts manually only, a crashed child is stopped, ended is persisted at once and frees the MAX_SESSIONS slot, and each session has its own child log
+  - [ ] AC-0347: the child environment is an allowlist and the facilitator token is 64 hex characters, fresh per start
+  - [ ] AC-0348: the facilitator cookie is purpose-bound and carries a secret epoch, and login checks Origin
+  - [ ] AC-0349: runtime lookup is dual-mode (LAUNCHER_URL set, else RUNTIME_URL), the port and token are fetched together, a refused token is not retried blindly, and no X-Forwarded-For is sent on facilitator sockets
+  - [ ] AC-0350: a launcher-mode Web E2E signs in, creates a session, joins players and presses Start
 ```
 
 ```
@@ -1700,7 +1710,7 @@ Type: Dev
 Assignee: Agent
 Status: To Do
 Branch: feature/EPIC-0002-US-0058-launcher-control-service
-Notes: Spec section 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Spec docs/superpowers/specs/2026-10-30-web-client-slice-2b-design.md sections 5 and 5.1 to 5.5 (fork() IPC, managed mode, reissue, control service API, lifecycle) and plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md. Parent spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```
@@ -1711,7 +1721,7 @@ Status: Planned
 Branch: feature/EPIC-0002-US-0059-live-console
 Dependencies: US-0058
 Acceptance Criteria:
-  - [ ] AC-0310: the New session and readiness screens show who has joined and consented, the model status and the codes once, and Start stays disabled until the start gate is met
+  - [ ] AC-0310: the New session and readiness screens show who has joined and consented, the model status (from modelLabel) and the codes once, and Start stays disabled until the start gate is met (built in slice 2b-1 under TASK-0094)
   - [ ] AC-0311: the live console shows scene status, timers, the transcript with Game Master notices and alerts, and talk time, and offers pause, resume, advance and end now
   - [ ] AC-0312: inject, whisper, release hidden fact (including one click on a Game Master suggestion) and NPC stance work and are logged with the facilitator name
   - [ ] AC-0313: end_now appends session.ended with reason facilitator_end and an optional participant-visible message, stops the scene clock and the Game Master, and is handled by the engine, fold, view policy and docs
@@ -1727,6 +1737,15 @@ Assignee: Agent
 Status: To Do
 Branch: feature/EPIC-0002-US-0059-live-console
 Notes: Spec sections 5.6 and 5.7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+TASK-0094 (US-0059): Readiness page and Start (slice 2b-1)
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0059-readiness
+Notes: Delivers AC-0310 only; the rest of US-0059 stays on feature/EPIC-0002-US-0059-live-console in slice 2b-2. Spec docs/superpowers/specs/2026-10-30-web-client-slice-2b-design.md section 6.1 and plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
 ```
 
 ```

@@ -1170,3 +1170,158 @@ Actual Result:
 Status: [ ] Not Run
 Defect Raised: None
 Notes: Not run in slice 2a: the build environment had the docker CLI but no daemon. CI's Ubuntu jobs will be the first Linux run of these files; stacked pull requests get no CI until they are retargeted to `develop`. Update 2026-10-28: the stack is retargeted to `develop` and CI runs; the owner offered a local OrbStack Docker instance for this container run, which needs a Remote Control connection to that machine.
+
+TC-0077: Managed mode keeps lobby state and refuses an ended log
+Related Story: US-0058
+Related Task: TASK-0087
+Related AC: AC-0341
+Type: Functional
+Preconditions: A runtime child started in managed mode with a lobby (codes, seats, consent) on an empty log; a second session log that has ended.
+Steps:
+  1. Start the runtime in managed mode, restart it on the same empty log.
+  2. Start it on an ended log.
+Expected Result: The codes, seats and consent survive the restart; the ended log is refused with a clear error and is not rotated aside.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
+
+TC-0078: Codes, ready and ended messages; failed codes send aborts the start
+Related Story: US-0058
+Related Task: TASK-0087
+Related AC: AC-0342
+Type: Functional
+Preconditions: A forked runtime with an IPC channel.
+Steps:
+  1. Start with a fresh log and collect the IPC messages.
+  2. Make the codes send throw or return false.
+  3. End the session.
+Expected Result: A codes message arrives only when the start issued codes, then ready with port, logIdentity, status and modelLabel, then ended when the session ends; a failed codes send aborts the start and withdraws the codes.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
+
+TC-0079: Parent disconnect stops the runtime
+Related Story: US-0058
+Related Task: TASK-0087
+Related AC: AC-0343
+Type: Functional
+Preconditions: A forked runtime holding a session lock.
+Steps:
+  1. Disconnect the IPC channel from the parent.
+  2. Check the child exit and the lock.
+Expected Result: The runtime stops and exits and the session lock is released.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
+
+TC-0080: Per-role reissue order
+Related Story: US-0058
+Related Task: TASK-0087
+Related AC: AC-0344
+Type: Functional
+Preconditions: A lobby with a joined role.
+Steps:
+  1. Send reissue for the role and record the order of effects.
+Expected Result: The order is revoke and persist, kick the socket, build a new code, swap the codes, broadcast the roster, then the reply with the new code.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
+
+TC-0081: Reissue rebinds or clears consent
+Related Story: US-0058
+Related Task: TASK-0087
+Related AC: AC-0345
+Type: Functional
+Preconditions: One session before the start and one after the start, each with a consented seat.
+Steps:
+  1. Reissue a role before the start.
+  2. Reissue a role after the start and join with the new code.
+Expected Result: Before the start the seat's consent is cleared; after the start it is rebound to the next joiner, recorded with the facilitator name and shown as a facilitator-only alert.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
+
+TC-0082: Control service lifecycle
+Related Story: US-0058
+Related Task: TASK-0087
+Related AC: AC-0346
+Type: Functional
+Preconditions: A control service with two sessions.
+Steps:
+  1. Kill a child with SIGKILL.
+  2. Send the ended message.
+  3. Create sessions up to MAX_SESSIONS.
+  4. Restart the service.
+Expected Result: A crashed child is stopped and is restarted only by hand; ended is persisted at once and frees the slot; each session writes its own child log; non-ended sessions resume paused with fresh tokens.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
+
+TC-0083: Child environment allowlist and token
+Related Story: US-0058
+Related Task: TASK-0087
+Related AC: AC-0347
+Type: Security
+Preconditions: A control service starting a child.
+Steps:
+  1. Inspect the environment passed to fork().
+Expected Result: Only allowlisted variables reach the child, GM_TRACE_FILE is never set, and FACILITATOR_TOKEN is 64 hex characters, fresh per start.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
+
+TC-0084: Purpose-bound cookie, secret epoch, login Origin check
+Related Story: US-0058
+Related Task: TASK-0087
+Related AC: AC-0348
+Type: Security
+Preconditions: The BFF with FACILITATOR_SECRET set.
+Steps:
+  1. Use the facilitator cookie on a participant route and the reverse.
+  2. Rotate FACILITATOR_SECRET.
+  3. Post login with a foreign Origin.
+Expected Result: Each route family accepts only its own purpose; a rotated secret signs the cookie out; a foreign Origin is refused.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
+
+TC-0085: Dual-mode lookup and facilitator sockets
+Related Story: US-0058
+Related Task: TASK-0087
+Related AC: AC-0349
+Type: Functional
+Preconditions: The BFF with LAUNCHER_URL set and unset.
+Steps:
+  1. Look up a runtime in each mode.
+  2. Present a refused facilitator token.
+  3. Inspect the headers on a facilitator socket.
+Expected Result: Mode follows LAUNCHER_URL, else RUNTIME_URL; the port and token are fetched together; a refused token fetches a fresh pair once and is not retried blindly; no X-Forwarded-For is sent.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
+
+TC-0086: Launcher-mode Web E2E through Start
+Related Story: US-0058
+Related Task: TASK-0087
+Related AC: AC-0350
+Type: E2E
+Preconditions: The control service, a runtime and the web app running in launcher mode.
+Steps:
+  1. Sign in as a facilitator.
+  2. Create a session and note the codes.
+  3. Join the players and consent.
+  4. Press Start.
+Expected Result: The session starts from the browser and the opening scene reaches every player.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
