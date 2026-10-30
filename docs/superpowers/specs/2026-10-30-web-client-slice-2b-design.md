@@ -104,7 +104,8 @@ Loopback only, service token header, callable only by the BFF. Bodies are valida
 | Route | Behaviour |
 |---|---|
 | `POST /sessions { scenarioId }` | `scenarioId` must be in an allowlist built from the scenarios folder and pass the existing loader. Capped by `MAX_SESSIONS` (default 10, live sessions only). Generates an unguessable session id that satisfies `isValidSessionId`. Returns `{ sessionId, status, port, modelLabel, codes }` once |
-| `GET /sessions`, `GET /sessions/:id` | `{ sessionId, scenarioId, status, port }`; status is `running`, `stopped` or `ended` |
+| `GET /scenarios` | `[{ id, title }]` from the allowlist, for the New session screen |
+| `GET /sessions`, `GET /sessions/:id` | `{ sessionId, scenarioId, status, port, modelLabel }`; status is `running`, `stopped` or `ended` |
 | `GET /sessions/:id/facilitator` | `{ port, token }` together, for the BFF only |
 | `POST /sessions/:id/codes/reissue { roleId }` | Per role through the IPC call above; returns the new code once |
 | `POST /sessions/:id/restart` | Resume a `stopped` session from its log, paused, with a fresh token. Refused for `ended` |
