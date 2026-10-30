@@ -137,6 +137,9 @@ importers:
       '@acr/script':
         specifier: workspace:*
         version: link:../../packages/script
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
     devDependencies:
       '@types/node':
         specifier: 22.20.5
