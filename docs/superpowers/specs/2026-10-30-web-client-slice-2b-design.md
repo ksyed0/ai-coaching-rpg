@@ -24,7 +24,7 @@ Out of scope: accounts, SSO and email (EPIC-0008), reports in the browser (slice
 | Finding a runtime | **Dual mode.** `LAUNCHER_URL` set: the BFF asks the control service which runtime serves a session id. Unset: today's single `RUNTIME_URL` behaviour, unchanged (used by 2a, `pnpm demo --web`, the terminal facilitator and the existing E2E specs). The console exists only in launcher mode |
 | Facilitator name | Typed at login with the secret, sealed in the console cookie, recorded as an attested label on logged interventions (not proof of identity) |
 | Process model | A separate control service, **one runtime process per session** |
-| AI player turn-taking | **Reactive** policy (section 8) |
+| AI player turn-taking | **Reactive** policy, plus a facilitator **Prompt AI player** action that makes the bot respond now (section 8.3) |
 | Remove a participant | One console action, **Remove**, always reissues that seat's code (two runtime primitives underneath) |
 
 ## 3. Slices and order
@@ -151,6 +151,17 @@ The existing `PlayerBotGenerator.speak()` rewrites a scripted line slot: the scr
 
 The bot speaks when an NPC addresses its role or the previous speaker finishes, or after a quiet-time nudge. It respects a minimum gap between its lines and a per-scene line cap. The intent comes from the role's brief and the scene goal. A model failure, timeout or empty reply **skips the turn and raises a facilitator alert** ("AI player <role> could not speak"); it never speaks a canned line. Every model call has a hard timeout and its own error handling, because bots run inside the control service for the local stage (moving them to child processes later is a small change behind the shared module).
 
+### 8.3a Facilitator prompt
+
+The live view offers **Prompt AI player** on each AI-filled role. It makes that bot respond now, without waiting for the policy.
+
+- **Behaviour.** The prompt skips the quiet-time nudge and the minimum gap, and does not count against the per-scene line cap (the facilitator asked for the line). It still uses the same model call, the same cleaning and the same hard timeout, and the result is an ordinary utterance labelled AI.
+- **Optional hint.** The facilitator may add a short steer, at most 300 characters, for example "push back on the deadline". The hint is added to that turn's private intent only. It is untrusted text: it is cleaned like other input, never shown to participants, and appears in the facilitator-only intent log.
+- **Audit.** A new facilitator command `prompt_ai { roleId, hint? }` is accepted by the runtime and logged as a facilitator-only `facilitator.command` carrying `by`. It changes no session state. The runtime refuses it unless the role is AI-filled and the session is running (not paused, not ended, not before the start).
+- **Order.** The BFF sends the runtime command first and, only when that succeeds, asks the control service to trigger the bot (`POST /sessions/:id/ai-roles/:roleId/prompt`). If logging fails, nothing runs. If the trigger fails after logging, the facilitator sees an alert and may retry.
+- **Limits.** At most one prompt or policy turn is in flight per bot; a prompt during an in-flight turn is refused with a plain message. The control service also applies a short per-bot debounce so a double click cannot produce two lines.
+- **Failure.** As for the policy: the turn is skipped and a facilitator alert is raised; no canned line is spoken.
+
 ### 8.4 Mechanism and marking
 
 - The control service starts a bot per AI-filled role, connected as an ordinary player with its own credential. The bot sees only that role's player view.
@@ -186,6 +197,7 @@ Threat-model additions (to `docs/THREAT_MODEL.md`): the control service as a tru
 - Unit and contract tests for each unit above, with the mock provider so everything runs offline and deterministically. Coverage stays at or above the repository thresholds.
 - Runtime changes (`main.ts`, IPC, reissue, `end_now`, `remove_participant`) are written test first and run through the node:22 container recipe, as root and as `node`.
 - The Web E2E job gains a launcher-mode run covering login, create, join, consent, start, intervene, remove, end, and an AI seat. `pnpm demo --web` gains console checks.
+- Explicit tests for the prompt action: logged before the bot runs; refused for a human role, a paused, ended or not-yet-started session; hint length and cleaning; one turn in flight; the hint never reaches a participant stream.
 - Explicit tests: the evaluator on a log that ended early with `facilitator_end`; both group-score settings; cookie separation in both directions; the extended leak scan; the IPC reissue revoking the old credential.
 - The plan begins with a short spike confirming that `fork()` works under `tsx` in this repository.
 - `docs/ROLLBACK.md` gains a note for the new optional event fields (`by`, `message`, `aiRoles`, the scoring option). The plan decides whether they require log format 3, as 2a's changes required format 2.
@@ -205,6 +217,7 @@ To be applied when the plan files the acceptance criteria (new ids come from `do
 | AC-0312 | The name is the login-typed label carried as `by` |
 | AC-0319 | Add the new `TurnPolicy` as its own criterion; the bot module is more than a move |
 | New | Manual restart only; ended sessions stop and free their slot; per-session child log files; a bot failure skips the turn and alerts |
+| New | Facilitator **Prompt AI player** with an optional hint, logged as `prompt_ai` (section 8.3a); it is a 2b-3 criterion with tests for refusal when paused, ended, not started or not an AI role |
 
 ## 13. Open items for the plan
 
