@@ -54,9 +54,14 @@ export async function bootstrap(opts: {
   }
   const root = opts.root ?? REPO_ROOT;
   // <root>/.env is optional; real environment variables win over it. Values are never logged.
+  // US-0058: the control service forks this process with CONTROL_MANAGED=1 (which implies NO_DOTENV=1; NO_DOTENV=1 alone also works):
+  // the file is then not read at all, so a stray .env can neither set SESSION_START=fresh nor supply a FACILITATOR_TOKEN.
+  // Both flags are read from the REAL environment only (opts.env): a .env cannot switch managed mode on or off.
+  const managed = opts.env.CONTROL_MANAGED === "1";
+  const skipDotenv = managed || opts.env.NO_DOTENV === "1";
   const envFile = path.join(root, ".env");
   let fileEnv: NodeJS.ProcessEnv = {};
-  if (existsSync(envFile)) {
+  if (!skipDotenv && existsSync(envFile)) {
     try { fileEnv = parseEnv(readFileSync(envFile, "utf8")); }
     catch (err) { return { ok: false, errors: [`cannot read ${envFile}: ${(err as NodeJS.ErrnoException).code ?? "unreadable"}`] }; }
   }
@@ -103,7 +108,12 @@ export async function bootstrap(opts: {
   for (const w of warnings) warn(`warning: ${w}`);
   if (errors.length) return { ok: false, errors };
 
-  const dataDir = opts.logDir ?? path.join(root, "data", "sessions");
+  // US-0058: SESSION_DATA_DIR (set by the control service, from the merged env like the other settings) names the data directory; it must be absolute, and a refusal never echoes it.
+  const sessionDataDir = env.SESSION_DATA_DIR;
+  if (opts.logDir === undefined && sessionDataDir !== undefined && sessionDataDir !== "" && !path.isAbsolute(sessionDataDir)) {
+    return { ok: false, errors: ["SESSION_DATA_DIR must be an absolute path"] };
+  }
+  const dataDir = opts.logDir ?? (sessionDataDir ? sessionDataDir : path.join(root, "data", "sessions"));
   const traceEnv = parseGmTraceEnv(env.GM_TRACE_FILE, dataDir);
   if (!traceEnv.ok) return { ok: false, errors: [traceEnv.error] };
 
@@ -111,7 +121,7 @@ export async function bootstrap(opts: {
   const clock = new SystemClock();
   let store: OpenedSession;
   const lost: { halt?: () => void } = {};
-  try { store = await openSession({ scenario, sessionId, dataDir, clock, mode: startMode.mode, now: opts.now, joinCodes: true, consentNotice, lock: { staleMs: lockStale.staleMs, onLost: () => lost.halt?.() } }); }
+  try { store = await openSession({ scenario, sessionId, dataDir, clock, mode: startMode.mode, now: opts.now, joinCodes: true, consentNotice, managed, lock: { staleMs: lockStale.staleMs, onLost: () => lost.halt?.() } }); }
   catch (err) { return { ok: false, errors: [err instanceof SessionStoreError ? err.message : `cannot open the session log: ${err instanceof Error ? err.message : String(err)}`] }; }
   /**
    * US-0033 (review I-1): every failure from here on withdraws join codes this start issued but never showed, then closes the store,
