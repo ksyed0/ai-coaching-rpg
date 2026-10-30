@@ -101,14 +101,16 @@ BUG-0009: Web E2E "no horizontal scroll at 400 px" does not see its own say line
 Severity: Medium
 Related Story: US-0065
 Related Task: TASK-0085
-Status: Open (hardened in 5537920, not root-caused; watch the next CI runs)
-Fix Branch: feature/EPIC-0002-US-0065-web-e2e
-Lesson Encoded: No
+Status: Fixed (7ebdfc5; root-caused 2026-10-30)
+Fix Branch: feature/EPIC-0002-US-0059-readiness (hardening: feature/EPIC-0002-US-0065-web-e2e, 5537920)
+Lesson Encoded: Yes (L-0031)
 ```
 
 First CI run of the Web E2E job (run 40716795094, head 81148e0, pinned Chromium 1248): axe.spec.ts "no horizontal scroll at 400 px" failed in the `say()` helper. After a 190-character unbroken word was sent, the transcript never showed it (0 matches for 20 s). The spec passed 15 of 15 locally under repeat and under CPU load (Chromium 1243). Hypotheses under investigation: the say is sent before the scene is running or the stream is live, the long word is split across text nodes so the exact-text locator cannot match, or state shared between specs (one stack, one address, one join throttle). Not yet reproduced.
 
 Update 2026-10-28: not reproduced locally (passed every run, including 20 repeats under CPU load). The 400 px spec now waits until every player page shows "Play the scene", and the `say()` helper waits for a settled box, requires the BFF to answer 200 to `POST /api/v1/say`, and on failure reports the status or the page's notice text, so a repeat in CI names its cause. One plausible mechanism, unproven: the runtime refuses the line after the BFF's 300 ms send window (the documented gap that a send has no correlated reply), so the page never shows it.
+
+Root cause (2026-10-30): the hardened helper made it name itself. PR #60's Web E2E (run 41136384182) failed the first spec, axe.spec.ts "no serious or critical Axe violations", with `POST /api/v1/say answered 409: not_started` although the facilitator had seen `session.started` and every page showed "Play the scene" with an enabled say box. `SessionEngine.doStart` broadcasts each opening event as soon as it is written (`session.started`, `npc.updated` per character, `scene.entered`, then the opening inject and its `npc.updated`, each an awaited log append), while `SessionHost.start` sets `started = true` only after the whole start resolves. The page enables its say box on `scene.entered`; a say that reaches the runtime before the inject is written meets `if (!this.started) throw HostError("not_started")`. The same code is on `develop` (pre-existing; PR #60 did not cause it). Proven by a deterministic unit test (a log held after `scene.entered`) that fails with `not_started` before the fix, and at E2E level by delaying the start after `scene.entered` (see the CI fix report). Fixed in 7ebdfc5: `onPlayerUtterance` waits for the start in flight and refuses only when that start fails.
 
 ```
 BUG-0010: Web E2E Axe check reports a serious color-contrast violation on a /join button in one CI run and not in another
@@ -163,3 +165,15 @@ Lesson Encoded: No
 `services/runtime/src/engine/__tests__/secure-json-file.test.ts`, test `test_sweepSecureTemps_removes_only_matching_temp_files` creates `f.json.0123456789ab.tmp` (a file the sweep must remove) and `f.json.0123456789AB.tmp` (an upper-case look-alike it must keep). On macOS' default case-insensitive file system both names are the same file, so the sweep removes it and the "kept" file is missing: `expected ['f.json', ...4] to deeply equal ['f.json', ...5]`. Passes in the node:22 container (Linux, as root and as `node`), so CI is unaffected; seen locally from Task 5 of slice 2b-1 and again at its close. Fix later by using a name that differs by more than case (for example a 13th character) or by skipping the case-only look-alike when the file system folds case.
 
 Update (2026-10-30, Task 12 fix round): passes in node:22 (Linux, case-sensitive; secure-json-file.test.ts, as root and as the node user); it fails only on the macOS default file system.
+
+```
+BUG-0014: CodeQL js/file-system-race alerts in the control service tests (stat a path, then read the same path)
+Severity: Low
+Related Story: US-0058
+Related Task: TASK-0087
+Status: Fixed (15bfed8)
+Fix Branch: feature/EPIC-0002-US-0059-readiness
+Lesson Encoded: No (L-0003 and L-0017 already state the rule)
+```
+
+PR #60's CodeQL check failed with three high alerts (25, 26, 27), "The file may have changed since it was checked.", in `services/control/src/__tests__/session-list.test.ts:52`, `spawn.test.ts:146` and `supervisor.real.test.ts:103`: each test `statSync`-ed a file for its mode and then `readFileSync`-ed the same path. Fixed by `read-once.ts` (`readOnce` opens the file once with `O_NOFOLLOW` and returns mode, inode and text from that descriptor; `dirMode` fstat's a directory descriptor); the other stat or exists checks on the branch's files (`supervisor.create.test.ts`, the runtime's `main.managed.test.ts` helper and the runtime's `.env` read in `main.ts`) were changed the same way.

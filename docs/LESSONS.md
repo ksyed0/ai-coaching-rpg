@@ -240,3 +240,11 @@ _Learned when a failed seat persist in the reissue left the role open to the OLD
 **Rule:** Tests that walk the whole repository (`id-rules.files.test.ts`, `test-hygiene.test.ts` in `services/runtime`) apply to every package, including new ones, but a per-file container run of the new package does not execute them. Before closing a slice that adds a package or test files, run the full `pnpm test:coverage` (or those scanner files) and not only the recipe on the files you changed.
 _Learned at the close of slice 2b-1: the scanners reported `services/control/src/api.ts:89` (an identifier-rule regex) and `services/control/src/__tests__/supervisor.real.test.ts:103` (an elapsed-time assertion) that sixteen task-level runs had not executed._
 **Date:** 2026-10-30
+
+## L-0031 — When events are broadcast as they are written, a flag set at the end of the operation must not refuse what the first event allows
+
+@agent: all
+
+**Rule:** If a multi-step operation broadcasts each event as it is persisted (start: `session.started`, the characters, `scene.entered`, the opening inject) but sets its "done" flag only after the last step, clients act on the early events while the flag is still false. A request they make in that window must wait for the operation in flight (and be refused only if it fails), not be refused by the flag. Test the window deterministically: hold the log's appends after the event the client acts on (a gated log), make the request, assert it is pending, then release; never rely on a slow disk or a sleep. When an E2E helper reports a refusal it should never see, look for this window on the server before blaming the test.
+_Learned when the Web E2E on PR #60 got `409 not_started` for a say sent after the page showed the scene: the runtime set `started` only after writing the opening inject (BUG-0009, open since the first Web E2E run and seen there as a missing transcript line)._
+**Date:** 2026-10-30
