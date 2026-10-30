@@ -40,6 +40,7 @@ export class ConsentStore {
   get notice(): ConsentNotice { return this.noticeValue; }
 
   give(roleId: string, participantId: string, noticeVersion: string, at: number): void {
+    if (participantId === REBIND_PENDING) throw new ConsentError("invalid_input"); // the placeholder is never a person
     // The same checks fromRecord applies, so nothing is written that a restart would refuse.
     if (isReservedRoleId(roleId) || roleId.length === 0 || roleId.length > CLIENT_ID_MAX_CHARS) throw new ConsentError("invalid_input");
     if (participantId.length === 0 || participantId.length > CLIENT_ID_MAX_CHARS) throw new ConsentError("invalid_input");
@@ -54,6 +55,7 @@ export class ConsentStore {
    * this participant agreed to at the start, and a restart under a newer notice must not lock them out. Same shape checks as give.
    */
   adopt(roleId: string, participantId: string, noticeVersion: string, at: number): void {
+    if (participantId === REBIND_PENDING) throw new ConsentError("invalid_input");
     if (isReservedRoleId(roleId) || roleId.length === 0 || roleId.length > CLIENT_ID_MAX_CHARS) throw new ConsentError("invalid_input");
     if (participantId.length === 0 || participantId.length > CLIENT_ID_MAX_CHARS) throw new ConsentError("invalid_input");
     if (noticeVersion.length === 0 || noticeVersion.length > 64) throw new ConsentError("invalid_input");
@@ -73,6 +75,11 @@ export class ConsentStore {
     this.entries.set(roleId, { participantId: REBIND_PENDING, noticeVersion: e.noticeVersion, at: e.at });
     return true;
   }
+
+  /** US-0058: the role's entry as it stands, to put back with `restoreEntry` if a later step fails. */
+  entryOf(roleId: string): ConsentEntry | undefined { const e = this.entries.get(roleId); return e ? { ...e } : undefined; }
+  /** US-0058: puts back what `entryOf` returned (undefined removes the entry). */
+  restoreEntry(roleId: string, e: ConsentEntry | undefined): void { if (e) this.entries.set(roleId, { ...e }); else this.entries.delete(roleId); }
 
   isRebindPending(roleId: string): boolean { return this.entries.get(roleId)?.participantId === REBIND_PENDING; }
 

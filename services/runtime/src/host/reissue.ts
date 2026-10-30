@@ -29,8 +29,7 @@ export function reissueActor(by: string | undefined): string {
 
 /**
  * US-0058: gives ONE player role a new join code. Only the control service can ask (over the fork() IPC channel). Returns the new
- * plain code, which exists nowhere else: the caller hands it to the parent and drops it. Throws (with nothing changed, except as
- * noted at 2) for a role that is not a player role of this session.
+ * plain code, which exists nowhere else: the caller hands it to the parent and drops it. Throws (with nothing changed) for a role that is not a player role of this session.
  *
  * A code opens only a role that has no credential, so the order is fixed, and chosen so that a failed codes write changes nothing:
  *  1. Build the new codes (pure) and WRITE them to the codes file first. If this fails the old code, the credential, the consent and
@@ -38,8 +37,9 @@ export function reissueActor(by: string | undefined): string {
  *     write had already thrown a player out for nothing). The file then briefly holds a code the memory does not know yet; step 2
  *     failing restores the old file.
  *  2. Revoke the credential; before the start withdraw the consent (the person must consent again), after the start release it for a
- *     rebind (it waits for the next participant); persist the seats. If the persist fails, the old codes file is put back and the
- *     error is rethrown (the in-memory seat is already revoked and the host retries the write like any failed seat write).
+ *     rebind (it waits for the next participant); persist the seats. If the persist fails, the credential and consent are restored in
+ *     memory from the snapshot taken before, THEN the old codes file is put back, and the error is rethrown: the reissue changed nothing.
+ *     (Before the start/after the start is decided on `started` alone; a start in flight refuses the reissue.)
  *  3. Kick the role's socket (CLOSE_REISSUED), which frees the seat synchronously; then, even if the kick threw, swap the new codes
  *     in (the file already has them, so memory must follow). Nothing in 2 and 3 awaits, so no join can run between the revoke and
  *     the swap: the credential is gone and persisted before the socket is kicked and before the new code can open anything.
@@ -50,15 +50,23 @@ export function reissueActor(by: string | undefined): string {
 export async function reissueRole(d: ReissueDeps, roleId: string, by?: string): Promise<string> {
   if (!d.host.hasPlayerRole(roleId)) throw new Error("not a player role of this session");
   if (d.host.engine.state.status === "ended") throw new Error("the session has ended");
+  // The start in flight freezes the seats' consents into session.started and may still fail back to the lobby: a marker left by a
+  // reissue now could survive in an idle lobby. Refuse; the facilitator retries once it has started (or failed).
+  if (d.host.isStarting) throw new Error("the session is starting, try again");
   const old = d.codes();
   const { codes, plain } = old.withRole(roleId); // throws when the codes hold no entry for the role
   d.writeCodes(codes);
-  const afterStart = d.host.hasStartedOrStarting;
+  const afterStart = d.host.hasStarted;
+  const credBefore = d.seats.credentials.snapshotRole(roleId);
+  const consentBefore = d.seats.consent.entryOf(roleId);
   try {
     d.seats.credentials.revoke(roleId);
     if (afterStart) d.seats.consent.releaseForRebind(roleId); else d.seats.consent.withdraw(roleId);
     d.seats.persist();
   } catch (err) {
+    // Put the seat back first, so the old code cannot open a role whose holder is still connected, then the old file.
+    d.seats.credentials.restoreRole(roleId, credBefore);
+    d.seats.consent.restoreEntry(roleId, consentBefore);
     try { d.writeCodes(old); } catch (restoreErr) { d.report?.("restoring the join codes file after a failed reissue", restoreErr); }
     throw err;
   }

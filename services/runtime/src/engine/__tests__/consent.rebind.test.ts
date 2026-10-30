@@ -61,4 +61,22 @@ describe("ConsentStore rebind (US-0058)", () => {
     expect(back.isRebindPending("a")).toBe(true);
     expect(back.snapshot().a?.noticeVersion).toBe("v1");
   });
+
+  it("give and adopt refuse the placeholder as a participant", () => {
+    const c = new ConsentStore(NOTICE);
+    expect(() => c.give("a", REBIND_PENDING, "v1", 1)).toThrow();
+    expect(() => c.adopt("a", REBIND_PENDING, "v1", 1)).toThrow();
+    expect(c.hasEntry("a")).toBe(false);
+  });
+
+  it("entryOf and restoreEntry put an entry back exactly", () => {
+    const c = new ConsentStore(NOTICE);
+    c.give("a", "p1", "v1", 5);
+    const before = c.entryOf("a");
+    c.releaseForRebind("a");
+    c.restoreEntry("a", before);
+    expect(c.has("a", "p1")).toBe(true);
+    c.restoreEntry("a", undefined);
+    expect(c.hasEntry("a")).toBe(false);
+  });
 });

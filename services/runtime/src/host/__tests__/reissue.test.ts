@@ -13,6 +13,7 @@ import { ConsentStore, REBIND_PENDING } from "../../engine/consent.js";
 import type { Seats } from "../../engine/seats.js";
 import { HostError, SessionHost } from "../session-host.js";
 import { CLOSE_REISSUED, startServer, type ServerHandle } from "../ws-server.js";
+import { ClientMessageSchema } from "../protocol.js";
 import { reissueActor, reissueRole, type ReissueDeps } from "../reissue.js";
 // Real-socket tests: a generous explicit limit. Nothing here measures elapsed time; each step awaits the event it needs.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
@@ -75,7 +76,7 @@ async function seated(e: Env, start: boolean) {
   expect(a.r.type).toBe("joined");
   e.host.giveConsent("host", "alice", "v1");
   if (start) await e.host.start();
-  return a.c;
+  return Object.assign(a.c, { credential: a.r.credential as string });
 }
 const allEvents = (e: Env) => { const r = e.engine.eventsAfter(0); if (!r.complete) throw new Error("window incomplete"); return [...r.events]; };
 const alerts = (e: Env) => allEvents(e).filter((x) => x.type === "facilitator.alert").map((x) => (x as { message: string }).message);
@@ -155,7 +156,7 @@ describe("code reissue (US-0058)", () => {
 
   it("a failed seat write puts the old codes file back, keeps the old code in memory and never kicks", async () => {
     const e = await setup();
-    await seated(e, true);
+    const alice = await seated(e, true);
     const kick = vi.fn();
     const set = vi.fn();
     const writes: JoinCodes[] = [];
@@ -168,6 +169,13 @@ describe("code reissue (US-0058)", () => {
     expect(kick).not.toHaveBeenCalled();
     expect(set).not.toHaveBeenCalled();
     expect(e.current()).toBe(old);
+    // The seat is exactly as it was: alice's credential and consent stand, so neither code can take her seat.
+    expect(e.seats.credentials.verify("host", alice.credential)).toBe(true);
+    expect(e.seats.consent.has("host", "alice")).toBe(true);
+    expect(e.seats.consent.isRebindPending("host")).toBe(false);
+    expect(old.verify("host", e.code)).toBe(true);
+    expect(e.seats.credentials.has("host")).toBe(true); // byCode needs !has(role): the old code is refused while it stands
+    expect(writes[0]!.verify("host", e.code)).toBe(false);
   });
 
   it("a failed credential write after claimRebind leaves the rebind pending", async () => {
@@ -239,5 +247,49 @@ describe("code reissue (US-0058)", () => {
     expect(code).toBe("consent_required");
     expect(e.seats.consent.isRebindPending("host")).toBe(true);
     expect(REBIND_PENDING).toBe("rebind-pending");
+  });
+
+  it("nothing is claimable before the start: a marker found in the lobby is dropped, consent is required, and no alert is appended", async () => {
+    const e = await setup();
+    const alice = await seated(e, false);
+    alice.ws.terminate(); await alice.closed;
+    await vi.waitFor(() => { if (e.host.assignments.host) throw new Error("seat not yet released"); }, { timeout: 30_000, interval: 5 });
+    e.seats.credentials.revoke("host");
+    e.seats.consent.releaseForRebind("host"); // a stray marker in an idle lobby
+    const bob = await webJoin(e.port, e.code, "bob");
+    expect(bob.r.type).toBe("joined");
+    expect(bob.r.consent.given).toBe(false);
+    expect(e.seats.consent.hasEntry("host")).toBe(false);
+    e.host.undoRebind("host"); // also silent before the start
+    expect(allEvents(e)).toEqual([]);
+    e.host.giveConsent("host", "bob", "v1");
+    await e.host.start(); // the log was still empty
+  });
+
+  it("a reissue while the start is in flight is refused and leaves the seat alone", async () => {
+    const e = await setup();
+    await seated(e, false);
+    const starting = e.host.start(); // `starting` is set synchronously
+    await expect(reissueRole(e.deps, "host")).rejects.toThrow(/starting/);
+    await starting;
+    expect(e.seats.consent.has("host", "alice")).toBe(true);
+    expect(e.seats.credentials.has("host")).toBe(true);
+    expect(e.written).toHaveLength(0);
+  });
+
+  it("the placeholder participant id is refused at the protocol, at give() and at adopt()", async () => {
+    const msg = { type: "join", sessionId: "local", roleId: "host", participantId: REBIND_PENDING, joinCode: "x" };
+    expect(ClientMessageSchema.safeParse(msg).success).toBe(false);
+    expect(ClientMessageSchema.safeParse({ ...msg, participantId: "alice" }).success).toBe(true);
+    const e = await setup();
+    const c = await open(e.port);
+    c.send(msg);
+    expect(await c.next((m) => m.type === "error")).toMatchObject({ type: "error", code: "bad_message" });
+    const store = new ConsentStore({ version: "v1", text: "n" });
+    expect(() => store.give("host", REBIND_PENDING, "v1", 1)).toThrow();
+    expect(() => store.adopt("host", REBIND_PENDING, "v1", 1)).toThrow();
+    expect(store.hasEntry("host")).toBe(false);
+    // A refused injection leaves the lobby startable.
+    await seated(e, true);
   });
 });

@@ -144,7 +144,10 @@ export class SessionHost {
     if (role.type !== "player") throw new HostError("npc_role");
     // US-0058: a code reissued after the start left the seat's consent waiting (REBIND_PENDING) with no credential on the role: the
     // next participant to hold the seat inherits it. A credential still on the role means the seat is not free: the check below refuses.
-    const rebinding = !!this.seats && this.seats.consent.isRebindPending(roleId) && !this.seats.credentials.has(roleId);
+    // Only a STARTED session has a marker worth claiming (a reissue before the start clears consent instead): one found earlier is
+    // dropped, so the person must consent. While the start is in flight (`starting`) nothing is claimable either.
+    if (this.seats && !this.started && this.starting === null && this.seats.consent.isRebindPending(roleId)) { this.seats.consent.withdraw(roleId); this.seatsDirty = true; }
+    const rebinding = !!this.seats && this.started && this.seats.consent.isRebindPending(roleId) && !this.seats.credentials.has(roleId);
     // US-0054: from the start on, a seat is only for the participant whose consent the start recorded (or who gave it since):
     // a dropped seat cannot be taken by someone else with the code. The same participant still reconnects.
     if (this.seats && !this.consentGrandfathered && (this.started || this.starting !== null) && !rebinding && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
@@ -164,16 +167,20 @@ export class SessionHost {
    * next participant. Marks the seat state dirty so the next write records it.
    */
   undoRebind(roleId: string): void {
-    if (!this.seats?.consent.releaseForRebind(roleId)) return;
+    if (!this.started || !this.seats?.consent.releaseForRebind(roleId)) return;
     this.seatsDirty = true;
     void this.noteFacilitator(`rebind of consent for ${roleId} undone: the seat could not be saved and is waiting again`);
   }
 
-  /** US-0058: true once the start has begun (its consents are frozen into session.started), so a reissue then rebinds consent instead of clearing it. */
-  get hasStartedOrStarting(): boolean { return this.started || this.starting !== null; }
+  /** US-0058: true once session.started is recorded (a restored session counts). Only then does a reissue rebind consent instead of clearing it. */
+  get hasStarted(): boolean { return this.started; }
+  /** US-0058: the start is in flight (consents are being frozen into session.started); a reissue is refused meanwhile. */
+  get isStarting(): boolean { return !this.started && this.starting !== null; }
 
   /** A facilitator-only info alert from synchronous code: never awaited, never throws; a failure goes to the log callback. */
   noteFacilitator(message: string): Promise<void> {
+    // Before the start the log must stay empty (engine.start refuses a log with events): no path may append an alert then.
+    if (!this.started) return Promise.resolve();
     return this.engine.alert(message, "info").then(() => undefined, (err) => this.report("facilitator alert", err));
   }
 
