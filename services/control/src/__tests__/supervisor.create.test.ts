@@ -115,7 +115,7 @@ describe("Supervisor.create", () => {
     await expect(p).rejects.toMatchObject({ code: "start_failed", message: "the session could not be started" });
     expect(list.read()).toEqual([]);
     expect(readdirSync(config.sessionsDir)).toEqual([`${sid(77)}.jsonl`]);
-    expect(readdirSync(config.logDir)).toEqual([]);
+    expect(readdirSync(config.logDir)).toEqual([`${children[0]!.env.SESSION_ID}.log`]); // a failed create keeps the child log for debugging
     expect(sup.list()).toEqual([]);
     // the slot is free again
     const p2 = sup.create("other"); await flush(); await finish(children[1]!);
@@ -136,7 +136,7 @@ describe("Supervisor.create", () => {
     expect(children[0]!.killed).toBe(1);
     expect(list.read()).toEqual([]);
     expect(readdirSync(config.sessionsDir)).toEqual([]);
-    expect(readdirSync(config.logDir)).toEqual([]);
+    expect(readdirSync(config.logDir)).toEqual([`${children[0]!.env.SESSION_ID}.log`]); // a failed create keeps the child log for debugging
   });
 
   it("codes without a following ready are discarded", async () => {
@@ -263,7 +263,7 @@ describe("Supervisor.create", () => {
       expect(c.killed).toBe(1);
       expect(c.forced).toBe(0);
       expect(seatFiles()).toEqual([]);
-      expect(readdirSync(config.logDir)).toEqual([]);
+      expect(readdirSync(config.logDir)).toEqual([`${children[0]!.env.SESSION_ID}.log`]); // a failed create keeps the child log for debugging
     });
 
     it("keeps the slot and files until the child exits, forcing it after graceMs", async () => {
@@ -284,7 +284,7 @@ describe("Supervisor.create", () => {
       c.exit(null);
       await expect(settled).resolves.toMatchObject({ code: "timeout" });
       expect(seatFiles()).toEqual([]);
-      expect(readdirSync(config.logDir)).toEqual([]);
+      expect(readdirSync(config.logDir)).toEqual([`${children[0]!.env.SESSION_ID}.log`]); // a failed create keeps the child log for debugging
       const p2 = sup.create("other"); await flush(); await finish(children[1]!);
       await expect(p2).resolves.toBeDefined();
     });
@@ -312,7 +312,7 @@ describe("Supervisor.create", () => {
       spawn = ({ env, logFile }) => {
         const c = new FakeChild(env, logFile);
         writeFileSync(path.join(env.SESSION_DATA_DIR!, `${env.SESSION_ID}.jsonl`), "x");
-        mkdirSync(logFile); // rmSync(force) of a directory throws EISDIR
+        mkdirSync(path.join(env.SESSION_DATA_DIR!, `${env.SESSION_ID}.dir`)); // rmSync(force) of a directory throws EISDIR
         children.push(c);
         return c;
       };
@@ -324,7 +324,8 @@ describe("Supervisor.create", () => {
       const err = await p.catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ControlError);
       expect((err as ControlError).message).toBe("the session could not be started");
-      expect(seatFiles()).toEqual([]);
+      expect(seatFiles()).toEqual([`${children[0]!.env.SESSION_ID}.dir`]); // only the step that threw left its target behind
+      expect(logs.some((l) => l.includes("cleanup step failed"))).toBe(true);
       expect(list.read()).toEqual([]);
     });
 

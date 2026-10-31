@@ -19,7 +19,9 @@ const INTERNAL = "Something went wrong.";
 const MAX_FIELD = 200;
 
 const CreateBody = z.strictObject({ scenarioId: z.string().min(1).max(MAX_FIELD) });
-const ReissueBody = z.strictObject({ roleId: z.string().min(1).max(MAX_FIELD).optional(), by: z.string().max(MAX_FIELD).optional() });
+// One role, or the whole session: never "neither". A body that forgets roleId must not silently reissue every code.
+const ReissueBody = z.strictObject({ roleId: z.string().min(1).max(MAX_FIELD).optional(), all: z.literal(true).optional(), by: z.string().max(MAX_FIELD).optional() })
+  .refine((b) => (b.roleId === undefined) !== (b.all === undefined));
 const NoBody = z.strictObject({});
 
 class HttpError extends Error {

@@ -122,7 +122,7 @@ export class Supervisor {
       return { sessionId, status: "running", port: ready.port, modelLabel: ready.modelLabel, codes: ready.codes! };
     } catch (err) {
       timer.cancel?.();
-      const clean = await this.rollback(sessionId, listed, child, exit, logFile);
+      const clean = await this.rollback(sessionId, listed, child, exit);
       this.logFn(`session ${sessionId} create failed`);
       if (!clean) throw new ControlError("start_failed", START_FAILED);
       throw err instanceof ControlError ? err : new ControlError("start_failed", START_FAILED);
@@ -195,25 +195,26 @@ export class Supervisor {
 
   /**
    * Undo a failed create. The child is stopped FIRST and its exit awaited (stopChild); only then are
-   * the list entry, every `<id>.*` file and the child log removed, so a dying child cannot recreate them. The slot (held by the
+   * the list entry and every `<id>.*` file removed, so a dying child cannot recreate them. The child's log is KEPT (0600 in the 0700 log
+   * directory): it is the only record of why the child failed. The slot (held by the
    * caller's `inflight`) is released only after that. A child that survives forceKill is a bug we cannot resolve: its slot stays reserved
    * (`zombies`) until it does exit, and the cleanup then runs. Returns false in that case. Every step is guarded on its own.
    */
-  private async rollback(sessionId: string, listed: boolean, child: ChildHandle | undefined, exit: ExitState, logFile: string): Promise<boolean> {
+  private async rollback(sessionId: string, listed: boolean, child: ChildHandle | undefined, exit: ExitState): Promise<boolean> {
     this.live.delete(sessionId);
     if (child && !exit.done) {
       if (!(await this.stopChild(child, exit))) {
         this.logFn(`session ${sessionId} child did not exit`);
         this.zombies++;
-        void exit.promise!.then(() => { this.cleanup(sessionId, listed, logFile); this.zombies--; });
+        void exit.promise!.then(() => { this.cleanup(sessionId, listed); this.zombies--; });
         return false;
       }
     }
-    this.cleanup(sessionId, listed, logFile);
+    this.cleanup(sessionId, listed);
     return true;
   }
 
-  private cleanup(sessionId: string, listed: boolean, logFile: string): void {
+  private cleanup(sessionId: string, listed: boolean): void {
     if (listed) { try { this.o.list.remove(sessionId); } catch { /* the entry was never written */ } }
     if (!isValidSessionId(sessionId)) return; // never build a path to delete from an id that is not one
     try {
@@ -222,7 +223,6 @@ export class Supervisor {
         try { rmSync(path.join(this.o.config.sessionsDir, name), { force: true }); } catch { this.logFn(`session ${sessionId} cleanup step failed`); }
       }
     } catch { /* no sessions directory yet */ }
-    try { rmSync(logFile, { force: true }); } catch { this.logFn(`session ${sessionId} cleanup step failed`); }
   }
 
   private info(id: string, scenarioId: string, status: SessionStatus): SessionInfo {
