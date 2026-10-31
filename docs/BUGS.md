@@ -89,12 +89,14 @@ BUG-0008: tests/unit/atomic-write.test.js flakes under full plan:test load (pass
 Severity: Low
 Related Story: US-0037
 Related Task: TASK-0057
-Status: Open
-Fix Branch: bugfix/BUG-0008-atomic-write-flake
+Status: Fixed (cause identified, not reproduced locally)
+Fix Branch: fix/bugs-0008-0012-0013
 Lesson Encoded: No
 ```
 
 Seen twice on 2026-10-08 during the US-0037 session close: the file failed in a full `npm run plan:test` run and passed on its own and on rerun. The concurrency tests use real file locks and a shared `tests/.tmp-atomic` directory and are probably sensitive to machine load (compare BUG-0006 and BUG-0007). Not investigated yet: capture the failing assertion on the next occurrence, then inject clocks or hooks instead of relying on timing (L-0002).
+
+Update (2026-10-31): the likely cause is two test files (`file-lock.test.js` after every test, `atomic-write.test.js` after all) deleting the shared `.locks` directory while another jest worker holds a lock in it, which lets a second holder in and loses a write. Both files now release only their own lock and never remove `LOCK_DIR`. The flake was not reproducible here (9 full runs passed before and after), so this is a fix for an identified hazard, not a verified cure: reopen if it recurs.
 
 ```
 BUG-0009: Web E2E "no horizontal scroll at 400 px" does not see its own say line in the transcript on the first CI run
@@ -143,8 +145,8 @@ BUG-0012: apps/web handlers.test.ts "consent gives consent; withdrawing and leav
 Severity: Medium
 Related Story: US-0056
 Related Task: TASK-0084
-Status: Open
-Fix Branch: None
+Status: Fixed
+Fix Branch: fix/bugs-0008-0012-0013
 Lesson Encoded: No
 ```
 
@@ -152,19 +154,23 @@ Lesson Encoded: No
 
 Update (2026-10-30, Task 12 fix round): the full `pnpm test:coverage` in the node:22 container passes this test (apps/web 37 files, 488 tests, as root and as the node user, one run each). It passes in node:22; it fails locally on macOS. Status stays Open until the cause is found.
 
+Update (2026-10-31): root cause found. The fake runtime in the test is a real WebSocket server, and the test fires the hub's 300 ms wait by hand, so the hub answered as soon as it had SENT the frame while the frame could still be in flight to the fake: `rt.received.at(-1)` was read too early (it saw `consent` instead of `withdraw_consent`). The four such assertions now use `vi.waitFor`. 15 of 15 runs pass on the macOS host (about 40% failed before). It was a test race, not a hub ordering bug.
+
 ```
 BUG-0013: runtime secure-json-file sweep test fails on macOS (case-insensitive file system)
 Severity: Low
 Related Story: US-0053
 Related Task: TASK-0081
-Status: Open
-Fix Branch: None
+Status: Fixed
+Fix Branch: fix/bugs-0008-0012-0013
 Lesson Encoded: No
 ```
 
 `services/runtime/src/engine/__tests__/secure-json-file.test.ts`, test `test_sweepSecureTemps_removes_only_matching_temp_files` creates `f.json.0123456789ab.tmp` (a file the sweep must remove) and `f.json.0123456789AB.tmp` (an upper-case look-alike it must keep). On macOS' default case-insensitive file system both names are the same file, so the sweep removes it and the "kept" file is missing: `expected ['f.json', ...4] to deeply equal ['f.json', ...5]`. Passes in the node:22 container (Linux, as root and as `node`), so CI is unaffected; seen locally from Task 5 of slice 2b-1 and again at its close. Fix later by using a name that differs by more than case (for example a 13th character) or by skipping the case-only look-alike when the file system folds case.
 
 Update (2026-10-30, Task 12 fix round): passes in node:22 (Linux, case-sensitive; secure-json-file.test.ts, as root and as the node user); it fails only on the macOS default file system.
+
+Update (2026-10-31): the upper-case look-alike is now `f.json.0123456789AC.tmp`, which differs from the temp names by more than case, so it is a distinct file on a case-insensitive file system too.
 
 ```
 BUG-0014: CodeQL js/file-system-race alerts in the control service tests (stat a path, then read the same path)
