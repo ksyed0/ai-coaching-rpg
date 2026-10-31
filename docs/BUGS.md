@@ -177,3 +177,16 @@ Lesson Encoded: No (L-0003 and L-0017 already state the rule)
 ```
 
 PR #60's CodeQL check failed with three high alerts (25, 26, 27), "The file may have changed since it was checked.", in `services/control/src/__tests__/session-list.test.ts:52`, `spawn.test.ts:146` and `supervisor.real.test.ts:103`: each test `statSync`-ed a file for its mode and then `readFileSync`-ed the same path. Fixed by `read-once.ts` (`readOnce` opens the file once with `O_NOFOLLOW` and returns mode, inode and text from that descriptor; `dirMode` fstat's a directory descriptor); the other stat or exists checks on the branch's files (`supervisor.create.test.ts`, the runtime's `main.managed.test.ts` helper and the runtime's `.env` read in `main.ts`) were changed the same way.
+
+```
+BUG-0015: A start that fails after session.started was written cannot be retried (log_not_empty)
+Severity: Medium
+Related Story: US-0059
+Related Task: TASK-0094
+Status: Open
+Fix Branch: None
+Lesson Encoded: No
+```
+
+`SessionHost.start()` sets `started` only after `engine.start` succeeds, so a failed start "can be retried". But `engine.start` refuses a log that already has events (`log_not_empty`, `session-engine.ts:167`). If the start fails AFTER `session.started` (or the opening scene events) were appended, for example a provider error while the opening scene is produced, the log is no longer empty, the engine is not idle, and every retry answers `already_started` or `log_not_empty`: the session is wedged until it is restarted with `SESSION_START=resume`. Pre-existing (found while reviewing slice 2b-1; unrelated to the readiness race of BUG-0009). Needs a design decision first: either the host treats a log that begins with `session.started` as started (resume in place), or a failed start rolls the engine back to idle and truncates the log. Found by the slice 2b-1 whole-branch review; no test reproduces it yet.
+

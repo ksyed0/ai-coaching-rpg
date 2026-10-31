@@ -40,8 +40,8 @@ export function reissueActor(by: string | undefined): string {
  *     rebind (it waits for the next participant); persist the seats. If the persist fails, the credential and consent are restored in
  *     memory from the snapshot taken before, THEN the old codes file is put back, and the error is rethrown: the reissue changed nothing.
  *     (Before the start/after the start is decided on `started` alone; a start in flight refuses the reissue.)
- *  3. Kick the role's socket (CLOSE_REISSUED), which frees the seat synchronously; then, even if the kick threw, swap the new codes
- *     in (the file already has them, so memory must follow). Nothing in 2 and 3 awaits, so no join can run between the revoke and
+ *  3. Kick the role's socket (CLOSE_REISSUED), which frees the seat synchronously; then, even if the kick threw (reported, not rethrown: the caller must
+ *     still receive the new code), swap the new codes in (the file already has them, so memory must follow). Nothing in 2 and 3 awaits, so no join can run between the revoke and
  *     the swap: the credential is gone and persisted before the socket is kicked and before the new code can open anything.
  *  4. After the start only, append the facilitator-only alert (naming who reissued, never the code). Its failure is reported, not
  *     thrown: the code has already changed and the caller must still receive it. Before the start nothing may be appended: the
@@ -70,7 +70,10 @@ export async function reissueRole(d: ReissueDeps, roleId: string, by?: string): 
     try { d.writeCodes(old); } catch (restoreErr) { d.report?.("restoring the join codes file after a failed reissue", restoreErr); }
     throw err;
   }
+  // The credential is already revoked and the new codes are in the file: the reissue happened. A kick that throws is reported and the
+  // caller still gets the new code (throwing here would lose it, with the old one already dead).
   try { d.server.kickRole(d.sessionId, roleId, CLOSE_REISSUED); }
+  catch (kickErr) { d.report?.("kicking the socket of a reissued role", kickErr); }
   finally { d.setCodes(codes); }
   // Before the start the log must stay EMPTY (engine.start refuses a log that has events, and a managed restart relies on an empty
   // lobby log), so there is no event to append: the console shows the reissue from the control service's own state instead.
