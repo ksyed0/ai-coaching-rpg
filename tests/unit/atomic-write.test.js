@@ -8,7 +8,6 @@ const {
   atomicReadModifyWriteJson,
   atomicAppend,
 } = require('../../orchestrator/atomic-write');
-const { LOCK_DIR } = require('../../orchestrator/file-lock');
 
 const ROOT = path.join(__dirname, '..', '..');
 const TMP_DIR = path.join(ROOT, 'tests', '.tmp-atomic');
@@ -19,14 +18,9 @@ describe('atomic-write', () => {
   });
 
   afterAll(() => {
+    // LOCK_DIR is shared with other test files running in parallel workers: never remove it here (BUG-0008). Every lock taken in
+    // this file is released by withLock itself.
     fs.rmSync(TMP_DIR, { recursive: true, force: true });
-    try {
-      if (fs.existsSync(LOCK_DIR)) {
-        fs.rmSync(LOCK_DIR, { recursive: true, force: true });
-      }
-    } catch {
-      // ignore
-    }
   });
 
   describe('atomicWrite', () => {

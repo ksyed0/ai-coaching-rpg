@@ -49,7 +49,7 @@ describe("secure JSON file helper (US-0053)", () => {
 
   it("test_sweepSecureTemps_removes_only_matching_temp_files", async () => {
     const mine = ["f.json.0123456789ab.tmp", "f.json.ffffffffffff.tmp"];
-    const keep = ["f.json", "g.json.0123456789ab.tmp", "f.json.0123456789a.tmp", "f.json.0123456789ab.tmp.bak", "f.json.0123456789AB.tmp"];
+    const keep = ["f.json", "g.json.0123456789ab.tmp", "f.json.0123456789a.tmp", "f.json.0123456789ab.tmp.bak", "f.json.0123456789AC.tmp"];
     for (const n of [...mine, ...keep]) await writeFile(path.join(dir, n), "x");
     await mkdir(path.join(dir, "f.json.aaaaaaaaaaaa.tmp"));
     expect(sweepSecureTemps(dir, "f.json")).toBe(2);
