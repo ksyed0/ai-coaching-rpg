@@ -4575,8 +4575,8 @@
       "severity": "Low",
       "relatedStory": "US-0037",
       "relatedTask": "TASK-0057",
-      "status": "Open",
-      "fixBranch": "bugfix/BUG-0008-atomic-write-flake",
+      "status": "Fixed (cause identified, not reproduced locally)",
+      "fixBranch": "fix/bugs-0008-0012-0013",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -4623,8 +4623,8 @@
       "severity": "Medium",
       "relatedStory": "US-0056",
       "relatedTask": "TASK-0084",
-      "status": "Open",
-      "fixBranch": "None",
+      "status": "Fixed",
+      "fixBranch": "fix/bugs-0008-0012-0013",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -4635,8 +4635,8 @@
       "severity": "Low",
       "relatedStory": "US-0053",
       "relatedTask": "TASK-0081",
-      "status": "Open",
-      "fixBranch": "None",
+      "status": "Fixed",
+      "fixBranch": "fix/bugs-0008-0012-0013",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -4650,6 +4650,18 @@
       "status": "Fixed (15bfed8)",
       "fixBranch": "feature/EPIC-0002-US-0059-readiness",
       "lessonEncoded": "No (L-0003 and L-0017 already state the rule)",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0015",
+      "title": "A start that fails after session.started was written cannot be retried (log_not_empty)",
+      "severity": "Medium",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0094",
+      "status": "Fixed",
+      "fixBranch": "fix/bug-0015-interrupted-start",
+      "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
     }
@@ -5156,6 +5168,14 @@
         "projectedUsd": 400
       },
       "BUG-0014": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0015": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -5917,10 +5937,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-31T00:55:16.008Z",
-  "commitSha": "899d9e3",
-  "buildNumber": "478",
-  "branch": "fix/EPIC-0002-2b1-followups",
+  "generatedAt": "2026-10-31T23:37:59.258Z",
+  "commitSha": "df4bb3b",
+  "buildNumber": "480",
+  "branch": "fix/bug-0015-interrupted-start",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6066,9 +6086,9 @@
     "totalSpent": 799.4862,
     "totalProjected": 70400,
     "percentUsed": 4,
-    "burnRate": 23.500025777777783,
-    "daysRemaining": 731,
-    "projectedExhaustion": 731,
+    "burnRate": 22.712647222222227,
+    "daysRemaining": 757,
+    "projectedExhaustion": 757,
     "thresholds": [
       50,
       75,
@@ -6181,9 +6201,11 @@
       "2026-10-30T18:04:01.651Z",
       "2026-10-30T21:31:32.515Z",
       "2026-10-30T22:10:31.915Z",
-      "2026-10-31T00:55:16.208Z"
+      "2026-10-31T00:55:16.208Z",
+      "2026-10-31T23:37:59.353Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6255,6 +6277,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6288,6 +6311,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -6329,9 +6353,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -6403,9 +6429,11 @@
       2,
       4,
       4,
-      3
+      3,
+      0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -6477,6 +6505,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -6510,6 +6539,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -6551,7 +6581,8 @@
       1.1507692307692308,
       1.1692307692307693,
       1.1646153846153846,
-      1.1553846153846152
+      1.1553846153846152,
+      1.136923076923077
     ],
     "velocityByWeek": {
       "labels": [

@@ -159,23 +159,63 @@ export class SessionEngine {
     return e;
   }
 
+  /**
+   * BUG-0015: the steps of the opening still to run after session.started is on disk (null: no start is under way). Each step is
+   * dropped only once its append succeeded, so a start that fails part-way is finished by calling start again: the log is
+   * append-only and subscribers may have seen session.started, so it is completed in place, never truncated. A fail-stop
+   * (log_failed) ends the attempt for good; the restart then resumes from the log as before.
+   */
+  private opening: Array<() => Promise<void>> | null = null;
+
+  /** True between session.started and the last step of the opening: a start was begun and a second `start` completes it. */
+  get startIncomplete(): boolean { return this.opening !== null; }
+
+  /** `assignments` and `extra` are used only by the first attempt: once session.started is recorded the log is the record, and a retry ignores them. */
   start(assignments: Record<string, string>, extra?: SessionStartExtra): Promise<void> { return this.mutex.run(() => this.doStart(assignments, extra)); }
   private async doStart(assignments: Record<string, string>, extra?: SessionStartExtra): Promise<void> {
-    // The same rule as PlayerCredentials: anything else would be written, ignored on restore and bypass the identity binding.
-    if (extra?.logIdentity !== undefined && !/^[0-9a-f]{32}$/.test(extra.logIdentity)) throw new EngineError("bad_identity", "the log identity must be 32 lowercase hex characters");
-    // Starting on a non-empty log would corrupt the seq order: a log with events is resumed (restore) or rotated aside, never started over.
-    if (this.state.status !== "idle" || (await this.log.all()).length > 0) throw new EngineError("log_not_empty", "the session log already has events; resume it (SESSION_START=resume) or start fresh (SESSION_START=fresh)");
-    const roles: Record<string, { kind: "player" | "npc"; participantId?: string }> = {};
-    for (const [id, role] of Object.entries(this.scenario.roles)) {
-      roles[id] = role.type === "npc" ? { kind: "npc" } : { kind: "player", participantId: assignments[id] };
+    if (this.opening === null) {
+      // The same rule as PlayerCredentials: anything else would be written, ignored on restore and bypass the identity binding.
+      if (extra?.logIdentity !== undefined && !/^[0-9a-f]{32}$/.test(extra.logIdentity)) throw new EngineError("bad_identity", "the log identity must be 32 lowercase hex characters");
+      // Starting on a non-empty log would corrupt the seq order: a log with events is resumed (restore) or rotated aside, never started over.
+      if (this.state.status !== "idle" || (await this.log.all()).length > 0) throw new EngineError("log_not_empty", "the session log already has events; resume it (SESSION_START=resume) or start fresh (SESSION_START=fresh)");
+      const roles: Record<string, { kind: "player" | "npc"; participantId?: string }> = {};
+      for (const [id, role] of Object.entries(this.scenario.roles)) {
+        roles[id] = role.type === "npc" ? { kind: "npc" } : { kind: "player", participantId: assignments[id] };
+      }
+      await this.emit({ type: "session.started", scenarioId: this.scenario.meta.id, version: this.scenario.meta.version, roles, logFormat: LOG_FORMAT, scenarioHash: scenarioHash(this.scenario),
+        // Only what was given: an absent field and an empty one must not both appear in the log.
+        ...(extra?.consents && Object.keys(extra.consents).length > 0 ? { consents: extra.consents } : {}), ...(extra?.names && Object.keys(extra.names).length > 0 ? { names: extra.names } : {}), ...(extra?.logIdentity ? { logIdentity: extra.logIdentity } : {}) });
+      this.opening = this.openingSteps();
     }
-    await this.emit({ type: "session.started", scenarioId: this.scenario.meta.id, version: this.scenario.meta.version, roles, logFormat: LOG_FORMAT, scenarioHash: scenarioHash(this.scenario),
-      // Only what was given: an absent field and an empty one must not both appear in the log.
-      ...(extra?.consents && Object.keys(extra.consents).length > 0 ? { consents: extra.consents } : {}), ...(extra?.names && Object.keys(extra.names).length > 0 ? { names: extra.names } : {}), ...(extra?.logIdentity ? { logIdentity: extra.logIdentity } : {}) });
-    for (const [id, role] of Object.entries(this.scenario.roles)) {
-      if (role.type === "npc") await this.emit({ type: "npc.updated", roleId: id, goals: role.goals, knowledge: role.knowledge, released: [] });
+    while (this.opening.length > 0) {
+      await this.opening[0]();
+      this.opening.shift();
     }
-    await this.enterScene(this.scenario.script.scenes[0]);
+    this.opening = null;
+  }
+
+  /** What follows session.started: each NPC's opening state, then the first scene and its opening inject. Each step reads the state when it runs. */
+  private openingSteps(): Array<() => Promise<void>> {
+    const steps: Array<() => Promise<void>> = [];
+    for (const [id, role] of Object.entries(this.scenario.roles)) {
+      if (role.type === "npc") steps.push(async () => { await this.emit({ type: "npc.updated", roleId: id, goals: role.goals, knowledge: role.knowledge, released: [] }); });
+    }
+    const scene = this.scenario.script.scenes[0];
+    steps.push(async () => { await this.emit({ type: "scene.entered", sceneId: scene.id, participants: scene.participants }); });
+    if (scene.opening_inject) {
+      const inject = scene.injects!.find((i) => i.id === scene.opening_inject)!;
+      steps.push(async () => { await this.emit({ type: "inject.fired", injectId: inject.id, sceneId: scene.id, to: inject.to, content: inject.content }); });
+      for (const roleId of inject.to) steps.push(() => this.updateNpcForInject(inject, roleId));
+    }
+    return steps;
+  }
+
+  private async updateNpcForInject(inject: Inject, roleId: string): Promise<void> {
+    const npc = this.state.npcs[roleId];
+    if (!npc) return;
+    await this.emit({ type: "npc.updated", roleId,
+      goals: [...npc.goals, ...(inject.effect?.goals_add ?? [])],
+      knowledge: [...npc.knowledge, ...(inject.effect?.knowledge_add ?? [])] });
   }
 
   private async enterScene(scene: Scene): Promise<void> {
@@ -185,13 +225,7 @@ export class SessionEngine {
 
   private async fireInject(scene: Scene, inject: Inject): Promise<void> {
     await this.emit({ type: "inject.fired", injectId: inject.id, sceneId: scene.id, to: inject.to, content: inject.content });
-    for (const roleId of inject.to) {
-      const npc = this.state.npcs[roleId];
-      if (!npc) continue;
-      await this.emit({ type: "npc.updated", roleId,
-        goals: [...npc.goals, ...(inject.effect?.goals_add ?? [])],
-        knowledge: [...npc.knowledge, ...(inject.effect?.knowledge_add ?? [])] });
-    }
+    for (const roleId of inject.to) await this.updateNpcForInject(inject, roleId);
   }
 
   /**

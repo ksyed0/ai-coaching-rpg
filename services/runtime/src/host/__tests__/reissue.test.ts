@@ -105,6 +105,26 @@ describe("code reissue (US-0058)", () => {
     expect(carol.r.type).toBe("error");
   });
 
+  it("a start interrupted after session.started keeps the seats frozen, and a retry finishes it (BUG-0015)", async () => {
+    const e = await setup();
+    await seated(e, false);
+    const log = (e.engine as unknown as { log: { append: (...a: unknown[]) => Promise<unknown> } }).log;
+    const real = log.append.bind(log);
+    let calls = 0;
+    log.append = (...a: unknown[]) => (++calls === 2 ? Promise.reject(Object.assign(new Error("closed"), { code: "closed" })) : real(...a));
+    await expect(e.host.start()).rejects.toMatchObject({ code: "closed" });
+    expect(e.host.hasStarted).toBe(false);
+    expect(e.host.isStarting).toBe(true);
+    // Between the attempts the consents are the ones session.started recorded: no reissue, no leave, no withdrawal.
+    await expect(reissueRole(e.deps, "host")).rejects.toThrow("the session is starting");
+    expect(() => e.host.giveConsent("host", "alice", "v1")).toThrow(HostError);
+    await e.host.start();
+    expect(e.host.hasStarted).toBe(true);
+    expect(e.host.isStarting).toBe(false);
+    expect(allEvents(e).filter((x) => x.type === "session.started")).toHaveLength(1);
+    expect(e.engine.state.currentScene).not.toBeNull();
+  });
+
   it("reissue before the start clears consent so the person must consent again", async () => {
     const e = await setup();
     const alice = await seated(e, false);

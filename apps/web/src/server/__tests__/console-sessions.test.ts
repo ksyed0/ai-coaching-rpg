@@ -631,6 +631,33 @@ describe("console session API", () => {
     expect(conn.closed).toBe(1);
   });
 
+  it("start ignores error frames no start can produce, and still ends on the real answer (BUG-0015, M-9)", async () => {
+    const a = await api();
+    conn.onSend = (m, c) => {
+      if (m.type !== "start") return;
+      // Stray answers to something else on the same socket come first; the start's own answer follows.
+      queueMicrotask(() => {
+        c.emit({ type: "error", code: "not_started", message: "not_started" });
+        c.emit({ type: "error", code: "forbidden", message: "forbidden" });
+        c.emit({ type: "error", code: "already_started", message: "already_started" });
+      });
+    };
+    const res = await a.start(post(`/sessions/${SID}/start`));
+    expect(res.status).toBe(409);
+    expect((await json(res)).error?.message).toBe("The session has already started.");
+  });
+
+  it("start is not ended by a stray error frame: only the timeout answers when nothing real arrives", async () => {
+    const a = await api();
+    conn.onSend = (m, c) => {
+      if (m.type === "start") queueMicrotask(() => c.emit({ type: "error", code: "not_started", message: "not_started" }));
+    };
+    const pending = a.start(post(`/sessions/${SID}/start`));
+    await until(() => timers.live().length > 0, { what: "the start timer" });
+    timers.fire(10_000);
+    expect((await pending).status).toBe(504);
+  });
+
   it("start times out neutrally when nothing arrives", async () => {
     const a = await api();
     const pending = a.start(post(`/sessions/${SID}/start`));

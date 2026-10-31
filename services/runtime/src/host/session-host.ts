@@ -146,11 +146,11 @@ export class SessionHost {
     // next participant to hold the seat inherits it. A credential still on the role means the seat is not free: the check below refuses.
     // Only a STARTED session has a marker worth claiming (a reissue before the start clears consent instead): one found earlier is
     // dropped, so the person must consent. While the start is in flight (`starting`) nothing is claimable either.
-    if (this.seats && !this.started && this.starting === null && this.seats.consent.isRebindPending(roleId)) { this.seats.consent.withdraw(roleId); this.seatsDirty = true; }
+    if (this.seats && !this.started && !this.startBegun && this.seats.consent.isRebindPending(roleId)) { this.seats.consent.withdraw(roleId); this.seatsDirty = true; }
     const rebinding = !!this.seats && this.started && this.seats.consent.isRebindPending(roleId) && !this.seats.credentials.has(roleId);
     // US-0054: from the start on, a seat is only for the participant whose consent the start recorded (or who gave it since):
     // a dropped seat cannot be taken by someone else with the code. The same participant still reconnects.
-    if (this.seats && !this.consentGrandfathered && (this.started || this.starting !== null) && !rebinding && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
+    if (this.seats && !this.consentGrandfathered && (this.started || this.startBegun) && !rebinding && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
     if (this.assignments[roleId] && this.assignments[roleId] !== participantId) throw new HostError("role_taken");
     let rebound = false;
     if (rebinding && this.seats!.consent.claimRebind(roleId, participantId, this.clock.now())) {
@@ -175,7 +175,9 @@ export class SessionHost {
   /** US-0058: true once session.started is recorded (a restored session counts). Only then does a reissue rebind consent instead of clearing it. */
   get hasStarted(): boolean { return this.started; }
   /** US-0058: the start is in flight (consents are being frozen into session.started); a reissue is refused meanwhile. */
-  get isStarting(): boolean { return !this.started && this.starting !== null; }
+  get isStarting(): boolean { return !this.started && this.startBegun; }
+  /** The start is in flight, or was interrupted after session.started and awaits a retry (BUG-0015): the seats and consents stay frozen as recorded. */
+  private get startBegun(): boolean { return this.starting !== null || this.engine.startIncomplete; }
 
   /** A facilitator-only info alert from synchronous code: never awaited, never throws; a failure goes to the log callback. */
   noteFacilitator(message: string): Promise<void> {
@@ -258,7 +260,7 @@ export class SessionHost {
 
   /** US-0054: the consents and seats go into session.started, so they are frozen from the moment the start begins. */
   private refuseOnceStarting(): void {
-    if (this.started || this.starting !== null) throw new HostError("already_started");
+    if (this.started || this.startBegun) throw new HostError("already_started");
   }
 
   /**
@@ -311,12 +313,14 @@ export class SessionHost {
   /** The scene whose unanswered player line waits for /resume (null when none). */
   get pendingAnswerScene(): string | null { return this.pendingAnswer; }
 
-  /** `started` is set only after engine.start succeeds, so a failed start can be retried (never wedged). */
+  /** `started` is set only after engine.start succeeds, so a failed start can be retried: the engine finishes an interrupted opening in place (BUG-0015). */
   async start(): Promise<void> {
     if (this.started) return;
     if (this.starting === null) {
       // US-0054: the gate. Every start (the `start` message and the auto-start of a facilitator command) comes through here.
-      const extra = this.startGate();
+      // BUG-0015: not for the retry of a start interrupted after session.started: the log already records who started, and a
+      // seat that changed since must not stop the opening from finishing.
+      const extra = this.engine.startIncomplete ? undefined : this.startGate();
       // A copy: the gate checked these seats, so a release while the engine waits for its mutex must not change what is recorded.
       this.starting = this.engine.start({ ...this.assignments }, extra)
         .then(() => { this.started = true; })
