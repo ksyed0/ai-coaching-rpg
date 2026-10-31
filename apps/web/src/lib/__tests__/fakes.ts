@@ -118,3 +118,32 @@ let seqTs = 1_000;
 export function ev<T extends SessionEvent["type"]>(seq: number, type: T, body: Omit<Extract<SessionEvent, { type: T }>, "seq" | "ts" | "sessionId" | "type">, ts?: number): SessionEvent {
   return { seq, ts: ts ?? (seqTs += 1_000), sessionId: "sess-1", type, ...body } as unknown as SessionEvent;
 }
+
+/** An injected timer the test fires by hand: nothing runs until `fire`, so no test sleeps. */
+export function fakeTimer() {
+  const timers: { fn: () => void; ms: number; cancelled: boolean; fired: boolean }[] = [];
+  const setTimer = (fn: () => void, ms: number): (() => void) => {
+    const t = { fn, ms, cancelled: false, fired: false };
+    timers.push(t);
+    return () => { t.cancelled = true; };
+  };
+  const live = () => timers.filter((t) => !t.cancelled && !t.fired);
+  return {
+    setTimer,
+    /** The delays asked for so far, in order. */
+    get delays() { return timers.map((t) => t.ms); },
+    get pending() { return live().length; },
+    /** Runs the one pending timer (there is never more than one) and returns. */
+    fire() { const t = live()[0]; if (!t) throw new Error("no pending timer"); t.fired = true; t.fn(); },
+  };
+}
+
+/** A readiness answer as the BFF sends it. */
+export const readiness = (over: Record<string, unknown> = {}) => ({
+  launcherStatus: "running", status: "idle", modelLabel: "mock-model", canStart: false, missing: [] as string[],
+  roster: [
+    { roleId: "account_manager", name: "Sam", joined: true, consented: true, connected: true },
+    { roleId: "delivery_lead", joined: false, consented: false, connected: false },
+  ],
+  ...over,
+});

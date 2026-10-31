@@ -2376,28 +2376,28 @@
       "title": "As a facilitator, I want to sign in to a browser console with a secret, so that only I can run sessions.",
       "priority": "High",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0002-US-0057-facilitator-login",
       "acs": [
         {
           "id": "AC-0300",
           "text": "POST /api/v1/console/login compares the secret in constant time against FACILITATOR_SECRET, is throttled, and sets a separate sealed cookie",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0301",
-          "text": "the console is disabled with a loud message when FACILITATOR_SECRET is unset",
-          "done": false
+          "text": "the console is disabled with a clear message when FACILITATOR_SECRET, LAUNCHER_URL or LAUNCHER_TOKEN is unset (generic text in the browser, the unset variables named only in the web server log)",
+          "done": true
         },
         {
           "id": "AC-0302",
-          "text": "the BFF, never the browser, holds runtime facilitator tokens, fetched from the control service over loopback",
-          "done": false
+          "text": "the BFF, never the browser, holds runtime facilitator tokens, fetched together with the runtime port from the control service over loopback, never retried blindly, and sent without X-Forwarded-For on facilitator sockets",
+          "done": true
         },
         {
           "id": "AC-0303",
           "text": "console routes send noindex and the facilitator cookie is never accepted on participant routes or the reverse",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -2410,38 +2410,88 @@
       "title": "As a facilitator, I want to create a session from a browser, so that I do not need a terminal.",
       "priority": "High",
       "estimate": "XL",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0002-US-0058-launcher-control-service",
       "acs": [
         {
           "id": "AC-0304",
           "text": "the control service creates one runtime per session for an allowlisted scenarioId, up to MAX_SESSIONS, callable only by the BFF over loopback with a service token",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0305",
-          "text": "every lifecycle and security variable is set explicitly, RUNTIME_HOST is 127.0.0.1, RUNTIME_PORT is 0, and NO_DOTENV=1 stops the runtime reading <root>/.env",
-          "done": false
+          "text": "the control service starts each runtime with fork() and an allowlisted environment; RUNTIME_HOST is 127.0.0.1, RUNTIME_PORT is 0, and managed mode (which implies NO_DOTENV=1) stops the runtime reading <root>/.env, keeps the lobby codes, seats and consent on an empty log and refuses an ended log",
+          "done": true
         },
         {
           "id": "AC-0306",
-          "text": "on every start the runtime emits one JSON line on a dedicated file descriptor with port, log identity and status, and with codes only when issued",
-          "done": false
+          "text": "over the fork() IPC channel the runtime sends a codes message only when the start issued codes, then a ready message with port, log identity, status and modelLabel, and an ended message when the session ends",
+          "done": true
         },
         {
           "id": "AC-0307",
-          "text": "the runtime exits when its parent pipe closes; after a launcher restart sessions in its list resume paused with fresh tokens and an ended session is never relaunched",
-          "done": false
+          "text": "the runtime stops and exits when the IPC channel disconnects; after a control service restart sessions in its list resume paused with fresh tokens and an ended session is never relaunched",
+          "done": true
         },
         {
           "id": "AC-0308",
-          "text": "per-role and whole-session code reissue return the new codes once and revoke the old credentials (this also carries the per-role reissue clause moved from AC-0273: it is the way back for a web player who lost their cookie)",
-          "done": false
+          "text": "per-role reissue is a parent-only IPC call with a fixed order (write the new codes file, revoke the credential and persist the seats, kick the role, swap the codes, then the roster) that returns the new code once, and after the start it rebinds consent; a whole-session reissue (Reissue all, before the start only) gives every role a new code (this also carries the per-role reissue clause moved from AC-0273: it is the way back for a web player who lost their cookie; \"Remove always reissues\" moved to AC-0314 with remove_participant in slice 2b-2)",
+          "done": true
         },
         {
           "id": "AC-0309",
-          "text": "facilitator tokens are never written to disk, and the control service owns the data directory for web operations",
-          "done": false
+          "text": "facilitator tokens are never written to disk (32 random bytes as hex, in memory only), and the control service owns the data directory for web operations, set explicitly with SESSION_DATA_DIR",
+          "done": true
+        },
+        {
+          "id": "AC-0341",
+          "text": "managed mode keeps the lobby codes, seats and consent on an empty log and refuses an ended log without rotating it",
+          "done": true
+        },
+        {
+          "id": "AC-0342",
+          "text": "the codes, ready and ended messages are sent as specified, and a failed codes send aborts the start and withdraws the codes",
+          "done": true
+        },
+        {
+          "id": "AC-0343",
+          "text": "a parent disconnect stops the runtime and releases the session lock",
+          "done": true
+        },
+        {
+          "id": "AC-0344",
+          "text": "per-role reissue runs in the order write the new codes file, revoke and persist, kick, swap, roster, so a failed codes write changes nothing",
+          "done": true
+        },
+        {
+          "id": "AC-0345",
+          "text": "a reissue after the start rebinds the seat's consent to the next joiner and records it with the facilitator name; a reissue before the start clears the consent",
+          "done": true
+        },
+        {
+          "id": "AC-0346",
+          "text": "the control service restarts manually only, a crashed child is stopped, ended is persisted at once and frees the MAX_SESSIONS slot, and each session has its own child log",
+          "done": true
+        },
+        {
+          "id": "AC-0347",
+          "text": "the child environment is an allowlist and the facilitator token is 64 hex characters, fresh per start",
+          "done": true
+        },
+        {
+          "id": "AC-0348",
+          "text": "the facilitator cookie is purpose-bound and carries a secret epoch, and login checks Origin",
+          "done": true
+        },
+        {
+          "id": "AC-0349",
+          "text": "runtime lookup is dual-mode (LAUNCHER_URL set, else RUNTIME_URL), the port and token are fetched together, a refused token is not retried blindly, and no X-Forwarded-For is sent on facilitator sockets",
+          "done": true
+        },
+        {
+          "id": "AC-0350",
+          "text": "a launcher-mode Web E2E signs in, creates a session, joins players and presses Start",
+          "done": true
         }
       ],
       "dependencies": [
@@ -2454,13 +2504,13 @@
       "title": "As a facilitator, I want a live console to get the room ready, run the scene and step in, so that I can facilitate entirely in the browser.",
       "priority": "High",
       "estimate": "XL",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0002-US-0059-live-console",
       "acs": [
         {
           "id": "AC-0310",
-          "text": "the New session and readiness screens show who has joined and consented, the model status and the codes once, and Start stays disabled until the start gate is met",
-          "done": false
+          "text": "the New session and readiness screens show who has joined and consented, the model status (from modelLabel) and the codes once, and Start stays disabled until the start gate is met (built in slice 2b-1 under TASK-0094)",
+          "done": true
         },
         {
           "id": "AC-0311",
@@ -2479,7 +2529,7 @@
         },
         {
           "id": "AC-0314",
-          "text": "remove_participant before the start revokes the credential, closes the socket, clears consent and frees the seat",
+          "text": "remove_participant before the start revokes the credential, closes the socket, clears consent, frees the seat and always reissues the role's code (moved from AC-0308)",
           "done": false
         },
         {
@@ -3497,9 +3547,9 @@
       "title": "Facilitator login, console shell and cookie",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0057-facilitator-login",
-      "notes": "Spec section 6. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "notes": "Spec docs/superpowers/specs/2026-10-30-web-client-slice-2b-design.md section 6 (purpose-bound cookie `__Host-scenecoach-fac`, secret epoch, login Origin check, throttle, noindex) and plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md. Parent spec docs/superpowers/specs/2026-10-26-web-client-design.md."
     },
     {
       "id": "TASK-0087",
@@ -3507,9 +3557,9 @@
       "title": "Launcher and control service, machine channel, NO_DOTENV flag",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0058-launcher-control-service",
-      "notes": "Spec section 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "notes": "Spec docs/superpowers/specs/2026-10-30-web-client-slice-2b-design.md sections 5 and 5.1 to 5.5 (fork() IPC, managed mode, reissue, control service API, lifecycle) and plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md. Parent spec docs/superpowers/specs/2026-10-26-web-client-design.md."
     },
     {
       "id": "TASK-0088",
@@ -3520,6 +3570,16 @@
       "status": "To Do",
       "branch": "feature/EPIC-0002-US-0059-live-console",
       "notes": "Spec sections 5.6 and 5.7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+    },
+    {
+      "id": "TASK-0094",
+      "storyId": "US-0059",
+      "title": "Readiness page and Start (slice 2b-1)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0059-readiness",
+      "notes": "Delivers AC-0310 only; the rest of US-0059 stays on feature/EPIC-0002-US-0059-live-console in slice 2b-2. Spec docs/superpowers/specs/2026-10-30-web-client-slice-2b-design.md section 6.1 and plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md."
     },
     {
       "id": "TASK-0089",
@@ -4322,6 +4382,106 @@
       "type": "Regression",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0077",
+      "title": "Managed mode keeps lobby state and refuses an ended log",
+      "relatedStory": "US-0058",
+      "relatedTask": "TASK-0087",
+      "relatedAC": "AC-0341",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0078",
+      "title": "Codes, ready and ended messages; failed codes send aborts the start",
+      "relatedStory": "US-0058",
+      "relatedTask": "TASK-0087",
+      "relatedAC": "AC-0342",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0079",
+      "title": "Parent disconnect stops the runtime",
+      "relatedStory": "US-0058",
+      "relatedTask": "TASK-0087",
+      "relatedAC": "AC-0343",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0080",
+      "title": "Per-role reissue order",
+      "relatedStory": "US-0058",
+      "relatedTask": "TASK-0087",
+      "relatedAC": "AC-0344",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0081",
+      "title": "Reissue rebinds or clears consent",
+      "relatedStory": "US-0058",
+      "relatedTask": "TASK-0087",
+      "relatedAC": "AC-0345",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0082",
+      "title": "Control service lifecycle",
+      "relatedStory": "US-0058",
+      "relatedTask": "TASK-0087",
+      "relatedAC": "AC-0346",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0083",
+      "title": "Child environment allowlist and token",
+      "relatedStory": "US-0058",
+      "relatedTask": "TASK-0087",
+      "relatedAC": "AC-0347",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0084",
+      "title": "Purpose-bound cookie, secret epoch, login Origin check",
+      "relatedStory": "US-0058",
+      "relatedTask": "TASK-0087",
+      "relatedAC": "AC-0348",
+      "type": "Security",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0085",
+      "title": "Dual-mode lookup and facilitator sockets",
+      "relatedStory": "US-0058",
+      "relatedTask": "TASK-0087",
+      "relatedAC": "AC-0349",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0086",
+      "title": "Launcher-mode Web E2E through Start",
+      "relatedStory": "US-0058",
+      "relatedTask": "TASK-0087",
+      "relatedAC": "AC-0350",
+      "type": "E2E",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -4453,6 +4613,30 @@
       "relatedTask": "TASK-0084",
       "status": "Fixed (b451052)",
       "fixBranch": "feature/EPIC-0002-US-0056-participant-web-app",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0012",
+      "title": "apps/web handlers.test.ts \"consent gives consent; withdrawing and leaving also clear the cookie\" fails about one run in three",
+      "severity": "Medium",
+      "relatedStory": "US-0056",
+      "relatedTask": "TASK-0084",
+      "status": "Open",
+      "fixBranch": "None",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0013",
+      "title": "runtime secure-json-file sweep test fails on macOS (case-insensitive file system)",
+      "severity": "Low",
+      "relatedStory": "US-0053",
+      "relatedTask": "TASK-0081",
+      "status": "Open",
+      "fixBranch": "None",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -4943,6 +5127,22 @@
         "isEstimated": false,
         "projectedUsd": 400
       },
+      "BUG-0012": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0013": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
       "_totals": {
         "costUsd": 0,
         "inputTokens": 0,
@@ -5358,11 +5558,11 @@
       "isAtRisk": true
     },
     "US-0058": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0059": {
       "missingTCs": true,
@@ -5639,12 +5839,60 @@
       "context": "",
       "date": "2026-10-28",
       "bugIds": []
+    },
+    {
+      "id": "L-0025",
+      "title": "Never append an event before the start: a non-empty log wedges `engine.start`",
+      "rule": "The engine refuses to start on a log that already holds an event (`log_not_empty`). Any code that runs before the session starts (a reissue, a roster change, an operator action) must keep its audit trail in memory or in a side file, never as a facilitator alert in the session log. Add a test that performs the action on a lobby and then starts the session.\n_Learned when the first design of the parent-only code reissue appended a facilitator alert before the start; the review found that one pre-start reissue made the later `start` fail. Alerts are appended only after `session.started` (slice 2b-1, Task 9)._",
+      "context": "",
+      "date": "2026-10-30",
+      "bugIds": []
+    },
+    {
+      "id": "L-0026",
+      "title": "A rollback that deletes files must first wait for the child to exit",
+      "rule": "When a supervisor rolls back a half-created child (failed start, timeout), kill it, await its exit (bounded by a timer), force-kill if it survives, and only then delete its files and free its slot. A dying process can still write a file after you removed it, and a freed slot lets a second create race the first child's lock. A child that survives SIGKILL keeps its slot reserved.\n_Learned when the control service's rollback deleted the session files at once after `kill()`; the review showed a late write could resurrect them and the slot count could exceed `MAX_SESSIONS` (slice 2b-1, Task 11a; ruling R9)._",
+      "context": "",
+      "date": "2026-10-30",
+      "bugIds": []
+    },
+    {
+      "id": "L-0027",
+      "title": "A fake child that exits synchronously hides shutdown races",
+      "rule": "In tests for process supervision, model `kill()`, `exit` and `message` asynchronously (a later tick), the way a real child behaves. A fake that emits `exit` inside `kill()` makes \"await the exit\" and \"persist after the exit\" look correct, and the same code then races against a real process. Back the unit tests with at least one test on a real forked child, and check a test is red against the old code.\n_Learned when the first rollback test for the control service passed against code that did not wait for the child: its fake exited inside `kill()`. Fixed by writing the late file in `setImmediate` before the exit (slice 2b-1, Task 11a)._",
+      "context": "",
+      "date": "2026-10-30",
+      "bugIds": []
+    },
+    {
+      "id": "L-0028",
+      "title": "A client-chosen id must never equal a server placeholder",
+      "rule": "If the server stores a placeholder value in a field the client also fills (for example `rebind-pending` in the consent file's participant id), refuse that value from every client path (the schema, `give`, `adopt`) and make `has()` false for it. Otherwise a client can claim the waiting state by naming it. Test each entry point with the placeholder itself.\n_Learned when the consent rebind marker `rebind-pending` could be chosen as a participant id through `give`, `adopt` and the protocol schema, which would have let a joining client inherit a seat's consent (slice 2b-1, Task 9 review)._",
+      "context": "",
+      "date": "2026-10-30",
+      "bugIds": []
+    },
+    {
+      "id": "L-0029",
+      "title": "A failed seat persist needs an in-memory rollback",
+      "rule": "When an operation changes in-memory state and then persists it (revoke a credential, release a consent), a failed persist must restore the memory too, in the same order it was changed. Otherwise the running process and the file disagree: a role can stay open to the old code, or the old holder is locked out for a change that was never saved. Make the failure test assert the in-memory state, not only that an error was thrown.\n_Learned when a failed seat persist in the reissue left the role open to the OLD code and the consent released in memory, and the test only checked the error (slice 2b-1, Task 9 review). Remaining gap: the two-file persist (credentials, then consent) can still diverge on disk if the second write fails._",
+      "context": "",
+      "date": "2026-10-30",
+      "bugIds": []
+    },
+    {
+      "id": "L-0030",
+      "title": "Repo-wide scanner tests run in one package and read all of them",
+      "rule": "Tests that walk the whole repository (`id-rules.files.test.ts`, `test-hygiene.test.ts` in `services/runtime`) apply to every package, including new ones, but a per-file container run of the new package does not execute them. Before closing a slice that adds a package or test files, run the full `pnpm test:coverage` (or those scanner files) and not only the recipe on the files you changed.\n_Learned at the close of slice 2b-1: the scanners reported `services/control/src/api.ts:89` (an identifier-rule regex) and `services/control/src/__tests__/supervisor.real.test.ts:103` (an elapsed-time assertion) that sixteen task-level runs had not executed._",
+      "context": "",
+      "date": "2026-10-30",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-28T18:11:23.585Z",
-  "commitSha": "d1eb8bb",
-  "buildNumber": "476",
-  "branch": "chore/EPIC-0002-slice-2a-closeout",
+  "generatedAt": "2026-10-30T22:10:31.389Z",
+  "commitSha": "f92822c",
+  "buildNumber": "517",
+  "branch": "feature/EPIC-0002-US-0059-readiness",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -5786,13 +6034,13 @@
     }
   },
   "budget": {
-    "totalBudget": 25199.4862,
+    "totalBudget": 17999.4862,
     "totalSpent": 799.4862,
     "totalProjected": 70400,
-    "percentUsed": 3,
-    "burnRate": 25.862161444444446,
-    "daysRemaining": 943,
-    "projectedExhaustion": 943,
+    "percentUsed": 4,
+    "burnRate": 23.500025777777783,
+    "daysRemaining": 731,
+    "projectedExhaustion": 731,
     "thresholds": [
       50,
       75,
@@ -5828,10 +6076,10 @@
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 16184.49682,
+        "budget": 8984.49682,
         "spent": 184.49682000000004,
-        "remaining": 16000,
-        "percentUsed": 1
+        "remaining": 8800,
+        "percentUsed": 2
       },
       {
         "id": "EPIC-0007",
@@ -5901,9 +6149,15 @@
       "2026-10-25T18:11:23.806Z",
       "2026-10-26T18:11:23.806Z",
       "2026-10-27T18:11:23.806Z",
-      "2026-10-28T18:11:23.800Z"
+      "2026-10-28T18:11:23.800Z",
+      "2026-10-30T18:04:01.651Z",
+      "2026-10-30T21:31:32.515Z",
+      "2026-10-30T22:10:31.915Z"
     ],
     "doneCounts": [
+      0,
+      0,
+      0,
       0,
       0,
       0,
@@ -5967,6 +6221,9 @@
       65,
       65,
       65,
+      65,
+      65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6000,6 +6257,9 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
+      799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
@@ -6033,9 +6293,15 @@
       0,
       0,
       0,
+      null,
+      null,
+      null,
       null
     ],
     "velocity": [
+      0,
+      0,
+      0,
       0,
       0,
       0,
@@ -6099,9 +6365,15 @@
       1,
       1,
       1,
-      2
+      2,
+      2,
+      4,
+      4
     ],
     "atRisk": [
+      0,
+      0,
+      0,
       0,
       0,
       0,
@@ -6165,6 +6437,9 @@
       0,
       0,
       0,
+      33019880,
+      33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -6198,6 +6473,9 @@
       0,
       0,
       0,
+      5997518,
+      5997518,
+      5997518,
       5997518
     ],
     "avgRisk": [
@@ -6231,7 +6509,10 @@
       1.1507692307692308,
       1.1507692307692308,
       1.1553846153846152,
-      1.146153846153846
+      1.146153846153846,
+      1.1507692307692308,
+      1.1692307692307693,
+      1.1646153846153846
     ],
     "velocityByWeek": {
       "labels": [

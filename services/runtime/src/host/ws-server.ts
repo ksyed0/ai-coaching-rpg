@@ -16,6 +16,8 @@ export const MAX_PAYLOAD_BYTES = 16 * 1024;
 const CLOSE_POLICY = 1008;
 /** US-0053: a later join with the role's credential (or reconnect token) took the seat. A client must not reconnect on it. */
 export const CLOSE_SUPERSEDED = 4001;
+/** US-0058: the control service reissued this role's join code; the connection that held the seat is closed and must not reconnect. */
+export const CLOSE_REISSUED = 4002;
 /** US-0013: the answer to a `lastSeq` past the session's last event (sent only once the join is authorised, so it probes nothing). */
 const BEYOND_HEAD = "lastSeq: after the last event of this session";
 /** The failed-login scope of a wrong join code: the role if the session has it, else one shared bucket so made-up role ids cannot fill the map. */
@@ -56,7 +58,23 @@ export type ServerOptions = {
   joinCodes?: Map<string, JoinCodes>;
 };
 
-export async function startServer(opts: ServerOptions): Promise<{ port: number; close(): Promise<void> }> {
+/**
+ * What `startServer` returns. `replaceCodes` and `kickRole` are the primitives the control service's code reissue is built on.
+ * `replaceCodes` needs `opts.joinCodes` (it swaps an entry in that map) and throws if the server was started without it.
+ */
+export type ServerHandle = {
+  port: number;
+  close(): Promise<void>;
+  /** Sets the session's join codes in the caller's `joinCodes` map (adds the entry if absent). Throws when the server has no join codes. */
+  replaceCodes(sessionId: string, codes: JoinCodes): void;
+  /**
+   * Frees one role's seat at once (not when the socket finishes closing), closes its socket with `closeCode` and tells the room.
+   * Only that role in that session is touched; an unknown session or role is a no-op.
+   */
+  kickRole(sessionId: string, roleId: string, closeCode: number): void;
+};
+
+export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   const log = opts.log ?? (() => {});
   const heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
   // BUG-0001: setInterval treats 0, negative, NaN and anything above 2^31-1 ms as 1 ms, which would terminate every socket almost at once.
@@ -144,7 +162,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
   }) ?? (() => undefined)); // (a stand-in host in a test may not offer onFatal)
 
   /** Which connection currently holds each player role, so a stale socket closing cannot free a rejoined role. `kick` supersedes it. */
-  const holders = new Map<string, { ws: WebSocket; token: string; kick: () => void }>();
+  const holders = new Map<string, { ws: WebSocket; token: string; kick: () => void; kickWith: (code: number) => void }>();
 
   /** US-0055: every joined connection that is still open, so a change can be told to the whole room. */
   type Live = { sessionId: string; h: SessionHost; facilitator: boolean; ws: WebSocket; send: (m: ServerMessage) => void; closing: () => boolean };
@@ -320,7 +338,7 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
             // US-0013: from here to the subscribe below there is no await, so no event can fall between the replay and the live stream.
             // Computed before the seat is taken or a credential saved, so it can never leave a half-joined seat. Omitted when empty (a stand-in host may not offer it).
             const scenes = (h as Partial<SessionHost>).scenesFor?.(m.roleId) ?? [];
-            const { brief, privateFacts } = h.join(m.roleId, m.participantId);
+            const { brief, privateFacts, rebound } = h.join(m.roleId, m.participantId);
             let credential: string | undefined;
             if (seats && m.issueCredential && byCode) {
               // US-0053: the credential is on disk before the browser learns it, so a restart can never lose a seat it was told about.
@@ -330,13 +348,15 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
               } catch (err) {
                 // Undo everything: an unsaved credential left in memory would lock the role's code out until a restart.
                 seats.credentials.revoke(m.roleId);
+                if (rebound) h.undoRebind(m.roleId); // US-0058: the consent goes back to waiting for the next participant
                 if (!prevLive) h.release(m.roleId, m.participantId); // a superseded holder (same participant) keeps its seat
                 log(`credential not saved for ${m.roleId}: ${err instanceof Error ? err.message : String(err)}`);
                 return fail("internal", "internal error");
               }
             }
             const token = randomUUID();
-            holders.set(key, { ws, token, kick: () => { dropCounted = true; shut(CLOSE_SUPERSEDED, "superseded"); } });
+            const kickWith = (code: number) => { dropCounted = true; shut(code, code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "reissued" : "closed"); };
+            holders.set(key, { ws, token, kick: () => kickWith(CLOSE_SUPERSEDED), kickWith });
             holderKey = key; participantId = m.participantId; who = m.roleId;
             // Its close handler leaves the seat alone: `holders` already points at this socket. A disconnect never revokes.
             if (prevLive) prev.kick();
@@ -442,6 +462,23 @@ export async function startServer(opts: ServerOptions): Promise<{ port: number; 
 
   return {
     port,
+    replaceCodes: (sessionId, codes) => {
+      if (opts.joinCodes === undefined) throw new Error("replaceCodes: this server was started without join codes");
+      opts.joinCodes.set(sessionId, codes);
+    },
+    kickRole: (sessionId, roleId, closeCode) => {
+      const h = opts.hosts.get(sessionId);
+      if (!h) return;
+      const key = `${sessionId}:${roleId}`;
+      const held = holders.get(key);
+      // The seat is freed here, synchronously: the socket closes later, and a join with the new code must not meet `role_taken`.
+      // Removing the holder first makes the old socket's close handler leave the seat (now possibly someone else's) alone.
+      holders.delete(key);
+      const occupant = Object.hasOwn(h.assignments, roleId) ? h.assignments[roleId] : undefined;
+      if (occupant !== undefined) h.release(roleId, occupant);
+      held?.kickWith(closeCode); // marks the socket closing, so the broadcast below does not reach it
+      if (held || occupant !== undefined) { log(`kicked ${roleId}`); rosterChanged(roleId, "left"); broadcastRoster(sessionId, h); }
+    },
     close: () => new Promise<void>((resolve) => {
       for (const u of unsubscribeFatal) u();
       for (const u of unsubscribeEnd) u();

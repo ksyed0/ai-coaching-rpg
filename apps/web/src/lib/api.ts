@@ -1,6 +1,7 @@
 // POSTs to the BFF. The cookie is HttpOnly: the browser sends it (same-origin credentials) and this code never sees it.
 
-export type ApiResult = { ok: true; data: unknown } | { ok: false; status: number; code: string; message: string };
+/** A refusal may carry structured detail in `data` (the facilitator's start gate); it is present only then. */
+export type ApiResult = { ok: true; data: unknown } | { ok: false; status: number; code: string; message: string; data?: unknown };
 /** What an action reports to a component: the server's (BFF-written) message on a refusal, or "" to use a generic one. */
 export type ActionResult = { ok: true } | { ok: false; message: string };
 
@@ -11,14 +12,22 @@ const MAX_MESSAGE_CHARS = 300;
 const globalFetch: typeof fetch = (input, init) => globalThis.fetch(input, init);
 
 export async function postJson(path: string, body: unknown, fetchImpl: typeof fetch = globalFetch): Promise<ApiResult> {
+  return send(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Requested-With": REQUESTED_WITH },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }, fetchImpl);
+}
+
+/** A read: same envelope, no body and no cache (the console's polls must never see a stale answer). */
+export async function getJson(path: string, fetchImpl: typeof fetch = globalFetch): Promise<ApiResult> {
+  return send(path, { method: "GET", cache: "no-store" }, fetchImpl);
+}
+
+async function send(path: string, init: RequestInit, fetchImpl: typeof fetch): Promise<ApiResult> {
   let res: Response;
   try {
-    res = await fetchImpl(path, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json", "X-Requested-With": REQUESTED_WITH },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
+    res = await fetchImpl(path, { ...init, credentials: "same-origin" });
   } catch {
     return { ok: false, status: 0, code: "network", message: "" };
   }
@@ -28,5 +37,9 @@ export async function postJson(path: string, body: unknown, fetchImpl: typeof fe
   if (res.ok && e.success === true) return { ok: true, data: e.data ?? null };
   const code = typeof e.error?.code === "string" ? e.error.code : "unknown";
   const msg = e.error?.message;
-  return { ok: false, status: res.status, code, message: typeof msg === "string" && msg.length <= MAX_MESSAGE_CHARS ? msg : "" };
+  return {
+    ok: false, status: res.status, code,
+    message: typeof msg === "string" && msg.length <= MAX_MESSAGE_CHARS ? msg : "",
+    ...(typeof e.data === "object" && e.data !== null ? { data: e.data } : {}),
+  };
 }

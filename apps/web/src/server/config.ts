@@ -8,7 +8,21 @@ export type Config = {
   maxStreams: number;
   maxStreamsPerSession: number;
   maxStreamsPerAddress: number;
+  /** The facilitator console: usable only when all three are set (see consoleEnabled). */
+  facilitatorSecret?: string;
+  launcherUrl?: string;
+  launcherToken?: string;
 };
+
+/** The console variables that are unset (names only). Empty means the console is enabled. */
+export function missingConsoleVars(c: Pick<Config, "facilitatorSecret" | "launcherUrl" | "launcherToken">): string[] {
+  // Names only: a value (the secret, the token) is tested for presence and never placed in a structure that reaches a log line.
+  const missing: string[] = [];
+  if (!c.facilitatorSecret) missing.push("FACILITATOR_SECRET");
+  if (!c.launcherUrl) missing.push("LAUNCHER_URL");
+  if (!c.launcherToken) missing.push("LAUNCHER_TOKEN");
+  return missing;
+}
 
 const KEY_ID = /^[A-Za-z0-9_-]{1,16}$/;
 const MAX_KEYS = 8;
@@ -50,9 +64,28 @@ function parseKeys(raw: string | undefined, problems: string[]): Config["cookieK
 export function loadConfig(env: Record<string, string | undefined>): Config {
   const problems: string[] = [];
 
+  const launcherRaw = env.LAUNCHER_URL === "" ? undefined : env.LAUNCHER_URL;
+  const launcher = parseUrl(launcherRaw);
+  let launcherUrl: string | undefined;
+  if (launcherRaw !== undefined) {
+    if (!launcher || launcher.protocol !== "http:" || (launcher.hostname !== "127.0.0.1" && launcher.hostname !== "localhost") || launcher.port === "" || launcher.username !== "" || launcher.password !== "" || launcher.pathname !== "/" || launcher.search !== "" || launcher.hash !== "") {
+      problems.push("LAUNCHER_URL must be an http://127.0.0.1:<port> or http://localhost:<port> URL with no credentials or path");
+    } else launcherUrl = launcher.origin;
+  }
+  const facilitatorSecret = env.FACILITATOR_SECRET === "" ? undefined : env.FACILITATOR_SECRET;
+  if (facilitatorSecret !== undefined && facilitatorSecret.length < 16) problems.push("FACILITATOR_SECRET must be at least 16 characters");
+  const launcherToken = env.LAUNCHER_TOKEN === "" ? undefined : env.LAUNCHER_TOKEN;
+  if (launcherToken !== undefined && launcherToken.length < 32) problems.push("LAUNCHER_TOKEN must be at least 32 characters");
+  // With LAUNCHER_URL the PLAYER routes look each session's runtime up through the control service, which needs the token: without it
+  // no join or stream could work, so this is a configuration error, not a disabled console. (FACILITATOR_SECRET stays optional.)
+  if (launcherRaw !== undefined && launcherToken === undefined) problems.push("LAUNCHER_TOKEN is required when LAUNCHER_URL is set (the player routes look up each session's runtime through the control service)");
+
+  // RUNTIME_URL stays required only for a player-only deployment (no LAUNCHER_URL).
   const runtime = parseUrl(env.RUNTIME_URL);
-  if (!runtime || (runtime.protocol !== "ws:" && runtime.protocol !== "wss:") || runtime.username !== "" || runtime.password !== "") {
-    problems.push("RUNTIME_URL is required and must be a ws:// or wss:// URL without credentials");
+  if (launcherRaw === undefined && (!runtime || (runtime.protocol !== "ws:" && runtime.protocol !== "wss:") || runtime.username !== "" || runtime.password !== "")) {
+    problems.push("RUNTIME_URL is required and must be a ws:// or wss:// URL without credentials (unless LAUNCHER_URL is set)");
+  } else if (launcherRaw !== undefined && env.RUNTIME_URL !== undefined && env.RUNTIME_URL !== "" && (!runtime || (runtime.protocol !== "ws:" && runtime.protocol !== "wss:") || runtime.username !== "" || runtime.password !== "")) {
+    problems.push("RUNTIME_URL must be a ws:// or wss:// URL without credentials");
   }
 
   const origin = parseUrl(env.PUBLIC_ORIGIN);
@@ -67,5 +100,8 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   const maxStreamsPerAddress = int(env, "WEB_MAX_STREAMS_PER_ADDRESS", 16, 1, 1000, problems);
 
   if (problems.length > 0) throw new Error(`Invalid web configuration: ${problems.join("; ")}`);
-  return { runtimeUrl: env.RUNTIME_URL!, publicOrigin: env.PUBLIC_ORIGIN!, cookieKeys, cookieMaxAgeHours, maxStreams, maxStreamsPerSession, maxStreamsPerAddress };
+  return {
+    runtimeUrl: env.RUNTIME_URL ?? "", publicOrigin: env.PUBLIC_ORIGIN!, cookieKeys, cookieMaxAgeHours, maxStreams, maxStreamsPerSession, maxStreamsPerAddress,
+    ...(facilitatorSecret !== undefined && { facilitatorSecret }), ...(launcherUrl !== undefined && { launcherUrl }), ...(launcherToken !== undefined && { launcherToken }),
+  };
 }

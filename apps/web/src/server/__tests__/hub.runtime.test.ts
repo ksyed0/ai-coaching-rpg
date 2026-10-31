@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { RuntimeConnection, realTimer } from "../runtime-connection";
 import { StreamHub, type SessionCookie } from "../stream-hub";
-import type { JoinedFrame, PeerRosterEntry, ReplaySummary, ServerMessage } from "../wire";
+import type { ClientMessage, FacilitatorRosterEntry, JoinedFrame, PeerRosterEntry, ReplaySummary, ServerMessage } from "../wire";
 import { holdingProxy, sseRecorder, until } from "./fakes";
 
 // The real runtime, in-process, mock models, port 0, private temp dirs. A generous explicit limit; nothing measures elapsed time.
@@ -17,6 +17,7 @@ vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 const MAIN = fileURLToPath(new URL("../../../../../services/runtime/src/main.ts", import.meta.url));
 if (!existsSync(MAIN)) throw new Error(`hub.runtime.test.ts needs the runtime's entry point at ${MAIN}; it moved: update MAIN`);
 const SCENARIO = fileURLToPath(new URL("../../../../../scenarios/friday-escalation", import.meta.url));
+const PROTOCOL = fileURLToPath(new URL("../../../../../services/runtime/src/host/protocol.ts", import.meta.url));
 type Host = { assignments: Record<string, string>; idle(): Promise<void>; consentGiven(roleId: string, participantId: string): boolean; replayFor(who: string, afterSeq: number): { complete: boolean; events: { seq: number }[] } };
 type Bootstrap = (o: { env: Record<string, string>; root: string; logDir: string; tickMs: number; log: (m: string) => void; warn: (m: string) => void; showJoinCodes: (c: { roleId: string; code: string }[]) => void }) =>
   Promise<{ ok: true; runtime: { port: number; host: Host; stop(): Promise<void> } } | { ok: false; errors: string[] }>;
@@ -378,3 +379,45 @@ describe("wire contract", () => {
     }
   });
 });
+
+// The facilitator side of the contract: every client message wire.ts can send is accepted by the runtime's own schema, and the frames a
+// facilitator receives carry only the keys wire.ts knows.
+const FAC_ENTRY_KEYS = keys<FacilitatorRosterEntry>()(["roleId", "name", "joined", "consented", "connected"]);
+const FAC_ROSTER_KEYS = keys<Extract<ServerMessage, { type: "roster"; audience: "facilitator" }>>()(["type", "audience", "entries"]);
+/** One sample of every ClientMessage variant; the Record makes a new variant a compile error until it is added here. */
+const SENT: Record<ClientMessage["type"], ClientMessage> = {
+  join: { type: "join", sessionId: SESSION, roleId: "delivery_lead", participantId: "p", joinCode: "abcd - efgh", displayName: "Ann", issueCredential: true, lastSeq: 0 },
+  join_facilitator: { type: "join_facilitator", sessionId: SESSION, token: "t".repeat(64) },
+  start: { type: "start" },
+  consent: { type: "consent", noticeVersion: "v1" },
+  withdraw_consent: { type: "withdraw_consent" },
+  leave: { type: "leave" },
+  say: { type: "say", text: "hi", expectSceneId: "sc" },
+};
+
+describe("wire contract: facilitator", () => {
+  it("the runtime's own schema accepts every message wire.ts can send", async () => {
+    const { ClientMessageSchema } = (await import(PROTOCOL)) as { ClientMessageSchema: { safeParse(v: unknown): { success: boolean } } };
+    for (const [type, m] of Object.entries(SENT)) expect(ClientMessageSchema.safeParse(m).success, `${type} is accepted`).toBe(true);
+  });
+
+  it("the facilitator's joined and roster frames use only pinned keys, and joinFacilitator returns the roster and status", async () => {
+    const raw = await facilitator();
+    const joined = raw.inbox.find((m) => m.type === "joined");
+    within(joined, [...JOINED_KEYS, "hiddenFacts", "notice"], ["type", "roleId", "state"], "facilitator joined");
+    expect(joined.roleId).toBe("facilitator");
+    await until(() => raw.inbox.some((m) => m.type === "roster"));
+    const roster = raw.inbox.find((m) => m.type === "roster");
+    within(roster, FAC_ROSTER_KEYS, FAC_ROSTER_KEYS, "facilitator roster");
+    expect(roster.audience).toBe("facilitator");
+    for (const e of roster.entries) within(e, FAC_ENTRY_KEYS, ["roleId", "joined", "consented", "connected"], "facilitator entry");
+
+    const conn = await RuntimeConnection.connect(url(), null);
+    closers.push(() => conn.close());
+    const r = await conn.joinFacilitator(SESSION, "any");
+    expect(r.status).toBe(joined.state.status);
+    expect(r.roster.map((e) => e.roleId).sort()).toEqual([...PLAYERS].sort());
+    expect(r.roster.every((e) => e.joined === false && e.consented === false && e.connected === false)).toBe(true);
+  });
+});
+

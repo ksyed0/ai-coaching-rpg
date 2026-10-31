@@ -80,6 +80,19 @@ export class JoinCodes {
     return { codes: new JoinCodes(bind.sessionId, bind.scenarioSha256, salt, hashes), plain };
   }
 
+  /**
+   * US-0058: the same codes with ONE role's code replaced by a new random one (same salt, same other hashes; this instance is not
+   * changed). `plain` is the only place the new code appears. Throws for a role this record has no code for (unknown, an AI
+   * character, reserved, a prototype key: the Map never matches those).
+   */
+  withRole(roleId: string, pick?: (n: number) => number): { codes: JoinCodes; plain: string } {
+    if (!this.hashes.has(roleId)) throw new Error("no join code for that role");
+    const plain = newJoinCode(pick);
+    const hashes = new Map(this.hashes);
+    hashes.set(roleId, digest(this.salt, roleId, normalizeJoinCode(plain)));
+    return { codes: new JoinCodes(this.sessionId, this.scenarioSha256, this.salt, hashes), plain };
+  }
+
   /** Rebuilds the verifier from a codes file. Throws JoinCodeRecordError (never quoting the record) when it is not a valid record. */
   static fromRecord(raw: unknown): JoinCodes {
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new JoinCodeRecordError("the join codes file is not a JSON object");

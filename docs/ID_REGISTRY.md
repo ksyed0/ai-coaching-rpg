@@ -4,11 +4,11 @@
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
-| TASK         | TASK-0094             | TASK-0093         |
-| AC           | AC-0341               | AC-0340           |
-| TC           | TC-0077               | TC-0076           |
-| BUG          | BUG-0012              | BUG-0011          |
-| L            | L-0025                | L-0024            |
+| TASK         | TASK-0095             | TASK-0094         |
+| AC           | AC-0351               | AC-0350           |
+| TC           | TC-0087               | TC-0086           |
+| BUG          | BUG-0015              | BUG-0014          |
+| L            | L-0032                | L-0031            |
 
 Reserved blocks (2026-10-06): AC-0130..AC-0139 and TASK-0040..TASK-0042 US-0025; AC-0140..AC-0149 and TASK-0043..TASK-0045 US-0017; AC-0150..AC-0159 and TASK-0046..TASK-0048 US-0016; AC-0160..AC-0169 and TASK-0049..TASK-0051 US-0018. Free below the blocks: AC-0127..AC-0129 and TASK-0035..TASK-0039. Next/Last point past the reserved blocks; an id in a block that its story does not use stays unused (ids are never reassigned).
 
@@ -25,3 +25,5 @@ Reserved blocks (2026-10-26, brand and multi-client backlog): EPIC-0007, EPIC-00
 Reserved blocks (2026-10-27, EPIC-0002 web client): US-0052..US-0065; TASK-0080..TASK-0093; AC-0266..AC-0340. Slice 2a: US-0052..US-0056 and US-0065; slice 2b: US-0057..US-0061; slice 2c: US-0062..US-0064. All Planned; test cases are filed when each story moves to In Progress. Ids in a block that its story does not use stay unused.
 
 Assigned 2026-10-28 (EPIC-0002 slice 2a, filed with the slice's documentation): TC-0057..TC-0076 (US-0052 TC-0057, TC-0058; US-0053 TC-0059..TC-0061; US-0054 TC-0062..TC-0064; US-0055 TC-0065..TC-0067; US-0056 TC-0068..TC-0071; US-0065 TC-0072..TC-0076).
+
+Assigned 2026-10-30 (EPIC-0002 slice 2b-1, filed with the slice's plan): AC-0341..AC-0350 (US-0058: managed mode, IPC messages, parent disconnect, reissue order, reissue consent, control service lifecycle, child environment, cookie and login, dual-mode lookup, launcher-mode E2E); TC-0077..TC-0086 (one per new AC, in order); TASK-0094 (US-0059 readiness work).

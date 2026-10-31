@@ -22,7 +22,7 @@ export const SESSION_ID = "web-e2e";
 export const CLIENT_ADDRESS = "127.0.0.1";
 
 const WEB_DIR = fileURLToPath(new URL("../..", import.meta.url));
-const REPO_ROOT = path.resolve(WEB_DIR, "../..");
+export const REPO_ROOT = path.resolve(WEB_DIR, "../..");
 const SCENARIO = path.join(REPO_ROOT, "scenarios", "friday-escalation");
 const TSX = path.join(WEB_DIR, "node_modules", ".bin", "tsx");
 const NEXT = path.join(WEB_DIR, "node_modules", "next", "dist", "bin", "next");
@@ -30,7 +30,7 @@ const RUNTIME_CHILD = path.join(WEB_DIR, "e2e", "helpers", "runtime-child.ts");
 /** Printed by runtime-child.ts (kept in step there). */
 const READY_PREFIX = "ACR_RUNTIME_READY ";
 /** Upper bounds for start-up waits: far above a loaded runner's real times; reached only when something is broken. */
-const START_TIMEOUT_MS = 90_000;
+export const START_TIMEOUT_MS = 90_000;
 const FACILITATOR_TIMEOUT_MS = 30_000;
 
 export type TerminalFacilitator = {
@@ -64,9 +64,11 @@ export type StackOptions = {
   tempParent?: string;
   /** Diagnostic output of the child processes (default: discarded). Never carries codes, credentials, cookies or names. */
   onOutput?: (line: string) => void;
+  /** Extra environment for `next start`, merged over the stack's own (RUNTIME_URL, PUBLIC_ORIGIN and COOKIE_KEYS cannot be overridden). */
+  webEnv?: Record<string, string>;
 };
 
-function freePort(): Promise<number> {
+export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const s = createNetServer();
     s.once("error", reject);
@@ -77,20 +79,20 @@ function freePort(): Promise<number> {
   });
 }
 
-function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   let t: NodeJS.Timeout;
   return Promise.race([p, new Promise<T>((_, reject) => { t = setTimeout(() => reject(new Error(`${what}: no answer within ${ms / 1000} s`)), ms); })]).finally(() => clearTimeout(t));
 }
 
 /** Kills a detached child's whole process group and waits for it to exit. */
-async function killGroup(child: ChildProcess, signal: NodeJS.Signals = "SIGKILL"): Promise<void> {
+export async function killGroup(child: ChildProcess, signal: NodeJS.Signals = "SIGKILL"): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
   const exited = new Promise<void>((r) => child.once("exit", () => r()));
   try { process.kill(-child.pid, signal); } catch (e) { if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e; }
   await withTimeout(exited, START_TIMEOUT_MS, "a child process did not exit");
 }
 
-const lines = (child: ChildProcess, sink: (l: string) => void) => {
+export const lines = (child: ChildProcess, sink: (l: string) => void) => {
   for (const stream of [child.stdout, child.stderr]) {
     let buf = "";
     stream?.setEncoding("utf8");
@@ -205,13 +207,13 @@ function startRelay(target: () => string): Promise<{ port: number; pairs: Set<Pa
 // ---- next start ----
 
 /** What a Node process needs from the caller's environment to run at all; nothing that configures the app. */
-function passThrough(): Record<string, string> {
+export function passThrough(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const k of ["PATH", "HOME", "TMPDIR", "LANG", "SYSTEMROOT"]) { const v = process.env[k]; if (v !== undefined) out[k] = v; }
   return out;
 }
 
-async function startNext(port: number, env: Record<string, string>, baseUrl: string, out: (l: string) => void): Promise<ChildProcess> {
+export async function startNext(port: number, env: Record<string, string>, baseUrl: string, out: (l: string) => void): Promise<ChildProcess> {
   if (!existsSync(path.join(WEB_DIR, ".next", "BUILD_ID"))) throw new Error("apps/web has no production build: run `pnpm --filter @acr/web build` first (the e2e and demo scripts do)");
   const child = spawn(process.execPath, [NEXT, "start", "-p", String(port), "-H", "127.0.0.1"], {
     cwd: WEB_DIR, detached: true, stdio: ["ignore", "pipe", "pipe"],
@@ -294,7 +296,7 @@ export async function startStack(o: StackOptions = {}): Promise<Stack> {
     const port = await freePort();
     const baseUrl = `http://localhost:${port}`;
     // Fresh keys per stack, the same across restartBff (a sealed cookie must survive a BFF restart).
-    const nextEnv = { RUNTIME_URL: `ws://127.0.0.1:${relay.port}`, PUBLIC_ORIGIN: baseUrl, COOKIE_KEYS: `e2e:${randomBytes(32).toString("base64")}` };
+    const nextEnv = { ...o.webEnv, RUNTIME_URL: `ws://127.0.0.1:${relay.port}`, PUBLIC_ORIGIN: baseUrl, COOKIE_KEYS: `e2e:${randomBytes(32).toString("base64")}` };
     let next = await startNext(port, nextEnv, baseUrl, out);
     cleanups.push(() => killGroup(next));
 

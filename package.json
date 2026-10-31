@@ -36,6 +36,7 @@
     "web:dev": "pnpm --filter @acr/web dev",
     "web:test": "pnpm --filter @acr/web test",
     "dev:runtime": "pnpm --filter @acr/runtime dev",
+    "control": "pnpm --filter @acr/control start",
     "play": "pnpm --filter @acr/runtime play",
     "demo": "pnpm -s --filter @acr/runtime demo",
     "evaluate": "pnpm -s --filter @acr/runtime evaluate",

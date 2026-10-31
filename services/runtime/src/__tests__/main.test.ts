@@ -73,6 +73,17 @@ describe("bootstrap: facilitator token and limits (US-0017)", () => {
     expect((await join(runtime.port, TOKEN)).type).toBe("joined");
   });
 
+  it("a <root>/.env that cannot be read (a directory) stops startup and names the error; a missing one is no error", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
+    await mkdir(path.join(tmp, ".env"));
+    const r = await bootstrap({ env: base(), root: tmp, logDir: tmp, log: () => {}, warn: () => {} });
+    expect(r.ok ? [] : r.errors).toEqual([`cannot read ${path.join(tmp, ".env")}: EISDIR`]);
+    await rm(path.join(tmp, ".env"), { recursive: true });
+    const ok = await bootstrap({ env: base(), root: tmp, logDir: tmp, tickMs: 50, log: () => {}, warn: () => {} });
+    if (!ok.ok) throw new Error(ok.errors.join("; "));
+    runtime = ok.runtime;
+  });
+
   it("an invalid token or limit stops startup with errors that name the variable, never the token value", async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-"));
     const secret = "short-secret";

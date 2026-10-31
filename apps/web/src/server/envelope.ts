@@ -29,6 +29,7 @@ export function ok<T>(data: T, init?: ResponseInit): Response {
   return respond({ success: true, data: data ?? null, error: null, meta: meta() }, init?.status ?? 200, init);
 }
 
-export function fail(status: number, code: string, message: string, init?: ResponseInit): Response {
-  return respond({ success: false, data: null, error: { code, message }, meta: meta() }, status, init);
+/** `data` is for a refusal that carries structured detail (the facilitator's start gate); it is null otherwise. */
+export function fail(status: number, code: string, message: string, init?: ResponseInit, data: unknown = null): Response {
+  return respond({ success: false, data, error: { code, message }, meta: meta() }, status, init);
 }

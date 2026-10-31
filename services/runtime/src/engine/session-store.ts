@@ -61,6 +61,11 @@ export type OpenedSession = {
    * are removed too (best effort: empty ones are harmless, the next start replaces them).
    */
   discardIssuedCodes(): boolean;
+  /**
+   * US-0058: replaces the codes file with `c` (hashes only) under the session lock. Throws SessionStoreError "lock" when the lock was
+   * lost and "io" when the write failed, each with a fixed message (no path and no value from the file); the old file stays then.
+   */
+  writeJoinCodes(c: JoinCodes): void;
   /** Closes the log handle and releases the lock. Never throws. */
   close(): Promise<void>;
 };
@@ -83,6 +88,7 @@ const FRESH_HINT = "start a fresh session with SESSION_START=fresh (the old log 
  *    scenario and set of player roles; new ones otherwise). Every other start (fresh, after an ended session, and on a missing or empty
  *    log, where nothing has happened yet) issues and shows new codes, so codes nobody saw can never be kept silently. Only hashes are written, under the lock, before any client can
  *    connect. A codes file that cannot be read is refused like a corrupt log: nothing is changed and the start fails.
+ * 5. With `managed` (US-0058, set by the control service): an empty log keeps matching codes and seats, and an ended log is refused, never rotated.
  */
 export async function openSession(o: {
   scenario: Scenario; sessionId: string; dataDir: string; clock: Clock; mode: StartMode; now?: () => Date; lock?: LockOptions; maxLogBytes?: number;
@@ -90,6 +96,12 @@ export async function openSession(o: {
   joinCodes?: boolean;
   /** US-0053: the consent notice players agree to; with it, the session's credentials and consent files are managed. Off by default. */
   consentNotice?: ConsentNotice;
+  /**
+   * US-0058: a runtime forked by the control service (CONTROL_MANAGED=1). An EMPTY log keeps the codes, credentials and consent on
+   * disk when they fit this session and scenario (a lobby survives a control-service restart), and an ENDED log is refused with
+   * `resume_refused` and never moved aside (the review needs it). Off by default: the terminal start is unchanged.
+   */
+  managed?: boolean;
 }): Promise<OpenedSession> {
   // US-0020: the id becomes file names, so it is refused before ANY file system action (not after the directory and the lock exist).
   if (!isValidSessionId(o.sessionId)) throw new Error(`invalid session id: ${JSON.stringify(String(o.sessionId).slice(0, 40))}`);
@@ -245,6 +257,13 @@ export async function openSession(o: {
   try {
     const done = (x: { log: JsonlEventLog; engine: SessionEngine }, rest: Pick<OpenedSession, "outcome" | "rotatedTo" | "rotatedBecause" | "resume" | "resumeNotes" | "joinCodes" | "seats">): OpenedSession => ({
       ...x, lock, notes, ...rest,
+      writeJoinCodes: (c) => {
+        try { writeJoinCodesFile(o.dataDir, o.sessionId, c, holdLockNow); }
+        catch (err) {
+          if (err instanceof SessionLockError) throw new SessionStoreError("lock", "cannot write the join codes file: the session lock was lost");
+          throw new SessionStoreError("io", "cannot write the join codes file");
+        }
+      },
       discardIssuedCodes: () => {
         if (!rest.joinCodes?.issued && !seatsCreated) return true;
         try { holdLockNow(); } catch { return false; } // lost: the files may be another server's now, never touch them
@@ -271,7 +290,15 @@ export async function openSession(o: {
       throw new SessionStoreError("io", `cannot read the session log in ${o.dataDir}: ${code ?? (err as Error).message}`);
     }
     // Nothing has happened in this session yet (review I-1, M-1): codes from an earlier start, possibly never shown, are not kept.
+    if (restored.kind === "empty" && o.managed) {
+      // Order matters: seats are read BEFORE settleCodes, which removes them when the codes on file do not fit (and issues new
+      // ones); `!issued` then drops `found` exactly in that case, so no credential outlives the codes it was issued under.
+      const found = readSeats();
+      const joinCodes = settleCodes(true, false);
+      return done(opened, { outcome: "new", joinCodes, seats: settleSeats(!joinCodes?.issued, found) });
+    }
     if (restored.kind === "empty") { const joinCodes = settleCodes(false, false); return done(opened, { outcome: "new", joinCodes, seats: settleSeats(false, undefined) }); }
+    if (restored.kind === "ended" && o.managed) throw new SessionStoreError("resume_refused", "the session has ended");
     if (restored.kind === "ended") {
       await opened.log.close();
       const rotatedTo = rotate("ended");

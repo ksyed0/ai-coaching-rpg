@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CLIENT_ID_MAX_CHARS, type PlayerScene, type SessionEvent, type SessionState } from "@acr/events";
 import { MAX_JOIN_CODE_INPUT_CHARS } from "../engine/join-codes.js";
+import { REBIND_PENDING } from "../engine/consent.js";
 import { MAX_CREDENTIAL_INPUT_CHARS } from "../engine/credentials.js";
 import type { FacilitatorRosterEntry, PeerRosterEntry } from "./roster.js";
 
@@ -28,7 +29,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   // US-0053: issueCredential asks a join by code for a durable credential (returned once in `joined`); `credential` rejoins with it
   // instead of the code; displayName is the person's name (cleaned and limited to 60 code points by the server; 200 raw bounds the work).
   z.object({
-    type: z.literal("join"), sessionId: Id, roleId: Id, participantId: Id, reconnectToken: z.string().min(1).max(128).optional(), joinCode: z.string().max(MAX_JOIN_CODE_INPUT_CHARS).optional(), lastSeq: LastSeq,
+    type: z.literal("join"), sessionId: Id, roleId: Id, participantId: Id.refine((v) => v !== REBIND_PENDING, { message: "invalid participantId" }), reconnectToken: z.string().min(1).max(128).optional(), joinCode: z.string().max(MAX_JOIN_CODE_INPUT_CHARS).optional(), lastSeq: LastSeq,
     issueCredential: z.boolean().optional(), credential: z.string().min(1).max(MAX_CREDENTIAL_INPUT_CHARS).optional(), displayName: z.string().max(200).optional(),
   }),
   z.object({ type: z.literal("join_facilitator"), sessionId: Id, token: z.string().max(256).optional(), lastSeq: LastSeq }),

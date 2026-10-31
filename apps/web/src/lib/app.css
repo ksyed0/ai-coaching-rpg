@@ -113,3 +113,25 @@ ul.plain { padding-left: 18px; }
 @media (prefers-reduced-motion: no-preference) {
   .btn { transition: background-color 0.12s; }
 }
+
+/* Facilitator console: lists, tables, join codes and the confirmation dialog. */
+.listhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.listhead h2.s { margin: 0; }
+a.btn { display: inline-flex; align-items: center; text-decoration: none; }
+.btn.danger { background: var(--crit); border-color: var(--crit); color: var(--panel); }
+select.t { width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); font: inherit; }
+.banner.ok { background: var(--ok-soft); border: 1px solid var(--ok); color: var(--ink); }
+.rowactions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.tablewrap { overflow-x: auto; }
+table.grid { width: 100%; border-collapse: collapse; }
+table.grid th, table.grid td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.grid thead th { font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+table.grid tbody th { font-weight: 600; }
+.codes { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.code-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.code-role { font-weight: 600; min-width: 8ch; }
+.code-value { font-size: 17px; letter-spacing: 0.04em; padding: 4px 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
+.dialog-backdrop { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: var(--gutter); background: rgba(0, 0, 0, 0.5); }
+.dialog { width: 100%; max-width: 480px; max-height: 100%; overflow-y: auto; }
+.dialog-title { font-size: 18px; }
+.dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }

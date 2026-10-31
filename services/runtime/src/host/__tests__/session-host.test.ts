@@ -64,6 +64,66 @@ describe("SessionHost.onPlayerUtterance", () => {
     await expect(host.onPlayerUtterance("host", "Hi")).rejects.toMatchObject({ code: "not_started" });
   });
 
+  // BUG-0009: session.started and scene.entered reach every client as soon as each is on disk, but the start goes on writing the
+  // opening inject before it completes. A player whose say box opened on scene.entered may speak in that window: the line waits for
+  // the start in flight instead of being refused as not_started.
+  describe("a line said while the start is still writing the opening events", () => {
+    const friday = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../scenarios/friday-escalation");
+    /** A log that holds every append after scene.entered until `release` is called. */
+    class GatedLog extends MemoryEventLog {
+      private gate: Promise<void> | null = null;
+      release: () => void = () => undefined;
+      override async append(...a: Parameters<MemoryEventLog["append"]>) {
+        if (this.gate) await this.gate;
+        const e = await super.append(...a);
+        if (e.type === "scene.entered") this.gate = new Promise((r) => { this.release = () => { this.gate = null; r(); }; });
+        return e;
+      }
+    }
+    async function gatedHost() {
+      const scenario = await loadScenario(friday);
+      const log = new GatedLog("s");
+      const eng = new SessionEngine({ scenario, log, clock: new FakeClock(0) });
+      const h = new SessionHost({ scenario, engine: eng, npcProvider: new MockModelProvider(["Noted."]), gmProvider: new MockModelProvider(), clock: new FakeClock(0) });
+      // What a player's page needs to open its say box: the scene it is in.
+      const sceneShown = new Promise<void>((r) => { eng.subscribe((e) => { if (e.type === "scene.entered") r(); }); });
+      return { h, eng, log, sceneShown };
+    }
+
+    it("is recorded after the opening inject once the start completes", async () => {
+      const { h, eng, log, sceneShown } = await gatedHost();
+      h.join("tech_lead", "p1");
+      const started = h.start();
+      await sceneShown;
+      expect(h.hasStarted).toBe(false); // the start is still in flight (the opening inject is not written yet)
+      let settled = false;
+      const said = h.onPlayerUtterance("tech_lead", "Rollback first.").finally(() => { settled = true; });
+      await Promise.resolve(); await Promise.resolve();
+      expect(settled).toBe(false); // waits for the start: no not_started refusal
+      log.release();
+      await started;
+      await said;
+      await h.idle();
+      const types = (await log.all()).map((e) => e.type);
+      expect(types.indexOf("utterance")).toBeGreaterThan(types.indexOf("inject.fired"));
+      expect(eng.state.transcript[0]).toMatchObject({ roleId: "tech_lead", text: "Rollback first." });
+    });
+
+    it("is refused as not_started when that start fails", async () => {
+      const { h, log, sceneShown } = await gatedHost();
+      h.join("tech_lead", "p1");
+      const started = h.start();
+      await sceneShown;
+      const gated = log.append.bind(log);
+      log.append = async (...a) => { await gated(...a); throw new Error("disk gone"); };
+      const said = h.onPlayerUtterance("tech_lead", "Rollback first.");
+      log.release();
+      await expect(started).rejects.toThrow("disk gone");
+      await expect(said).rejects.toMatchObject({ code: "not_started" });
+      expect(h.hasStarted).toBe(false);
+    });
+  });
+
   it("while paused: rejects with EngineError paused, appends nothing, never calls the NPC provider", async () => {
     host.join("host", "p1");
     await host.start();

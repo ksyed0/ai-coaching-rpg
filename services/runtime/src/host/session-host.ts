@@ -133,17 +133,55 @@ export class SessionHost {
     return Object.keys(this.scenario.roles).filter((r) => this.hasPlayerRole(r));
   }
 
-  join(roleId: string, participantId: string): { brief: string; privateFacts: string[] } {
+  /**
+   * `rebound` is true when this join took over the consent a code reissue after the start had left waiting for the next participant
+   * (US-0058); the caller that then fails to save the seat calls `undoRebind`.
+   */
+  join(roleId: string, participantId: string): { brief: string; privateFacts: string[]; rebound: boolean } {
     // Own properties only: `__proto__`, `constructor` or `toString` are not roles.
     const role = Object.hasOwn(this.scenario.roles, roleId) ? this.scenario.roles[roleId] : undefined;
     if (!role) throw new HostError("unknown_role");
     if (role.type !== "player") throw new HostError("npc_role");
+    // US-0058: a code reissued after the start left the seat's consent waiting (REBIND_PENDING) with no credential on the role: the
+    // next participant to hold the seat inherits it. A credential still on the role means the seat is not free: the check below refuses.
+    // Only a STARTED session has a marker worth claiming (a reissue before the start clears consent instead): one found earlier is
+    // dropped, so the person must consent. While the start is in flight (`starting`) nothing is claimable either.
+    if (this.seats && !this.started && this.starting === null && this.seats.consent.isRebindPending(roleId)) { this.seats.consent.withdraw(roleId); this.seatsDirty = true; }
+    const rebinding = !!this.seats && this.started && this.seats.consent.isRebindPending(roleId) && !this.seats.credentials.has(roleId);
     // US-0054: from the start on, a seat is only for the participant whose consent the start recorded (or who gave it since):
     // a dropped seat cannot be taken by someone else with the code. The same participant still reconnects.
-    if (this.seats && !this.consentGrandfathered && (this.started || this.starting !== null) && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
+    if (this.seats && !this.consentGrandfathered && (this.started || this.starting !== null) && !rebinding && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
     if (this.assignments[roleId] && this.assignments[roleId] !== participantId) throw new HostError("role_taken");
+    let rebound = false;
+    if (rebinding && this.seats!.consent.claimRebind(roleId, participantId, this.clock.now())) {
+      rebound = true;
+      this.seatsDirty = true; // the next seat write records it (the web join writes the credential straight after)
+      void this.noteFacilitator(`consent for ${roleId} rebound after a code reissue`);
+    }
     this.assignments[roleId] = participantId;
-    return { brief: role.brief, privateFacts: role.private_facts };
+    return { brief: role.brief, privateFacts: role.private_facts, rebound };
+  }
+
+  /**
+   * US-0058: the caller could not save the seat of a join that claimed a rebind (`rebound`): the consent goes back to waiting for the
+   * next participant. Marks the seat state dirty so the next write records it.
+   */
+  undoRebind(roleId: string): void {
+    if (!this.started || !this.seats?.consent.releaseForRebind(roleId)) return;
+    this.seatsDirty = true;
+    void this.noteFacilitator(`rebind of consent for ${roleId} undone: the seat could not be saved and is waiting again`);
+  }
+
+  /** US-0058: true once session.started is recorded (a restored session counts). Only then does a reissue rebind consent instead of clearing it. */
+  get hasStarted(): boolean { return this.started; }
+  /** US-0058: the start is in flight (consents are being frozen into session.started); a reissue is refused meanwhile. */
+  get isStarting(): boolean { return !this.started && this.starting !== null; }
+
+  /** A facilitator-only info alert from synchronous code: never awaited, never throws; a failure goes to the log callback. */
+  noteFacilitator(message: string): Promise<void> {
+    // Before the start the log must stay empty (engine.start refuses a log with events): no path may append an alert then.
+    if (!this.started) return Promise.resolve();
+    return this.engine.alert(message, "info").then(() => undefined, (err) => this.report("facilitator alert", err));
   }
 
   /** Whether the seat's consent stands: given by this participant, or not asked for (a session resumed from a log older than the gate). */
@@ -319,6 +357,10 @@ export class SessionHost {
    * a time via the queue), so a caller, and its connection's next message, never waits behind a model call.
    */
   async onPlayerUtterance(roleId: string, text: string, opts: { expectSceneId?: string } = {}): Promise<void> {
+    // BUG-0009: each opening event (session.started, the AI characters, scene.entered, the opening inject) reaches the clients as
+    // soon as it is on disk, but `started` turns true only once the last one is written. A line from a page that already shows the
+    // scene waits for that start in flight (engine.say would queue behind its mutex anyway); only a failed start refuses it.
+    if (!this.started && this.starting !== null) await this.starting.catch(() => undefined);
     if (!this.started) throw new HostError("not_started");
     await this.engine.say(roleId, text, "text", opts); // throws EngineError (paused, ended, ...) before any NPC turn can start
     this.pendingAnswer = null; // a new line supersedes the one from before a restart: the round below answers the conversation as it now stands

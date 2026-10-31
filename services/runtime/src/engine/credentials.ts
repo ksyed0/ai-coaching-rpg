@@ -118,6 +118,14 @@ export class PlayerCredentials {
 
   has(roleId: string): boolean { return this.entries.has(roleId); }
   revoke(roleId: string): boolean { return this.entries.delete(roleId); }
+  /** US-0058: the role's entry as it stands (hash and name), to put back with `restoreRole` if a later step fails. Undefined when none. */
+  snapshotRole(roleId: string): { hash: Buffer; name: string } | undefined { const e = this.entries.get(roleId); return e ? { hash: Buffer.from(e.hash), name: e.name } : undefined; }
+  /** US-0058: puts back what `snapshotRole` returned (undefined removes the entry). Refuses a latched (ended) registry. */
+  restoreRole(roleId: string, snap: { hash: Buffer; name: string } | undefined): void {
+    if (snap === undefined) { this.entries.delete(roleId); return; }
+    if (this.endedLatch) return;
+    this.entries.set(roleId, { hash: Buffer.from(snap.hash), name: snap.name });
+  }
   /** Revokes every credential and returns the roles that had one. */
   revokeAll(): string[] { const roles = [...this.entries.keys()]; this.entries.clear(); return roles; }
   /** The session ended: revokes every credential (returning the roles that had one) and latches, so `issue` refuses from now on. */

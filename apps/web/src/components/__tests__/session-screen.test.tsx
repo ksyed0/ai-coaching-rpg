@@ -173,4 +173,15 @@ describe("SessionScreen", () => {
     emit(m.es(), "error", { code: "log_failed", message: "x" });
     expect(screen.getByText(MESSAGES.serverError)).toBeTruthy();
   });
+
+  it("a player whose consent was rebound sees the consent notice read-only on the session screen", () => {
+    const m = mount();
+    const state = snapshot({ status: "running", lastSeq: 5, currentScene: { id: "s1", enteredAt: m.clock.t, participants: [], pausedMs: 0 } });
+    emit(m.es(), "joined", joinedFrame({ state, consent: { noticeVersion: "v1", notice: "This session is recorded as text.", given: true } }));
+    const notice = screen.getByText("Consent notice").closest("details")!;
+    expect(notice.open).toBe(false); // collapsed
+    expect(notice.textContent).toContain("This session is recorded as text.");
+    expect(notice.querySelector("input, button, textarea")).toBeNull(); // read-only
+    expect(screen.queryByRole("button", { name: /withdraw|I agree/i })).toBeNull();
+  });
 });

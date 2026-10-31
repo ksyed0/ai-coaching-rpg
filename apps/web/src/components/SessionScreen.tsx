@@ -152,6 +152,14 @@ function Scene({ state, clock, onSay }: { state: ReturnType<typeof useSession>["
           {ended ? null : <SayBox disabledReason={disabledReason} onSay={onSay} />}
         </section>
         <div className="col">
+          {joined.consent?.given ? (
+            // Read-only: a seat that was already consented when this person joined (a rebind after a reissue) never saw the notice here.
+            <details className="card">
+              <summary>Consent notice</summary>
+              <p className="prose">{joined.consent.notice}</p>
+              <p className="muted small">Notice {joined.consent.noticeVersion}. The seat has agreed to it.</p>
+            </details>
+          ) : null}
           <BriefPanel roleId={joined.roleId} brief={joined.brief} privateFacts={joined.privateFacts} injects={view.injects} />
           <section aria-labelledby="room-h2">
             <h2 className="s" id="room-h2">Who is in the room</h2>
