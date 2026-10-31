@@ -24,6 +24,15 @@ import type { FacilitatorRosterEntry, SessionStatus } from "./wire";
 const MAX_BODY_BYTES = 1024;
 const MAX_NAME_CODE_POINTS = 60;
 const MAX_MISSING = 64;
+/**
+ * The runtime error codes a `start` can produce (ws-server.ts: forbidden is not one, the console is the facilitator; session-host.ts:
+ * seats_not_ready, already_started; session-engine.ts: log_not_empty, bad_identity, log_failed; the socket: internal and the
+ * bad_message / bad_json / rate_limited answers to the message itself). An error frame with any other code answers something else
+ * on the same socket (a stray `not_started` or `forbidden`), so it must not end a start that is still going.
+ */
+const START_ERRORS: ReadonlySet<string> = new Set([
+  "seats_not_ready", "already_started", "log_not_empty", "bad_identity", "log_failed", "internal", "bad_message", "bad_json", "rate_limited",
+]);
 const START_TIMEOUT_MS = 10_000;
 
 const UNREACHABLE = "The session service is not reachable. Try again.";
@@ -430,7 +439,7 @@ export async function handleConsoleStart(
           off = conn.onFrame((m) => {
             if (m.type === "event" && m.event.type === "session.started")
               finish({ kind: "started" });
-            else if (m.type === "error")
+            else if (m.type === "error" && START_ERRORS.has(m.code))
               finish({
                 kind: "refused",
                 code: m.code,

@@ -418,7 +418,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           await host.onPlayerUtterance(who, m.text, { expectSceneId: m.expectSceneId });
         } else if (m.type === "command") {
           if (!isFacilitator) return fail("forbidden", "only the facilitator may send commands");
-          if (host.engine.state.status === "idle") await host.start();
+          if (!host.hasStarted) await host.start();
           await host.command(m.command, { expectSceneId: m.expectSceneId });
         }
       } catch (err) {

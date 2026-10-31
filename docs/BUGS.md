@@ -189,10 +189,12 @@ BUG-0015: A start that fails after session.started was written cannot be retried
 Severity: Medium
 Related Story: US-0059
 Related Task: TASK-0094
-Status: Open
-Fix Branch: None
+Status: Fixed
+Fix Branch: fix/bug-0015-interrupted-start
 Lesson Encoded: No
 ```
 
-`SessionHost.start()` sets `started` only after `engine.start` succeeds, so a failed start "can be retried". But `engine.start` refuses a log that already has events (`log_not_empty`, `session-engine.ts:167`). If the start fails AFTER `session.started` (or the opening scene events) were appended, for example a provider error while the opening scene is produced, the log is no longer empty, the engine is not idle, and every retry answers `already_started` or `log_not_empty`: the session is wedged until it is restarted with `SESSION_START=resume`. Pre-existing (found while reviewing slice 2b-1; unrelated to the readiness race of BUG-0009). Needs a design decision first: either the host treats a log that begins with `session.started` as started (resume in place), or a failed start rolls the engine back to idle and truncates the log. Found by the slice 2b-1 whole-branch review; no test reproduces it yet.
+`SessionHost.start()` sets `started` only after `engine.start` succeeds, so a failed start "can be retried". But `engine.start` refuses a log that already has events (`log_not_empty`, `session-engine.ts:167`). If the start fails AFTER `session.started` (or the opening scene events) were appended, for example a provider error while the opening scene is produced, the log is no longer empty, the engine is not idle, and every retry answers `already_started` or `log_not_empty`: the session is wedged until it is restarted with `SESSION_START=resume`. Pre-existing (found while reviewing slice 2b-1; unrelated to the readiness race of BUG-0009). Needs a design decision first: either the host treats a log that begins with `session.started` as started (resume in place), or a failed start rolls the engine back to idle and truncates the log. Found by the slice 2b-1 whole-branch review; no test reproduces it yet. Reproduced by a test that makes the second append refuse (the log's `closed` code, which does not fail-stop).
+
+**Fix (design: resume in place).** The log is append-only and subscribers may already have seen `session.started`, so rolling back by truncating would retract an event and write to a disk that just failed. Instead the engine runs the opening (NPC states, first scene, opening inject) as a list of steps and drops each only after its append succeeds; a second `start` finishes the remaining steps (`SessionEngine.startIncomplete`). The host skips the readiness gate on that retry (the log already records who started) and keeps seats, consents, reissue and leave frozen between the attempts; the facilitator `command` auto-start now keys on `hasStarted`. A fail-stop (`log_failed`) still ends the attempt for good and the restart resumes from the log, unchanged. M-9 second half: the BFF start waiter now ends only on codes a start can produce (`START_ERRORS`), so a stray `not_started` or `forbidden` frame no longer reads as a refused start.
 
