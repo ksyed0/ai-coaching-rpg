@@ -4587,9 +4587,9 @@
       "severity": "Medium",
       "relatedStory": "US-0065",
       "relatedTask": "TASK-0085",
-      "status": "Open (hardened in 5537920, not root-caused; watch the next CI runs)",
-      "fixBranch": "feature/EPIC-0002-US-0065-web-e2e",
-      "lessonEncoded": "No",
+      "status": "Fixed (7ebdfc5; root-caused 2026-10-30)",
+      "fixBranch": "feature/EPIC-0002-US-0059-readiness (hardening: feature/EPIC-0002-US-0065-web-e2e, 5537920)",
+      "lessonEncoded": "Yes (L-0031)",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
     },
@@ -4638,6 +4638,18 @@
       "status": "Open",
       "fixBranch": "None",
       "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0014",
+      "title": "CodeQL js/file-system-race alerts in the control service tests (stat a path, then read the same path)",
+      "severity": "Low",
+      "relatedStory": "US-0058",
+      "relatedTask": "TASK-0087",
+      "status": "Fixed (15bfed8)",
+      "fixBranch": "feature/EPIC-0002-US-0059-readiness",
+      "lessonEncoded": "No (L-0003 and L-0017 already state the rule)",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
     }
@@ -5136,6 +5148,14 @@
         "projectedUsd": 400
       },
       "BUG-0013": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0014": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -5887,12 +5907,20 @@
       "context": "",
       "date": "2026-10-30",
       "bugIds": []
+    },
+    {
+      "id": "L-0031",
+      "title": "When events are broadcast as they are written, a flag set at the end of the operation must not refuse what the first event allows",
+      "rule": "If a multi-step operation broadcasts each event as it is persisted (start: `session.started`, the characters, `scene.entered`, the opening inject) but sets its \"done\" flag only after the last step, clients act on the early events while the flag is still false. A request they make in that window must wait for the operation in flight (and be refused only if it fails), not be refused by the flag. Test the window deterministically: hold the log's appends after the event the client acts on (a gated log), make the request, assert it is pending, then release; never rely on a slow disk or a sleep. When an E2E helper reports a refusal it should never see, look for this window on the server before blaming the test.\n_Learned when the Web E2E on PR #60 got `409 not_started` for a say sent after the page showed the scene: the runtime set `started` only after writing the opening inject (BUG-0009, open since the first Web E2E run and seen there as a missing transcript line)._",
+      "context": "",
+      "date": "2026-10-30",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-30T22:10:31.389Z",
-  "commitSha": "f92822c",
-  "buildNumber": "517",
-  "branch": "feature/EPIC-0002-US-0059-readiness",
+  "generatedAt": "2026-10-31T00:55:16.008Z",
+  "commitSha": "899d9e3",
+  "buildNumber": "478",
+  "branch": "fix/EPIC-0002-2b1-followups",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6152,9 +6180,11 @@
       "2026-10-28T18:11:23.800Z",
       "2026-10-30T18:04:01.651Z",
       "2026-10-30T21:31:32.515Z",
-      "2026-10-30T22:10:31.915Z"
+      "2026-10-30T22:10:31.915Z",
+      "2026-10-31T00:55:16.208Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6224,6 +6254,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6257,6 +6288,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -6296,9 +6328,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -6368,9 +6402,11 @@
       2,
       2,
       4,
-      4
+      4,
+      3
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -6440,6 +6476,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -6473,6 +6510,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -6512,7 +6550,8 @@
       1.146153846153846,
       1.1507692307692308,
       1.1692307692307693,
-      1.1646153846153846
+      1.1646153846153846,
+      1.1553846153846152
     ],
     "velocityByWeek": {
       "labels": [
