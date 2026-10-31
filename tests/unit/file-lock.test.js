@@ -8,15 +8,9 @@ describe('file-lock', () => {
   const testFile = 'test-file.json';
 
   afterEach(() => {
+    // Release only this test's own lock. Never remove LOCK_DIR: it is shared with every other test file, and jest runs those in
+    // parallel workers (deleting it under a worker that holds a lock lets a second holder in: BUG-0008).
     release(testFile);
-    // Clean up lock directory
-    try {
-      if (fs.existsSync(LOCK_DIR)) {
-        fs.rmSync(LOCK_DIR, { recursive: true, force: true });
-      }
-    } catch {
-      // ignore
-    }
   });
 
   describe('tryAcquire / release', () => {

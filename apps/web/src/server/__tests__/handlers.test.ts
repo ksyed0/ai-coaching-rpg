@@ -673,7 +673,8 @@ describe("POST /api/v1/say, /consent and /leave", () => {
     const res = await sent(timers, handleSay(postReq("say", cookieValue(), { text: "Hello there.", expectSceneId: "s1_intro" }), deps));
     expect(res.status).toBe(200);
     expect((await res.json()).success).toBe(true);
-    expect(rt.received.at(-1)).toEqual({ type: "say", text: "Hello there.", expectSceneId: "s1_intro" });
+    // The fake runtime is a real socket: the frame can still be in flight when the hub answers.
+    await vi.waitFor(() => expect(rt.received.at(-1)).toEqual({ type: "say", text: "Hello there.", expectSceneId: "s1_intro" }));
     expect(rt.sockets).toHaveLength(1);
   });
 
@@ -713,14 +714,17 @@ describe("POST /api/v1/say, /consent and /leave", () => {
     const c = await sent(timers, handleConsent(postReq("consent", cookieValue(), { noticeVersion: "v1" }), deps));
     expect(c.status).toBe(200);
     expect(c.headers.get("Set-Cookie")).toBeNull();
-    expect(rt.received.at(-1)).toEqual({ type: "consent", noticeVersion: "v1" });
+    // The fake runtime is a real socket: the frame can still be in flight when the hub answers.
+    await vi.waitFor(() => expect(rt.received.at(-1)).toEqual({ type: "consent", noticeVersion: "v1" }));
     const w = await sent(timers, handleConsent(postReq("consent", cookieValue(), { withdraw: true }), deps));
     expect(w.status).toBe(200);
-    expect(rt.received.at(-1)).toEqual({ type: "withdraw_consent" });
+    // The fake runtime is a real socket: the frame can still be in flight when the hub answers.
+    await vi.waitFor(() => expect(rt.received.at(-1)).toEqual({ type: "withdraw_consent" }));
     expect(isCleared(w)).toBe(true);
     const l = await sent(timers, handleLeave(postReq("leave", cookieValue(), ""), deps));
     expect(l.status).toBe(200);
-    expect(rt.received.at(-1)).toEqual({ type: "leave" });
+    // The fake runtime is a real socket: the frame can still be in flight when the hub answers.
+    await vi.waitFor(() => expect(rt.received.at(-1)).toEqual({ type: "leave" }));
     expect(isCleared(l)).toBe(true);
   });
 
