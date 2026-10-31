@@ -18,6 +18,9 @@ import { JoinThrottle } from "./throttle";
 /** The failed-join throttle, matching the runtime's: more than 5 failures in 60 s block that (address, role) for 60 s. */
 const JOIN_THROTTLE = { max: 5, windowMs: 60_000, blockMs: 60_000 };
 
+/** Console login failures from ALL addresses together: more than 20 in 10 minutes block every login for 5 minutes. */
+const CONSOLE_GLOBAL_THROTTLE = { max: 20, windowMs: 600_000, blockMs: 300_000 };
+
 export function createDeps(env: Record<string, string | undefined>): Deps {
   const config = loadConfig(env);
   const now = () => Date.now();
@@ -29,6 +32,10 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     joinThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
     // The console login throttle: the same 5 failures per 60 s and 60 s block, keyed by address.
     consoleThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
+    // Without a proxy a client chooses its own X-Forwarded-For, so the per-address bucket above can be dodged by rotating it. This one
+    // ignores the address: a wrong secret anywhere is charged here too. The price is that an attacker can lock the facilitator out
+    // of LOGIN (never out of a signed-in console) for CONSOLE_GLOBAL_THROTTLE.blockMs at a time.
+    consoleGlobalThrottle: new JoinThrottle({ ...CONSOLE_GLOBAL_THROTTLE, now }),
     hub: new StreamHub({ maxStreams: config.maxStreams, maxStreamsPerSession: config.maxStreamsPerSession, maxStreamsPerAddress: config.maxStreamsPerAddress, setTimer: realTimer, now }),
     // loadConfig guarantees the token whenever the URL is set.
     ...(config.launcherUrl !== undefined && config.launcherToken !== undefined && { launcher: new LauncherClient({ baseUrl: config.launcherUrl, token: config.launcherToken }) }),

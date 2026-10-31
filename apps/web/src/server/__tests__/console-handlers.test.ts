@@ -47,12 +47,15 @@ function makeDeps(
     now: () => clock,
     ...throttle,
   });
+  const consoleGlobalThrottle = new JoinThrottle({ max: 20, windowMs: 600_000, blockMs: 300_000, now: () => clock });
   return {
     consoleThrottle,
+    consoleGlobalThrottle,
     deps: {
       config: baseConfig(o),
       now: () => clock,
       consoleThrottle,
+      consoleGlobalThrottle,
     } as unknown as Deps,
   };
 }
@@ -150,6 +153,18 @@ describe("console login", () => {
     );
     expect(wrong.status).toBe(403);
     expect(fail).not.toHaveBeenCalled();
+  });
+
+  it("rotating X-Forwarded-For does not dodge the login throttle: the 21st wrong secret from any addresses blocks every login", async () => {
+    const { deps } = makeDeps();
+    const from = (i: number, secret: string) =>
+      handleConsoleLogin(login({ secret, name: "Ann" }, { "X-Forwarded-For": `203.0.113.${i + 1}` }), deps);
+    for (let i = 0; i < 20; i++) expect((await from(i, `wrong secret ${i}!!!`)).status).toBe(401);
+    expect((await from(20, "wrong secret 20!!!")).status).toBe(429);
+    // a fresh address with the RIGHT secret is refused while the global block lasts, and works once it has passed
+    expect((await from(21, SECRET)).status).toBe(429);
+    clock += 300_001;
+    expect((await from(21, SECRET)).status).toBe(200);
   });
 
   it("the sixth wrong secret from one address is throttled and a saturated throttle fails closed", async () => {
