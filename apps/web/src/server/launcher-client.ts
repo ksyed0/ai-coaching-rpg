@@ -214,7 +214,7 @@ export class LauncherClient {
     const d = await this.call(
       "POST",
       `/sessions/${this.id(id)}/codes/reissue`,
-      { by },
+      { all: true, by },
       this.longTimeoutMs,
     );
     if (!isObject(d)) return bad();

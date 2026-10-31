@@ -146,7 +146,7 @@ describe("LauncherClient requests", () => {
     expect(f.calls[0]!.url).toBe(`${BASE}/sessions/${SID}/facilitator`);
   });
 
-  it("reissue: one role; reissueAll: no roleId; both pass `by`", async () => {
+  it("reissue: one role; reissueAll: all:true; both pass `by`", async () => {
     const f = fakeFetch((c) =>
       reply(
         envelope(
@@ -175,7 +175,7 @@ describe("LauncherClient requests", () => {
       { roleId: "a", code: "AAAA-1111" },
       { roleId: "b", code: "BBBB-2222" },
     ]);
-    expect(JSON.parse(f.calls[1]!.body!)).toEqual({ by: "Ann" });
+    expect(JSON.parse(f.calls[1]!.body!)).toEqual({ all: true, by: "Ann" });
   });
 
   it("restart: POST /sessions/:id/restart with an empty object, codes optional", async () => {

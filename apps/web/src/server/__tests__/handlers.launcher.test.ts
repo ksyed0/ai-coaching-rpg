@@ -106,6 +106,7 @@ function makeDeps(session: (id: string) => Promise<SessionInfo>) {
     connect: connect as unknown as Deps["connect"],
     joinThrottle: throttle(),
     consoleThrottle: throttle(),
+    consoleGlobalThrottle: throttle(),
     hub,
     launcher: { session: sessionFn } as unknown as LauncherClient,
   };

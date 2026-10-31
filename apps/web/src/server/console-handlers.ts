@@ -18,6 +18,8 @@ import { seal } from "./seal";
 const HOUR_S = 3600;
 /** The throttle role: one shared bucket per address (there is no role on a console login). */
 const THROTTLE_ROLE = "console";
+/** The address slot of the address-independent bucket: every login attempt shares it. */
+const GLOBAL_KEY = "*";
 
 const REFUSED = {
   status: 401,
@@ -66,7 +68,10 @@ export async function handleConsoleLogin(
     return forbidden();
   const address = requestAddress(req);
   if (address === null) return badRequest();
-  const blocked = deps.consoleThrottle.blockedForMs(address, THROTTLE_ROLE);
+  const blocked = Math.max(
+    deps.consoleThrottle.blockedForMs(address, THROTTLE_ROLE),
+    deps.consoleGlobalThrottle.blockedForMs(GLOBAL_KEY, THROTTLE_ROLE),
+  );
   if (blocked > 0) return throttled(blocked);
   const body = await readJson(req);
   if (
@@ -77,7 +82,11 @@ export async function handleConsoleLogin(
     return badRequest();
   if (!secretsMatch(body.secret, config.facilitatorSecret)) {
     deps.consoleThrottle.fail(address, THROTTLE_ROLE);
-    const after = deps.consoleThrottle.blockedForMs(address, THROTTLE_ROLE);
+    deps.consoleGlobalThrottle.fail(GLOBAL_KEY, THROTTLE_ROLE);
+    const after = Math.max(
+      deps.consoleThrottle.blockedForMs(address, THROTTLE_ROLE),
+      deps.consoleGlobalThrottle.blockedForMs(GLOBAL_KEY, THROTTLE_ROLE),
+    );
     return after > 0 ? throttled(after) : refuse();
   }
   const name = cleanConsoleName(body.name);

@@ -137,6 +137,16 @@ describe("code reissue (US-0058)", () => {
     expect(e.current().verify("host", code)).toBe(true);
   });
 
+  it("a kick that throws is reported and the caller still gets the new, working code", async () => {
+    const e = await setup();
+    await seated(e, true);
+    const reports: string[] = [];
+    const deps: ReissueDeps = { ...e.deps, server: { kickRole: () => { throw new Error("socket gone"); } }, report: (what) => reports.push(what) };
+    const code = await reissueRole(deps, "host");
+    expect(reports).toEqual(["kicking the socket of a reissued role"]);
+    expect(e.current().verify("host", code)).toBe(true);
+  });
+
   it("a failed codes write leaves the old code working and the seat untouched", async () => {
     const e = await setup();
     const alice = await seated(e, true);

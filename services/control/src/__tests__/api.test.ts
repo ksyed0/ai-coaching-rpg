@@ -171,18 +171,18 @@ describe("routes", () => {
     expect(r.text).not.toContain(FAC_TOKEN);
   });
 
-  it("reissue with roleId vs empty body routes to reissue vs reissueAll", async () => {
+  it("reissue with roleId vs all:true routes to reissue vs reissueAll; neither (or both) is a 400", async () => {
     const { sup, calls } = stub();
     const port = await boot(sup);
     const one = await call(port, "POST", `/sessions/${ID}/codes/reissue`, { body: JSON.stringify({ roleId: "cfo", by: "Ana" }) });
     expect(one.json).toEqual({ success: true, data: { code: CODE }, error: null });
-    const all1 = await call(port, "POST", `/sessions/${ID}/codes/reissue`);
-    const all2 = await call(port, "POST", `/sessions/${ID}/codes/reissue`, { body: "{}" });
-    const all3 = await call(port, "POST", `/sessions/${ID}/codes/reissue`, { body: JSON.stringify({ by: "Ana" }) });
-    for (const r of [all1, all2, all3]) expect(r.json).toEqual({ success: true, data: { codes: [{ roleId: "cfo", code: CODE }] }, error: null });
+    const all1 = await call(port, "POST", `/sessions/${ID}/codes/reissue`, { body: JSON.stringify({ all: true }) });
+    const all2 = await call(port, "POST", `/sessions/${ID}/codes/reissue`, { body: JSON.stringify({ all: true, by: "Ana" }) });
+    for (const r of [all1, all2]) expect(r.json).toEqual({ success: true, data: { codes: [{ roleId: "cfo", code: CODE }] }, error: null });
+    const bodies = [undefined, "{}", JSON.stringify({ by: "Ana" }), JSON.stringify({ all: false }), JSON.stringify({ all: true, roleId: "cfo" })];
+    for (const body of bodies) expect((await call(port, "POST", `/sessions/${ID}/codes/reissue`, body === undefined ? {} : { body })).status).toBe(400);
     expect(calls).toEqual([
       { name: "reissue", args: [ID, "cfo", "Ana"] },
-      { name: "reissueAll", args: [ID, undefined] },
       { name: "reissueAll", args: [ID, undefined] },
       { name: "reissueAll", args: [ID, "Ana"] },
     ]);
