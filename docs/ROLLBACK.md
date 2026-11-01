@@ -75,3 +75,28 @@ Set the console variables again and start `pnpm control` on the same `CONTROL_DA
 
 - Log the incident in `progress.md` with the timeline, root cause and resolution.
 - Open a `bugfix/*` branch for the root cause before deploying again, and add a post-mortem entry to `docs/LESSONS.md`.
+
+## EPIC-0002 slice 2b-2a: runtime protocol for the live console (US-0059)
+
+```
+Release: unreleased (feature/EPIC-0002-US-0059-player-copies, then feature/EPIC-0002-US-0059-runtime-protocol and ...-remove-participant, each merged by its pull request)
+Date: not deployed
+Rollback trigger: players see something they should not, `end_now` misbehaves, or the control service mishandles an `ended` that follows `ready`.
+```
+
+### What changes on disk and in the log
+
+- **No log-format change, on purpose.** Slice 2b-2a still writes `LOG_FORMAT` 2. Raising it would make every older build refuse every new log, so a rollback could not even resume a session. New facts are ordinary events or fields that an older build ignores: `by` on `facilitator.command`, `message` on `session.ended`, the reason `facilitator_end` on `scene.exited` and `session.ended`.
+- **One real hazard: a log cut between the `end_now` appends.** `end_now` appends `scene.exited` (`facilitator_end`), then a facilitator-only alert, then `session.ended`. A build from slice 2b-2a repairs a log cut after the first two (the restore appends `session.ended`). A build from before this slice does not know `facilitator_end`: resumed on such a log it treats the exited scene as an ordinary exit, **enters the next scene (or ends with `script_complete` after the last) and so revives a session the facilitator had ended**. This needs a crash or kill in the few milliseconds between the appends AND a rollback before the next start; if a session was being ended when the runtime died, do not resume it with an older build: read the log's last events first (the raw `<id>.jsonl` in the session's data directory) and, if they end with `scene.exited` reason `facilitator_end`, treat the session as ended (set its status to `ended` in `sessions.json`, or move the log aside).
+- **Talk time and the allowlisted copies are projections**, rebuilt from the log; there is nothing to migrate.
+
+### Steps
+
+1. Redeploy the previous runtime, control service and web app (no data migration).
+2. Check any session that was being ended around the time of the rollback (hazard above).
+3. **Smoke test:** `pnpm demo --fast` passes its 29 checks; `pnpm demo --web` passes W-01 to W-08.
+4. **Notify** facilitators that "end now" and the words-spoken table are not available on the older build, and that closing messages are not shown.
+
+### Rolling forward again
+
+Nothing to repair: the newer build reads logs written by the older one, and a `facilitator_end` cut left by the hazard above is repaired on restore.

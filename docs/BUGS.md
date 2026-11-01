@@ -212,5 +212,7 @@ Lesson Encoded: No
 
 **Fix.** After `ready` is sent, `main.ts` checks `host.engine.state.status === "ended"` once; if so it sends `ended` at once (through the same once-only flag the live subscriber uses, so a live end and this path never both send) and calls `host.endSeats()`; a failing revoke is reported as a warning, not thrown. A running resume is unchanged. Tests: `main.parent.test.ts` (a repaired-to-ended resume sends `ready` then `ended` and the credential registry is latched and empty; a normal resume sends `ready` only).
 
+**Fixed in** `f8d21bc` (the runtime sends `ended` after `ready` and revokes the seats) and `5fdc9f2` (the control service keeps an `ended` that arrives right after `ready`); the branch is squashed on merge, so these hashes are for the branch history only.
+
 **Follow-up (review).** The control service's `awaitReady` stopped listening once `ready` settled and the live handler was installed only afterwards, so an `ended` sent right after `ready` was dropped and the list kept the session "running". `awaitReady` now records an `ended` seen after `ready` and `goLive` applies it through the idempotent `onEnded` (both callers: create, and the shared start path used by restart/resume and reissue-all). A standalone (no control service) resume repaired to ended now also revokes the seats. Tests: `supervisor.lifecycle.test.ts` (ready+ended burst, create and restart), `main.parent.test.ts` (persisted end mark, a throwing revoke is warned, standalone).
 

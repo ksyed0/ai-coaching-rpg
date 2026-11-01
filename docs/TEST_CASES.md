@@ -1338,3 +1338,52 @@ Steps:
 Expected Result: The snapshot equals the 2a snapshot; each event reaches the player with only its listed keys; the facilitator still gets the state and every event whole.
 Actual Result: As expected (services/runtime/src/host/__tests__/player-copies.test.ts, 7 tests; runtime suite 3689 passed; hub.runtime.test.ts 12 passed).
 Status: Pass
+
+TC-0088: Commands record the facilitator's name as by
+Related Story: US-0059
+Related Task: TASK-0095
+Related AC: AC-0312
+Type: Integration
+Preconditions: A running session with a player and a facilitator connected over the WebSocket server.
+Steps:
+  1. The facilitator sends a pause command with by "Sam" followed by a right-to-left override, then one without by, then one with a by nested inside the command, and an auto-start (a command in the lobby) with by.
+  2. Read the facilitator.command events the facilitator and the player receive; restore from the log.
+  3. Send a by of 201 characters.
+Expected Result: The facilitator's event carries the cleaned by ("Sam"), or no by key when it is absent; a by nested inside command is stripped by the schema; the player's pause frame has no by key and no name; the restored state equals the live state; a by over the raw bound is bad_message and appends nothing; a lobby command with by still auto-starts as before.
+Actual Result: As expected (services/runtime/src/host/__tests__/ws-server.test.ts, display-name.test.ts, services/runtime/src/engine/__tests__/session-engine.test.ts, player-copies.test.ts; apps/web/src/server/__tests__/hub.runtime.test.ts and pnpm demo --web W-07 scan every player stream for the marker LEAK-BY-FACILITATOR; runtime suite 3734 passed, web 494 passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-2a, PR 2. The console buttons that send by are slice 2b-2b.
+
+TC-0089: Talk time ("Words spoken") per role, facilitator only
+Related Story: US-0059
+Related Task: TASK-0095
+Related AC: AC-0311
+Type: Unit
+Preconditions: A session log with utterances from several roles, and a hand-edited log with role ids "__proto__" and "constructor".
+Steps:
+  1. Fold the log (reduce and reduceReplay) and read state.talk.
+  2. Restore the engine from the log and compare with the live talk.
+  3. Take the player snapshot and the facilitator's join state.
+Expected Result: Each speaking role has its words (whitespace-separated runs) and lines; reduce and reduceReplay agree, the previous state is not mutated, the restored talk equals the live talk, and a role id like "__proto__" is an own key that leaves Object.prototype untouched; a player's snapshot has no talk field and the facilitator's join state has it.
+Actual Result: As expected (packages/events/src/__tests__/talk.test.ts, services/runtime/src/engine/__tests__/session-engine-restore.test.ts, services/runtime/src/host/__tests__/player-copies.test.ts; pnpm demo --web W-07 finds no "talk": on any player stream).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-2a, PR 2. The console table is slice 2b-2b.
+
+TC-0090: end_now ends the session with an optional closing message
+Related Story: US-0059
+Related Task: TASK-0095
+Related AC: AC-0313
+Type: Integration
+Preconditions: A scenario with two scenes; a facilitator and a player connected; also a log cut between the end_now appends.
+Steps:
+  1. end_now before the start, while a start is in flight and after the end.
+  2. end_now with by "Sam" and the message "Thanks, <b>all</b>"; then a 301 code point message, a 300 code point message, a whitespace-only message and one with a bidirectional and a control character inside the text.
+  3. Read the events each side receives; check the ticker, a late NPC reply and the control service's ended message.
+  4. Restart on a log cut after scene.exited (facilitator_end) and after the alert, with no session.ended.
+Expected Result: Refusals are not_started, starting and ended and append nothing (a second end_now is ended); a player's end_now is forbidden; the facilitator sees scene.exited, the alert naming Sam, then session.ended last; players see only session.ended with the cleaned message (at most 300 code points, kept as typed, no alert and no name) and a whitespace-only message gives none; nothing is appended after session.ended; the ticker stops; a cut log resumes to ready then ended with every credential revoked (the closing message is lost).
+Actual Result: As expected (services/runtime/src/engine/__tests__/session-engine-end-now.test.ts, session-engine-restore.test.ts, host/__tests__/ws-server.end-now.test.ts, display-name.test.ts, src/__tests__/main.parent.test.ts, services/control/src/__tests__/supervisor.lifecycle.test.ts, apps/web/src/components/__tests__/session-screen.test.tsx; runtime 3734 passed, control 155 passed, web 494 passed).
+Status: [x] Pass
+Defect Raised: BUG-0016 (found while planning, fixed in this slice)
+Notes: Slice 2b-2a, PR 2. Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md.

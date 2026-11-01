@@ -1722,9 +1722,9 @@ Branch: feature/EPIC-0002-US-0059-live-console
 Dependencies: US-0058
 Acceptance Criteria:
   - [x] AC-0310: the New session and readiness screens show who has joined and consented, the model status (from modelLabel) and the codes once, and Start stays disabled until the start gate is met (built in slice 2b-1 under TASK-0094)
-  - [ ] AC-0311: the live console shows scene status, timers, the transcript with Game Master notices and alerts, and talk time, and offers pause, resume, advance and end now
-  - [ ] AC-0312: inject, whisper, release hidden fact (including one click on a Game Master suggestion) and NPC stance work and are logged with the facilitator name
-  - [ ] AC-0313: end_now appends session.ended with reason facilitator_end and an optional participant-visible message, stops the scene clock and the Game Master, and is handled by the engine, fold, view policy and docs
+  - [ ] AC-0311: the live console shows scene status, timers, the transcript with Game Master notices and alerts, and talk time, and offers pause, resume, advance and end now (runtime part landed in slice 2b-2a: the fold projects "Words spoken" per role, facilitator only, TC-0089; the console screens follow in slice 2b-2b)
+  - [ ] AC-0312: inject, whisper, release hidden fact (including one click on a Game Master suggestion) and NPC stance work and are logged with the facilitator name (runtime part landed in slice 2b-2a: `command` and `end_now` carry `by`, cleaned to 60 code points, recorded on the event and never in a player frame, TC-0088; the console buttons follow in slice 2b-2b)
+  - [x] AC-0313: end_now appends session.ended with reason facilitator_end and an optional participant-visible message, stops the scene clock and the Game Master, and is handled by the engine, fold, view policy and docs (addendum: refused before the start (not_started), while a start is in flight (starting) and after the end (ended); the events are scene.exited, a facilitator-only alert naming the facilitator, then session.ended last; a log cut between them is repaired on restore to an ended session; the message is cleaned, at most 300 code points, shown to players connected at the end and rendered as text; built in slice 2b-2a, TC-0090)
   - [ ] AC-0314: remove_participant before the start revokes the credential, closes the socket, clears consent, frees the seat and always reissues the role's code (moved from AC-0308)
   - [ ] AC-0315: irreversible actions use one confirmation that names the subject and audience
   - [ ] AC-0316: the layout works at laptop width and keyboard focus and labels pass an accessibility audit
@@ -1755,7 +1755,7 @@ Type: Dev
 Assignee: Agent
 Status: In Progress
 Branch: feature/EPIC-0002-US-0059-player-copies (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-runtime-protocol and feature/EPIC-0002-US-0059-remove-participant)
-Notes: Allowlisted player copies, by, talk time, end_now, remove as a reissue reason. Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md; spec docs/superpowers/specs/2026-10-31-slice-2b-remaining-design.md.
+Notes: Allowlisted player copies (PR 1, merged), by, talk time and end_now (PR 2, feature/EPIC-0002-US-0059-runtime-protocol, AC-0311 to AC-0313 runtime parts; BUG-0016 found and fixed on the way), remove as a reissue reason (PR 3, AC-0314). Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md; spec docs/superpowers/specs/2026-10-31-slice-2b-remaining-design.md.
 ```
 
 ```
