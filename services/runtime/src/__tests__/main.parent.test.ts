@@ -7,6 +7,7 @@ import WebSocket from "ws";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FATAL_HARD_EXIT_MS, bootstrap, watchParent, type Runtime } from "../main.js";
 import { SessionHost } from "../host/session-host.js";
+import { JsonlEventLog } from "../engine/event-log.js";
 import type { ChildMessage, ParentChannel } from "../host/parent-channel.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -123,6 +124,52 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     // Nothing is left running: the lock is released so the same session can start again.
     const again = await boot(fakeParent().parent, data);
     expect(again.r.ok).toBe(true);
+  });
+
+  /** BUG-0016: a first life that holds a credential, is started and sits in the LAST scene; the log is then cut right after that scene's exit. */
+  async function cutAfterLastSceneExit(data: string, cut: boolean) {
+    const first = await boot(fakeParent().parent, data);
+    if (!first.r.ok) throw new Error(first.r.errors.join("; "));
+    const h = first.r.runtime.host;
+    h.join("host", "alice");
+    h.seats!.credentials.issue("host", "Pat");
+    h.giveConsent("host", "alice", "v1");
+    await h.start();
+    await h.engine.command({ command: "advance" });
+    await h.engine.tick(); // now in the last scene (s2_close)
+    h.seats!.persist();
+    await h.idle();
+    await first.r.runtime.stop(); runtimes.pop();
+    if (cut) {
+      const log = new JsonlEventLog("p1", data, { sync: false });
+      await log.append({ type: "scene.exited", sceneId: "s2_close", reason: "facilitator_advance" }, Date.now());
+      await log.close();
+    }
+  }
+
+  it("a resume whose repair ended the session (log cut after the last scene's exit, script_complete repair) sends ready then ended, and every credential is revoked", async () => {
+    const data = await mk();
+    await cutAfterLastSceneExit(data, true);
+    const { parent, sent } = fakeParent();
+    const { r } = await boot(parent, data);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(r.runtime.host.engine.state.status).toBe("ended");
+    expect(sent.map((m) => m.type)).toEqual(["ready", "ended"]);
+    expect((sent[0] as Extract<ChildMessage, { type: "ready" }>).status).toBe("resumed");
+    const seats = r.runtime.host.seats!;
+    expect(seats.credentials.ended).toBe(true);
+    expect(seats.credentials.has("host")).toBe(false);
+  });
+
+  it("a normal resume sends ready and no ended", async () => {
+    const data = await mk();
+    await cutAfterLastSceneExit(data, false);
+    const { parent, sent } = fakeParent();
+    const { r } = await boot(parent, data);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(r.runtime.host.engine.state.status).toBe("running");
+    expect(sent.map((m) => m.type)).toEqual(["ready"]);
+    expect(r.runtime.host.seats!.credentials.ended).toBe(false);
   });
 
   it("session.ended sends ended once", async () => {
