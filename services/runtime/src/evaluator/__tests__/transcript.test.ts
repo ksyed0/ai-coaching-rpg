@@ -10,6 +10,20 @@ describe("normText", () => {
 });
 describe("formatClock", () => { it("formats", () => { expect(formatClock(0)).toBe("00:00:00"); expect(formatClock(221_999)).toBe("00:03:41"); expect(formatClock(3_700_000)).toBe("01:01:40"); expect(formatClock(-5)).toBe("00:00:00"); }); });
 
+describe("facilitator_end", () => {
+  it('a log ended with facilitator_end renders "--- Scene N ends (facilitator_end) ---" and counts as complete', () => {
+    const evs = build([
+      [0, { type: "session.started", scenarioId: "mini-01", version: "1", roles: {} }],
+      [1, { type: "scene.entered", sceneId: "s1", participants: ["alice"] }],
+      [2, { type: "scene.exited", sceneId: "s1", reason: "facilitator_end" }],
+      [3, { type: "session.ended", reason: "facilitator_end", message: "Bye" }],
+    ] as never);
+    const t = buildTranscript(evs, sampleScenario());
+    expect(t.complete).toBe(true);
+    expect(renderTranscript(t, 100_000).text).toContain("--- Scene 1 ends (facilitator_end) ---");
+  });
+});
+
 describe("buildTranscript", () => {
   const t = buildTranscript(sampleEvents(), sampleScenario());
   it("records every utterance with scene, time and speaker kind", () => {

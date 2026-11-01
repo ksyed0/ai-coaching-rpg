@@ -72,7 +72,7 @@ export function commandForPlayer(e: CommandEvent, who: string): CommandEvent | n
 }
 
 /** Fields of session.ended copied to a player. A field added to the event type must be listed here to compile. */
-export const ENDED_FOR_PLAYERS: Record<keyof EndedEvent, true> = { type: true, seq: true, ts: true, sessionId: true, reason: true };
+export const ENDED_FOR_PLAYERS: Record<keyof EndedEvent, true> = { type: true, seq: true, ts: true, sessionId: true, reason: true, message: true };
 
 export function endedForPlayer(e: EndedEvent): EndedEvent {
   const out: Record<string, unknown> = {};
