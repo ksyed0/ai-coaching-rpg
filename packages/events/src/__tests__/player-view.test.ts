@@ -76,6 +76,14 @@ describe("applyPlayerEvent", () => {
     v = applyPlayerEvent(initPlayerView(snapshot()), { ...env(6, 5_000), type: "session.resumed", downFromTs: 9_000 });
     expect(v.pausedSince).toBe(5_000);
   });
+  it("session.ended copies a string message into ended and ignores a non-string one", () => {
+    const base = initPlayerView(snapshot());
+    const withMsg = applyPlayerEvent(base, { ...env(6), type: "session.ended", reason: "facilitator_end", message: "Thanks all <b>all</b>" });
+    expect(withMsg.ended).toEqual({ reason: "facilitator_end", message: "Thanks all <b>all</b>" });
+    const bad = applyPlayerEvent(base, { ...env(6), type: "session.ended", reason: "facilitator_end", message: { x: 1 } as unknown as string });
+    expect(bad.ended).toEqual({ reason: "facilitator_end" });
+    expect("message" in bad.ended!).toBe(false);
+  });
   it("session.ended sets ended", () => {
     const v = applyPlayerEvent(initPlayerView(snapshot()), { ...env(6), type: "session.ended", reason: "script_complete" });
     expect(v).toMatchObject({ status: "ended", ended: { reason: "script_complete" }, scene: null });

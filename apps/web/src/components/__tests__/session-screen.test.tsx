@@ -94,6 +94,17 @@ describe("SessionScreen", () => {
     expect(screen.queryByLabelText("Say something")).toBeNull();
   });
 
+  it("the ended screen shows the facilitator's message as text under the end notice", () => {
+    const m = mount();
+    emit(m.es(), "joined", joinedFrame({ state: snapshot({ status: "running", lastSeq: 1 }), consent: { noticeVersion: "v1", notice: "n", given: true } }));
+    emit(m.es(), "event", ev(2, "session.ended", { reason: "facilitator_end", message: "Thanks <b>all</b>" }));
+    const p = screen.getByText(/Message from the facilitator:/);
+    expect(p.tagName).toBe("P");
+    expect(p.textContent).toBe("Message from the facilitator: Thanks <b>all</b>");
+    expect(p.querySelector("b")).toBeNull();
+    expect([...m.container.querySelectorAll("b")].some((b) => b.textContent === "all")).toBe(false);
+  });
+
   it("an ended final that arrives after a drop (the session.ended event was missed) still ends the scene and keeps the transcript", () => {
     const m = mount();
     emit(m.es(), "joined", joinedFrame({ state: snapshot({ status: "running", lastSeq: 1 }), consent: { noticeVersion: "v1", notice: "n", given: true } }));

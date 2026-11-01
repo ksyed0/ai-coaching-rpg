@@ -16,7 +16,7 @@ export type PlayerView = {
   scene: { id: string; enteredAt: number; pausedMs: number } | null;
   transcript: PlayerLine[];
   injects: { seq: number; content: string; sceneId: string }[];
-  ended: { reason: string } | null;
+  ended: { reason: string; message?: string } | null;
 };
 
 /** Seeds the view from the redacted join snapshot. The snapshot carries no inject content, so `injects` starts empty. */
@@ -63,7 +63,7 @@ export function applyPlayerEvent(view: PlayerView, e: SessionEvent): PlayerView 
       }
       return v;
     case "session.ended":
-      return { ...v, status: "ended", scene: null, ended: { reason: e.reason } };
+      return { ...v, status: "ended", scene: null, ended: typeof e.message === "string" ? { reason: e.reason, message: e.message } : { reason: e.reason } };
     case "session.resumed":
       if (!tsOk) return v;
       if (v.status !== "running") return v;
