@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import { initPlayerView } from "@acr/events";
 import { RuntimeConnection } from "../runtime-connection";
-import { NoStreamError, StreamHub, type SessionCookie } from "../stream-hub";
+import { NoStreamError, REMOVED_MESSAGE, StreamHub, type SessionCookie } from "../stream-hub";
 import type { ClientMessage, JoinedFrame, ServerMessage } from "../wire";
 import { asConn, FakeConn, fakeRuntime, manualTimers, sseRecorder, until } from "./fakes";
 
@@ -108,6 +108,17 @@ describe("StreamHub endings: out.end() exactly once, timers cancelled, listeners
     const { conn, rec } = opened(h);
     conn.drop(4002);
     expect(rec.frames().at(-1)).toEqual({ event: "signed_out", data: { message: "ask your facilitator for a new code" } });
+    expect(rec.chunks.join("")).not.toContain("reconnecting");
+    expect(rec.ends()).toBe(1);
+    expect(timers.live()).toEqual([]);
+    expect(conn.listeners()).toBe(0);
+  });
+
+  it("a runtime close 4003 ends the stream with a removed event carrying the message and no reconnect", () => {
+    const { h, timers } = hub();
+    const { conn, rec } = opened(h);
+    conn.drop(4003);
+    expect(rec.frames().at(-1)).toEqual({ event: "removed", data: { message: REMOVED_MESSAGE } });
     expect(rec.chunks.join("")).not.toContain("reconnecting");
     expect(rec.ends()).toBe(1);
     expect(timers.live()).toEqual([]);

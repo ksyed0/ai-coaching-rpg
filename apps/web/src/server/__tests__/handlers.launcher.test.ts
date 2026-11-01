@@ -6,6 +6,7 @@ import {
   COOKIE_NAME,
   handleJoin,
   handleStream,
+  REMOVED_MESSAGE,
   SIGNED_OUT_MESSAGE,
   type Deps,
 } from "../handlers";
@@ -279,6 +280,17 @@ describe("stream with a launcher", () => {
       event: "signed_out",
       data: { message: SIGNED_OUT_MESSAGE },
     });
+    expect(r.text()).not.toContain("reconnecting");
+  });
+
+  it("a join refused with 4003 clears the cookie", async () => {
+    script = (ws) => ws.close(4003, "removed");
+    const { deps } = makeDeps(running());
+    const res = await handleStream(streamReq(cookie()), deps);
+    expect(res.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    const r = sseReader(res);
+    await r.finished;
+    expect(r.frames().at(-1)).toEqual({ event: "removed", data: { message: REMOVED_MESSAGE } });
     expect(r.text()).not.toContain("reconnecting");
   });
 

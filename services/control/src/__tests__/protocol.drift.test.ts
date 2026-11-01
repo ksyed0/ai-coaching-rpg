@@ -36,9 +36,10 @@ describe("protocol copy", () => {
   });
 
   it("accepts and rejects the same parent messages as the runtime", () => {
-    const ok: unknown[] = [{ type: "reissue", requestId: "r1", roleId: "cfo" }, { type: "reissue", requestId: "r1", roleId: "cfo", by: "Sam" }];
+    const ok: unknown[] = [{ type: "reissue", requestId: "r1", roleId: "cfo" }, { type: "reissue", requestId: "r1", roleId: "cfo", by: "Sam" },
+      { type: "reissue", requestId: "r1", roleId: "cfo", reason: "removed" }, { type: "reissue", requestId: "r1", roleId: "cfo", by: "Sam", reason: "removed" }];
     const bad: unknown[] = [{ type: "reissue", requestId: "r1" }, { type: "reissue", requestId: "r1", roleId: "facilitator" }, { type: "reissue", requestId: "r 1", roleId: "cfo" },
-      { type: "reissue", requestId: "r1", roleId: "cfo", by: "x".repeat(201) }, { type: "reissue", requestId: "r1", roleId: "cfo", z: 1 }, { type: "other" }, null];
+      { type: "reissue", requestId: "r1", roleId: "cfo", by: "x".repeat(201) }, { type: "reissue", requestId: "r1", roleId: "cfo", z: 1 }, { type: "reissue", requestId: "r1", roleId: "cfo", reason: "other" }, { type: "reissue", requestId: "r1", roleId: "cfo", reason: "" }, { type: "other" }, null];
     for (const m of ok) { expect(RuntimeParent.safeParse(m).success).toBe(true); expect(ParentMessageSchema.safeParse(m).success).toBe(true); }
     for (const m of bad) { expect(RuntimeParent.safeParse(m).success).toBe(false); expect(ParentMessageSchema.safeParse(m).success).toBe(false); }
   });

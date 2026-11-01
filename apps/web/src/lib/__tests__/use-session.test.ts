@@ -2,7 +2,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initPlayerView } from "@acr/events";
-import { SIGNED_OUT_MESSAGE } from "../../server/handlers";
+import { REMOVED_MESSAGE, SIGNED_OUT_MESSAGE } from "../../server/handlers";
 import { MESSAGES } from "../messages";
 import { MAX_TRANSCRIPT_LINES, useSession, type SessionDeps } from "../use-session";
 import { FakeEventSource, ev, fakeFetch, joinedFrame, ok, refused, snapshot } from "./fakes";
@@ -94,6 +94,19 @@ describe("useSession: the stream", () => {
     expect(b.es().closed).toBe(true);
     expect(b.hook.result.current.state.final?.kind).toBe("signed_out");
     expect(b.hook.result.current.state.final?.message).toContain(SIGNED_OUT_MESSAGE);
+  });
+
+  it("use-session finishes on removed with MESSAGES.removed", () => {
+    const a = start();
+    emit(a.es(), "joined", joinedFrame());
+    emit(a.es(), "removed", { message: "ignored: the page uses its own text" });
+    expect(a.es().closed).toBe(true);
+    expect(a.hook.result.current.state.final).toEqual({ kind: "removed", message: MESSAGES.removed });
+  });
+
+  it("REMOVED_MESSAGE equals MESSAGES.removed", () => {
+    expect(REMOVED_MESSAGE).toBe(MESSAGES.removed);
+    expect(MESSAGES.removed).toBe("The facilitator removed you from this session.");
   });
 
   it("ended and expired also close the EventSource, so the browser does not reconnect", () => {

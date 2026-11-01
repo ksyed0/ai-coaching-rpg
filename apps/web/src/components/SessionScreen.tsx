@@ -70,7 +70,7 @@ export function SessionScreen({ sessionId, deps = {} }: SessionScreenProps) {
 
 /** A final state with nothing worth keeping on screen. No retry button: each of these is final (the browser must not come back). */
 function FinalScreen({ kind, message }: { kind: string; message: string }) {
-  const title = kind === "ended" ? "The session has ended" : kind === "left" ? "You have left" : kind === "superseded" ? "Open in another tab" : kind === "closed" ? "Connection closed" : "Signed out";
+  const title = kind === "ended" ? "The session has ended" : kind === "left" ? "You have left" : kind === "superseded" ? "Open in another tab" : kind === "closed" ? "Connection closed" : kind === "removed" ? "Removed from the session" : "Signed out";
   return (
     <>
       <TitleBlock title={title} lede="This page no longer updates." />

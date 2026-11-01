@@ -22,6 +22,8 @@ const CLOSE_POLICY = 1008;
 export const CLOSE_SUPERSEDED = 4001;
 /** A role's code was reissued: its credential is revoked and the socket closed. Terminal for the player, like 4001. */
 export const CLOSE_REISSUED = 4002;
+/** US-0059: the facilitator removed the player before the start: credential and consent are gone. Terminal, like 4002. */
+export const CLOSE_REMOVED = 4003;
 const DEFAULT_TIMEOUT_MS = 10_000;
 // The runtime's answer to a lastSeq past its last event starts with this (ws-server.ts BEYOND_HEAD); zod's lastSeq issues do too.
 const LAST_SEQ_REFUSAL = /^lastSeq\b/;
@@ -33,7 +35,7 @@ export const MAX_QUEUED_CHARS = 1024 * 1024;
 // A 1008 means a refused login only with the reason "unauthorized" (which the runtime sends after an `unauthorized` error frame). A bare
 // 1008 comes from the runtime's join timeout or queue cap, under load: the credential is fine, so it must not be reported as unauthorized.
 const classifyClose = (code: number, reason: string): string =>
-  code === CLOSE_POLICY && reason === "unauthorized" ? "unauthorized" : code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "reissued" : "unavailable";
+  code === CLOSE_POLICY && reason === "unauthorized" ? "unauthorized" : code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "reissued" : code === CLOSE_REMOVED ? "removed" : "unavailable";
 
 /** Order in which joins resolved, process-wide: the hub keeps the stream whose runtime join is newest (the runtime's current holder). */
 let joinCounter = 0;

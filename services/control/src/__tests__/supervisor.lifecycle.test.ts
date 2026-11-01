@@ -324,6 +324,16 @@ describe("Supervisor lifecycle", () => {
       expect(c.sent).toHaveLength(2);
     });
 
+    it("a remove passes reason removed through to the child, and its fixed refusal rejects as a conflict", async () => {
+      const sup = make();
+      const { id, c } = await boot(sup);
+      const p = errOf(sup.reissue(id, "cfo", undefined, "removed"));
+      await settle();
+      expect(c.sent[0]).toMatchObject({ type: "reissue", roleId: "cfo", reason: "removed" });
+      c.emit({ type: "reissue_failed", requestId: c.sent[0]!.requestId, reason: "a participant can only be removed before the start" });
+      expect(await p).toMatchObject({ code: "conflict", message: "a participant can only be removed before the start" });
+    });
+
     it("a reissue that gets no reply rejects with the unknown-outcome error and is not retried", async () => {
       const sup = make();
       const { id, c } = await boot(sup);

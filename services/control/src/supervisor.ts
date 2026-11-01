@@ -401,11 +401,11 @@ export class Supervisor {
     });
   }
 
-  reissue(id: string, roleId: string, by?: string): Promise<string> {
+  reissue(id: string, roleId: string, by?: string, reason?: "removed"): Promise<string> {
     const e = this.entryOf(id);
     if (!e) return Promise.reject(new ControlError("not_found", "that session does not exist"));
     const requestId = randomBytes(8).toString("hex");
-    const msg = ParentMessageSchema.safeParse({ type: "reissue", requestId, roleId, ...(by !== undefined ? { by } : {}) });
+    const msg = ParentMessageSchema.safeParse({ type: "reissue", requestId, roleId, ...(by !== undefined ? { by } : {}), ...(reason !== undefined ? { reason } : {}) });
     if (!msg.success) return Promise.reject(new ControlError("bad_request", "that reissue request is not valid"));
     const key = `${id}:${roleId}`;
     if (this.reissuing.has(key)) return Promise.reject(new ControlError("conflict", "a reissue for that role is already in progress"));

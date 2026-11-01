@@ -2529,8 +2529,8 @@
         },
         {
           "id": "AC-0314",
-          "text": "remove_participant before the start revokes the credential, closes the socket, clears consent, frees the seat and always reissues the role's code (moved from AC-0308)",
-          "done": false
+          "text": "remove_participant before the start revokes the credential, closes the socket, clears consent, frees the seat and always reissues the role's code (moved from AC-0308) (addendum: Remove is the existing parent-only reissue with reason \"removed\" (control API `POST /sessions/:id/codes/reissue` with `{ roleId, reason: \"removed\" }`), allowed before the start only (409 \"a participant can only be removed before the start\" when started or starting); the new code is written first, then the credential is revoked, consent withdrawn, seats persisted, the socket closed with code 4003 reason \"removed\" and the codes swapped, so the old code cannot reopen the seat; it has no network surface and mid-session removal is out of scope (end the session instead); the web server turns 4003 into a terminal `removed` event and the final screen \"Removed from the session\" and clears the cookie on the join path; the `reissueActor` alias was removed; the console button is slice 2b-2b; built in slice 2b-2a, TC-0091)",
+          "done": true
         },
         {
           "id": "AC-0315",
@@ -3592,9 +3592,9 @@
       "title": "Runtime protocol for the live console (slice 2b-2a)",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0059-player-copies (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-runtime-protocol and feature/EPIC-0002-US-0059-remove-participant)",
-      "notes": "Allowlisted player copies (PR 1, merged), by, talk time and end_now (PR 2, feature/EPIC-0002-US-0059-runtime-protocol, AC-0311 to AC-0313 runtime parts; BUG-0016 found and fixed on the way), remove as a reissue reason (PR 3, AC-0314). Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md; spec docs/superpowers/specs/2026-10-31-slice-2b-remaining-design.md."
+      "notes": "Allowlisted player copies (PR 1, merged), by, talk time and end_now (PR 2, feature/EPIC-0002-US-0059-runtime-protocol, AC-0311 to AC-0313 runtime parts; BUG-0016 found and fixed on the way), remove as a reissue reason (PR 3, AC-0314). Delivered in three PRs: PR 1 #65, PR 2 #66 and PR 3 (this PR). Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md; spec docs/superpowers/specs/2026-10-31-slice-2b-remaining-design.md."
     },
     {
       "id": "TASK-0089",
@@ -4537,6 +4537,16 @@
       "type": "Integration",
       "status": "Pass",
       "defect": "BUG-0016 (found while planning, fixed in this slice)"
+    },
+    {
+      "id": "TC-0091",
+      "title": "Remove a participant before the start (the reissue reason \"removed\")",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0095",
+      "relatedAC": "AC-0314",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -6012,10 +6022,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-01T20:42:08.372Z",
-  "commitSha": "a9fc0a5",
-  "buildNumber": "492",
-  "branch": "feature/EPIC-0002-US-0059-runtime-protocol",
+  "generatedAt": "2026-11-01T21:54:38.296Z",
+  "commitSha": "e820b11",
+  "buildNumber": "488",
+  "branch": "feature/EPIC-0002-US-0059-remove-participant",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6279,9 +6289,11 @@
       "2026-10-31T00:55:16.208Z",
       "2026-10-31T23:37:59.353Z",
       "2026-11-01T16:48:00.675Z",
-      "2026-11-01T20:42:08.694Z"
+      "2026-11-01T20:42:08.694Z",
+      "2026-11-01T21:54:38.506Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6359,6 +6371,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6392,6 +6405,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -6439,9 +6453,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -6519,9 +6535,11 @@
       3,
       0,
       0,
+      0,
       0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -6599,6 +6617,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -6632,6 +6651,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -6677,6 +6697,7 @@
       1.1692307692307693,
       1.1646153846153846,
       1.1553846153846152,
+      1.136923076923077,
       1.136923076923077,
       1.136923076923077,
       1.136923076923077

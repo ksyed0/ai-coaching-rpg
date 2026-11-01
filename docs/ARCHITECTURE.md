@@ -302,12 +302,14 @@ players       join ---- lookup(session) -> GET /sessions/:id -> running: ws://12
   readiness   GET .../readiness -> GET /sessions/:id/facilitator {port, token}; short facilitator socket; roster
   reissue     POST .../reissue --> POST /sessions/:id/codes/reissue -> IPC reissue {roleId} -> reply {code}
                                                                        (revoke, kick 4002, new code; after the start: rebind consent)
+  remove      (console button: 2b-2b) POST .../codes/reissue {roleId, reason:"removed"} -> same IPC reissue, before the start only
+                                                                       (new code first, revoke, withdraw consent, kick 4003, swap; 409 when started or starting)
   Start       POST .../start ----> facilitator socket: start; waits for session.started (10 s)
                                         <------ IPC ended -> status ended in sessions.json, slot freed
 ```
 
 - **Dual-mode runtime lookup.** `apps/web/src/server/runtime-lookup.ts` returns the runtime for a session. With `LAUNCHER_URL` set (launcher mode) each join and stream asks the control service: a `running` session is reached at its loopback port, a stopped, ended or unknown one gets the usual neutral join refusal or a reconnecting stream, and an unreachable control service is the "server cannot be reached" answer. Without it, `RUNTIME_URL` is used exactly as in slice 2a (single-runtime mode, the terminal facilitator). `LAUNCHER_URL` requires `LAUNCHER_TOKEN`; the console additionally needs `FACILITATOR_SECRET`.
-- **Facilitator sockets.** The BFF fetches `{ port, token }` together, sends no `X-Forwarded-For` on a facilitator socket and, on a refused token, fetches one fresh pair and retries once. A runtime close code 4002 (the player's code was reissued) is terminal for the player's stream.
+- **Facilitator sockets.** The BFF fetches `{ port, token }` together, sends no `X-Forwarded-For` on a facilitator socket and, on a refused token, fetches one fresh pair and retries once. A runtime close code 4002 (the player's code was reissued) is terminal for the player's stream, and so is 4003 (the facilitator removed the player before the start: the hub writes a final `removed` event, the join path clears the cookie and the screen reads "Removed from the session"). Remove is the same parent-only reissue with the reason `removed`; it has no network surface of its own, and mid-session removal is out of scope (end the session instead).
 - **Readiness vocabulary.** The readiness answer has two statuses on purpose: `status` is the runtime's state (`idle`, `running`, `ended`) and `launcherStatus` is the control service's (`running`, `stopped`, `ended`).
 - **Restart.** A control-service restart resumes every non-ended session paused from its log, with fresh tokens, keeping a lobby's codes, seats and consent. A crashed child is `stopped`; restart is manual only.
 - **Not in 2b-1:** the live console, intervene, remove, end, AI-filled roles, reports in the browser (2b-2, 2b-3, 2c). The control service is not part of the runtime container image.

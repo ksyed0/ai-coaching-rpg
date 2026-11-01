@@ -22,6 +22,8 @@ export const ParentMessageSchema = z.strictObject({
   requestId: RequestId,
   roleId: RoleId,
   by: z.string().max(MAX_BY_CHARS).optional(),
+  /** US-0059: a remove (before the start only) instead of a plain reissue. */
+  reason: z.literal("removed").optional(),
 });
 export type ParentMessage = z.infer<typeof ParentMessageSchema>;
 

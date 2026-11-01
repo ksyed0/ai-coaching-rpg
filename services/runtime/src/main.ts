@@ -18,7 +18,7 @@ import { parseModelRetry, withModelRetry } from "./agents/retry-config.js";
 import { parseGmConfig } from "./agents/gm-config.js";
 import { createGmTraceWriter, parseGmTraceEnv } from "./agents/gm-trace.js";
 import { openParentChannel, type ParentChannel, type ParentMessage } from "./host/parent-channel.js";
-import { reissueRole } from "./host/reissue.js";
+import { REMOVE_REFUSED_REASON, RemoveRefusedError, reissueRole } from "./host/reissue.js";
 import { OPEN_SERVER_WARNING, parseSecurityConfig } from "./host/security.js";
 
 /** services/runtime/src/main.ts: the repo root is three levels up from this file's directory. */
@@ -249,9 +249,9 @@ export async function bootstrap(opts: {
         setCodes: (c) => { current = c; server.replaceCodes(sessionId, c); },
         writeCodes: (c) => store.writeJoinCodes(c),
         report: (what, err) => warn(`${what}: ${err instanceof Error ? err.name : "error"}`), // the name only: a message could quote a path
-      }, m.roleId, m.by).then(
+      }, m.roleId, m.by, m.reason).then(
         (code) => { if (!parent.send({ type: "reissued", requestId: m.requestId, code })) warn("a reissued code could not be handed to the control service; reissue it again"); },
-        () => { parent.send({ type: "reissue_failed", requestId: m.requestId, reason: "the code could not be reissued" }); },
+        (err) => { parent.send({ type: "reissue_failed", requestId: m.requestId, reason: err instanceof RemoveRefusedError ? REMOVE_REFUSED_REASON : "the code could not be reissued" }); },
       );
     };
     parent.onMessage((m) => { try { answer(m); } catch { parent.send({ type: "reissue_failed", requestId: m.requestId, reason: "the code could not be reissued" }); } });

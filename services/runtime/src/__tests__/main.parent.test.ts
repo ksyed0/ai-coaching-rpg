@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { FATAL_HARD_EXIT_MS, bootstrap, watchParent, type Runtime } from "../main.js";
 import { SessionHost } from "../host/session-host.js";
 import { JsonlEventLog } from "../engine/event-log.js";
-import type { ChildMessage, ParentChannel } from "../host/parent-channel.js";
+import type { ChildMessage, ParentChannel, ParentMessage } from "../host/parent-channel.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixture = path.join(here, "../../../../packages/script/src/__tests__/fixtures/minimal");
@@ -19,11 +19,12 @@ afterEach(async () => { vi.restoreAllMocks(); for (const r of runtimes.splice(0)
 
 function fakeParent(opts: { failOn?: ChildMessage["type"] } = {}) {
   const sent: ChildMessage[] = [];
+  const handlers: ((m: ParentMessage) => void)[] = [];
   const parent: ParentChannel = {
     send(m) { if (m.type === opts.failOn) return false; sent.push(m); return true; },
-    onMessage() {}, onDisconnect() {},
+    onMessage(fn) { handlers.push(fn); }, onDisconnect() {},
   };
-  return { parent, sent };
+  return { parent, sent, ask: (m: ParentMessage) => { for (const h of handlers) h(m); } };
 }
 async function boot(parent: ParentChannel | undefined, data: string, extra: Record<string, string> = {}) {
   const logs: string[] = [];
@@ -254,6 +255,36 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     expect(sent.filter((m) => m.type === "ended")).toHaveLength(1);
     expect(sent[sent.length - 1]!.type).toBe("ended");
     expect(h.seats!.credentials.ended).toBe(true);
+  });
+
+  it("a reissue with reason removed reaches reissueRole and a refusal answers the fixed reason", async () => {
+    const data = await mk();
+    const { parent, sent, ask } = fakeParent();
+    const { r } = await boot(parent, data);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    const h = r.runtime.host;
+    h.join("host", "alice");
+    h.seats!.credentials.issue("host", "Pat");
+    h.giveConsent("host", "alice", "v1");
+    // Before the start the removal goes through: a new code, the credential and the consent gone.
+    ask({ type: "reissue", requestId: "rm1", roleId: "host", reason: "removed" });
+    await vi.waitFor(() => expect(sent.some((m) => m.type === "reissued" && m.requestId === "rm1")).toBe(true));
+    expect(h.seats!.credentials.has("host")).toBe(false);
+    expect(h.seats!.consent.hasEntry("host")).toBe(false);
+    // After the start it is refused with the FIXED reason, while a plain reissue failure keeps its own.
+    h.join("host", "bob");
+    h.seats!.credentials.issue("host", "Bo");
+    h.giveConsent("host", "bob", "v1");
+    await h.start();
+    ask({ type: "reissue", requestId: "rm2", roleId: "host", reason: "removed" });
+    await vi.waitFor(() => expect(sent.some((m) => m.type === "reissue_failed" && m.requestId === "rm2")).toBe(true));
+    expect(sent.find((m) => m.type === "reissue_failed" && m.requestId === "rm2")).toMatchObject({ reason: "a participant can only be removed before the start" });
+    expect(h.seats!.credentials.has("host")).toBe(true);
+    expect(h.seats!.consent.has("host", "bob")).toBe(true);
+    await h.endNow({});
+    ask({ type: "reissue", requestId: "rm3", roleId: "host" });
+    await vi.waitFor(() => expect(sent.some((m) => m.type === "reissue_failed" && m.requestId === "rm3")).toBe(true));
+    expect(sent.find((m) => m.type === "reissue_failed" && m.requestId === "rm3")).toMatchObject({ reason: "the code could not be reissued" });
   });
 
   it("the codes never appear in log or warn output", async () => {

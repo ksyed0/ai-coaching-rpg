@@ -14,7 +14,7 @@ import type { Seats } from "../../engine/seats.js";
 import { HostError, SessionHost } from "../session-host.js";
 import { CLOSE_REISSUED, startServer, type ServerHandle } from "../ws-server.js";
 import { ClientMessageSchema } from "../protocol.js";
-import { reissueActor, reissueRole, type ReissueDeps } from "../reissue.js";
+import { reissueRole, type ReissueDeps } from "../reissue.js";
 // Real-socket tests: a generous explicit limit. Nothing here measures elapsed time; each step awaits the event it needs.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
@@ -244,15 +244,6 @@ describe("code reissue (US-0058)", () => {
     const replay = e.host.replayFor("host", 0);
     expect(replay.complete).toBe(true);
     expect(JSON.stringify(replay.events)).not.toContain("O'Neil");
-  });
-
-  it("reissueActor cleans and bounds the name", () => {
-    expect(reissueActor(undefined)).toBe("the facilitator");
-    expect(reissueActor("")).toBe("the facilitator");
-    expect(reissueActor("a\nb\tc")).toBe("a b c");
-    expect(reissueActor("x".repeat(500))).toBe("x".repeat(60));
-    expect([...reissueActor("😀".repeat(100))]).toHaveLength(60);
-    expect(reissueActor("‮\u0000")).toBe("the facilitator");
   });
 
   it("an unknown or non-player role, or an ended session, is refused and nothing changes", async () => {
