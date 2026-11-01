@@ -1,6 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import type { GmNoVerdictReason, SessionEvent } from "@acr/events";
+import type { ExitReason, GmNoVerdictReason, SessionEvent } from "@acr/events";
 import { earnedWhenOf, type NpcRole, type Scenario } from "@acr/script";
 import { isEvent, type Inbound } from "./bots.js";
 import { UNSAFE_CHARS, buildMarkers, ensure, findInjectLeaks, findMarkers, logShapeProblems, type CheckDef, type Markers } from "./checks.js";
@@ -103,14 +103,15 @@ export type ShowcaseHooks = {
   beforeAdvance?: (a: { sceneId: string; index: number; sys?: System }) => Promise<void>;
 };
 
-const EXIT_LABEL: Record<string, string> = {
+const EXIT_LABEL: Record<ExitReason, string> = {
   gm_detects: "the Game Master judged the exit condition true (gm_detects)",
   time_box_elapsed: "the time box elapsed",
   facilitator_advance: "facilitator advance",
+  facilitator_end: "the facilitator ended the session",
 };
 /** Whether a scene has a `gm_detects` exit condition the Game Master can judge. */
 const hasGmCondition = (scene: Scenario["script"]["scenes"][number]): boolean => scene.exit_when.any_of.some((c) => typeof c === "object");
-export const describeExit = (reason: string): string => EXIT_LABEL[reason] ?? reason;
+export const describeExit = (reason: string): string => (Object.hasOwn(EXIT_LABEL, reason) ? EXIT_LABEL[reason as ExitReason] : undefined) ?? reason;
 
 /** The scripted lines that will be spoken in each scene, after the --max-lines cap. */
 export function linesFor(script: ShowcaseScript, sceneId: string, maxLines: number | null) {

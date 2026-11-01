@@ -7,7 +7,7 @@ export type GmNoVerdictReason = "empty" | "no_json" | "bad_verdict" | "truncated
   /** Verdict objects were present but none carried this evaluation's nonce (forged or echoed). */
   | "no_nonce";
 export type GmVia = "strict" | "tolerant" | "reask";
-export type ExitReason = "time_box_elapsed" | "facilitator_advance" | "gm_detects";
+export type ExitReason = "time_box_elapsed" | "facilitator_advance" | "gm_detects" | "facilitator_end";
 export type FacilitatorCommand =
   | { command: "pause" }
   | { command: "resume" }
@@ -53,9 +53,11 @@ export type EventBody =
    * GM_AUTO_RELEASE was on, so the Game Master released the fact itself: the facilitator-only `npc.updated` with the text follows directly.
    */
   | { type: "gm.fact_earned"; sceneId: string; roleId: string; fact: number; reasoning: string; via?: GmVia; autoRelease?: true }
-  | ({ type: "facilitator.command" } & FacilitatorCommand)
+  /** `by`: US-0059, the facilitator's name as the control service gave it (cleaned, at most 60 code points). A label, not proof of identity; facilitator-only (players' copies drop it). Absent for terminal facilitators and older logs. */
+  | ({ type: "facilitator.command"; by?: string } & FacilitatorCommand)
   | { type: "facilitator.alert"; level: "info" | "warning"; message: string }
-  | { type: "session.ended"; reason: "script_complete" | "facilitator_end" }
+  /** `message`: US-0059, the facilitator's closing message for participants (cleaned, at most 300 code points); only with reason `facilitator_end`. */
+  | { type: "session.ended"; reason: "script_complete" | "facilitator_end"; message?: string }
   /**
    * US-0018: the server restarted and resumed this session from its log. The session comes back paused; the time since
    * `downFromTs` (the last event recorded before the restart) counts as paused time, so no timer runs on during the downtime.

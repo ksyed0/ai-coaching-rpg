@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useReducer, useRef } from "react";
-import { applyPlayerEvent, initPlayerView, type PlayerScene, type PlayerView, type SessionEvent, type SessionState } from "@acr/events";
+import { applyPlayerEvent, initPlayerView, type PlayerScene, type PlayerView, type PlayerSnapshot, type SessionEvent } from "@acr/events";
 import { postJson, type ActionResult } from "./api";
 import { MESSAGES } from "./messages";
 
@@ -50,7 +50,7 @@ const CLOSING_EVENTS = ["superseded", "signed_out", "ended", "expired"] as const
 
 type Action =
   | { type: "open" }
-  | { type: "joined"; joined: Joined; state: SessionState }
+  | { type: "joined"; joined: Joined; state: PlayerSnapshot }
   | { type: "reset"; view: PlayerView }
   | { type: "event"; event: SessionEvent }
   | { type: "roster"; entries: PeerRosterEntry[] }
@@ -102,7 +102,7 @@ function parse(data: unknown): unknown {
   try { return JSON.parse(data) as unknown; } catch { return null; }
 }
 
-function toJoined(d: unknown): { joined: Joined; state: SessionState } | null {
+function toJoined(d: unknown): { joined: Joined; state: PlayerSnapshot } | null {
   if (!isObj(d) || typeof d.roleId !== "string" || !isObj(d.state)) return null;
   const st = d.state;
   if (typeof st.lastSeq !== "number" || !Array.isArray(st.transcript)) return null;
@@ -119,7 +119,7 @@ function toJoined(d: unknown): { joined: Joined; state: SessionState } | null {
     ...(consent ? { consent } : {}),
     ...(typeof d.logIdentity === "string" ? { logIdentity: d.logIdentity } : {}),
   };
-  return { joined, state: st as unknown as SessionState };
+  return { joined, state: st as unknown as PlayerSnapshot };
 }
 
 const toView = (d: unknown): PlayerView | null =>

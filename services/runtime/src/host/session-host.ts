@@ -1,4 +1,4 @@
-import type { PlayerScene, SessionEvent, SessionState } from "@acr/events";
+import type { PlayerScene, PlayerSnapshot, SessionEvent, SessionState } from "@acr/events";
 import { commandForPlayer, endedForPlayer, snapshotForPlayer, startedForPlayer } from "./player-copies.js";
 import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
@@ -9,6 +9,8 @@ import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import type { Seats } from "../engine/seats.js";
 import { ConsentError } from "../engine/consent.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
+import { actorLabel, cleanClosingMessage, cleanFacilitatorLabel } from "./display-name.js";
+import { ReviewUsageError } from "../review/errors.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
 export const MAX_REPLAY_EVENTS = 1000;
@@ -23,7 +25,7 @@ export const MAX_REPLAY_BYTES = 256 * 1024;
  */
 export type Replay = { afterSeq: number; toSeq: number; complete: boolean; events: SessionEvent[] };
 
-export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message" | "consent_required" | "not_joined";
+export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message" | "consent_required" | "not_joined" | "starting";
 
 export class HostError extends Error {
   /** `roles`, when given, names the roles the error is about: the message becomes `code: role1,role2`. */
@@ -389,8 +391,26 @@ export class SessionHost {
     return participants.filter((id) => this.npcs.has(id)).sort((a, b) => seniority(a) - seniority(b));
   }
 
-  async command(cmd: Parameters<SessionEngine["command"]>[0], opts: { expectSceneId?: string } = {}): Promise<void> {
-    await this.engine.command(cmd, opts);
+  /**
+   * US-0059: the facilitator ends the session now. Refused before the start (not_started), while the start is in flight or incomplete
+   * (starting) and, by the engine, after the end (ended). The message is cleaned here (longer than 300 code points is bad_message;
+   * whitespace only means none). Afterwards the ticker stops and a pending answer from before a restart is dropped.
+   */
+  async endNow(o: { by?: string; message?: string }): Promise<void> {
+    if (!this.started) throw new HostError(this.isStarting ? "starting" : "not_started");
+    let message: string | undefined;
+    try { message = cleanClosingMessage(o.message); } catch (err) {
+      if (err instanceof ReviewUsageError) throw new HostError("bad_message");
+      throw err;
+    }
+    await this.engine.endNow({ actor: actorLabel(o.by), ...(message !== undefined ? { message } : {}) });
+    this.stopTicker();
+    this.pendingAnswer = null;
+  }
+
+  async command(cmd: Parameters<SessionEngine["command"]>[0], opts: { expectSceneId?: string; by?: string } = {}): Promise<void> {
+    const by = cleanFacilitatorLabel(opts.by);
+    await this.engine.command(cmd, { ...(opts.expectSceneId !== undefined ? { expectSceneId: opts.expectSceneId } : {}), ...(by !== undefined ? { by } : {}) });
     if (cmd.command === "resume" && this.pendingAnswer !== null && !this.engine.state.paused) {
       const sceneId = this.pendingAnswer;
       this.pendingAnswer = null; // exactly once, whatever happens next
@@ -445,7 +465,9 @@ export class SessionHost {
   }
 
   /** State snapshot safe to send to `who`: players never get NPC internals, GM verdicts, participant ids or other scenes' lines. */
-  snapshotFor(who: string | "facilitator"): SessionState {
+  snapshotFor(who: "facilitator"): SessionState;
+  snapshotFor(who: string): PlayerSnapshot;
+  snapshotFor(who: string): SessionState | PlayerSnapshot {
     return who === "facilitator" ? this.engine.state : snapshotForPlayer(this.engine.state, who);
   }
 

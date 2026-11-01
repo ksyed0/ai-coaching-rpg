@@ -1,5 +1,5 @@
 import type { SessionEvent } from "./events.js";
-import type { SessionState } from "./state.js";
+import type { PlayerSnapshot, SessionState } from "./state.js";
 
 // Framework-free and Node-free: runs in the browser. `reduce` (state.ts) cannot be used on a player's stream because it throws on a seq
 // gap, and a player's stream has gaps by design (the server filters what a player may not see). This is the gap-tolerant counterpart.
@@ -16,11 +16,11 @@ export type PlayerView = {
   scene: { id: string; enteredAt: number; pausedMs: number } | null;
   transcript: PlayerLine[];
   injects: { seq: number; content: string; sceneId: string }[];
-  ended: { reason: string } | null;
+  ended: { reason: string; message?: string } | null;
 };
 
 /** Seeds the view from the redacted join snapshot. The snapshot carries no inject content, so `injects` starts empty. */
-export function initPlayerView(snapshot: SessionState): PlayerView {
+export function initPlayerView(snapshot: PlayerSnapshot): PlayerView {
   const sc = snapshot.currentScene;
   return {
     lastSeq: snapshot.lastSeq, status: snapshot.status, paused: snapshot.paused, pausedSince: snapshot.pausedSince,
@@ -63,7 +63,7 @@ export function applyPlayerEvent(view: PlayerView, e: SessionEvent): PlayerView 
       }
       return v;
     case "session.ended":
-      return { ...v, status: "ended", scene: null, ended: { reason: e.reason } };
+      return { ...v, status: "ended", scene: null, ended: typeof e.message === "string" ? { reason: e.reason, message: e.message } : { reason: e.reason } };
     case "session.resumed":
       if (!tsOk) return v;
       if (v.status !== "running") return v;

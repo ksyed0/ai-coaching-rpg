@@ -99,6 +99,34 @@ describe("Supervisor lifecycle", () => {
     await expect(p).resolves.toMatchObject({ status: "running" });
   });
 
+  it("an ended delivered in the same burst as ready is not lost (create): the session ends up ended (BUG-0016)", async () => {
+    const sup = make();
+    const p = sup.create("other");
+    await settle();
+    const c = children[children.length - 1]!;
+    c.emit({ type: "codes", codes: CODES }); c.emit(READY); c.emit({ type: "ended" });
+    const r = await p;
+    await settle();
+    expect(sup.get(r.sessionId)!.status).toBe("ended");
+    expect(list.read()[0]!.status).toBe("ended");
+    expect(sup.facilitator(r.sessionId)).toBeUndefined();
+  });
+
+  it("an ended delivered in the same burst as ready is not lost (restart): the session ends up ended (BUG-0016)", async () => {
+    const sup = make();
+    const { id, c } = await boot(sup);
+    c.exit(1);
+    await settle();
+    const p = sup.restart(id);
+    await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "ready", port: 5555, status: "resumed", modelLabel: "m2" }); c2.emit({ type: "ended" });
+    await p;
+    await settle();
+    expect(sup.get(id)!.status).toBe("ended");
+    expect(list.read()[0]!.status).toBe("ended");
+  });
+
   it("restart is refused for ended and resumes a stopped session paused with a new token", async () => {
     const sup = make();
     const { id, c } = await boot(sup);

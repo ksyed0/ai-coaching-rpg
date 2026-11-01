@@ -129,7 +129,7 @@ This is the one component that is inherently cloud-shaped: the bot needs a publi
 
 Session state is **event-sourced**. The authoritative log is a Redis stream per session (`session:{id}:events`), persisted to the `session_events` table on every turn. The current scene, timers, NPC goal state and avatar positions are projections of that log held in memory by `runtime` and rebuilt from the log on restart. A reconnecting client replays events from its last acknowledged sequence number, which is what makes RUN-09 (reconnect with transcript so far) a free consequence of the design rather than a feature.
 
-The script interpreter is a finite-state machine over scenes. Transitions fire on `time_box_elapsed` (timer), `facilitator_advance` (console command) or `gm_detects` (Game Master verdict, logged with its reasoning).
+The script interpreter is a finite-state machine over scenes. Transitions fire on `time_box_elapsed` (timer), `facilitator_advance` (console command), `facilitator_end` (the console's end now: the current scene exits, then `session.ended` with the same reason and an optional closing message for participants) or `gm_detects` (Game Master verdict, logged with its reasoning).
 
 ## 4. AI orchestration
 

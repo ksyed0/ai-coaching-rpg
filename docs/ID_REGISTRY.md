@@ -6,8 +6,8 @@
 | US           | US-0066               | US-0065           |
 | TASK         | TASK-0096             | TASK-0095         |
 | AC           | AC-0352               | AC-0351           |
-| TC           | TC-0088               | TC-0087           |
-| BUG          | BUG-0016              | BUG-0015          |
+| TC           | TC-0091               | TC-0090           |
+| BUG          | BUG-0017              | BUG-0016          |
 | L            | L-0032                | L-0031            |
 
 Reserved blocks (2026-10-06): AC-0130..AC-0139 and TASK-0040..TASK-0042 US-0025; AC-0140..AC-0149 and TASK-0043..TASK-0045 US-0017; AC-0150..AC-0159 and TASK-0046..TASK-0048 US-0016; AC-0160..AC-0169 and TASK-0049..TASK-0051 US-0018. Free below the blocks: AC-0127..AC-0129 and TASK-0035..TASK-0039. Next/Last point past the reserved blocks; an id in a block that its story does not use stays unused (ids are never reassigned).
@@ -28,4 +28,6 @@ Assigned 2026-10-28 (EPIC-0002 slice 2a, filed with the slice's documentation): 
 
 Assigned 2026-10-30 (EPIC-0002 slice 2b-1, filed with the slice's plan): AC-0341..AC-0350 (US-0058: managed mode, IPC messages, parent disconnect, reissue order, reissue consent, control service lifecycle, child environment, cookie and login, dual-mode lookup, launcher-mode E2E); TC-0077..TC-0086 (one per new AC, in order); TASK-0094 (US-0059 readiness work).
 
-Assigned 2026-11-01 (EPIC-0002 slice 2b-2a, PR 1): AC-0351 (US-0059: allowlisted player copies); TC-0087 (AC-0351); TASK-0095 (US-0059 runtime protocol, three PRs). Later PRs of the slice assign their own as they file them: TC for `by` (AC-0312), talk time (AC-0311), `end_now` (AC-0313) and remove (AC-0314), and BUG-0016.
+Assigned 2026-11-01 (EPIC-0002 slice 2b-2a, PR 1): AC-0351 (US-0059: allowlisted player copies); TC-0087 (AC-0351); TASK-0095 (US-0059 runtime protocol, three PRs). Later PRs of the slice assign their own as they file them: TC for `by` (AC-0312), talk time (AC-0311), `end_now` (AC-0313) and remove (AC-0314), and BUG-0016 (assigned by Task 4b, 2026-11-01).
+
+Assigned 2026-11-01 (EPIC-0002 slice 2b-2a, PR 2): TC-0088 (`by`, AC-0312), TC-0089 (talk time, AC-0311), TC-0090 (`end_now`, AC-0313). BUG-0016 was assigned by Task 4b. PR 3 assigns the TC for remove_participant (AC-0314) from TC-0091.

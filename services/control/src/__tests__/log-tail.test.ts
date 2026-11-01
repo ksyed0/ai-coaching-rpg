@@ -22,6 +22,12 @@ describe("readLogStatus", () => {
   it("empty when there is no complete line yet", () => {
     expect(readLogStatus(file('{"type":"session.sta'))).toBe("empty");
   });
+  it("ended for a complete facilitator_end log and running for one cut between the appends", () => {
+    const head = line({ type: "session.started" }) + line({ type: "scene.entered" }) + line({ type: "scene.exited", reason: "facilitator_end" });
+    expect(readLogStatus(file(head + line({ type: "facilitator.alert" })))).toBe("running");
+    expect(readLogStatus(file(head))).toBe("running");
+    expect(readLogStatus(file(head + line({ type: "facilitator.alert" }) + line({ type: "session.ended", reason: "facilitator_end" })))).toBe("ended");
+  });
   it("running after a normal line", () => {
     expect(readLogStatus(file(line({ type: "session.started" })))).toBe("running");
   });

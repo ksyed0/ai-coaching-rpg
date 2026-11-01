@@ -57,7 +57,11 @@ export function renderEvent(e: SessionEvent, me: string): string | null {
       if (e.command === "release_hidden") return isFacilitator ? `[facilitator] released hidden fact #${s(String(e.fact))} of ${s(e.roleId)}` : null;
       return e.command === "whisper" ? `[whisper] ${s(e.text)}` : `[facilitator] ${s(e.command)}`;
     case "session.started": return `session started: ${s(e.scenarioId)} v${s(e.version)}`;
-    case "session.ended": return `=== session ended (${s(e.reason)}) ===`;
+    case "session.ended": {
+      // The facilitator's closing message (US-0059) goes on its own line behind a fixed prefix, so it can never pass for a chat line.
+      const end = `=== session ended (${s(e.reason)}) ===`;
+      return typeof e.message === "string" && e.message.trim() !== "" ? `${end}\nmessage from the facilitator: ${s(e.message)}` : end;
+    }
     case "session.resumed": return isFacilitator ? "=== session paused (server restarted): /resume to continue ===" : "=== session paused (server restarted); the facilitator will resume it ===";
     case "npc.updated": return isFacilitator ? `[npc ${s(e.roleId)}] goals: ${(e.goals ?? []).map(s).join("; ")}` : null;
     default: return null;

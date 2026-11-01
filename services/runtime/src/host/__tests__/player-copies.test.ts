@@ -53,6 +53,13 @@ describe("player copies (a new field is denied until it is listed)", () => {
     expect(snap).toEqual(TODAYS_PLAYER_SNAPSHOT);
   });
 
+  it("the facilitator snapshot carries talk and no player snapshot does", async () => {
+    const { host } = await running();
+    expect(host.snapshotFor("facilitator").talk).toEqual({ host: { words: 2, lines: 1 }, guest: { words: 6, lines: 1 } });
+    expect(Object.hasOwn(host.snapshotFor("host"), "talk")).toBe(false);
+    expect(Object.hasOwn(host.snapshotFor("guest"), "talk")).toBe(false);
+  });
+
   it("a pause or resume reaches a player with exactly type, seq, ts, sessionId and command", async () => {
     const { host, engine } = await running();
     const pause = { ...find(engine, "facilitator.command"), by: "LEAK-BY", note: "LEAK-N" } as unknown as SessionEvent;

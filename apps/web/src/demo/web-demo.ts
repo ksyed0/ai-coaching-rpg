@@ -189,7 +189,7 @@ export async function runWebDemo(o: { write: (s: string) => void; color: boolean
     });
 
     // Facilitator-only material for W-07: a whisper (the tech lead's own) and a released hidden fact (never a player's).
-    await s.terminalFacilitator.command({ command: "whisper", roleId: "tech_lead", text: "WHISPER-ONLY-FOR-TECH-LEAD" });
+    await s.terminalFacilitator.command({ command: "whisper", roleId: "tech_lead", text: "WHISPER-ONLY-FOR-TECH-LEAD" }, "LEAK-BY-FACILITATOR");
     await s.terminalFacilitator.command({ command: "release_hidden", roleId: "client_sponsor", fact: 1 });
 
     await run("W-04", async () => {
@@ -275,6 +275,8 @@ export async function runWebDemo(o: { write: (s: string) => void; color: boolean
         "\"command\":\"advance\"", "\"command\":\"release_hidden\"",
         // An AI character's goal and knowledge (the facilitator's state carries them; no player prompt or line does).
         "Avoid a change request going to her CFO", "The CFO has already asked why the programme costs what it does",
+        // US-0059: the facilitator's name on a command (`by`, even on the whisper a player does see) and the words-spoken projection (`talk`).
+        "LEAK-BY-FACILITATOR", "\"talk\":",
         // The facilitator-only notice of a server without FACILITATOR_TOKEN.
         "anyone who can reach it can join as facilitator",
       ];
@@ -297,7 +299,7 @@ export async function runWebDemo(o: { write: (s: string) => void; color: boolean
       for (const owner of PLAYERS) for (const m of OWN[owner]) check(web.streams.some((x) => x.role === owner && x.r.raw().includes(m)), `${owner} never got its own ${m.slice(0, 12)}…: the scan would prove nothing`);
       if (toTheEnd !== null) throw toTheEnd;
       for (const role of PLAYERS) check(live[role].frames.at(-1)?.event === "ended", `${role}'s stream did not end with ended`);
-      return `${frames} SSE frames on ${web.streams.length} streams (every stream every role opened) carry none of the ${FACILITATOR_ONLY.length} facilitator-only markers the facilitator saw (hidden fact, facilitator roster, advance and release commands, an AI character's goals and knowledge, the open-server notice), no join code, cookie, credential or token; each player's brief, private facts and whisper reached only that player`;
+      return `${frames} SSE frames on ${web.streams.length} streams (every stream every role opened) carry none of the ${FACILITATOR_ONLY.length} facilitator-only markers the facilitator saw (hidden fact, facilitator roster, advance and release commands, an AI character's goals and knowledge, the facilitator's name on a command, the words-spoken projection, the open-server notice), no join code, cookie, credential or token; each player's brief, private facts and whisper reached only that player`;
     });
 
     await run("W-08", async () => {

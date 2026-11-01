@@ -198,3 +198,21 @@ Lesson Encoded: No
 
 **Fix (design: resume in place).** The log is append-only and subscribers may already have seen `session.started`, so rolling back by truncating would retract an event and write to a disk that just failed. Instead the engine runs the opening (NPC states, first scene, opening inject) as a list of steps and drops each only after its append succeeds; a second `start` finishes the remaining steps (`SessionEngine.startIncomplete`). The host skips the readiness gate on that retry (the log already records who started) and keeps seats, consents, reissue and leave frozen between the attempts; the facilitator `command` auto-start now keys on `hasStarted`. A fail-stop (`log_failed`) still ends the attempt for good and the restart resumes from the log, unchanged. M-9 second half: the BFF start waiter now ends only on codes a start can produce (`START_ERRORS`), so a stray `not_started` or `forbidden` frame no longer reads as a refused start.
 
+```
+BUG-0016: A resume whose repair ends the session never tells the control service and never revokes credentials
+Severity: Medium
+Related Story: US-0059
+Related Task: TASK-0095
+Status: Fixed
+Fix Branch: feature/EPIC-0002-US-0059-runtime-protocol
+Lesson Encoded: No
+```
+
+`markResumed` runs inside `openSession`, before `main.ts` subscribes to the engine and before `SessionHost` exists. When the restore repair ends the session (today the `script_complete` repair: the log was cut after the last scene's exit), the `session.ended` event is appended with nobody listening, so the `ended` IPC message to the control service is never sent and the credentials are never revoked (the host's own `session.ended` subscriber also does not exist yet). The control service keeps listing the session as running and the player codes and reconnect tokens stay valid. Pre-existing; found while planning `end_now`, whose `facilitator_end` repair would hit the same path.
+
+**Fix.** After `ready` is sent, `main.ts` checks `host.engine.state.status === "ended"` once; if so it sends `ended` at once (through the same once-only flag the live subscriber uses, so a live end and this path never both send) and calls `host.endSeats()`; a failing revoke is reported as a warning, not thrown. A running resume is unchanged. Tests: `main.parent.test.ts` (a repaired-to-ended resume sends `ready` then `ended` and the credential registry is latched and empty; a normal resume sends `ready` only).
+
+**Fixed in** `f8d21bc` (the runtime sends `ended` after `ready` and revokes the seats) and `5fdc9f2` (the control service keeps an `ended` that arrives right after `ready`); the branch is squashed on merge, so these hashes are for the branch history only.
+
+**Follow-up (review).** The control service's `awaitReady` stopped listening once `ready` settled and the live handler was installed only afterwards, so an `ended` sent right after `ready` was dropped and the list kept the session "running". `awaitReady` now records an `ended` seen after `ready` and `goLive` applies it through the idempotent `onEnded` (both callers: create, and the shared start path used by restart/resume and reissue-all). A standalone (no control service) resume repaired to ended now also revokes the seats. Tests: `supervisor.lifecycle.test.ts` (ready+ended burst, create and restart), `main.parent.test.ts` (persisted end mark, a throwing revoke is warned, standalone).
+

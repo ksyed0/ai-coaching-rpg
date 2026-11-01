@@ -79,6 +79,39 @@ describe("restore: replay equals live state (property)", () => {
   }
 });
 
+describe("talk time on restore (US-0059)", () => {
+  it("the restored talk equals the live talk", async () => {
+    const log = new MemoryEventLog("talk");
+    const clock = new FakeClock(T0);
+    const live = new SessionEngine({ scenario, log, clock });
+    await live.start({ host: "p1" });
+    await live.say("host", "one two three");
+    await live.say("guest", "hello there", "text", { expectSceneId: live.state.currentScene?.id });
+    await live.say("host", "four");
+    const again = new SessionEngine({ scenario, log, clock: new FakeClock(T0) });
+    await again.restore();
+    expect(again.state.talk).toEqual(live.state.talk);
+    expect(live.state.talk["host"]).toEqual({ words: 4, lines: 2 });
+    expect(live.state.talk["guest"]).toEqual({ words: 2, lines: 1 });
+  });
+
+  it("a hand-edited log with role ids __proto__ and constructor restores without pollution or a crash", async () => {
+    const log = new MemoryEventLog("talk-proto");
+    const clock = new FakeClock(T0);
+    const live = new SessionEngine({ scenario, log, clock });
+    await live.start({ host: "p1" });
+    for (const [roleId, text] of [["__proto__", "sneaky words here"], ["constructor", "x"], ["__proto__", "y"]] as const)
+      await log.append({ type: "utterance", roleId, text, channel: "text" } as never, T0 + 1);
+    const again = new SessionEngine({ scenario, log, clock: new FakeClock(T0 + 2) });
+    await again.restore();
+    expect(({} as Record<string, unknown>).words).toBeUndefined();
+    expect(({} as Record<string, unknown>).lines).toBeUndefined();
+    expect(again.state.status).toBe("running");
+    expect(Object.getOwnPropertyDescriptor(again.state.talk, "__proto__")?.value).toEqual({ words: 4, lines: 2 });
+    expect(again.state.talk["constructor"]).toEqual({ words: 1, lines: 1 });
+  });
+});
+
 async function liveOn(log: EventLog, clock = new FakeClock(T0)) {
   const engine = new SessionEngine({ scenario, log, clock });
   await engine.start({ host: "p1" });

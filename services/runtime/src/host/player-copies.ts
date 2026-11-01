@@ -1,4 +1,4 @@
-import { visibleTranscript, type SessionEvent, type SessionState } from "@acr/events";
+import { visibleTranscript, type PlayerSnapshot, type SessionEvent, type SessionState } from "@acr/events";
 
 /**
  * Everything a player may see of the session, as explicit allowlists. A copy is built key by key from these tables, never by spread,
@@ -34,15 +34,16 @@ export const PLAYER_SNAPSHOT: { [K in keyof SessionState]: PlayerField<K> } = {
   advanceRequested: () => false,
   gmVerdicts: () => ({}),
   factsEarned: () => ({}),
+  talk: "omit", // US-0059: words spoken are for the facilitator console only
 };
 
-export function snapshotForPlayer(s: SessionState, who: string): SessionState {
+export function snapshotForPlayer(s: SessionState, who: string): PlayerSnapshot {
   const out: Record<string, unknown> = {};
   for (const k of Object.keys(PLAYER_SNAPSHOT) as (keyof SessionState)[]) {
     const field = PLAYER_SNAPSHOT[k] as ((s: SessionState, who: string) => unknown) | "omit";
     if (field !== "omit") out[k] = field(s, who);
   }
-  return out as SessionState;
+  return out as PlayerSnapshot;
 }
 
 /** Fields of session.started copied to a player as they are. A field added to the event type must be listed here (or handled in startedForPlayer) to compile. */
@@ -71,7 +72,7 @@ export function commandForPlayer(e: CommandEvent, who: string): CommandEvent | n
 }
 
 /** Fields of session.ended copied to a player. A field added to the event type must be listed here to compile. */
-export const ENDED_FOR_PLAYERS: Record<keyof EndedEvent, true> = { type: true, seq: true, ts: true, sessionId: true, reason: true };
+export const ENDED_FOR_PLAYERS: Record<keyof EndedEvent, true> = { type: true, seq: true, ts: true, sessionId: true, reason: true, message: true };
 
 export function endedForPlayer(e: EndedEvent): EndedEvent {
   const out: Record<string, unknown> = {};

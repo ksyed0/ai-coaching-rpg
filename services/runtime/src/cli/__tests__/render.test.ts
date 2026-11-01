@@ -49,6 +49,12 @@ describe("renderEvent", () => {
     expect(renderEvent({ ...env, type: "session.started", scenarioId: "sc", version: "1", roles: {} }, "host")).toBe("session started: sc v1");
     expect(renderEvent({ ...env, type: "session.ended", reason: "script_complete" }, "host")).toBe("=== session ended (script_complete) ===");
   });
+  it("a session.ended with a message prints the cleaned message on its own line", () => {
+    const line = renderEvent({ ...env, type: "session.ended", reason: "facilitator_end", message: "Well done.\x1b[2J\u202e team" }, "host");
+    expect(line).toBe("=== session ended (facilitator_end) ===\nmessage from the facilitator: Well done.·[2J team");
+    expect(CONTROL.test(line!.split("\n")[1]!)).toBe(false);
+    expect(renderEvent({ ...env, type: "session.ended", reason: "facilitator_end", message: 5 as never }, "host")).toBe("=== session ended (facilitator_end) ===");
+  });
   it("renders nothing for unknown event types instead of crashing", () => {
     expect(renderEvent({ ...env, type: "something.new" } as unknown as SessionEvent, "host")).toBeNull();
   });

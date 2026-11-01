@@ -1,4 +1,4 @@
-import { LOG_FORMAT, activeElapsedMs, initialState, reduce, reduceReplay, type Channel, type EventBody, type FacilitatorCommand, type GmNoVerdictReason, type GmVia, type SessionEvent, type SessionState } from "@acr/events";
+import { LOG_FORMAT, activeElapsedMs, initialState, reduce, reduceReplay, type Channel, type EventBody, type ExitReason, type FacilitatorCommand, type GmNoVerdictReason, type GmVia, type SessionEvent, type SessionState } from "@acr/events";
 import { dueInjects, earnedWhenOf, evaluateExit, nextSceneId, type Inject, type NpcRole, type Scenario, type Scene } from "@acr/script";
 import type { Clock } from "./clock.js";
 import { LogFailedError, type EventLog } from "./event-log.js";
@@ -53,11 +53,13 @@ export type Repair =
   /** US-0034: a Game Master auto-release (gm.fact_earned with autoRelease) whose npc.updated never reached the log. */
   | { kind: "gm_release"; roleId: string; fact: number }
   | { kind: "enter_scene"; sceneId: string }
-  | { kind: "end_session" };
+  /** `reason: "facilitator_end"`: the log shows the facilitator ended the session (scene.exited) but session.ended never reached the log. */
+  | { kind: "end_session"; reason?: "facilitator_end" };
 export const describeRepair = (r: Repair): string =>
   r.kind === "npc_init" ? `set up AI character ${r.roleId}` : r.kind === "inject_effect" ? `applied inject ${r.injectId} to ${r.roleId}`
     : r.kind === "gm_release" ? `released hidden fact ${r.fact} of ${r.roleId} (Game Master auto-release)`
-    : r.kind === "opening_inject" ? `fired the opening inject of ${r.sceneId}` : r.kind === "enter_scene" ? `entered scene ${r.sceneId}` : "ended the session (the last scene had ended)";
+    : r.kind === "opening_inject" ? `fired the opening inject of ${r.sceneId}` : r.kind === "enter_scene" ? `entered scene ${r.sceneId}`
+    : r.reason === "facilitator_end" ? "ended the session (the facilitator had ended it; any closing message to participants was lost)" : "ended the session (the last scene had ended)";
 /** US-0054: what the web seats add to session.started (log format 2). */
 export type SessionStartExtra = {
   consents?: Record<string, { noticeVersion: string; at: number }>;
@@ -71,7 +73,7 @@ export type RestoreOutcome = { kind: "empty" } | { kind: "ended"; events: number
 /** Own-property lookup: a client-supplied role id such as `__proto__` or `constructor` must never resolve to an inherited member. */
 const own = <T>(map: Record<string, T>, key: string): T | undefined => (Object.hasOwn(map, key) ? map[key] : undefined);
 
-export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released" | "log_failed" | "bad_identity";
+export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released" | "log_failed" | "bad_identity" | "not_started" | "starting";
 export class EngineError extends Error {
   constructor(readonly code: EngineErrorCode, message: string = code) { super(message); this.name = "EngineError"; }
 }
@@ -259,8 +261,8 @@ export class SessionEngine {
   }
 
   /** `opts.expectSceneId`: throws EngineError("stale_scene") (appending nothing) if the scene has changed, so a late `advance` can never end the NEXT scene. */
-  command(cmd: FacilitatorCommand, opts: { expectSceneId?: string } = {}): Promise<void> { return this.mutex.run(() => this.doCommand(cmd, opts)); }
-  private async doCommand(cmd: FacilitatorCommand, opts: { expectSceneId?: string } = {}): Promise<void> {
+  command(cmd: FacilitatorCommand, opts: { expectSceneId?: string; by?: string } = {}): Promise<void> { return this.mutex.run(() => this.doCommand(cmd, opts)); }
+  private async doCommand(cmd: FacilitatorCommand, opts: { expectSceneId?: string; by?: string } = {}): Promise<void> {
     if (this.state.status === "ended") throw new EngineError("ended");
     if (opts.expectSceneId !== undefined && this.state.currentScene?.id !== opts.expectSceneId) throw new EngineError("stale_scene");
     // validate first: a rejected command appends nothing
@@ -288,7 +290,7 @@ export class SessionEngine {
       if (npc.released.includes(text)) throw new EngineError("already_released", `fact ${cmd.fact} of ${cmd.roleId} is already released`);
       release = { roleId: cmd.roleId, npc, text };
     }
-    await this.emit({ type: "facilitator.command", ...cmd });
+    await this.emit({ type: "facilitator.command", ...cmd, ...(opts.by !== undefined ? { by: opts.by } : {}) });
     // The command event above carries no fact text. The text goes only in this npc.updated, which players never receive.
     // Two appends: the npc.updated is the source of truth. If this second append fails the command is an orphan (it changed nothing, so a retry is accepted).
     if (release) await this.emit({ type: "npc.updated", roleId: release.roleId, goals: release.npc.goals, knowledge: release.npc.knowledge, released: [...release.npc.released, release.text] });
@@ -397,6 +399,8 @@ export class SessionEngine {
     let count = 0; let maxTs = Number.NEGATIVE_INFINITY; let format = 0; let lastGmSeq: number | null = null;
     let logIdentity: string | undefined; let identityInvalid = false;
     let startedConsents: ResumeInfo["startedConsents"];
+    // US-0059: why the latest scene ended (null while a scene is current); a facilitator_end with no session.ended after it is repaired.
+    let lastExit: ExitReason | null = null;
     // An inject's AI character updates follow its inject.fired directly; this tracks the ones still due if the log ends here.
     let injectDue: { sceneId: string; injectId: string; roles: string[] } | null = null;
     const recent = new RecentEvents(this.retainEvents); // adopted only when the session is resumed
@@ -437,6 +441,8 @@ export class SessionEngine {
       // A restart's own bookkeeping (session.resumed and its alert) may sit between an inject and its updates when a crash cut the
       // resume's completion short; live code never puts anything else there, so only those two keep the pending updates due.
       else if (e.type !== "session.resumed" && e.type !== "facilitator.alert") injectDue = null;
+      if (e.type === "scene.exited") lastExit = e.reason;
+      else if (e.type === "scene.entered") lastExit = null;
       if (e.type === "scene.entered") lastGmSeq = null;
       else if ((e.type === "gm.decision" || e.type === "gm.no_verdict" || e.type === "gm.fact_earned") && e.sceneId === s.currentScene?.id) lastGmSeq = e.seq;
       if (e.type === "gm.fact_earned" && e.autoRelease) autoReleases.push({ roleId: e.roleId, fact: e.fact });
@@ -470,7 +476,9 @@ export class SessionEngine {
     if (!cur) {
       const lastScene = s.sceneHistory.at(-1)?.id;
       const next = lastScene === undefined ? sc.script.scenes[0]?.id : nextSceneId(sc.script, lastScene);
-      repairs.push(next ? { kind: "enter_scene", sceneId: next } : { kind: "end_session" });
+      // lastExit is assigned inside a loop closure, so TypeScript narrows it to null here; the cast undoes that.
+      if ((lastExit as ExitReason | null) === "facilitator_end") repairs.push({ kind: "end_session", reason: "facilitator_end" });
+      else repairs.push(next ? { kind: "enter_scene", sceneId: next } : { kind: "end_session" });
     } else {
       const opening = sc.script.scenes.find((x) => x.id === cur.id)?.opening_inject;
       if (opening && !s.injectsFired.includes(opening)) repairs.push({ kind: "opening_inject", sceneId: cur.id });
@@ -499,8 +507,8 @@ export class SessionEngine {
       // Written BEFORE the completion, so it says what is being completed, never that it is done; a crash during the completion is
       // completed again by the next restart (which says so in its own alert).
       const fixed = notes.repairs.length > 0 ? `; it now completes what the crash cut short: ${notes.repairs.join(", ")}` : "";
-      const ends = info.repairs.some((r) => r.kind === "end_session");
-      const next = ends ? ". The last scene had already ended, so the session ends now" : `. It is paused: /resume to continue${info.pendingLine ? " (the last player line is then answered)" : ""}`;
+      const endRepair = info.repairs.find((r) => r.kind === "end_session");
+      const next = endRepair ? (endRepair.reason === "facilitator_end" ? ". The facilitator had ended the session, so it ends now" : ". The last scene had already ended, so the session ends now") : `. It is paused: /resume to continue${info.pendingLine ? " (the last player line is then answered)" : ""}`;
       await this.emit({ type: "facilitator.alert", level: "warning", message: `session resumed after a server restart, ${down}${cut}${v0}${badId}${fixed}${next}` });
       for (const r of info.repairs) await this.applyRepair(r);
       return notes;
@@ -529,7 +537,25 @@ export class SessionEngine {
     } else if (r.kind === "enter_scene") {
       const scene = sc.script.scenes.find((x) => x.id === r.sceneId);
       if (scene) await this.enterScene(scene);
-    } else await this.emit({ type: "session.ended", reason: "script_complete" });
+    } else await this.emit({ type: "session.ended", reason: r.reason ?? "script_complete" });
+  }
+
+  /**
+   * US-0059: the facilitator ends the session now. `actor` and `message` arrive cleaned (the caller's job). Refused, appending nothing,
+   * before the start (not_started), while a start is incomplete (starting) and after the end (ended). One mutex run appends
+   * scene.exited (when a scene is current), the facilitator-only alert, then session.ended LAST; every other operation re-checks
+   * `ended` inside the mutex, so nothing queued behind this can append after session.ended. Assumes a current scene whenever the
+   * session is reachable here: currentScene is null only inside a tick run or between restore and markResumed (both under the mutex).
+   */
+  endNow(o: { actor: string; message?: string }): Promise<void> { return this.mutex.run(() => this.doEndNow(o)); }
+  private async doEndNow(o: { actor: string; message?: string }): Promise<void> {
+    if (this.state.status === "idle") throw new EngineError("not_started");
+    if (this.opening !== null) throw new EngineError("starting");
+    if (this.state.status === "ended") throw new EngineError("ended");
+    const sceneId = this.state.currentScene?.id;
+    if (sceneId !== undefined) await this.emit({ type: "scene.exited", sceneId, reason: "facilitator_end" });
+    await this.emit({ type: "facilitator.alert", level: "info", message: `the session was ended now by ${o.actor}${o.message ? "; participants were shown a closing message" : ""}` });
+    await this.emit({ type: "session.ended", reason: "facilitator_end", ...(o.message ? { message: o.message } : {}) });
   }
 
   tick(): Promise<void> { return this.mutex.run(() => this.doTick()); }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CLIENT_ID_MAX_CHARS, type PlayerScene, type SessionEvent, type SessionState } from "@acr/events";
+import { CLIENT_ID_MAX_CHARS, type PlayerScene, type PlayerSnapshot, type SessionEvent, type SessionState } from "@acr/events";
 import { MAX_JOIN_CODE_INPUT_CHARS } from "../engine/join-codes.js";
 import { REBIND_PENDING } from "../engine/consent.js";
 import { MAX_CREDENTIAL_INPUT_CHARS } from "../engine/credentials.js";
@@ -24,6 +24,11 @@ const FacilitatorCommandSchema = z.discriminatedUnion("command", [
  */
 const LastSeq = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional();
 
+/** US-0059: the most UTF-16 units a raw `by` may have on the wire. */
+export const MAX_BY_RAW_CHARS = 200;
+/** US-0059: the most UTF-16 units a raw closing message may have on the wire (the host cleans it to 300 code points). */
+export const MAX_END_MESSAGE_RAW_CHARS = 1_200;
+
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   // US-0033: joinCode is the role's code (required when the server issues codes); a live rejoin may present the reconnect token instead.
   // US-0053: issueCredential asks a join by code for a durable credential (returned once in `joined`); `credential` rejoins with it
@@ -35,7 +40,10 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("join_facilitator"), sessionId: Id, token: z.string().max(256).optional(), lastSeq: LastSeq }),
   z.object({ type: z.literal("start") }),
   z.object({ type: z.literal("say"), text: z.string().min(1).max(MAX_UTTERANCE_CHARS), expectSceneId: Id.optional() }),
-  z.object({ type: z.literal("command"), command: FacilitatorCommandSchema, expectSceneId: Id.optional() }),
+  // US-0059: `by` is the facilitator's name as the control service gave it (raw at most 200 UTF-16 units; the host cleans it to 60 code points).
+  z.object({ type: z.literal("command"), command: FacilitatorCommandSchema, expectSceneId: Id.optional(), by: z.string().max(MAX_BY_RAW_CHARS).optional() }),
+  // US-0059: the facilitator ends the session now (never auto-starts). `message` is raw (the host cleans it to 300 code points); `by` as on `command`.
+  z.object({ type: z.literal("end_now"), message: z.string().max(MAX_END_MESSAGE_RAW_CHARS).optional(), by: z.string().max(MAX_BY_RAW_CHARS).optional() }),
   // US-0053: a player gives up the seat for good: the credential is revoked, consent withdrawn and the connection closed (1000).
   z.object({ type: z.literal("leave") }),
   // US-0054: a player agrees to the consent notice of this version (it must be the server's current one), or takes the consent back
@@ -48,7 +56,7 @@ export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 export type ReplaySummary = { afterSeq: number; toSeq: number; events: number; complete: boolean };
 
 export type ServerMessage =
-  | { type: "joined"; roleId: string | "facilitator"; brief?: string; privateFacts?: string[]; reconnectToken?: string; state: SessionState; /** Facilitator only: a one-line note, e.g. that the server is open. */ notice?: string;
+  | { type: "joined"; roleId: string | "facilitator"; brief?: string; privateFacts?: string[]; reconnectToken?: string; state: SessionState | PlayerSnapshot; /** Facilitator only: a one-line note, e.g. that the server is open. */ notice?: string;
       /** Facilitator only, and only after a facilitator join (behind FACILITATOR_TOKEN when it is set): each AI character's hidden facts, in the order `release_hidden` numbers them (1-based). Never sent to a player. */
       hiddenFacts?: Record<string, string[]>;
       /**

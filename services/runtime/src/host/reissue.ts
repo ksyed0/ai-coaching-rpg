@@ -2,7 +2,7 @@ import type { JoinCodes } from "../engine/join-codes.js";
 import type { Seats } from "../engine/seats.js";
 import type { SessionHost } from "./session-host.js";
 import { CLOSE_REISSUED, type ServerHandle } from "./ws-server.js";
-import { MAX_DISPLAY_NAME_CHARS, normalizeDisplayName } from "./display-name.js";
+import { actorLabel } from "./display-name.js";
 
 /** What reissueRole works on; main.ts supplies the real ones, tests fakes. */
 export type ReissueDeps = {
@@ -21,11 +21,7 @@ export type ReissueDeps = {
 };
 
 /** The name a facilitator-only alert carries: cleaned, at most 60 code points, no control or hidden characters; "the facilitator" when absent or empty. */
-export function reissueActor(by: string | undefined): string {
-  if (by === undefined) return "the facilitator";
-  const flat = by.replace(/[\r\n\t]+/g, " ");
-  return normalizeDisplayName([...flat].slice(0, MAX_DISPLAY_NAME_CHARS).join("")) ?? "the facilitator";
-}
+export const reissueActor = actorLabel;
 
 /**
  * US-0058: gives ONE player role a new join code. Only the control service can ask (over the fork() IPC channel). Returns the new
