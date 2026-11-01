@@ -36,8 +36,8 @@ const FACILITATOR_TIMEOUT_MS = 30_000;
 export type TerminalFacilitator = {
   /** Sends `start`; resolves when session.started arrives, rejects with the runtime's error code and message when it refuses. */
   start(): Promise<void>;
-  /** Sends a facilitator command; resolves when its facilitator.command event arrives, rejects on the runtime's error. */
-  command(c: unknown): Promise<void>;
+  /** Sends a facilitator command (with `by`, the facilitator's name, when given); resolves when its facilitator.command event arrives, rejects on the runtime's error. */
+  command(c: unknown, by?: string): Promise<void>;
   /** Every frame the facilitator has received since it (re)connected. */
   frames(): unknown[];
 };
@@ -270,9 +270,9 @@ function facilitatorFor(url: () => string): TerminalFacilitator & { close(): voi
   };
   return {
     start: () => exchange({ type: "start" }, (f) => f.type === "event" && f.event?.type === "session.started", "session.started"),
-    command: (c) => {
+    command: (c, by) => {
       const name = (c as { command?: unknown }).command;
-      return exchange({ type: "command", command: c }, (f) => f.type === "event" && f.event?.type === "facilitator.command" && f.event.command === name, `the ${String(name)} command`);
+      return exchange({ type: "command", command: c, ...(by !== undefined ? { by } : {}) }, (f) => f.type === "event" && f.event?.type === "facilitator.command" && f.event.command === name, `the ${String(name)} command`);
     },
     frames: () => inbox.slice(),
     close: () => { ws?.terminate(); ws = null; },

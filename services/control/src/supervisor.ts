@@ -157,12 +157,17 @@ export class Supervisor {
       timer.cancel = this.setTimer(() => fail(new ControlError("timeout", "the session did not become ready in time")), this.o.config.readyTimeoutMs);
       child.onExit(() => fail(new ControlError("start_failed", START_FAILED)));
       child.onMessage((raw) => {
+        // BUG-0016: a child may send `ended` right after `ready` (a resume repaired to ended); the live handler is installed only after
+        // this promise's continuation runs, so the message is recorded here and applied by goLive. After ready nothing else matters
+        // here, so every other message is dropped without being parsed.
+        if (settled) {
+          if (typeof raw !== "object" || raw === null || (raw as { type?: unknown }).type !== "ended") return;
+          if (ChildMessageSchema.safeParse(raw).success) endedSeen.v = true;
+          return;
+        }
         const parsed = ChildMessageSchema.safeParse(raw);
         if (!parsed.success) return;
         const m = parsed.data;
-        // BUG-0016: a child may send `ended` right after `ready` (a resume repaired to ended); the live handler is installed only after
-        // this promise's continuation runs, so the message is recorded here and applied by goLive.
-        if (settled) { if (m.type === "ended") endedSeen.v = true; return; }
         if (m.type === "codes") codes = m.codes;
         else if (m.type === "ready") {
           const got = codes !== undefined && codes.length > 0 ? codes : undefined;

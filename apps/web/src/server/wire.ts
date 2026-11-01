@@ -27,7 +27,8 @@ export type JoinedFrame = {
   brief?: string;
   privateFacts?: string[];
   reconnectToken?: string;
-  state: PlayerSnapshot;
+  /** A player join carries a PlayerSnapshot; the facilitator join carries the full SessionState (with `talk`). */
+  state: SessionState | PlayerSnapshot;
   /** Present only when the join carried lastSeq: `events` event frames follow at once. */
   replay?: ReplaySummary;
   /** The durable credential, only on the join by code that asked for it. The one copy. */

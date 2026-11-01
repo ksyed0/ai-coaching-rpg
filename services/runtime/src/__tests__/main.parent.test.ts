@@ -127,7 +127,7 @@ describe("bootstrap with a parent channel (US-0058)", () => {
   });
 
   /** BUG-0016: a first life that holds a credential, is started and sits in the LAST scene; the log is then cut right after that scene's exit. */
-  async function cutAfterLastSceneExit(data: string, cut: boolean) {
+  async function cutAfterLastSceneExit(data: string, cut: boolean, how: "advance" | "end_now" = "advance") {
     const first = await boot(fakeParent().parent, data);
     if (!first.r.ok) throw new Error(first.r.errors.join("; "));
     const h = first.r.runtime.host;
@@ -142,7 +142,11 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     await first.r.runtime.stop(); runtimes.pop();
     if (cut) {
       const log = new JsonlEventLog("p1", data, { sync: false });
-      await log.append({ type: "scene.exited", sceneId: "s2_close", reason: "facilitator_advance" }, Date.now());
+      if (how === "end_now") {
+        // end_now appends scene.exited, then the alert, then session.ended: the log is cut before the last of the three.
+        await log.append({ type: "scene.exited", sceneId: "s2_close", reason: "facilitator_end" }, Date.now());
+        await log.append({ type: "facilitator.alert", level: "warning", message: "Sam ended the session" }, Date.now());
+      } else await log.append({ type: "scene.exited", sceneId: "s2_close", reason: "facilitator_advance" }, Date.now());
       await log.close();
     }
   }
@@ -150,6 +154,20 @@ describe("bootstrap with a parent channel (US-0058)", () => {
   it("a resume whose repair ended the session (log cut after the last scene's exit, script_complete repair) sends ready then ended, and every credential is revoked", async () => {
     const data = await mk();
     await cutAfterLastSceneExit(data, true);
+    const { parent, sent } = fakeParent();
+    const { r } = await boot(parent, data);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(r.runtime.host.engine.state.status).toBe("ended");
+    expect(sent.map((m) => m.type)).toEqual(["ready", "ended"]);
+    expect((sent[0] as Extract<ChildMessage, { type: "ready" }>).status).toBe("resumed");
+    const seats = r.runtime.host.seats!;
+    expect(seats.credentials.ended).toBe(true);
+    expect(seats.credentials.has("host")).toBe(false);
+  });
+
+  it("a log cut after the end_now alert (no session.ended) resumes to ready then ended, and every credential is revoked", async () => {
+    const data = await mk();
+    await cutAfterLastSceneExit(data, true, "end_now");
     const { parent, sent } = fakeParent();
     const { r } = await boot(parent, data);
     if (!r.ok) throw new Error(r.errors.join("; "));

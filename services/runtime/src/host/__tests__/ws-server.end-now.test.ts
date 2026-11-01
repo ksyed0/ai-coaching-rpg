@@ -146,6 +146,17 @@ describe("end_now over the WebSocket server (US-0059)", () => {
     expect(ended.event.message).toBe("x".repeat(300));
   });
 
+  it("bidirectional and control characters inside a closing message are stripped before players see it", async () => {
+    const { port } = await setup();
+    const fac = await joinFac(port);
+    const p = await joinPlayer(port);
+    fac.send({ type: "start" });
+    await p.next((m) => m.type === "event" && m.event.type === "scene.entered");
+    fac.send({ type: "end_now", message: "Thanks\u202E\u0007 all" });
+    const e = await p.next((m) => m.type === "event" && m.event.type === "session.ended");
+    expect(e.event.message).toBe("Thanks all");
+  });
+
   it("a whitespace-only message gives session.ended without message", async () => {
     const { port } = await setup();
     const fac = await joinFac(port);
