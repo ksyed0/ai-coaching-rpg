@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -159,6 +159,40 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     const seats = r.runtime.host.seats!;
     expect(seats.credentials.ended).toBe(true);
     expect(seats.credentials.has("host")).toBe(false);
+  });
+
+  it("the revoke is persisted: the credentials file carries the end mark and no role after a repaired-to-ended resume", async () => {
+    const data = await mk();
+    await cutAfterLastSceneExit(data, true);
+    const { r } = await boot(fakeParent().parent, data);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    const files = (await readdir(data)).filter((f) => f.startsWith("p1.") && f.endsWith(".json") && !f.includes("codes"));
+    const texts = await Promise.all(files.map((f) => readFile(path.join(data, f), "utf8")));
+    const cred = texts.find((t) => t.includes('"ended"') && t.includes("salt"));
+    expect(cred).toBeDefined();
+    expect(JSON.parse(cred!)).toMatchObject({ ended: true, roles: {} });
+  });
+
+  it("an endSeats that throws is reported and the start still succeeds with ready then ended", async () => {
+    const data = await mk();
+    await cutAfterLastSceneExit(data, true);
+    vi.spyOn(SessionHost.prototype, "endSeats").mockImplementation(() => { throw new Error("disk full /secret/path"); });
+    const { parent, sent } = fakeParent();
+    const { r, logs } = await boot(parent, data);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(sent.map((m) => m.type)).toEqual(["ready", "ended"]);
+    expect(logs.some((l) => l.includes("end of session revoke: Error"))).toBe(true);
+    expect(logs.join("\n")).not.toContain("/secret/path");
+  });
+
+  it("a standalone (no parent) resume repaired to ended also revokes every credential", async () => {
+    const data = await mk();
+    await cutAfterLastSceneExit(data, true);
+    const { r } = await boot(undefined, data);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    expect(r.runtime.host.engine.state.status).toBe("ended");
+    expect(r.runtime.host.seats!.credentials.ended).toBe(true);
+    expect(r.runtime.host.seats!.credentials.has("host")).toBe(false);
   });
 
   it("a normal resume sends ready and no ended", async () => {

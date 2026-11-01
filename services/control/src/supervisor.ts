@@ -113,11 +113,12 @@ export class Supervisor {
       child = spawned;
       exit = this.trackExit(sessionId, spawned);
 
-      const ready = await this.awaitReady(spawned, true, timer);
+      const endedSeen = { v: false };
+      const ready = await this.awaitReady(spawned, true, timer, endedSeen);
       timer.cancel?.();
       this.o.list.upsert({ sessionId, scenarioId, status: "running" });
       listed = true;
-      this.goLive(sessionId, scenarioId, spawned, exit, token, ready);
+      this.goLive(sessionId, scenarioId, spawned, exit, token, ready, endedSeen.v);
       this.logFn(`session ${sessionId} created`);
       return { sessionId, status: "running", port: ready.port, modelLabel: ready.modelLabel, codes: ready.codes! };
     } catch (err) {
@@ -148,7 +149,7 @@ export class Supervisor {
    * kept in this closure only: a child that dies, times out or never says ready discards them. With `requireCodes` (a brand-new
    * session, or a whole-session reissue) a ready without codes is a failed start; otherwise (restart/resume) it is normal.
    */
-  private awaitReady(child: ChildHandle, requireCodes: boolean, timer: { cancel?: () => void }): Promise<{ port: number; modelLabel: string; codes?: Codes }> {
+  private awaitReady(child: ChildHandle, requireCodes: boolean, timer: { cancel?: () => void }, endedSeen: { v: boolean }): Promise<{ port: number; modelLabel: string; codes?: Codes }> {
     return new Promise((resolve, reject) => {
       let codes: Codes | undefined;
       let settled = false;
@@ -156,10 +157,12 @@ export class Supervisor {
       timer.cancel = this.setTimer(() => fail(new ControlError("timeout", "the session did not become ready in time")), this.o.config.readyTimeoutMs);
       child.onExit(() => fail(new ControlError("start_failed", START_FAILED)));
       child.onMessage((raw) => {
-        if (settled) return;
         const parsed = ChildMessageSchema.safeParse(raw);
         if (!parsed.success) return;
         const m = parsed.data;
+        // BUG-0016: a child may send `ended` right after `ready` (a resume repaired to ended); the live handler is installed only after
+        // this promise's continuation runs, so the message is recorded here and applied by goLive.
+        if (settled) { if (m.type === "ended") endedSeen.v = true; return; }
         if (m.type === "codes") codes = m.codes;
         else if (m.type === "ready") {
           const got = codes !== undefined && codes.length > 0 ? codes : undefined;
@@ -273,7 +276,7 @@ export class Supervisor {
   }
 
   /** Registers a started child as the session's live process and installs its handlers. */
-  private goLive(id: string, scenarioId: string, child: ChildHandle, exit: ExitState, token: string, ready: { port: number; modelLabel: string }): void {
+  private goLive(id: string, scenarioId: string, child: ChildHandle, exit: ExitState, token: string, ready: { port: number; modelLabel: string }, endedEarly = false): void {
     this.live.get(id)?.graceCancel?.();
     this.live.set(id, { scenarioId, status: "running", port: ready.port, modelLabel: ready.modelLabel, child, token });
     child.onMessage((raw) => {
@@ -285,6 +288,7 @@ export class Supervisor {
     });
     child.onExit(() => this.onChildExit(id, child));
     if (exit.done) this.onChildExit(id, child);
+    else if (endedEarly) this.onEnded(id, child, exit);
   }
 
   private onEnded(id: string, child: ChildHandle, exit: ExitState): void {
@@ -361,10 +365,11 @@ export class Supervisor {
       const spawned = this.o.spawn({ env, logFile: path.join(this.o.config.logDir, `${id}.log`) });
       child = spawned;
       exit = this.trackExit(id, spawned);
-      const ready = await this.awaitReady(spawned, requireCodes, timer);
+      const endedSeen = { v: false };
+      const ready = await this.awaitReady(spawned, requireCodes, timer, endedSeen);
       timer.cancel?.();
       this.persist(id, scenarioId, "running");
-      this.goLive(id, scenarioId, spawned, exit, token, ready);
+      this.goLive(id, scenarioId, spawned, exit, token, ready, endedSeen.v);
       this.logFn(`session ${id} started`);
       return ready;
     } catch (err) {

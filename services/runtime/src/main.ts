@@ -216,6 +216,9 @@ export async function bootstrap(opts: {
     if (notes && notes.repairs.length > 0) log(`the restart completed what the crash cut short: ${notes.repairs.join(", ")}`);
   }
   let unsubscribeEnded: (() => void) | undefined;
+  // BUG-0016: the host's own session.ended subscriber is registered after a repair-to-ended already happened; a failure is reported, not thrown.
+  const revokeEndedSeats = (): void => { try { host.endSeats(); } catch (err) { warn(`end of session revoke: ${err instanceof Error ? err.name : "error"}`); } };
+  if (!parent && host.engine.state.status === "ended") revokeEndedSeats();
   if (parent) {
     // `ready` comes after the codes (sent above, inside the display hook), so the parent never sees a ready session whose codes it lacks.
     const logIdentity = store.seats?.credentials.logIdentity ?? store.resume?.logIdentity;
@@ -230,12 +233,9 @@ export async function bootstrap(opts: {
     let endedSent = false;
     unsubscribeEnded = host.subscribe((e) => { if (e.type === "session.ended" && !endedSent) { endedSent = true; parent.send({ type: "ended" }); } });
     // BUG-0016: a restore repair can end the session inside openSession, before this subscription and before SessionHost existed, so
-    // neither `ended` nor the credential revoke ever ran for it. Checked once, after `ready` (so the parent sees ready first); the shared
-    // flag keeps a live end and this path from both sending.
-    if (host.engine.state.status === "ended") {
-      if (!endedSent) { endedSent = true; parent.send({ type: "ended" }); }
-      try { host.endSeats(); } catch (err) { warn(`end of session revoke: ${err instanceof Error ? err.name : "error"}`); }
-    }
+    // neither `ended` nor the credential revoke ever ran for it. Checked once, after `ready` (so the parent sees ready first); the live
+    // subscriber cannot have fired yet (it was registered a moment ago), so no flag guard is needed, and it is set to keep it once-only.
+    if (host.engine.state.status === "ended") { endedSent = true; parent.send({ type: "ended" }); revokeEndedSeats(); }
     // US-0058: the only way a code is ever reissued. The replies carry the new code (reissued) or a FIXED reason (reissue_failed): never
     // a path, a value or an Error message. The handler never throws (the channel does not isolate handler exceptions).
     let current = store.joinCodes?.codes;
