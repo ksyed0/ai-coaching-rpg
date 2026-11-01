@@ -9,7 +9,7 @@ import { RuntimeError, type RuntimeConnection, type SetTimer } from "./runtime-c
 import { resolveRuntimeUrl } from "./runtime-lookup";
 import { seal, unseal } from "./seal";
 import { sseBody } from "./sse";
-import { NoStreamError, SIGNED_OUT_MESSAGE, type SessionCookie, type SseOut, type StreamHub } from "./stream-hub";
+import { NoStreamError, REMOVED_MESSAGE, SIGNED_OUT_MESSAGE, type SessionCookie, type SseOut, type StreamHub } from "./stream-hub";
 import type { JoinThrottle } from "./throttle";
 import type { ClientMessage, JoinedFrame } from "./wire";
 
@@ -26,7 +26,7 @@ export type Deps = {
 
 /** `__Host-`: the browser accepts it only Secure, with Path=/ and no Domain, so a sibling subdomain cannot plant or shadow it. */
 export const COOKIE_NAME = "__Host-scenecoach";
-export { SIGNED_OUT_MESSAGE };
+export { REMOVED_MESSAGE, SIGNED_OUT_MESSAGE };
 
 const HOUR_MS = 3_600_000;
 const RETRY_MS = 3_000;
@@ -174,7 +174,7 @@ function sseHeaders(setCookie: string | undefined): Headers {
 }
 /**
  * A stream that is over before it starts. `reconnecting` lets the browser's EventSource come back after `retry` with its Last-Event-ID
- * kept (no id is sent here); `signed_out`, `ended` and `superseded` are final (the page closes its EventSource).
+ * kept (no id is sent here); `signed_out`, `removed`, `ended` and `superseded` are final (the page closes its EventSource).
  */
 function sseFinal(event: string, data: unknown = {}, setCookie?: string): Response {
   return new Response(`retry: ${RETRY_MS}\n\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`, { status: 200, headers: sseHeaders(setCookie) });
@@ -285,6 +285,8 @@ export async function handleStream(req: Request, deps: Deps): Promise<Response> 
     if (code === "superseded") return sseFinal("superseded");
     // The role's code was reissued while this stream was joining: the credential is revoked, exactly as for a refused one.
     if (code === "reissued") return sseFinal("signed_out", { message: SIGNED_OUT_MESSAGE }, CLEAR_COOKIE);
+    // The facilitator removed this player while the stream was joining: same as a revoked credential, with its own message.
+    if (code === "removed") return sseFinal("removed", { message: REMOVED_MESSAGE }, CLEAR_COOKIE);
     return sseFinal("reconnecting");
   }
   // Nobody is listening any more.

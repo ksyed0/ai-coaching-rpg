@@ -168,6 +168,15 @@ describe("SessionScreen", () => {
     expect(screen.queryByText(/ignored/)).toBeNull();
   });
 
+  it("the removed screen shows the title and message", () => {
+    const m = mount();
+    emit(m.es(), "removed", { message: "ignored: the page uses its own text" });
+    expect(screen.getByRole("heading", { name: "Removed from the session" })).toBeTruthy();
+    expect(screen.getByText("The facilitator removed you from this session.")).toBeTruthy();
+    expect(screen.queryByText(/ignored/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
   it("a stream the browser closed (an HTTP 401, 403, 406 or 503) says to reload first, then ask the facilitator, and offers no retry", () => {
     const m = mount();
     act(() => m.es().fail());

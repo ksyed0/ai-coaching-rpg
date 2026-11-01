@@ -1,5 +1,5 @@
 import { initPlayerView } from "@acr/events";
-import { CLOSE_REISSUED, CLOSE_SUPERSEDED, type RuntimeConnection, type SetTimer } from "./runtime-connection";
+import { CLOSE_REISSUED, CLOSE_REMOVED, CLOSE_SUPERSEDED, type RuntimeConnection, type SetTimer } from "./runtime-connection";
 import type { ClientMessage, JoinedFrame, ServerMessage } from "./wire";
 
 // Bridges one participant's runtime socket to one server-sent-events response. No Next imports: the route hands in an `out` writer.
@@ -37,6 +37,8 @@ const DEFAULT_SEND_WAIT_MS = 300;
 const DEFAULT_MAX_PENDING_BYTES = 256 * 1024;
 /** What a player whose credential is gone is told (the stream's `signed_out` event). */
 export const SIGNED_OUT_MESSAGE = "ask your facilitator for a new code";
+/** What a player the facilitator removed is told (the stream's `removed` event). Equal to MESSAGES.removed; the page shows its own copy. */
+export const REMOVED_MESSAGE = "The facilitator removed you from this session.";
 /** Sent instead of the runtime's own text, so nothing the BFF did not choose reaches the page as a sentence. */
 const ERROR_MESSAGE = "the server reported an error";
 
@@ -52,9 +54,9 @@ type Stream = {
   waiter: Waiter | null;
   sendChain: Promise<unknown>;
 };
-type FinalEvent = "superseded" | "reconnecting" | "ended" | "expired" | "signed_out";
-/** How a runtime close code ends a stream. 4001 and 4002 are terminal (a retry would kick the new holder, or fail with a revoked credential). */
-const endingFor = (code: number): FinalEvent => (code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "signed_out" : "reconnecting");
+type FinalEvent = "superseded" | "reconnecting" | "ended" | "expired" | "signed_out" | "removed";
+/** How a runtime close code ends a stream. 4001, 4002 and 4003 are terminal (a retry would kick the new holder, or fail with a revoked credential). */
+const endingFor = (code: number): FinalEvent => (code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "signed_out" : code === CLOSE_REMOVED ? "removed" : "reconnecting");
 
 // JSON.stringify escapes CR and LF, so a data line can never break the SSE framing.
 const sse = (event: string, data: unknown, id?: number) => `${id === undefined ? "" : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -226,7 +228,7 @@ export class StreamHub {
     s.cancelHeartbeat();
     s.detach();
     s.waiter?.done(null);
-    if (event) { try { s.out.write(sse(event, event === "signed_out" ? { message: SIGNED_OUT_MESSAGE } : {})); } catch { /* the client is gone */ } }
+    if (event) { try { s.out.write(sse(event, event === "signed_out" ? { message: SIGNED_OUT_MESSAGE } : event === "removed" ? { message: REMOVED_MESSAGE } : {})); } catch { /* the client is gone */ } }
     try { s.out.end(); } catch { /* already closed by the client */ }
     s.conn.close();
   }

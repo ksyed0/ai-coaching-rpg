@@ -7,7 +7,7 @@ import { MESSAGES } from "./messages";
 
 // One participant's live session in the browser. The stream is the browser's native EventSource on /api/v1/stream: it reconnects by
 // itself after the server's `retry:` and keeps Last-Event-ID, so this hook never runs a reconnect loop of its own. It only closes the
-// source on a final event (superseded, signed_out, ended, expired), so the browser does not come back. Identity is the HttpOnly cookie,
+// source on a final event (superseded, signed_out, removed, ended, expired), so the browser does not come back. Identity is the HttpOnly cookie,
 // which this code never reads.
 
 /** Lines kept in the browser; older ones drop off (the transcript is copied on each line, so it must stay bounded). */
@@ -27,7 +27,7 @@ export type Consent = { noticeVersion: string; notice: string; given: boolean };
 /** The joined fields the page uses (the BFF already picked them; the credential never reaches the browser). */
 export type Joined = { roleId: string; brief?: string; privateFacts?: string[]; consent?: Consent; scenes: PlayerScene[]; logIdentity?: string };
 
-export type FinalKind = "superseded" | "signed_out" | "ended" | "expired" | "left" | "closed";
+export type FinalKind = "superseded" | "signed_out" | "removed" | "ended" | "expired" | "left" | "closed";
 export type SessionUi = {
   /** connecting: no joined yet; live: joined; reconnecting: dropped, the browser is coming back. */
   conn: "connecting" | "live" | "reconnecting";
@@ -41,12 +41,13 @@ export type SessionUi = {
 const FINAL_MESSAGES: Record<FinalKind, string> = {
   superseded: MESSAGES.superseded,
   signed_out: MESSAGES.signedOut,
+  removed: MESSAGES.removed,
   ended: MESSAGES.sessionEnded,
   expired: MESSAGES.expired,
   left: MESSAGES.left,
   closed: MESSAGES.streamClosed,
 };
-const CLOSING_EVENTS = ["superseded", "signed_out", "ended", "expired"] as const;
+const CLOSING_EVENTS = ["superseded", "signed_out", "removed", "ended", "expired"] as const;
 
 type Action =
   | { type: "open" }

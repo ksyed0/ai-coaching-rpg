@@ -9,6 +9,7 @@ export const MESSAGES = {
   signedOut: "You are signed out of this session: ask your facilitator for a new code.",
   // The browser closed the stream itself after an HTTP error it does not show us (401, 403, 406 or a 503 from a full stream cap): a
   // reload fixes the recoverable ones, so do not send the player straight to the facilitator.
+  removed: "The facilitator removed you from this session.", // equals REMOVED_MESSAGE in src/server/stream-hub.ts (a test keeps them together)
   streamClosed: "The connection to this session was closed. Reload the page; if that does not help, ask your facilitator.",
   expired: "Your sign-in for this session has expired: ask your facilitator for a new code.",
   sessionEnded: "The session has ended. Thank you for taking part.",
