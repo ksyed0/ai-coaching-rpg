@@ -21,12 +21,13 @@
 - Players see today's snapshot and today's frames unchanged except: `session.ended` may carry `message`; a player removed sees the removal message.
 - Commit format `[TYPE] US-0059: description` (max 72 chars), body optional, trailer `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. Squash merges into `develop`. Before every commit: `pnpm -r --if-present typecheck` and the touched packages' vitest (`pnpm --filter <pkg> exec vitest run`); root Jest (`pnpm plan:test`) only when `tools/` or `tests/unit` change.
 - Runtime and control-service changes are test first; every new socket, process or restore test also passes the node:22 container recipe (`AGENTS.md` section 8, as root and `--user node`). No elapsed-time assertions, injected clocks only, `vi.waitFor` on effects.
+- BUG-0016 (a restart whose repair ends the session never tells the control service and never revokes credentials) is filed and fixed by Task 4b before `end_now` relies on it.
 - Each PR adds its user-visible changes under `[Unreleased]` in `CHANGELOG.md`.
 
 ## Review Focus
 
 1. A role id such as `__proto__` or `constructor` in an `utterance` must not pollute or crash the `talk` fold, live or on restore (Task 4).
-2. A restart whose restore repair ends the session (the cut between the `end_now` appends) must still tell the control service `ended` and revoke every credential; today `markResumed` runs inside `openSession` before `main.ts` subscribes and before `SessionHost` exists, so neither happens (Task 6).
+2. A restart whose restore repair ends the session (the cut between the `end_now` appends) must still tell the control service `ended` and revoke every credential; today `markResumed` runs inside `openSession` before `main.ts` subscribes and before `SessionHost` exists, so neither happens (Task 4b, BUG-0016).
 3. Two `end_now` clicks, or `end_now` racing a Game Master tick or an NPC reply, give exactly one `session.ended`, last, and nothing after it (Tasks 5, 6).
 4. A closing message with markup, bidi or control characters, or only whitespace, reaches players cleaned and as text, or not at all (Task 6).
 5. A remove that arrives while the start is in flight, or after it, changes nothing: the old code, credential, consent and socket stay as they were (Task 8).
@@ -77,7 +78,7 @@ This PR lands and merges first. It changes no frame a 2a player receives.
 
 **Files:** Modify `docs/ID_REGISTRY.md`, `docs/RELEASE_PLAN.md`, `docs/TEST_CASES.md`, `docs/THREAT_MODEL.md`, `CHANGELOG.md`.
 
-- [ ] **Step 1:** Reserve in `docs/ID_REGISTRY.md` first: AC-0351, TC-0087 to TC-0091, TASK-0095 (next becomes AC-0352, TC-0092, TASK-0096; add an "Assigned 2026-11-01 (slice 2b-2a)" line naming each use). In `docs/RELEASE_PLAN.md` under US-0059 add `AC-0351: players receive allowlisted copies: the join snapshot and every command and session.ended event are built from explicit field lists, so a facilitator-only field (by, talk time) never reaches a player and a 2a player sees no change` and `TASK-0095 (US-0059): Runtime protocol for the live console (slice 2b-2a)`, Status In Progress, Branch `feature/EPIC-0002-US-0059-runtime-protocol`, Notes naming this plan. Add TC-0087 for AC-0351 in `docs/TEST_CASES.md` (format per `plan_visualizer.md`).
+- [ ] **Step 1:** Reserve in `docs/ID_REGISTRY.md` first: AC-0351, TC-0087 to TC-0091, TASK-0095 (next becomes AC-0352, TC-0092, TASK-0096; add an "Assigned 2026-11-01 (slice 2b-2a)" line naming each use). In `docs/RELEASE_PLAN.md` under US-0059 add `AC-0351: players receive allowlisted copies: the join snapshot and every command and session.ended event are built from explicit field lists, so a facilitator-only field (by, talk time) never reaches a player and a 2a player sees no change` and `TASK-0095 (US-0059): Runtime protocol for the live console (slice 2b-2a)`, Status In Progress, Branch `feature/EPIC-0002-US-0059-player-copies` (PR 1; PR 2 and PR 3 use `feature/EPIC-0002-US-0059-runtime-protocol` and `feature/EPIC-0002-US-0059-remove-participant`), Notes naming this plan. Add TC-0087 for AC-0351 in `docs/TEST_CASES.md` (format per `plan_visualizer.md`).
 - [ ] **Step 2:** `docs/THREAT_MODEL.md`, section "The web client", bullet "Player streams carry nothing a player may not see": add that the runtime builds player copies from allowlists (`host/player-copies.ts`), so a new field is denied until listed. `CHANGELOG.md` `[Unreleased]` "Changed": the allowlisted copies, no visible change for players.
 - [ ] **Step 3:** `npm run plan:generate`; expect no parse errors. Commit `[docs] US-0059: file slice 2b-2a ids and the player-copy criterion`.
 - [ ] **Step 4:** Push the branch, open PR 1 into `develop` (title as the Task 1 commit, body references US-0059, AC-0351, TASK-0095). Wait for review and the squash merge before PR 2.
@@ -121,6 +122,21 @@ This PR lands and merges first. It changes no frame a 2a player receives.
 - [ ] **Step 4:** Re-run step 2, the whole events, runtime and web suites (the existing `reduceReplay agrees with reduce` and `applyPlayerEvent against reduce` property tests must still pass); `pnpm -r --if-present typecheck`.
 - [ ] **Step 5:** Commit `[feat] US-0059: fold words spoken per role (facilitator only)`.
 
+### Task 4b: A resume whose repair ends the session ends it for the control service (BUG-0016)
+
+Pre-existing bug, found while planning `end_now`: the `script_complete` repair already hits it. Fixed first, on its own, so the `facilitator_end` repair of Task 5 lands on correct behaviour.
+
+**Files:** Modify `services/runtime/src/main.ts:209-231` (`markResumed` runs inside `openSession` before `main.ts` subscribes to the engine and before `SessionHost` exists, so the `ended` IPC and `endSeats` never run); `docs/BUGS.md`, `docs/ID_REGISTRY.md` (BUG-0016, next becomes BUG-0017), `CHANGELOG.md`; Test `services/runtime/src/__tests__/main.parent.test.ts`.
+
+**Interfaces:**
+- Produces: after `ready`, `main.ts` checks `host.engine.state.status === "ended"` once; if so it sends `ended` at once and calls `host.endSeats()` (a failure is reported, not thrown). Nothing else changes: a running resume behaves as today.
+
+- [ ] **Step 1: Write the failing tests** (`main.parent.test.ts`): `a resume whose repair ended the session (log cut after the last scene's exit, script_complete repair) sends ready then ended, and every credential is revoked`; `a normal resume sends ready and no ended`.
+- [ ] **Step 2:** Run `pnpm --filter @acr/runtime exec vitest run src/__tests__/main.parent.test.ts`; expect FAIL on the first test.
+- [ ] **Step 3:** Implement to the interface.
+- [ ] **Step 4:** Re-run, then the runtime suite; run the file in the node:22 container (root and `--user node`); expect PASS.
+- [ ] **Step 5:** File BUG-0016 in `docs/BUGS.md` as Fixed (Related Story US-0059, Fix Branch `feature/EPIC-0002-US-0059-runtime-protocol`), update `ID_REGISTRY.md` and `CHANGELOG.md` "Fixed"; commit `[fix] US-0059: tell the control service when a resume ends the session`.
+
 ### Task 5: `end_now` in the engine and its restore repair
 
 **Files:** Modify `packages/events/src/events.ts:10,58`, `services/runtime/src/engine/session-engine.ts` (`Repair` 49-56, `describeRepair` 57-60, `EngineErrorCode` 74, fold 405-446, the `!cur` repair 470-474, `markResumed` 502-503, `applyRepair` 532), `services/runtime/src/demo/showcase.ts:106-110` (type `EXIT_LABEL` as `Record<ExitReason, string>`, add `facilitator_end: "the facilitator ended the session"`); Create `services/runtime/src/engine/__tests__/session-engine-end-now.test.ts`; Test `services/runtime/src/evaluator/__tests__/transcript.test.ts`, `services/control/src/__tests__/log-tail.test.ts`.
@@ -143,24 +159,35 @@ This PR lands and merges first. It changes no frame a 2a player receives.
 - [ ] **Step 4:** Re-run step 2 and `src/engine/__tests__/crash-cut-prefixes.test.ts` (unchanged script ends still repair to `script_complete`); expect PASS. Run the new file once in the node:22 container.
 - [ ] **Step 5:** Commit `[feat] US-0059: end_now in the engine with a restore repair`.
 
-### Task 6: `end_now` message, host, server, views and clients
+### Task 6: `end_now` message, host and server
 
-**Files:** Modify `services/runtime/src/host/protocol.ts:27-45` (new message), `host/display-name.ts`, `host/session-host.ts` (`HostErrorCode` 25, new `endNow`), `host/ws-server.ts:413-423`, `host/player-copies.ts` (`ENDED_FOR_PLAYERS` gains `message`), `services/runtime/src/main.ts:209-231`, `packages/events/src/player-view.ts:19,65-66`, `services/runtime/src/cli/render.ts:60`, `apps/web/src/components/SessionScreen.tsx:147`; Create `services/runtime/src/host/__tests__/ws-server.end-now.test.ts`; Test `packages/events/src/__tests__/player-view.test.ts`, `services/runtime/src/__tests__/main.parent.test.ts`, `services/runtime/src/cli/__tests__/render.test.ts`, `apps/web/src/components/__tests__/session-screen.test.tsx`.
+**Files:** Modify `services/runtime/src/host/protocol.ts:27-45` (new message), `host/display-name.ts`, `host/session-host.ts` (`HostErrorCode` 25, new `endNow`), `host/ws-server.ts:413-423`, `host/player-copies.ts` (`ENDED_FOR_PLAYERS` gains `message`), `services/runtime/src/main.ts` (the live `ended` IPC already fires on `session.ended`; confirm only); Create `services/runtime/src/host/__tests__/ws-server.end-now.test.ts`; Test `services/runtime/src/__tests__/main.parent.test.ts`.
 
 **Interfaces:**
-- Consumes: Task 5's `SessionEngine.endNow`, Task 3's `actorLabel`.
-- Produces: client message `{ type: "end_now"; message?: string /* raw, max 1_200 */; by?: string /* raw, max MAX_BY_RAW_CHARS */ }`. `MAX_END_MESSAGE_CHARS = 300` and `cleanClosingMessage(raw: string | undefined): string | undefined` in `display-name.ts` (`cleanText(raw, 300, "message", [])`; whitespace-only gives undefined; too long throws `HostError("bad_message")` at the host). `HostErrorCode` gains `"starting"`. `SessionHost.endNow(o: { by?: string; message?: string }): Promise<void>`: `!this.started` throws `HostError(this.isStarting ? "starting" : "not_started")`; then `engine.endNow({ actor: actorLabel(o.by), message })`, `stopTicker()`, `pendingAnswer = null`. In `ws-server.ts` a separate branch before `command`: a non-facilitator gets `forbidden`; never calls `host.start()`. `PlayerView.ended: { reason: string; message?: string } | null` (message copied only when a string). `main.ts`: after `ready`, if `host.engine.state.status === "ended"` (a resume whose repair ended the session) send `ended` at once and call `host.endSeats()` (reported, not thrown).
+- Consumes: Task 5's `SessionEngine.endNow`, Task 3's `actorLabel`, Task 4b's resume `ended`.
+- Produces: client message `{ type: "end_now"; message?: string /* raw, max 1_200 */; by?: string /* raw, max MAX_BY_RAW_CHARS */ }`. `MAX_END_MESSAGE_CHARS = 300` and `cleanClosingMessage(raw: string | undefined): string | undefined` in `display-name.ts` (`cleanText(raw, 300, "message", [])`; whitespace-only gives undefined; too long throws `HostError("bad_message")` at the host). `HostErrorCode` gains `"starting"`. `SessionHost.endNow(o: { by?: string; message?: string }): Promise<void>`: `!this.started` throws `HostError(this.isStarting ? "starting" : "not_started")`; then `engine.endNow({ actor: actorLabel(o.by), message })`, `stopTicker()`, `pendingAnswer = null`. In `ws-server.ts` a separate branch before `command`: a non-facilitator gets `forbidden`; never calls `host.start()`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `ws-server.end-now.test.ts` (real server, minimal fixture, join codes, `vi.setConfig({ testTimeout: 90_000 })`): `in the lobby end_now is not_started, nothing is appended and the session does not start`; `a player's end_now is forbidden`; `during an interrupted start end_now is starting and nothing is appended`; `running: end_now with by "Sam" and message "Thanks, <b>all</b>" gives players session.ended with that exact message text and no alert, no "Sam"; the facilitator gets scene.exited, the alert naming Sam, then session.ended`; `a second end_now is ended`; `a 301-code-point message is bad_message and nothing is appended`; `a whitespace-only message gives session.ended without message`; `an NPC reply in flight when end_now lands (a mock provider whose reply resolves after the end) appends nothing after session.ended`; `the ticker is stopped after end_now` (spy on `stopTicker`).
-  - player-view: `session.ended copies a string message into ended and ignores a non-string one`.
-  - main.parent: `end_now sends ended once`; `a resume whose repair ends the session (log cut between scene.exited and session.ended) sends ready then ended, and every credential is revoked`.
-  - render: `a session.ended with a message prints the cleaned message on its own line`.
-  - session-screen: `the ended screen shows the facilitator's message as text under the end notice` (the `<b>` arrives as literal text, no `b` element).
-- [ ] **Step 2:** Run each file (`pnpm --filter <pkg> exec vitest run <file>`); expect FAIL.
-- [ ] **Step 3:** Implement to the interfaces. The web page renders `view.ended.message` in a `<p className="body">` prefixed "Message from the facilitator:", as a text child only.
-- [ ] **Step 4:** Re-run, then the runtime, events and web suites; run `ws-server.end-now.test.ts` and `main.parent.test.ts` in the node:22 container (root and `--user node`); expect PASS.
+  - main.parent: `end_now sends ended once`.
+- [ ] **Step 2:** Run each file (`pnpm --filter @acr/runtime exec vitest run <file>`); expect FAIL.
+- [ ] **Step 3:** Implement to the interfaces.
+- [ ] **Step 4:** Re-run, then the runtime suite; run `ws-server.end-now.test.ts` and `main.parent.test.ts` in the node:22 container (root and `--user node`); expect PASS.
 - [ ] **Step 5:** Commit `[feat] US-0059: end_now facilitator message with a closing message`.
+
+### Task 6b: The closing message reaches players and clients
+
+**Files:** Modify `packages/events/src/player-view.ts:19,65-66`, `services/runtime/src/cli/render.ts:60`, `apps/web/src/components/SessionScreen.tsx:147`; Test `packages/events/src/__tests__/player-view.test.ts`, `services/runtime/src/cli/__tests__/render.test.ts`, `apps/web/src/components/__tests__/session-screen.test.tsx`.
+
+**Interfaces:**
+- Consumes: Task 6's `session.ended.message` on the player copy.
+- Produces: `PlayerView.ended: { reason: string; message?: string } | null` (message copied only when a string). The terminal client prints the cleaned message on its own line; the web ended screen renders `view.ended.message` in a `<p className="body">` prefixed "Message from the facilitator:", as a text child only.
+
+- [ ] **Step 1: Write the failing tests:** player-view: `session.ended copies a string message into ended and ignores a non-string one`; render: `a session.ended with a message prints the cleaned message on its own line`; session-screen: `the ended screen shows the facilitator's message as text under the end notice` (the `<b>` arrives as literal text, no `b` element).
+- [ ] **Step 2:** Run each file; expect FAIL.
+- [ ] **Step 3:** Implement to the interfaces.
+- [ ] **Step 4:** Re-run the events, runtime and web suites and `pnpm -r --if-present typecheck`; expect PASS.
+- [ ] **Step 5:** Commit `[feat] US-0059: show the closing message to players`.
 
 ### Task 7: PR 2 docs and pull request
 

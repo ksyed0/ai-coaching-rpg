@@ -12,7 +12,7 @@ Seven stacks, in order. Each gets its own plan, written when the one before it i
 
 | Stack | Content |
 | --- | --- |
-| 2b-2a | Runtime protocol: allowlisted player copies (own PR, first), `by`, talk time, `end_now`, `remove_participant` as a reissue reason (not a ws message) **[owner]** |
+| 2b-2a | Runtime protocol in three PRs: allowlisted player copies (first); `by`, talk time, `end_now`, and the fix for BUG-0016 (a resume whose repair ends the session never tells the control service); `remove_participant` as a reissue reason (not a ws message). Includes the small player-page changes (closing message, "removed" screen) **[owner]** |
 | 2b-2b1 | Facilitator SSE channel and read-only live view **[owner]** |
 | 2b-2b2 | Command route, controls and confirmations |
 | 2b-3a | AI-role state (`set_ai_roles` IPC), start gate, marking incl. `aiRoles` reaching players, consent notice version, log format 3 (AC-0317, AC-0318 land across 3a/3b) |
