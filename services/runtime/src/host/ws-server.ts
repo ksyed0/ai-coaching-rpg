@@ -419,7 +419,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         } else if (m.type === "command") {
           if (!isFacilitator) return fail("forbidden", "only the facilitator may send commands");
           if (!host.hasStarted) await host.start();
-          await host.command(m.command, { expectSceneId: m.expectSceneId });
+          await host.command(m.command, { expectSceneId: m.expectSceneId, by: m.by });
         }
       } catch (err) {
         if (err instanceof HostError || err instanceof EngineError) return fail(err.code, err.message);

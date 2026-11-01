@@ -18,3 +18,19 @@ export function normalizeDisplayName(raw: string): string | null {
   }
   return name;
 }
+
+/**
+ * US-0059: the facilitator's name as recorded on a command or named in an alert: line breaks and tabs flattened to a space, cut to 60
+ * code points, then cleaned (hidden, bidirectional and control characters stripped, trimmed). Undefined when absent, empty after
+ * cleaning, or refused. A label, not proof of identity.
+ */
+export function cleanFacilitatorLabel(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  const flat = raw.replace(/[\r\n\t]+/g, " ");
+  return normalizeDisplayName([...flat].slice(0, MAX_DISPLAY_NAME_CHARS).join("")) ?? undefined;
+}
+
+/** The name a facilitator-only alert carries: the cleaned label, or "the facilitator". */
+export function actorLabel(by?: string): string {
+  return cleanFacilitatorLabel(by) ?? "the facilitator";
+}

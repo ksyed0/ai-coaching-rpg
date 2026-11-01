@@ -9,6 +9,7 @@ import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import type { Seats } from "../engine/seats.js";
 import { ConsentError } from "../engine/consent.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
+import { cleanFacilitatorLabel } from "./display-name.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
 export const MAX_REPLAY_EVENTS = 1000;
@@ -389,8 +390,9 @@ export class SessionHost {
     return participants.filter((id) => this.npcs.has(id)).sort((a, b) => seniority(a) - seniority(b));
   }
 
-  async command(cmd: Parameters<SessionEngine["command"]>[0], opts: { expectSceneId?: string } = {}): Promise<void> {
-    await this.engine.command(cmd, opts);
+  async command(cmd: Parameters<SessionEngine["command"]>[0], opts: { expectSceneId?: string; by?: string } = {}): Promise<void> {
+    const by = cleanFacilitatorLabel(opts.by);
+    await this.engine.command(cmd, { ...(opts.expectSceneId !== undefined ? { expectSceneId: opts.expectSceneId } : {}), ...(by !== undefined ? { by } : {}) });
     if (cmd.command === "resume" && this.pendingAnswer !== null && !this.engine.state.paused) {
       const sceneId = this.pendingAnswer;
       this.pendingAnswer = null; // exactly once, whatever happens next

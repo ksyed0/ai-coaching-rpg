@@ -51,11 +51,12 @@ const waitLog = (re: RegExp) => new Promise<void>((resolve) => { logWaiters.push
 
 async function setup(npcReplies: string[] = ["Hi!"], dir = fixture, npcProvider?: ModelProvider, heartbeatMs?: number) {
   const scenario = await loadScenario(dir);
-  const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock: new FakeClock(0) });
+  const log = new MemoryEventLog("local");
+  const engine = new SessionEngine({ scenario, log, clock: new FakeClock(0) });
   const npc = new MockModelProvider(npcReplies);
   const host = new SessionHost({ scenario, engine, npcProvider: npcProvider ?? npc, gmProvider: new MockModelProvider(), clock: new FakeClock(0) });
   server = await startServer({ port: 0, hosts: new Map([["local", host]]), log: serverLog, heartbeatMs });
-  return { engine, host, npc, port: server.port };
+  return { engine, log, host, npc, port: server.port };
 }
 
 async function joinFac(port: number) {
@@ -427,5 +428,55 @@ describe("ws-server: expectSceneId (R43)", () => {
     await p.next((m) => m.type === "event" && m.event.type === "scene.entered");
     p.send({ type: "say", text: "x", expectSceneId: 5 });
     expect((await p.next((m) => m.type === "error")).code).toBe("bad_message");
+  });
+});
+
+describe("ws-server: by on facilitator commands (US-0059, AC-0312)", () => {
+  it('a facilitator command with by "Sam\u202E" is logged with by "Sam"; players\' pause frame has no by key and no "Sam"; the facilitator\'s has it', async () => {
+    const { port, engine, log } = await setup();
+    const fac = await joinFac(port);
+    const { p } = await joinPlayer(port);
+    fac.send({ type: "start" });
+    await p.next((m) => m.type === "event" && m.event.type === "scene.entered");
+    fac.send({ type: "command", command: { command: "pause" }, by: "Sam\u202E" });
+    const pf = await p.next((m) => m.type === "event" && m.event.type === "facilitator.command");
+    const ff = await fac.next((m) => m.type === "event" && m.event.type === "facilitator.command");
+    expect(ff.event.by).toBe("Sam");
+    expect("by" in pf.event).toBe(false);
+    expect(JSON.stringify(p.inbox)).not.toContain("Sam");
+    expect((await log.all()).find((e) => e.type === "facilitator.command")).toMatchObject({ command: "pause", by: "Sam" });
+  });
+  it("a by nested inside command ({command:\"pause\", by:\"x\"}) is stripped by the schema, not recorded", async () => {
+    const { port, engine, log } = await setup();
+    const fac = await joinFac(port);
+    const { p } = await joinPlayer(port);
+    fac.send({ type: "start" });
+    await p.next((m) => m.type === "event" && m.event.type === "scene.entered");
+    fac.send({ type: "command", command: { command: "pause", by: "x" } });
+    await fac.next((m) => m.type === "event" && m.event.type === "facilitator.command");
+    const ev = (await log.all()).find((e) => e.type === "facilitator.command")!;
+    expect("by" in ev).toBe(false);
+  });
+  it("a by of 201 characters is bad_message and nothing is appended", async () => {
+    const { port, engine, log } = await setup();
+    const fac = await joinFac(port);
+    const { p } = await joinPlayer(port);
+    fac.send({ type: "start" });
+    await p.next((m) => m.type === "event" && m.event.type === "scene.entered");
+    const before = engine.state.lastSeq;
+    fac.send({ type: "command", command: { command: "pause" }, by: "a".repeat(201) });
+    expect((await fac.next((m) => m.type === "error")).code).toBe("bad_message");
+    expect(engine.state.lastSeq).toBe(before);
+    expect(engine.state.paused).toBe(false);
+  });
+  it("a lobby command with by still auto-starts exactly as before", async () => {
+    const { port, engine, log } = await setup();
+    const fac = await joinFac(port);
+    const { p } = await joinPlayer(port);
+    fac.send({ type: "command", command: { command: "pause" }, by: "Sam" });
+    await p.next((m) => m.type === "event" && m.event.type === "scene.entered");
+    await fac.next((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.by === "Sam");
+    expect(engine.state.status).toBe("running");
+    expect(engine.state.paused).toBe(true);
   });
 });

@@ -53,7 +53,8 @@ export type EventBody =
    * GM_AUTO_RELEASE was on, so the Game Master released the fact itself: the facilitator-only `npc.updated` with the text follows directly.
    */
   | { type: "gm.fact_earned"; sceneId: string; roleId: string; fact: number; reasoning: string; via?: GmVia; autoRelease?: true }
-  | ({ type: "facilitator.command" } & FacilitatorCommand)
+  /** `by`: US-0059, the facilitator's name as the control service gave it (cleaned, at most 60 code points). A label, not proof of identity; facilitator-only (players' copies drop it). Absent for terminal facilitators and older logs. */
+  | ({ type: "facilitator.command"; by?: string } & FacilitatorCommand)
   | { type: "facilitator.alert"; level: "info" | "warning"; message: string }
   | { type: "session.ended"; reason: "script_complete" | "facilitator_end" }
   /**

@@ -24,6 +24,9 @@ const FacilitatorCommandSchema = z.discriminatedUnion("command", [
  */
 const LastSeq = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional();
 
+/** US-0059: the most UTF-16 units a raw `by` may have on the wire. */
+export const MAX_BY_RAW_CHARS = 200;
+
 export const ClientMessageSchema = z.discriminatedUnion("type", [
   // US-0033: joinCode is the role's code (required when the server issues codes); a live rejoin may present the reconnect token instead.
   // US-0053: issueCredential asks a join by code for a durable credential (returned once in `joined`); `credential` rejoins with it
@@ -35,7 +38,8 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("join_facilitator"), sessionId: Id, token: z.string().max(256).optional(), lastSeq: LastSeq }),
   z.object({ type: z.literal("start") }),
   z.object({ type: z.literal("say"), text: z.string().min(1).max(MAX_UTTERANCE_CHARS), expectSceneId: Id.optional() }),
-  z.object({ type: z.literal("command"), command: FacilitatorCommandSchema, expectSceneId: Id.optional() }),
+  // US-0059: `by` is the facilitator's name as the control service gave it (raw at most 200 UTF-16 units; the host cleans it to 60 code points).
+  z.object({ type: z.literal("command"), command: FacilitatorCommandSchema, expectSceneId: Id.optional(), by: z.string().max(MAX_BY_RAW_CHARS).optional() }),
   // US-0053: a player gives up the seat for good: the credential is revoked, consent withdrawn and the connection closed (1000).
   z.object({ type: z.literal("leave") }),
   // US-0054: a player agrees to the consent notice of this version (it must be the server's current one), or takes the consent back

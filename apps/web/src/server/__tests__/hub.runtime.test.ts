@@ -250,6 +250,11 @@ describe("RuntimeConnection and StreamHub against the real runtime", () => {
   it("the stream forwards nothing a player may not see (scan every frame for facilitator-only event types, hidden facts, codes and credentials)", async () => {
     const { fac, seats } = await startedSession();
     const dl = seats.delivery_lead;
+    // US-0059: the facilitator's name on a command (by) reaches the facilitator only.
+    fac.send({ type: "command", command: { command: "pause" }, by: "LEAK-BY-7f3a" });
+    await until(() => fac.inbox.some((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.command === "pause"));
+    fac.send({ type: "command", command: { command: "resume" } });
+    await until(() => fac.inbox.some((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.command === "resume"));
     // Scene 1: enough lines for a Game Master check (facilitator-only verdicts).
     await say(dl.cookie, "Did everyone see the email?", dl.stream.rec);
     await say(seats.tech_lead.cookie, "Yes, before go-live is a risk.", seats.tech_lead.stream.rec);
@@ -294,7 +299,7 @@ describe("RuntimeConnection and StreamHub against the real runtime", () => {
       // The facilitator roster and its per-seat fields (players get the peer roster: role, name, ready).
       "\"audience\":\"facilitator\"", "\"consented\"", "\"connected\"",
       // Facilitator commands players never see (only pause, resume and their own whisper reach them).
-      "\"command\":\"advance\"", "\"command\":\"release_hidden\"",
+      "\"command\":\"advance\"", "\"command\":\"release_hidden\"", "LEAK-BY-7f3a",
       // An AI character's goal and knowledge, and the facilitator-only notice of a server without FACILITATOR_TOKEN.
       "Avoid a change request going to her CFO", "The CFO has already asked why the programme costs what it does", "anyone who can reach it can join as facilitator",
     ];

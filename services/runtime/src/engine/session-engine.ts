@@ -259,8 +259,8 @@ export class SessionEngine {
   }
 
   /** `opts.expectSceneId`: throws EngineError("stale_scene") (appending nothing) if the scene has changed, so a late `advance` can never end the NEXT scene. */
-  command(cmd: FacilitatorCommand, opts: { expectSceneId?: string } = {}): Promise<void> { return this.mutex.run(() => this.doCommand(cmd, opts)); }
-  private async doCommand(cmd: FacilitatorCommand, opts: { expectSceneId?: string } = {}): Promise<void> {
+  command(cmd: FacilitatorCommand, opts: { expectSceneId?: string; by?: string } = {}): Promise<void> { return this.mutex.run(() => this.doCommand(cmd, opts)); }
+  private async doCommand(cmd: FacilitatorCommand, opts: { expectSceneId?: string; by?: string } = {}): Promise<void> {
     if (this.state.status === "ended") throw new EngineError("ended");
     if (opts.expectSceneId !== undefined && this.state.currentScene?.id !== opts.expectSceneId) throw new EngineError("stale_scene");
     // validate first: a rejected command appends nothing
@@ -288,7 +288,7 @@ export class SessionEngine {
       if (npc.released.includes(text)) throw new EngineError("already_released", `fact ${cmd.fact} of ${cmd.roleId} is already released`);
       release = { roleId: cmd.roleId, npc, text };
     }
-    await this.emit({ type: "facilitator.command", ...cmd });
+    await this.emit({ type: "facilitator.command", ...cmd, ...(opts.by !== undefined ? { by: opts.by } : {}) });
     // The command event above carries no fact text. The text goes only in this npc.updated, which players never receive.
     // Two appends: the npc.updated is the source of truth. If this second append fails the command is an orphan (it changed nothing, so a retry is accepted).
     if (release) await this.emit({ type: "npc.updated", roleId: release.roleId, goals: release.npc.goals, knowledge: release.npc.knowledge, released: [...release.npc.released, release.text] });

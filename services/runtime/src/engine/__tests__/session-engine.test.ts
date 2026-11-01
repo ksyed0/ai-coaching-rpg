@@ -588,3 +588,23 @@ describe("BUG-0005: pause freezes the scene clock", () => {
     });
   });
 });
+
+describe("facilitator.command by (US-0059, AC-0312)", () => {
+  it("a command with by records it; without by the event has no by key", async () => {
+    await engine.command({ command: "pause" }, { by: "Sam" });
+    await engine.command({ command: "resume" });
+    const cmds = (await log.all()).filter((e) => e.type === "facilitator.command");
+    expect(cmds[0]).toMatchObject({ command: "pause", by: "Sam" });
+    expect("by" in cmds[1]!).toBe(false);
+  });
+
+  it("restore folds a log whose commands carry by (state equals the live state)", async () => {
+    await engine.command({ command: "pause" }, { by: "Sam" });
+    await engine.command({ command: "resume" }, { by: "Sam" });
+    const fresh = new SessionEngine({ scenario, log, clock });
+    expect((await fresh.restore()).kind).toBe("running");
+    const live = (await log.all()).reduce((st, e) => reduce(st, e), initialState());
+    expect(fresh.state).toEqual(live);
+    expect(fresh.state.paused).toBe(false);
+  });
+});
