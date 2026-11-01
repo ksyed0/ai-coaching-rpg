@@ -4,9 +4,9 @@
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
-| TASK         | TASK-0095             | TASK-0094         |
-| AC           | AC-0351               | AC-0350           |
-| TC           | TC-0087               | TC-0086           |
+| TASK         | TASK-0096             | TASK-0095         |
+| AC           | AC-0352               | AC-0351           |
+| TC           | TC-0088               | TC-0087           |
 | BUG          | BUG-0016              | BUG-0015          |
 | L            | L-0032                | L-0031            |
 
@@ -27,3 +27,5 @@ Reserved blocks (2026-10-27, EPIC-0002 web client): US-0052..US-0065; TASK-0080.
 Assigned 2026-10-28 (EPIC-0002 slice 2a, filed with the slice's documentation): TC-0057..TC-0076 (US-0052 TC-0057, TC-0058; US-0053 TC-0059..TC-0061; US-0054 TC-0062..TC-0064; US-0055 TC-0065..TC-0067; US-0056 TC-0068..TC-0071; US-0065 TC-0072..TC-0076).
 
 Assigned 2026-10-30 (EPIC-0002 slice 2b-1, filed with the slice's plan): AC-0341..AC-0350 (US-0058: managed mode, IPC messages, parent disconnect, reissue order, reissue consent, control service lifecycle, child environment, cookie and login, dual-mode lookup, launcher-mode E2E); TC-0077..TC-0086 (one per new AC, in order); TASK-0094 (US-0059 readiness work).
+
+Assigned 2026-11-01 (EPIC-0002 slice 2b-2a, PR 1): AC-0351 (US-0059: allowlisted player copies); TC-0087 (AC-0351); TASK-0095 (US-0059 runtime protocol, three PRs). Later PRs of the slice assign their own as they file them: TC for `by` (AC-0312), talk time (AC-0311), `end_now` (AC-0313) and remove (AC-0314), and BUG-0016.

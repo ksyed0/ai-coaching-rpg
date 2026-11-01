@@ -1,4 +1,5 @@
-import { visibleTranscript, type PlayerScene, type SessionEvent, type SessionState } from "@acr/events";
+import type { PlayerScene, SessionEvent, SessionState } from "@acr/events";
+import { commandForPlayer, endedForPlayer, snapshotForPlayer, startedForPlayer } from "./player-copies.js";
 import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
@@ -27,21 +28,6 @@ export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_st
 export class HostError extends Error {
   /** `roles`, when given, names the roles the error is about: the message becomes `code: role1,role2`. */
   constructor(readonly code: HostErrorCode, roles?: string[]) { super(roles && roles.length > 0 ? `${code}: ${roles.join(",")}` : code); this.name = "HostError"; }
-}
-
-type StartedEvent = Extract<SessionEvent, { type: "session.started" }>;
-/** Fields of session.started copied to a player as they are. A field added to the event type must be listed here (or handled in startedForPlayer) to compile. */
-const STARTED_FOR_PLAYERS: Record<Exclude<keyof StartedEvent, "roles" | "consents" | "names" | "logIdentity">, true> = {
-  type: true, seq: true, ts: true, sessionId: true, scenarioId: true, version: true, logFormat: true, scenarioHash: true,
-};
-function startedForPlayer(e: StartedEvent, who: string): StartedEvent {
-  const out: Record<string, unknown> = {};
-  for (const k of Object.keys(STARTED_FOR_PLAYERS)) if (Object.hasOwn(e, k)) out[k] = (e as Record<string, unknown>)[k];
-  out.roles = redactRoles(e.roles);
-  const own = e.consents && Object.hasOwn(e.consents, who) ? e.consents[who] : undefined;
-  // Copied key by key: a hand-edited log entry with extra keys must not leak them.
-  if (own) out.consents = { [who]: { noticeVersion: own.noticeVersion, at: own.at } };
-  return out as StartedEvent;
 }
 
 export class SessionHost {
@@ -460,12 +446,7 @@ export class SessionHost {
 
   /** State snapshot safe to send to `who`: players never get NPC internals, GM verdicts, participant ids or other scenes' lines. */
   snapshotFor(who: string | "facilitator"): SessionState {
-    const s = this.engine.state;
-    if (who === "facilitator") return s;
-    // Same rule as viewFor: only scenes the player takes part in.
-    const mine = s.sceneHistory.filter((sc) => sc.participants.includes(who));
-    const currentScene = s.currentScene && s.currentScene.participants.includes(who) ? s.currentScene : null;
-    return { ...s, roles: redactRoles(s.roles), currentScene, sceneHistory: mine, transcript: visibleTranscript(s, who), npcs: {}, gmVerdicts: {}, factsEarned: {}, injectsFired: [], advanceRequested: false };
+    return who === "facilitator" ? this.engine.state : snapshotForPlayer(this.engine.state, who);
   }
 
   /**
@@ -522,11 +503,11 @@ export class SessionHost {
     const inScene = (sceneId: string | null | undefined) =>
       this.engine.state.sceneHistory.find((s) => s.id === sceneId)?.participants.includes(who) ?? false;
     switch (e.type) {
-      // Default-deny: the player copy is built from the allowlist STARTED_FOR_PLAYERS (a new event field is a compile error until decided),
+      // Default-deny: the player copy is built from the allowlists in player-copies.ts (STARTED_FOR_PLAYERS) (a new event field is a compile error until decided),
       // with roles reduced to kinds and only the player's own consent. Names and unknown keys never reach a player. The log identity is not
       // copied here either, but it is not a secret: a player's `joined` carries it so a web client can tell a new log apart.
       case "session.started": return startedForPlayer(e, who);
-      case "session.ended": return e;
+      case "session.ended": return endedForPlayer(e);
       // Like a pause: every participant learns the session came back paused after a restart.
       case "session.resumed": return e;
       // Only for scenes the player takes part in.
@@ -537,8 +518,7 @@ export class SessionHost {
       case "inject.fired": return e.to.includes(who) ? e : null;
       // Facilitator controls: players learn of pause/resume and of whispers addressed to them; everything else
       // (advance, fire_inject, set_npc_stance with NPC goals, release_hidden) stays private.
-      case "facilitator.command":
-        return e.command === "pause" || e.command === "resume" || (e.command === "whisper" && e.roleId === who) ? e : null;
+      case "facilitator.command": return commandForPlayer(e, who);
       // Never for players: NPC goals/knowledge and released hidden facts, GM reasoning, facilitator alerts.
       // US-0034: a Game Master release suggestion (or auto-release) names a hidden fact by number and is the facilitator's decision alone.
       case "npc.updated": case "gm.decision": case "gm.no_verdict": case "gm.fact_earned": case "facilitator.alert": return null;
@@ -549,8 +529,4 @@ export class SessionHost {
       }
     }
   }
-}
-
-function redactRoles(roles: SessionState["roles"]): SessionState["roles"] {
-  return Object.fromEntries(Object.entries(roles).map(([id, r]) => [id, { kind: r.kind }]));
 }

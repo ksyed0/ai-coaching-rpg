@@ -1325,3 +1325,16 @@ Actual Result: As expected (Web E2E apps/web/e2e/console-flow.spec.ts, launcher 
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-1, plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
+
+TC-0087: Players receive allowlisted copies only
+Related Story: US-0059
+Related Task: TASK-0095
+Related AC: AC-0351
+Type: Integration
+Preconditions: A running session with a player, a pause and a played line.
+Steps:
+  1. Take the player's snapshot and compare it with the pinned 2a snapshot.
+  2. Pass a pause, a whisper and a session.ended event carrying extra keys (by, note) through the player view.
+Expected Result: The snapshot equals the 2a snapshot; each event reaches the player with only its listed keys; the facilitator still gets the state and every event whole.
+Actual Result: As expected (services/runtime/src/host/__tests__/player-copies.test.ts, 7 tests; runtime suite 3689 passed; hub.runtime.test.ts 12 passed).
+Status: Pass
