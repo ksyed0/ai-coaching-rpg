@@ -1,4 +1,4 @@
-import type { PlayerScene, SessionEvent, SessionState } from "@acr/events";
+import type { PlayerScene, PlayerSnapshot, SessionEvent, SessionState } from "@acr/events";
 import { commandForPlayer, endedForPlayer, snapshotForPlayer, startedForPlayer } from "./player-copies.js";
 import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
@@ -447,7 +447,9 @@ export class SessionHost {
   }
 
   /** State snapshot safe to send to `who`: players never get NPC internals, GM verdicts, participant ids or other scenes' lines. */
-  snapshotFor(who: string | "facilitator"): SessionState {
+  snapshotFor(who: "facilitator"): SessionState;
+  snapshotFor(who: string): PlayerSnapshot;
+  snapshotFor(who: string): SessionState | PlayerSnapshot {
     return who === "facilitator" ? this.engine.state : snapshotForPlayer(this.engine.state, who);
   }
 

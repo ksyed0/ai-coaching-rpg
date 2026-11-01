@@ -3,6 +3,14 @@ import type { RoleKind, SessionEvent, Channel } from "./events.js";
 export type Utterance = { seq: number; ts: number; sceneId: string | null; roleId: string; text: string; channel: Channel };
 export type NpcState = { goals: string[]; knowledge: string[]; released: string[] };
 
+/** US-0059: words and lines one role has spoken. */
+export type TalkCount = { words: number; lines: number };
+
+/** Words in a line: whitespace-separated runs of characters (0 for a non-string). */
+export function countWords(text: string): number {
+  return typeof text === "string" ? text.split(/\s+/u).filter((w) => w.length > 0).length : 0;
+}
+
 export type SessionState = {
   status: "idle" | "running" | "ended";
   lastSeq: number;
@@ -24,13 +32,24 @@ export type SessionState = {
   gmVerdicts: Record<string, boolean>;
   /** US-0034: per AI character, the hidden fact numbers the Game Master has already judged earned (gm.fact_earned), ascending. For the whole session, so a suggestion is never repeated, also after a restart (it is rebuilt from the log). */
   factsEarned: Record<string, number[]>;
+  /** US-0059: words and lines per role that has spoken (the kind comes from `roles`, so NPC lines count apart). Folded from `utterance` only. Facilitator snapshot only: never in a player snapshot. */
+  talk: Record<string, TalkCount>;
 };
+
+/** A snapshot a player may hold: everything but the facilitator-only fields. */
+export type PlayerSnapshot = Omit<SessionState, "talk">;
+
+/** Reads with Object.hasOwn and returns a new record, so a role id such as "__proto__" or "constructor" is an ordinary own key (a computed key defines, it never sets the prototype). */
+function withTalk(talk: SessionState["talk"], roleId: string, text: string): SessionState["talk"] {
+  const prev = Object.hasOwn(talk, roleId) ? talk[roleId]! : { words: 0, lines: 0 };
+  return { ...talk, [roleId]: { words: prev.words + countWords(text), lines: prev.lines + 1 } };
+}
 
 export function initialState(): SessionState {
   return {
     status: "idle", lastSeq: 0, scenarioId: null, version: null, roles: {},
     currentScene: null, sceneHistory: [], paused: false, pausedSince: null, transcript: [], injectsFired: [], npcs: {},
-    advanceRequested: false, gmVerdicts: {}, factsEarned: {},
+    advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {},
   };
 }
 
@@ -47,7 +66,7 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
     case "scene.exited":
       return { ...s, currentScene: null, gmVerdicts: {} };
     case "utterance":
-      return { ...s, transcript: [...s.transcript, { seq: e.seq, ts: e.ts, sceneId: s.currentScene?.id ?? null, roleId: e.roleId, text: e.text, channel: e.channel }] };
+      return { ...s, talk: withTalk(s.talk, e.roleId, e.text), transcript: [...s.transcript, { seq: e.seq, ts: e.ts, sceneId: s.currentScene?.id ?? null, roleId: e.roleId, text: e.text, channel: e.channel }] };
     case "inject.fired":
       return { ...s, injectsFired: [...s.injectsFired, e.injectId] };
     case "npc.updated": {
@@ -95,7 +114,8 @@ export function reduceReplay(state: SessionState, e: SessionEvent): SessionState
   if (e.seq !== state.lastSeq + 1) throw new Error(`event seq ${e.seq} out of order; expected ${state.lastSeq + 1}`);
   if (e.type === "utterance") state.transcript.push({ seq: e.seq, ts: e.ts, sceneId: state.currentScene?.id ?? null, roleId: e.roleId, text: e.text, channel: e.channel });
   else state.injectsFired.push(e.injectId);
-  return { ...state, lastSeq: e.seq };
+  // talk is copied per utterance (one small record per speaking role, not per line), so the fold stays linear in the log.
+  return { ...state, lastSeq: e.seq, ...(e.type === "utterance" ? { talk: withTalk(state.talk, e.roleId, e.text) } : {}) };
 }
 
 /**

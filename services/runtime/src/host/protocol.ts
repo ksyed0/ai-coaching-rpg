@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CLIENT_ID_MAX_CHARS, type PlayerScene, type SessionEvent, type SessionState } from "@acr/events";
+import { CLIENT_ID_MAX_CHARS, type PlayerScene, type PlayerSnapshot, type SessionEvent, type SessionState } from "@acr/events";
 import { MAX_JOIN_CODE_INPUT_CHARS } from "../engine/join-codes.js";
 import { REBIND_PENDING } from "../engine/consent.js";
 import { MAX_CREDENTIAL_INPUT_CHARS } from "../engine/credentials.js";
@@ -52,7 +52,7 @@ export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 export type ReplaySummary = { afterSeq: number; toSeq: number; events: number; complete: boolean };
 
 export type ServerMessage =
-  | { type: "joined"; roleId: string | "facilitator"; brief?: string; privateFacts?: string[]; reconnectToken?: string; state: SessionState; /** Facilitator only: a one-line note, e.g. that the server is open. */ notice?: string;
+  | { type: "joined"; roleId: string | "facilitator"; brief?: string; privateFacts?: string[]; reconnectToken?: string; state: SessionState | PlayerSnapshot; /** Facilitator only: a one-line note, e.g. that the server is open. */ notice?: string;
       /** Facilitator only, and only after a facilitator join (behind FACILITATOR_TOKEN when it is set): each AI character's hidden facts, in the order `release_hidden` numbers them (1-based). Never sent to a player. */
       hiddenFacts?: Record<string, string[]>;
       /**

@@ -2,7 +2,7 @@
 // (zod schemas, runtime imports) is not importable from a Next app. SOURCE: services/runtime/src/host/protocol.ts (ClientMessageSchema,
 // ServerMessage) and host/roster.ts (roster entries). Only the messages the BFF sends or reads are mirrored. The contract tests against the
 // real runtime (hub.runtime.test.ts) pin this file against drift: change both together.
-import type { PlayerScene, SessionEvent, SessionState } from "@acr/events";
+import type { PlayerScene, PlayerSnapshot, SessionEvent, SessionState } from "@acr/events";
 
 export type SessionStatus = SessionState["status"];
 
@@ -27,7 +27,7 @@ export type JoinedFrame = {
   brief?: string;
   privateFacts?: string[];
   reconnectToken?: string;
-  state: SessionState;
+  state: PlayerSnapshot;
   /** Present only when the join carried lastSeq: `events` event frames follow at once. */
   replay?: ReplaySummary;
   /** The durable credential, only on the join by code that asked for it. The one copy. */

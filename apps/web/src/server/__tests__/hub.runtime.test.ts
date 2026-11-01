@@ -295,7 +295,7 @@ describe("RuntimeConnection and StreamHub against the real runtime", () => {
     }
     // Facilitator-only: present in the facilitator's frames, absent from every player stream.
     const FACILITATOR_ONLY = [
-      "Would accept a phased delivery after go-live" /* client_sponsor's hidden fact */, "hiddenFacts", "\"npc.updated\"", "\"gm.no_verdict\"",
+      "Would accept a phased delivery after go-live" /* client_sponsor's hidden fact */, "hiddenFacts", "\"talk\":", "\"npc.updated\"", "\"gm.no_verdict\"",
       // The facilitator roster and its per-seat fields (players get the peer roster: role, name, ready).
       "\"audience\":\"facilitator\"", "\"consented\"", "\"connected\"",
       // Facilitator commands players never see (only pause, resume and their own whisper reach them).
