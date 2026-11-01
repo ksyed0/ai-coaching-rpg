@@ -476,6 +476,7 @@ export class SessionEngine {
     if (!cur) {
       const lastScene = s.sceneHistory.at(-1)?.id;
       const next = lastScene === undefined ? sc.script.scenes[0]?.id : nextSceneId(sc.script, lastScene);
+      // lastExit is assigned inside a loop closure, so TypeScript narrows it to null here; the cast undoes that.
       if ((lastExit as ExitReason | null) === "facilitator_end") repairs.push({ kind: "end_session", reason: "facilitator_end" });
       else repairs.push(next ? { kind: "enter_scene", sceneId: next } : { kind: "end_session" });
     } else {
@@ -543,7 +544,8 @@ export class SessionEngine {
    * US-0059: the facilitator ends the session now. `actor` and `message` arrive cleaned (the caller's job). Refused, appending nothing,
    * before the start (not_started), while a start is incomplete (starting) and after the end (ended). One mutex run appends
    * scene.exited (when a scene is current), the facilitator-only alert, then session.ended LAST; every other operation re-checks
-   * `ended` inside the mutex, so nothing queued behind this can append after session.ended.
+   * `ended` inside the mutex, so nothing queued behind this can append after session.ended. Assumes a current scene whenever the
+   * session is reachable here: currentScene is null only inside a tick run or between restore and markResumed (both under the mutex).
    */
   endNow(o: { actor: string; message?: string }): Promise<void> { return this.mutex.run(() => this.doEndNow(o)); }
   private async doEndNow(o: { actor: string; message?: string }): Promise<void> {

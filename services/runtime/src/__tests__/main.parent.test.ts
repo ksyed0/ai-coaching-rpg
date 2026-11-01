@@ -220,6 +220,24 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     expect(sent[sent.length - 1]!.type).toBe("ended");
   });
 
+  it("end_now sends ended once", async () => {
+    const data = await mk();
+    const { parent, sent } = fakeParent();
+    const { r } = await boot(parent, data);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    const h = r.runtime.host;
+    h.join("host", "alice");
+    h.seats!.credentials.issue("host", "Pat");
+    h.giveConsent("host", "alice", "v1");
+    await h.start();
+    expect(sent.some((m) => m.type === "ended")).toBe(false);
+    await h.endNow({ by: "Dana", message: "Thanks" });
+    await expect(h.endNow({})).rejects.toMatchObject({ code: "ended" });
+    expect(sent.filter((m) => m.type === "ended")).toHaveLength(1);
+    expect(sent[sent.length - 1]!.type).toBe("ended");
+    expect(h.seats!.credentials.ended).toBe(true);
+  });
+
   it("the codes never appear in log or warn output", async () => {
     const data = await mk();
     const { parent, sent } = fakeParent();

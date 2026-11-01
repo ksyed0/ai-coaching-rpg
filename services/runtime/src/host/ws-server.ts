@@ -416,6 +416,10 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         } else if (m.type === "say") {
           if (isFacilitator) return fail("forbidden", "the facilitator cannot speak as a role");
           await host.onPlayerUtterance(who, m.text, { expectSceneId: m.expectSceneId });
+        } else if (m.type === "end_now") {
+          // US-0059: a separate facilitator message; it never starts the session (the host refuses before the start).
+          if (!isFacilitator) return fail("forbidden", "only the facilitator may end the session");
+          await host.endNow({ by: m.by, message: m.message });
         } else if (m.type === "command") {
           if (!isFacilitator) return fail("forbidden", "only the facilitator may send commands");
           if (!host.hasStarted) await host.start();

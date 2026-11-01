@@ -86,13 +86,12 @@ describe("SessionEngine.endNow (US-0059)", () => {
 
   it("say, recordGmVerdict, recordGmNoVerdict, recordFactEarned, alert and tick queued behind endNow append nothing after session.ended", async () => {
     const { engine, log, clock } = await started();
-    const sceneId = engine.state.currentScene!.id;
     const roleId = engine.currentScene()!.participants[0]!;
     const end = engine.endNow({ actor: "A" });
     clock.advance(10 * 60_000);
     const queued = [
       engine.say(roleId, "late", "text").catch(() => "refused"),
-      engine.recordGmVerdict("c", true, "r", { expectSceneId: sceneId }),
+      engine.recordGmVerdict("c", true, "r"),
       engine.recordGmNoVerdict("c", "empty", 1),
       engine.recordFactEarned(roleId, 1, "r"),
       engine.alert("late"),
@@ -103,6 +102,17 @@ describe("SessionEngine.endNow (US-0059)", () => {
     const all = await log.all();
     expect(all.at(-1)!.type).toBe("session.ended");
     expect(types(all).filter((t) => t === "session.ended")).toHaveLength(1);
+  });
+});
+
+describe("endNow while paused (US-0059)", () => {
+  it("endNow works on a paused session: scene.exited, the alert, then session.ended last", async () => {
+    const { engine, log } = await started();
+    await engine.command({ command: "pause" });
+    expect(engine.state.paused).toBe(true);
+    await engine.endNow({ actor: "Dana" });
+    expect(types(await log.all()).slice(-3)).toEqual(["scene.exited", "facilitator.alert", "session.ended"]);
+    expect(engine.state.status).toBe("ended");
   });
 });
 

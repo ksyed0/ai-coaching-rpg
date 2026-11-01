@@ -34,3 +34,19 @@ export function cleanFacilitatorLabel(raw: string | undefined): string | undefin
 export function actorLabel(by?: string): string {
   return cleanFacilitatorLabel(by) ?? "the facilitator";
 }
+
+/** US-0059: the most code points a closing message may have after cleaning. */
+export const MAX_END_MESSAGE_CHARS = 300;
+
+/**
+ * US-0059: the facilitator's closing message, cleaned (hidden, bidirectional and control characters stripped, trimmed), or undefined
+ * when absent or empty after cleaning (whitespace only). Throws ReviewUsageError when longer than 300 code points; the host turns
+ * that into bad_message. Markup is kept as typed: the clients render it as text.
+ */
+export function cleanClosingMessage(raw: string | undefined): string | undefined {
+  if (raw === undefined) return undefined;
+  try { return cleanText(raw, MAX_END_MESSAGE_CHARS, "message", []); } catch (err) {
+    if (err instanceof ReviewUsageError && err.message.endsWith("must not be empty")) return undefined;
+    throw err;
+  }
+}
