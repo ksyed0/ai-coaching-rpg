@@ -1728,6 +1728,7 @@ Acceptance Criteria:
   - [ ] AC-0314: remove_participant before the start revokes the credential, closes the socket, clears consent, frees the seat and always reissues the role's code (moved from AC-0308)
   - [ ] AC-0315: irreversible actions use one confirmation that names the subject and audience
   - [ ] AC-0316: the layout works at laptop width and keyboard focus and labels pass an accessibility audit
+  - [x] AC-0351: players receive allowlisted copies: the join snapshot and every command and session.ended event are built from explicit field lists, so a facilitator-only field (by, talk time) never reaches a player and a 2a player sees no change (services/runtime/src/host/__tests__/player-copies.test.ts; TC-0087)
 ```
 
 ```
@@ -1746,6 +1747,15 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0002-US-0059-readiness
 Notes: Delivers AC-0310 only; the rest of US-0059 stays on feature/EPIC-0002-US-0059-live-console in slice 2b-2. Spec docs/superpowers/specs/2026-10-30-web-client-slice-2b-design.md section 6.1 and plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md.
+```
+
+```
+TASK-0095 (US-0059): Runtime protocol for the live console (slice 2b-2a)
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0002-US-0059-player-copies (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-runtime-protocol and feature/EPIC-0002-US-0059-remove-participant)
+Notes: Allowlisted player copies, by, talk time, end_now, remove as a reissue reason. Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md; spec docs/superpowers/specs/2026-10-31-slice-2b-remaining-design.md.
 ```
 
 ```

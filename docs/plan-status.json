@@ -2541,6 +2541,11 @@
           "id": "AC-0316",
           "text": "the layout works at laptop width and keyboard focus and labels pass an accessibility audit",
           "done": false
+        },
+        {
+          "id": "AC-0351",
+          "text": "players receive allowlisted copies: the join snapshot and every command and session.ended event are built from explicit field lists, so a facilitator-only field (by, talk time) never reaches a player and a 2a player sees no change (services/runtime/src/host/__tests__/player-copies.test.ts; TC-0087)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -3582,6 +3587,16 @@
       "notes": "Delivers AC-0310 only; the rest of US-0059 stays on feature/EPIC-0002-US-0059-live-console in slice 2b-2. Spec docs/superpowers/specs/2026-10-30-web-client-slice-2b-design.md section 6.1 and plan docs/superpowers/plans/2026-10-30-web-client-slice-2b1-control-plane.md."
     },
     {
+      "id": "TASK-0095",
+      "storyId": "US-0059",
+      "title": "Runtime protocol for the live console (slice 2b-2a)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0002-US-0059-player-copies (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-runtime-protocol and feature/EPIC-0002-US-0059-remove-participant)",
+      "notes": "Allowlisted player copies, by, talk time, end_now, remove as a reissue reason. Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md; spec docs/superpowers/specs/2026-10-31-slice-2b-remaining-design.md."
+    },
+    {
       "id": "TASK-0089",
       "storyId": "US-0060",
       "title": "Toggle, bot lifecycle, shared bot module, labels",
@@ -4481,6 +4496,16 @@
       "relatedAC": "AC-0350",
       "type": "E2E",
       "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0087",
+      "title": "Players receive allowlisted copies only",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0095",
+      "relatedAC": "AC-0351",
+      "type": "Integration",
+      "status": "Not Run",
       "defect": "None"
     }
   ],
@@ -5605,11 +5630,11 @@
       "isAtRisk": false
     },
     "US-0059": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0060": {
       "missingTCs": true,
@@ -5937,10 +5962,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-10-31T23:37:59.258Z",
-  "commitSha": "df4bb3b",
-  "buildNumber": "480",
-  "branch": "fix/bug-0015-interrupted-start",
+  "generatedAt": "2026-11-01T16:48:00.581Z",
+  "commitSha": "7b38189",
+  "buildNumber": "483",
+  "branch": "feature/EPIC-0002-US-0059-player-copies",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6202,9 +6227,11 @@
       "2026-10-30T21:31:32.515Z",
       "2026-10-30T22:10:31.915Z",
       "2026-10-31T00:55:16.208Z",
-      "2026-10-31T23:37:59.353Z"
+      "2026-10-31T23:37:59.353Z",
+      "2026-11-01T16:48:00.675Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6278,6 +6305,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6311,6 +6339,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -6354,9 +6383,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -6430,9 +6461,11 @@
       4,
       4,
       3,
+      0,
       0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -6506,6 +6539,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -6539,6 +6573,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -6582,6 +6617,7 @@
       1.1692307692307693,
       1.1646153846153846,
       1.1553846153846152,
+      1.136923076923077,
       1.136923076923077
     ],
     "velocityByWeek": {
