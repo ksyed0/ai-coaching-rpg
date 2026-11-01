@@ -31,6 +31,9 @@ export class RemoveRefusedError extends Error {
  * US-0058: gives ONE player role a new join code. Only the control service can ask (over the fork() IPC channel). Returns the new
  * plain code, which exists nowhere else: the caller hands it to the parent and drops it. Throws (with nothing changed) for a role that is not a player role of this session.
  *
+ * 0. A remove (reason "removed") is refused with RemoveRefusedError once the start has begun or is in flight. This check deliberately
+ *    comes BEFORE the 'ended' and 'starting' refusals below (do not reorder): the control service must get the fixed remove reason.
+ *
  * A code opens only a role that has no credential, so the order is fixed, and chosen so that a failed codes write changes nothing:
  *  1. Build the new codes (pure) and WRITE them to the codes file first. If this fails the old code, the credential, the consent and
  *     the socket are all untouched and the reissue fails cleanly (the plan's order revoked the seat before the write, so a failed
@@ -40,7 +43,7 @@ export class RemoveRefusedError extends Error {
  *     rebind (it waits for the next participant); persist the seats. If the persist fails, the credential and consent are restored in
  *     memory from the snapshot taken before, THEN the old codes file is put back, and the error is rethrown: the reissue changed nothing.
  *     (Before the start/after the start is decided on `started` alone; a start in flight refuses the reissue.)
- *  3. Kick the role's socket (CLOSE_REISSUED, or CLOSE_REMOVED for a remove, which is refused with RemoveRefusedError once the start has begun), which frees the seat synchronously; then, even if the kick threw (reported, not rethrown: the caller must
+ *  3. Kick the role's socket (CLOSE_REISSUED, or CLOSE_REMOVED for a remove), which frees the seat synchronously; then, even if the kick threw (reported, not rethrown: the caller must
  *     still receive the new code), swap the new codes in (the file already has them, so memory must follow). Nothing in 2 and 3 awaits, so no join can run between the revoke and
  *     the swap: the credential is gone and persisted before the socket is kicked and before the new code can open anything.
  *  4. After the start only, append the facilitator-only alert (naming who reissued, never the code). Its failure is reported, not
@@ -50,7 +53,8 @@ export class RemoveRefusedError extends Error {
 export async function reissueRole(d: ReissueDeps, roleId: string, by?: string, reason?: "removed"): Promise<string> {
   if (!d.host.hasPlayerRole(roleId)) throw new Error("not a player role of this session");
   // US-0059: a remove is before the start only. Refused here, before any read of the codes or any write: a start in flight or done
-  // changes nothing (old code, credential, consent, socket and codes file stay as they were).
+  // changes nothing (old code, credential, consent, socket and codes file stay as they were). Deliberately BEFORE the 'ended' and
+  // 'starting' refusals below, so a remove always gets the fixed reason; do not reorder.
   if (reason === "removed" && (d.host.hasStarted || d.host.isStarting)) throw new RemoveRefusedError();
   if (d.host.engine.state.status === "ended") throw new Error("the session has ended");
   // The start in flight freezes the seats' consents into session.started and may still fail back to the lobby: a marker left by a

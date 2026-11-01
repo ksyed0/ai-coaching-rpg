@@ -281,7 +281,7 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     expect(sent.find((m) => m.type === "reissue_failed" && m.requestId === "rm2")).toMatchObject({ reason: "a participant can only be removed before the start" });
     expect(h.seats!.credentials.has("host")).toBe(true);
     expect(h.seats!.consent.has("host", "bob")).toBe(true);
-    h.engine.state.status !== "ended" && await h.endNow({});
+    await h.endNow({});
     ask({ type: "reissue", requestId: "rm3", roleId: "host" });
     await vi.waitFor(() => expect(sent.some((m) => m.type === "reissue_failed" && m.requestId === "rm3")).toBe(true));
     expect(sent.find((m) => m.type === "reissue_failed" && m.requestId === "rm3")).toMatchObject({ reason: "the code could not be reissued" });
