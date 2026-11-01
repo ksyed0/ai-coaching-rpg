@@ -1387,3 +1387,21 @@ Actual Result: As expected (services/runtime/src/engine/__tests__/session-engine
 Status: [x] Pass
 Defect Raised: BUG-0016 (found while planning, fixed in this slice)
 Notes: Slice 2b-2a, PR 2. Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md.
+
+
+TC-0091: Remove a participant before the start (the reissue reason "removed")
+Related Story: US-0059
+Related Task: TASK-0095
+Related AC: AC-0314
+Type: Integration
+Preconditions: A managed runtime with two roles seated and consented before the start; also one started session and one with a start in flight; the control service API and the web server with a fake runtime.
+Steps:
+  1. Send the parent-only reissue with { roleId, reason: "removed" } before the start; then try the old code.
+  2. Send the same request after the start and while the start is in flight; call the control API with a missing, wrong or non-string reason.
+  3. Make the persist fail during a remove; remove a role that is not seated.
+  4. Close a player's stream with code 4003 in the web server (stream and join path), and render the session screen for the new event.
+Expected Result: The new code is written first, then the credential is revoked, consent withdrawn, seats persisted, the socket closed with 4003 reason "removed" and the codes swapped; the old code cannot reopen the seat and the new code can; after the start or during it the request is refused (control API 409 "a participant can only be removed before the start") and nothing changes; a failed persist rolls the change back; the web server ends the stream with a terminal `removed` event, clears the cookie on the join path and does not reconnect; the screen shows "Removed from the session" and "The facilitator removed you from this session."; there is no WebSocket message or HTTP route on the runtime for it.
+Actual Result: As expected (services/runtime/src/host/__tests__/reissue.remove.test.ts, reissue.test.ts, display-name.test.ts, src/__tests__/main.parent.test.ts, services/control/src/__tests__/api.test.ts, protocol.drift.test.ts, supervisor.lifecycle.test.ts, apps/web/src/server/__tests__/stream-hub.test.ts, runtime-connection.test.ts, handlers.launcher.test.ts, apps/web/src/lib/__tests__/use-session.test.ts, apps/web/src/components/__tests__/session-screen.test.tsx; runtime 3740 passed, control 158 passed, web 499 passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-2a, PR 3. The console button is slice 2b-2b. Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md.
