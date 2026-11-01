@@ -18,6 +18,8 @@ const CLOSE_POLICY = 1008;
 export const CLOSE_SUPERSEDED = 4001;
 /** US-0058: the control service reissued this role's join code; the connection that held the seat is closed and must not reconnect. */
 export const CLOSE_REISSUED = 4002;
+/** US-0059: the facilitator removed this participant before the start; the connection is closed and must not reconnect. */
+export const CLOSE_REMOVED = 4003;
 /** US-0013: the answer to a `lastSeq` past the session's last event (sent only once the join is authorised, so it probes nothing). */
 const BEYOND_HEAD = "lastSeq: after the last event of this session";
 /** The failed-login scope of a wrong join code: the role if the session has it, else one shared bucket so made-up role ids cannot fill the map. */
@@ -355,7 +357,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
               }
             }
             const token = randomUUID();
-            const kickWith = (code: number) => { dropCounted = true; shut(code, code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "reissued" : "closed"); };
+            const kickWith = (code: number) => { dropCounted = true; shut(code, code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "reissued" : code === CLOSE_REMOVED ? "removed" : "closed"); };
             holders.set(key, { ws, token, kick: () => kickWith(CLOSE_SUPERSEDED), kickWith });
             holderKey = key; participantId = m.participantId; who = m.roleId;
             // Its close handler leaves the seat alone: `holders` already points at this socket. A disconnect never revokes.

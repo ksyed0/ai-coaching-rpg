@@ -1,7 +1,7 @@
 import type { JoinCodes } from "../engine/join-codes.js";
 import type { Seats } from "../engine/seats.js";
 import type { SessionHost } from "./session-host.js";
-import { CLOSE_REISSUED, type ServerHandle } from "./ws-server.js";
+import { CLOSE_REISSUED, CLOSE_REMOVED, type ServerHandle } from "./ws-server.js";
 import { actorLabel } from "./display-name.js";
 
 /** What reissueRole works on; main.ts supplies the real ones, tests fakes. */
@@ -20,8 +20,12 @@ export type ReissueDeps = {
   report?: (what: string, err: unknown) => void;
 };
 
-/** The name a facilitator-only alert carries: cleaned, at most 60 code points, no control or hidden characters; "the facilitator" when absent or empty. */
-export const reissueActor = actorLabel;
+/** The fixed reason the control service is told when a remove is refused (never a path or a value). */
+export const REMOVE_REFUSED_REASON = "a participant can only be removed before the start";
+/** US-0059: a remove was refused because the session has started or is starting. Nothing was changed. */
+export class RemoveRefusedError extends Error {
+  constructor() { super(REMOVE_REFUSED_REASON); this.name = "RemoveRefusedError"; }
+}
 
 /**
  * US-0058: gives ONE player role a new join code. Only the control service can ask (over the fork() IPC channel). Returns the new
@@ -36,15 +40,18 @@ export const reissueActor = actorLabel;
  *     rebind (it waits for the next participant); persist the seats. If the persist fails, the credential and consent are restored in
  *     memory from the snapshot taken before, THEN the old codes file is put back, and the error is rethrown: the reissue changed nothing.
  *     (Before the start/after the start is decided on `started` alone; a start in flight refuses the reissue.)
- *  3. Kick the role's socket (CLOSE_REISSUED), which frees the seat synchronously; then, even if the kick threw (reported, not rethrown: the caller must
+ *  3. Kick the role's socket (CLOSE_REISSUED, or CLOSE_REMOVED for a remove, which is refused with RemoveRefusedError once the start has begun), which frees the seat synchronously; then, even if the kick threw (reported, not rethrown: the caller must
  *     still receive the new code), swap the new codes in (the file already has them, so memory must follow). Nothing in 2 and 3 awaits, so no join can run between the revoke and
  *     the swap: the credential is gone and persisted before the socket is kicked and before the new code can open anything.
  *  4. After the start only, append the facilitator-only alert (naming who reissued, never the code). Its failure is reported, not
  *     thrown: the code has already changed and the caller must still receive it. Before the start nothing may be appended: the
  *     engine refuses to start a log that already has events.
  */
-export async function reissueRole(d: ReissueDeps, roleId: string, by?: string): Promise<string> {
+export async function reissueRole(d: ReissueDeps, roleId: string, by?: string, reason?: "removed"): Promise<string> {
   if (!d.host.hasPlayerRole(roleId)) throw new Error("not a player role of this session");
+  // US-0059: a remove is before the start only. Refused here, before any read of the codes or any write: a start in flight or done
+  // changes nothing (old code, credential, consent, socket and codes file stay as they were).
+  if (reason === "removed" && (d.host.hasStarted || d.host.isStarting)) throw new RemoveRefusedError();
   if (d.host.engine.state.status === "ended") throw new Error("the session has ended");
   // The start in flight freezes the seats' consents into session.started and may still fail back to the lobby: a marker left by a
   // reissue now could survive in an idle lobby. Refuse; the facilitator retries once it has started (or failed).
@@ -68,11 +75,11 @@ export async function reissueRole(d: ReissueDeps, roleId: string, by?: string): 
   }
   // The credential is already revoked and the new codes are in the file: the reissue happened. A kick that throws is reported and the
   // caller still gets the new code (throwing here would lose it, with the old one already dead).
-  try { d.server.kickRole(d.sessionId, roleId, CLOSE_REISSUED); }
+  try { d.server.kickRole(d.sessionId, roleId, reason === "removed" ? CLOSE_REMOVED : CLOSE_REISSUED); }
   catch (kickErr) { d.report?.("kicking the socket of a reissued role", kickErr); }
   finally { d.setCodes(codes); }
   // Before the start the log must stay EMPTY (engine.start refuses a log that has events, and a managed restart relies on an empty
   // lobby log), so there is no event to append: the console shows the reissue from the control service's own state instead.
-  if (afterStart) await d.host.noteFacilitator(`consent for ${roleId} will be rebound after a code reissue by ${reissueActor(by)}`);
+  if (afterStart) await d.host.noteFacilitator(`consent for ${roleId} will be rebound after a code reissue by ${actorLabel(by)}`);
   return plain;
 }

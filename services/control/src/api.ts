@@ -20,8 +20,9 @@ const MAX_FIELD = 200;
 
 const CreateBody = z.strictObject({ scenarioId: z.string().min(1).max(MAX_FIELD) });
 // One role, or the whole session: never "neither". A body that forgets roleId must not silently reissue every code.
-const ReissueBody = z.strictObject({ roleId: z.string().min(1).max(MAX_FIELD).optional(), all: z.literal(true).optional(), by: z.string().max(MAX_FIELD).optional() })
-  .refine((b) => (b.roleId === undefined) !== (b.all === undefined));
+const ReissueBody = z.strictObject({ roleId: z.string().min(1).max(MAX_FIELD).optional(), all: z.literal(true).optional(), by: z.string().max(MAX_FIELD).optional(), reason: z.literal("removed").optional() })
+  .refine((b) => (b.roleId === undefined) !== (b.all === undefined))
+  .refine((b) => b.reason === undefined || b.roleId !== undefined); // a remove names its role
 const NoBody = z.strictObject({});
 
 class HttpError extends Error {
@@ -141,7 +142,7 @@ export function createApi(deps: {
     }
     if (seg.length === 4 && seg[2] === "codes" && seg[3] === "reissue" && method === "POST") {
       const body = parse(ReissueBody, (await jsonBody(req)) ?? {});
-      if (body.roleId !== undefined) return ok(res, { code: await supervisor.reissue(id, body.roleId, body.by) });
+      if (body.roleId !== undefined) return ok(res, { code: await supervisor.reissue(id, body.roleId, body.by, body.reason) });
       return ok(res, { codes: await supervisor.reissueAll(id, body.by) });
     }
     return notFound();

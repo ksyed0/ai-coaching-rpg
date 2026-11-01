@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanFacilitatorLabel, normalizeDisplayName } from "../display-name.js";
+import { actorLabel, cleanFacilitatorLabel, normalizeDisplayName } from "../display-name.js";
 
 describe("normalizeDisplayName (US-0053)", () => {
   it("accepts 60 code points and refuses 61", () => {
@@ -52,5 +52,16 @@ describe("cleanClosingMessage (US-0059)", () => {
     expect(cleanClosingMessage("​‮")).toBeUndefined();
     expect(cleanClosingMessage(" Thanks, <b>all</b> ")).toBe("Thanks, <b>all</b>");
     expect(() => cleanClosingMessage("x".repeat(301))).toThrow();
+  });
+});
+
+describe("actorLabel (US-0058)", () => {
+  it("actorLabel cleans and bounds the name", () => {
+    expect(actorLabel(undefined)).toBe("the facilitator");
+    expect(actorLabel("")).toBe("the facilitator");
+    expect(actorLabel("a\nb\tc")).toBe("a b c");
+    expect(actorLabel("x".repeat(500))).toBe("x".repeat(60));
+    expect([...actorLabel("😀".repeat(100))]).toHaveLength(60);
+    expect(actorLabel("‮\u0000")).toBe("the facilitator");
   });
 });

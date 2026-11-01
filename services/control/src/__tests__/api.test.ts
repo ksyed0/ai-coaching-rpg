@@ -182,10 +182,26 @@ describe("routes", () => {
     const bodies = [undefined, "{}", JSON.stringify({ by: "Ana" }), JSON.stringify({ all: false }), JSON.stringify({ all: true, roleId: "cfo" })];
     for (const body of bodies) expect((await call(port, "POST", `/sessions/${ID}/codes/reissue`, body === undefined ? {} : { body })).status).toBe(400);
     expect(calls).toEqual([
-      { name: "reissue", args: [ID, "cfo", "Ana"] },
+      { name: "reissue", args: [ID, "cfo", "Ana", undefined] },
       { name: "reissueAll", args: [ID, undefined] },
       { name: "reissueAll", args: [ID, "Ana"] },
     ]);
+  });
+
+  it("POST /sessions/:id/codes/reissue { roleId, reason: \"removed\" } returns the code and sends reason removed", async () => {
+    const { sup, calls } = stub();
+    const port = await boot(sup);
+    const r = await call(port, "POST", `/sessions/${ID}/codes/reissue`, { body: JSON.stringify({ roleId: "cfo", by: "Ana", reason: "removed" }) });
+    expect(r.json).toEqual({ success: true, data: { code: CODE }, error: null });
+    expect(calls).toEqual([{ name: "reissue", args: [ID, "cfo", "Ana", "removed"] }]);
+  });
+
+  it("{ reason: \"removed\" } without roleId is 400, and so is any other reason", async () => {
+    const { sup, calls } = stub();
+    const port = await boot(sup);
+    for (const body of [{ reason: "removed" }, { all: true, reason: "removed" }, { roleId: "cfo", reason: "other" }])
+      expect((await call(port, "POST", `/sessions/${ID}/codes/reissue`, { body: JSON.stringify(body) })).status).toBe(400);
+    expect(calls).toEqual([]);
   });
 
   it("POST /sessions/:id/restart returns the info and the codes when the supervisor returned them", async () => {
