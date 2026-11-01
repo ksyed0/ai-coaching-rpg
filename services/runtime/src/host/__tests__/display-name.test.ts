@@ -43,3 +43,14 @@ describe("cleanFacilitatorLabel (US-0059, AC-0312)", () => {
     expect(cleanFacilitatorLabel(undefined)).toBeUndefined();
   });
 });
+
+describe("cleanClosingMessage (US-0059)", () => {
+  it("absent, whitespace-only and hidden-only give undefined; text is kept; 301 code points throws", async () => {
+    const { cleanClosingMessage } = await import("../display-name.js");
+    expect(cleanClosingMessage(undefined)).toBeUndefined();
+    expect(cleanClosingMessage(" \n\t ")).toBeUndefined();
+    expect(cleanClosingMessage("​‮")).toBeUndefined();
+    expect(cleanClosingMessage(" Thanks, <b>all</b> ")).toBe("Thanks, <b>all</b>");
+    expect(() => cleanClosingMessage("x".repeat(301))).toThrow();
+  });
+});

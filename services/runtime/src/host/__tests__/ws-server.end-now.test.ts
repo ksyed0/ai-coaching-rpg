@@ -110,8 +110,7 @@ describe("end_now over the WebSocket server (US-0059)", () => {
     expect(pEnded.event.message).toBe("Thanks, <b>all</b>");
     expect(pEnded.event.reason).toBe("facilitator_end");
     expect(Object.keys(pEnded.event).sort()).toEqual(["message", "reason", "seq", "sessionId", "ts", "type"]);
-    const afterStart = p.inbox.filter((m) => m.type === "event").slice(-3).map((m) => m.event.type);
-    expect(afterStart.at(-1)).toBe("session.ended");
+    expect(evTypes(p).at(-1)).toBe("session.ended");
     expect(p.inbox.some((m) => m.type === "event" && (m.event.type === "facilitator.alert" || m.event.type === "facilitator.command"))).toBe(false);
     expect(p.text()).not.toContain("Sam");
     const tail = evTypes(fac).slice(-3);
@@ -181,13 +180,55 @@ describe("end_now over the WebSocket server (US-0059)", () => {
 
   it("the ticker is stopped after end_now", async () => {
     const { port, host } = await setup();
-    const spy = vi.spyOn(host, "stopTicker");
     const fac = await joinFac(port);
     fac.send({ type: "start" });
     await fac.next((m) => m.type === "event" && m.event.type === "scene.entered");
-    spy.mockClear();
+    host.startTicker(3_600_000);
+    expect((host as unknown as { ticker: unknown }).ticker).not.toBeNull();
     fac.send({ type: "end_now" });
     await fac.next((m) => m.type === "event" && m.event.type === "session.ended");
-    await vi.waitFor(() => expect(spy).toHaveBeenCalled());
+    await vi.waitFor(() => expect((host as unknown as { ticker: unknown }).ticker).toBeNull());
   });
+
+  it("end_now with a start still running is starting and appends nothing; the start then finishes", async () => {
+    const log = new MemoryEventLog("local");
+    const real = log.append.bind(log);
+    let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+    let held!: () => void; const holding = new Promise<void>((r) => { held = r; });
+    let n = 0;
+    log.append = async (body, ts) => { n++; if (n === 2) { held(); await gate; } return real(body, ts); };
+    const { port, engine } = await setup(undefined, log);
+    const fac = await joinFac(port);
+    const fac2 = await joinFac(port); // a second connection: one connection handles its messages in order
+    fac.send({ type: "start" });
+    await holding;
+    const before = (await log.all()).length;
+    fac2.send({ type: "end_now" });
+    expect((await errorOf(fac2)).code).toBe("starting");
+    expect(await log.all()).toHaveLength(before);
+    release();
+    await vi.waitFor(() => expect(engine.state.status).toBe("running"));
+    await fac.next((m) => m.type === "event" && m.event.type === "scene.entered");
+    expect((await log.all()).some((e) => e.type === "session.ended")).toBe(false);
+  });
+
+  const wire: [string, Record<string, unknown>][] = [
+    ["by of 201 units", { by: "b".repeat(201) }],
+    ["message of 1201 units", { message: "m".repeat(1201) }],
+    ["message: 5", { message: 5 }],
+    ["by: null", { by: null }],
+  ];
+  for (const [label, extra] of wire) {
+    it(`end_now with ${label} is bad_message and nothing is appended`, async () => {
+      const { port, engine, log } = await setup();
+      const fac = await joinFac(port);
+      fac.send({ type: "start" });
+      await fac.next((m) => m.type === "event" && m.event.type === "scene.entered");
+      const before = (await log.all()).length;
+      fac.send({ type: "end_now", ...extra });
+      expect((await errorOf(fac)).code).toBe("bad_message");
+      expect(await log.all()).toHaveLength(before);
+      expect(engine.state.status).toBe("running");
+    });
+  }
 });

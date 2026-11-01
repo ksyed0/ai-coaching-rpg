@@ -1,3 +1,4 @@
+import { stripHidden } from "../calibration/hidden-chars.js";
 import { cleanText } from "../review/text.js";
 import { ReviewUsageError } from "../review/errors.js";
 
@@ -40,13 +41,11 @@ export const MAX_END_MESSAGE_CHARS = 300;
 
 /**
  * US-0059: the facilitator's closing message, cleaned (hidden, bidirectional and control characters stripped, trimmed), or undefined
- * when absent or empty after cleaning (whitespace only). Throws ReviewUsageError when longer than 300 code points; the host turns
- * that into bad_message. Markup is kept as typed: the clients render it as text.
+ * when absent or empty after stripping (whitespace only). Throws ReviewUsageError when longer than 300 code points; the host turns
+ * that into bad_message. Markup is kept as typed: the clients render it as text. scrubText may rewrite home and temp paths to "~" / "<tmp>".
  */
 export function cleanClosingMessage(raw: string | undefined): string | undefined {
   if (raw === undefined) return undefined;
-  try { return cleanText(raw, MAX_END_MESSAGE_CHARS, "message", []); } catch (err) {
-    if (err instanceof ReviewUsageError && err.message.endsWith("must not be empty")) return undefined;
-    throw err;
-  }
+  if (stripHidden(raw).trim() === "") return undefined;
+  return cleanText(raw, MAX_END_MESSAGE_CHARS, "message", []);
 }
