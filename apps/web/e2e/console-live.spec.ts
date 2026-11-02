@@ -19,7 +19,9 @@ import {
 // assertion on elapsed time.
 
 let stack: LauncherStack | null = null;
+const opened: BrowserContext[] = [];
 test.afterEach(async () => {
+  for (const c of opened.splice(0)) await c.close().catch(() => undefined);
   await stack?.stop();
   stack = null;
 });
@@ -29,9 +31,8 @@ const NAMES: Record<Player, string> = {
   tech_lead: "Tomás Tech",
   account_manager: "Ama Accounts",
 };
-// The fixed lines the console shows for an alert, whatever text the runtime carried (apps/web/src/server/facilitator-copies.ts).
+// The fixed line the console shows for an info alert, whatever text the runtime carried (apps/web/src/server/facilitator-copies.ts).
 const ALERT_INFO = "The runtime posted a notice. Details are in the facilitator log.";
-const ALERT_WARNING = "The runtime raised an alert. Details are in the facilitator log.";
 const HOSTILE = "<img src=x onerror=alert(1)> reversed ‮evil";
 
 type Live = {
@@ -56,6 +57,7 @@ async function startedSession(browser: Browser, onFac?: (fac: Page) => Promise<v
   await startButton(fac).click();
   await expect(fac.getByText("The session has started.", { exact: true })).toBeVisible();
   await expect(fac.getByRole("heading", { name: "Live session" })).toBeVisible();
+  opened.push(fac.context(), ...PLAYERS.map((r) => players[r].context));
   return { stack, fac, sessionId, players, codes };
 }
 
@@ -86,10 +88,9 @@ test("after Start the console shows the first scene and its timer, a player's li
   await expect(dialog).toHaveCount(0);
   await expect(alerts(fac)).toHaveCount(before + 1);
   const added = alerts(fac).last();
-  await expect(added.locator(".pill")).toHaveText(/^(Alert|Warning):$/);
-  await expect(added.locator(".line")).toHaveText(
-    (await added.locator(".pill").innerText()) === "Warning:" ? ALERT_WARNING : ALERT_INFO,
-  );
+  // The reissue always raises the info-level alert (SessionHost.noteFacilitator).
+  await expect(added.locator(".pill")).toHaveText("Alert:");
+  await expect(added.locator(".line")).toHaveText(ALERT_INFO);
   // The runtime's own wording (who was rebound) never reaches the page.
   await expect(fac.locator("body")).not.toContainText("rebound after a code reissue");
   expect(await fac.content()).not.toContain("rebound after a code reissue");
@@ -139,7 +140,7 @@ test("a reload keeps the line and a second console tab follows the same events",
   await fac.reload();
   await expect(hasLine(fac, first)).toHaveCount(1);
 
-  const second = await fac.context().newPage();
+  const second = await fac.context().newPage(); // closed with the facilitator's context
   await second.goto(`${s.baseUrl}/console/${sessionId}`);
   await expect(hasLine(second, first)).toHaveCount(1);
 
@@ -155,8 +156,15 @@ test("a player cookie on the console stream URL is 401", async ({ browser }) => 
   const { fac, players, sessionId, stack: s } = await startedSession(browser);
   const url = `${s.baseUrl}/api/v1/console/sessions/${sessionId}/stream`;
   const headers = { Accept: "text/event-stream" };
-  const asPlayer = await players.delivery_lead.context.request.get(url, { headers });
-  expect(asPlayer.status()).toBe(401);
+  // The player's cookie is really there and really sent: the same page fetch that carries the facilitator's cookie below, as a player.
+  expect((await players.delivery_lead.context.cookies(s.baseUrl)).map((c) => c.name)).toEqual(["__Host-scenecoach"]);
+  const asPlayer = await players.delivery_lead.page.evaluate(async (u) => {
+    const r = await fetch(u, { headers: { Accept: "text/event-stream" }, credentials: "include" });
+    return r.status;
+  }, url);
+  expect(asPlayer).toBe(401);
+  const viaRequest = await players.delivery_lead.context.request.get(url, { headers });
+  expect(viaRequest.status()).toBe(401);
   // Without any cookie, too.
   const stranger = await browser.newContext();
   expect((await stranger.request.get(url, { headers })).status()).toBe(401);
@@ -172,7 +180,7 @@ test("a player cookie on the console stream URL is 401", async ({ browser }) => 
   expect(own.type).toMatch(/^text\/event-stream/);
 });
 
-test("no serious or critical Axe violations on the live view at 1280 px and 400 px, light and dark, with no horizontal scroll at 1280", async ({ browser }) => {
+test("no serious or critical Axe violations on the live view at 1280 px and 400 px, light and dark, with no horizontal scroll at either width", async ({ browser }) => {
   test.setTimeout(420_000);
   const { fac, players } = await startedSession(browser);
   await say(players.delivery_lead.page, "Let us start with the escalation owner");
@@ -183,6 +191,6 @@ test("no serious or critical Axe violations on the live view at 1280 px and 400 
   for (const width of [1280, 400] as const) {
     await fac.setViewportSize({ width, height: 860 });
     await checkBothSchemes(fac, `live view with untrusted text at ${width} px`);
-    if (width === 1280) await noHorizontalScroll(fac, width);
+    await noHorizontalScroll(fac, width);
   }
 });
