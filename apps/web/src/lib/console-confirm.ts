@@ -27,6 +27,9 @@ export type ConfirmCopy = {
 
 const q = (v: string): string => `“${isolate(v)}”`;
 
+/** What an inject with no listed role reads as: the plan has no word for it, and "everyone" would promise a wider audience than it has. */
+export const NO_AUDIENCE = "no listed role";
+
 /** "A", "A and B", "A, B and C". */
 export function audienceText(labels: string[]): string {
   if (labels.length <= 1) return labels.join("");
@@ -65,7 +68,7 @@ export function confirmCopy(s: ConfirmSubject): ConfirmCopy {
     case "fire_inject":
       return {
         title: `Fire inject ${q(s.injectId)}${s.again ? " again" : ""}?`,
-        description: `It is shown to ${audienceText(s.audience)}. It cannot be taken back.`,
+        description: `It is shown to ${s.audience.length === 0 ? NO_AUDIENCE : audienceText(s.audience)}. It cannot be taken back.`,
         confirmLabel: "Fire inject",
         tone: "primary",
       };

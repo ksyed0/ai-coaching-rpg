@@ -148,3 +148,6 @@ table.grid tbody th { font-weight: 600; }
 .msg.note .line { white-space: pre-wrap; }
 .liveview .tablewrap { max-width: 100%; }
 .liveview .tablewrap table.grid th, .liveview .tablewrap table.grid td { overflow-wrap: anywhere; }
+
+/* Facilitator interventions: lists without bullets, state words beside the facts. */
+ul.plain { list-style: none; padding: 0; margin: 0; }

@@ -1,16 +1,20 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { useConsoleCommands } from "../../lib/console-commands";
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import { fetchFacts, useConsoleCommands } from "../../lib/console-commands";
 import type { ConsoleCommand } from "../../lib/console-commands";
 import { confirmCopy } from "../../lib/console-confirm";
 import type { ConsoleStreamUi } from "../../lib/use-console-stream";
+import { CharactersPanel } from "./CharactersPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { InjectsPanel } from "./InjectsPanel";
+import type { Labeler } from "./Person";
+import { WhisperForm } from "./WhisperForm";
 import { SessionControls, type ConfirmRequest } from "./SessionControls";
 
 // US-0059: the facilitator's controls. Owns the command hook, the one open confirmation, and the status and alert lines (always
 // mounted, outside any dialog, so a message is announced; an error is held back until the dialog has closed and the page is live).
-// Task 13 adds the injects, whisper and characters panels beside SessionControls.
+// The injects, whisper and characters panels follow SessionControls; they stamp the scene id the console showed when they asked.
 
 const CLOSING_MAX = 300;
 
@@ -34,6 +38,35 @@ export function ConsoleControls({ sessionId, ui, fetch: fetchImpl }: ConsoleCont
     const cur = state?.currentScene;
     return cur ? (ui.scenes.find((s) => s.id === cur.id)?.title ?? cur.id) : null;
   }, [state?.currentScene, ui.scenes]);
+
+  const scene = useMemo(() => {
+    const cur = state?.currentScene;
+    return cur ? (ui.scenes.find((s) => s.id === cur.id) ?? null) : null;
+  }, [state?.currentScene, ui.scenes]);
+  const label = useMemo<Labeler>(() => {
+    const names: Record<string, string> = {};
+    for (const r of ui.roster) if (r.name) names[r.roleId] = r.name;
+    return { names, ai: (roleId) => state?.roles[roleId]?.kind === "npc" };
+  }, [ui.roster, state?.roles]);
+  // Whisper goes to a player: the current scene's players, else every player role.
+  const recipients = useMemo(() => {
+    const players = (ids: string[]) => ids.filter((r) => state?.roles[r]?.kind === "player");
+    const inScene = players(state?.currentScene?.participants ?? []);
+    return inScene.length > 0 ? inScene : players(Object.keys(state?.roles ?? {}));
+  }, [state?.currentScene, state?.roles]);
+  const sceneId = state?.currentScene?.id;
+  const loadFacts = useCallback(async () => {
+    if (ui.channel === null) return null;
+    const r = await fetchFacts(sessionId, ui.channel, fetchImpl);
+    return r.ok ? r.roles : null;
+  }, [sessionId, ui.channel, fetchImpl]);
+
+  // Injects, whisper and release name the scene the console showed when the control was used; the runtime refuses them if it moved on.
+  function openStamped(r: ConfirmRequest) {
+    const c = r.command;
+    const stamp = sceneId !== undefined && (c.kind === "fire_inject" || c.kind === "whisper" || c.kind === "release_hidden");
+    open(stamp ? { ...r, command: { ...c, expectSceneId: sceneId } as ConsoleCommand } : r);
+  }
 
   function open(r: ConfirmRequest) {
     setMessage("");
@@ -84,6 +117,20 @@ export function ConsoleControls({ sessionId, ui, fetch: fetchImpl }: ConsoleCont
         onCommand={(c) => void cmds.run(c)}
         onConfirm={open}
         sceneTitle={sceneTitle}
+      />
+      <InjectsPanel scene={scene} fired={state?.injectsFired ?? []} label={label} disabled={disabled} pending={cmds.pending} onConfirm={openStamped} />
+      <WhisperForm recipients={recipients} label={label} disabled={disabled} pending={cmds.pending} onConfirm={openStamped} />
+      <CharactersPanel
+        characters={ui.characters}
+        factsEarned={state?.factsEarned ?? {}}
+        label={label}
+        disabled={disabled}
+        pending={cmds.pending}
+        onConfirm={openStamped}
+        onStance={(roleId, goals) =>
+          cmds.run({ kind: "set_npc_stance", roleId, goals, ...(sceneId !== undefined && { expectSceneId: sceneId }) })
+        }
+        loadFacts={loadFacts}
       />
       <div role="status">{shown.status ? <p className="banner ok">{shown.status}</p> : null}</div>
       <div role="alert">{shown.error ? <p className="err">{shown.error}</p> : null}</div>

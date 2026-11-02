@@ -209,6 +209,14 @@ describe("useConsoleStream", () => {
     expect(hook.result.current.characters).toEqual([{ roleId: "npc3", goals: [], facts: [] }]);
   });
 
+  it("a character fact that carries a text field keeps only its number and state: the text never enters the hook's state", () => {
+    const { hook, es } = start();
+    joined(es());
+    emit(es(), "characters", { roles: [{ roleId: "npc1", goals: ["g1"], facts: [{ n: 1, released: false, text: "LEAKED-FACT-TEXT" }], knowledge: ["LEAKED-KNOWLEDGE"], text: "LEAKED-ROLE-TEXT" }] });
+    expect(hook.result.current.characters).toEqual([{ roleId: "npc1", goals: ["g1"], facts: [{ n: 1, released: false }] }]);
+    expect(JSON.stringify(hook.result.current)).not.toContain("LEAKED");
+  });
+
   it("a reconnect's joined keeps characters until the next characters frame", () => {
     const { hook, es } = start();
     joined(es());
