@@ -4,6 +4,7 @@ import { useEffect, useReducer, useRef } from "react";
 import { initialState, type PlayerScene, type SessionEvent, type SessionState } from "@acr/events";
 import { applyConsoleEvent, viewFromReset, type ConsoleView } from "./console-view";
 import { MESSAGES } from "./messages";
+import { roleLabel } from "./names";
 import type { EventSourceLike, SessionDeps } from "./use-session";
 
 // The facilitator's live, read-only view of one running session. Like the player hook, the stream is the browser's native EventSource
@@ -74,7 +75,7 @@ export function consoleStreamReducer(s: ConsoleStreamState, a: Action): ConsoleS
       return { ...s, conn: "live", view: viewFromReset(a.state), pendingGap: false, notice: null };
     case "event": {
       if (s.final) return s;
-      const label = (roleId: string) => s.roster.find((r) => r.roleId === roleId)?.name ?? roleId;
+      const label = (roleId: string) => s.roster.find((r) => r.roleId === roleId)?.name ?? roleLabel(roleId);
       const view = applyConsoleEvent(s.view, a.event, { scenes: s.scenes, label });
       if (view === s.view) return s;
       if (view !== null && view.gap) {

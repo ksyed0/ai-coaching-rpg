@@ -1,8 +1,9 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import {
   REPO_ROOT,
   START_TIMEOUT_MS,
@@ -34,6 +35,12 @@ export type LauncherStack = {
   restartControl(): Promise<void>;
   /** Kills `next start` and starts it again on the same port with the same COOKIE_KEYS. */
   restartBff(): Promise<void>;
+  /**
+   * SIGKILLs every session runtime (a runtime crash, as opposed to the clean stop of restartControl): each process of the control
+   * service's process group whose command line holds the runtime entry. Throws when none matched, so a changed entry path fails
+   * loudly instead of passing without a crash. Resolves once the control service lists the session as `stopped`.
+   */
+  crashRuntimes(): Promise<void>;
   /** Stops everything and removes the temp dir. */
   stop(): Promise<void>;
 };
@@ -144,6 +151,53 @@ async function stopControl(child: ChildProcess): Promise<void> {
   }
 }
 
+const run = promisify(execFile);
+/** The entry `services/control/src/runtime-command.ts` resolves for every runtime it forks. */
+const RUNTIME_ENTRY = path.join(REPO_ROOT, "services/runtime/src/main.ts");
+
+/** The pids in process group `pgid` whose command line contains the runtime entry. `-ww`: BSD ps otherwise cuts args to a column width. */
+async function runtimePids(pgid: number): Promise<number[]> {
+  const { stdout } = await run("ps", ["-A", "-ww", "-o", "pid=,pgid=,args="], { maxBuffer: 16 * 1024 * 1024 });
+  const out: number[] = [];
+  for (const line of stdout.split("\n")) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (m && Number(m[2]) === pgid && m[3]!.includes(RUNTIME_ENTRY)) out.push(Number(m[1]));
+  }
+  return out;
+}
+
+async function crashRuntimesOf(control: ChildProcess, controlUrl: string, token: string): Promise<void> {
+  if (control.pid === undefined) throw new Error("the control service is not running");
+  const pids = await runtimePids(control.pid);
+  if (pids.length === 0) throw new Error(`no process of the control service's group runs ${RUNTIME_ENTRY}`);
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e;
+    }
+  }
+  await withTimeout(
+    (async () => {
+      for (;;) {
+        try {
+          const r = await fetch(`${controlUrl}/sessions`, { headers: { "X-Service-Token": token } });
+          if (r.ok) {
+            const body = (await r.json()) as unknown;
+            const list = (body as { data?: { status?: string }[] }).data; // the control API's envelope: { success, data, error }
+            if (Array.isArray(list) && list.length > 0 && list.every((s) => s.status === "stopped")) return;
+          }
+        } catch {
+          /* not answering yet */
+        }
+        await new Promise((r) => setTimeout(r, 200)); // a poll interval, not an ordering assumption
+      }
+    })(),
+    START_TIMEOUT_MS,
+    "the control service did not report the crashed session as stopped",
+  );
+}
+
 export async function startLauncherStack(
   o: LauncherStackOptions = {},
 ): Promise<LauncherStack> {
@@ -190,6 +244,7 @@ export async function startLauncherStack(
         await killGroup(next);
         next = await startNext(port, nextEnv, baseUrl, out);
       },
+      crashRuntimes: () => crashRuntimesOf(control, controlUrl, serviceToken),
       stop: cleanup,
     };
   } catch (e) {

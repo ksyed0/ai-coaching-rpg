@@ -210,6 +210,14 @@ describe("Readiness", () => {
       screen.getByRole("button", { name: `Remove ${XSS} from Account manager` }),
     ).toBeTruthy();
     expect(container.querySelector("[onerror]")).toBeNull();
+    // The Remove button's aria-label legitimately holds the name inside an attribute value, so attribute values are blanked before
+    // looking for markup: a name rendered as markup (not text) would still leave "<img" and an on* attribute behind.
+    const markup = container.innerHTML.replace(/="[^"]*"/g, '=""');
+    expect(markup).not.toContain("<img");
+    const handlers = [...container.querySelectorAll("*")].flatMap((el) =>
+      el.getAttributeNames().filter((n) => n.startsWith("on")),
+    );
+    expect(handlers).toEqual([]);
   });
 
   it("Reissue confirmation names the role and says the old code stops working", async () => {

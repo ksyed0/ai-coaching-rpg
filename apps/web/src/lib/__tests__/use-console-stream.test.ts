@@ -37,6 +37,18 @@ describe("useConsoleStream", () => {
     expect(hook.result.current.roster).toHaveLength(1);
   });
 
+  it("the timeline names a seated player by name and an unseated role (an AI character) by its role label, never a raw id", () => {
+    const { hook, es } = start();
+    joined(es());
+    emit(es(), "reset", { state: snapshot({ status: "running", lastSeq: 1 }) });
+    emit(es(), "roster", { entries: [{ roleId: "delivery_lead", name: "Dana", joined: true, consented: true, connected: true }] });
+    emit(es(), "event", ev(2, "facilitator.command", { command: "whisper", roleId: "delivery_lead", text: "psst", by: "Ann" } as never), "2");
+    emit(es(), "event", ev(3, "facilitator.command", { command: "release_hidden", roleId: "client_sponsor", fact: 1, by: "Ann" } as never), "3");
+    const lines = hook.result.current.view?.timeline.map((t) => t.text);
+    expect(lines).toContain("Whisper to Dana by Ann: psst");
+    expect(lines).toContain("Fact 1 of Client sponsor released by Ann");
+  });
+
   it("a joined after a reconnect keeps the view and the next events continue it", () => {
     const { hook, es } = start();
     joined(es());
