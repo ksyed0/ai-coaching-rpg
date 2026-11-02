@@ -41,7 +41,7 @@ async function open(port: number): Promise<Client> {
   return { inbox, closed, next, send: (m) => ws.send(JSON.stringify(m)), rosters: () => inbox.filter((m) => m.type === "roster") };
 }
 
-async function setup(o: { extraPlayers?: string[]; withoutScenesFor?: boolean } = {}) {
+async function setup(o: { extraPlayers?: string[]; withoutScenesFor?: boolean; withoutAllScenes?: boolean } = {}) {
   const scenario = await loadScenario(fixture);
   for (const id of o.extraPlayers ?? []) scenario.roles[id] = { id, type: "player", brief: `You are ${id}.`, private_facts: [] } as (typeof scenario.roles)[string];
   // A scene only p2 takes part in: its title and goal must never reach the host player.
@@ -51,6 +51,7 @@ async function setup(o: { extraPlayers?: string[]; withoutScenesFor?: boolean } 
   const seats: Seats = { credentials: PlayerCredentials.create(BIND), consent: new ConsentStore(NOTICE), persist: vi.fn() };
   const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(["Hi!"]), gmProvider: new MockModelProvider(), clock, seats });
   if (o.withoutScenesFor) (host as Partial<SessionHost>).scenesFor = undefined; // a stand-in host that predates scenesFor
+  if (o.withoutAllScenes) (host as Partial<SessionHost>).allScenes = undefined; // a stand-in host that predates allScenes
   const { codes, plain } = JoinCodes.issue(["host", ...(o.extraPlayers ?? [])], BIND);
   server = await startServer({ port: 0, hosts: new Map([["local", host]]), joinCodes: new Map([["local", codes]]), log: () => {} });
   return { port: server.port, plain, host, engine };
@@ -86,6 +87,13 @@ describe("joined.scenes (US-0055)", () => {
     ]);
     const b = await player(port, "p2", plain.p2!);
     expect(b.j.scenes).toEqual([{ id: "s3_private", title: "PRIVATE-TITLE", goal: "PRIVATE-GOAL", timeBoxMinutes: 3 }]);
+  });
+
+  it("a host without allScenes still joins a facilitator; joined then has no scenes key", async () => {
+    const { port } = await setup({ withoutAllScenes: true });
+    const f = await open(port);
+    f.send({ type: "join_facilitator", sessionId: "local" });
+    expect(await f.next((m) => m.type === "joined")).not.toHaveProperty("scenes");
   });
 
   it("a host without scenesFor still joins a player; joined then has no scenes (omitted when empty)", async () => {

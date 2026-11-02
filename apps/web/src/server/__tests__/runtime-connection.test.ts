@@ -346,6 +346,14 @@ describe("RuntimeConnection facilitator sockets", () => {
     expect(c.isOpen).toBe(false);
   });
 
+  it("a refused token with lastSeq rejects unauthorized after exactly one join_facilitator and closes the connection", async () => {
+    const rt = await runtime((ws, m) => { if (m.type === "join_facilitator") { send(ws, { type: "error", code: "unauthorized", message: "unauthorized" }); ws.close(1008, "unauthorized"); } });
+    const c = await connect(rt.url);
+    expect((await rejection(c.joinFacilitator("s1", "stale", { lastSeq: 1 }))).code).toBe("unauthorized");
+    expect(rt.received).toEqual([{ type: "join_facilitator", sessionId: "s1", token: "stale", lastSeq: 1 }]);
+    expect(c.isOpen).toBe(false);
+  });
+
   it("no roster within the timeout, a close before the roster and a session that is gone all fail and close the connection", async () => {
     const t = manualTimers();
     const silent = await runtime((ws, m) => { if (m.type === "join_facilitator") send(ws, { type: "joined", roleId: "facilitator", state: fstate }); });

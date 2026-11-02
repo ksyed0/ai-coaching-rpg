@@ -5,11 +5,12 @@ import type { FacilitatorRosterEntry, JoinedFrame, SessionStatus } from "./wire"
 
 // A facilitator's socket to one session's runtime. The control service hands out `{ port, token }` as a pair for the child's current
 // start, so both are fetched together, every time. A refused token means the pair went stale (the child restarted): a FRESH pair is
-// fetched once and tried once; the same token is never sent twice and there is never a third attempt. Every facilitator socket carries the
+// fetched once and tried once; a refused token is never sent again (not on a second socket, not after a token refusal), and there is never a third attempt. A lastSeq refusal is not a token refusal: the runtime-connection retries it once on the same socket, without lastSeq. Every facilitator socket carries the
 // reserved X-Forwarded-For FACILITATOR_FORWARD_KEY: the runtime charges a refused facilitator login to one scope per address, so
 // it must be a key no player can send (requestAddress never yields it), and never a player's address or the BFF's loopback. Each
 // call holds one "short" budget slot of its session, from before the first launcher call until its last socket has closed.
 
+/** WARNING: `frame` is the whole parsed joined object (hiddenFacts and notice included at runtime); never spread it into a browser response. */
 export type FacilitatorJoin = {
   frame: JoinedFrame;
   roster: FacilitatorRosterEntry[];

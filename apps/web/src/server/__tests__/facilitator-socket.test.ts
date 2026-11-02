@@ -288,14 +288,25 @@ describe("withFacilitatorSocket", () => {
 
 describe("openFacilitatorSocket", () => {
   it("returns an open connection whose slot frees on close", async () => {
-    const { port } = await runtime(["tok-A"]);
+    const { rt, port } = await runtime(["tok-A"]);
     const { deps } = depsWith([{ port, token: "tok-A" }]);
     const { conn, joined } = await openFacilitatorSocket(deps, SID, { kind: "short", lastSeq: 0 });
+    expect(rt.received[0]).toEqual({ type: "join_facilitator", sessionId: SID, token: "tok-A", lastSeq: 0 });
     expect(conn.isOpen).toBe(true);
     expect(joined.roster).toEqual(ROSTER);
     expect(joined.frame.roleId).toBe("facilitator");
     expect(deps.facilitatorBudget.inUse(SID, "short")).toBe(1);
     conn.close();
     await vi.waitFor(() => expect(deps.facilitatorBudget.inUse(SID, "short")).toBe(0));
+  });
+
+  it("a live socket takes a live slot, not a short one, and frees it on close", async () => {
+    const { port } = await runtime(["tok-A"]);
+    const { deps } = depsWith([{ port, token: "tok-A" }]);
+    const { conn } = await openFacilitatorSocket(deps, SID, { kind: "live" });
+    expect(deps.facilitatorBudget.inUse(SID, "live")).toBe(1);
+    expect(deps.facilitatorBudget.inUse(SID, "short")).toBe(0);
+    conn.close();
+    await vi.waitFor(() => expect(deps.facilitatorBudget.inUse(SID, "live")).toBe(0));
   });
 });
