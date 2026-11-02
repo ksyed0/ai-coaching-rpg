@@ -1405,3 +1405,21 @@ Actual Result: As expected (services/runtime/src/host/__tests__/reissue.remove.t
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-2a, PR 3. The console button is slice 2b-2b. Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md.
+
+
+TC-0092: Facilitator sockets share a reserved key and a per-session budget
+Related Story: US-0059
+Related Task: TASK-0096
+Related AC: AC-0352
+Type: Integration
+Preconditions: A fake runtime and a real runtime with the per-address cap of 8; the web server in launcher mode.
+Steps:
+  1. Open facilitator sockets (readiness polls, Start) and read the X-Forwarded-For each sends, with the header absent, forged or listed on the incoming request.
+  2. Take the live and short slots of one session to their limits and release them, including twice; open a socket over the short limit.
+  3. Send eight player sockets claiming 127.0.0.1, then a facilitator join; send five stale tokens on the console key, then a player upgrade (203.0.113.5 and 127.0.0.1) and one on scenecoach-bot.
+  4. Fetch a fresh pair after a refused token; fail the launcher before any socket opens.
+Expected Result: Every facilitator socket sends scenecoach-console; 4 live and 3 short slots per session, a release is idempotent and an empty entry is deleted; a slot is held from before the first launcher call until the last socket opened has closed (also when none opened); over the budget the console answers 503 busy with its message and the readiness poll answers unknown; eight players on 127.0.0.1 do not stop a facilitator join; stale tokens on the console key block neither players nor the bot key; a ninth socket on one key is refused 503 while another key still connects.
+Actual Result: As expected (apps/web/src/server/__tests__/facilitator-budget.test.ts, facilitator-socket.test.ts, facilitator-throttle.runtime.test.ts, console-sessions.test.ts, guards.test.ts, handlers.test.ts, handlers.launcher.test.ts, handlers.runtime.test.ts; web 513 passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-2b1, PR 1. The live-tab slots are used by the stream route in PR 2. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.

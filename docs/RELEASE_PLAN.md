@@ -1729,6 +1729,7 @@ Acceptance Criteria:
   - [ ] AC-0315: irreversible actions use one confirmation that names the subject and audience
   - [ ] AC-0316: the layout works at laptop width and keyboard focus and labels pass an accessibility audit
   - [x] AC-0351: players receive allowlisted copies: the join snapshot and every command and session.ended event are built from explicit field lists, so a facilitator-only field (by, talk time) never reaches a player and a 2a player sees no change (services/runtime/src/host/__tests__/player-copies.test.ts; TC-0087)
+  - [x] AC-0352: every BFF facilitator socket carries the reserved forwarded key scenecoach-console and takes a per-session slot (4 live tabs, 3 short-lived), so players and bots cannot exhaust or block the console's connections nor the console theirs (apps/web/src/server/facilitator-budget.ts, facilitator-socket.ts; TC-0092)
 ```
 
 ```
@@ -1756,6 +1757,15 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0002-US-0059-player-copies (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-runtime-protocol and feature/EPIC-0002-US-0059-remove-participant)
 Notes: Allowlisted player copies (PR 1, merged), by, talk time and end_now (PR 2, feature/EPIC-0002-US-0059-runtime-protocol, AC-0311 to AC-0313 runtime parts; BUG-0016 found and fixed on the way), remove as a reissue reason (PR 3, AC-0314). Delivered in three PRs: PR 1 #65, PR 2 #66 and PR 3 (this PR). Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md; spec docs/superpowers/specs/2026-10-31-slice-2b-remaining-design.md.
+```
+
+```
+TASK-0096 (US-0059): Facilitator channel and read-only live view (slice 2b-2b1)
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0002-US-0059-console-budget (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-console-stream and feature/EPIC-0002-US-0059-console-live-view)
+Notes: PR 1 is the connection budget (AC-0352). PR 2 is the facilitator SSE channel and PR 3 the read-only live view (console part of AC-0311). Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.
 ```
 
 ```

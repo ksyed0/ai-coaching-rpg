@@ -1,3 +1,4 @@
+import { FacilitatorBudget } from "../facilitator-budget";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import type { Config } from "../config";
@@ -50,7 +51,7 @@ function makeDeps(o: { hub?: Partial<ConstructorParameters<typeof StreamHub>[0]>
   const joinThrottle = new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock, ...o.throttle });
   const connect = vi.fn((url: string, address: string) => RuntimeConnection.connect(url, address));
   const config: Config = { runtimeUrl: o.runtimeUrl ?? rt.url, publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10 };
-  const deps: Deps = { config, now: () => clock, connect: connect as unknown as Deps["connect"], joinThrottle, consoleThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), consoleGlobalThrottle: new JoinThrottle({ max: 20, windowMs: 600_000, blockMs: 300_000, now: () => clock }), hub };
+  const deps: Deps = { config, now: () => clock, connect: connect as unknown as Deps["connect"], joinThrottle, consoleThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), consoleGlobalThrottle: new JoinThrottle({ max: 20, windowMs: 600_000, blockMs: 300_000, now: () => clock }), hub, facilitatorBudget: new FacilitatorBudget() };
   return { deps, timers, connect, hub, joinThrottle };
 }
 
@@ -187,6 +188,15 @@ describe("POST /api/v1/join", () => {
     for (let i = 0; i < 3; i++) await handleJoin(joinReq(wrong, { "X-Forwarded-For": "::FFFF:c633:6407" }), deps);
     expect(joinThrottle.blockedForMs(ADDR, "delivery_lead")).toBeGreaterThan(0);
     expect(rt.headers.map((h) => h["x-forwarded-for"])).toEqual(Array(6).fill(ADDR));
+  });
+
+  it("join and stream with X-Forwarded-For scenecoach-console are a 400 and never call connect", async () => {
+    const { deps, connect } = makeDeps();
+    const j = await handleJoin(joinReq(goodJoin, { "X-Forwarded-For": "scenecoach-console" }), deps);
+    expect(j.status).toBe(400);
+    const s = await handleStream(streamReq(cookieValue(), { headers: { "X-Forwarded-For": "scenecoach-console" } }), deps);
+    expect(s.status).toBe(400);
+    expect(connect).not.toHaveBeenCalled();
   });
 
   it("an empty or comma-separated X-Forwarded-For is untrusted: a neutral error, no runtime contact, no charge", async () => {

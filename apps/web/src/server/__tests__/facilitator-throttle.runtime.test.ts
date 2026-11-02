@@ -4,10 +4,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RuntimeConnection, RuntimeError } from "../runtime-connection";
+import { FACILITATOR_FORWARD_KEY } from "../facilitator-budget";
+import { RuntimeConnection } from "../runtime-connection";
 
 // The real runtime, in-process, mock models, port 0, private temp dirs. Proves the claim facilitator-socket.ts rests on: a stale
-// facilitator token costs only the BFF's own address, never a player's.
+// facilitator token costs only the console's reserved X-Forwarded-For key, never a player's address.
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 // Loaded by a computed path (see hub.runtime.test.ts): a static import would type-check the runtime's sources under this app's settings.
@@ -57,6 +58,7 @@ beforeEach(async () => {
       SESSION_ID: SESSION,
       MODEL_PROVIDER: "mock",
       TRUST_PROXY: "1",
+      WS_MAX_CONNECTIONS_PER_IP: "8",
       FACILITATOR_TOKEN: TOKEN,
     },
     root: tmp,
@@ -79,49 +81,77 @@ afterEach(async () => {
   await rm(tmp, { recursive: true, force: true });
 });
 
+const KEY = FACILITATOR_FORWARD_KEY;
+const PLAYER = "203.0.113.5";
+
+async function staleOn(key: string, n: number) {
+  for (let i = 0; i < n; i++) {
+    const stale = await RuntimeConnection.connect(url(), key);
+    conns.push(stale);
+    await expect(
+      stale.joinFacilitator(SESSION, `stale-${i}-${"x".repeat(32)}`),
+    ).rejects.toMatchObject({ code: "unauthorized" });
+  }
+}
+async function playerJoin(address: string) {
+  const player = await RuntimeConnection.connect(url(), address);
+  conns.push(player);
+  const joined = await player.joinWithCode({
+    sessionId: SESSION,
+    roleId: "tech_lead",
+    participantId: `p-${address}`,
+    joinCode: codes.tech_lead!,
+    displayName: "Ann",
+  });
+  expect(joined.roleId).toBe("tech_lead");
+}
+
 describe("refused facilitator tokens and the runtime's per-address throttle", () => {
-  it("maxAuthFailures stale facilitator tokens over sockets without X-Forwarded-For do not block a player upgrade carrying X-Forwarded-For 203.0.113.5", async () => {
+  it("MAX_AUTH_FAILURES + 1 stale tokens on the console key do not block a player upgrade with X-Forwarded-For 203.0.113.5 nor one with 127.0.0.1", async () => {
     // The facilitator's own socket works with the real token (and shows the open path is the one under test).
-    const ok = await RuntimeConnection.connect(url(), null);
+    const ok = await RuntimeConnection.connect(url(), KEY);
     conns.push(ok);
     expect((await ok.joinFacilitator(SESSION, TOKEN)).status).toBe("idle");
 
-    for (let i = 0; i < MAX_AUTH_FAILURES + 1; i++) {
-      const stale = await RuntimeConnection.connect(url(), null);
-      conns.push(stale);
-      await expect(
-        stale.joinFacilitator(SESSION, `stale-${i}-${"x".repeat(32)}`),
-      ).rejects.toMatchObject({ code: "unauthorized" });
-    }
-    // The BFF's own (loopback) address is now blocked: the throttle did fire, so the next part is not vacuous.
-    await expect(RuntimeConnection.connect(url(), null)).rejects.toMatchObject({
+    await staleOn(KEY, MAX_AUTH_FAILURES + 1);
+    // The console key is now blocked: the throttle did fire, so the next part is not vacuous.
+    await expect(RuntimeConnection.connect(url(), KEY)).rejects.toMatchObject({
       code: "rate_limited",
     });
 
-    // A player's upgrade carries the player's address: not blocked, and a real join by code succeeds.
-    const player = await RuntimeConnection.connect(url(), "203.0.113.5");
-    conns.push(player);
-    const joined = await player.joinWithCode({
-      sessionId: SESSION,
-      roleId: "tech_lead",
-      participantId: "p-throttle",
-      joinCode: codes.tech_lead!,
-      displayName: "Ann",
-    });
-    expect(joined.roleId).toBe("tech_lead");
-    expect(joined.credential).toBeTypeOf("string");
+    await playerJoin(PLAYER);
+    // A player claiming the loopback address is a different key from the console's.
+    const loop = await RuntimeConnection.connect(url(), "127.0.0.1");
+    conns.push(loop);
+    expect(loop.isOpen).toBe(true);
   });
 
-  it("the same stale tokens WITH the player's X-Forwarded-For would have blocked that player (why facilitator sockets send none)", async () => {
-    for (let i = 0; i < MAX_AUTH_FAILURES + 1; i++) {
-      const stale = await RuntimeConnection.connect(url(), "203.0.113.5");
-      conns.push(stale);
-      await expect(
-        stale.joinFacilitator(SESSION, `stale-${i}-${"x".repeat(32)}`),
-      ).rejects.toBeInstanceOf(RuntimeError);
-    }
-    await expect(
-      RuntimeConnection.connect(url(), "203.0.113.5"),
-    ).rejects.toMatchObject({ code: "rate_limited" });
+  it("eight player sockets claiming 127.0.0.1 do not stop a facilitator join on the console key", async () => {
+    for (let i = 0; i < 8; i++)
+      conns.push(await RuntimeConnection.connect(url(), "127.0.0.1"));
+    const fac = await RuntimeConnection.connect(url(), KEY);
+    conns.push(fac);
+    expect((await fac.joinFacilitator(SESSION, TOKEN)).status).toBe("idle");
+  });
+
+  it("stale tokens on the console key do not block an upgrade on scenecoach-bot", async () => {
+    await staleOn(KEY, MAX_AUTH_FAILURES + 1);
+    await expect(RuntimeConnection.connect(url(), KEY)).rejects.toMatchObject({
+      code: "rate_limited",
+    });
+    const bot = await RuntimeConnection.connect(url(), "scenecoach-bot");
+    conns.push(bot);
+    expect(bot.isOpen).toBe(true);
+  });
+
+  it("a ninth socket on one key is refused 503 while another key still connects", async () => {
+    for (let i = 0; i < 8; i++)
+      conns.push(await RuntimeConnection.connect(url(), KEY));
+    await expect(RuntimeConnection.connect(url(), KEY)).rejects.toMatchObject({
+      code: "unavailable",
+    });
+    const other = await RuntimeConnection.connect(url(), PLAYER);
+    conns.push(other);
+    expect(other.isOpen).toBe(true);
   });
 });

@@ -4,9 +4,9 @@
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
-| TASK         | TASK-0096             | TASK-0095         |
-| AC           | AC-0352               | AC-0351           |
-| TC           | TC-0092               | TC-0091           |
+| TASK         | TASK-0097             | TASK-0096         |
+| AC           | AC-0353               | AC-0352           |
+| TC           | TC-0093               | TC-0092           |
 | BUG          | BUG-0017              | BUG-0016          |
 | L            | L-0032                | L-0031            |
 
@@ -33,3 +33,5 @@ Assigned 2026-11-01 (EPIC-0002 slice 2b-2a, PR 1): AC-0351 (US-0059: allowlisted
 Assigned 2026-11-01 (EPIC-0002 slice 2b-2a, PR 2): TC-0088 (`by`, AC-0312), TC-0089 (talk time, AC-0311), TC-0090 (`end_now`, AC-0313). BUG-0016 was assigned by Task 4b. 
 
 Assigned 2026-11-01 (EPIC-0002 slice 2b-2a, PR 3): TC-0091 (remove a participant before the start, AC-0314). Slice 2b-2a is complete; the next TC is TC-0092.
+
+Assigned 2026-11-01 (slice 2b-2b1, PR 1): AC-0352 (US-0059: console connection budget); TC-0092 (AC-0352); TASK-0096 (US-0059 facilitator channel and read-only live view, three PRs).

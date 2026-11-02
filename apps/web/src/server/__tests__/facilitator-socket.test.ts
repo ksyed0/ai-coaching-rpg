@@ -1,3 +1,7 @@
+import {
+  FACILITATOR_FORWARD_KEY,
+  FacilitatorBudget,
+} from "../facilitator-budget";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import type { Config } from "../config";
@@ -72,6 +76,7 @@ function depsWith(
     config: {} as Config,
     launcher: { facilitator } as unknown as LauncherClient,
     connect: connect as unknown as Deps["connect"],
+    facilitatorBudget: new FacilitatorBudget(),
   } as Deps;
   return { deps, facilitator, connect };
 }
@@ -101,13 +106,82 @@ describe("withFacilitatorSocket", () => {
     await rt.closed();
   });
 
-  it("no X-Forwarded-For on facilitator sockets", async () => {
+  it("the runtime handshake carries X-Forwarded-For scenecoach-console", async () => {
     const { rt, port } = await runtime(["tok-A"]);
     const { deps, connect } = depsWith([{ port, token: "tok-A" }]);
     await withFacilitatorSocket(deps, SID, async () => undefined);
-    expect(connect).toHaveBeenCalledWith(`ws://127.0.0.1:${port}`, null);
+    expect(FACILITATOR_FORWARD_KEY).toBe("scenecoach-console");
+    expect(connect).toHaveBeenCalledWith(
+      `ws://127.0.0.1:${port}`,
+      "scenecoach-console",
+    );
     expect(rt.headers).toHaveLength(1);
-    expect(Object.keys(rt.headers[0]!)).not.toContain("x-forwarded-for");
+    expect(rt.headers[0]!["x-forwarded-for"]).toBe("scenecoach-console");
+  });
+
+  it("a fourth concurrent call is busy and never calls the launcher", async () => {
+    const { port } = await runtime(["tok-A"]);
+    const { deps, facilitator } = depsWith([{ port, token: "tok-A" }]);
+    const gates: (() => void)[] = [];
+    const held = [0, 1, 2].map(() =>
+      withFacilitatorSocket(
+        deps,
+        SID,
+        () => new Promise<string>((res) => gates.push(() => res("ok"))),
+      ),
+    );
+    await vi.waitFor(() => expect(gates).toHaveLength(3));
+    expect(facilitator).toHaveBeenCalledTimes(3);
+    await expect(
+      withFacilitatorSocket(deps, SID, async () => "x"),
+    ).rejects.toMatchObject({ name: "FacilitatorSocketError", reason: "busy" });
+    expect(facilitator).toHaveBeenCalledTimes(3);
+    // Another session is unaffected.
+    await expect(
+      withFacilitatorSocket(deps, "s-fedcba9876543210", async () => "y"),
+    ).resolves.toBe("y");
+    gates.forEach((g) => g());
+    await Promise.all(held);
+  });
+
+  it("the slot is held across the fresh-pair retry and freed only after the socket reports close", async () => {
+    const stale = await runtime(["fresh-token"]);
+    const held: number[] = [];
+    let n = 0;
+    // eslint-disable-next-line prefer-const
+    let budget: FacilitatorBudget;
+    const { deps, facilitator } = depsWith(async () => {
+      held.push(budget.inUse(SID, "short"));
+      return {
+        port: stale.port,
+        token: ++n === 1 ? "stale-token" : "fresh-token",
+      };
+    });
+    budget = deps.facilitatorBudget;
+    let inFn = -1;
+    const out = await withFacilitatorSocket(deps, SID, async () => {
+      inFn = budget.inUse(SID, "short");
+      return "done";
+    });
+    expect(out).toBe("done");
+    expect(facilitator).toHaveBeenCalledTimes(2);
+    // Held when the first pair was fetched, again for the fresh pair (the first socket was refused), and while fn ran.
+    expect(held).toEqual([1, 1]);
+    expect(inFn).toBe(1);
+    expect(budget.inUse(SID, "short")).toBe(1);
+    // Freed by the sockets' close reports, not by the function's return.
+    await vi.waitFor(() => expect(budget.inUse(SID, "short")).toBe(0));
+    await stale.rt.closed();
+  });
+
+  it("a launcher failure or an unreachable runtime frees the slot at once", async () => {
+    const { deps } = depsWith(async () => {
+      throw new LauncherError("not_found");
+    });
+    await expect(
+      withFacilitatorSocket(deps, SID, async () => "x"),
+    ).rejects.toMatchObject({ name: "LauncherError" });
+    expect(deps.facilitatorBudget.inUse(SID, "short")).toBe(0);
   });
 
   it("a player socket still sends X-Forwarded-For (unchanged)", async () => {

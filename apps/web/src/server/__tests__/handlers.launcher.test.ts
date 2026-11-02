@@ -1,3 +1,4 @@
+import { FacilitatorBudget } from "../facilitator-budget";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import type { Config } from "../config";
@@ -109,6 +110,7 @@ function makeDeps(session: (id: string) => Promise<SessionInfo>) {
     consoleThrottle: throttle(),
     consoleGlobalThrottle: throttle(),
     hub,
+    facilitatorBudget: new FacilitatorBudget(),
     launcher: { session: sessionFn } as unknown as LauncherClient,
   };
   return { deps, connect, session: sessionFn };
