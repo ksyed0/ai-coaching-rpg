@@ -87,22 +87,33 @@ export function CharactersPanel({
     if (kept.length === 0) {
       gen.current += 1;
       setFacts(IDLE);
-    }
+    } else
+      setFacts((p) => ({
+        ...p,
+        roles: p.roles.filter((r) => kept.includes(r.roleId)),
+      }));
   }, [characters]);
 
   function toggle(roleId: string, isOpen: boolean) {
     if (isOpen) {
       if (openRef.current.has(roleId)) return;
-      const first = openRef.current.size === 0;
       openRef.current.add(roleId);
       setOpen(new Set(openRef.current));
-      if (!first) return;
+      // One fetch per opened list (a later one supersedes an earlier one in flight, and a reopen after a failure fetches again; there
+      // is never an automatic retry). The answer keeps only the text of the lists that are open when it arrives.
       const g = ++gen.current;
-      setFacts({ phase: "loading", roles: [] });
+      setFacts((p) =>
+        p.phase === "ready" ? p : { phase: "loading", roles: [] },
+      );
       const done = (r: ConsoleFactText[] | null) => {
         if (gen.current !== g) return; // closed, channel changed or unmounted meanwhile
         setFacts(
-          r ? { phase: "ready", roles: r } : { phase: "failed", roles: [] },
+          r
+            ? {
+                phase: "ready",
+                roles: r.filter((x) => openRef.current.has(x.roleId)),
+              }
+            : { phase: "failed", roles: [] },
         );
       };
       load.current().then(done, () => done(null));
@@ -112,7 +123,11 @@ export function CharactersPanel({
       if (openRef.current.size === 0) {
         gen.current += 1;
         setFacts(IDLE);
-      }
+      } else
+        setFacts((p) => ({
+          ...p,
+          roles: p.roles.filter((r) => openRef.current.has(r.roleId)),
+        }));
     }
   }
 
@@ -224,7 +239,7 @@ export function CharactersPanel({
                 <ul className="plain stack">
                   {c.facts.map((f) => {
                     const text =
-                      facts.phase === "ready"
+                      isOpen && facts.phase === "ready"
                         ? facts.roles
                             .find((r) => r.roleId === c.roleId)
                             ?.facts.find((x) => x.n === f.n)?.text

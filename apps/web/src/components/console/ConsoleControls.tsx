@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { fetchFacts, useConsoleCommands } from "../../lib/console-commands";
 import type { ConsoleCommand } from "../../lib/console-commands";
 import { confirmCopy } from "../../lib/console-confirm";
@@ -18,25 +26,39 @@ import { SessionControls, type ConfirmRequest } from "./SessionControls";
 
 const CLOSING_MAX = 300;
 
-export type ConsoleControlsProps = { sessionId: string; ui: ConsoleStreamUi; fetch?: typeof fetch };
+export type ConsoleControlsProps = {
+  sessionId: string;
+  ui: ConsoleStreamUi;
+  fetch?: typeof fetch;
+};
 
-export function ConsoleControls({ sessionId, ui, fetch: fetchImpl }: ConsoleControlsProps) {
+export function ConsoleControls({
+  sessionId,
+  ui,
+  fetch: fetchImpl,
+}: ConsoleControlsProps) {
   const id = useId();
   const cmds = useConsoleCommands(sessionId, ui.channel, fetchImpl);
   const [request, setRequest] = useState<ConfirmRequest | null>(null);
   const [message, setMessage] = useState("");
   // What the status and alert lines show. Published from an effect once no dialog is open: the dialog lifts `inert` from the page in its
   // own passive cleanup, so text written in the same commit that unmounts it would land in a region that is still inert (not announced).
-  const [shown, setShown] = useState<{ status: string | null; error: string | null }>({ status: null, error: null });
+  const [shown, setShown] = useState<{
+    status: string | null;
+    error: string | null;
+  }>({ status: null, error: null });
   useEffect(() => {
     if (request === null) setShown({ status: cmds.status, error: cmds.error });
   }, [request, cmds.status, cmds.error]);
 
   const state = ui.view?.state ?? null;
-  const disabled = ui.conn !== "live" || ui.channel === null || state?.status !== "running";
+  const disabled =
+    ui.conn !== "live" || ui.channel === null || state?.status !== "running";
   const sceneTitle = useMemo(() => {
     const cur = state?.currentScene;
-    return cur ? (ui.scenes.find((s) => s.id === cur.id)?.title ?? cur.id) : null;
+    return cur
+      ? (ui.scenes.find((s) => s.id === cur.id)?.title ?? cur.id)
+      : null;
   }, [state?.currentScene, ui.scenes]);
 
   const scene = useMemo(() => {
@@ -50,22 +72,36 @@ export function ConsoleControls({ sessionId, ui, fetch: fetchImpl }: ConsoleCont
   }, [ui.roster, state?.roles]);
   // Whisper goes to a player: the current scene's players, else every player role.
   const recipients = useMemo(() => {
-    const players = (ids: string[]) => ids.filter((r) => state?.roles[r]?.kind === "player");
+    const players = (ids: string[]) =>
+      ids.filter((r) => state?.roles[r]?.kind === "player");
     const inScene = players(state?.currentScene?.participants ?? []);
-    return inScene.length > 0 ? inScene : players(Object.keys(state?.roles ?? {}));
+    return inScene.length > 0
+      ? inScene
+      : players(Object.keys(state?.roles ?? {}));
   }, [state?.currentScene, state?.roles]);
   const sceneId = state?.currentScene?.id;
+  // Stable across renders (a new fetch function must not close an open list); a new channel or session is a new function.
+  const fetchRef = useRef(fetchImpl);
+  fetchRef.current = fetchImpl;
   const loadFacts = useCallback(async () => {
     if (ui.channel === null) return null;
-    const r = await fetchFacts(sessionId, ui.channel, fetchImpl);
+    const r = await fetchFacts(sessionId, ui.channel, fetchRef.current);
     return r.ok ? r.roles : null;
-  }, [sessionId, ui.channel, fetchImpl]);
+  }, [sessionId, ui.channel]);
 
   // Injects, whisper and release name the scene the console showed when the control was used; the runtime refuses them if it moved on.
   function openStamped(r: ConfirmRequest) {
     const c = r.command;
-    const stamp = sceneId !== undefined && (c.kind === "fire_inject" || c.kind === "whisper" || c.kind === "release_hidden");
-    open(stamp ? { ...r, command: { ...c, expectSceneId: sceneId } as ConsoleCommand } : r);
+    const stamp =
+      sceneId !== undefined &&
+      (c.kind === "fire_inject" ||
+        c.kind === "whisper" ||
+        c.kind === "release_hidden");
+    open(
+      stamp
+        ? { ...r, command: { ...c, expectSceneId: sceneId } as ConsoleCommand }
+        : r,
+    );
   }
 
   function open(r: ConfirmRequest) {
@@ -85,11 +121,14 @@ export function ConsoleControls({ sessionId, ui, fetch: fetchImpl }: ConsoleCont
   }
 
   let body: ReactNode;
-  if (request?.preview !== undefined) body = <p className="preview">{request.preview}</p>;
+  if (request?.preview !== undefined)
+    body = <p className="preview">{request.preview}</p>;
   else if (request?.command.kind === "end_now")
     body = (
       <div className="stack">
-        <label htmlFor={`${id}-m`}>Closing message to participants (optional)</label>
+        <label htmlFor={`${id}-m`}>
+          Closing message to participants (optional)
+        </label>
         <textarea
           id={`${id}-m`}
           className="t"
@@ -100,7 +139,8 @@ export function ConsoleControls({ sessionId, ui, fetch: fetchImpl }: ConsoleCont
           onChange={(e) => setMessage(e.target.value)}
         />
         <p className="muted small" id={`${id}-h`}>
-          Shown to participants who are connected at the end. At most 300 characters.
+          Shown to participants who are connected at the end. At most 300
+          characters.
         </p>
       </div>
     );
@@ -109,7 +149,9 @@ export function ConsoleControls({ sessionId, ui, fetch: fetchImpl }: ConsoleCont
 
   return (
     <section aria-labelledby={id} className="card stack">
-      <h2 className="s" id={id}>Facilitator controls</h2>
+      <h2 className="s" id={id}>
+        Facilitator controls
+      </h2>
       <SessionControls
         state={state}
         disabled={disabled}
@@ -118,8 +160,21 @@ export function ConsoleControls({ sessionId, ui, fetch: fetchImpl }: ConsoleCont
         onConfirm={open}
         sceneTitle={sceneTitle}
       />
-      <InjectsPanel scene={scene} fired={state?.injectsFired ?? []} label={label} disabled={disabled} pending={cmds.pending} onConfirm={openStamped} />
-      <WhisperForm recipients={recipients} label={label} disabled={disabled} pending={cmds.pending} onConfirm={openStamped} />
+      <InjectsPanel
+        scene={scene}
+        fired={state?.injectsFired ?? []}
+        label={label}
+        disabled={disabled}
+        pending={cmds.pending}
+        onConfirm={openStamped}
+      />
+      <WhisperForm
+        recipients={recipients}
+        label={label}
+        disabled={disabled}
+        pending={cmds.pending}
+        onConfirm={openStamped}
+      />
       <CharactersPanel
         characters={ui.characters}
         factsEarned={state?.factsEarned ?? {}}
@@ -128,12 +183,21 @@ export function ConsoleControls({ sessionId, ui, fetch: fetchImpl }: ConsoleCont
         pending={cmds.pending}
         onConfirm={openStamped}
         onStance={(roleId, goals) =>
-          cmds.run({ kind: "set_npc_stance", roleId, goals, ...(sceneId !== undefined && { expectSceneId: sceneId }) })
+          cmds.run({
+            kind: "set_npc_stance",
+            roleId,
+            goals,
+            ...(sceneId !== undefined && { expectSceneId: sceneId }),
+          })
         }
         loadFacts={loadFacts}
       />
-      <div role="status">{shown.status ? <p className="banner ok">{shown.status}</p> : null}</div>
-      <div role="alert">{shown.error ? <p className="err">{shown.error}</p> : null}</div>
+      <div role="status">
+        {shown.status ? <p className="banner ok">{shown.status}</p> : null}
+      </div>
+      <div role="alert">
+        {shown.error ? <p className="err">{shown.error}</p> : null}
+      </div>
       {request && copy ? (
         <ConfirmDialog
           title={copy.title}

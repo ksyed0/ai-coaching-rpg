@@ -158,7 +158,7 @@ describe("Interventions", () => {
     expect(screen.getByRole("button", { name: "Release fact 1 of Client sponsor" })).toBeTruthy();
   });
 
-  it("the facts list is closed by default and fetches nothing; opening it fetches once and shows the text; closing it removes the text from the DOM; a failed fetch shows the alert and no text; a fetch answered after closing shows nothing", async () => {
+  it("the facts list is closed by default and fetches nothing; opening it fetches once and shows the text; closing it removes the text from the DOM; reopening fetches again", async () => {
     const { f } = mount(uiOf());
     const details = screen.getByText("Hidden facts (2)").closest("details")!;
     expect(details.open).toBe(false);
@@ -202,8 +202,8 @@ describe("Interventions", () => {
     expect(screen.getByText("Fact 1")).toBeTruthy();
   });
 
-  it("an answer that arrives after the channel changed is ignored, and the open list closes; so does an unmount", async () => {
-    const { f, again, unmount } = mount(uiOf());
+  it("an answer that arrives after the channel changed is ignored, and the open list closes", async () => {
+    const { f, again } = mount(uiOf());
     f.hold();
     openFacts();
     again(uiOf({ channel: "chan-2" }));
@@ -218,32 +218,101 @@ describe("Interventions", () => {
     await waitFor(() => expect(screen.getByText("Fact 1: SECRET one")).toBeTruthy());
     again(uiOf({ channel: "chan-3" }));
     expect(document.body.textContent).not.toContain("SECRET");
-    // unmount while a fetch is pending: nothing is applied (no state update after unmount)
-    const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    f.hold();
-    openFacts();
-    unmount();
-    await act(async () => {
-      f.release();
-    });
-    expect(err).not.toHaveBeenCalled();
-    err.mockRestore();
   });
 
-  it("opening a second list while one is open fetches nothing more, and the text stays until the last list closes", async () => {
-    const f = fakeFetch(defaultAnswer);
-    const loadFacts = vi.fn(async () => FACTS.roles);
-    const chars = [
-      { roleId: "a_one", goals: [], facts: [{ n: 1, released: false }] },
-      { roleId: "b_two", goals: [], facts: [{ n: 1, released: false }] },
-    ];
-    const label: Labeler = { names: {}, ai: () => true };
-    render(<CharactersPanel characters={chars} factsEarned={{}} label={label} disabled={false} onConfirm={() => {}} onStance={() => {}} loadFacts={loadFacts} />);
-    void f;
-    const [d1, d2] = screen.getAllByText(/Hidden facts/).map((s) => s.closest("details")!);
-    act(() => { d1!.open = true; d1!.dispatchEvent(new Event("toggle")); });
-    act(() => { d2!.open = true; d2!.dispatchEvent(new Event("toggle")); });
-    expect(loadFacts).toHaveBeenCalledTimes(1);
+  const TWO = [
+    { roleId: "a_one", goals: [], facts: [{ n: 1, released: false }] },
+    { roleId: "b_two", goals: [], facts: [{ n: 1, released: false }] },
+  ];
+  const BOTH = [
+    { roleId: "a_one", facts: [{ n: 1, text: "TEXT-A" }] },
+    { roleId: "b_two", facts: [{ n: 1, text: "TEXT-B" }] },
+  ];
+  const ai: Labeler = { names: {}, ai: () => true };
+  const panel = (loadFacts: () => Promise<typeof BOTH | null>) => (
+    <CharactersPanel characters={TWO} factsEarned={{}} label={ai} disabled={false} onConfirm={() => {}} onStance={() => {}} loadFacts={loadFacts} />
+  );
+  const toggleOf = (d: HTMLElement, open: boolean) =>
+    act(() => {
+      (d as HTMLDetailsElement).open = open;
+      d.dispatchEvent(new Event("toggle"));
+    });
+  const lists = () => screen.getAllByText(/Hidden facts/).map((x) => x.closest("details")!);
+
+  it("only the open list shows its character's fact text; the answer covers both characters but the closed one's text is not in the DOM", async () => {
+    render(panel(async () => BOTH));
+    const [a, b] = lists();
+    toggleOf(a!, true);
+    await waitFor(() => expect(document.body.textContent).toContain("Fact 1: TEXT-A"));
+    expect(document.body.textContent).not.toContain("TEXT-B");
+    toggleOf(b!, true);
+    await waitFor(() => expect(document.body.textContent).toContain("Fact 1: TEXT-B"));
+    expect(document.body.textContent).toContain("TEXT-A");
+    toggleOf(a!, false);
+    expect(document.body.textContent).not.toContain("TEXT-A");
+    expect(document.body.textContent).toContain("TEXT-B");
+    toggleOf(b!, false);
+    expect(document.body.textContent).not.toContain("TEXT-");
+    toggleOf(a!, true);
+    await waitFor(() => expect(document.body.textContent).toContain("TEXT-A"));
+    expect(document.body.textContent).not.toContain("TEXT-B");
+  });
+
+  it("opening a second list while the text shows keeps the first list's text until the last list closes", async () => {
+    const load = vi.fn(async () => BOTH);
+    render(panel(load));
+    const [a, b] = lists();
+    toggleOf(a!, true);
+    await waitFor(() => expect(document.body.textContent).toContain("TEXT-A"));
+    toggleOf(b!, true);
+    expect(document.body.textContent).toContain("TEXT-A"); // not blanked while the second answer is pending
+    await waitFor(() => expect(document.body.textContent).toContain("TEXT-B"));
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("after a failed fetch with two lists open, closing and reopening a list fetches again (and nothing retries by itself)", async () => {
+    const pending: ((v: typeof BOTH | null) => void)[] = [];
+    let calls = 0;
+    const load = () => {
+      calls += 1;
+      return calls <= 2 ? new Promise<typeof BOTH | null>((r) => pending.push(r)) : Promise.resolve(BOTH);
+    };
+    render(panel(load));
+    const [a, b] = lists();
+    toggleOf(a!, true);
+    toggleOf(b!, true);
+    await act(async () => pending.forEach((r) => r(null)));
+    expect(screen.getAllByRole("alert").length).toBeGreaterThan(0);
+    await act(async () => {});
+    expect(calls).toBe(2); // no automatic retry
+    toggleOf(a!, false);
+    toggleOf(a!, true);
+    await waitFor(() => expect(document.body.textContent).toContain("Fact 1: TEXT-A"));
+    expect(calls).toBe(3);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("an answer resolved after unmount renders nothing and throws nothing", async () => {
+    let resolve!: (v: typeof BOTH) => void;
+    const load = () => new Promise<typeof BOTH>((r) => (resolve = r));
+    const { unmount } = render(panel(load));
+    toggleOf(lists()[0]!, true);
+    unmount();
+    await act(async () => resolve(BOTH));
+    expect(document.body.textContent).not.toContain("TEXT-");
+  });
+
+  it("re-rendering with a new fetch function does not close an open facts list", async () => {
+    const f1 = fakeFetch(defaultAnswer);
+    const f2 = fakeFetch(defaultAnswer);
+    const r = render(<ConsoleControls sessionId={SID} ui={uiOf()} fetch={f1.fetch} />);
+    openFacts();
+    await waitFor(() => expect(screen.getByText("Fact 1: SECRET one")).toBeTruthy());
+    r.rerender(<ConsoleControls sessionId={SID} ui={uiOf()} fetch={f2.fetch} />);
+    expect((screen.getByText(/Hidden facts/).closest("details") as HTMLDetailsElement).open).toBe(true);
+    expect(screen.getByText("Fact 1: SECRET one")).toBeTruthy();
+    expect(f1.calls.filter((c) => c.url.endsWith("/facts"))).toHaveLength(1);
+    expect(f2.calls).toHaveLength(0);
   });
 
   it("stance sends set_npc_stance with the edited lines; 11 lines show an inline error and send nothing", async () => {
