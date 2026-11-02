@@ -324,12 +324,14 @@ describe("RuntimeConnection and StreamHub against the real runtime", () => {
 // must use only these keys, with the required ones present. A drift on either side fails this test or the typecheck.
 type Exhaustive<T, K extends readonly (keyof T)[]> = Exclude<keyof T, K[number]> extends never ? K : never;
 const keys = <T,>() => <const K extends readonly (keyof T)[]>(k: Exhaustive<T, K>) => k;
-const JOINED_KEYS = keys<JoinedFrame>()(["type", "roleId", "brief", "privateFacts", "reconnectToken", "state", "replay", "credential", "scenes", "logIdentity", "consent"]);
+const JOINED_KEYS = keys<JoinedFrame>()(["type", "roleId", "brief", "privateFacts", "reconnectToken", "state", "replay", "credential", "scenes", "logIdentity", "consent", "hiddenFacts"]);
+/** A player's joined frame never carries the facilitator-only hiddenFacts. */
+const PLAYER_JOINED_KEYS = JOINED_KEYS.filter((k) => k !== "hiddenFacts");
 const REPLAY_KEYS = keys<ReplaySummary>()(["afterSeq", "toSeq", "events", "complete"]);
 const CONSENT_KEYS = keys<NonNullable<JoinedFrame["consent"]>>()(["noticeVersion", "notice", "given"]);
 const PEER_KEYS = keys<PeerRosterEntry>()(["roleId", "name", "ready"]);
 const EVENT_FRAME_KEYS = keys<Extract<ServerMessage, { type: "event" }>>()(["type", "event"]);
-const ERROR_KEYS = keys<Extract<ServerMessage, { type: "error" }>>()(["type", "code", "message"]);
+const ERROR_KEYS = keys<Extract<ServerMessage, { type: "error" }>>()(["type", "code", "message", "ref"]);
 const ROSTER_KEYS = keys<Extract<ServerMessage, { type: "roster"; audience: "peers" }>>()(["type", "audience", "entries"]);
 
 function within(o: object, allowed: readonly string[], required: readonly string[], what: string) {
@@ -365,7 +367,7 @@ describe("wire contract", () => {
     expect([...types].sort()).toEqual(["error", "event", "joined", "roster"]);
     for (const m of frames) {
       if (m.type === "joined") {
-        within(m, JOINED_KEYS, ["type", "roleId", "state", "replay", "credential", "logIdentity", "consent", "brief", "privateFacts", "reconnectToken", "scenes"], "joined");
+        within(m, PLAYER_JOINED_KEYS, ["type", "roleId", "state", "replay", "credential", "logIdentity", "consent", "brief", "privateFacts", "reconnectToken", "scenes"], "joined");
         within(m.replay!, REPLAY_KEYS, REPLAY_KEYS, "replay");
         within(m.consent!, CONSENT_KEYS, CONSENT_KEYS, "consent");
         for (const sc of m.scenes!) within(sc, ["id", "title", "goal", "timeBoxMinutes"], ["id", "title", "goal", "timeBoxMinutes"], "scene");
@@ -379,7 +381,7 @@ describe("wire contract", () => {
         expect(m.audience).toBe("peers");
         for (const e of m.entries) { within(e, PEER_KEYS, ["roleId", "ready"], "peer entry"); expect(typeof (e as PeerRosterEntry).ready).toBe("boolean"); }
       } else {
-        within(m, ERROR_KEYS, ERROR_KEYS, "error");
+        within(m, ERROR_KEYS, ["type", "code", "message"], "error");
       }
     }
   });
@@ -398,6 +400,8 @@ const SENT: Record<ClientMessage["type"], ClientMessage> = {
   withdraw_consent: { type: "withdraw_consent" },
   leave: { type: "leave" },
   say: { type: "say", text: "hi", expectSceneId: "sc" },
+  command: { type: "command", command: { command: "pause" }, expectSceneId: "sc", by: "Kim", ref: "ref-1" },
+  end_now: { type: "end_now", message: "Thanks", by: "Kim", ref: "ref-2" },
 };
 
 describe("wire contract: facilitator", () => {
@@ -409,7 +413,7 @@ describe("wire contract: facilitator", () => {
   it("the facilitator's joined and roster frames use only pinned keys, and joinFacilitator returns the roster and status", async () => {
     const raw = await facilitator();
     const joined = raw.inbox.find((m) => m.type === "joined");
-    within(joined, [...JOINED_KEYS, "hiddenFacts", "notice"], ["type", "roleId", "state", "scenes"], "facilitator joined");
+    within(joined, [...JOINED_KEYS, "notice"], ["type", "roleId", "state", "scenes"], "facilitator joined");
     expect(joined.roleId).toBe("facilitator");
     await until(() => raw.inbox.some((m) => m.type === "roster"));
     const roster = raw.inbox.find((m) => m.type === "roster");
@@ -423,6 +427,23 @@ describe("wire contract: facilitator", () => {
     expect(r.status).toBe(joined.state.status);
     expect(r.roster.map((e) => e.roleId).sort()).toEqual([...PLAYERS].sort());
     expect(r.roster.every((e) => e.joined === false && e.consented === false && e.connected === false)).toBe(true);
+  });
+
+  it("a ref'd pause is acked with exactly type and ref; a ref'd stale advance is refused with the ref", async () => {
+    const { fac } = await startedSession();
+    const mark = fac.inbox.length;
+    fac.send({ type: "command", command: { command: "pause" }, ref: "ref-pause" });
+    await until(() => fac.inbox.slice(mark).some((m) => m.type === "ack"));
+    const ack = fac.inbox.slice(mark).find((m) => m.type === "ack");
+    within(ack, ["type", "ref"], ["type", "ref"], "ack");
+    expect(ack.ref).toBe("ref-pause");
+    const mark2 = fac.inbox.length;
+    fac.send({ type: "command", command: { command: "advance" }, expectSceneId: "not-the-current-scene", ref: "ref-adv" });
+    await until(() => fac.inbox.slice(mark2).some((m) => m.type === "error"));
+    const err = fac.inbox.slice(mark2).find((m) => m.type === "error");
+    within(err, ["type", "code", "message", "ref"], ["type", "code", "message", "ref"], "error with ref");
+    expect(err.ref).toBe("ref-adv");
+    expect(err.code).toBe("stale_scene");
   });
 });
 

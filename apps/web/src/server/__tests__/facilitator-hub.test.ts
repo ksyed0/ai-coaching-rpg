@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 import type { SessionState } from "@acr/events";
-import { FacilitatorHub } from "../facilitator-hub";
+import { COMMAND_TIMEOUT_MS, FacilitatorHub } from "../facilitator-hub";
 import type { FacilitatorJoin } from "../facilitator-socket";
 import type { FacilitatorRosterEntry, JoinedFrame, ServerMessage } from "../wire";
 import type { FacilitatorRosterEntry as ClientEntry } from "../../lib/use-console-stream";
@@ -20,14 +20,14 @@ const join = (o: Partial<JoinedFrame> = {}): FacilitatorJoin => ({
 });
 const ev = (seq: number, type = "utterance") => ({ seq, ts: seq, sessionId: "s1", type, roleId: "lead", text: `line ${seq}`, channel: "text" }) as unknown as Extract<ServerMessage, { type: "event" }>["event"];
 
-function setup(o: { maxStreams?: number; maxPendingBytes?: number; now?: () => number; joined?: FacilitatorJoin; expiresAt?: number } = {}) {
+function setup(o: { commandTimeoutMs?: number; maxStreams?: number; maxPendingBytes?: number; now?: () => number; joined?: FacilitatorJoin; expiresAt?: number } = {}) {
   const timers = manualTimers();
-  let n = 0;
-  const h = new FacilitatorHub({ setTimer: timers.setTimer, now: o.now ?? (() => 0), newChannelId: () => `ch-${++n}`, ...(o.maxStreams !== undefined && { maxStreams: o.maxStreams }), ...(o.maxPendingBytes !== undefined && { maxPendingBytes: o.maxPendingBytes }) });
+  let n = 0; let r = 0;
+  const h = new FacilitatorHub({ setTimer: timers.setTimer, now: o.now ?? (() => 0), newChannelId: () => `ch-${++n}`, newRef: () => `ref-${++r}`, ...(o.commandTimeoutMs !== undefined && { commandTimeoutMs: o.commandTimeoutMs }), ...(o.maxStreams !== undefined && { maxStreams: o.maxStreams }), ...(o.maxPendingBytes !== undefined && { maxPendingBytes: o.maxPendingBytes }) });
   const open = (joined = o.joined ?? join()) => {
     const conn = new FakeConn(); const rec = sseRecorder();
-    const r = h.open({ sessionId: "s1", expiresAt: o.expiresAt ?? 10 ** 13, conn: asConn(conn), joined, out: rec.out });
-    return { conn, rec, r };
+    const res = h.open({ sessionId: "s1", expiresAt: o.expiresAt ?? 10 ** 13, conn: asConn(conn), joined, out: rec.out });
+    return { conn, rec, r: res };
   };
   return { h, timers, open };
 }
@@ -211,6 +211,184 @@ describe("FacilitatorHub", () => {
     (r as { close(): void }).close();
     clean(timers, conn, h);
     expect(conn.closed).toBe(1); expect(rec.ends()).toBe(1); expect(h.size()).toBe(0);
+  });
+});
+
+describe("FacilitatorHub commands", () => {
+  const PAUSE = { type: "command", command: { command: "pause" }, by: "Kim" } as const;
+  const END = { type: "end_now", by: "Kim" } as const;
+  const opened = (o: Parameters<typeof setup>[0] = {}) => {
+    const t = setup(o); const x = t.open();
+    const channel = (x.r as { channel: string }).channel;
+    const send = (message: Parameters<FacilitatorHub["send"]>[0]["message"] = PAUSE, sessionId = "s1", ch = channel) => t.h.send({ sessionId, channel: ch, message });
+    return { ...t, ...x, channel, send };
+  };
+  const settled = async (p: Promise<unknown>) => { let v: unknown = "unsettled"; void p.then((x) => { v = x; }); await Promise.resolve(); await Promise.resolve(); return v; };
+
+  it("send writes the message with a fresh ref and resolves ok on its ack", async () => {
+    const { send, conn, rec } = opened();
+    const before = rec.chunks.length;
+    const p = send();
+    expect(conn.sent).toEqual([{ ...PAUSE, ref: "ref-1" }]);
+    expect(await settled(p)).toBe("unsettled");
+    conn.emit({ type: "ack", ref: "ref-1" });
+    expect(await p).toEqual({ kind: "ok" });
+    expect(rec.chunks.length).toBe(before);
+    const p2 = send(END);
+    expect(conn.sent[1]).toEqual({ ...END, ref: "ref-2" });
+    conn.emit({ type: "ack", ref: "ref-2" });
+    expect(await p2).toEqual({ kind: "ok" });
+  });
+
+  it("an error with the ref resolves refused with its code and nothing reaches the page", async () => {
+    const { send, conn, rec } = opened();
+    const before = rec.chunks.length;
+    const p = send();
+    conn.emit({ type: "error", code: "stale_scene", message: "SECRET RUNTIME TEXT", ref: "ref-1" });
+    expect(await p).toEqual({ kind: "refused", code: "stale_scene" });
+    expect(rec.chunks.length).toBe(before);
+  });
+
+  it("a ref-less rate_limited, bad_json or bad_message while pending answers it; a ref-less log_failed is forwarded and answers nothing", async () => {
+    for (const code of ["rate_limited", "bad_json", "bad_message"]) {
+      const { send, conn } = opened();
+      const p = send();
+      conn.emit({ type: "error", code, message: "m" });
+      expect(await p).toEqual({ kind: "refused", code });
+    }
+    const { send, conn, rec, timers } = opened();
+    const p = send();
+    conn.emit({ type: "error", code: "log_failed", message: "m" });
+    expect(rec.frames().at(-1)).toEqual({ event: "error", data: { code: "log_failed", message: "the server reported an error" } });
+    expect(await settled(p)).toBe("unsettled");
+    timers.fire(10_000);
+    expect(await p).toEqual({ kind: "unconfirmed" });
+  });
+
+  it("a ref-less rate_limited with nothing pending is forwarded as before", () => {
+    const { conn, rec } = opened();
+    conn.emit({ type: "error", code: "rate_limited", message: "m" });
+    expect(rec.frames().at(-1)!.event).toBe("error");
+  });
+
+  it("an ack or error with another ref is dropped, not forwarded", async () => {
+    const { send, conn, rec, timers } = opened();
+    const before = rec.chunks.length;
+    conn.emit({ type: "ack", ref: "ref-9" }); // nothing pending
+    const p = send();
+    conn.emit({ type: "ack", ref: "other" });
+    conn.emit({ type: "error", code: "stale_scene", message: "m", ref: "other" });
+    expect(rec.chunks.length).toBe(before);
+    expect(await settled(p)).toBe("unsettled");
+    timers.fire(10_000);
+    expect(await p).toEqual({ kind: "unconfirmed" });
+  });
+
+  it("a second send while one is pending is pending and writes nothing to the socket", async () => {
+    const { send, conn } = opened();
+    const p = send();
+    expect(await send()).toEqual({ kind: "pending" });
+    expect(conn.sent).toHaveLength(1);
+    conn.emit({ type: "ack", ref: "ref-1" });
+    expect(await p).toEqual({ kind: "ok" });
+    const p2 = send(); // free again
+    expect(conn.sent).toHaveLength(2);
+    conn.emit({ type: "ack", ref: "ref-2" });
+    expect(await p2).toEqual({ kind: "ok" });
+  });
+
+  it("an unknown channel, another session's channel and a finished stream are no_channel", async () => {
+    const { send, h, conn, channel, timers } = opened();
+    expect(await send(PAUSE, "s1", "nope")).toEqual({ kind: "no_channel" });
+    expect(await send(PAUSE, "s2")).toEqual({ kind: "no_channel" });
+    expect(conn.sent).toEqual([]);
+    conn.drop(1006);
+    expect(await h.send({ sessionId: "s1", channel, message: PAUSE })).toEqual({ kind: "no_channel" });
+    expect(timers.live()).toEqual([]);
+  });
+
+  it("the timeout resolves unconfirmed and a later ack is dropped", async () => {
+    const { send, conn, timers, rec } = opened({ commandTimeoutMs: 777 });
+    const p = send();
+    timers.fire(777);
+    expect(await p).toEqual({ kind: "unconfirmed" });
+    const before = rec.chunks.length;
+    conn.emit({ type: "ack", ref: "ref-1" });
+    expect(rec.chunks.length).toBe(before);
+    const p2 = send(); // the slot is free again
+    conn.emit({ type: "ack", ref: "ref-2" });
+    expect(await p2).toEqual({ kind: "ok" });
+  });
+
+  it("the default timeout is COMMAND_TIMEOUT_MS", async () => {
+    expect(COMMAND_TIMEOUT_MS).toBe(10_000);
+    const { send, timers } = opened();
+    const p = send();
+    expect(timers.live().some((t) => t.ms === COMMAND_TIMEOUT_MS)).toBe(true);
+    timers.fire(COMMAND_TIMEOUT_MS);
+    expect(await p).toEqual({ kind: "unconfirmed" });
+  });
+
+  it("a runtime close or a stalled page resolves the pending command unconfirmed", async () => {
+    const a = opened(); const pa = a.send();
+    a.conn.drop(1006);
+    expect(await pa).toEqual({ kind: "unconfirmed" });
+    clean(a.timers, a.conn, a.h);
+
+    const timers = manualTimers();
+    const h = new FacilitatorHub({ setTimer: timers.setTimer, now: () => 0, maxPendingBytes: 10, newChannelId: () => "ch-x", newRef: () => "r" });
+    const conn = new FakeConn();
+    h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: join(), out: { write: () => false, end: () => {} } });
+    const p = h.send({ sessionId: "s1", channel: "ch-x", message: PAUSE });
+    conn.emit({ type: "event", event: ev(6) }); // a write after the opening stalls the page
+    expect(await p).toEqual({ kind: "unconfirmed" });
+    clean(timers, conn, h);
+  });
+
+  it("closing the stream resolves the pending command unconfirmed and cancels its timer", async () => {
+    const { send, r, timers, conn, h } = opened();
+    const p = send();
+    (r as { close(): void }).close();
+    expect(await p).toEqual({ kind: "unconfirmed" });
+    clean(timers, conn, h);
+  });
+
+  it("conn.send throwing is unconfirmed and frees the slot", async () => {
+    const { send, conn, timers } = opened();
+    conn.send = () => { throw new Error("closed"); };
+    expect(await send()).toEqual({ kind: "unconfirmed" });
+    expect(timers.live().some((t) => t.ms === 10_000)).toBe(false);
+  });
+
+  it("session.ended forwarded while an end_now is pending resolves it ok, and the stream still ends with ended", async () => {
+    const { send, conn, rec, timers, h } = opened();
+    const p = send(END);
+    conn.emit({ type: "event", event: ev(6, "session.ended") });
+    expect(await p).toEqual({ kind: "ok" });
+    expect(rec.frames().slice(-2).map((x) => x.event)).toEqual(["event", "ended"]);
+    clean(timers, conn, h);
+  });
+
+  it("session.ended while a pause is pending resolves it unconfirmed", async () => {
+    const { send, conn, rec, timers, h } = opened();
+    const p = send();
+    conn.emit({ type: "event", event: ev(6, "session.ended") });
+    expect(await p).toEqual({ kind: "unconfirmed" });
+    expect(rec.frames().at(-1)!.event).toBe("ended");
+    clean(timers, conn, h);
+  });
+
+  it("two tabs keep separate pending commands", async () => {
+    const t = setup(); const a = t.open(); const b = t.open();
+    const ca = (a.r as { channel: string }).channel; const cb = (b.r as { channel: string }).channel;
+    const pa = t.h.send({ sessionId: "s1", channel: ca, message: PAUSE });
+    const pb = t.h.send({ sessionId: "s1", channel: cb, message: PAUSE });
+    expect(a.conn.sent).toHaveLength(1); expect(b.conn.sent).toHaveLength(1);
+    b.conn.emit({ type: "ack", ref: (b.conn.sent[0] as { ref: string }).ref });
+    expect(await pb).toEqual({ kind: "ok" });
+    expect(await settled(pa)).toBe("unsettled");
+    a.conn.emit({ type: "ack", ref: (a.conn.sent[0] as { ref: string }).ref });
+    expect(await pa).toEqual({ kind: "ok" });
   });
 });
 
