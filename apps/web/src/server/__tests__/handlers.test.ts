@@ -4,6 +4,7 @@ import { realTimer } from "../runtime-connection";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import type { Config } from "../config";
+import { CONSOLE_COOKIE } from "../console-session";
 import { setEnvelopeClock } from "../envelope";
 import { COOKIE_NAME, handleConsent, handleJoin, handleLeave, handleSay, handleStream, seatedIn, SIGNED_OUT_MESSAGE, type Deps } from "../handlers";
 import { RuntimeConnection } from "../runtime-connection";
@@ -364,6 +365,14 @@ describe("GET /api/v1/stream", () => {
     }
     // A cookie that cannot be opened is cleared; another session's (valid) cookie is left alone.
     for (const { name, res } of results) expect(isCleared(res), name).toBe(["tampered", "other key", "expired"].includes(name));
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("a console cookie on /api/v1/stream is 401 and the runtime is never contacted", async () => {
+    const { deps, connect } = makeDeps();
+    const fac = seal({ name: "Ann", epoch: "e", expiresAt: T0 + HOUR }, KEYS, clock, "fac");
+    const res = await handleStream(streamReq(null, { headers: { Cookie: `${CONSOLE_COOKIE}=${fac}; ${COOKIE_NAME}=${fac}` } }), deps);
+    expect(res.status).toBe(401);
     expect(connect).not.toHaveBeenCalled();
   });
 

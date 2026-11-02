@@ -120,6 +120,7 @@ describe("route files", () => {
     ["console/sessions/[id]/reissue", "consoleReissue", "POST"],
     ["console/sessions/[id]/reissue-all", "consoleReissueAll", "POST"],
     ["console/sessions/[id]/restart", "consoleRestart", "POST"],
+    ["console/sessions/[id]/stream", "consoleStream", "GET"],
   ];
   const codeOf = (path: string) =>
     readFileSync(fileURLToPath(new URL(`../../app/api/v1/${path}/route.ts`, import.meta.url)), "utf8")

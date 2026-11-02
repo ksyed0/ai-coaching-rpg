@@ -4,6 +4,7 @@ import {
   handleConsoleReadiness, handleConsoleReissue, handleConsoleReissueAll, handleConsoleRestart, handleConsoleScenarios,
   handleConsoleSessionGet, handleConsoleSessionsCreate, handleConsoleSessionsList, handleConsoleStart,
 } from "./console-sessions";
+import { handleConsoleStream } from "./console-stream";
 import { consoleSessionFromToken } from "./console-session";
 import { fail } from "./envelope";
 import { FacilitatorBudget } from "./facilitator-budget";
@@ -112,3 +113,4 @@ export const consoleStartPOST = route(handleConsoleStart);
 export const consoleReissuePOST = route(handleConsoleReissue);
 export const consoleReissueAllPOST = route(handleConsoleReissueAll);
 export const consoleRestartPOST = route(handleConsoleRestart);
+export const consoleStreamGET = route(handleConsoleStream);

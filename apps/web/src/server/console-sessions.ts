@@ -66,7 +66,7 @@ function guard(
 }
 
 /** The segment after /sessions/, kept only when it is a valid session id (so nothing path-like reaches the launcher). */
-function sessionIdOf(req: Request): string | null {
+export function sessionIdOf(req: Request): string | null {
   const parts = new URL(req.url).pathname.split("/");
   const at = parts.indexOf("sessions");
   const id = at >= 0 ? parts[at + 1] : undefined;
