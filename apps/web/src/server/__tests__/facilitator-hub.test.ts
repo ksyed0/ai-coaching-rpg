@@ -41,12 +41,13 @@ describe("FacilitatorHub", () => {
     const { conn, rec } = open();
     expect(rec.chunks[0]).toBe("retry: 3000\n\n");
     const f = rec.frames();
-    expect(f[1]).toEqual({ event: "joined", data: { channel: "ch-1", scenes } });
-    expect(f[2]).toEqual({ event: "roster", data: { entries } });
+    expect(f[1]).toEqual({ event: "joined", data: { channel: "ch-1", scenes: [{ ...scenes[0], injects: [] }] } });
+    expect(f[2]!.event).toBe("characters");
+    expect(f[3]).toEqual({ event: "roster", data: { entries } });
     expect(f.some((x) => x.event === "reset")).toBe(false);
     conn.emit({ type: "event", event: ev(6) });
     conn.emit({ type: "roster", audience: "facilitator", entries });
-    expect(rec.frames().slice(3)).toEqual([{ id: "6", event: "event", data: ev(6) }, { event: "roster", data: { entries } }]);
+    expect(rec.frames().slice(4)).toEqual([{ id: "6", event: "event", data: ev(6) }, { event: "roster", data: { entries } }]);
   });
 
   it("a missing or incomplete replay writes reset at lastSeq and skips the replayed frames", () => {
@@ -54,7 +55,7 @@ describe("FacilitatorHub", () => {
       const { open } = setup({ joined: join({ replay }) });
       const { conn, rec } = open();
       const f = rec.frames();
-      expect(f.map((x) => x.event)).toEqual(["retry:3000", "joined", "reset", "roster"]);
+      expect(f.map((x) => x.event)).toEqual(["retry:3000", "joined", "reset", "characters", "roster"]);
       const reset = f.find((x) => x.event === "reset")!;
       expect(reset.id).toBe("5");
       expect(reset.data.state.roles).toEqual({ lead: { kind: "player" } });
@@ -125,7 +126,137 @@ describe("FacilitatorHub", () => {
     conn.emit({ type: "event", event: { type: "npc.updated", seq: 6, ts: 6, sessionId: "s1", roleId: "npc", goals: ["GOAL-SECRET"], knowledge: ["K-SECRET"], released: ["R-SECRET"] } as never });
     expect(rec.frames().filter((f) => f.event === "roster")).toHaveLength(2); // the joined roster and the live one; the peers frame is dropped
     const all = rec.chunks.join("");
-    for (const bad of ["HIDDEN-FACT", "NOTICE-TEXT", "BRIEF", "PRIV", "CRED", "RECON", "LOGID", "SCENE-HIDDEN", "P-SECRET", "GOAL-SECRET", "K-SECRET", "R-SECRET", "ROSTER-CRED", "ROSTER-PID", "LIVE-CRED", "LIVE-PID", "PEER-CRED"]) expect(all).not.toContain(bad);
+    for (const bad of ["HIDDEN-FACT", "NOTICE-TEXT", "BRIEF", "PRIV", "CRED", "RECON", "LOGID", "SCENE-HIDDEN", "P-SECRET", "K-SECRET", "R-SECRET", "ROSTER-CRED", "ROSTER-PID", "LIVE-CRED", "LIVE-PID", "PEER-CRED"]) expect(all).not.toContain(bad);
+    // The goal text is on the page only inside characters frames.
+    for (const f of rec.frames().filter((x) => x.event !== undefined && x.event !== "characters")) expect(JSON.stringify(f), `${f.event} carried a goal`).not.toContain("GOAL-SECRET");
+    expect(rec.frames().filter((x) => x.event === "characters").map((x) => JSON.stringify(x.data)).join("")).toContain("GOAL-SECRET");
+  });
+
+  const chars = (rec: ReturnType<typeof sseRecorder>) => rec.frames().filter((f) => f.event === "characters");
+  const withNpcs = (npcs: unknown, hiddenFacts: unknown, extra: Partial<JoinedFrame> = {}) =>
+    join({ state: { ...state(), npcs } as never, hiddenFacts, ...extra } as never);
+
+  it("writes characters after joined from the joined state and hidden facts, without fact text", () => {
+    const j = withNpcs({ npc: { goals: ["GOAL-1"], knowledge: ["KNOW-SECRET"], released: ["FACT-TWO"] }, other: { goals: [], knowledge: [], released: [] } },
+      { npc: ["FACT-ONE", "FACT-TWO"], other: ["OTHER-FACT"] });
+    const { rec } = setup({ joined: j }).open();
+    expect(rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined", "characters", "roster"]);
+    const c = chars(rec);
+    expect(c).toHaveLength(1);
+    expect(c[0]).toEqual({ event: "characters", data: { roles: [
+      { roleId: "npc", goals: ["GOAL-1"], facts: [{ n: 1, released: false }, { n: 2, released: true }] },
+      { roleId: "other", goals: [], facts: [{ n: 1, released: false }] },
+    ] } });
+    expect(c[0]!.id).toBeUndefined();
+    const all = rec.chunks.join("");
+    for (const bad of ["FACT-ONE", "FACT-TWO", "OTHER-FACT", "KNOW-SECRET", "knowledge", "hiddenFacts"]) expect(all).not.toContain(bad);
+  });
+
+  it("a reset is followed by characters, then roster", () => {
+    const j = withNpcs({ npc: { goals: ["G"], knowledge: [], released: [] } }, { npc: ["F"] }, { replay: undefined });
+    expect(setup({ joined: j }).open().rec.frames().map((f) => f.event)).toEqual(["retry:3000", "joined", "reset", "characters", "roster"]);
+  });
+
+  it("poisoned hidden facts and npcs never put fact text, knowledge or a non-string anywhere; a malformed hiddenFacts counts as none", () => {
+    const npcs = JSON.parse('{"__proto__":{"goals":["PG",7],"knowledge":["PK-SECRET"],"released":["PF-SECRET"]},"npc":{"goals":[1,{"x":"OBJ-GOAL"},"ok"],"knowledge":["K2-SECRET"],"released":[{"t":"OBJ-REL"},"NOPE-SECRET"]},"bad":"BAD-ENTRY-SECRET","nul":null}');
+    const poisonedFacts = JSON.parse('{"__proto__":["PF-SECRET"],"npc":["NPC-F1",42,{"t":"OBJ-FACT"},"NPC-F2"]}');
+    for (const hidden of [poisonedFacts, ["ARR-SECRET"], "STR-SECRET", null, { npc: "NOT-AN-ARRAY-SECRET" }, { npc: ["MIX-SECRET", 5] }]) {
+      const { rec, h } = (() => { const x = setup({ joined: withNpcs(npcs, hidden) }); return { rec: x.open().rec, h: x.h }; })();
+      const all = rec.chunks.join("");
+      for (const bad of ["PK-SECRET", "PF-SECRET", "K2-SECRET", "NOPE-SECRET", "BAD-ENTRY-SECRET", "OBJ-", "ARR-SECRET", "STR-SECRET", "NOT-AN-ARRAY-SECRET", "MIX-SECRET", "NPC-F1", "NPC-F2", "knowledge", "hiddenFacts"]) expect(all, `${bad} leaked`).not.toContain(bad);
+      const roles = chars(rec)[0]!.data.roles as { roleId: string; goals: string[]; facts: unknown[] }[];
+      expect(roles.map((r) => r.roleId)).toEqual(["__proto__", "npc", "bad", "nul"]);
+      expect(roles.slice(2)).toEqual([{ roleId: "bad", goals: [], facts: [] }, { roleId: "nul", goals: [], facts: [] }]);
+      expect(roles[0]!.goals).toEqual(["PG"]);
+      expect(roles[1]!.goals).toEqual(["ok"]);
+      expect(roles.every((r) => Object.keys(r).sort().join() === "facts,goals,roleId")).toBe(true);
+      expect(h.size()).toBe(1);
+    }
+    // a poisoned frame whose hiddenFacts is well formed except for one non-string entry in one role is also treated as none (not partially trusted)
+    const s = setup({ joined: withNpcs({ npc: { goals: [], knowledge: [], released: [] } }, { npc: ["MIX-SECRET", 5] }) });
+    const o = s.open();
+    expect(chars(o.rec)[0]!.data.roles).toEqual([{ roleId: "npc", goals: [], facts: [] }]);
+    expect(s.h.factsFor("s1", (o.r as { channel: string }).channel)).toEqual([]);
+  });
+
+  it("a poisoned npc.updated never carries text, knowledge or a released text that is no hidden fact", () => {
+    const { open } = setup({ joined: withNpcs({ npc: { goals: ["G0"], knowledge: [], released: [] } }, { npc: ["REAL-F1"] }) });
+    const { conn, rec } = open();
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 6, ts: 6, sessionId: "s1", roleId: "npc", goals: ["G1", 5], knowledge: ["EVT-K-SECRET"], released: ["INVENTED-SECRET", {}, "REAL-F1"], extra: "EVT-EXTRA" } as never });
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 7, ts: 7, sessionId: "s1", roleId: 9, goals: ["X"], knowledge: [], released: [] } as never });
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 8, ts: 8, sessionId: "s1", roleId: "npc", goals: "no", knowledge: [], released: null } as never });
+    const all = rec.chunks.join("");
+    for (const bad of ["EVT-K-SECRET", "INVENTED-SECRET", "EVT-EXTRA", "REAL-F1", "knowledge\":[\"" ]) expect(all).not.toContain(bad);
+    const last = chars(rec).at(-1)!.data.roles;
+    expect(last).toEqual([{ roleId: "npc", goals: [], facts: [{ n: 1, released: false }] }]);
+    expect(rec.events().map((e) => e.seq)).toEqual([6, 7, 8]);
+  });
+
+  it("factsFor returns the text for this session's channel, null for another session's or an unknown channel, and null after the stream closes", () => {
+    const j = withNpcs({ npc: { goals: [], knowledge: [], released: [] } }, { npc: ["FACT-ONE", "FACT-TWO"], other: ["OTHER"] });
+    const { h, open } = setup({ joined: j });
+    const a = open(); const ch = (a.r as { channel: string }).channel;
+    expect(h.factsFor("s1", ch)).toEqual([{ roleId: "npc", facts: [{ n: 1, text: "FACT-ONE" }, { n: 2, text: "FACT-TWO" }] }, { roleId: "other", facts: [{ n: 1, text: "OTHER" }] }]);
+    expect(h.factsFor("s2", ch)).toBeNull();
+    expect(h.factsFor("s1", "nope")).toBeNull();
+    // a caller cannot change what the hub keeps
+    (h.factsFor("s1", ch) as { facts: unknown[] }[])[0]!.facts.length = 0;
+    expect(h.factsFor("s1", ch)![0]!.facts).toHaveLength(2);
+    // the text is in no byte the stream wrote
+    expect(a.rec.chunks.join("")).not.toContain("FACT-ONE");
+    a.conn.drop(1006);
+    expect(h.factsFor("s1", ch)).toBeNull();
+    const b = open(); const ch2 = (b.r as { channel: string }).channel;
+    (b.r as { close(): void }).close();
+    expect(h.factsFor("s1", ch2)).toBeNull();
+  });
+
+  it("after an npc.updated it writes characters with that role updated while the event keeps empty goals and released", () => {
+    const j = withNpcs({ npc: { goals: ["G0"], knowledge: [], released: [] }, other: { goals: ["O"], knowledge: [], released: [] } }, { npc: ["F1", "F2"], other: ["OF"], extraRole: ["X1"] });
+    const { open } = setup({ joined: j });
+    const { conn, rec } = open();
+    const before = rec.frames().length;
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 6, ts: 6, sessionId: "s1", roleId: "npc", goals: ["G1", "G2"], knowledge: ["KK"], released: ["F2"] } as never });
+    const f = rec.frames().slice(before);
+    expect(f.map((x) => x.event)).toEqual(["event", "characters"]);
+    expect(f[0]!.data).toEqual({ type: "npc.updated", seq: 6, ts: 6, sessionId: "s1", roleId: "npc", goals: [], knowledge: [], released: [] });
+    expect(f[1]!.id).toBeUndefined();
+    expect(f[1]!.data.roles).toEqual([
+      { roleId: "npc", goals: ["G1", "G2"], facts: [{ n: 1, released: false }, { n: 2, released: true }] },
+      { roleId: "other", goals: ["O"], facts: [{ n: 1, released: false }] },
+    ]);
+    // a role the joined state did not list is added, with its facts
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 7, ts: 7, sessionId: "s1", roleId: "extraRole", goals: ["E"], knowledge: [], released: ["X1"] } as never });
+    expect((chars(rec).at(-1)!.data.roles as { roleId: string }[]).map((r) => r.roleId)).toEqual(["npc", "other", "extraRole"]);
+    expect(chars(rec).at(-1)!.data.roles.at(-1)).toEqual({ roleId: "extraRole", goals: ["E"], facts: [{ n: 1, released: true }] });
+    expect(rec.chunks.join("")).not.toMatch(/KK|"F2"|"F1"|"X1"/);
+  });
+
+  it("a complete replay folds its npc.updated events in order, so the last frame equals the current state", () => {
+    const j = withNpcs({ npc: { goals: ["OLD"], knowledge: [], released: [] } }, { npc: ["F1", "F2"] }, { replay: { afterSeq: 0, toSeq: 7, events: 2, complete: true } });
+    const { conn, rec } = setup({ joined: j }).open();
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 6, ts: 6, sessionId: "s1", roleId: "npc", goals: ["MID"], knowledge: [], released: ["F1"] } as never });
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 7, ts: 7, sessionId: "s1", roleId: "npc", goals: ["NEW"], knowledge: [], released: ["F1", "F2"] } as never });
+    expect(chars(rec).at(-1)!.data.roles).toEqual([{ roleId: "npc", goals: ["NEW"], facts: [{ n: 1, released: true }, { n: 2, released: true }] }]);
+  });
+
+  it("a skipped replayed npc.updated after a reset writes no characters frame", () => {
+    const j = withNpcs({ npc: { goals: ["G"], knowledge: [], released: [] } }, { npc: ["F1"] }, { replay: { afterSeq: 0, toSeq: 5, events: 1, complete: false } });
+    const { conn, rec } = setup({ joined: j }).open();
+    const n = chars(rec).length;
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 5, ts: 5, sessionId: "s1", roleId: "npc", goals: ["SKIPPED"], knowledge: [], released: ["F1"] } as never });
+    expect(chars(rec)).toHaveLength(n);
+    expect(rec.events()).toHaveLength(0);
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 6, ts: 6, sessionId: "s1", roleId: "npc", goals: ["LIVE"], knowledge: [], released: [] } as never });
+    expect(chars(rec)).toHaveLength(n + 1);
+    expect(chars(rec).at(-1)!.data.roles[0].goals).toEqual(["LIVE"]);
+  });
+
+  it("the scenes in joined keep each inject and drop malformed ones", () => {
+    const j = join({ scenes: [{ id: "a", title: "T", goal: "G", timeBoxMinutes: 5, injects: [{ id: "i1", to: ["lead"], content: "C", atMinute: 2, hidden: "INJ-HIDDEN" }, { id: 3, to: [], content: "x" }] }, "junk"] } as never);
+    const { rec } = setup({ joined: j }).open();
+    expect(rec.frames()[1]!.data.scenes).toEqual([{ id: "a", title: "T", goal: "G", timeBoxMinutes: 5, injects: [{ id: "i1", to: ["lead"], content: "C", atMinute: 2 }] }]);
+    expect(rec.chunks.join("")).not.toContain("INJ-HIDDEN");
   });
 
   it("a facilitator alert shows a fixed line, never the runtime's text", () => {
@@ -174,7 +305,7 @@ describe("FacilitatorHub", () => {
     const conn = new FakeConn();
     const r = h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: join(), out: { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } } });
     expect(r).not.toBe("capacity");
-    expect(ends).toBe(0); // retry, joined and roster are over the cap and still open
+    expect(ends).toBe(0); // retry, joined, characters and roster are over the cap and still open
     conn.emit({ type: "event", event: ev(6) });
     expect(ends).toBe(1);
     expect(conn.closed).toBe(1);
@@ -192,7 +323,7 @@ describe("FacilitatorHub", () => {
     const reader = body.stream.getReader(); const dec = new TextDecoder(); let text = "";
     while (!/event: roster/.test(text)) text += dec.decode((await reader.read()).value);
     expect(text.length).toBeGreaterThan(256 * 1024);
-    expect(parseSse(text).map((f) => f.event)).toEqual(["retry:3000", "joined", "reset", "roster"]);
+    expect(parseSse(text).map((f) => f.event)).toEqual(["retry:3000", "joined", "reset", "characters", "roster"]);
     expect(h.size()).toBe(1);
     await reader.cancel();
   });
