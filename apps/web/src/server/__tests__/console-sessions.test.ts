@@ -3,6 +3,8 @@ import {
   SHORT_SOCKETS_PER_SESSION,
 } from "../facilitator-budget";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FacilitatorHub } from "../facilitator-hub";
+import { realTimer } from "../runtime-connection";
 import type { Config } from "../config";
 import { CONSOLE_COOKIE, secretEpoch } from "../console-session";
 import { setEnvelopeClock } from "../envelope";
@@ -207,7 +209,7 @@ beforeEach(() => {
     now: () => T0,
     connect: connect as unknown as Deps["connect"],
     launcher: launcher as never,
-    facilitatorBudget: new FacilitatorBudget(),
+    facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }),
     setTimer: timers.setTimer,
   } as unknown as Deps;
   errors = [];

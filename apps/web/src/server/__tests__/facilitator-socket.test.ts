@@ -4,6 +4,7 @@ import {
 } from "../facilitator-budget";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
+import { FacilitatorHub } from "../facilitator-hub";
 import type { Config } from "../config";
 import {
   FacilitatorSocketError,
@@ -12,7 +13,7 @@ import {
 } from "../facilitator-socket";
 import type { Deps } from "../handlers";
 import { LauncherError, type LauncherClient } from "../launcher-client";
-import { RuntimeConnection } from "../runtime-connection";
+import { RuntimeConnection, realTimer } from "../runtime-connection";
 import { fakeRuntime } from "./fakes";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
@@ -77,7 +78,7 @@ function depsWith(
     config: {} as Config,
     launcher: { facilitator } as unknown as LauncherClient,
     connect: connect as unknown as Deps["connect"],
-    facilitatorBudget: new FacilitatorBudget(),
+    facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }),
   } as Deps;
   return { deps, facilitator, connect };
 }

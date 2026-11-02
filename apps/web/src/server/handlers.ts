@@ -9,6 +9,7 @@ import { RuntimeError, type RuntimeConnection, type SetTimer } from "./runtime-c
 import { resolveRuntimeUrl } from "./runtime-lookup";
 import { seal, unseal } from "./seal";
 import { lastSeqOf, sseBody, sseFinal, sseHeaders, type SseOut } from "./sse";
+import type { FacilitatorHub } from "./facilitator-hub";
 import { NoStreamError, REMOVED_MESSAGE, SIGNED_OUT_MESSAGE, type SessionCookie, type StreamHub } from "./stream-hub";
 import type { JoinThrottle } from "./throttle";
 import type { ClientMessage, JoinedFrame } from "./wire";
@@ -17,7 +18,7 @@ import type { ClientMessage, JoinedFrame } from "./wire";
 // from the sealed cookie, never from a body or a query. Nothing here logs a code, a credential, a cookie, a name or an address.
 
 export type Deps = {
-  config: Config; now: () => number; connect: typeof RuntimeConnection.connect; joinThrottle: JoinThrottle; consoleThrottle: JoinThrottle; consoleGlobalThrottle: JoinThrottle; hub: StreamHub; facilitatorBudget: FacilitatorBudget;
+  config: Config; now: () => number; connect: typeof RuntimeConnection.connect; joinThrottle: JoinThrottle; consoleThrottle: JoinThrottle; consoleGlobalThrottle: JoinThrottle; hub: StreamHub; facilitatorBudget: FacilitatorBudget; facilitatorHub: FacilitatorHub;
   /** Set when LAUNCHER_URL is: each session's runtime is then looked up through the control service (runtime-lookup.ts). */
   launcher?: LauncherClient;
   /** The timer the console's Start wait uses (default: real timers); tests drive it by hand. */

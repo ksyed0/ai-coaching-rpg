@@ -172,7 +172,7 @@ const listed = (s: SessionInfo) => ({
 });
 
 const cap = (name: string) => [...name].slice(0, MAX_NAME_CODE_POINTS).join("");
-const entryOf = (e: FacilitatorRosterEntry): FacilitatorRosterEntry => ({
+export const entryOf = (e: FacilitatorRosterEntry): FacilitatorRosterEntry => ({
   roleId: e.roleId,
   ...(typeof e.name === "string" && { name: cap(e.name) }),
   joined: e.joined === true,
