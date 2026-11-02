@@ -119,6 +119,7 @@ describe("route files", () => {
     ["console/sessions/[id]/start", "consoleStart", "POST"],
     ["console/sessions/[id]/reissue", "consoleReissue", "POST"],
     ["console/sessions/[id]/reissue-all", "consoleReissueAll", "POST"],
+    ["console/sessions/[id]/remove", "consoleRemove", "POST"],
     ["console/sessions/[id]/restart", "consoleRestart", "POST"],
     ["console/sessions/[id]/stream", "consoleStream", "GET"],
   ];

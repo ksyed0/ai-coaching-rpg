@@ -146,6 +146,23 @@ describe("LauncherClient requests", () => {
     expect(f.calls[0]!.url).toBe(`${BASE}/sessions/${SID}/facilitator`);
   });
 
+  it("reissue with reason removed sends roleId, by and reason; without it the body has no reason key", async () => {
+    const f = fakeFetch(() => reply(envelope({ code: "WXYZ-1234" })));
+    const c = client(f.fetch);
+    expect(await c.reissue(SID, "tech_lead", "Ann", "removed")).toBe(
+      "WXYZ-1234",
+    );
+    expect(JSON.parse(f.calls[0]!.body!)).toEqual({
+      roleId: "tech_lead",
+      by: "Ann",
+      reason: "removed",
+    });
+    await c.reissue(SID, "tech_lead", "Ann");
+    const plain = JSON.parse(f.calls[1]!.body!);
+    expect(plain).toEqual({ roleId: "tech_lead", by: "Ann" });
+    expect(Object.keys(plain)).not.toContain("reason");
+  });
+
   it("reissue: one role; reissueAll: all:true; both pass `by`", async () => {
     const f = fakeFetch((c) =>
       reply(

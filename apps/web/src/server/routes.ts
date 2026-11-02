@@ -1,7 +1,7 @@
 import { loadConfig, missingConsoleVars } from "./config";
 import { handleConsoleLogin, handleConsoleLogout } from "./console-handlers";
 import {
-  handleConsoleReadiness, handleConsoleReissue, handleConsoleReissueAll, handleConsoleRestart, handleConsoleScenarios,
+  handleConsoleReadiness, handleConsoleReissue, handleConsoleReissueAll, handleConsoleRemove, handleConsoleRestart, handleConsoleScenarios,
   handleConsoleSessionGet, handleConsoleSessionsCreate, handleConsoleSessionsList, handleConsoleStart,
 } from "./console-sessions";
 import { handleConsoleCommand, handleConsoleFacts } from "./console-command";
@@ -113,6 +113,7 @@ export const consoleReadinessGET = route(handleConsoleReadiness);
 export const consoleStartPOST = route(handleConsoleStart);
 export const consoleReissuePOST = route(handleConsoleReissue);
 export const consoleReissueAllPOST = route(handleConsoleReissueAll);
+export const consoleRemovePOST = route(handleConsoleRemove);
 export const consoleRestartPOST = route(handleConsoleRestart);
 export const consoleStreamGET = route(handleConsoleStream);
 export const consoleCommandPOST = route(handleConsoleCommand);

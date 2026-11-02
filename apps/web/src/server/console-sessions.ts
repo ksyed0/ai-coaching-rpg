@@ -333,6 +333,37 @@ export async function handleConsoleReissue(
   }
 }
 
+/**
+ * POST /api/v1/console/sessions/:id/remove { roleId }: removes the participant and returns the seat's new code, once.
+ * `by` is the cookie's name. Only before the start: the control service answers every refusal as a conflict.
+ */
+export async function handleConsoleRemove(
+  req: Request,
+  deps: Deps,
+): Promise<Response> {
+  const g = guard(req, deps, true);
+  if ("response" in g) return g.response;
+  const id = sessionIdOf(req);
+  if (id === null) return notFound();
+  const body = await readBody(req, ["roleId"]);
+  if (body === null || !isId(body.roleId)) return badRequest();
+  if (!deps.launcher) return unreachable();
+  try {
+    return ok({
+      roleId: body.roleId,
+      code: await deps.launcher.reissue(id, body.roleId, g.who.name, "removed"),
+    });
+  } catch (err) {
+    if (err instanceof LauncherError && err.reason === "conflict")
+      return fail(
+        409,
+        "conflict",
+        "A participant can only be removed before the start.",
+      );
+    return failure(err);
+  }
+}
+
 /** POST /api/v1/console/sessions/:id/reissue-all {}: every role's new code, once (the launcher refuses it after the start). */
 export async function handleConsoleReissueAll(
   req: Request,

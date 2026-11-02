@@ -76,7 +76,15 @@ class FakeFacConn {
   ) {}
   async joinFacilitator(sessionId: string, token: string) {
     this.joinedWith.push({ sessionId, token });
-    return { frame: { type: "joined" as const, roleId: "facilitator", state: { status: this.status } as never }, roster: this.roster, status: this.status };
+    return {
+      frame: {
+        type: "joined" as const,
+        roleId: "facilitator",
+        state: { status: this.status } as never,
+      },
+      roster: this.roster,
+      status: this.status,
+    };
   }
   send(m: ClientMessage) {
     this.sent.push(m);
@@ -209,7 +217,8 @@ beforeEach(() => {
     now: () => T0,
     connect: connect as unknown as Deps["connect"],
     launcher: launcher as never,
-    facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }),
+    facilitatorBudget: new FacilitatorBudget(),
+    facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }),
     setTimer: timers.setTimer,
   } as unknown as Deps;
   errors = [];
@@ -242,6 +251,7 @@ async function api() {
     start: bind(m.handleConsoleStart),
     reissue: bind(m.handleConsoleReissue),
     reissueAll: bind(m.handleConsoleReissueAll),
+    remove: bind(m.handleConsoleRemove),
     restart: bind(m.handleConsoleRestart),
   };
 }
@@ -312,6 +322,10 @@ describe("console session API", () => {
       cases.push([
         "reissueAll",
         () => post(`/sessions/${SID}/reissue-all`, {}, { cookie }),
+      ]);
+      cases.push([
+        "remove",
+        () => post(`/sessions/${SID}/remove`, { roleId: "a" }, { cookie }),
       ]);
       cases.push([
         "restart",
@@ -694,18 +708,31 @@ describe("console session API", () => {
       queueMicrotask(() => {
         c.emit({ type: "error", code: "not_started", message: "not_started" });
         c.emit({ type: "error", code: "forbidden", message: "forbidden" });
-        c.emit({ type: "error", code: "already_started", message: "already_started" });
+        c.emit({
+          type: "error",
+          code: "already_started",
+          message: "already_started",
+        });
       });
     };
     const res = await a.start(post(`/sessions/${SID}/start`));
     expect(res.status).toBe(409);
-    expect((await json(res)).error?.message).toBe("The session has already started.");
+    expect((await json(res)).error?.message).toBe(
+      "The session has already started.",
+    );
   });
 
   it("start is not ended by a stray error frame: only the timeout answers when nothing real arrives", async () => {
     const a = await api();
     conn.onSend = (m, c) => {
-      if (m.type === "start") queueMicrotask(() => c.emit({ type: "error", code: "not_started", message: "not_started" }));
+      if (m.type === "start")
+        queueMicrotask(() =>
+          c.emit({
+            type: "error",
+            code: "not_started",
+            message: "not_started",
+          }),
+        );
     };
     const pending = a.start(post(`/sessions/${SID}/start`));
     await until(() => timers.live().length > 0, { what: "the start timer" });
@@ -768,6 +795,97 @@ describe("console session API", () => {
       ),
     );
     expect(launcher.reissueAll).toHaveBeenCalledWith(SID, "Dana Cook");
+  });
+
+  it("remove sends the cookie's name and reason removed and returns the new code once", async () => {
+    const a = await api();
+    const res = await a.remove(
+      post(
+        `/sessions/${SID}/remove`,
+        { roleId: "a" },
+        { cookie: consoleCookie("Dana Cook") },
+      ),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Cache-Control")).toBe("no-store");
+    expect(launcher.reissue).toHaveBeenCalledTimes(1);
+    expect(launcher.reissue).toHaveBeenCalledWith(
+      SID,
+      "a",
+      "Dana Cook",
+      "removed",
+    );
+    expect((await json(res)).data).toEqual({ roleId: "a", code: CODE_NEW });
+    expect(errors.join("\n") + warns.join("\n")).not.toContain(CODE_NEW);
+    const later = await (
+      await a.readiness(get(`/sessions/${SID}/readiness`))
+    ).text();
+    expect(later).not.toContain(CODE_NEW);
+    expect((await a.remove(post(`/sessions/${SID}/remove`, {}))).status).toBe(
+      400,
+    );
+    expect(
+      (await a.remove(post(`/sessions/${SID}/remove`, { roleId: "Bad Role" })))
+        .status,
+    ).toBe(400);
+    expect(launcher.reissue).toHaveBeenCalledTimes(1);
+  });
+
+  it('a launcher conflict is 409 "A participant can only be removed before the start."', async () => {
+    const a = await api();
+    launcher.reissue.mockRejectedValueOnce(new LauncherError("conflict"));
+    const res = await a.remove(
+      post(`/sessions/${SID}/remove`, { roleId: "a" }),
+    );
+    expect(res.status).toBe(409);
+    expect((await json(res)).error).toEqual({
+      code: "conflict",
+      message: "A participant can only be removed before the start.",
+    });
+    launcher.reissue.mockRejectedValueOnce(new LauncherError("not_found"));
+    expect(
+      (await a.remove(post(`/sessions/${SID}/remove`, { roleId: "a" }))).status,
+    ).toBe(404);
+    launcher.reissue.mockRejectedValueOnce(new LauncherError("unavailable"));
+    expect(
+      (await a.remove(post(`/sessions/${SID}/remove`, { roleId: "a" }))).status,
+    ).toBe(502);
+  });
+
+  it("remove checks Origin, the custom header and the cookie like reissue", async () => {
+    const a = await api();
+    const path = `/sessions/${SID}/remove`;
+    for (const headers of [
+      { Origin: "https://evil.example.com" },
+      { Origin: null },
+      { "X-Requested-With": null },
+      { "Sec-Fetch-Site": "cross-site" },
+    ] as Record<string, string | null>[])
+      expect(
+        (await a.remove(post(path, { roleId: "a" }, { headers }))).status,
+        JSON.stringify(headers),
+      ).toBe(403);
+    expect(
+      (await a.remove(post(path, { roleId: "a" }, { cookie: null }))).status,
+    ).toBe(401);
+    expect(launcher.reissue).not.toHaveBeenCalled();
+  });
+
+  it("a body with by or reason is 400", async () => {
+    const a = await api();
+    for (const extra of [
+      { by: "Mallory" },
+      { reason: "removed" },
+      { reason: "x" },
+    ])
+      expect(
+        (
+          await a.remove(
+            post(`/sessions/${SID}/remove`, { roleId: "a", ...extra }),
+          )
+        ).status,
+      ).toBe(400);
+    expect(launcher.reissue).not.toHaveBeenCalled();
   });
 
   it("reissue returns the new code once", async () => {
@@ -908,6 +1026,7 @@ describe("console session API", () => {
         ["start", () => post(`/sessions/${id}/start`)],
         ["reissue", () => post(`/sessions/${id}/reissue`, { roleId: "a" })],
         ["reissueAll", () => post(`/sessions/${id}/reissue-all`)],
+        ["remove", () => post(`/sessions/${id}/remove`, { roleId: "a" })],
         ["restart", () => post(`/sessions/${id}/restart`)],
       ] as [string, () => Request][]) {
         const res = await (
