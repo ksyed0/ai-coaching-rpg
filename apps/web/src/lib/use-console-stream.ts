@@ -16,13 +16,19 @@ export const MAX_GAP_RESYNCS = 3;
 
 /** Mirrors FacilitatorRosterEntry in src/server/wire.ts (client modules import no server module). */
 export type FacilitatorRosterEntry = { roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean };
+/** Mirrors ConsoleScene/ConsoleCharacter in src/server/facilitator-copies.ts. A character's facts carry only their number and whether they are released: never text. */
+export type ConsoleInject = { id: string; to: string[]; content: string; atMinute?: number };
+export type ConsoleScene = PlayerScene & { injects: ConsoleInject[] };
+export type ConsoleCharacter = { roleId: string; goals: string[]; facts: { n: number; released: boolean }[] };
 export type ConsoleFinal = "ended" | "stopped" | "expired" | "busy" | "closed" | "lost";
 export type ConsoleStreamUi = {
   /** connecting: no joined yet; live: joined; reconnecting: dropped, the browser is coming back. */
   conn: "connecting" | "live" | "reconnecting";
   final: { kind: ConsoleFinal; message: string } | null;
   channel: string | null;
-  scenes: PlayerScene[];
+  scenes: ConsoleScene[];
+  /** The AI characters, replaced whole by each `characters` frame; kept across a reconnect's joined. */
+  characters: ConsoleCharacter[];
   view: ConsoleView | null;
   roster: FacilitatorRosterEntry[];
   notice: string | null;
@@ -42,15 +48,16 @@ const SERVER_FINALS = ["ended", "stopped", "expired", "busy"] as const;
 type Action =
   | { type: "open" }
   | { type: "clear" }
-  | { type: "joined"; channel: string; scenes: PlayerScene[] }
+  | { type: "joined"; channel: string; scenes: ConsoleScene[] }
   | { type: "reset"; state: SessionState }
   | { type: "event"; event: SessionEvent }
+  | { type: "characters"; characters: ConsoleCharacter[] }
   | { type: "roster"; entries: FacilitatorRosterEntry[] }
   | { type: "notice"; text: string }
   | { type: "dropped" }
   | { type: "final"; kind: ConsoleFinal };
 
-export const initialConsoleState: ConsoleStreamState = { conn: "connecting", final: null, channel: null, scenes: [], view: null, roster: [], notice: null, gaps: 0, pendingGap: false, epoch: 0 };
+export const initialConsoleState: ConsoleStreamState = { conn: "connecting", final: null, channel: null, scenes: [], characters: [], view: null, roster: [], notice: null, gaps: 0, pendingGap: false, epoch: 0 };
 
 export function consoleStreamReducer(s: ConsoleStreamState, a: Action): ConsoleStreamState {
   switch (a.type) {
@@ -79,6 +86,9 @@ export function consoleStreamReducer(s: ConsoleStreamState, a: Action): ConsoleS
       // An in-order event: the stream recovered, so earlier resyncs no longer count toward `lost`.
       return { ...s, view, gaps: 0, notice: null };
     }
+    case "characters":
+      if (s.final) return s;
+      return { ...s, characters: a.characters };
     case "roster":
       if (s.final) return s;
       return { ...s, roster: a.entries };
@@ -103,6 +113,27 @@ function parse(data: unknown): unknown {
 
 const isScene = (x: unknown): x is PlayerScene =>
   isObj(x) && typeof x.id === "string" && typeof x.title === "string" && typeof x.goal === "string" && typeof x.timeBoxMinutes === "number";
+
+const strs = (v: unknown): string[] | null => (Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : null);
+
+function toInject(x: unknown): ConsoleInject | null {
+  const to = isObj(x) ? strs(x.to) : null;
+  if (!isObj(x) || typeof x.id !== "string" || typeof x.content !== "string" || !to) return null;
+  return { id: x.id, to, content: x.content, ...(typeof x.atMinute === "number" && Number.isFinite(x.atMinute) && { atMinute: x.atMinute }) };
+}
+
+function toScene(x: unknown): ConsoleScene | null {
+  if (!isScene(x)) return null;
+  const injects = Array.isArray((x as { injects?: unknown }).injects) ? ((x as unknown as { injects: unknown[] }).injects).flatMap((i) => { const v = toInject(i); return v ? [v] : []; }) : [];
+  return { id: x.id, title: x.title, goal: x.goal, timeBoxMinutes: x.timeBoxMinutes, injects };
+}
+
+function toCharacter(x: unknown): ConsoleCharacter | null {
+  const goals = isObj(x) ? strs(x.goals) : null;
+  if (!isObj(x) || typeof x.roleId !== "string" || !goals || !Array.isArray(x.facts)) return null;
+  const facts = x.facts.flatMap((f: unknown) => (isObj(f) && typeof f.n === "number" && Number.isFinite(f.n) && typeof f.released === "boolean" ? [{ n: f.n, released: f.released }] : []));
+  return { roleId: x.roleId, goals, facts };
+}
 
 const toState = (d: unknown): SessionState | null => {
   if (!isObj(d) || !isObj(d.state)) return null;
@@ -142,10 +173,14 @@ export function useConsoleStream(sessionId: string, deps: SessionDeps, o: { enab
 
     on("joined", (d) => {
       if (!isObj(d) || typeof d.channel !== "string") return;
-      dispatch({ type: "joined", channel: d.channel, scenes: Array.isArray(d.scenes) ? d.scenes.filter(isScene) : [] });
+      dispatch({ type: "joined", channel: d.channel, scenes: Array.isArray(d.scenes) ? d.scenes.flatMap((c) => { const v = toScene(c); return v ? [v] : []; }) : [] });
     });
     on("reset", (d) => { const st = toState(d); if (st) dispatch({ type: "reset", state: st }); });
     on("event", (d) => { if (isObj(d)) dispatch({ type: "event", event: d as unknown as SessionEvent }); });
+    // This frame has no SSE id (so it never moves Last-Event-ID); the hub sends it after every joined, and it replaces the list whole.
+    on("characters", (d) => {
+      if (isObj(d) && Array.isArray(d.roles)) dispatch({ type: "characters", characters: d.roles.flatMap((c) => { const v = toCharacter(c); return v ? [v] : []; }) });
+    });
     on("roster", (d) => {
       if (isObj(d) && Array.isArray(d.entries) && d.entries.every(isEntry)) dispatch({ type: "roster", entries: d.entries });
     });

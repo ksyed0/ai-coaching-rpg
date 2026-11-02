@@ -28,7 +28,7 @@ describe("useConsoleStream", () => {
     joined(es());
     expect(hook.result.current.conn).toBe("live");
     expect(hook.result.current.channel).toBe("c1");
-    expect(hook.result.current.scenes).toEqual(scenes);
+    expect(hook.result.current.scenes).toEqual(scenes.map((c) => ({ ...c, injects: [] })));
     expect(hook.result.current.view).toBeNull();
     emit(es(), "reset", { state: snapshot({ status: "running", lastSeq: 2, transcript: [{ seq: 2, ts: 1, sceneId: null, roleId: "x", text: "hi", channel: "text" }] }) }, "2");
     emit(es(), "roster", { entries: [{ roleId: "x", name: "Sam", joined: true, consented: true, connected: true }] });
@@ -180,11 +180,56 @@ describe("useConsoleStream", () => {
     expect((r as unknown as { gaps: number }).gaps).toBe(0);
   });
 
+  it("joined scenes keep their injects; a malformed inject is dropped", () => {
+    const { hook, es } = start();
+    const wire = [
+      { ...scenes[0], injects: [{ id: "i1", to: ["a", "b"], content: "Alarm", atMinute: 2 }, { id: "i2", to: [], content: "Quiet" }, { id: 3, to: [], content: "x" }, { id: "i4", to: "all", content: "x" }, { id: "i5", to: [], content: 9 }, null, "s"] },
+      { id: "s2", title: "Two", goal: "g", timeBoxMinutes: 3 },
+      { id: "s3", title: "Three", goal: "g", timeBoxMinutes: 3, injects: "nope" },
+      { id: "bad", title: 1, goal: "g", timeBoxMinutes: 3, injects: [] },
+    ];
+    emit(es(), "joined", { channel: "c1", scenes: wire });
+    expect(hook.result.current.scenes).toEqual([
+      { ...scenes[0], injects: [{ id: "i1", to: ["a", "b"], content: "Alarm", atMinute: 2 }, { id: "i2", to: [], content: "Quiet" }] },
+      { id: "s2", title: "Two", goal: "g", timeBoxMinutes: 3, injects: [] },
+      { id: "s3", title: "Three", goal: "g", timeBoxMinutes: 3, injects: [] },
+    ]);
+  });
+
+  it("a characters frame replaces the list; a malformed entry is ignored, the rest kept", () => {
+    const { hook, es } = start();
+    joined(es());
+    expect(hook.result.current.characters).toEqual([]);
+    emit(es(), "characters", { roles: [{ roleId: "npc1", goals: ["g1"], facts: [{ n: 1, released: false }, { n: "2", released: true }, { n: 2, released: true }] }, { roleId: 5, goals: [], facts: [] }, { roleId: "npc2", goals: "x", facts: [] }, null] });
+    expect(hook.result.current.characters).toEqual([{ roleId: "npc1", goals: ["g1"], facts: [{ n: 1, released: false }, { n: 2, released: true }] }]);
+    emit(es(), "characters", { roles: [{ roleId: "npc3", goals: [], facts: [] }] });
+    expect(hook.result.current.characters).toEqual([{ roleId: "npc3", goals: [], facts: [] }]);
+    emit(es(), "characters", { nope: 1 });
+    emit(es(), "characters", "junk");
+    expect(hook.result.current.characters).toEqual([{ roleId: "npc3", goals: [], facts: [] }]);
+  });
+
+  it("a reconnect's joined keeps characters until the next characters frame", () => {
+    const { hook, es } = start();
+    joined(es());
+    emit(es(), "characters", { roles: [{ roleId: "npc1", goals: ["g"], facts: [] }] });
+    act(() => es().drop());
+    joined(es());
+    expect(hook.result.current.characters).toEqual([{ roleId: "npc1", goals: ["g"], facts: [] }]);
+    emit(es(), "characters", { roles: [] });
+    expect(hook.result.current.characters).toEqual([]);
+    emit(es(), "characters", { roles: [{ roleId: "npc1", goals: ["g"], facts: [] }] });
+    emit(es(), "stopped", {});
+    hook.rerender({ enabled: false });
+    hook.rerender({ enabled: true });
+    expect(hook.result.current.characters).toEqual([]);
+  });
+
   it("actions after a final do not change the state (reducer)", () => {
     const base = consoleStreamReducer(consoleStreamReducer(initialConsoleState, { type: "reset", state: snapshot({ status: "running", lastSeq: 1 }) }), { type: "final", kind: "lost" });
     expect(base.final?.kind).toBe("lost");
     const actions: Parameters<typeof consoleStreamReducer>[1][] = [
-      { type: "event", event: utt(2, "late") }, { type: "reset", state: snapshot({ lastSeq: 9 }) }, { type: "roster", entries: [] },
+      { type: "event", event: utt(2, "late") }, { type: "reset", state: snapshot({ lastSeq: 9 }) }, { type: "roster", entries: [] }, { type: "characters", characters: [] },
       { type: "joined", channel: "c", scenes: [] }, { type: "notice", text: "n" },
     ];
     for (const a of actions) expect(consoleStreamReducer(base, a)).toBe(base);

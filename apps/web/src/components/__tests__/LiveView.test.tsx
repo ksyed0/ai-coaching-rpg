@@ -19,7 +19,7 @@ function ui(over: Partial<ConsoleStreamUi> = {}, state: Partial<SessionState> = 
     currentScene: { id: "s1", enteredAt: T, participants: ["a"], pausedMs: 0 }, ...state,
   };
   return {
-    conn: "live", final: null, channel: "c1", scenes: [scene], view: { ...viewFromReset(st), timeline }, notice: null,
+    conn: "live", final: null, channel: "c1", scenes: [{ ...scene, injects: [] }], characters: [], view: { ...viewFromReset(st), timeline }, notice: null,
     roster: [{ roleId: "a", name: EVIL, joined: true, consented: true, connected: true }], ...over,
   };
 }
