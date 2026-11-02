@@ -167,6 +167,65 @@ describe("SessionControls", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("Move on without a current scene reads Move on and is aria-disabled; Moving on… only once advance was requested", () => {
+    mount(uiOf({}, stateOf({}, null)));
+    const b = screen.getByRole("button", { name: "Move on" });
+    expect(b.getAttribute("aria-disabled")).toBe("true");
+    expect((b as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(b);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Moving on…" })).toBeNull();
+  });
+
+  it("the advance and end_now confirmations use the danger button", () => {
+    mount(uiOf());
+    fireEvent.click(screen.getByRole("button", { name: "Move on" }));
+    let d = screen.getByRole("dialog");
+    expect(within(d).getByRole("button", { name: "Move on" }).className).toContain("danger");
+    fireEvent.keyDown(d, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "End session" }));
+    d = screen.getByRole("dialog");
+    expect(within(d).getByRole("button", { name: "End session" }).className).toContain("danger");
+  });
+
+  it("the alert and the status are written only after the dialog has lifted inert from the page", async () => {
+    const stale = mount(uiOf(), () => ({ status: 409, body: refused("stale_scene", STALE) }));
+    const log: string[] = [];
+    const mo = new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.type === "attributes" && r.attributeName === "inert" && !(r.target as Element).hasAttribute("inert")) log.push("inert-removed");
+        if (r.type === "childList" && r.addedNodes.length > 0 && (r.target as Element).closest('[role="alert"], [role="status"]')) log.push(`text:${(r.target as Element).closest("[role]")?.getAttribute("role")}`);
+      }
+    });
+    mo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["inert"] });
+    fireEvent.click(screen.getByRole("button", { name: "Move on" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Move on" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(STALE));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(log.indexOf("inert-removed")).toBeGreaterThanOrEqual(0);
+    expect(log.indexOf("text:alert")).toBeGreaterThan(log.indexOf("inert-removed"));
+    mo.disconnect();
+    void stale;
+    cleanup();
+
+    // The same for a success status.
+    mount(uiOf());
+    const log2: string[] = [];
+    const mo2 = new MutationObserver((records) => {
+      for (const r of records) {
+        if (r.type === "attributes" && r.attributeName === "inert" && !(r.target as Element).hasAttribute("inert")) log2.push("inert-removed");
+        if (r.type === "childList" && r.addedNodes.length > 0 && (r.target as Element).closest('[role="status"]')) log2.push("text:status");
+      }
+    });
+    mo2.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["inert"] });
+    fireEvent.click(screen.getByRole("button", { name: "Move on" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Move on" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Moving on to the next scene."));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(log2.indexOf("text:status")).toBeGreaterThan(log2.indexOf("inert-removed"));
+    mo2.disconnect();
+  });
+
   it("Escape closes the dialog and focus returns to its opener", () => {
     const { f } = mount(uiOf());
     const opener = screen.getByRole("button", { name: "End session" });

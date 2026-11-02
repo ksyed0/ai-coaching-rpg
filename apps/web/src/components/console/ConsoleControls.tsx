@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useConsoleCommands } from "../../lib/console-commands";
 import type { ConsoleCommand } from "../../lib/console-commands";
 import { confirmCopy } from "../../lib/console-confirm";
@@ -21,6 +21,12 @@ export function ConsoleControls({ sessionId, ui, fetch: fetchImpl }: ConsoleCont
   const cmds = useConsoleCommands(sessionId, ui.channel, fetchImpl);
   const [request, setRequest] = useState<ConfirmRequest | null>(null);
   const [message, setMessage] = useState("");
+  // What the status and alert lines show. Published from an effect once no dialog is open: the dialog lifts `inert` from the page in its
+  // own passive cleanup, so text written in the same commit that unmounts it would land in a region that is still inert (not announced).
+  const [shown, setShown] = useState<{ status: string | null; error: string | null }>({ status: null, error: null });
+  useEffect(() => {
+    if (request === null) setShown({ status: cmds.status, error: cmds.error });
+  }, [request, cmds.status, cmds.error]);
 
   const state = ui.view?.state ?? null;
   const disabled = ui.conn !== "live" || ui.channel === null || state?.status !== "running";
@@ -79,8 +85,8 @@ export function ConsoleControls({ sessionId, ui, fetch: fetchImpl }: ConsoleCont
         onConfirm={open}
         sceneTitle={sceneTitle}
       />
-      <div role="status">{cmds.status ? <p className="banner ok">{cmds.status}</p> : null}</div>
-      <div role="alert">{request === null && cmds.error ? <p className="err">{cmds.error}</p> : null}</div>
+      <div role="status">{shown.status ? <p className="banner ok">{shown.status}</p> : null}</div>
+      <div role="alert">{shown.error ? <p className="err">{shown.error}</p> : null}</div>
       {request && copy ? (
         <ConfirmDialog
           title={copy.title}
