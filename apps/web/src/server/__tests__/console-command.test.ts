@@ -5,7 +5,8 @@ import { setEnvelopeClock } from "../envelope";
 import type { CommandOutcome } from "../facilitator-hub";
 import { COOKIE_NAME, type Deps } from "../handlers";
 import { seal } from "../seal";
-import { COMMAND_ANSWERS, COMMAND_MAX_BODY_BYTES, handleConsoleCommand, handleConsoleFacts } from "../console-command";
+import { COMMAND_KINDS as CLIENT_KINDS } from "../../lib/console-commands";
+import { COMMAND_ANSWERS, COMMAND_KINDS, COMMAND_MAX_BODY_BYTES, handleConsoleCommand, handleConsoleFacts } from "../console-command";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -333,5 +334,11 @@ describe("the facts route", () => {
       expect(res.headers.get("Cache-Control")).toBe("no-store");
       expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
     }
+  });
+});
+
+describe("the browser mirror of the command kinds", () => {
+  it("COMMAND_KINDS in lib/console-commands equals the server's", () => {
+    expect([...CLIENT_KINDS]).toEqual([...COMMAND_KINDS]);
   });
 });

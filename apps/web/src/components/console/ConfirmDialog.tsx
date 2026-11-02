@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useId, useRef, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 
 // A modal confirmation. The first action (Cancel, the safe one) gets focus on open; Tab stays inside; Escape cancels; closing hands
 // focus back to the control that opened it. While it is open the rest of the page is inert (not focusable, not read by assistive
@@ -15,6 +21,12 @@ export type ConfirmDialogProps = {
   pending?: boolean;
   /** The control that opened the dialog (focus returns here). Defaults to whatever had focus when the dialog opened. */
   opener?: HTMLElement | null;
+  /** Fields or a preview between the description and the actions (inside the focus trap). */
+  children?: ReactNode;
+  /** True when the body is a read-only preview (inject content, whisper text): it joins the dialog's accessible description. */
+  describeBody?: boolean;
+  /** `danger` (default) or `primary`: the look of the confirm button only. */
+  tone?: "danger" | "primary";
 };
 
 /** Sets `inert` on every sibling of `node` and of each of its ancestors (so the chain holding the dialog stays live); returns the undo. */
@@ -53,6 +65,9 @@ export function ConfirmDialog({
   onCancel,
   pending = false,
   opener,
+  children,
+  describeBody = false,
+  tone = "danger",
 }: ConfirmDialogProps) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -112,7 +127,7 @@ export function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={`${id}-t`}
-        aria-describedby={`${id}-d`}
+        aria-describedby={describeBody ? `${id}-d ${id}-b` : `${id}-d`}
         ref={box}
         onKeyDown={onKeyDown}
       >
@@ -120,6 +135,11 @@ export function ConfirmDialog({
           {title}
         </h2>
         <p id={`${id}-d`}>{description}</p>
+        {children === undefined ? null : (
+          <div className="stack" id={`${id}-b`}>
+            {children}
+          </div>
+        )}
         <div className="dialog-actions">
           <button
             className="btn"
@@ -131,7 +151,7 @@ export function ConfirmDialog({
             Cancel
           </button>
           <button
-            className="btn danger"
+            className={tone === "primary" ? "btn pri" : "btn danger"}
             type="button"
             disabled={pending}
             onClick={onConfirm}
