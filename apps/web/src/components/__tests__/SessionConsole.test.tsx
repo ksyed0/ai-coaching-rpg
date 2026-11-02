@@ -67,6 +67,27 @@ describe("SessionConsole", () => {
     expect(screen.getByRole("heading", { name: "Who is in the room" })).toBeTruthy();
   });
 
+  it("live mode shows Facilitator controls; an ended final hides them and keeps the view", async () => {
+    mount(readiness({ status: "running" }));
+    await screen.findByText(/Model:/);
+    await flush();
+    await joined(FakeEventSource.last());
+    await reset(FakeEventSource.last());
+    expect(screen.getByRole("heading", { name: "Facilitator controls" })).toBeTruthy();
+    const card = screen.getByRole("heading", { name: "Live session" }).closest("section")!;
+    expect(card.nextElementSibling?.contains(screen.getByRole("heading", { name: "Facilitator controls" }))).toBe(true);
+    await act(async () => FakeEventSource.last().emit("ended", {}));
+    expect(screen.queryByRole("heading", { name: "Facilitator controls" })).toBeNull();
+    expect(screen.getByRole("heading", { name: "Live session" })).toBeTruthy();
+    expect(screen.getAllByText("The session has ended.")).toHaveLength(1);
+  });
+
+  it("the lobby shows no controls", async () => {
+    mount(readiness({ canStart: true }));
+    await screen.findByText(/Model:/);
+    expect(screen.queryByRole("heading", { name: "Facilitator controls" })).toBeNull();
+  });
+
   it("a stopped final returns to polling and shows Restart, with its message once", async () => {
     const m = mount(readiness({ status: "running" }));
     await screen.findByText(/Model:/);

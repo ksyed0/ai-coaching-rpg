@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo } from "react";
+import { useId, useMemo, type ReactNode } from "react";
 import type { Clock } from "../../lib/clock";
 import { talkRows } from "../../lib/console-view";
 import { MESSAGES } from "../../lib/messages";
@@ -12,9 +12,9 @@ import { WordsSpoken } from "./WordsSpoken";
 // The facilitator's read-only live view of a session: status, scene and timer, the transcript with notices and alerts, and words spoken.
 // It sends nothing and has no control. All runtime text below is rendered as text children only.
 
-export type LiveViewProps = { ui: ConsoleStreamUi; clock: Clock };
+export type LiveViewProps = { ui: ConsoleStreamUi; clock: Clock; /** The facilitator controls, placed right after the status card. */ controls?: ReactNode };
 
-export function LiveView({ ui, clock }: LiveViewProps) {
+export function LiveView({ ui, clock, controls }: LiveViewProps) {
   const id = useId();
   const { view } = ui;
   const state = view?.state ?? null;
@@ -52,6 +52,7 @@ export function LiveView({ ui, clock }: LiveViewProps) {
         </div>
         <SceneStatus scene={index >= 0 ? ui.scenes[index] : undefined} index={index} count={ui.scenes.length} view={sceneView} clock={clock} />
       </section>
+      {controls}
       <div>
         <h2 className="s">Transcript and notices</h2>
         <ConsoleTimeline entries={view?.timeline ?? []} names={names} playerRoles={playerRoles} />

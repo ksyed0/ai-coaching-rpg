@@ -5,6 +5,7 @@ import { realClock, type Clock } from "../../lib/clock";
 import { useConsoleStream } from "../../lib/use-console-stream";
 import type { SetTimer } from "../../lib/use-readiness";
 import type { EventSourceCtor, SessionDeps } from "../../lib/use-session";
+import { ConsoleControls } from "./ConsoleControls";
 import { LiveView } from "./LiveView";
 import { Readiness, type SessionStatus } from "./Readiness";
 
@@ -54,7 +55,17 @@ export function SessionConsole({ sessionId, deps = {} }: SessionConsoleProps) {
         onState={onState}
         onStarted={() => setMode("live")}
       />
-      {mode === "live" ? <LiveView ui={ui} clock={resolved.clock} /> : null}
+      {mode === "live" ? (
+        <LiveView
+          ui={ui}
+          clock={resolved.clock}
+          controls={
+            final === null ? (
+              <ConsoleControls sessionId={sessionId} ui={ui} fetch={resolved.fetch} />
+            ) : undefined
+          }
+        />
+      ) : null}
     </div>
   );
 }

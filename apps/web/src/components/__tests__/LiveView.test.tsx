@@ -131,6 +131,20 @@ describe("LiveView", () => {
     expect(screen.queryByText("The session has ended.")).toBeNull();
   });
 
+  it("controls render after the status card", () => {
+    render(<LiveView ui={ui()} clock={new FakeClock(T)} controls={<p data-testid="ctl">CONTROLS</p>} />);
+    const card = screen.getByRole("heading", { name: "Live session" }).closest("section")!;
+    const ctl = screen.getByTestId("ctl");
+    expect(card.compareDocumentPosition(ctl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(card.contains(ctl)).toBe(false);
+    expect(card.nextElementSibling).toBe(ctl);
+  });
+
+  it("without controls nothing extra renders", () => {
+    render(<LiveView ui={ui()} clock={new FakeClock(T)} />);
+    expect(screen.queryByTestId("ctl")).toBeNull();
+  });
+
   it("Words spoken shows the name in bdi and a muted role label", () => {
     render(<LiveView ui={ui({}, { talk: { a: { words: 1, lines: 1 } } })} clock={new FakeClock(T)} />);
     const row = within(screen.getByRole("table", { name: "Players" })).getAllByRole("row")[1]!;
