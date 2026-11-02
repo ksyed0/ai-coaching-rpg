@@ -1474,3 +1474,40 @@ Actual Result: As expected (services/runtime/src/host/__tests__/ws-server.ack.te
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-2b2, PR 1 (Tasks 1 and 2). The web server's command route and the console controls follow in PR 2 and PR 3.
+
+TC-0096: The console command route sends a facilitator action over the tab's own socket and answers with fixed copy
+Related Story: US-0059
+Related Task: TASK-0097
+Related AC: AC-0355
+Type: Integration
+Preconditions: The web server's handlers with a fake hub (unit) and with the real runtime and the real FacilitatorHub (console-command.runtime.test.ts); a started session with a console stream open; the same session before the start with every seat ready.
+Steps:
+  1. POST the command route with a foreign or missing Origin, a missing X-Requested-With, Sec-Fetch-Site cross-site, a player cookie, a disabled console, an invalid session id, Content-Type text/plain, a body carrying by, an unknown key, a key another kind takes, out-of-limit values (fact 0, 51, 1.5; whisper empty, blank, 2001 units; 11 goals; a 501-unit goal; a closing message of 301 code points), a body of 32768 and of 32769 bytes, and with no launcher.
+  2. POST each kind (pause, resume, whisper, fire_inject, release_hidden, set_npc_stance, advance, end_now) with the stream's channel.
+  3. Post advance with an expectSceneId of a scene that is no longer current; post two release_hidden for the same fact from two tabs.
+  4. Post commands before the start with every seat ready (pause, advance, end_now).
+  5. Feed the route each hub outcome (ok, each refusal code, unconfirmed, no_channel, pending, a channel of another session) and read the answer; read the log lines and every response header set.
+  6. At the hub: send with a fresh ref and answer it with an ack, an error with the ref, a ref-less rate_limited, bad_json or bad_message; answer with another ref; send a second command while one is pending; let the timeout pass and then ack late; close the socket or the stream with one pending; make the socket throw on send; pend an end_now and a pause while session.ended arrives; pend one command on each of two tabs.
+  7. POST /api/v1/console/sessions/:id/remove with a role, with a launcher conflict, with a foreign Origin, and with by or reason in the body.
+Expected Result: A guard failure is 401, 403 or 503, a bad body 400 and no launcher 502, and the hub is not called. Each kind reaches the runtime once with by from the cookie and is logged once; the body never supplies by. A stale scene is 409 stale_scene and appends nothing; of two tabs releasing one fact one is 200 and one 409 already_released. Before the start pause, advance and end_now are each 409 not_started and the session stays idle (a command never starts it). Every outcome has the fixed status, code and copy of the table (an unknown or inherited-key code is 502 command_failed; the runtime's message text never reaches the body); responses are no-store and noindex; no log line carries the channel, a name or the command text. At the hub one command is pending per channel (the second is command_pending and writes nothing), an ack or error with another ref is dropped, the timeout and a closed socket or stream are unconfirmed and a late ack is dropped, an end_now is ok when session.ended is forwarded and any other pending command is unconfirmed, tabs do not share a pending slot. The route opens no runtime socket (budget unchanged). Remove sends the cookie's name and the reason removed, returns the seat's new code once, answers a launcher conflict 409 with "A participant can only be removed before the start.", and applies the same guards.
+Actual Result: As expected (apps/web/src/server/__tests__/console-command.test.ts 38 tests, console-command.runtime.test.ts 8 tests (commands, stale scene, two tabs, before the start, end_now, no new socket), facilitator-hub.test.ts 41 tests (describe "FacilitatorHub commands" for step 6), console-sessions.test.ts 32 tests (the four remove tests); 125 tests passed across the five files this PR changed or added to).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-2b2, PR 2. The remove route has no real-runtime test (the launcher reissue is covered in slice 2b-2a, TC-0091); the console buttons and confirmations are PR 3. A command is never retried by the server. node:22 container run of the runtime test is the PR's recipe step, not recorded here.
+
+TC-0097: The console stream names injects and characters, and hidden-fact text leaves only through the facts route
+Related Story: US-0059
+Related Task: TASK-0097
+Related AC: AC-0356
+Type: Integration
+Preconditions: The copies and the hub with fake runtime frames (unit); the real runtime with a started session (console-command.runtime.test.ts): one console stream and three player streams for the player-frame scan, two console tabs for the facts route.
+Steps:
+  1. Join a console stream with scenes that carry injects (some malformed), hiddenFacts (some malformed) and AI characters in the state; join with a reset and with a complete replay that holds npc.updated events.
+  2. Send npc.updated events (with and without released, with a poisoned goal or a released text that is no hidden fact) and read the frames.
+  3. Call factsFor for this session's channel, another session's, an unknown one and a closed stream; POST the facts route with a bad body, a text/plain body, an unknown channel and a known one.
+  4. In the real runtime: with one console stream and three player streams open, post whispers to each role, a stance change, a release, pause and resume and read every console and player frame; with two console tabs, release a fact, ask the facts route for each tab, for another session's id and for an unopened channel, then close one tab and ask again.
+Expected Result: joined.scenes carries each scene's injects (id, to, content, atMinute when set) and drops malformed ones. A characters frame follows joined (and a reset) and precedes the first roster; it is written again after each npc.updated, equals the current state after a complete replay, carries per AI character the goals and per hidden fact only n and released (matched by exact text; a released text that is no hidden fact is never sent), no knowledge and no non-string value, and a skipped replayed npc.updated writes none; an npc.updated without released keeps the facts already released. A malformed hiddenFacts counts as none. factsFor answers for this session's channel only (null otherwise and after the stream closes). The facts route needs the console cookie and the same request checks, answers only roleId, n and text field by field, is 409 no_channel for an unknown or another session's channel and after the stream closes, and is no-store. No console stream frame carries fact text or knowledge; no player frame carries the facilitator's name, a ref, an ack, a characters frame, a goal, knowledge, fact text, a whisper meant for another role or an unfired inject's content (positive controls prove each marker is present where it belongs).
+Actual Result: As expected (apps/web/src/server/__tests__/facilitator-copies.test.ts 6 tests, facilitator-hub.test.ts 41 tests, console-command.test.ts 38 tests ("the facts route"), console-command.runtime.test.ts 8 tests (the player-frame scan and the facts route against the real runtime); 125 tests passed across the five files).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-2b2, PR 2. The console page does not yet handle the characters frame or the injects, nor call the facts route: that is PR 3, which must also drop the text from the page when "Hidden facts" is closed, the channel changes or the stream ends. The released fact text of a character and its goals are shown to anyone who can see the facilitator's screen once opened (threat model).
