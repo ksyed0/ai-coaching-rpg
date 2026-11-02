@@ -2551,6 +2551,11 @@
           "id": "AC-0352",
           "text": "every BFF facilitator socket carries the reserved forwarded key scenecoach-console and takes a per-session slot (4 live tabs, 3 short-lived), so players and bots cannot exhaust or block the console's connections nor the console theirs (apps/web/src/server/facilitator-budget.ts, facilitator-socket.ts; TC-0092)",
           "done": true
+        },
+        {
+          "id": "AC-0353",
+          "text": "one facilitator socket per console tab is forwarded as SSE on GET /api/v1/console/sessions/:id/stream with seq ids and Last-Event-ID replay; the console cookie is checked on every connect and reconnect, a player cookie gets a 401 and nothing from it, and a reset is sent only for a missing or incomplete replay (apps/web/src/server/console-stream.ts, facilitator-hub.ts, facilitator-copies.ts; TC-0093)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -3609,7 +3614,7 @@
       "assignee": "Agent",
       "status": "In Progress",
       "branch": "feature/EPIC-0002-US-0059-console-budget (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-console-stream and feature/EPIC-0002-US-0059-console-live-view)",
-      "notes": "PR 1 is the connection budget (AC-0352). PR 2 is the facilitator SSE channel and PR 3 the read-only live view (console part of AC-0311). Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md."
+      "notes": "PR 1 is the connection budget (AC-0352, merged as #69). PR 2 (this branch, feature/EPIC-0002-US-0059-console-stream) is the facilitator SSE channel (AC-0353). PR 3 is the read-only live view (console part of AC-0311). Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md."
     },
     {
       "id": "TASK-0089",
@@ -4569,6 +4574,16 @@
       "relatedStory": "US-0059",
       "relatedTask": "TASK-0096",
       "relatedAC": "AC-0352",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0093",
+      "title": "The console stream forwards the facilitator socket as allowlisted server-sent events",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0096",
+      "relatedAC": "AC-0353",
       "type": "Integration",
       "status": "Pass",
       "defect": "None"
@@ -6047,10 +6062,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-02T00:31:24.624Z",
-  "commitSha": "dd521c2",
-  "buildNumber": "488",
-  "branch": "feature/EPIC-0002-US-0059-console-budget",
+  "generatedAt": "2026-11-02T01:22:39.668Z",
+  "commitSha": "66b2aa3",
+  "buildNumber": "497",
+  "branch": "feature/EPIC-0002-US-0059-console-stream",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6316,9 +6331,11 @@
       "2026-11-01T16:48:00.675Z",
       "2026-11-01T20:42:08.694Z",
       "2026-11-01T21:54:38.506Z",
-      "2026-11-02T00:31:24.715Z"
+      "2026-11-02T00:31:24.715Z",
+      "2026-11-02T01:22:39.762Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6400,6 +6417,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6433,6 +6451,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -6484,9 +6503,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -6568,9 +6589,11 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -6652,6 +6675,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -6685,6 +6709,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -6732,6 +6757,7 @@
       1.1692307692307693,
       1.1646153846153846,
       1.1553846153846152,
+      1.136923076923077,
       1.136923076923077,
       1.136923076923077,
       1.136923076923077,

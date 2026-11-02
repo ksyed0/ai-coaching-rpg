@@ -1423,3 +1423,21 @@ Actual Result: As expected (apps/web/src/server/__tests__/facilitator-budget.tes
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-2b1, PR 1. The live-tab slots are used by the stream route in PR 2. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.
+
+
+TC-0093: The console stream forwards the facilitator socket as allowlisted server-sent events
+Related Story: US-0059
+Related Task: TASK-0096
+Related AC: AC-0353
+Type: Integration
+Preconditions: A fake runtime and a real runtime; the web server in launcher mode with a console cookie and a player cookie.
+Steps:
+  1. Connect to GET /api/v1/console/sessions/:id/stream with the console cookie, with and without Last-Event-ID (current, too old, past the head) and read the frames; reconnect with a cookie that has expired.
+  2. Connect with a player cookie, with its value under the console cookie name, with no cookie, with a wrong Origin, a cross-site Sec-Fetch-Site and a wrong Accept; connect with a forged and an absent X-Forwarded-For.
+  3. Feed the hub every event type (including an unknown one), a state with NPC goals, hidden facts and participant ids, a facilitator.alert with secret-like text and a set_npc_stance command.
+  4. Fill the live slots and the hub, stall a browser, end the session and stop the child.
+Expected Result: The frames are retry, joined with the scene list, reset only for a missing or incomplete replay, roster, then events with the runtime's seq as id; the console cookie is checked on every connect and an expired one ends the stream with expired; a player cookie, a wrong Origin, a cross-site request and a wrong Accept are refused (401, 403, 406) with no launcher or runtime contact; X-Forwarded-For is never read; no copy carries hiddenFacts, notice, NPC goals, knowledge, released text, participant ids, the log identity or the runtime's alert text, an unknown event type is forwarded as its envelope only; a full budget or hub answers busy; a stalled browser is dropped as reconnecting; session.ended and a stopped session are final.
+Actual Result: As expected (apps/web/src/server/__tests__/console-stream.test.ts, console-stream.runtime.test.ts, facilitator-hub.test.ts, facilitator-copies.test.ts: 42 tests passed in these four files; web suite 567 passed in 42 files; tsc --noEmit clean; the runtime suite 3741 passed, 1 skipped, in 186 files).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-2b1, PR 2. The runtime test (console-stream.runtime.test.ts, 5 tests) also passed in the node:22 container as root and as --user node. The read-only page is PR 3. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.
