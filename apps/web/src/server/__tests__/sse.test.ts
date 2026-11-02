@@ -81,6 +81,14 @@ describe("heartbeat", () => {
     expect(t2.live()).toHaveLength(0);
     cancel();
   });
+
+  it("does not re-arm when cancelled from inside beat", () => {
+    const t = manualTimers();
+    let cancel = () => {};
+    cancel = heartbeat(t.setTimer, () => { cancel(); return true; });
+    t.fire(HEARTBEAT_MS);
+    expect(t.live()).toHaveLength(0);
+  });
 });
 
 describe("replayIncomplete", () => {

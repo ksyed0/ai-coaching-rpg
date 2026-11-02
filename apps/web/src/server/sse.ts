@@ -9,7 +9,8 @@ export const RETRY_MS = 3_000;
 export const HEARTBEAT_MS = 15_000;
 export const DEFAULT_MAX_PENDING_BYTES = 256 * 1024;
 
-// JSON.stringify escapes CR and LF, so a data line can never break the SSE framing.
+// JSON.stringify escapes CR and LF, so a data line can never break the SSE framing. `event` is NOT escaped: pass constants only,
+// never a name derived from runtime or user input.
 export const sseFrame = (event: string, data: unknown, id?: number): string =>
   `${id === undefined ? "" : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 
@@ -59,11 +60,12 @@ export class SseWriter {
 /** Calls `beat` every HEARTBEAT_MS, re-arming while it returns true. Returns the cancel. */
 export function heartbeat(setTimer: SetTimer, beat: () => boolean): () => void {
   let cancel = () => {};
+  let stopped = false; // a cancel from inside `beat` must win over its return value
   const arm = () => {
-    cancel = setTimer(() => { if (beat()) arm(); }, HEARTBEAT_MS);
+    cancel = setTimer(() => { if (beat() && !stopped) arm(); }, HEARTBEAT_MS);
   };
   arm();
-  return () => cancel();
+  return () => { stopped = true; cancel(); };
 }
 
 /** Bytes the body may hold before `write` reports backpressure. */
