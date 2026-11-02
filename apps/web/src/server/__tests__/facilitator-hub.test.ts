@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import type { SessionState } from "@acr/events";
 import { FacilitatorHub } from "../facilitator-hub";
 import type { FacilitatorJoin } from "../facilitator-socket";
 import type { FacilitatorRosterEntry, JoinedFrame, ServerMessage } from "../wire";
+import type { FacilitatorRosterEntry as ClientEntry } from "../../lib/use-console-stream";
 import { sseBody } from "../sse";
 import { asConn, FakeConn, manualTimers, parseSse, sseRecorder } from "./fakes";
 
@@ -210,5 +211,11 @@ describe("FacilitatorHub", () => {
     (r as { close(): void }).close();
     clean(timers, conn, h);
     expect(conn.closed).toBe(1); expect(rec.ends()).toBe(1); expect(h.size()).toBe(0);
+  });
+});
+
+describe("client and server roster types", () => {
+  it("the console hook's roster entry equals the wire type", () => {
+    expectTypeOf<ClientEntry>().toEqualTypeOf<FacilitatorRosterEntry>();
   });
 });

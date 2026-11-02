@@ -4,7 +4,7 @@ import { useEffect, useReducer, useRef } from "react";
 import { initialState, type PlayerScene, type SessionEvent, type SessionState } from "@acr/events";
 import { applyConsoleEvent, viewFromReset, type ConsoleView } from "./console-view";
 import { MESSAGES } from "./messages";
-import type { SessionDeps } from "./use-session";
+import type { EventSourceLike, SessionDeps } from "./use-session";
 
 // The facilitator's live, read-only view of one running session. Like the player hook, the stream is the browser's native EventSource
 // (it reconnects by itself with Last-Event-ID), so there is no reconnect loop here. The one thing this hook does itself is a resync: when
@@ -50,20 +50,23 @@ type Action =
   | { type: "dropped" }
   | { type: "final"; kind: ConsoleFinal };
 
-const initial: ConsoleStreamState = { conn: "connecting", final: null, channel: null, scenes: [], view: null, roster: [], notice: null, gaps: 0, pendingGap: false, epoch: 0 };
+export const initialConsoleState: ConsoleStreamState = { conn: "connecting", final: null, channel: null, scenes: [], view: null, roster: [], notice: null, gaps: 0, pendingGap: false, epoch: 0 };
 
 export function consoleStreamReducer(s: ConsoleStreamState, a: Action): ConsoleStreamState {
   switch (a.type) {
     case "open":
       return { ...s, conn: "connecting", final: null, pendingGap: false };
     case "clear":
-      return { ...initial, epoch: s.epoch };
+      return { ...initialConsoleState, epoch: s.epoch };
     case "joined":
+      if (s.final) return s;
       // Never replaces the view: a joined also follows every ordinary reconnect; a reset says when the view must be replaced.
       return { ...s, conn: "live", channel: a.channel, scenes: a.scenes, notice: null };
     case "reset":
+      if (s.final) return s;
       return { ...s, conn: "live", view: viewFromReset(a.state), pendingGap: false, notice: null };
     case "event": {
+      if (s.final) return s;
       const label = (roleId: string) => s.roster.find((r) => r.roleId === roleId)?.name ?? roleId;
       const view = applyConsoleEvent(s.view, a.event, { scenes: s.scenes, label });
       if (view === s.view) return s;
@@ -73,11 +76,14 @@ export function consoleStreamReducer(s: ConsoleStreamState, a: Action): ConsoleS
         if (gaps > MAX_GAP_RESYNCS) return s.final ? { ...s, view, gaps } : { ...s, view, gaps, pendingGap: true, final: { kind: "lost", message: FINAL_MESSAGES.lost } };
         return { ...s, view, gaps, pendingGap: true, epoch: s.epoch + 1 };
       }
-      return { ...s, view, notice: null };
+      // An in-order event: the stream recovered, so earlier resyncs no longer count toward `lost`.
+      return { ...s, view, gaps: 0, notice: null };
     }
     case "roster":
+      if (s.final) return s;
       return { ...s, roster: a.entries };
     case "notice":
+      if (s.final) return s;
       return { ...s, notice: a.text };
     case "dropped":
       return s.final ? s : { ...s, conn: "reconnecting" };
@@ -111,19 +117,20 @@ export const consoleStreamUrl = (sessionId: string) => `/api/v1/console/sessions
 
 export function useConsoleStream(sessionId: string, deps: SessionDeps, o: { enabled?: boolean } = {}): ConsoleStreamUi {
   const enabled = o.enabled ?? true;
-  const [ui, dispatch] = useReducer(consoleStreamReducer, initial);
+  const [ui, dispatch] = useReducer(consoleStreamReducer, initialConsoleState);
   const { epoch } = ui;
-  const esRef = useRef<ReturnType<typeof makeSource> | null>(null);
-  const sessionRef = useRef(sessionId);
+  const esRef = useRef<EventSourceLike | null>(null);
+  const openedRef = useRef<{ sessionId: string; epoch: number } | null>(null);
   const { EventSource: ES } = deps;
-
-  function makeSource(url: string) { return new ES(url); }
 
   useEffect(() => {
     if (!enabled) return;
-    if (sessionRef.current !== sessionId) { sessionRef.current = sessionId; dispatch({ type: "clear" }); }
+    // Only a resync (same session, epoch bumped by the reducer) keeps the state; any other open (first, re-enabled, another session) starts clean.
+    const last = openedRef.current;
+    if (last !== null && !(last.sessionId === sessionId && epoch === last.epoch + 1)) dispatch({ type: "clear" });
+    openedRef.current = { sessionId, epoch };
     dispatch({ type: "open" });
-    const es = makeSource(consoleStreamUrl(sessionId));
+    const es = new ES(consoleStreamUrl(sessionId));
     esRef.current = es;
     let finished = false;
     const finish = (kind: ConsoleFinal) => {
@@ -155,10 +162,10 @@ export function useConsoleStream(sessionId: string, deps: SessionDeps, o: { enab
       else dispatch({ type: "dropped" });
     };
     return () => { finished = true; es.close(); if (esRef.current === es) esRef.current = null; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ES, sessionId, enabled, epoch]);
 
-  // A final that the hook reached itself (lost) has no handler to close the source.
+  // Close paths: `finish` closes the source for finals the server sends and for `closed`; this effect covers the final the reducer reaches
+  // itself (`lost`), which no handler sees. Unmount, `enabled` false and a resync are closed by the effect cleanup above.
   useEffect(() => { if (ui.final) esRef.current?.close(); }, [ui.final]);
 
   return ui;

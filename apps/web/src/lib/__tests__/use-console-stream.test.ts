@@ -2,7 +2,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { MESSAGES } from "../messages";
-import { MAX_GAP_RESYNCS, consoleStreamUrl, useConsoleStream } from "../use-console-stream";
+import { MAX_GAP_RESYNCS, consoleStreamReducer, consoleStreamUrl, initialConsoleState, useConsoleStream } from "../use-console-stream";
 import { FakeEventSource, ev, fakeFetch, snapshot } from "./fakes";
 
 afterEach(cleanup);
@@ -52,7 +52,7 @@ describe("useConsoleStream", () => {
     expect(texts(hook)).toEqual(["a", "b"]);
   });
 
-  it("a gap closes the source and opens a new one; the fourth gap is final lost", () => {
+  it("a gap closes the source and opens a new one; the fourth consecutive gap is final lost", () => {
     const { hook, es } = start();
     joined(es());
     emit(es(), "reset", { state: snapshot({ status: "running", lastSeq: 1 }) });
@@ -143,5 +143,50 @@ describe("useConsoleStream", () => {
     const second = es();
     hook.unmount();
     expect(second.closed).toBe(true);
+  });
+
+  it("a resync that recovers resets the count: five gaps each followed by an in-order event never reach lost", () => {
+    const { hook, es } = start();
+    joined(es());
+    emit(es(), "reset", { state: snapshot({ status: "running", lastSeq: 1 }) });
+    let seq = 1;
+    for (let i = 0; i < 5; i++) {
+      emit(es(), "event", utt(seq + 5, "hole"));
+      expect(FakeEventSource.instances).toHaveLength(i + 2);
+      joined(es());
+      emit(es(), "event", utt(seq + 1, "ok"));
+      seq += 1;
+      expect(hook.result.current.view?.gap).toBe(false);
+    }
+    expect(hook.result.current.final).toBeNull();
+  });
+
+  it("state does not survive stopped, then disable and enable", () => {
+    const { hook, es } = start();
+    joined(es());
+    emit(es(), "reset", { state: snapshot({ status: "running", lastSeq: 1 }) });
+    emit(es(), "roster", { entries: [{ roleId: "x", joined: true, consented: true, connected: true }] });
+    emit(es(), "event", utt(9, "hole")); // one gap counted
+    emit(es(), "stopped", {});
+    expect(hook.result.current.final?.kind).toBe("stopped");
+    hook.rerender({ enabled: false });
+    hook.rerender({ enabled: true });
+    const r = hook.result.current;
+    expect(r.view).toBeNull();
+    expect(r.final).toBeNull();
+    expect(r.roster).toEqual([]);
+    expect(r.scenes).toEqual([]);
+    expect(r.channel).toBeNull();
+    expect((r as unknown as { gaps: number }).gaps).toBe(0);
+  });
+
+  it("actions after a final do not change the state (reducer)", () => {
+    const base = consoleStreamReducer(consoleStreamReducer(initialConsoleState, { type: "reset", state: snapshot({ status: "running", lastSeq: 1 }) }), { type: "final", kind: "lost" });
+    expect(base.final?.kind).toBe("lost");
+    const actions: Parameters<typeof consoleStreamReducer>[1][] = [
+      { type: "event", event: utt(2, "late") }, { type: "reset", state: snapshot({ lastSeq: 9 }) }, { type: "roster", entries: [] },
+      { type: "joined", channel: "c", scenes: [] }, { type: "notice", text: "n" },
+    ];
+    for (const a of actions) expect(consoleStreamReducer(base, a)).toBe(base);
   });
 });

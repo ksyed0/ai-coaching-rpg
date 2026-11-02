@@ -5,6 +5,7 @@ import { handleConsoleStream } from "../console-stream";
 import { setEnvelopeClock } from "../envelope";
 import { FACILITATOR_FORWARD_KEY, FacilitatorBudget, LIVE_TABS_PER_SESSION } from "../facilitator-budget";
 import { FacilitatorHub } from "../facilitator-hub";
+import { MESSAGES } from "../../lib/messages";
 import { COOKIE_NAME, type Deps } from "../handlers";
 import { LauncherError } from "../launcher-client";
 import { route } from "../routes";
@@ -283,5 +284,11 @@ describe("GET /api/v1/console/sessions/:id/stream", () => {
 
   it("the route function maps the handler and is exported", () => {
     expect(typeof route(handleConsoleStream)).toBe("function");
+  });
+});
+
+describe("console copy shared with the browser", () => {
+  it("the server's busy message equals the hook's", () => {
+    expect(BUSY_MESSAGE).toBe(MESSAGES.consoleBusy);
   });
 });
