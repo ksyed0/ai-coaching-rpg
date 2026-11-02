@@ -63,8 +63,9 @@ describe("LiveView", () => {
     render(<LiveView ui={ui({}, {}, [
       { seq: 1, ts: 1, kind: "alert", text: "Code reissued", level: "info" },
       { seq: 2, ts: 2, kind: "alert", text: "Mic problem", level: "warning" },
-      { seq: 3, ts: 3, kind: "notice", text: "Paused by Sam" },
-      { seq: 4, ts: 4, kind: "notice", text: "Game Master: “x” is met" },
+      { seq: 3, ts: 3, kind: "notice", source: "facilitator", text: "Paused by Sam" },
+      { seq: 4, ts: 4, kind: "notice", source: "gm", text: "Game Master: “x” is met" },
+      { seq: 5, ts: 5, kind: "notice", source: "session", text: "Session started" },
     ])} clock={new FakeClock(T)} />);
     const list = screen.getByRole("list", { name: "Transcript and notices" });
     expect(list.getAttribute("aria-live")).toBe("polite");
@@ -73,8 +74,9 @@ describe("LiveView", () => {
     const items = within(list).getAllByRole("listitem");
     expect(items[0]!.textContent).toContain("Alert:");
     expect(items[1]!.textContent).toContain("Warning:");
-    expect(items[2]!.textContent).toMatch(/^Facilitator/);
-    expect(items[3]!.textContent).toMatch(/^Game Master/);
+    expect(items[2]!.textContent).toMatch(/^Facilitator: /);
+    expect(items[3]!.textContent).toBe("Game Master: “x” is met");
+    expect(items[4]!.textContent).toBe("Session started");
   });
 
   it("the seq 0 notice has no date and no prefix", () => {
@@ -87,16 +89,18 @@ describe("LiveView", () => {
   it("scene title, goal and timer from scenes and currentScene; Paused shows the pill; no scene shows Between scenes", () => {
     const { rerender } = render(<LiveView ui={ui()} clock={new FakeClock(T + 60_000)} />);
     const live = screen.getByRole("region", { name: "Live session" });
-    expect(within(live).getByText("Running")).toBeTruthy();
+    expect(within(live).queryByText("Running")).toBeNull();
     expect(within(live).getByText("Scene 1 of 1: The Gate")).toBeTruthy();
     expect(within(live).getByText("Goal: Get through")).toBeTruthy();
     expect(within(live).getByRole("timer").textContent).toContain("04:00");
     rerender(<LiveView ui={ui({}, { paused: true, pausedSince: T + 30_000 })} clock={new FakeClock(T + 60_000)} />);
-    expect(screen.getAllByText("Paused").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Paused")).toHaveLength(1); // the scene bar's pill only
     expect(screen.getByRole("timer").textContent).toContain("04:30");
     rerender(<LiveView ui={ui({}, { currentScene: null })} clock={new FakeClock(T)} />);
     expect(screen.getByText("Between scenes")).toBeTruthy();
     rerender(<LiveView ui={ui({ view: null })} clock={new FakeClock(T)} />);
+    expect(screen.queryByText("Not started")).toBeNull(); // still connecting: no status word
+    rerender(<LiveView ui={ui({}, { status: "idle", currentScene: null })} clock={new FakeClock(T)} />);
     expect(screen.getByText("Not started")).toBeTruthy();
     rerender(<LiveView ui={ui({}, { status: "ended", currentScene: null })} clock={new FakeClock(T)} />);
     expect(screen.getByText("Ended")).toBeTruthy();
@@ -116,10 +120,21 @@ describe("LiveView", () => {
     expect(within(screen.getByRole("table", { name: "Players" })).queryByText("N")).toBeNull();
   });
 
-  it("shows the reconnecting banner, the notice and a final message", () => {
-    render(<LiveView ui={ui({ conn: "reconnecting", notice: "Server said hmm", final: { kind: "ended", message: "The session has ended." } })} clock={new FakeClock(T)} />);
-    expect(screen.getByText(/Reconnecting/)).toBeTruthy();
-    expect(screen.getByText("Server said hmm")).toBeTruthy();
-    expect(screen.getByText("The session has ended.")).toBeTruthy();
+  it("the reconnecting banner and the notice sit in an always-mounted status region; a final message is not shown here", () => {
+    const { rerender } = render(<LiveView ui={ui()} clock={new FakeClock(T)} />);
+    const region = screen.getByRole("status");
+    expect(region.textContent).toBe("");
+    rerender(<LiveView ui={ui({ conn: "reconnecting", notice: "Server said hmm", final: { kind: "ended", message: "The session has ended." } })} clock={new FakeClock(T)} />);
+    expect(screen.getByRole("status")).toBe(region);
+    expect(region.textContent).toContain("Reconnecting");
+    expect(region.textContent).toContain("Server said hmm");
+    expect(screen.queryByText("The session has ended.")).toBeNull();
+  });
+
+  it("Words spoken shows the name in bdi and a muted role label", () => {
+    render(<LiveView ui={ui({}, { talk: { a: { words: 1, lines: 1 } } })} clock={new FakeClock(T)} />);
+    const row = within(screen.getByRole("table", { name: "Players" })).getAllByRole("row")[1]!;
+    expect(row.querySelectorAll("bdi")).toHaveLength(2);
+    expect(row.querySelector(".muted")!.textContent).toContain("A");
   });
 });

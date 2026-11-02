@@ -14,13 +14,16 @@ function Table({ label, rows, names }: { label: string; rows: TalkRow[]; names: 
   return (
     <div>
       <h3 className="s" id={id}>{label}</h3>
-      <div className="tablewrap" tabIndex={0} role="group" aria-labelledby={id}>
+      <div className="tablewrap">
         <table className="grid" aria-labelledby={id}>
           <thead><tr><th scope="col">Role</th><th scope="col">Words</th><th scope="col">Lines</th></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.roleId}>
-                <th scope="row"><bdi>{Object.hasOwn(names, r.roleId) ? names[r.roleId] : roleLabel(r.roleId)}</bdi></th>
+                <th scope="row">
+                  <bdi>{Object.hasOwn(names, r.roleId) ? names[r.roleId] : roleLabel(r.roleId)}</bdi>
+                  {Object.hasOwn(names, r.roleId) ? <span className="muted"> <bdi>{roleLabel(r.roleId)}</bdi></span> : null}
+                </th>
                 <td>{r.words}</td>
                 <td>{r.lines}</td>
               </tr>

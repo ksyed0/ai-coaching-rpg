@@ -165,3 +165,27 @@ describe("viewFromReset", () => {
     expect(v.gap).toBe(false);
   });
 });
+
+describe("timeline source and bidi isolation", () => {
+  const ev = (e: object) => ({ ...base(2), ...e }) as SessionEvent;
+  const entry = (e: SessionEvent) => timelineText(e, initialState(), ctx)!;
+  it("labels every notice by its source", () => {
+    expect(entry(ev({ type: "facilitator.command", command: "pause", by: "Sam" })).source).toBe("facilitator");
+    expect(entry(ev({ type: "gm.no_verdict", condition: "c" })).source).toBe("gm");
+    expect(entry(ev({ type: "gm.fact_earned", roleId: "n", fact: 1, autoRelease: false })).source).toBe("gm");
+    expect(entry(ev({ type: "scene.entered", sceneId: "s1", participants: [] })).source).toBe("session");
+    expect(entry(ev({ type: "session.ended", message: "bye" })).source).toBe("session");
+    expect(entry(ev({ type: "session.resumed" })).source).toBe("session");
+    expect(entry(ev({ type: "inject.fired", injectId: "i", to: ["a"], content: "x" })).source).toBe("session");
+    expect(entry(ev({ type: "facilitator.alert", level: "info", message: "m" })).source).toBe("alert");
+    expect(entry(utter(2, "a", "hi")).source).toBeUndefined();
+    expect(viewFromReset({ ...initialState(), lastSeq: 3 }).timeline[0]!.source).toBe("session");
+  });
+  it("isolates a by, a role label and a whisper that hold a bidi control; normal values stay as they are", () => {
+    expect(entry(ev({ type: "facilitator.command", command: "pause", by: "S\u202Eam" })).text).toBe("Paused by \u2068S\u202Eam\u2069");
+    expect(entry(ev({ type: "facilitator.command", command: "pause", by: "Sam" })).text).toBe("Paused by Sam");
+    expect(entry(ev({ type: "facilitator.command", command: "whisper", roleId: "a", text: "x\u2067y", by: "Sam" })).text).toBe("Whisper to <a> by Sam: \u2068x\u2067y\u2069");
+    const bidi = { ...ctx, label: (r: string) => `\u202E${r}` };
+    expect(timelineText(ev({ type: "gm.fact_earned", roleId: "n", fact: 2, autoRelease: false }), initialState(), bidi)!.text).toBe("Game Master suggests releasing fact 2 of \u2068\u202En\u2069");
+  });
+});

@@ -6,7 +6,7 @@ import { initialState, reduce, type PlayerScene, type RoleKind, type SessionEven
 /** Lines kept in the browser for the transcript and for the timeline. */
 export const MAX_CONSOLE_LINES = 1_000;
 
-export type TimelineEntry = { seq: number; ts: number; kind: "line" | "notice" | "alert"; text: string; roleId?: string; level?: "info" | "warning" };
+export type TimelineEntry = { seq: number; ts: number; kind: "line" | "notice" | "alert"; text: string; roleId?: string; level?: "info" | "warning"; source?: "gm" | "facilitator" | "session" | "alert" };
 export type ConsoleView = { state: SessionState; timeline: TimelineEntry[]; gap: boolean };
 type Ctx = { scenes: PlayerScene[]; label: (roleId: string) => string };
 
@@ -17,40 +17,46 @@ export function viewFromReset(state: SessionState): ConsoleView {
   const notice = state.lastSeq > 0;
   // Slice the lines first, leaving room for the notice, so the notice stays at index 0 and the total stays within the cap.
   const lines: TimelineEntry[] = kept.slice(notice ? -(MAX_CONSOLE_LINES - 1) : -MAX_CONSOLE_LINES).map((u) => ({ seq: u.seq, ts: u.ts, kind: "line", text: u.text, roleId: u.roleId }));
-  const timeline = notice ? [{ seq: 0, ts: 0, kind: "notice" as const, text: NOT_SHOWN }, ...lines] : lines;
+  const timeline = notice ? [{ seq: 0, ts: 0, kind: "notice" as const, source: "session" as const, text: NOT_SHOWN }, ...lines] : lines;
   return { state: kept === state.transcript ? state : { ...state, transcript: kept }, timeline, gap: false };
 }
 
+const BIDI = /[\u202A-\u202E\u2066-\u2069\u200E\u200F]/;
+/** Isolates a supplied value that holds a bidi control character (U+2068 ... U+2069), so it cannot reorder the text after it. Other values are returned as is. */
+export const isolate = (v: string): string => (BIDI.test(v) ? `\u2068${v}\u2069` : v);
+
 export function timelineText(e: SessionEvent, before: SessionState, ctx: Ctx): Omit<TimelineEntry, "seq" | "ts"> | null {
-  const by = ("by" in e && typeof e.by === "string" ? e.by : undefined) ?? "the facilitator";
+  const by = isolate(("by" in e && typeof e.by === "string" ? e.by : undefined) ?? "the facilitator");
+  const label = (roleId: string) => isolate(ctx.label(roleId));
   const scene = (id: string) => ctx.scenes.find((s) => s.id === id)?.title ?? id;
-  const notice = (text: string) => ({ kind: "notice" as const, text });
+  const mk = (source: "gm" | "facilitator" | "session") => (text: string) => ({ kind: "notice" as const, source, text });
+  const gm = mk("gm"), fac = mk("facilitator"), notice = mk("session");
   switch (e.type) {
     case "utterance":
       return { kind: "line", text: e.text, roleId: e.roleId };
     case "facilitator.alert":
-      return { kind: "alert", text: e.message, level: e.level };
+      return { kind: "alert", source: "alert", text: e.message, level: e.level };
     case "gm.decision": {
       if (Object.hasOwn(before.gmVerdicts, e.condition) && before.gmVerdicts[e.condition] === e.verdict) return null;
-      return notice(`Game Master: “${e.condition}” is ${e.verdict ? "met" : "not met"}`);
+      return gm(`Game Master: “${e.condition}” is ${e.verdict ? "met" : "not met"}`);
     }
     case "gm.no_verdict":
-      return notice(`Game Master gave no verdict on “${e.condition}”`);
+      return gm(`Game Master gave no verdict on “${e.condition}”`);
     case "gm.fact_earned":
-      return notice(`Game Master suggests releasing fact ${e.fact} of ${ctx.label(e.roleId)}${e.autoRelease ? " (released automatically)" : ""}`);
+      return gm(`Game Master suggests releasing fact ${e.fact} of ${label(e.roleId)}${e.autoRelease ? " (released automatically)" : ""}`);
     case "facilitator.command":
       switch (e.command) {
-        case "pause": return notice(`Paused by ${by}`);
-        case "resume": return notice(`Resumed by ${by}`);
-        case "advance": return notice(`Advance requested by ${by}`);
-        case "fire_inject": return notice(`Inject ${e.injectId} fired by ${by}`);
-        case "whisper": return notice(`Whisper to ${ctx.label(e.roleId)} by ${by}: ${e.text}`);
-        case "release_hidden": return notice(`Fact ${e.fact} of ${ctx.label(e.roleId)} released by ${by}`);
-        case "set_npc_stance": return notice(`Stance of ${ctx.label(e.roleId)} changed by ${by}`);
+        case "pause": return fac(`Paused by ${by}`);
+        case "resume": return fac(`Resumed by ${by}`);
+        case "advance": return fac(`Advance requested by ${by}`);
+        case "fire_inject": return fac(`Inject ${e.injectId} fired by ${by}`);
+        case "whisper": return fac(`Whisper to ${label(e.roleId)} by ${by}: ${isolate(e.text)}`);
+        case "release_hidden": return fac(`Fact ${e.fact} of ${label(e.roleId)} released by ${by}`);
+        case "set_npc_stance": return fac(`Stance of ${label(e.roleId)} changed by ${by}`);
         default: return null;
       }
     case "inject.fired":
-      return notice(`Inject to ${(Array.isArray(e.to) ? e.to : []).map(ctx.label).join(", ")}: ${e.content}`);
+      return notice(`Inject to ${(Array.isArray(e.to) ? e.to : []).map(label).join(", ")}: ${e.content}`);
     case "scene.entered":
       return notice(`Scene “${scene(e.sceneId)}” begins`);
     case "scene.exited":

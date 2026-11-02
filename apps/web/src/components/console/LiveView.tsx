@@ -29,7 +29,8 @@ export function LiveView({ ui, clock }: LiveViewProps) {
   );
   const rows = useMemo(() => (state ? talkRows(state) : []), [state]);
 
-  const status = !state || state.status === "idle" ? "Not started" : state.status === "ended" ? "Ended" : state.paused ? "Paused" : "Running";
+  // Only the two states the scene bar cannot show; none while the view has not arrived. Paused and the scene come from SceneStatus.
+  const status = !state ? null : state.status === "idle" ? "Not started" : state.status === "ended" ? "Ended" : null;
   const cur = state?.currentScene ?? null;
   const index = cur ? ui.scenes.findIndex((s) => s.id === cur.id) : -1;
   const sceneView = {
@@ -43,11 +44,12 @@ export function LiveView({ ui, clock }: LiveViewProps) {
       <section aria-labelledby={id} className="card">
         <div className="listhead">
           <h2 className="s" id={id}>Live session</h2>
-          <span className={status === "Running" ? "pill ok" : status === "Paused" ? "pill warn" : "pill mut"}>{status}</span>
+          {status ? <span className="pill mut">{status}</span> : null}
         </div>
-        {ui.conn === "reconnecting" ? <p className="banner warn" role="status">{MESSAGES.consoleReconnecting}</p> : null}
-        {ui.notice ? <p className="banner warn" role="status">{ui.notice}</p> : null}
-        {ui.final ? <p className="banner warn" role="status">{ui.final.message}</p> : null}
+        <div role="status">
+          {ui.conn === "reconnecting" ? <p className="banner warn">{MESSAGES.consoleReconnecting}</p> : null}
+          {ui.notice ? <p className="banner warn">{ui.notice}</p> : null}
+        </div>
         <SceneStatus scene={index >= 0 ? ui.scenes[index] : undefined} index={index} count={ui.scenes.length} view={sceneView} clock={clock} />
       </section>
       <div>

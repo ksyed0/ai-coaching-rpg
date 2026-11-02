@@ -38,12 +38,11 @@ function Entry({ e, names, playerRoles }: { e: TimelineEntry; names: Record<stri
       </li>
     );
   }
-  // The "earlier notices are not shown" entry (seq 0) is the viewer's own, not an event: no prefix.
-  if (e.seq === 0) return <li className="msg note muted"><span className="line">{e.text}</span></li>;
-  const gm = e.text.startsWith("Game Master");
+  // Session notices (and the viewer's own seq 0 entry) carry no prefix; the Game Master's own wording says who it is.
+  if (e.source === "gm") return <li className="gm"><span className="line">{e.text}</span></li>;
   return (
-    <li className={gm ? "gm" : "msg note"}>
-      {gm ? null : <b>Facilitator </b>}
+    <li className={e.seq === 0 ? "msg note muted" : "msg note"}>
+      {e.source === "facilitator" ? <b>Facilitator: </b> : null}
       <span className="line">{e.text}</span>
     </li>
   );
