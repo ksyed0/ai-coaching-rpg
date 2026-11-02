@@ -28,7 +28,8 @@ export const isolate = (v: string): string => (BIDI.test(v) ? `\u2068${v}\u2069`
 export function timelineText(e: SessionEvent, before: SessionState, ctx: Ctx): Omit<TimelineEntry, "seq" | "ts"> | null {
   const by = isolate(("by" in e && typeof e.by === "string" ? e.by : undefined) ?? "the facilitator");
   const label = (roleId: string) => isolate(ctx.label(roleId));
-  const scene = (id: string) => ctx.scenes.find((s) => s.id === id)?.title ?? id;
+  const scene = (id: string) => isolate(ctx.scenes.find((s) => s.id === id)?.title ?? id);
+  const cond = (c: string) => isolate(c);
   const mk = (source: "gm" | "facilitator" | "session") => (text: string) => ({ kind: "notice" as const, source, text });
   const gm = mk("gm"), fac = mk("facilitator"), notice = mk("session");
   switch (e.type) {
@@ -38,10 +39,10 @@ export function timelineText(e: SessionEvent, before: SessionState, ctx: Ctx): O
       return { kind: "alert", source: "alert", text: e.message, level: e.level };
     case "gm.decision": {
       if (Object.hasOwn(before.gmVerdicts, e.condition) && before.gmVerdicts[e.condition] === e.verdict) return null;
-      return gm(`Game Master: “${e.condition}” is ${e.verdict ? "met" : "not met"}`);
+      return gm(`Game Master: “${cond(e.condition)}” is ${e.verdict ? "met" : "not met"}`);
     }
     case "gm.no_verdict":
-      return gm(`Game Master gave no verdict on “${e.condition}”`);
+      return gm(`Game Master gave no verdict on “${cond(e.condition)}”`);
     case "gm.fact_earned":
       return gm(`Game Master suggests releasing fact ${e.fact} of ${label(e.roleId)}${e.autoRelease ? " (released automatically)" : ""}`);
     case "facilitator.command":

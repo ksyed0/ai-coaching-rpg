@@ -25,7 +25,7 @@ function ui(over: Partial<ConsoleStreamUi> = {}, state: Partial<SessionState> = 
 }
 
 describe("LiveView", () => {
-  it("renders <img src=x onerror=alert(1)>, <b>, U+202E and a tab in a line, a name, by, an alert, Game Master reasoning and a closing message as literal text, with no img, b or script element", () => {
+  it("renders <img src=x onerror=alert(1)>, <b>, U+202E and a tab in a line, a name, by, an alert, a Game Master condition and a closing message as literal text, with no img, b or script element", () => {
     const timeline = [
       { seq: 1, ts: 1, kind: "line" as const, text: EVIL, roleId: "a" },
       { seq: 2, ts: 2, kind: "notice" as const, text: `Paused by ${EVIL}` },

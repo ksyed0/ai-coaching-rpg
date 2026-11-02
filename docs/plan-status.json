@@ -4791,6 +4791,30 @@
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0017",
+      "title": "The player stream hub stalls on a reset larger than 256 KiB",
+      "severity": "Low",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0096",
+      "status": "Open",
+      "fixBranch": "None",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0018",
+      "title": "npc-agent.silence.test.ts fails under heavy load",
+      "severity": "Low",
+      "relatedStory": "US-0032",
+      "relatedTask": "None",
+      "status": "Open",
+      "fixBranch": "None",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
     }
   ],
   "costs": {
@@ -5311,6 +5335,22 @@
         "projectedUsd": 400
       },
       "BUG-0016": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0017": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0018": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -6072,9 +6112,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-02T02:11:54.955Z",
-  "commitSha": "18656bc",
-  "buildNumber": "497",
+  "generatedAt": "2026-11-02T02:24:54.939Z",
+  "commitSha": "312a4ee",
+  "buildNumber": "499",
   "branch": "feature/EPIC-0002-US-0059-console-live-view",
   "sessionTimeline": [
     {
@@ -6343,7 +6383,7 @@
       "2026-11-01T21:54:38.506Z",
       "2026-11-02T00:31:24.715Z",
       "2026-11-02T01:22:39.762Z",
-      "2026-11-02T02:11:55.039Z"
+      "2026-11-02T02:24:55.020Z"
     ],
     "doneCounts": [
       0,
@@ -6607,7 +6647,7 @@
       0,
       0,
       0,
-      0
+      2
     ],
     "atRisk": [
       0,
@@ -6783,7 +6823,7 @@
       1.136923076923077,
       1.136923076923077,
       1.136923076923077,
-      1.136923076923077
+      1.1461538461538459
     ],
     "velocityByWeek": {
       "labels": [

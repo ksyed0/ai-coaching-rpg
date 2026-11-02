@@ -7,7 +7,7 @@
 | TASK         | TASK-0097             | TASK-0096         |
 | AC           | AC-0354               | AC-0353           |
 | TC           | TC-0095               | TC-0094           |
-| BUG          | BUG-0017              | BUG-0016          |
+| BUG          | BUG-0019              | BUG-0018          |
 | L            | L-0032                | L-0031            |
 
 Reserved blocks (2026-10-06): AC-0130..AC-0139 and TASK-0040..TASK-0042 US-0025; AC-0140..AC-0149 and TASK-0043..TASK-0045 US-0017; AC-0150..AC-0159 and TASK-0046..TASK-0048 US-0016; AC-0160..AC-0169 and TASK-0049..TASK-0051 US-0018. Free below the blocks: AC-0127..AC-0129 and TASK-0035..TASK-0039. Next/Last point past the reserved blocks; an id in a block that its story does not use stays unused (ids are never reassigned).
@@ -39,3 +39,5 @@ Assigned 2026-11-01 (slice 2b-2b1, PR 1): AC-0352 (US-0059: console connection b
 Assigned 2026-11-01 (slice 2b-2b1, PR 2): AC-0353 (US-0059: console stream); TC-0093 (AC-0353). No new TASK: the work is under TASK-0096.
 
 Assigned 2026-11-01 (slice 2b-2b1, PR 3): TC-0094 (the read-only live view, AC-0311). No new AC and no new TASK: the work is under TASK-0096. Slice 2b-2b1 is complete; the next TC is TC-0095.
+
+Assigned 2026-11-01 (slice 2b-2b1, PR 3, final review): BUG-0017 (player StreamHub reset stall over 256 KiB) and BUG-0018 (npc-agent.silence.test.ts load flake).

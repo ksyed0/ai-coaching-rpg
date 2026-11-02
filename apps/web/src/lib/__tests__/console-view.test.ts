@@ -188,4 +188,11 @@ describe("timeline source and bidi isolation", () => {
     const bidi = { ...ctx, label: (r: string) => `\u202E${r}` };
     expect(timelineText(ev({ type: "gm.fact_earned", roleId: "n", fact: 2, autoRelease: false }), initialState(), bidi)!.text).toBe("Game Master suggests releasing fact 2 of \u2068\u202En\u2069");
   });
+  it("isolates a Game Master condition and a scene title that hold a bidi control; normal ones stay as they are", () => {
+    expect(entry(ev({ type: "gm.no_verdict", condition: "a\u202Eb" })).text).toBe("Game Master gave no verdict on \u201C\u2068a\u202Eb\u2069\u201D");
+    expect(entry(ev({ type: "gm.no_verdict", condition: "plain" })).text).toBe("Game Master gave no verdict on \u201Cplain\u201D");
+    const titled = { ...ctx, scenes: [{ id: "s1", title: "T\u2067x", goal: "g", timeBoxMinutes: 1 }] };
+    expect(timelineText(ev({ type: "scene.entered", sceneId: "s1", participants: [] }), initialState(), titled)!.text).toBe("Scene \u201C\u2068T\u2067x\u2069\u201D begins");
+    expect(entry(ev({ type: "scene.entered", sceneId: "zz", participants: [] })).text).toBe("Scene \u201Czz\u201D begins");
+  });
 });

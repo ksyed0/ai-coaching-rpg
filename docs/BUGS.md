@@ -216,3 +216,27 @@ Lesson Encoded: No
 
 **Follow-up (review).** The control service's `awaitReady` stopped listening once `ready` settled and the live handler was installed only afterwards, so an `ended` sent right after `ready` was dropped and the list kept the session "running". `awaitReady` now records an `ended` seen after `ready` and `goLive` applies it through the idempotent `onEnded` (both callers: create, and the shared start path used by restart/resume and reissue-all). A standalone (no control service) resume repaired to ended now also revokes the seats. Tests: `supervisor.lifecycle.test.ts` (ready+ended burst, create and restart), `main.parent.test.ts` (persisted end mark, a throwing revoke is warned, standalone).
 
+
+```
+BUG-0017: The player stream hub stalls on a reset larger than 256 KiB
+Severity: Low
+Related Story: US-0059
+Related Task: TASK-0096
+Status: Open
+Fix Branch: None
+Lesson Encoded: No
+```
+
+Found in the final review of slice 2b-2b1. The console hub (`facilitator-hub.ts`) was fixed so that a reset frame over 256 KiB no longer stalls the stream; the player `StreamHub` shares the older behaviour and still stalls (the browser is dropped as slow) on a reset that large. No scenario today produces a player reset that big. Fix: apply the console hub's handling to the player hub and add the same test.
+
+```
+BUG-0018: npc-agent.silence.test.ts fails under heavy load
+Severity: Low
+Related Story: US-0032
+Related Task: None
+Status: Open
+Fix Branch: None
+Lesson Encoded: No
+```
+
+`services/runtime/src/agents/__tests__/npc-agent.silence.test.ts` ("is linear on abusive input") has an absolute elapsed-time bound that a loaded machine can exceed; it was seen once in the slice 2b-2b1 work and passed in both close-out coverage runs. It is the same pattern as the 2026-10 coverage-check failures recorded in `docs/LESSONS.md`. Fix: assert the scaling between two input sizes (or count operations) and keep only a generous absolute cap.
