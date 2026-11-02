@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { postJson } from "../../lib/api";
 import {
   CONSOLE_COPY,
@@ -9,6 +9,7 @@ import {
   shortId,
   type CodeEntry,
   type Readiness as ReadinessData,
+  type RosterEntry,
 } from "../../lib/console-api";
 import { roleLabel } from "../../lib/names";
 import { useReadiness, type SetTimer } from "../../lib/use-readiness";
@@ -23,7 +24,16 @@ export type ReadinessProps = {
   fetch?: typeof fetch;
   setTimer?: SetTimer;
   intervalMs?: number;
+  /** Set once the session is running and the live stream is open: polling stops, status and roster come from here. */
+  live?: { status: SessionStatus; roster: RosterEntry[] } | null;
+  /** Called with each readiness answer. */
+  onState?: (s: { launcherStatus: string; status: SessionStatus | null }) => void;
+  /** Called when Start succeeded (or the session was already started). */
+  onStarted?: () => void;
+  /** The shell already shows the stopped message: the Restart button stays, the sentence is not repeated. */
+  stoppedAnnounced?: boolean;
 };
+export type SessionStatus = "idle" | "running" | "ended";
 
 type Confirm =
   | { kind: "role"; roleId: string; opener: HTMLElement }
@@ -39,12 +49,35 @@ export function Readiness({
   fetch: fetchImpl,
   setTimer,
   intervalMs,
+  live = null,
+  onState,
+  onStarted,
+  stoppedAnnounced = false,
 }: ReadinessProps) {
-  const { data, reconnecting, signedOut, refresh } = useReadiness(sessionId, {
+  const { data: polled, reconnecting, signedOut, refresh } = useReadiness(sessionId, {
     fetch: fetchImpl,
+    enabled: live === null,
     ...(setTimer ? { setTimer } : {}),
     ...(intervalMs ? { intervalMs } : {}),
   });
+  // Live: the last polled launcher status and model stay; status and roster come from the stream (the polled roster until it has one).
+  const data: ReadinessData | null =
+    polled && live
+      ? {
+          ...polled,
+          status: live.status,
+          roster: live.roster.length > 0 ? live.roster : polled.roster,
+        }
+      : polled;
+  const stateCb = useRef(onState);
+  stateCb.current = onState;
+  useEffect(() => {
+    if (polled)
+      stateCb.current?.({
+        launcherStatus: polled.launcherStatus,
+        status: polled.status,
+      });
+  }, [polled]);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [working, setWorking] = useState(false);
   const [shown, setShown] = useState<Shown | null>(null);
@@ -125,7 +158,8 @@ export function Readiness({
     setWorking(false);
     if (r.ok) {
       setStartedHere(true);
-      refresh();
+      if (onStarted) onStarted();
+      else refresh();
       return;
     }
     if (r.status === 409) {
@@ -144,6 +178,7 @@ export function Readiness({
       } else {
         // 409 without the gate's detail is "already started": the goal is reached, so it reads as started.
         setStartedHere(true);
+        onStarted?.();
       }
       refresh();
       return;
@@ -173,7 +208,9 @@ export function Readiness({
     <View
       sessionId={sessionId}
       data={data}
-      reconnecting={reconnecting}
+      reconnecting={reconnecting && live === null}
+      isLive={live !== null}
+      stoppedAnnounced={stoppedAnnounced}
       working={working}
       startedHere={startedHere}
       error={error}
@@ -197,6 +234,9 @@ type ViewProps = {
   sessionId: string;
   data: ReadinessData;
   reconnecting: boolean;
+  /** The shell owns the ended message while the live view is on. */
+  isLive: boolean;
+  stoppedAnnounced: boolean;
   working: boolean;
   startedHere: boolean;
   error: string | null;
@@ -254,14 +294,14 @@ function View(p: ViewProps) {
           The session cannot be reached right now. Reconnecting…
         </p>
       ) : null}
-      {ended ? (
+      {ended && !p.isLive ? (
         <p className="banner warn" role="status">
           This session has ended.
         </p>
       ) : null}
       {stopped ? (
         <div className="banner warn stack" role="status">
-          <p>The session service stopped this session.</p>
+          {p.stoppedAnnounced ? null : <p>The session service stopped this session.</p>}
           <div>
             <button
               className="btn"

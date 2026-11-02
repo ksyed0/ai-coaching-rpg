@@ -2514,7 +2514,7 @@
         },
         {
           "id": "AC-0311",
-          "text": "the live console shows scene status, timers, the transcript with Game Master notices and alerts, and talk time, and offers pause, resume, advance and end now (runtime part landed in slice 2b-2a: the fold projects \"Words spoken\" per role, facilitator only, TC-0089; the console screens follow in slice 2b-2b)",
+          "text": "the live console shows scene status, timers, the transcript with Game Master notices and alerts, and talk time, and offers pause, resume, advance and end now (runtime part landed in slice 2b-2a: the fold projects \"Words spoken\" per role, facilitator only, TC-0089; the console screens follow in slice 2b-2b; scene status, timers, transcript with Game Master notices and alerts and Words spoken are built in slice 2b-2b1 (TC-0094); pause, resume, advance and end now follow in 2b-2b2)",
           "done": false
         },
         {
@@ -2539,7 +2539,7 @@
         },
         {
           "id": "AC-0316",
-          "text": "the layout works at laptop width and keyboard focus and labels pass an accessibility audit",
+          "text": "the layout works at laptop width and keyboard focus and labels pass an accessibility audit (the live view passes Axe at 400 px and 1280 px, light and dark, in apps/web/e2e/console-live.spec.ts; the controls are audited in 2b-2b2)",
           "done": false
         },
         {
@@ -3612,9 +3612,9 @@
       "title": "Facilitator channel and read-only live view (slice 2b-2b1)",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0059-console-budget (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-console-stream and feature/EPIC-0002-US-0059-console-live-view)",
-      "notes": "PR 1 is the connection budget (AC-0352, merged as #69). PR 2 (this branch, feature/EPIC-0002-US-0059-console-stream) is the facilitator SSE channel (AC-0353). PR 3 is the read-only live view (console part of AC-0311). Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md."
+      "notes": "PR 1 is the connection budget (AC-0352, merged as #69). PR 2 (feature/EPIC-0002-US-0059-console-stream, merged as #70) is the facilitator SSE channel (AC-0353). PR 3 (this PR, feature/EPIC-0002-US-0059-console-live-view) is the read-only live view (console part of AC-0311, TC-0094). Delivered in three PRs: #69, #70 and this PR. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md."
     },
     {
       "id": "TASK-0089",
@@ -4587,6 +4587,16 @@
       "type": "Integration",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0094",
+      "title": "The console shows the live session read-only from the stream",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0096",
+      "relatedAC": "AC-0311",
+      "type": "Component, E2E",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -4778,6 +4788,30 @@
       "relatedTask": "TASK-0095",
       "status": "Fixed",
       "fixBranch": "feature/EPIC-0002-US-0059-runtime-protocol",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0017",
+      "title": "The player stream hub stalls on a reset larger than 256 KiB",
+      "severity": "Low",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0096",
+      "status": "Open",
+      "fixBranch": "None",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0018",
+      "title": "npc-agent.silence.test.ts fails under heavy load",
+      "severity": "Low",
+      "relatedStory": "US-0032",
+      "relatedTask": "None",
+      "status": "Open",
+      "fixBranch": "None",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5301,6 +5335,22 @@
         "projectedUsd": 400
       },
       "BUG-0016": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0017": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0018": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -6062,10 +6112,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-02T01:22:39.668Z",
-  "commitSha": "66b2aa3",
-  "buildNumber": "497",
-  "branch": "feature/EPIC-0002-US-0059-console-stream",
+  "generatedAt": "2026-11-02T02:24:54.939Z",
+  "commitSha": "312a4ee",
+  "buildNumber": "499",
+  "branch": "feature/EPIC-0002-US-0059-console-live-view",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6332,9 +6382,11 @@
       "2026-11-01T20:42:08.694Z",
       "2026-11-01T21:54:38.506Z",
       "2026-11-02T00:31:24.715Z",
-      "2026-11-02T01:22:39.762Z"
+      "2026-11-02T01:22:39.762Z",
+      "2026-11-02T02:24:55.020Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6418,6 +6470,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6451,6 +6504,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -6504,9 +6558,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -6590,9 +6646,11 @@
       0,
       0,
       0,
-      0
+      0,
+      2
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -6676,6 +6734,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -6709,6 +6768,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -6762,7 +6822,8 @@
       1.136923076923077,
       1.136923076923077,
       1.136923076923077,
-      1.136923076923077
+      1.136923076923077,
+      1.1461538461538459
     ],
     "velocityByWeek": {
       "labels": [

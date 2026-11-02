@@ -26,6 +26,8 @@ export type UseReadinessOptions = {
   intervalMs?: number;
   setTimer?: SetTimer;
   fetch?: typeof fetch;
+  /** False stops the polling (nothing is fetched); true again polls at once. Default true. */
+  enabled?: boolean;
 };
 export type ReadinessState = {
   data: Readiness | null;
@@ -38,7 +40,7 @@ export function useReadiness(
   sessionId: string,
   opts: UseReadinessOptions = {},
 ): ReadinessState {
-  const { intervalMs = 2000, setTimer = realSetTimer, fetch: fetchImpl } = opts;
+  const { intervalMs = 2000, setTimer = realSetTimer, fetch: fetchImpl, enabled = true } = opts;
   const [data, setData] = useState<Readiness | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
@@ -48,6 +50,7 @@ export function useReadiness(
   latest.current = { setTimer, fetchImpl, intervalMs };
 
   useEffect(() => {
+    if (!enabled) return;
     let alive = true;
     let failures = 0;
     let running = false;
@@ -98,7 +101,7 @@ export function useReadiness(
       cancel = null;
       pollNow.current = () => {};
     };
-  }, [sessionId]);
+  }, [sessionId, enabled]);
 
   const refresh = useCallback(() => pollNow.current(), []);
   return { data, reconnecting, signedOut, refresh };

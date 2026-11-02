@@ -24,4 +24,15 @@ export const MESSAGES = {
   badName: "Enter a name of 1 to 60 characters on one line.",
   generic: "Something went wrong. Try again.",
   badLink: "This join link is incomplete. Open the link your facilitator gave you.",
+  // The facilitator console's live view (use-console-stream.ts). `stopped`, `expired`, `busy` and the two browser-side finals are fixed copy.
+  consoleEnded: "The session has ended.",
+  consoleStopped: "The session stopped. Restart it from this page.",
+  consoleExpired: "Your console sign-in has expired. Sign in again.",
+  consoleBusy: "This session is open in too many console tabs. Close one, then reload this page.", // equals the BFF's busy message
+  consoleClosed: "The live view was refused. Reload the page; if it happens again, sign in again.",
+  consoleLost: "The live view fell out of step. Reload the page.",
+  consoleReconnecting: "Reconnecting… The live view catches up by itself.",
+  consoleLede: "Get the room ready, start, then follow the session live.",
+  consoleNothingYet: "Nothing has been said yet.",
+  consoleServerError: "The server reported a problem with the live view. It keeps updating if it can.",
 } as const;

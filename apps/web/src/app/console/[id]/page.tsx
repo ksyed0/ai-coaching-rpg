@@ -5,12 +5,13 @@ import { isValidSessionId } from "@acr/events";
 import { AppHeader } from "../../../components/AppHeader";
 import { ConsoleDisabled } from "../../../components/console/ConsoleDisabled";
 import { ConsoleLogin } from "../../../components/console/ConsoleLogin";
-import { Readiness } from "../../../components/console/Readiness";
+import { SessionConsole } from "../../../components/console/SessionConsole";
+import { MESSAGES } from "../../../lib/messages";
 import { TitleBlock } from "../../../components/TitleBlock";
 import { CONSOLE_COOKIE } from "../../../server/console-session";
 import { consoleView } from "../../../server/routes";
 
-// /console/<id>: one session's readiness and Start. The id is checked here; the BFF checks it again on every call.
+// /console/<id>: one session's readiness, Start and live view. The id is checked here; the BFF checks it again on every call.
 
 export const metadata: Metadata = {
   title: "Session · SceneCoach.ai",
@@ -31,10 +32,10 @@ export default async function ConsoleSessionPage({
       <AppHeader />
       <main className="page">
         <TitleBlock
-          title="Session readiness"
+          title="Session"
           lede={
             view.kind === "signed_in"
-              ? "See who has joined and consented, then start the session."
+              ? MESSAGES.consoleLede
               : view.kind === "disabled"
                 ? "The console is not available."
                 : "Sign in with the facilitator secret and your name."
@@ -42,7 +43,7 @@ export default async function ConsoleSessionPage({
         />
         <div className={view.kind === "signed_in" ? "body" : "body narrow"}>
           {view.kind === "signed_in" ? (
-            <Readiness sessionId={id} />
+            <SessionConsole sessionId={id} />
           ) : view.kind === "disabled" ? (
             <ConsoleDisabled />
           ) : (
