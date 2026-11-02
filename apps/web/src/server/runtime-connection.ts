@@ -114,18 +114,21 @@ export class RuntimeConnection {
 
   /**
    * The facilitator's login: `join_facilitator`, then the first facilitator roster frame, which the runtime sends right after `joined`.
-   * Resolves with that roster and the session status. Any failure closes the connection; a refused token is RuntimeError("unauthorized").
-   * Only that one roster frame is taken; every other frame stays queued for a later `onFrame`.
+   * Resolves with the `joined` frame, that roster and the session status. Any failure closes the connection; a refused token is
+   * RuntimeError("unauthorized"). With `lastSeq` the runtime replays what the facilitator missed (the replayed events stay queued for
+   * `onFrame`, ahead of the roster); a lastSeq past its head is retried once without it, and `frame.replay` is then absent.
+   * Only the one roster frame is taken; every other frame stays queued for a later `onFrame`.
    */
-  async joinFacilitator(sessionId: string, token: string): Promise<{ roster: FacilitatorRosterEntry[]; status: SessionStatus }> {
+  async joinFacilitator(sessionId: string, token: string, o: { lastSeq?: number } = {}): Promise<{ frame: JoinedFrame; roster: FacilitatorRosterEntry[]; status: SessionStatus }> {
     try {
       // Armed before the join is sent: the roster can arrive in the same read as `joined`, ahead of any continuation here.
       const roster = new Promise<FacilitatorRosterEntry[]>((resolve, reject) => { this.rosterWait = { resolve, reject, cancel: () => {} }; });
       roster.catch(() => {}); // a join that fails first rejects this one too; the join's own error is the one reported
-      const joined = await this.join({ type: "join_facilitator", sessionId, token });
+      const base = { type: "join_facilitator" as const, sessionId, token };
+      const joined = await this.join(o.lastSeq === undefined ? base : { ...base, lastSeq: o.lastSeq }, o.lastSeq === undefined ? null : base);
       const w = this.rosterWait;
       if (w) w.cancel = this.setTimer(() => this.failRoster(new RuntimeError("unavailable")), this.timeoutMs);
-      return { roster: await roster, status: joined.state.status };
+      return { frame: joined, roster: await roster, status: joined.state.status };
     } catch (err) {
       this.rosterWait = null;
       this.close();

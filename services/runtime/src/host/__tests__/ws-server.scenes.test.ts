@@ -74,11 +74,18 @@ describe("joined.scenes (US-0055)", () => {
     expect(b.j.scenes).toEqual([{ id: "s3_private", title: "PRIVATE-TITLE", goal: "PRIVATE-GOAL", timeBoxMinutes: 3 }]);
   });
 
-  it("the facilitator joined has no scenes", async () => {
-    const { port } = await setup({ extraPlayers: ["p2"] });
+  it("the facilitator's joined lists every scene with id, title, goal and time box; a player's lists only its own", async () => {
+    const { port, plain } = await setup({ extraPlayers: ["p2"] });
     const f = await open(port);
     f.send({ type: "join_facilitator", sessionId: "local" });
-    expect(await f.next((m) => m.type === "joined")).not.toHaveProperty("scenes");
+    const fj = await f.next((m) => m.type === "joined");
+    expect(fj.scenes).toEqual([
+      { id: "s1_open", title: "Opening", goal: "Exchange greetings", timeBoxMinutes: 2 },
+      { id: "s2_close", title: "Close", goal: "Say goodbye", timeBoxMinutes: 1 },
+      { id: "s3_private", title: "PRIVATE-TITLE", goal: "PRIVATE-GOAL", timeBoxMinutes: 3 },
+    ]);
+    const b = await player(port, "p2", plain.p2!);
+    expect(b.j.scenes).toEqual([{ id: "s3_private", title: "PRIVATE-TITLE", goal: "PRIVATE-GOAL", timeBoxMinutes: 3 }]);
   });
 
   it("a host without scenesFor still joins a player; joined then has no scenes (omitted when empty)", async () => {

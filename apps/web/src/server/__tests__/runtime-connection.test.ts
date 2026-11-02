@@ -263,8 +263,44 @@ describe("RuntimeConnection facilitator sockets", () => {
     const rt = await runtime((ws, m) => { if (m.type === "join_facilitator") { send(ws, { type: "joined", roleId: "facilitator", state: fstate }); send(ws, facilitatorRoster); } });
     const c = await connect(rt.url);
     const r = await c.joinFacilitator("s1", "tok");
-    expect(r).toEqual({ roster: entries, status: "lobby" });
+    expect(r).toEqual({ frame: { type: "joined", roleId: "facilitator", state: fstate }, roster: entries, status: "lobby" });
     expect(rt.received).toEqual([{ type: "join_facilitator", sessionId: "s1", token: "tok" }]);
+    expect(c.isOpen).toBe(true);
+  });
+
+  it("joinFacilitator with lastSeq sends it, resolves with the joined frame, keeps the replayed events queued in order and takes the roster that follows them", async () => {
+    const rt = await runtime((ws, m) => {
+      if (m.type !== "join_facilitator") return;
+      send(ws, { type: "joined", roleId: "facilitator", state: { ...fstate, lastSeq: 3 }, replay: { afterSeq: 1, toSeq: 3, events: 2, complete: true } });
+      send(ws, ev(2)); send(ws, ev(3));
+      send(ws, facilitatorRoster);
+    });
+    const c = await connect(rt.url);
+    const r = await c.joinFacilitator("s1", "tok", { lastSeq: 1 });
+    expect(rt.received).toEqual([{ type: "join_facilitator", sessionId: "s1", token: "tok", lastSeq: 1 }]);
+    expect(r.frame.replay).toEqual({ afterSeq: 1, toSeq: 3, events: 2, complete: true });
+    expect(r.roster).toEqual(entries);
+    const seen: ServerMessage[] = [];
+    c.onFrame((m) => seen.push(m));
+    await until(() => seen.length === 2);
+    expect(seen).toEqual([ev(2), ev(3)]);
+  });
+
+  it("a lastSeq past the head is retried once without lastSeq and resolves without replay", async () => {
+    const rt = await runtime((ws, m) => {
+      if (m.type !== "join_facilitator") return;
+      if (m.lastSeq !== undefined) { send(ws, { type: "error", code: "bad_message", message: "lastSeq: after the last event of this session" }); return; }
+      send(ws, { type: "joined", roleId: "facilitator", state: fstate });
+      send(ws, facilitatorRoster);
+    });
+    const c = await connect(rt.url);
+    const r = await c.joinFacilitator("s1", "tok", { lastSeq: 99 });
+    expect(r.frame.replay).toBeUndefined();
+    expect(r.roster).toEqual(entries);
+    expect(rt.received).toEqual([
+      { type: "join_facilitator", sessionId: "s1", token: "tok", lastSeq: 99 },
+      { type: "join_facilitator", sessionId: "s1", token: "tok" },
+    ]);
     expect(c.isOpen).toBe(true);
   });
 

@@ -460,7 +460,16 @@ export class SessionHost {
 
   /** US-0055: title, goal and time box of only the scenes `roleId` takes part in, in script order (for the player's `joined`). */
   scenesFor(roleId: string): PlayerScene[] {
-    return this.scenario.script.scenes.filter((sc) => sc.participants.includes(roleId))
+    return this.sceneList((sc) => sc.participants.includes(roleId));
+  }
+
+  /** US-0059: every scene in script order, same mapping as `scenesFor` (for the facilitator's `joined` ONLY, never a player's). */
+  allScenes(): PlayerScene[] {
+    return this.sceneList(() => true);
+  }
+
+  private sceneList(keep: (sc: Scenario["script"]["scenes"][number]) => boolean): PlayerScene[] {
+    return this.scenario.script.scenes.filter(keep)
       .map((sc) => ({ id: sc.id, title: sc.title, goal: sc.goal, timeBoxMinutes: sc.time_box_minutes }));
   }
 

@@ -74,7 +74,7 @@ class FakeFacConn {
   ) {}
   async joinFacilitator(sessionId: string, token: string) {
     this.joinedWith.push({ sessionId, token });
-    return { roster: this.roster, status: this.status };
+    return { frame: { type: "joined" as const, roleId: "facilitator", state: { status: this.status } as never }, roster: this.roster, status: this.status };
   }
   send(m: ClientMessage) {
     this.sent.push(m);

@@ -7,6 +7,7 @@ import type { WebSocket } from "ws";
 import type { Config } from "../config";
 import {
   FacilitatorSocketError,
+  openFacilitatorSocket,
   withFacilitatorSocket,
 } from "../facilitator-socket";
 import type { Deps } from "../handlers";
@@ -95,7 +96,10 @@ describe("withFacilitatorSocket", () => {
       },
     );
     expect(result).toBe("done");
-    expect(seen).toEqual([{ roster: ROSTER, status: "lobby" }, true]);
+    expect(seen).toEqual([
+      { frame: { type: "joined", roleId: "facilitator", state }, roster: ROSTER, status: "lobby" },
+      true,
+    ]);
     expect(facilitator).toHaveBeenCalledTimes(1);
     expect(facilitator).toHaveBeenCalledWith(SID);
     expect(rt.received[0]).toEqual({
@@ -279,5 +283,19 @@ describe("withFacilitatorSocket", () => {
         async () => "x",
       ),
     ).rejects.toMatchObject({ reason: "unavailable" });
+  });
+});
+
+describe("openFacilitatorSocket", () => {
+  it("returns an open connection whose slot frees on close", async () => {
+    const { port } = await runtime(["tok-A"]);
+    const { deps } = depsWith([{ port, token: "tok-A" }]);
+    const { conn, joined } = await openFacilitatorSocket(deps, SID, { kind: "short", lastSeq: 0 });
+    expect(conn.isOpen).toBe(true);
+    expect(joined.roster).toEqual(ROSTER);
+    expect(joined.frame.roleId).toBe("facilitator");
+    expect(deps.facilitatorBudget.inUse(SID, "short")).toBe(1);
+    conn.close();
+    await vi.waitFor(() => expect(deps.facilitatorBudget.inUse(SID, "short")).toBe(0));
   });
 });
