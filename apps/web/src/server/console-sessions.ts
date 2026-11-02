@@ -50,7 +50,7 @@ const log = (line: string) => console.error(`web: console: ${line}`);
 // ---- guards ----
 
 /** requireConsole first; for a state change, then Origin + custom header + Fetch-Metadata (the player POSTs' checks). */
-function guard(
+export function guard(
   req: Request,
   deps: Deps,
   change: boolean,
@@ -73,13 +73,14 @@ export function sessionIdOf(req: Request): string | null {
   return id !== undefined && isValidSessionId(id) ? id : null;
 }
 
-const isId = (v: unknown): v is string =>
+export const isId = (v: unknown): v is string =>
   typeof v === "string" && v.length <= CLIENT_ID_MAX_CHARS && isScenarioId(v);
 
 /** A JSON object of at most 1 KiB whose keys are all in `allowed`; an empty body is `{}`. Null for anything else. */
-async function readBody(
+export async function readBody(
   req: Request,
   allowed: readonly string[],
+  maxBytes: number = MAX_BODY_BYTES,
 ): Promise<Record<string, unknown> | null> {
   let text = "";
   if (req.body) {
@@ -91,7 +92,7 @@ async function readBody(
         const { done, value } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        if (size > MAX_BODY_BYTES) {
+        if (size > maxBytes) {
           await reader.cancel();
           return null;
         }
