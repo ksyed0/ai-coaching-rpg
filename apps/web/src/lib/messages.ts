@@ -31,5 +31,7 @@ export const MESSAGES = {
   consoleBusy: "This session is open in too many console tabs. Close one, then reload this page.", // equals the BFF's busy message
   consoleClosed: "The live view was refused. Reload the page; if it happens again, sign in again.",
   consoleLost: "The live view fell out of step. Reload the page.",
+  consoleReconnecting: "Reconnecting… The live view catches up by itself.",
+  consoleNothingYet: "Nothing has been said yet.",
   consoleServerError: "The server reported a problem with the live view. It keeps updating if it can.",
 } as const;

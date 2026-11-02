@@ -135,3 +135,12 @@ table.grid tbody th { font-weight: 600; }
 .dialog { width: 100%; max-width: 480px; max-height: 100%; overflow-y: auto; }
 .dialog-title { font-size: 18px; }
 .dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+/* Facilitator live view: spacing between its sections, alerts and notices in the timeline, tables that scroll inside their wrapper. */
+.liveview { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.liveview .tstream { overflow-wrap: anywhere; }
+.msg.alert { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
+.msg.alert.warn { border-left: 3px solid var(--warn); padding-left: 8px; }
+.msg.note .line { white-space: pre-wrap; }
+.tablewrap { max-width: 100%; }
+.tablewrap table.grid th, .tablewrap table.grid td { overflow-wrap: anywhere; }
