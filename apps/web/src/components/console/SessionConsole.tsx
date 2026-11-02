@@ -39,19 +39,18 @@ export function SessionConsole({ sessionId, deps = {} }: SessionConsoleProps) {
     else if (s.launcherStatus === "running" && final?.kind === "stopped") setDismissed(final);
   };
 
-  const live = mode === "live" ? { status: ui.view?.state.status ?? ("running" as SessionStatus), roster: ui.roster } : null;
+  const live = mode === "live" ? { status: final?.kind === "ended" ? ("ended" as SessionStatus) : (ui.view?.state.status ?? ("running" as SessionStatus)), roster: ui.roster } : null;
   return (
     <div className="stack">
-      {final && final !== dismissed ? (
-        <p className="banner warn" role="status">
-          {final.message}
-        </p>
-      ) : null}
+      <div role="status">
+        {final && final !== dismissed ? <p className="banner warn">{final.message}</p> : null}
+      </div>
       <Readiness
         sessionId={sessionId}
         fetch={resolved.fetch}
         {...(deps.setTimer ? { setTimer: deps.setTimer } : {})}
         live={live}
+        stoppedAnnounced={final?.kind === "stopped" && final !== dismissed}
         onState={onState}
         onStarted={() => setMode("live")}
       />

@@ -30,6 +30,8 @@ export type ReadinessProps = {
   onState?: (s: { launcherStatus: string; status: SessionStatus | null }) => void;
   /** Called when Start succeeded (or the session was already started). */
   onStarted?: () => void;
+  /** The shell already shows the stopped message: the Restart button stays, the sentence is not repeated. */
+  stoppedAnnounced?: boolean;
 };
 export type SessionStatus = "idle" | "running" | "ended";
 
@@ -50,6 +52,7 @@ export function Readiness({
   live = null,
   onState,
   onStarted,
+  stoppedAnnounced = false,
 }: ReadinessProps) {
   const { data: polled, reconnecting, signedOut, refresh } = useReadiness(sessionId, {
     fetch: fetchImpl,
@@ -155,8 +158,8 @@ export function Readiness({
     setWorking(false);
     if (r.ok) {
       setStartedHere(true);
-      onStarted?.();
-      refresh();
+      if (onStarted) onStarted();
+      else refresh();
       return;
     }
     if (r.status === 409) {
@@ -205,7 +208,9 @@ export function Readiness({
     <View
       sessionId={sessionId}
       data={data}
-      reconnecting={reconnecting}
+      reconnecting={reconnecting && live === null}
+      isLive={live !== null}
+      stoppedAnnounced={stoppedAnnounced}
       working={working}
       startedHere={startedHere}
       error={error}
@@ -229,6 +234,9 @@ type ViewProps = {
   sessionId: string;
   data: ReadinessData;
   reconnecting: boolean;
+  /** The shell owns the ended message while the live view is on. */
+  isLive: boolean;
+  stoppedAnnounced: boolean;
   working: boolean;
   startedHere: boolean;
   error: string | null;
@@ -286,14 +294,14 @@ function View(p: ViewProps) {
           The session cannot be reached right now. Reconnecting…
         </p>
       ) : null}
-      {ended ? (
+      {ended && !p.isLive ? (
         <p className="banner warn" role="status">
           This session has ended.
         </p>
       ) : null}
       {stopped ? (
         <div className="banner warn stack" role="status">
-          <p>The session service stopped this session.</p>
+          {p.stoppedAnnounced ? null : <p>The session service stopped this session.</p>}
           <div>
             <button
               className="btn"

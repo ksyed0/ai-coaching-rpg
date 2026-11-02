@@ -35,6 +35,7 @@ describe("SessionConsole", () => {
   it("an idle session never opens the stream", async () => {
     const m = mount(readiness({ canStart: true }));
     await screen.findByText(/Model:/);
+    await flush();
     expect(FakeEventSource.instances).toHaveLength(0);
     expect(m.t.pending).toBe(1);
   });
@@ -111,5 +112,62 @@ describe("SessionConsole", () => {
     await waitFor(() => expect(FakeEventSource.instances).toHaveLength(2));
     expect(screen.queryByText("The session stopped. Restart it from this page.")).toBeNull();
     expect(screen.queryByText("Nothing has been said yet.")).not.toBeNull();
+  });
+
+  const endedBanners = () => screen.queryAllByText(/(this|the) session has ended/i);
+  const goLive = async (m: ReturnType<typeof mount>) => {
+    await screen.findByText(/Model:/);
+    await flush();
+    await joined(FakeEventSource.last());
+    await reset(FakeEventSource.last());
+    return m;
+  };
+
+  it("session.ended then the ended final shows one ended message and no started banner", async () => {
+    await goLive(mount(readiness({ status: "running" })));
+    const es = FakeEventSource.last();
+    await act(async () => es.emit("event", { seq: 2, ts: 5, sessionId: "s", type: "session.ended", message: "bye" }));
+    await act(async () => es.emit("ended", {}));
+    expect(endedBanners()).toHaveLength(1);
+    expect(screen.queryByText("The session has started.")).toBeNull();
+  });
+
+  it("the ended final without a session.ended event shows one ended message and no started banner", async () => {
+    await goLive(mount(readiness({ status: "running" })));
+    await act(async () => FakeEventSource.last().emit("ended", {}));
+    expect(endedBanners()).toHaveLength(1);
+    expect(screen.queryByText("The session has started.")).toBeNull();
+  });
+
+  it("the stopped message is announced once, Restart stays", async () => {
+    const m = await goLive(mount(readiness({ status: "running" })));
+    m.current.readiness = readiness({ launcherStatus: "stopped", status: null, roster: [] });
+    await act(async () => FakeEventSource.last().emit("stopped", {}));
+    await flush();
+    act(() => m.t.fire());
+    await flush();
+    await screen.findByRole("button", { name: "Restart" });
+    expect(screen.queryByText("The session service stopped this session.")).toBeNull();
+  });
+
+  it.each([
+    ["seats_not_ready 409", { status: 409, body: { success: false, data: { reason: "seats_not_ready", missing: ["x"] }, error: { code: "conflict", message: "m" }, meta: { version: "1.0", timestamp: "x" } } }],
+    ["a 500", { status: 500, body: { success: false, data: null, error: { code: "internal", message: "boom" }, meta: { version: "1.0", timestamp: "x" } } }],
+  ])("a Start refused with %s opens no stream and polling continues", async (_n, answer) => {
+    const m = mount(readiness({ canStart: true }), { "/start": answer });
+    await screen.findByText(/Model:/);
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    await flush();
+    await flush();
+    expect(FakeEventSource.instances).toHaveLength(0);
+    expect(m.t.pending).toBe(1);
+  });
+
+  it("the polled roster shows until the first stream roster frame replaces it", async () => {
+    await goLive(mount(readiness({ status: "running" })));
+    expect(screen.getByText("Sam")).toBeTruthy();
+    await act(async () => FakeEventSource.last().emit("roster", { entries: [{ roleId: "account_manager", name: "Streamed", joined: true, consented: true, connected: true }] }));
+    expect(screen.getByText("Streamed")).toBeTruthy();
+    expect(screen.queryByText("Sam")).toBeNull();
   });
 });
