@@ -13,9 +13,12 @@ type Ctx = { scenes: PlayerScene[]; label: (roleId: string) => string };
 const NOT_SHOWN = "Earlier Game Master notices and alerts are not shown after a reconnect.";
 
 export function viewFromReset(state: SessionState): ConsoleView {
-  const lines: TimelineEntry[] = state.transcript.map((u) => ({ seq: u.seq, ts: u.ts, kind: "line", text: u.text, roleId: u.roleId }));
-  const timeline = state.lastSeq > 0 ? [{ seq: 0, ts: 0, kind: "notice" as const, text: NOT_SHOWN }, ...lines] : lines;
-  return { state, timeline: timeline.slice(-MAX_CONSOLE_LINES), gap: false };
+  const kept = state.transcript.length > MAX_CONSOLE_LINES ? state.transcript.slice(-MAX_CONSOLE_LINES) : state.transcript;
+  const notice = state.lastSeq > 0;
+  // Slice the lines first, leaving room for the notice, so the notice stays at index 0 and the total stays within the cap.
+  const lines: TimelineEntry[] = kept.slice(notice ? -(MAX_CONSOLE_LINES - 1) : -MAX_CONSOLE_LINES).map((u) => ({ seq: u.seq, ts: u.ts, kind: "line", text: u.text, roleId: u.roleId }));
+  const timeline = notice ? [{ seq: 0, ts: 0, kind: "notice" as const, text: NOT_SHOWN }, ...lines] : lines;
+  return { state: kept === state.transcript ? state : { ...state, transcript: kept }, timeline, gap: false };
 }
 
 export function timelineText(e: SessionEvent, before: SessionState, ctx: Ctx): Omit<TimelineEntry, "seq" | "ts"> | null {
@@ -65,6 +68,7 @@ export function timelineText(e: SessionEvent, before: SessionState, ctx: Ctx): O
 
 /** Folds one event. Never throws: an unknown type or a malformed known one still advances the sequence. */
 export function applyConsoleEvent(v: ConsoleView | null, e: SessionEvent, ctx: Ctx): ConsoleView | null {
+  if (!e || !Number.isInteger(e.seq)) return v;
   if (!v) return e.seq === 1 ? step({ state: initialState(), timeline: [], gap: false }, e, ctx) : null;
   if (e.seq <= v.state.lastSeq) return v;
   if (e.seq > v.state.lastSeq + 1) return { ...v, gap: true };
@@ -76,6 +80,7 @@ function step(v: ConsoleView, e: SessionEvent, ctx: Ctx): ConsoleView {
   try {
     state = reduce(v.state, e) ?? { ...v.state, lastSeq: e.seq };
   } catch {
+    // Deliberate: a malformed known event must not stop the live view, so it is swallowed and only the sequence advances.
     state = { ...v.state, lastSeq: e.seq };
   }
   if (state.transcript.length > MAX_CONSOLE_LINES) state = { ...state, transcript: state.transcript.slice(-MAX_CONSOLE_LINES) };

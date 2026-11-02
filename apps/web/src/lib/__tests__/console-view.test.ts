@@ -97,7 +97,66 @@ describe("talkRows", () => {
   });
 });
 
+const deepFreeze = <T>(o: T): T => { if (o && typeof o === "object" && !Object.isFrozen(o)) { Object.freeze(o); Object.values(o).forEach(deepFreeze); } return o; };
+
+describe("hardening", () => {
+  it("never throws on a null event or a non-integer seq and returns the view unchanged", () => {
+    const v = fold([started()])!;
+    for (const bad of [null, undefined, { ...utter(2, "a", "x"), seq: NaN }, { ...utter(2, "a", "x"), seq: 1.5 }, { ...utter(2, "a", "x"), seq: "2" }] as unknown as SessionEvent[]) {
+      expect(applyConsoleEvent(v, bad, ctx)).toBe(v);
+      expect(applyConsoleEvent(null, bad, ctx)).toBeNull();
+    }
+  });
+
+  it("does not mutate the view or the event", () => {
+    const v = deepFreeze(fold([started()])!);
+    const e = deepFreeze(utter(2, "a", "x y"));
+    expect(() => applyConsoleEvent(v, e, ctx)).not.toThrow();
+    expect(v.timeline).toHaveLength(1);
+    expect(v.state.lastSeq).toBe(1);
+  });
+
+  it("a reduce that throws still advances lastSeq only", () => {
+    const v = fold([started()])!;
+    const broken: ConsoleView = { ...v, state: { ...v.state, talk: undefined as unknown as SessionState["talk"] } };
+    const out = applyConsoleEvent(broken, utter(2, "a", "x"), ctx)!;
+    expect(out.state.lastSeq).toBe(2);
+    expect(out.state.transcript).toHaveLength(0);
+  });
+
+  it("a gap followed by a duplicate keeps the gap and the same state", () => {
+    const v = fold([started()])!;
+    const g = applyConsoleEvent(v, utter(5, "a", "x"), ctx)!;
+    const d = applyConsoleEvent(g, started(1), ctx)!;
+    expect(d).toBe(g);
+    expect(d.gap).toBe(true);
+  });
+
+  it("the cap keeps the newest lines", () => {
+    let v = fold([started()])!;
+    for (let i = 2; i <= MAX_CONSOLE_LINES + 11; i++) v = applyConsoleEvent(v, utter(i, "a", `m${i}`), ctx)!;
+    expect(v.timeline[0]!.seq).toBe(12 + 0);
+    expect(v.timeline.at(-1)!.text).toBe(`m${MAX_CONSOLE_LINES + 11}`);
+    expect(v.state.transcript.at(-1)!.text).toBe(`m${MAX_CONSOLE_LINES + 11}`);
+    expect(v.state.transcript[0]!.seq).toBe(12);
+  });
+});
+
 describe("viewFromReset", () => {
+  it("caps a long reset, keeps the notice first and the newest lines, and leaves talk whole", () => {
+    let s = reduce(initialState(), started());
+    for (let i = 2; i <= 1201; i++) s = reduce(s, utter(i, "a", "w"));
+    const v = viewFromReset(s);
+    expect(v.timeline).toHaveLength(MAX_CONSOLE_LINES);
+    expect(v.timeline[0]!.kind).toBe("notice");
+    expect(v.timeline.at(-1)!.seq).toBe(1201);
+    expect(v.timeline[1]!.seq).toBe(1201 - (MAX_CONSOLE_LINES - 1) + 1);
+    expect(v.state.transcript).toHaveLength(MAX_CONSOLE_LINES);
+    expect(v.state.transcript.at(-1)!.seq).toBe(1201);
+    expect(v.state.talk.a).toEqual({ words: 1200, lines: 1200 });
+    expect(s.transcript).toHaveLength(1200);
+  });
+
   it("adds the not-shown notice only after seq 0", () => {
     expect(viewFromReset(initialState()).timeline).toEqual([]);
     const s = [started(), utter(2, "a", "hey")].reduce(reduce, initialState());
