@@ -8,11 +8,14 @@ import type { SessionState } from "@acr/events";
 
 // Bridges one facilitator runtime socket to one server-sent-events response. Unlike the player hub it holds no identity: the console
 // cookie is checked by the route, and any number of tabs may watch one session. It never reconnects (the browser's EventSource does).
-// Only constants are written as event names, and only copies from facilitator-copies.ts as data: the runtime's text never reaches a page.
+// Only constants are written as event names, and only copies from facilitator-copies.ts as data. Utterances, Game Master reasoning and
+// whispers do reach the page, by design (the facilitator sees them); NPC secrets, participant ids and runtime error text do not.
 
 export const MAX_FACILITATOR_STREAMS = 64;
 /** The route writes `stopped` and `busy` itself. */
 export type ConsoleStreamFinal = "reconnecting" | "ended" | "expired";
+/** The runtime's error codes are short snake_case words; anything else is not forwarded as a code. */
+const CODE_SHAPE = /^[a-z_]{1,40}$/;
 const ERROR_MESSAGE = "the server reported an error";
 
 type Stream = { expiresAt: number; conn: RuntimeConnection; out: SseOut; writer: SseWriter; ended: boolean; skip: number; cancelHeartbeat: () => void; detach: () => void };
@@ -46,6 +49,7 @@ export class FacilitatorHub {
     const channel = this.newChannelId();
     const s: Stream = { expiresAt: a.expiresAt, conn, out, writer: new SseWriter(out, this.maxPendingBytes), ended: false, skip: 0, cancelHeartbeat: () => {}, detach: () => {} };
     this.streams.add(s);
+    s.writer.beginOpening();
     try {
       const frame = joined.frame;
       this.write(s, `retry: ${RETRY_MS}\n\n`);
@@ -62,9 +66,10 @@ export class FacilitatorHub {
       // A copy that throws must not leak the slot or the connection.
       this.finish(s, "reconnecting");
     }
+    s.writer.endOpening();
     if (s.ended) return { channel, close: () => {} };
     s.cancelHeartbeat = heartbeat(this.o.setTimer, () => {
-      if (s.expiresAt < this.o.now()) { this.finish(s, "expired"); return false; }
+      if (s.expiresAt <= this.o.now()) { this.finish(s, "expired"); return false; }
       return this.write(s, ": hb\n\n");
     });
     const offFrame = conn.onFrame((m) => this.onFrame(s, m));
@@ -88,7 +93,7 @@ export class FacilitatorHub {
     } else if (m.type === "roster") {
       if (m.audience === "facilitator") this.write(s, sse("roster", { entries: consoleRoster(m.entries) }));
     } else if (m.type === "error") {
-      this.write(s, sse("error", { code: m.code, message: ERROR_MESSAGE }));
+      this.write(s, sse("error", { code: CODE_SHAPE.test(m.code) ? m.code : "error", message: ERROR_MESSAGE }));
     }
     // Anything else (another joined, an unknown type) is not forwarded.
   }

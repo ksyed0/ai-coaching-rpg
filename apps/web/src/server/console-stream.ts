@@ -11,6 +11,7 @@ import { lastSeqOf, sseBody, sseFinal, sseHeaders, type SseOut } from "./sse";
 // The console cookie is checked on EVERY connect (an EventSource reconnect is a new request). The request's X-Forwarded-For is never
 // read: the runtime socket carries the reserved console key (facilitator-socket.ts). `event` names written here are constants only.
 
+// The wording is fixed by the plan. It is also what a tab sees when the hub's global cap (MAX_FACILITATOR_STREAMS) is the cause, not only the per-session tab slots.
 const BUSY_MESSAGE = "This session is open in too many console tabs. Close one, then reload this page.";
 
 const forbidden = () => fail(403, "forbidden", "This request was refused.");

@@ -3,7 +3,8 @@ import type { SessionState } from "@acr/events";
 import { FacilitatorHub } from "../facilitator-hub";
 import type { FacilitatorJoin } from "../facilitator-socket";
 import type { FacilitatorRosterEntry, JoinedFrame, ServerMessage } from "../wire";
-import { asConn, FakeConn, manualTimers, sseRecorder } from "./fakes";
+import { sseBody } from "../sse";
+import { asConn, FakeConn, manualTimers, parseSse, sseRecorder } from "./fakes";
 
 const state = (lastSeq = 5): SessionState => ({
   status: "running", lastSeq, scenarioId: "sc", version: "1", roles: { lead: { kind: "player", participantId: "P-SECRET" } },
@@ -95,9 +96,9 @@ describe("FacilitatorHub", () => {
     const s3 = setup({ now: () => t, expiresAt: 100 }); const c = s3.open();
     s3.timers.fire(15_000);
     expect(c.rec.frames().at(-1)).toEqual({ comment: "hb" });
-    t = 100; s3.timers.fire(15_000); // now === expiresAt is not past it
+    t = 99; s3.timers.fire(15_000); // before expiresAt: alive
     expect(c.rec.frames().at(-1)).toEqual({ comment: "hb" });
-    t = 101; s3.timers.fire(15_000);
+    t = 100; s3.timers.fire(15_000); // now === expiresAt is expired, like the route and the player hub
     expect(c.rec.frames().at(-1)!.event).toBe("expired");
     expect(c.conn.closed).toBe(1); clean(s3.timers, c.conn, s3.h);
   });
@@ -165,16 +166,43 @@ describe("FacilitatorHub", () => {
     expect(conn.closed).toBe(1); expect(rec.chunks).toEqual([]); expect(rec.ends()).toBe(1);
   });
 
-  it("a stalled consumer past maxPendingBytes ends with reconnecting", () => {
+  it("a stall after the opening ends with reconnecting; the opening writes do not count", () => {
     const timers = manualTimers();
     const h = new FacilitatorHub({ setTimer: timers.setTimer, now: () => 0, maxPendingBytes: 10 });
     const chunks: string[] = []; let ends = 0;
     const conn = new FakeConn();
-    h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: join(), out: { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } } });
+    const r = h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: join(), out: { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } } });
+    expect(r).not.toBe("capacity");
+    expect(ends).toBe(0); // retry, joined and roster are over the cap and still open
+    conn.emit({ type: "event", event: ev(6) });
     expect(ends).toBe(1);
     expect(conn.closed).toBe(1);
     expect(chunks.join("")).toContain("event: reconnecting");
     clean(timers, conn, h);
+  });
+
+  it("a reset over 256 KiB through the real sseBody keeps the stream open", async () => {
+    const big = { ...state(), transcript: Array.from({ length: 3000 }, (_, i) => ({ seq: i, ts: i, sceneId: null, roleId: "lead", text: "x".repeat(100), channel: "text" as const })) };
+    const timers = manualTimers();
+    const h = new FacilitatorHub({ setTimer: timers.setTimer, now: () => 0 });
+    const body = sseBody(); const conn = new FakeConn();
+    h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: join({ replay: undefined, state: big }), out: body.out });
+    expect(conn.closed).toBe(0);
+    const reader = body.stream.getReader(); const dec = new TextDecoder(); let text = "";
+    while (!/event: roster/.test(text)) text += dec.decode((await reader.read()).value);
+    expect(text.length).toBeGreaterThan(256 * 1024);
+    expect(parseSse(text).map((f) => f.event)).toEqual(["retry:3000", "joined", "reset", "roster"]);
+    expect(h.size()).toBe(1);
+    await reader.cancel();
+  });
+
+  it("an error code that is not a short snake_case word is forwarded as error", () => {
+    const { open } = setup(); const { conn, rec } = open();
+    conn.emit({ type: "error", code: "log_failed", message: "m" });
+    conn.emit({ type: "error", code: "Bearer abc.def-JOIN9", message: "m" });
+    conn.emit({ type: "error", code: "a".repeat(41), message: "m" });
+    expect(rec.frames().filter((f) => f.event === "error").map((f) => f.data.code)).toEqual(["log_failed", "error", "error"]);
+    expect(rec.chunks.join("")).not.toContain("Bearer");
   });
 
   it("closing the output closes the runtime connection", () => {

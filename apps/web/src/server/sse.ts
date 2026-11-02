@@ -27,8 +27,9 @@ export function sseHeaders(setCookie?: string): Headers {
   return h;
 }
 /**
- * A stream that is over before it starts. `reconnecting` lets the browser's EventSource come back after `retry` with its Last-Event-ID
- * kept (no id is sent here); `signed_out`, `removed`, `ended` and `superseded` are final (the page closes its EventSource).
+ * A stream that is over before it starts. `reconnecting` is the only final the browser's EventSource retries (after `retry`, with its
+ * Last-Event-ID kept: no id is sent here). The others close it: the player stream's `signed_out`, `removed`, `superseded` and `expired`,
+ * and the console stream's `ended`, `stopped`, `expired` and `busy`.
  */
 export function sseFinal(event: string, data: unknown = {}, setCookie?: string): Response {
   return new Response(`retry: ${RETRY_MS}\n\n${sseFrame(event, data)}`, { status: 200, headers: sseHeaders(setCookie) });
@@ -47,11 +48,16 @@ export const replayIncomplete = (replay: ReplaySummary | undefined): boolean => 
 /** Writes to `out`, counting the bytes written while the consumer signalled backpressure; past the cap it reports `stalled`. */
 export class SseWriter {
   private pendingBytes = 0;
+  private opening = false;
   constructor(private readonly out: SseOut, private readonly maxPendingBytes: number) {}
+  /** While opening, the stream's first frames (one can be a whole state snapshot) are not counted: nothing drains until the opener returns. */
+  beginOpening(): void { this.opening = true; }
+  endOpening(): void { this.opening = false; this.pendingBytes = 0; }
   write(chunk: string): "ok" | "stalled" | "gone" {
     let taken: boolean;
     try { taken = this.out.write(chunk); } catch { return "gone"; }
     if (taken) { this.pendingBytes = 0; return "ok"; }
+    if (this.opening) return "ok";
     this.pendingBytes += Buffer.byteLength(chunk);
     return this.pendingBytes > this.maxPendingBytes ? "stalled" : "ok";
   }

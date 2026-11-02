@@ -67,7 +67,7 @@ export type ServerMessage =
       replay?: ReplaySummary;
       /** US-0053: the durable credential, only on the join by code that asked for it (issueCredential). The one copy: never sent again. */
       credential?: string;
-      /** US-0055: player joins only: title, goal and time box of the scenes this role takes part in, in script order; never another role's scene. US-0059: the facilitator's join lists every scene instead. */
+      /** US-0055: title, goal and time box of scenes, in script order. A player join lists only the scenes this role takes part in, never another role's (US-0055); the facilitator's join lists every scene (US-0059). */
       scenes?: PlayerScene[];
       /** US-0053: the session's random log identity, on every player join when the server keeps seats. */
       logIdentity?: string;
