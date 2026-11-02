@@ -1731,6 +1731,7 @@ Acceptance Criteria:
   - [x] AC-0351: players receive allowlisted copies: the join snapshot and every command and session.ended event are built from explicit field lists, so a facilitator-only field (by, talk time) never reaches a player and a 2a player sees no change (services/runtime/src/host/__tests__/player-copies.test.ts; TC-0087)
   - [x] AC-0352: every BFF facilitator socket carries the reserved forwarded key scenecoach-console and takes a per-session slot (4 live tabs, 3 short-lived), so players and bots cannot exhaust or block the console's connections nor the console theirs (apps/web/src/server/facilitator-budget.ts, facilitator-socket.ts; TC-0092)
   - [x] AC-0353: one facilitator socket per console tab is forwarded as SSE on GET /api/v1/console/sessions/:id/stream with seq ids and Last-Event-ID replay; the console cookie is checked on every connect and reconnect, a player cookie gets a 401 and nothing from it, and a reset is sent only for a missing or incomplete replay (apps/web/src/server/console-stream.ts, facilitator-hub.ts, facilitator-copies.ts; TC-0093)
+  - [x] AC-0354: a facilitator command or end_now that carries a ref is answered by an ack or an error with that ref to the sender only, and a command with a ref is refused before the start instead of starting the session (services/runtime/src/host/ws-server.ts, protocol.ts, __tests__/ws-server.ack.test.ts; the facilitator's scene list includes injects, ws-server.scenes.test.ts; TC-0095)
 ```
 
 ```
@@ -1768,6 +1769,13 @@ Status: Done
 Branch: feature/EPIC-0002-US-0059-console-budget (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-console-stream and feature/EPIC-0002-US-0059-console-live-view)
 Notes: PR 1 is the connection budget (AC-0352, merged as #69). PR 2 (feature/EPIC-0002-US-0059-console-stream, merged as #70) is the facilitator SSE channel (AC-0353). PR 3 (this PR, feature/EPIC-0002-US-0059-console-live-view) is the read-only live view (console part of AC-0311, TC-0094). Delivered in three PRs: #69, #70 and this PR. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.
 ```
+
+TASK-0097 (US-0059): Facilitator command route, controls and confirmations (slice 2b-2b2)
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0002-US-0059-command-ack (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-command-route and feature/EPIC-0002-US-0059-console-controls)
+Notes: PR 1 (this PR) is the runtime side: the optional ref on command and end_now with ack and error carrying it (AC-0354, TC-0095) and injects in the facilitator's scene list. PR 2 is the web server's command route; PR 3 is the console controls and confirmations (AC-0311, AC-0312, AC-0315, AC-0316 stay open until then). Plan docs/superpowers/plans/2026-11-01-slice-2b-2b2-facilitator-controls.md.
 
 ```
 US-0060 (EPIC-0002): As a facilitator, I want to fill a player role with an AI player until I start the session, so that a no-show does not stop the session.

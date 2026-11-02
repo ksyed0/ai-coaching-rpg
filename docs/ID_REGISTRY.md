@@ -4,9 +4,9 @@
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
-| TASK         | TASK-0097             | TASK-0096         |
-| AC           | AC-0354               | AC-0353           |
-| TC           | TC-0095               | TC-0094           |
+| TASK         | TASK-0098             | TASK-0097         |
+| AC           | AC-0355               | AC-0354           |
+| TC           | TC-0096               | TC-0095           |
 | BUG          | BUG-0019              | BUG-0018          |
 | L            | L-0032                | L-0031            |
 
@@ -41,3 +41,5 @@ Assigned 2026-11-01 (slice 2b-2b1, PR 2): AC-0353 (US-0059: console stream); TC-
 Assigned 2026-11-01 (slice 2b-2b1, PR 3): TC-0094 (the read-only live view, AC-0311). No new AC and no new TASK: the work is under TASK-0096. Slice 2b-2b1 is complete; the next TC is TC-0095.
 
 Assigned 2026-11-01 (slice 2b-2b1, PR 3, final review): BUG-0017 (player StreamHub reset stall over 256 KiB) and BUG-0018 (npc-agent.silence.test.ts load flake).
+
+Assigned 2026-11-02 (slice 2b-2b2, PR 1): AC-0354 (US-0059: command and end_now ref, ack and error with the ref, no auto-start with a ref); TC-0095 (AC-0354); TASK-0097 (US-0059 facilitator command route, controls and confirmations, three PRs).
