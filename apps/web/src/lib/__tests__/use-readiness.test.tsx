@@ -131,4 +131,23 @@ describe("useReadiness", () => {
     await flush();
     expect(f.calls).toHaveLength(2);
   });
+
+  it("enabled false stops polling; true again polls at once", async () => {
+    const f = fakeFetch(() => ({ status: 200, body: ok(readiness()) }));
+    const t = fakeTimer();
+    const h = renderHook(
+      ({ enabled }) => useReadiness("abc12345", { fetch: f.fetch, setTimer: t.setTimer, enabled }),
+      { initialProps: { enabled: true } },
+    );
+    await flush();
+    expect(f.calls).toHaveLength(1);
+    expect(t.pending).toBe(1);
+    h.rerender({ enabled: false });
+    await flush();
+    expect(t.pending).toBe(0);
+    expect(f.calls).toHaveLength(1);
+    h.rerender({ enabled: true });
+    await flush();
+    expect(f.calls).toHaveLength(2);
+  });
 });

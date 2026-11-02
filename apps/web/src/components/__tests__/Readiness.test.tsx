@@ -580,4 +580,23 @@ describe("ConfirmDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Do it" }));
     expect(onConfirm).toHaveBeenCalledOnce();
   });
+
+  it("with live set it makes no readiness request and shows the live roster and status", async () => {
+    const f = fakeFetch(() => ({ status: 200, body: ok(READY) }));
+    const t = fakeTimer();
+    const live = {
+      status: "running" as const,
+      roster: [{ roleId: "account_manager", name: "Live Sam", joined: true, consented: true, connected: false }],
+    };
+    const r = render(<Readiness sessionId={SID} fetch={f.fetch} setTimer={t.setTimer} />);
+    await ready();
+    expect(f.calls).toHaveLength(1);
+    r.rerender(<Readiness sessionId={SID} fetch={f.fetch} setTimer={t.setTimer} live={live} />);
+    expect(t.pending).toBe(0);
+    expect(f.calls).toHaveLength(1);
+    expect(screen.getByText("Live Sam")).toBeTruthy();
+    expect(screen.queryByText("Sam")).toBeNull();
+    expect(screen.getByText(/Model: mock-model/)).toBeTruthy();
+    expect(screen.getAllByText(/started/i).length).toBeGreaterThan(0);
+  });
 });

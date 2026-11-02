@@ -32,6 +32,7 @@ export const MESSAGES = {
   consoleClosed: "The live view was refused. Reload the page; if it happens again, sign in again.",
   consoleLost: "The live view fell out of step. Reload the page.",
   consoleReconnecting: "Reconnecting… The live view catches up by itself.",
+  consoleLede: "Get the room ready, start, then follow the session live.",
   consoleNothingYet: "Nothing has been said yet.",
   consoleServerError: "The server reported a problem with the live view. It keeps updating if it can.",
 } as const;

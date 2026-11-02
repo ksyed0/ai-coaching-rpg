@@ -1,0 +1,115 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { initialState } from "@acr/events";
+import { SessionConsole } from "../console/SessionConsole";
+import { FakeClock, FakeEventSource, fakeFetch, fakeTimer, ok, readiness } from "../../lib/__tests__/fakes";
+import type { EventSourceCtor } from "../../lib/use-session";
+
+beforeEach(() => FakeEventSource.reset());
+afterEach(cleanup);
+
+const SID = "abcd1234efgh5678";
+const flush = () => act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+function mount(initial: unknown, routes: Record<string, { status: number; body: unknown }> = {}) {
+  const current = { readiness: initial as unknown };
+  const f = fakeFetch((url) => {
+    const tail = url.split(`/${SID}`)[1] ?? "";
+    if (tail === "/readiness") return { status: 200, body: ok(current.readiness) };
+    return routes[tail] ?? { status: 200, body: ok({}) };
+  });
+  const t = fakeTimer();
+  const r = render(
+    <SessionConsole
+      sessionId={SID}
+      deps={{ EventSource: FakeEventSource as unknown as EventSourceCtor, fetch: f.fetch, setTimer: t.setTimer, clock: new FakeClock(1_000_000) }}
+    />,
+  );
+  return { ...r, f, t, current };
+}
+const joined = (es: FakeEventSource) => act(() => es.emit("joined", { channel: "c1", scenes: [] }));
+const reset = (es: FakeEventSource) => act(() => es.emit("reset", { state: { ...initialState(), status: "running", lastSeq: 1 } }));
+
+describe("SessionConsole", () => {
+  it("an idle session never opens the stream", async () => {
+    const m = mount(readiness({ canStart: true }));
+    await screen.findByText(/Model:/);
+    expect(FakeEventSource.instances).toHaveLength(0);
+    expect(m.t.pending).toBe(1);
+  });
+
+  it("a running readiness answer opens the console stream and stops polling", async () => {
+    const m = mount(readiness({ status: "running" }));
+    await screen.findByText(/Model:/);
+    await flush();
+    expect(FakeEventSource.instances).toHaveLength(1);
+    expect(FakeEventSource.last().url).toBe(`/api/v1/console/sessions/${SID}/stream`);
+    expect(m.t.pending).toBe(0);
+    expect(m.f.calls.filter((c) => c.url.endsWith("/readiness"))).toHaveLength(1);
+  });
+
+  it("a successful Start opens the stream", async () => {
+    mount(readiness({ canStart: true }));
+    await screen.findByText(/Model:/);
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
+  });
+
+  it("live shows the live view below the readiness view", async () => {
+    mount(readiness({ status: "running" }));
+    await screen.findByText(/Model:/);
+    await flush();
+    await joined(FakeEventSource.last());
+    await reset(FakeEventSource.last());
+    expect(screen.getByRole("heading", { name: "Live session" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Who is in the room" })).toBeTruthy();
+  });
+
+  it("a stopped final returns to polling and shows Restart, with its message once", async () => {
+    const m = mount(readiness({ status: "running" }));
+    await screen.findByText(/Model:/);
+    await flush();
+    await joined(FakeEventSource.last());
+    m.current.readiness = readiness({ launcherStatus: "stopped", status: null, roster: [] });
+    await act(async () => FakeEventSource.last().emit("stopped", {}));
+    await flush();
+    expect(m.t.pending).toBe(1);
+    act(() => m.t.fire());
+    await flush();
+    expect(await screen.findByRole("button", { name: "Restart" })).toBeTruthy();
+    expect(screen.getAllByText("The session stopped. Restart it from this page.")).toHaveLength(1);
+    expect(screen.queryByRole("heading", { name: "Live session" })).toBeNull();
+  });
+
+  it("the ended final message appears exactly once", async () => {
+    mount(readiness({ status: "running" }));
+    await screen.findByText(/Model:/);
+    await flush();
+    await joined(FakeEventSource.last());
+    await act(async () => FakeEventSource.last().emit("ended", {}));
+    expect(screen.getAllByText("The session has ended.")).toHaveLength(1);
+  });
+
+  it("the stopped message goes away once the session is restarted, and a new stream starts with no view", async () => {
+    const m = mount(readiness({ status: "running" }));
+    await screen.findByText(/Model:/);
+    await flush();
+    await joined(FakeEventSource.last());
+    await reset(FakeEventSource.last());
+    m.current.readiness = readiness({ launcherStatus: "stopped", status: null, roster: [] });
+    await act(async () => FakeEventSource.last().emit("stopped", {}));
+    await flush();
+    act(() => m.t.fire());
+    await flush();
+    await screen.findByRole("button", { name: "Restart" });
+    m.current.readiness = readiness({ canStart: true });
+    fireEvent.click(screen.getByRole("button", { name: "Restart" }));
+    await waitFor(() => expect(screen.queryByText("The session stopped. Restart it from this page.")).toBeNull());
+    m.current.readiness = readiness({ status: "running" });
+    fireEvent.click(await screen.findByRole("button", { name: "Start" }));
+    await waitFor(() => expect(FakeEventSource.instances).toHaveLength(2));
+    expect(screen.queryByText("The session stopped. Restart it from this page.")).toBeNull();
+    expect(screen.queryByText("Nothing has been said yet.")).not.toBeNull();
+  });
+});
