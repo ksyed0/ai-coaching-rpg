@@ -4,13 +4,12 @@ import type { Config } from "./config";
 import { fail, ok } from "./envelope";
 import type { FacilitatorBudget } from "./facilitator-budget";
 import { checkFetchSite, checkOrigin, requestAddress } from "./guards";
-import { ROBOTS_TAG } from "./headers";
 import type { LauncherClient } from "./launcher-client";
 import { RuntimeError, type RuntimeConnection, type SetTimer } from "./runtime-connection";
 import { resolveRuntimeUrl } from "./runtime-lookup";
 import { seal, unseal } from "./seal";
-import { sseBody } from "./sse";
-import { NoStreamError, REMOVED_MESSAGE, SIGNED_OUT_MESSAGE, type SessionCookie, type SseOut, type StreamHub } from "./stream-hub";
+import { lastSeqOf, sseBody, sseFinal, sseHeaders, type SseOut } from "./sse";
+import { NoStreamError, REMOVED_MESSAGE, SIGNED_OUT_MESSAGE, type SessionCookie, type StreamHub } from "./stream-hub";
 import type { JoinThrottle } from "./throttle";
 import type { ClientMessage, JoinedFrame } from "./wire";
 
@@ -30,7 +29,6 @@ export const COOKIE_NAME = "__Host-scenecoach";
 export { REMOVED_MESSAGE, SIGNED_OUT_MESSAGE };
 
 const HOUR_MS = 3_600_000;
-const RETRY_MS = 3_000;
 const MAX_BODY_BYTES = 8 * 1024;
 const MAX_JOIN_CODE_CHARS = 64;
 const MAX_NAME_CODE_POINTS = 60;
@@ -152,34 +150,7 @@ function displayName(v: string): string | null {
 /** A role id is checked before it is a throttle key: the scenario id shape (lower case, digits, _ and -) and the transport cap. */
 const isRoleId = (v: string) => v.length <= CLIENT_ID_MAX_CHARS && isScenarioId(v);
 
-/** The browser's Last-Event-ID (the last seq it holds); anything that is not a plain safe integer resumes from 0. */
-function lastSeqOf(v: string | null): number {
-  if (v === null || !/^\d{1,16}$/.test(v)) return 0;
-  const n = Number(v);
-  return Number.isSafeInteger(n) ? n : 0;
-}
-
 // ---- server-sent events ----
-
-const SSE_HEADERS: Record<string, string> = {
-  "Content-Type": "text/event-stream; charset=utf-8",
-  // no-transform: no proxy may compress (and so buffer) the stream.
-  "Cache-Control": "no-store, no-transform",
-  "X-Accel-Buffering": "no",
-  "X-Robots-Tag": ROBOTS_TAG,
-};
-function sseHeaders(setCookie: string | undefined): Headers {
-  const h = new Headers(SSE_HEADERS);
-  if (setCookie !== undefined) h.set("Set-Cookie", setCookie);
-  return h;
-}
-/**
- * A stream that is over before it starts. `reconnecting` lets the browser's EventSource come back after `retry` with its Last-Event-ID
- * kept (no id is sent here); `signed_out`, `removed`, `ended` and `superseded` are final (the page closes its EventSource).
- */
-function sseFinal(event: string, data: unknown = {}, setCookie?: string): Response {
-  return new Response(`retry: ${RETRY_MS}\n\nevent: ${event}\ndata: ${JSON.stringify(data)}\n\n`, { status: 200, headers: sseHeaders(setCookie) });
-}
 
 const endedLogs = new WeakMap<StreamHub, Set<string>>();
 const endedKey = (c: SessionCookie) => JSON.stringify([c.sessionId, c.logIdentity]);
