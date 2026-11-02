@@ -50,7 +50,7 @@ const log = (line: string) => console.error(`web: console: ${line}`);
 // ---- guards ----
 
 /** requireConsole first; for a state change, then Origin + custom header + Fetch-Metadata (the player POSTs' checks). */
-function guard(
+export function guard(
   req: Request,
   deps: Deps,
   change: boolean,
@@ -73,13 +73,14 @@ export function sessionIdOf(req: Request): string | null {
   return id !== undefined && isValidSessionId(id) ? id : null;
 }
 
-const isId = (v: unknown): v is string =>
+export const isId = (v: unknown): v is string =>
   typeof v === "string" && v.length <= CLIENT_ID_MAX_CHARS && isScenarioId(v);
 
 /** A JSON object of at most 1 KiB whose keys are all in `allowed`; an empty body is `{}`. Null for anything else. */
-async function readBody(
+export async function readBody(
   req: Request,
   allowed: readonly string[],
+  maxBytes: number = MAX_BODY_BYTES,
 ): Promise<Record<string, unknown> | null> {
   let text = "";
   if (req.body) {
@@ -91,7 +92,7 @@ async function readBody(
         const { done, value } = await reader.read();
         if (done) break;
         size += value.byteLength;
-        if (size > MAX_BODY_BYTES) {
+        if (size > maxBytes) {
           await reader.cancel();
           return null;
         }
@@ -328,6 +329,37 @@ export async function handleConsoleReissue(
       code: await deps.launcher.reissue(id, body.roleId, g.who.name),
     });
   } catch (err) {
+    return failure(err);
+  }
+}
+
+/**
+ * POST /api/v1/console/sessions/:id/remove { roleId }: removes the participant and returns the seat's new code, once.
+ * `by` is the cookie's name. Only before the start: the control service answers every refusal as a conflict.
+ */
+export async function handleConsoleRemove(
+  req: Request,
+  deps: Deps,
+): Promise<Response> {
+  const g = guard(req, deps, true);
+  if ("response" in g) return g.response;
+  const id = sessionIdOf(req);
+  if (id === null) return notFound();
+  const body = await readBody(req, ["roleId"]);
+  if (body === null || !isId(body.roleId)) return badRequest();
+  if (!deps.launcher) return unreachable();
+  try {
+    return ok({
+      roleId: body.roleId,
+      code: await deps.launcher.reissue(id, body.roleId, g.who.name, "removed"),
+    });
+  } catch (err) {
+    if (err instanceof LauncherError && err.reason === "conflict")
+      return fail(
+        409,
+        "conflict",
+        "A participant can only be removed before the start.",
+      );
     return failure(err);
   }
 }

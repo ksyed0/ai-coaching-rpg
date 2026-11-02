@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEvent, SessionState } from "@acr/events";
-import { consoleEvent, consoleRoster, consoleState } from "../facilitator-copies";
+import { consoleCharacters, consoleEvent, consoleFactTexts, consoleRoster, consoleScenes, consoleState } from "../facilitator-copies";
 
 const state = (): SessionState => ({
   status: "running", lastSeq: 9, scenarioId: "sc", version: "1",
@@ -40,5 +40,59 @@ describe("console copies", () => {
   it("consoleRoster keeps only the listed entry fields", () => {
     expect(consoleRoster([{ roleId: "a", name: "Ann", joined: true, consented: false, connected: true, credential: "C" } as never]))
       .toEqual([{ roleId: "a", name: "Ann", joined: true, consented: false, connected: true }]);
+  });
+
+  it("consoleScenes keeps scene and inject fields and nothing else", () => {
+    const raw = [
+      { id: "a", title: "T", goal: "G", timeBoxMinutes: 5, hiddenFacts: ["SCENE-HIDDEN"], knowledge: ["K"], injects: [
+        { id: "i1", to: ["lead", 7, "npc"], content: "Hello", atMinute: 3, secret: "INJ-SECRET" },
+        { id: "i2", to: [], content: "No minute", atMinute: Number.NaN },
+        { id: "i3", to: "lead", content: "to not an array" },
+        { id: 4, to: ["lead"], content: "numeric id" },
+        { id: "i5", to: ["lead"], content: 9 },
+        null, "text",
+      ] },
+      { id: "b", title: "U", goal: "H", timeBoxMinutes: 1 },
+      { id: "c", title: "no goal", timeBoxMinutes: 1 },
+      { id: "d", title: "t", goal: "g", timeBoxMinutes: Number.POSITIVE_INFINITY },
+      null,
+    ];
+    const out = consoleScenes(raw);
+    expect(out).toEqual([
+      { id: "a", title: "T", goal: "G", timeBoxMinutes: 5, injects: [{ id: "i1", to: ["lead", "npc"], content: "Hello", atMinute: 3 }, { id: "i2", to: [], content: "No minute" }] },
+      { id: "b", title: "U", goal: "H", timeBoxMinutes: 1, injects: [] },
+    ]);
+    expect(JSON.stringify(out)).not.toMatch(/SCENE-HIDDEN|INJ-SECRET|knowledge/);
+    expect(consoleScenes(undefined)).toEqual([]);
+    expect(consoleScenes({ id: "a" })).toEqual([]);
+  });
+
+  it("consoleCharacters numbers facts, marks released by text, carries no fact text, never carries knowledge or a released text that is not a hidden fact, treats a \"__proto__\" role as an ordinary entry and drops non-string goals", () => {
+    const npcs = JSON.parse('{"npc":{"goals":["g1",5,null,"g2"],"knowledge":["K-SECRET"],"released":["F2","NOT-A-FACT",7]},"__proto__":{"goals":["pg"],"released":[]},"other":{"goals":"nope","released":"nope"}}');
+    const hidden = JSON.parse('{"npc":["F1","F2","F3"],"__proto__":["P1"],"ghost":["G1"]}');
+    const out = consoleCharacters(hidden, npcs);
+    expect(out.map((c) => c.roleId)).toEqual(["npc", "__proto__", "other"]);
+    expect(out[0]).toEqual({ roleId: "npc", goals: ["g1", "g2"], facts: [{ n: 1, released: false }, { n: 2, released: true }, { n: 3, released: false }] });
+    expect(out[1]).toEqual({ roleId: "__proto__", goals: ["pg"], facts: [{ n: 1, released: false }] });
+    expect(out[2]).toEqual({ roleId: "other", goals: [], facts: [] });
+    expect(Object.getPrototypeOf(out[1]!)).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>).goals).toBeUndefined();
+    const text = JSON.stringify(out);
+    for (const bad of ["F1", "F2", "F3", "P1", "G1", "K-SECRET", "NOT-A-FACT", "knowledge"]) expect(text).not.toContain(bad);
+    expect(consoleCharacters(undefined, { a: { goals: ["x"], released: [] } })).toEqual([{ roleId: "a", goals: ["x"], facts: [] }]);
+    expect(consoleCharacters({}, {})).toEqual([]);
+    // an inherited name is no hidden fact list: "toString" and "constructor" are not roles of hiddenFacts
+    expect(consoleCharacters({}, { toString: { goals: [], released: [] } })[0]!.facts).toEqual([]);
+  });
+
+  it("consoleFactTexts numbers facts from 1 and drops non-string entries", () => {
+    const hidden = JSON.parse('{"npc":["A",5,"B",null,"C"],"__proto__":["P"],"bad":"not a list","empty":[]}');
+    expect(consoleFactTexts(hidden)).toEqual([
+      { roleId: "npc", facts: [{ n: 1, text: "A" }, { n: 2, text: "B" }, { n: 3, text: "C" }] },
+      { roleId: "__proto__", facts: [{ n: 1, text: "P" }] },
+      { roleId: "bad", facts: [] },
+      { roleId: "empty", facts: [] },
+    ]);
+    expect(consoleFactTexts(undefined)).toEqual([]);
   });
 });

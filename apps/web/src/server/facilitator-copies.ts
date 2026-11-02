@@ -1,4 +1,4 @@
-import { isKnownEventType, type EventType, type SessionEvent, type SessionState } from "@acr/events";
+import { isKnownEventType, type EventType, type FacilitatorInject, type PlayerScene, type SessionEvent, type SessionState } from "@acr/events";
 import { entryOf } from "./console-roster";
 import type { FacilitatorRosterEntry } from "./wire";
 
@@ -86,3 +86,58 @@ export function consoleEvent(e: SessionEvent): SessionEvent {
 }
 
 export const consoleRoster = (entries: FacilitatorRosterEntry[]): FacilitatorRosterEntry[] => entries.map(entryOf);
+
+export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+export const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+const ownList = (o: Record<string, string[]> | undefined, key: string): string[] => (o && Object.hasOwn(o, key) ? strings(o[key]) : []);
+
+/** A scene as the console sees it: the player fields plus the injects the facilitator may fire. */
+export type ConsoleScene = PlayerScene & { injects: FacilitatorInject[] };
+
+function consoleInject(v: unknown): FacilitatorInject | null {
+  if (!isRecord(v) || typeof v.id !== "string" || typeof v.content !== "string" || !Array.isArray(v.to)) return null;
+  const out: FacilitatorInject = { id: v.id, to: strings(v.to), content: v.content };
+  if (typeof v.atMinute === "number" && Number.isFinite(v.atMinute)) out.atMinute = v.atMinute;
+  return out;
+}
+
+/** The runtime's scene list as the console may see it: picked field by field, malformed entries dropped. */
+export function consoleScenes(scenes: unknown): ConsoleScene[] {
+  if (!Array.isArray(scenes)) return [];
+  const out: ConsoleScene[] = [];
+  for (const c of scenes as unknown[]) {
+    if (!isRecord(c) || typeof c.id !== "string" || typeof c.title !== "string" || typeof c.goal !== "string" || typeof c.timeBoxMinutes !== "number" || !Number.isFinite(c.timeBoxMinutes)) continue;
+    const injects = (Array.isArray(c.injects) ? (c.injects as unknown[]) : []).flatMap((i) => { const x = consoleInject(i); return x ? [x] : []; });
+    out.push({ id: c.id, title: c.title, goal: c.goal, timeBoxMinutes: c.timeBoxMinutes, injects });
+  }
+  return out;
+}
+
+/** An AI character as the console lists it: the goals, and per hidden fact only its number and whether it is released. Never any fact text or knowledge. */
+export type ConsoleCharacter = { roleId: string; goals: string[]; facts: { n: number; released: boolean }[] };
+/** The hidden-fact text of one AI character, numbered as `release_hidden` numbers it. Leaves the BFF only through the facts route. */
+export type ConsoleFactText = { roleId: string; facts: { n: number; text: string }[] };
+
+export function consoleCharacters(hiddenFacts: Record<string, string[]> | undefined, npcs: Record<string, { goals: string[]; released: string[] }>): ConsoleCharacter[] {
+  return Object.keys(npcs).map((roleId) => {
+    const npc = npcs[roleId];
+    const released = new Set(strings(isRecord(npc) ? npc.released : undefined));
+    return {
+      roleId,
+      goals: strings(isRecord(npc) ? npc.goals : undefined),
+      facts: ownList(hiddenFacts, roleId).map((text, i) => ({ n: i + 1, released: released.has(text) })),
+    };
+  });
+}
+
+export function consoleFactTexts(hiddenFacts: Record<string, string[]> | undefined): ConsoleFactText[] {
+  if (!isRecord(hiddenFacts)) return [];
+  return Object.keys(hiddenFacts).map((roleId) => ({ roleId, facts: ownList(hiddenFacts, roleId).map((text, i) => ({ n: i + 1, text })) }));
+}
+
+/** `hiddenFacts` as the runtime sends it (a record of string arrays), or none: a malformed value is not partly trusted. */
+export function wellFormedHiddenFacts(v: unknown): Record<string, string[]> | undefined {
+  if (!isRecord(v)) return undefined;
+  for (const k of Object.keys(v)) if (!Array.isArray(v[k]) || !(v[k] as unknown[]).every((x) => typeof x === "string")) return undefined;
+  return v as Record<string, string[]>;
+}

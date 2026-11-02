@@ -2529,7 +2529,7 @@
         },
         {
           "id": "AC-0314",
-          "text": "remove_participant before the start revokes the credential, closes the socket, clears consent, frees the seat and always reissues the role's code (moved from AC-0308) (addendum: Remove is the existing parent-only reissue with reason \"removed\" (control API `POST /sessions/:id/codes/reissue` with `{ roleId, reason: \"removed\" }`), allowed before the start only (409 \"a participant can only be removed before the start\" when started or starting); the new code is written first, then the credential is revoked, consent withdrawn, seats persisted, the socket closed with code 4003 reason \"removed\" and the codes swapped, so the old code cannot reopen the seat; it has no network surface and mid-session removal is out of scope (end the session instead); the web server turns 4003 into a terminal `removed` event and the final screen \"Removed from the session\" and clears the cookie on the join path; the `reissueActor` alias was removed; the console button is slice 2b-2b; built in slice 2b-2a, TC-0091)",
+          "text": "remove_participant before the start revokes the credential, closes the socket, clears consent, frees the seat and always reissues the role's code (moved from AC-0308) (addendum: Remove is the existing parent-only reissue with reason \"removed\" (control API `POST /sessions/:id/codes/reissue` with `{ roleId, reason: \"removed\" }`), allowed before the start only (409 \"a participant can only be removed before the start\" when started or starting); the new code is written first, then the credential is revoked, consent withdrawn, seats persisted, the socket closed with code 4003 reason \"removed\" and the codes swapped, so the old code cannot reopen the seat; it has no network surface and mid-session removal is out of scope (end the session instead); the web server turns 4003 into a terminal `removed` event and the final screen \"Removed from the session\" and clears the cookie on the join path; the `reissueActor` alias was removed; the console button is slice 2b-2b; built in slice 2b-2a, TC-0091) (note, slice 2b-2b2 PR 2: the BFF route POST /api/v1/console/sessions/:id/remove is built in 2b-2b2 PR 2 (TC-0096); the button follows in PR 3)",
           "done": true
         },
         {
@@ -2560,6 +2560,16 @@
         {
           "id": "AC-0354",
           "text": "a facilitator command or end_now that carries a ref is answered by an ack or an error with that ref to the sender only, and a command with a ref is refused before the start instead of starting the session (services/runtime/src/host/ws-server.ts, protocol.ts, __tests__/ws-server.ack.test.ts; the facilitator's scene list includes injects, ws-server.scenes.test.ts; TC-0095)",
+          "done": true
+        },
+        {
+          "id": "AC-0355",
+          "text": "POST /api/v1/console/sessions/:id/command sends pause, resume, advance, inject, whisper, release fact, NPC stance and end_now over the console tab's own facilitator socket, with by taken only from the console cookie, Origin and X-Requested-With checked, a strict JSON body and fixed refusal copy; a command never starts the session (apps/web/src/server/console-command.ts, facilitator-hub.ts; TC-0096)",
+          "done": true
+        },
+        {
+          "id": "AC-0356",
+          "text": "the console stream names each scene's injects and, in its characters frame only, each AI character's goals and hidden-fact numbers with their release state, and POST /api/v1/console/sessions/:id/facts answers fact text on request; no player frame carries any of it (apps/web/src/server/facilitator-copies.ts, facilitator-hub.ts, console-command.ts; TC-0097)",
           "done": true
         }
       ],
@@ -3629,7 +3639,7 @@
       "assignee": "Agent",
       "status": "In Progress",
       "branch": "feature/EPIC-0002-US-0059-command-ack (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-command-route and feature/EPIC-0002-US-0059-console-controls)",
-      "notes": "PR 1 (this PR) is the runtime side: the optional ref on command and end_now with ack and error carrying it (AC-0354, TC-0095) and injects in the facilitator's scene list. PR 2 is the web server's command route; PR 3 is the console controls and confirmations (AC-0311, AC-0312, AC-0315, AC-0316 stay open until then). Plan docs/superpowers/plans/2026-11-01-slice-2b-2b2-facilitator-controls.md."
+      "notes": "PR 1 (merged) is the runtime side: the optional ref on command and end_now with ack and error carrying it (AC-0354, TC-0095) and injects in the facilitator's scene list. PR 2 (this PR, feature/EPIC-0002-US-0059-command-route) is the web server's command, hidden-fact and remove routes with the hub's correlation and the characters frame (AC-0355, AC-0356, TC-0096, TC-0097); PR 3 is the console controls and confirmations (AC-0311, AC-0312, AC-0315, AC-0316 stay open until then). Plan docs/superpowers/plans/2026-11-01-slice-2b-2b2-facilitator-controls.md."
     },
     {
       "id": "TASK-0089",
@@ -4619,6 +4629,26 @@
       "relatedStory": "US-0059",
       "relatedTask": "TASK-0097",
       "relatedAC": "AC-0354",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0096",
+      "title": "The console command route sends a facilitator action over the tab's own socket and answers with fixed copy",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0097",
+      "relatedAC": "AC-0355",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0097",
+      "title": "The console stream names injects and characters, and hidden-fact text leaves only through the facts route",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0097",
+      "relatedAC": "AC-0356",
       "type": "Integration",
       "status": "Pass",
       "defect": "None"
@@ -6137,10 +6167,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-02T14:44:58.791Z",
-  "commitSha": "5ad35cd",
-  "buildNumber": "493",
-  "branch": "feature/EPIC-0002-US-0059-command-ack",
+  "generatedAt": "2026-11-02T20:15:07.415Z",
+  "commitSha": "d8c15b9",
+  "buildNumber": "500",
+  "branch": "feature/EPIC-0002-US-0059-command-route",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6286,9 +6316,9 @@
     "totalSpent": 799.4862,
     "totalProjected": 70400,
     "percentUsed": 4,
-    "burnRate": 21.92526866666667,
-    "daysRemaining": 784,
-    "projectedExhaustion": 784,
+    "burnRate": 21.137890111111112,
+    "daysRemaining": 813,
+    "projectedExhaustion": 813,
     "thresholds": [
       50,
       75,
@@ -6409,9 +6439,11 @@
       "2026-11-02T00:31:24.715Z",
       "2026-11-02T01:22:39.762Z",
       "2026-11-02T02:24:55.020Z",
-      "2026-11-02T14:44:58.877Z"
+      "2026-11-02T14:44:58.877Z",
+      "2026-11-02T20:15:07.540Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6499,6 +6531,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6532,6 +6565,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -6589,9 +6623,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -6679,9 +6715,11 @@
       0,
       0,
       2,
+      2,
       2
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -6769,6 +6807,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -6802,6 +6841,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -6858,6 +6898,7 @@
       1.136923076923077,
       1.136923076923077,
       1.136923076923077,
+      1.1461538461538459,
       1.1461538461538459,
       1.1461538461538459
     ],

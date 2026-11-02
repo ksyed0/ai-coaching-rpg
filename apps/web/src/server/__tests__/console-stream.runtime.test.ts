@@ -42,6 +42,8 @@ const ADDRESS: Record<Player, string> = { delivery_lead: "198.51.100.11", tech_l
 const typed = (code: string) => code.replace(/-/g, "").toLowerCase().replace(/(.{4})(?=.)/g, "$1 - ");
 /** client_sponsor's hidden fact 1 (see hub.runtime.test.ts). */
 const HIDDEN_FACT = "Would accept a phased delivery after go-live";
+/** client_sponsor's knowledge: never on the console stream, in any frame. */
+const KNOWLEDGE = "The module was in an early scope draft";
 
 let tmp = "";
 let runtime: { port: number; host: Host; stop(): Promise<void> } | null = null;
@@ -126,7 +128,7 @@ async function openPlayerStream(cookie: SessionCookie) {
   closers.push(() => handle.close());
   return { rec };
 }
-/** The facilitator on a raw socket with the real token (wire.ts has neither `command` nor `end_now`). */
+/** The facilitator on a raw socket with the real token (a raw WebSocket, so the test sends the runtime's own messages). */
 async function facilitator() {
   const ws = new WebSocket(url());
   const inbox: any[] = [];
@@ -201,11 +203,17 @@ describe("the console stream against the real runtime", () => {
     expect(releaseEvent).toMatchObject({ type: "npc.updated", roleId: "client_sponsor", goals: [], knowledge: [], released: [] });
     for (const r of [live.r, late.r]) {
       // The frames that carry session data about an AI character: never the text. (An AI character's own line may say it once released.)
-      for (const f of r.frames().filter((x) => ["joined", "reset", "roster"].includes(x.event ?? "") || (x.event === "event" && x.data.type === "npc.updated"))) {
+      for (const f of r.frames().filter((x) => ["joined", "reset", "roster", "characters"].includes(x.event ?? "") || (x.event === "event" && x.data.type === "npc.updated"))) {
         expect(JSON.stringify(f), `${f.event} frame carried the hidden fact`).not.toContain(HIDDEN_FACT);
       }
       expect(r.text()).not.toContain("hiddenFacts");
+      expect(r.text(), "the console stream carried the character's knowledge").not.toContain(KNOWLEDGE);
+      expect(r.text()).not.toContain("knowledge\":[\"");
     }
+    // The characters frame names the character's facts by number only, and fact 1 is released once the release is on the stream.
+    const lastCharacters = (r: typeof live.r) => r.frames().filter((f) => f.event === "characters").at(-1)!.data.roles.find((c: { roleId: string }) => c.roleId === "client_sponsor");
+    expect(lastCharacters(live.r)).toMatchObject({ roleId: "client_sponsor", goals: expect.any(Array), facts: [{ n: 1, released: true }] });
+    expect(lastCharacters(late.r)).toMatchObject({ roleId: "client_sponsor", facts: [{ n: 1, released: true }] });
     const reset = late.r.frames().find((f) => f.event === "reset")!.data.state as SessionState;
     expect(reset.npcs).toEqual({});
     expect(reset.lastSeq).toBeGreaterThanOrEqual(releasedSeq);
@@ -307,7 +315,10 @@ describe("the console stream against the real runtime", () => {
     // Fields the page may not see.
     // set_npc_stance: the goal text is in the runtime's frames (command and npc.updated) and nowhere on the console.
     expect(facText).toContain(GOAL);
-    expect(consoleText).not.toContain(GOAL);
+    // The goal text reaches the page only inside characters frames (the stance is the character's current goal).
+    const goalFrames = [...live.r.frames(), ...late.r.frames()].filter((f) => JSON.stringify(f).includes(GOAL));
+    expect(goalFrames.length).toBeGreaterThan(0);
+    expect(goalFrames.every((f) => f.event === "characters")).toBe(true);
     expect(eventsOf(live.r).find((e) => e.type === "facilitator.command" && (e as { command: string }).command === "set_npc_stance")).toMatchObject({ roleId: "client_sponsor", goals: [] });
     // participantId: the runtime's facilitator frames carry the id values this test built; the console never does.
     expect(facText).toContain("delivery_lead-person");

@@ -199,11 +199,17 @@ export class LauncherClient {
     return { port: d.port, token: d.token };
   }
 
-  async reissue(id: string, roleId: string, by: string): Promise<string> {
+  /** With `reason: "removed"` the runtime treats the reissue as a removal (refused once the session has started). */
+  async reissue(
+    id: string,
+    roleId: string,
+    by: string,
+    reason?: "removed",
+  ): Promise<string> {
     const d = await this.call(
       "POST",
       `/sessions/${this.id(id)}/codes/reissue`,
-      { roleId, by },
+      reason === undefined ? { roleId, by } : { roleId, by, reason },
       this.longTimeoutMs,
     );
     if (!isObject(d) || !isText(d.code)) return bad();

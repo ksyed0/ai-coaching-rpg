@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LauncherClient } from "../launcher-client";
-import { consoleView, createDeps, route } from "../routes";
+import { consoleCommandPOST, consoleFactsPOST, consoleView, createDeps, route } from "../routes";
 import { RuntimeConnection } from "../runtime-connection";
 import { StreamHub } from "../stream-hub";
 import { JoinThrottle } from "../throttle";
@@ -119,6 +119,7 @@ describe("route files", () => {
     ["console/sessions/[id]/start", "consoleStart", "POST"],
     ["console/sessions/[id]/reissue", "consoleReissue", "POST"],
     ["console/sessions/[id]/reissue-all", "consoleReissueAll", "POST"],
+    ["console/sessions/[id]/remove", "consoleRemove", "POST"],
     ["console/sessions/[id]/restart", "consoleRestart", "POST"],
     ["console/sessions/[id]/stream", "consoleStream", "GET"],
   ];
@@ -164,5 +165,12 @@ describe("consoleView", () => {
     expect(consoleView("x", () => { throw new Error("config"); })).toEqual({ kind: "disabled" });
     expect(consoleView(undefined, () => createDeps(FULL))).toEqual({ kind: "signed_out" });
     expect(consoleView("not-a-cookie", () => createDeps(FULL))).toEqual({ kind: "signed_out" });
+  });
+});
+
+describe("console command routes", () => {
+  it("consoleCommandPOST and consoleFactsPOST exist", () => {
+    expect(typeof consoleCommandPOST).toBe("function");
+    expect(typeof consoleFactsPOST).toBe("function");
   });
 });
