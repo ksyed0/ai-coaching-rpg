@@ -86,6 +86,8 @@ beforeEach(async () => {
 afterEach(async () => {
   for (const r of readers) await r.cancel().catch(() => {});
   readers = [];
+  // Cancelling the browsers must release every hub stream (and so its runtime socket).
+  await until(() => deps.facilitatorHub.size() === 0, { what: "the console hub to empty" });
   for (const c of closers) c();
   closers = [];
   await runtime?.stop(); runtime = null;
@@ -193,6 +195,8 @@ describe("the console stream against the real runtime", () => {
     const raw = JSON.stringify(fac.inbox);
     expect(raw).toContain(HIDDEN_FACT);
     expect(raw).toContain("hiddenFacts");
+    const rawRelease = fac.inbox.find((m) => m.type === "event" && m.event.type === "npc.updated" && m.event.seq === releasedSeq);
+    expect(JSON.stringify(rawRelease), "the facilitator's own release event lacks the fact").toContain(HIDDEN_FACT);
     const releaseEvent = eventsOf(live.r).find((e) => e.seq === releasedSeq) as Extract<SessionEvent, { type: "npc.updated" }>;
     expect(releaseEvent).toMatchObject({ type: "npc.updated", roleId: "client_sponsor", goals: [], knowledge: [], released: [] });
     for (const r of [live.r, late.r]) {
@@ -268,6 +272,10 @@ describe("the console stream against the real runtime", () => {
     await until(() => fac.inbox.some((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.command === "resume"));
     await say(seats.delivery_lead, "Did everyone see the email?");
     await say(seats.tech_lead, "Yes, before go-live is a risk.");
+    const GOAL = "STANCE-GOAL-ONLY-2b2b1";
+    fac.send({ type: "command", command: { command: "set_npc_stance", roleId: "client_sponsor", goals: [GOAL] }, by: "LEAK-BY-2b2b1" });
+    await until(() => fac.inbox.some((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.command === "set_npc_stance"));
+    await runtime!.host.idle();
     // A second console tab that joins late gets the snapshot, which carries the talk counters.
     const late = await consoleStream(10_000);
     fac.send({ type: "end_now", by: "LEAK-BY-2b2b1" });
@@ -297,9 +305,21 @@ describe("the console stream against the real runtime", () => {
     expect(consoleText).not.toContain("was ended now");
     expect(consoleText).not.toContain("participants were shown");
     // Fields the page may not see.
+    // set_npc_stance: the goal text is in the runtime's frames (command and npc.updated) and nowhere on the console.
+    expect(facText).toContain(GOAL);
+    expect(consoleText).not.toContain(GOAL);
+    expect(eventsOf(live.r).find((e) => e.type === "facilitator.command" && (e as { command: string }).command === "set_npc_stance")).toMatchObject({ roleId: "client_sponsor", goals: [] });
+    // participantId: the runtime's facilitator frames carry the id values this test built; the console never does.
+    expect(facText).toContain("delivery_lead-person");
+    expect(consoleText).not.toContain("delivery_lead-person");
+    // logIdentity: a player's joined frame carries one (the facilitator path may not), so it is controlled from there.
+    expect(seats.delivery_lead.cookie.logIdentity).toMatch(/^[0-9a-f]{32}$/);
+    expect(consoleText).not.toContain(seats.delivery_lead.cookie.logIdentity);
+    // scenarioHash: no source in this session is known to carry it, so this is a negative-only check (no coverage claimed).
     for (const never of ["hiddenFacts", "participantId", "logIdentity", "scenarioHash"]) expect(consoleText, `the console stream carried ${never}`).not.toContain(never);
 
     // No player stream carries any of the three markers, nor the facilitator's other frames.
+    // Intentionally not the full FACILITATOR_ONLY list of hub.runtime.test.ts (that test owns the player-stream contract); these are the console-channel additions.
     const PLAYER_NEVER = [...MARKERS, "\"audience\":\"facilitator\"", "hiddenFacts", "\"facilitator.alert\"", "ended now"];
     for (const r of PLAYERS) {
       const text = seats[r].rec.chunks.join("");
@@ -313,7 +333,7 @@ describe("the console stream against the real runtime", () => {
     const live = await consoleStream();
     fac.send({ type: "end_now", by: "Ann Lee" });
     await until(() => live.r.done(), { what: "the console stream to finish" });
-    const frames = live.r.frames().filter((f) => f.event !== undefined && !f.event.startsWith("retry:"));
+    const frames = live.r.frames().filter((f) => f.event !== undefined);
     const last = frames.slice(-2);
     expect(last.map((f) => f.event)).toEqual(["event", "ended"]);
     expect(last[0]!.data).toMatchObject({ type: "session.ended", reason: "facilitator_end" });
