@@ -112,6 +112,8 @@ Slice 1 proof of concept: text-only play from a terminal against AI-played NPCs 
 
 ### Changed
 
+- Console connection budget (EPIC-0002, US-0059, AC-0352): every facilitator socket the web server opens now sends the reserved forwarded key `scenecoach-console` (a value no player can send) instead of none, and takes a per-session slot (4 live-view tabs, 3 short request sockets, 7 of the runtime's per-address cap of 8). Players and bots can no longer exhaust or block the console's connections, nor the console theirs; a stale facilitator token blocks the console key only. Over the budget the console answers 503 `busy` ("Too many console connections to this session are open. Close a console tab and try again."); a readiness poll answers `unknown`. The total-cap arithmetic (`2H + B + 7 <= 32`, at most 12 player roles) is recorded in the threat model as an open item for slice 2b-3b.
+
 - Players now receive allowlisted copies of the session state and of facilitator commands and the session end (EPIC-0002, US-0059, AC-0351): each is built key by key from a table in `host/player-copies.ts`, so a facilitator-only field added later (the facilitator's name, words spoken) cannot reach a player until it is listed. Nothing a player receives today changes; a test pins the 2a snapshot.
 
 - Session log format 2 (EPIC-0002, US-0054): `session.started` may carry `consents`, `names` and `logIdentity`; a player's view of it holds only their own consent, never names or the log identity. This version reads logs of format 0, 1 and 2; an older runtime refuses a format 2 log. On a resume, credentials whose log identity differs from the log's are replaced (with a note) and their consent file is dropped.
