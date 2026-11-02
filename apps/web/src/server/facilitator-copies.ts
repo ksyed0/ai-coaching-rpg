@@ -87,8 +87,8 @@ export function consoleEvent(e: SessionEvent): SessionEvent {
 
 export const consoleRoster = (entries: FacilitatorRosterEntry[]): FacilitatorRosterEntry[] => entries.map(entryOf);
 
-const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+export const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+export const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 const ownList = (o: Record<string, string[]> | undefined, key: string): string[] => (o && Object.hasOwn(o, key) ? strings(o[key]) : []);
 
 /** A scene as the console sees it: the player fields plus the injects the facilitator may fire. */

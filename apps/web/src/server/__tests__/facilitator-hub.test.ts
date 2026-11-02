@@ -188,8 +188,25 @@ describe("FacilitatorHub", () => {
     const all = rec.chunks.join("");
     for (const bad of ["EVT-K-SECRET", "INVENTED-SECRET", "EVT-EXTRA", "REAL-F1", "knowledge\":[\"" ]) expect(all).not.toContain(bad);
     const last = chars(rec).at(-1)!.data.roles;
-    expect(last).toEqual([{ roleId: "npc", goals: [], facts: [{ n: 1, released: false }] }]);
+    // seq 8 has a malformed released: the role keeps what it had released (seq 6)
+    expect(last).toEqual([{ roleId: "npc", goals: [], facts: [{ n: 1, released: true }] }]);
     expect(rec.events().map((e) => e.seq)).toEqual([6, 7, 8]);
+  });
+
+  it("an npc.updated without released keeps the facts already released (the reducer keeps the previous list)", () => {
+    const j = withNpcs({ npc: { goals: ["G0"], knowledge: [], released: [] } }, { npc: ["F1", "F2"] });
+    const { conn, rec } = setup({ joined: j }).open();
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 6, ts: 6, sessionId: "s1", roleId: "npc", goals: [], knowledge: [], released: ["F2"] } as never });
+    const before = rec.frames().length;
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 7, ts: 7, sessionId: "s1", roleId: "npc", goals: ["G7"], knowledge: ["K7-SECRET"] } as never });
+    const f = rec.frames().slice(before);
+    expect(f.map((x) => x.event)).toEqual(["event", "characters"]);
+    expect(f[0]!.data).toEqual({ type: "npc.updated", seq: 7, ts: 7, sessionId: "s1", roleId: "npc", goals: [], knowledge: [], released: [] });
+    expect(f[1]!.data.roles).toEqual([{ roleId: "npc", goals: ["G7"], facts: [{ n: 1, released: false }, { n: 2, released: true }] }]);
+    // a role not seen before starts with nothing released
+    conn.emit({ type: "event", event: { type: "npc.updated", seq: 8, ts: 8, sessionId: "s1", roleId: "fresh", goals: ["N"], knowledge: [] } as never });
+    expect(chars(rec).at(-1)!.data.roles.at(-1)).toEqual({ roleId: "fresh", goals: ["N"], facts: [] });
+    expect(rec.chunks.join("")).not.toContain("K7-SECRET");
   });
 
   it("factsFor returns the text for this session's channel, null for another session's or an unknown channel, and null after the stream closes", () => {

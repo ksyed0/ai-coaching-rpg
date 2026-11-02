@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { consoleCharacters, consoleEvent, consoleFactTexts, consoleRoster, consoleScenes, consoleState, wellFormedHiddenFacts, type ConsoleFactText } from "./facilitator-copies";
+import { consoleCharacters, isRecord, strings, consoleEvent, consoleFactTexts, consoleRoster, consoleScenes, consoleState, wellFormedHiddenFacts, type ConsoleFactText } from "./facilitator-copies";
 import type { FacilitatorJoin } from "./facilitator-socket";
 import type { RuntimeConnection, SetTimer } from "./runtime-connection";
 import { DEFAULT_MAX_PENDING_BYTES, heartbeat, replayIncomplete, RETRY_MS, sseFrame as sse, SseWriter, type SseOut } from "./sse";
@@ -24,16 +24,14 @@ export type ConsoleStreamFinal = "reconnecting" | "ended" | "expired";
 const CODE_SHAPE = /^[a-z_]{1,40}$/;
 const ERROR_MESSAGE = "the server reported an error";
 
-const strOnly = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 /** Each AI character's goals and released texts from a joined state; a malformed state counts as none. */
 function joinedNpcs(state: unknown): Map<string, { goals: string[]; released: string[] }> {
   const out = new Map<string, { goals: string[]; released: string[] }>();
-  const npcs = (state as { npcs?: unknown } | null | undefined)?.npcs;
-  if (typeof npcs !== "object" || npcs === null || Array.isArray(npcs)) return out;
+  const npcs = isRecord(state) ? state.npcs : undefined;
+  if (!isRecord(npcs)) return out;
   for (const id of Object.keys(npcs)) {
-    const n = (npcs as Record<string, unknown>)[id];
-    const r = typeof n === "object" && n !== null ? (n as Record<string, unknown>) : {};
-    out.set(id, { goals: strOnly(r.goals), released: strOnly(r.released) });
+    const r = isRecord(npcs[id]) ? (npcs[id] as Record<string, unknown>) : {};
+    out.set(id, { goals: strings(r.goals), released: strings(r.released) });
   }
   return out;
 }
@@ -41,7 +39,7 @@ function joinedNpcs(state: unknown): Map<string, { goals: string[]; released: st
 type Pending = { ref: string; type: CommandMessage["type"]; resolve: (o: CommandOutcome) => void; cancelTimer: () => void };
 type Stream = { channel: string; sessionId: string; pending: Pending | null; expiresAt: number; conn: RuntimeConnection; out: SseOut; writer: SseWriter; ended: boolean; skip: number;
   /** Hidden-fact text and each AI character's last goals and released texts. Memory only: fact text never leaves except through `factsFor`. */
-  facts: ConsoleFactText[]; npcs: Map<string, { goals: string[]; released: string[] }>; cancelHeartbeat: () => void; detach: () => void };
+  facts: ConsoleFactText[]; hidden: Record<string, string[]>; npcs: Map<string, { goals: string[]; released: string[] }>; cancelHeartbeat: () => void; detach: () => void };
 
 export type FacilitatorHubOptions = {
   setTimer: SetTimer; now: () => number; maxStreams?: number; maxPendingBytes?: number; newChannelId?: () => string;
@@ -75,16 +73,17 @@ export class FacilitatorHub {
       return "capacity";
     }
     const channel = this.newChannelId();
-    const s: Stream = { channel, sessionId: a.sessionId, pending: null, expiresAt: a.expiresAt, conn, out, writer: new SseWriter(out, this.maxPendingBytes), ended: false, skip: 0, facts: [], npcs: new Map(), cancelHeartbeat: () => {}, detach: () => {} };
+    const s: Stream = { channel, sessionId: a.sessionId, pending: null, expiresAt: a.expiresAt, conn, out, writer: new SseWriter(out, this.maxPendingBytes), ended: false, skip: 0, facts: [], hidden: {}, npcs: new Map(), cancelHeartbeat: () => {}, detach: () => {} };
     this.streams.set(channel, s);
     s.writer.beginOpening();
     try {
       const frame = joined.frame;
       this.write(s, `retry: ${RETRY_MS}\n\n`);
       // Picked, never spread: `frame` is the runtime's whole object (hiddenFacts and notice included at runtime).
-      this.write(s, sse("joined", { channel, scenes: consoleScenes(frame.scenes) }));
       s.facts = consoleFactTexts(wellFormedHiddenFacts(frame.hiddenFacts));
+      s.hidden = Object.fromEntries(s.facts.map((f) => [f.roleId, f.facts.map((x) => x.text)]));
       s.npcs = joinedNpcs(frame.state);
+      this.write(s, sse("joined", { channel, scenes: consoleScenes(frame.scenes) }));
       if (replayIncomplete(frame.replay)) {
         // The id moves Last-Event-ID to the snapshot; replayed events are already in it.
         const at = frame.state.lastSeq;
@@ -118,8 +117,7 @@ export class FacilitatorHub {
   }
 
   private writeCharacters(s: Stream): void {
-    const hidden = Object.fromEntries(s.facts.map((f) => [f.roleId, f.facts.map((x) => x.text)]));
-    this.write(s, sse("characters", { roles: consoleCharacters(hidden, Object.fromEntries(s.npcs)) }));
+    this.write(s, sse("characters", { roles: consoleCharacters(s.hidden, Object.fromEntries(s.npcs)) }));
   }
 
   /**
@@ -171,7 +169,9 @@ export class FacilitatorHub {
       if (m.event.type === "npc.updated") {
         const e = m.event as unknown as Record<string, unknown>;
         if (typeof e.roleId === "string") {
-          s.npcs.set(e.roleId, { goals: strOnly(e.goals), released: strOnly(e.released) });
+          // `released` is optional on the event and the reducer keeps the previous list when it is absent.
+          const released = Array.isArray(e.released) ? strings(e.released) : (s.npcs.get(e.roleId)?.released ?? []);
+          s.npcs.set(e.roleId, { goals: strings(e.goals), released });
           this.writeCharacters(s);
         }
       }
@@ -201,6 +201,7 @@ export class FacilitatorHub {
     if (s.ended) return;
     s.ended = true;
     s.facts = [];
+    s.hidden = {};
     s.npcs = new Map();
     if (this.streams.get(s.channel) === s) this.streams.delete(s.channel);
     if (s.pending) this.settle(s, s.pending, { kind: "unconfirmed" });
