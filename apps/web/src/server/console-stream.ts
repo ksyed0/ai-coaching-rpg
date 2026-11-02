@@ -38,6 +38,8 @@ export async function handleConsoleStream(req: Request, deps: Deps): Promise<Res
     return sseFinal("reconnecting");
   }
 
+  // Nobody is listening: take no slot and contact no runtime.
+  if (req.signal.aborted) return sseFinal("reconnecting");
   let opened: Awaited<ReturnType<typeof openFacilitatorSocket>>;
   try {
     opened = await openFacilitatorSocket(deps, id, { kind: "live", lastSeq: lastSeqOf(req.headers.get("Last-Event-ID")) });

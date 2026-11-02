@@ -191,10 +191,57 @@ describe("GET /api/v1/console/sessions/:id/stream", () => {
 
   it("responses carry X-Robots-Tag noindex, nofollow and Cache-Control no-store, no-transform", async () => {
     const { res } = await live();
-    expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
-    expect(res.headers.get("Cache-Control")).toBe("no-store, no-transform");
-    const final = await stream({ id: SID, headers: { Accept: "text/event-stream" } });
-    expect(final.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    const check = (r: Response, cache: string) => {
+      expect(r.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+      expect(r.headers.get("Cache-Control")).toBe(cache);
+    };
+    check(res, "no-store, no-transform");
+    launcher.session.mockResolvedValueOnce({ sessionId: SID, scenarioId: "p", status: "ended" });
+    const ended = await stream();
+    check(ended, "no-store, no-transform");
+    await ended.text();
+    for (let i = 1; i < LIVE_TABS_PER_SESSION; i++) await live();
+    const busy = await stream();
+    check(busy, "no-store, no-transform");
+    await busy.text();
+    const unauth = await stream({ cookie: null });
+    expect(unauth.status).toBe(401);
+    expect(unauth.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    expect(unauth.headers.get("Cache-Control")).toContain("no-store");
+    await unauth.text();
+  });
+
+  it("a full hub answers busy with its message, closes the socket and frees the live slot", async () => {
+    deps = { ...deps, facilitatorHub: new FacilitatorHub({ setTimer: manualTimers().setTimer, now: () => clock, maxStreams: 1 }) } as Deps;
+    await live();
+    const res = await stream();
+    expect(await finalOf(res)).toEqual([{ event: "busy", data: { message: BUSY_MESSAGE } }]);
+    await until(() => conns[1]!.closed > 0, { what: "the refused socket to close" });
+    await until(() => deps.facilitatorBudget.inUse(SID, "live") === 1, { what: "only the first slot held" });
+  });
+
+  it("cancelling the body closes the socket and ends the hub stream", async () => {
+    const { r } = await live();
+    await r.cancel();
+    await until(() => conns[0]!.closed > 0, { what: "the socket close" });
+    expect(deps.facilitatorHub.size()).toBe(0);
+    await until(() => deps.facilitatorBudget.inUse(SID, "live") === 0, { what: "the slot to free" });
+  });
+
+  it("a launcher or runtime failure gives a reconnecting frame with empty data, never the error text", async () => {
+    launcher.session.mockRejectedValueOnce(new Error("secret launcher detail 127.0.0.1:4200"));
+    expect(await finalOf(await stream())).toEqual([{ event: "reconnecting", data: {} }]);
+    connect.mockRejectedValueOnce(new Error("secret runtime detail"));
+    expect(await finalOf(await stream())).toEqual([{ event: "reconnecting", data: {} }]);
+  });
+
+  it("a request aborted during the launcher lookup takes no slot and contacts no runtime", async () => {
+    const ac = new AbortController();
+    launcher.session.mockImplementationOnce(async () => { ac.abort(); return { sessionId: SID, scenarioId: "p", status: "running" }; });
+    await (await stream({ signal: ac.signal })).text();
+    expect(launcher.facilitator).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    expect(deps.facilitatorBudget.inUse(SID, "live")).toBe(0);
   });
 
   it("an aborted request closes the socket and frees the live slot", async () => {
@@ -213,6 +260,7 @@ describe("GET /api/v1/console/sessions/:id/stream", () => {
     await res.text().catch(() => {});
     expect(conns[0]!.closed).toBeGreaterThan(0);
     expect(deps.facilitatorHub.size()).toBe(0);
+    await until(() => deps.facilitatorBudget.inUse(SID, "live") === 0, { what: "the slot to free" });
   });
 
   it("a cookie that expires while the socket is joining closes the socket and ends with expired", async () => {
