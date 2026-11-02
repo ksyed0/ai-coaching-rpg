@@ -46,6 +46,9 @@ async function setup(o: { extraPlayers?: string[]; withoutScenesFor?: boolean; w
   for (const id of o.extraPlayers ?? []) scenario.roles[id] = { id, type: "player", brief: `You are ${id}.`, private_facts: [] } as (typeof scenario.roles)[string];
   // A scene only p2 takes part in: its title and goal must never reach the host player.
   scenario.script.scenes.push({ id: "s3_private", title: "PRIVATE-TITLE", goal: "PRIVATE-GOAL", participants: ["p2"], time_box_minutes: 3, exit_when: { any_of: ["facilitator_advance"] } });
+  // An inject with no at_minute (only the facilitator fires it), addressed to a PLAYER (p2), so a leak to p2 would be observable.
+  // It needs p2 to exist; without extraPlayers it is addressed to the host instead.
+  scenario.script.scenes[0]!.injects!.push({ id: "fire_only", to: [o.extraPlayers?.includes("p2") ? "p2" : "host"], content: "FIRE-ONLY-SECRET" });
   const clock = new FakeClock(7_000);
   const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock });
   const seats: Seats = { credentials: PlayerCredentials.create(BIND), consent: new ConsentStore(NOTICE), persist: vi.fn() };
@@ -81,12 +84,47 @@ describe("joined.scenes (US-0055)", () => {
     f.send({ type: "join_facilitator", sessionId: "local" });
     const fj = await f.next((m) => m.type === "joined");
     expect(fj.scenes).toEqual([
-      { id: "s1_open", title: "Opening", goal: "Exchange greetings", timeBoxMinutes: 2 },
-      { id: "s2_close", title: "Close", goal: "Say goodbye", timeBoxMinutes: 1 },
-      { id: "s3_private", title: "PRIVATE-TITLE", goal: "PRIVATE-GOAL", timeBoxMinutes: 3 },
+      { id: "s1_open", title: "Opening", goal: "Exchange greetings", timeBoxMinutes: 2, injects: [
+        { id: "late_inject", to: ["guest"], content: "Sam remembers an urgent email.", atMinute: 1 },
+        { id: "fire_only", to: ["p2"], content: "FIRE-ONLY-SECRET" },
+      ] },
+      { id: "s2_close", title: "Close", goal: "Say goodbye", timeBoxMinutes: 1, injects: [] },
+      { id: "s3_private", title: "PRIVATE-TITLE", goal: "PRIVATE-GOAL", timeBoxMinutes: 3, injects: [] },
     ]);
+    expect(fj.scenes[0].injects[1]).not.toHaveProperty("atMinute");
     const b = await player(port, "p2", plain.p2!);
     expect(b.j.scenes).toEqual([{ id: "s3_private", title: "PRIVATE-TITLE", goal: "PRIVATE-GOAL", timeBoxMinutes: 3 }]);
+  });
+
+  it("a player's joined scenes have no injects key", async () => {
+    const { port, plain } = await setup({ extraPlayers: ["p2"] });
+    const a = await player(port, "host", plain.host!);
+    const b = await player(port, "p2", plain.p2!);
+    for (const j of [a.j, b.j]) for (const sc of j.scenes) expect(sc).not.toHaveProperty("injects");
+    expect(JSON.stringify([a.j, b.j])).not.toContain("FIRE-ONLY-SECRET");
+  });
+
+  it("an unfired inject's content is in no frame any player receives; once fired, only its addressee gets it", async () => {
+    const { port, plain, host } = await setup({ extraPlayers: ["p2"] });
+    const a = await player(port, "host", plain.host!);
+    const b = await player(port, "p2", plain.p2!);
+    a.c.send({ type: "consent", noticeVersion: "v1" });
+    b.c.send({ type: "consent", noticeVersion: "v1" });
+    await a.c.next((m) => m.type === "roster" && m.entries.every((e: any) => e.ready));
+    const f = await open(port);
+    f.send({ type: "join_facilitator", sessionId: "local" });
+    expect((await f.next((m) => m.type === "joined")).scenes[0].injects.some((i: any) => i.content === "FIRE-ONLY-SECRET")).toBe(true); // control: the facilitator sees it
+    await host.start();
+    await a.c.next((m) => m.type === "event" && m.event.type === "scene.entered");
+    await b.c.next((m) => m.type === "event" && m.event.type === "session.started"); // p2 is not in s1_open, so it never sees scene.entered
+    expect(JSON.stringify(a.c.inbox)).not.toContain("FIRE-ONLY-SECRET");
+    expect(JSON.stringify(b.c.inbox)).not.toContain("FIRE-ONLY-SECRET");
+    await host.command({ command: "fire_inject", injectId: "fire_only" });
+    await b.c.next((m) => m.type === "event" && m.event.type === "inject.fired" && m.event.content === "FIRE-ONLY-SECRET");
+    await f.next((m) => m.type === "event" && m.event.type === "inject.fired");
+    await host.command({ command: "pause" }); // a later event on a's ordered socket: everything the inject could have sent a has arrived
+    await a.c.next((m) => m.type === "event" && m.event.type === "facilitator.command");
+    expect(JSON.stringify(a.c.inbox)).not.toContain("FIRE-ONLY-SECRET");
   });
 
   it("a host without allScenes still joins a facilitator; joined then has no scenes key", async () => {
