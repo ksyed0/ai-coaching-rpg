@@ -868,6 +868,25 @@ describe("console session API", () => {
     expect(
       (await a.remove(post(path, { roleId: "a" }, { cookie: null }))).status,
     ).toBe(401);
+    const player = await a.remove(
+      post(path, { roleId: "a" }, { cookie: playerCookie() }),
+    );
+    expect(player.status).toBe(401);
+    expect((await json(player)).error?.code).toBe("unauthorized");
+    expect(launcher.reissue).not.toHaveBeenCalled();
+  });
+
+  it("remove on a disabled console is 503 and the launcher is not called", async () => {
+    const a = await api();
+    deps = {
+      ...deps,
+      config: { ...config, facilitatorSecret: undefined },
+    } as Deps;
+    const res = await a.remove(
+      post(`/sessions/${SID}/remove`, { roleId: "a" }),
+    );
+    expect(res.status).toBe(503);
+    expect((await json(res)).success).toBe(false);
     expect(launcher.reissue).not.toHaveBeenCalled();
   });
 

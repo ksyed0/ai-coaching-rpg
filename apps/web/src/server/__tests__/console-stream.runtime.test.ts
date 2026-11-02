@@ -128,7 +128,7 @@ async function openPlayerStream(cookie: SessionCookie) {
   closers.push(() => handle.close());
   return { rec };
 }
-/** The facilitator on a raw socket with the real token (wire.ts has neither `command` nor `end_now`). */
+/** The facilitator on a raw socket with the real token (a raw WebSocket, so the test sends the runtime's own messages). */
 async function facilitator() {
   const ws = new WebSocket(url());
   const inbox: any[] = [];

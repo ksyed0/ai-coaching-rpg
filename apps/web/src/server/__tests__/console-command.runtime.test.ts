@@ -171,7 +171,7 @@ async function openPlayerStream(cookie: SessionCookie) {
   closers.push(() => handle.close());
   return { rec };
 }
-/** The facilitator on a raw socket with the real token (wire.ts has neither `command` nor `end_now`). */
+/** The facilitator on a raw socket with the real token (a raw WebSocket, so the test sends the runtime's own messages). */
 async function facilitator() {
   const ws = new WebSocket(url());
   const inbox: any[] = [];
@@ -244,6 +244,7 @@ describe("the console's command and fact routes against the real runtime", () =>
     const ended = eventsOf(tab.r).filter((e) => e.type === "session.ended");
     expect(ended).toHaveLength(1);
     expect(ended[0]).toMatchObject({ reason: "facilitator_end" });
+    // end_now's `by` is not visible on the console stream (its alert is a fixed line); the unit mapping test pins that it is sent.
     expect(eventsOf(tab.r).filter((e) => e.type === "facilitator.alert" && (e as { message: string }).message.length > 0)).toHaveLength(1);
     // The release and the stance each produced an npc.updated on the console stream.
     const released = eventsOf(tab.r).filter((e) => e.type === "npc.updated");
