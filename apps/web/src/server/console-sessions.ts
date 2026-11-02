@@ -14,6 +14,7 @@ import { checkFetchSite, checkOrigin } from "./guards";
 import type { Deps } from "./handlers";
 import { LauncherError, type SessionInfo } from "./launcher-client";
 import { realTimer } from "./runtime-connection";
+import { entryOf } from "./console-roster";
 import type { FacilitatorRosterEntry, SessionStatus } from "./wire";
 
 // The facilitator console's session API: plain Request -> Response, no Next imports (routes.ts wires them). Every handler calls
@@ -22,7 +23,6 @@ import type { FacilitatorRosterEntry, SessionStatus } from "./wire";
 // codes appear only in the responses that create them. Log lines are fixed text: no id, name, code, token or URL.
 
 const MAX_BODY_BYTES = 1024;
-const MAX_NAME_CODE_POINTS = 60;
 const MAX_MISSING = 64;
 /**
  * The runtime error codes a `start` can produce (ws-server.ts: forbidden is not one, the console is the facilitator; session-host.ts:
@@ -171,14 +171,6 @@ const listed = (s: SessionInfo) => ({
   ...(s.modelLabel !== undefined && { modelLabel: s.modelLabel }),
 });
 
-const cap = (name: string) => [...name].slice(0, MAX_NAME_CODE_POINTS).join("");
-export const entryOf = (e: FacilitatorRosterEntry): FacilitatorRosterEntry => ({
-  roleId: e.roleId,
-  ...(typeof e.name === "string" && { name: cap(e.name) }),
-  joined: e.joined === true,
-  consented: e.consented === true,
-  connected: e.connected === true,
-});
 const notReady = (roster: FacilitatorRosterEntry[]) =>
   roster.filter((e) => !(e.joined && e.consented)).map((e) => e.roleId);
 

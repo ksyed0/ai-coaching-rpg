@@ -46,19 +46,25 @@ export class FacilitatorHub {
     const channel = this.newChannelId();
     const s: Stream = { expiresAt: a.expiresAt, conn, out, writer: new SseWriter(out, this.maxPendingBytes), ended: false, skip: 0, cancelHeartbeat: () => {}, detach: () => {} };
     this.streams.add(s);
-    const frame = joined.frame;
-    this.write(s, `retry: ${RETRY_MS}\n\n`);
-    // Picked, never spread: `frame` is the runtime's whole object (hiddenFacts and notice included at runtime).
-    this.write(s, sse("joined", { channel, scenes: (frame.scenes ?? []).map((c) => ({ id: c.id, title: c.title, goal: c.goal, timeBoxMinutes: c.timeBoxMinutes })) }));
-    if (replayIncomplete(frame.replay)) {
-      // The id moves Last-Event-ID to the snapshot; replayed events are already in it.
-      this.write(s, sse("reset", { state: consoleState(frame.state as SessionState) }, frame.state.lastSeq));
-      s.skip = frame.replay?.events ?? 0;
+    try {
+      const frame = joined.frame;
+      this.write(s, `retry: ${RETRY_MS}\n\n`);
+      // Picked, never spread: `frame` is the runtime's whole object (hiddenFacts and notice included at runtime).
+      this.write(s, sse("joined", { channel, scenes: (frame.scenes ?? []).map((c) => ({ id: c.id, title: c.title, goal: c.goal, timeBoxMinutes: c.timeBoxMinutes })) }));
+      if (replayIncomplete(frame.replay)) {
+        // The id moves Last-Event-ID to the snapshot; replayed events are already in it.
+        const at = frame.state.lastSeq;
+        this.write(s, sse("reset", { state: consoleState(frame.state as SessionState) }, Number.isSafeInteger(at) ? at : undefined));
+        s.skip = frame.replay?.events ?? 0;
+      }
+      this.write(s, sse("roster", { entries: consoleRoster(joined.roster) }));
+    } catch {
+      // A copy that throws must not leak the slot or the connection.
+      this.finish(s, "reconnecting");
     }
-    this.write(s, sse("roster", { entries: consoleRoster(joined.roster) }));
     if (s.ended) return { channel, close: () => {} };
     s.cancelHeartbeat = heartbeat(this.o.setTimer, () => {
-      if (s.expiresAt <= this.o.now()) { this.finish(s, "expired"); return false; }
+      if (s.expiresAt < this.o.now()) { this.finish(s, "expired"); return false; }
       return this.write(s, ": hb\n\n");
     });
     const offFrame = conn.onFrame((m) => this.onFrame(s, m));
@@ -69,6 +75,10 @@ export class FacilitatorHub {
   }
 
   private onFrame(s: Stream, m: ServerMessage): void {
+    try { this.forward(s, m); } catch { this.finish(s, "reconnecting"); }
+  }
+
+  private forward(s: Stream, m: ServerMessage): void {
     if (s.ended) return;
     if (m.type === "event") {
       if (s.skip > 0) { s.skip--; return; }

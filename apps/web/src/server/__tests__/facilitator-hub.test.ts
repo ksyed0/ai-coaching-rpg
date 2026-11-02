@@ -30,6 +30,9 @@ function setup(o: { maxStreams?: number; maxPendingBytes?: number; now?: () => n
   return { h, timers, open };
 }
 
+/** After any exit: no timer left, no listener left on the connection, the slot freed. */
+const clean = (t: ReturnType<typeof manualTimers>, c: FakeConn, h: FacilitatorHub) => { expect(t.live()).toEqual([]); expect(c.listeners()).toBe(0); expect(h.size()).toBe(0); };
+
 describe("FacilitatorHub", () => {
   it("writes retry, joined with channel and scenes, roster, then events with seq ids; a complete replay with no logIdentity gives no reset", () => {
     const { open } = setup();
@@ -61,6 +64,12 @@ describe("FacilitatorHub", () => {
     }
   });
 
+  it("a reset whose lastSeq is not a safe integer carries no id", () => {
+    const { open } = setup({ joined: join({ replay: undefined, state: { ...state(), lastSeq: 1.5 } }) });
+    const reset = open().rec.frames().find((x) => x.event === "reset")!;
+    expect(reset.id).toBeUndefined();
+  });
+
   it("two tabs of one session get distinct channels and both receive every event", () => {
     const { open } = setup();
     const a = open(); const b = open();
@@ -75,20 +84,22 @@ describe("FacilitatorHub", () => {
     const s1 = setup(); const a = s1.open();
     a.conn.emit({ type: "event", event: ev(6, "session.ended") });
     expect(a.rec.frames().slice(-2).map((x) => x.event)).toEqual(["event", "ended"]);
-    expect(a.rec.ends()).toBe(1); expect(a.conn.closed).toBe(1);
+    expect(a.rec.ends()).toBe(1); expect(a.conn.closed).toBe(1); clean(s1.timers, a.conn, s1.h);
 
     const s2 = setup(); const b = s2.open();
     b.conn.drop(1006);
     expect(b.rec.frames().at(-1)!.event).toBe("reconnecting");
-    expect(b.conn.closed).toBe(1);
+    expect(b.conn.closed).toBe(1); clean(s2.timers, b.conn, s2.h);
 
     let t = 0;
     const s3 = setup({ now: () => t, expiresAt: 100 }); const c = s3.open();
     s3.timers.fire(15_000);
     expect(c.rec.frames().at(-1)).toEqual({ comment: "hb" });
+    t = 100; s3.timers.fire(15_000); // now === expiresAt is not past it
+    expect(c.rec.frames().at(-1)).toEqual({ comment: "hb" });
     t = 101; s3.timers.fire(15_000);
     expect(c.rec.frames().at(-1)!.event).toBe("expired");
-    expect(c.conn.closed).toBe(1);
+    expect(c.conn.closed).toBe(1); clean(s3.timers, c.conn, s3.h);
   });
 
   it("error frames carry the fixed message; joined and unknown frames are not forwarded", () => {
@@ -105,10 +116,45 @@ describe("FacilitatorHub", () => {
       hiddenFacts: ["HIDDEN-FACT"], notice: "NOTICE-TEXT", brief: "BRIEF", privateFacts: ["PRIV"], credential: "CRED", reconnectToken: "RECON", logIdentity: "LOGID",
       scenes: [{ id: "a", title: "T", goal: "G", timeBoxMinutes: 5, hiddenFacts: ["SCENE-HIDDEN"] }],
     } as unknown as Partial<JoinedFrame>);
+    poisoned.roster = [{ ...entries[0]!, credential: "ROSTER-CRED", participantId: "ROSTER-PID" } as never];
     const { open } = setup({ joined: poisoned }); const { conn, rec } = open();
+    conn.emit({ type: "roster", audience: "facilitator", entries: [{ ...entries[0]!, credential: "LIVE-CRED", participantId: "LIVE-PID" } as never] });
+    conn.emit({ type: "roster", audience: "peers", entries: [{ roleId: "lead", ready: true, credential: "PEER-CRED" } as never] });
     conn.emit({ type: "event", event: { type: "npc.updated", seq: 6, ts: 6, sessionId: "s1", roleId: "npc", goals: ["GOAL-SECRET"], knowledge: ["K-SECRET"], released: ["R-SECRET"] } as never });
+    expect(rec.frames().filter((f) => f.event === "roster")).toHaveLength(2); // the joined roster and the live one; the peers frame is dropped
     const all = rec.chunks.join("");
-    for (const bad of ["HIDDEN-FACT", "NOTICE-TEXT", "BRIEF", "PRIV", "CRED", "RECON", "LOGID", "SCENE-HIDDEN", "P-SECRET", "GOAL-SECRET", "K-SECRET", "R-SECRET"]) expect(all).not.toContain(bad);
+    for (const bad of ["HIDDEN-FACT", "NOTICE-TEXT", "BRIEF", "PRIV", "CRED", "RECON", "LOGID", "SCENE-HIDDEN", "P-SECRET", "GOAL-SECRET", "K-SECRET", "R-SECRET", "ROSTER-CRED", "ROSTER-PID", "LIVE-CRED", "LIVE-PID", "PEER-CRED"]) expect(all).not.toContain(bad);
+  });
+
+  it("a facilitator alert shows a fixed line, never the runtime's text", () => {
+    const { open } = setup(); const { conn, rec } = open();
+    const poison = "sk-ant-api03-ABCDEF Authorization: Bearer abc.def JOIN-CODE-9Z7K the hidden fact is the vault code";
+    conn.emit({ type: "event", event: { type: "facilitator.alert", seq: 6, ts: 6, sessionId: "s1", level: "warning", message: poison } as never });
+    conn.emit({ type: "event", event: { type: "facilitator.alert", seq: 7, ts: 7, sessionId: "s1", level: "info", message: poison, extra: "EXTRA-KEY" } as never });
+    const all = rec.chunks.join("");
+    for (const bad of ["sk-ant", "Bearer", "JOIN-CODE", "vault", "EXTRA-KEY"]) expect(all).not.toContain(bad);
+    expect(rec.events().map((e) => [e.seq, e.level])).toEqual([[6, "warning"], [7, "info"]]);
+  });
+
+  it("an unknown event type goes as its envelope only; set_npc_stance loses its goal text; extra keys on known types are dropped", () => {
+    const { open } = setup(); const { conn, rec } = open();
+    conn.emit({ type: "event", event: { type: "future.thing", seq: 6, ts: 6, sessionId: "s1", secret: "FUTURE-SECRET" } as never });
+    conn.emit({ type: "event", event: { type: "facilitator.command", command: "set_npc_stance", roleId: "npc", goals: ["STANCE-SECRET"], seq: 7, ts: 7, sessionId: "s1" } as never });
+    conn.emit({ type: "event", event: { type: "utterance", roleId: "lead", text: "hi", channel: "text", seq: 8, ts: 8, sessionId: "s1", junk: "JUNK-KEY" } as never });
+    const all = rec.chunks.join("");
+    for (const bad of ["FUTURE-SECRET", "STANCE-SECRET", "JUNK-KEY"]) expect(all).not.toContain(bad);
+    expect(rec.events().map((e) => e.seq)).toEqual([6, 7, 8]);
+  });
+
+  it("a copy that throws ends the stream with reconnecting and frees the slot and connection", () => {
+    const { open, h, timers } = setup(); const { conn, rec } = open();
+    conn.emit({ type: "event", event: { type: "session.started", seq: 6, ts: 6, sessionId: "s1" } as never }); // no roles: the copy throws
+    expect(rec.frames().at(-1)!.event).toBe("reconnecting");
+    clean(timers, conn, h);
+    const bad = join({ state: undefined, replay: undefined } as never);
+    const t2 = setup({ joined: bad }); const o = t2.open();
+    expect(o.r).not.toBe("capacity");
+    expect(o.rec.ends()).toBe(1); expect(o.conn.closed).toBe(1); clean(t2.timers, o.conn, t2.h);
   });
 
   it("past maxStreams open is capacity, closes the connection and writes nothing", () => {
@@ -128,11 +174,13 @@ describe("FacilitatorHub", () => {
     expect(ends).toBe(1);
     expect(conn.closed).toBe(1);
     expect(chunks.join("")).toContain("event: reconnecting");
+    clean(timers, conn, h);
   });
 
   it("closing the output closes the runtime connection", () => {
-    const { open, h } = setup(); const { conn, rec, r } = open();
+    const { open, h, timers } = setup(); const { conn, rec, r } = open();
     (r as { close(): void }).close();
+    clean(timers, conn, h);
     expect(conn.closed).toBe(1); expect(rec.ends()).toBe(1); expect(h.size()).toBe(0);
   });
 });

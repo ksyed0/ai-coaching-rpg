@@ -31,8 +31,10 @@ describe("console copies", () => {
       roles: { lead: { kind: "player" } }, consents: { lead: { noticeVersion: "v1", at: 3 } }, names: { lead: "Ann" } });
     const npc = { type: "npc.updated", seq: 4, ts: 4, sessionId: "s", roleId: "npc", goals: ["GOAL-SECRET"], knowledge: ["KNOW-SECRET"], released: ["REL-SECRET"], extra: "X" } as unknown as SessionEvent;
     expect(consoleEvent(npc)).toEqual({ type: "npc.updated", seq: 4, ts: 4, sessionId: "s", roleId: "npc", goals: [], knowledge: [], released: [] });
+    const alert = { type: "facilitator.alert", seq: 6, ts: 6, sessionId: "s", level: "warning", message: "Bearer SECRET" } as SessionEvent;
+    expect(JSON.stringify(consoleEvent(alert))).not.toContain("SECRET");
     const utt = { type: "utterance", seq: 5, ts: 5, sessionId: "s", roleId: "lead", text: "hello", channel: "text" } as SessionEvent;
-    expect(consoleEvent(utt)).toBe(utt);
+    expect(consoleEvent(utt)).toEqual(utt);
   });
 
   it("consoleRoster keeps only the listed entry fields", () => {
