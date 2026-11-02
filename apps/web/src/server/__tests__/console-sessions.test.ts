@@ -1,3 +1,7 @@
+import {
+  FacilitatorBudget,
+  SHORT_SOCKETS_PER_SESSION,
+} from "../facilitator-budget";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Config } from "../config";
 import { CONSOLE_COOKIE, secretEpoch } from "../console-session";
@@ -90,6 +94,10 @@ class FakeFacConn {
   }
   close() {
     this.closed++;
+    // Like the real connection, close() ends in a close report (the facilitator budget frees its slot on it).
+    queueMicrotask(() => {
+      for (const f of [...this.closes]) f(1000);
+    });
   }
   emit(m: ServerMessage) {
     for (const f of [...this.frames]) f(m);
@@ -190,6 +198,7 @@ beforeEach(() => {
     now: () => T0,
     connect: connect as unknown as Deps["connect"],
     launcher: launcher as never,
+    facilitatorBudget: new FacilitatorBudget(),
     setTimer: timers.setTimer,
   } as unknown as Deps;
   errors = [];
@@ -459,7 +468,10 @@ describe("console session API", () => {
     }
     // A fresh pair is fetched together on each call, one socket per call.
     expect(launcher.facilitator).toHaveBeenCalledTimes(cases.length);
-    expect(connect).toHaveBeenCalledWith(`ws://127.0.0.1:${PORT}`, null);
+    expect(connect).toHaveBeenCalledWith(
+      `ws://127.0.0.1:${PORT}`,
+      "scenecoach-console",
+    );
   });
 
   it("readiness for a stopped or ended session opens no socket", async () => {
@@ -526,6 +538,36 @@ describe("console session API", () => {
       canStart: false,
       missing: [],
     });
+  });
+
+  it("readiness with no short slot is status null, not an error", async () => {
+    const a = await api();
+    for (let i = 0; i < SHORT_SOCKETS_PER_SESSION; i++)
+      expect(deps.facilitatorBudget.tryAcquire(SID, "short")).not.toBeNull();
+    const res = await a.readiness(get(`/sessions/${SID}/readiness`));
+    expect(res.status).toBe(200);
+    expect((await json(res)).data).toMatchObject({
+      launcherStatus: "running",
+      status: null,
+      roster: [],
+      canStart: false,
+    });
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("Start with no short slot is 503 busy", async () => {
+    const a = await api();
+    for (let i = 0; i < SHORT_SOCKETS_PER_SESSION; i++)
+      deps.facilitatorBudget.tryAcquire(SID, "short");
+    const res = await a.start(post(`/sessions/${SID}/start`));
+    expect(res.status).toBe(503);
+    const body = await json(res);
+    expect(body.error?.code).toBe("busy");
+    expect(body.error?.message).toBe(
+      "Too many console connections to this session are open. Close a console tab and try again.",
+    );
+    expect(connect).not.toHaveBeenCalled();
+    expect(conn.sent).toEqual([]);
   });
 
   it("start while the gate is unmet returns the plain 409 and the session is not started", async () => {

@@ -42,6 +42,8 @@ const forbidden = () => fail(403, "forbidden", "This request was refused.");
 const badRequest = () =>
   fail(400, "bad_request", "The request could not be read.");
 const notFound = () => fail(404, "not_found", "That session was not found.");
+const BUSY =
+  "Too many console connections to this session are open. Close a console tab and try again.";
 const unreachable = () => fail(502, "launcher_unavailable", UNREACHABLE);
 const log = (line: string) => console.error(`web: console: ${line}`);
 
@@ -145,6 +147,10 @@ function failure(err: unknown): Response {
     }
   }
   if (err instanceof FacilitatorSocketError) {
+    if (err.reason === "busy") {
+      log("the console has too many sockets open to this session");
+      return fail(503, "busy", BUSY);
+    }
     log(
       err.reason === "unauthorized"
         ? "the session runtime refused the facilitator login"

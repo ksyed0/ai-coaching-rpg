@@ -1,3 +1,4 @@
+import { FacilitatorBudget } from "../facilitator-budget";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -60,7 +61,7 @@ function makeDeps(o: { maxStreams?: number } = {}) {
   const config: Config = { runtimeUrl: `ws://127.0.0.1:${runtime!.port}`, publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10 };
   const connect = vi.fn((url: string, address: string) => RuntimeConnection.connect(url, address));
   const hub = new StreamHub({ maxStreams: o.maxStreams ?? 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10, setTimer: realTimer, now: Date.now });
-  const deps: Deps = { config, now: Date.now, connect: connect as unknown as Deps["connect"], joinThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: Date.now }), consoleThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: Date.now }), consoleGlobalThrottle: new JoinThrottle({ max: 20, windowMs: 600_000, blockMs: 300_000, now: Date.now }), hub };
+  const deps: Deps = { config, now: Date.now, connect: connect as unknown as Deps["connect"], joinThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: Date.now }), consoleThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: Date.now }), consoleGlobalThrottle: new JoinThrottle({ max: 20, windowMs: 600_000, blockMs: 300_000, now: Date.now }), hub, facilitatorBudget: new FacilitatorBudget() };
   return { deps, connect };
 }
 

@@ -59,6 +59,9 @@ describe("requestAddress", () => {
   it("is untrusted (null) for an empty, comma-separated or non-address header", () => {
     for (const v of ["", " ", "6.6.6.6, 203.0.113.9", "203.0.113.9,", ",", "unknown"]) expect(requestAddress(req({ "X-Forwarded-For": v })), JSON.stringify(v)).toBeNull();
   });
+  it("a reserved facilitator key is never a client address: X-Forwarded-For scenecoach-console or scenecoach-bot is null", () => {
+    for (const v of ["scenecoach-console", "scenecoach-bot"]) expect(requestAddress(req({ "X-Forwarded-For": v })), v).toBeNull();
+  });
   it("is the shared key unknown when no proxy header is present (a deployment requirement: the proxy always sets it)", () => {
     expect(requestAddress(req({}))).toBe("unknown");
   });
