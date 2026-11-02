@@ -374,7 +374,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
             // the port (bootstrap prints a warning at startup); see docs/THREAT_MODEL.md. Player roles have their own join codes (US-0033).
             who = "facilitator"; isFacilitator = true;
             // Facilitator-only reminder when the server is open (never sent to players).
-            sendJoined(h, "facilitator", m.lastSeq, { type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator"), hiddenFacts: h.hiddenFacts(), ...(token === undefined ? { notice: OPEN_SERVER_NOTICE } : {}) });
+            const allScenes = (h as Partial<SessionHost>).allScenes?.() ?? [];
+            sendJoined(h, "facilitator", m.lastSeq, { type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator"), hiddenFacts: h.hiddenFacts(), ...(allScenes.length > 0 ? { scenes: allScenes } : {}), ...(token === undefined ? { notice: OPEN_SERVER_NOTICE } : {}) });
           }
           host = h;
           const viewer = who;

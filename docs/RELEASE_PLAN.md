@@ -1730,6 +1730,7 @@ Acceptance Criteria:
   - [ ] AC-0316: the layout works at laptop width and keyboard focus and labels pass an accessibility audit
   - [x] AC-0351: players receive allowlisted copies: the join snapshot and every command and session.ended event are built from explicit field lists, so a facilitator-only field (by, talk time) never reaches a player and a 2a player sees no change (services/runtime/src/host/__tests__/player-copies.test.ts; TC-0087)
   - [x] AC-0352: every BFF facilitator socket carries the reserved forwarded key scenecoach-console and takes a per-session slot (4 live tabs, 3 short-lived), so players and bots cannot exhaust or block the console's connections nor the console theirs (apps/web/src/server/facilitator-budget.ts, facilitator-socket.ts; TC-0092)
+  - [x] AC-0353: one facilitator socket per console tab is forwarded as SSE on GET /api/v1/console/sessions/:id/stream with seq ids and Last-Event-ID replay; the console cookie is checked on every connect and reconnect, a player cookie gets a 401 and nothing from it, and a reset is sent only for a missing or incomplete replay (apps/web/src/server/console-stream.ts, facilitator-hub.ts, facilitator-copies.ts; TC-0093)
 ```
 
 ```
@@ -1765,7 +1766,7 @@ Type: Dev
 Assignee: Agent
 Status: In Progress
 Branch: feature/EPIC-0002-US-0059-console-budget (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-console-stream and feature/EPIC-0002-US-0059-console-live-view)
-Notes: PR 1 is the connection budget (AC-0352). PR 2 is the facilitator SSE channel and PR 3 the read-only live view (console part of AC-0311). Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.
+Notes: PR 1 is the connection budget (AC-0352, merged as #69). PR 2 (this branch, feature/EPIC-0002-US-0059-console-stream) is the facilitator SSE channel (AC-0353). PR 3 is the read-only live view (console part of AC-0311). Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.
 ```
 
 ```

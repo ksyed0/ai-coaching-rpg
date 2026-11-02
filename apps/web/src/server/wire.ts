@@ -11,7 +11,7 @@ export type ClientMessage =
       /** Ask a join by code for a durable credential (returned once in `joined`). */
       issueCredential?: boolean; /** Rejoin with the credential instead of the code. */ credential?: string; displayName?: string }
   /** The facilitator's login. The token is the control service's per-start secret; never logged. */
-  | { type: "join_facilitator"; sessionId: string; token: string }
+  | { type: "join_facilitator"; sessionId: string; token: string; lastSeq?: number }
   /** The facilitator's Start (refused by the runtime until its start gate is met). */
   | { type: "start" }
   | { type: "consent"; noticeVersion: string }
@@ -33,7 +33,7 @@ export type JoinedFrame = {
   replay?: ReplaySummary;
   /** The durable credential, only on the join by code that asked for it. The one copy. */
   credential?: string;
-  /** Title, goal and time box of the scenes this role takes part in, in script order. */
+  /** Title, goal and time box of the scenes this role takes part in, in script order; the facilitator join lists every scene. */
   scenes?: PlayerScene[];
   /** The session's random log identity, on every player join when the server keeps seats. */
   logIdentity?: string;

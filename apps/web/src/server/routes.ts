@@ -4,12 +4,14 @@ import {
   handleConsoleReadiness, handleConsoleReissue, handleConsoleReissueAll, handleConsoleRestart, handleConsoleScenarios,
   handleConsoleSessionGet, handleConsoleSessionsCreate, handleConsoleSessionsList, handleConsoleStart,
 } from "./console-sessions";
+import { handleConsoleStream } from "./console-stream";
 import { consoleSessionFromToken } from "./console-session";
 import { fail } from "./envelope";
 import { FacilitatorBudget } from "./facilitator-budget";
 import { handleConsent, handleJoin, handleLeave, handleSay, handleStream, seatedIn, type Deps } from "./handlers";
 import { LauncherClient } from "./launcher-client";
 import { RuntimeConnection, realTimer } from "./runtime-connection";
+import { FacilitatorHub } from "./facilitator-hub";
 import { StreamHub } from "./stream-hub";
 import { JoinThrottle } from "./throttle";
 
@@ -38,6 +40,7 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     // of LOGIN (never out of a signed-in console) for CONSOLE_GLOBAL_THROTTLE.blockMs at a time.
     consoleGlobalThrottle: new JoinThrottle({ ...CONSOLE_GLOBAL_THROTTLE, now }),
     facilitatorBudget: new FacilitatorBudget(),
+    facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now }),
     hub: new StreamHub({ maxStreams: config.maxStreams, maxStreamsPerSession: config.maxStreamsPerSession, maxStreamsPerAddress: config.maxStreamsPerAddress, setTimer: realTimer, now }),
     // loadConfig guarantees the token whenever the URL is set.
     ...(config.launcherUrl !== undefined && config.launcherToken !== undefined && { launcher: new LauncherClient({ baseUrl: config.launcherUrl, token: config.launcherToken }) }),
@@ -110,3 +113,4 @@ export const consoleStartPOST = route(handleConsoleStart);
 export const consoleReissuePOST = route(handleConsoleReissue);
 export const consoleReissueAllPOST = route(handleConsoleReissueAll);
 export const consoleRestartPOST = route(handleConsoleRestart);
+export const consoleStreamGET = route(handleConsoleStream);

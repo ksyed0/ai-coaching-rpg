@@ -1,5 +1,6 @@
 import { initPlayerView } from "@acr/events";
 import { CLOSE_REISSUED, CLOSE_REMOVED, CLOSE_SUPERSEDED, type RuntimeConnection, type SetTimer } from "./runtime-connection";
+import { DEFAULT_MAX_PENDING_BYTES, heartbeat, replayIncomplete, RETRY_MS, sseFrame as sse, SseWriter, type SseOut } from "./sse";
 import type { ClientMessage, JoinedFrame, ServerMessage } from "./wire";
 
 // Bridges one participant's runtime socket to one server-sent-events response. No Next imports: the route hands in an `out` writer.
@@ -7,8 +8,7 @@ import type { ClientMessage, JoinedFrame, ServerMessage } from "./wire";
 // rejoins by credential with that lastSeq. It holds only the open streams; identity comes from the sealed cookie on each request.
 
 export type SessionCookie = { sessionId: string; roleId: string; participantId: string; credential: string; logIdentity: string; expiresAt: number };
-/** `write` returns false when the consumer has not taken the chunk yet (backpressure) or is gone. */
-export type SseOut = { write(chunk: string): boolean; end(): void };
+export type { SseOut };
 
 /** No stream is open for this participant (the routes answer 409 `no_stream`). */
 export class NoStreamError extends Error {
@@ -31,10 +31,7 @@ const SEND_ERRORS = {
 type SendType = keyof typeof SEND_ERRORS;
 const isSendType = (t: string): t is SendType => Object.hasOwn(SEND_ERRORS, t);
 
-const RETRY_MS = 3_000;
-const HEARTBEAT_MS = 15_000;
 const DEFAULT_SEND_WAIT_MS = 300;
-const DEFAULT_MAX_PENDING_BYTES = 256 * 1024;
 /** What a player whose credential is gone is told (the stream's `signed_out` event). */
 export const SIGNED_OUT_MESSAGE = "ask your facilitator for a new code";
 /** What a player the facilitator removed is told (the stream's `removed` event). Equal to MESSAGES.removed; the page shows its own copy. */
@@ -47,8 +44,7 @@ type Stream = {
   key: string; sessionId: string; address: string; expiresAt: number; conn: RuntimeConnection; out: SseOut; ended: boolean;
   /** Replayed event frames still to drop because a reset already covers them. */
   skip: number;
-  /** Bytes written while the consumer signalled backpressure. */
-  pendingBytes: number;
+  writer: SseWriter;
   cancelHeartbeat: () => void; detach: () => void;
   /** At most one `send` waits for its answer at a time; the next one is chained behind it. */
   waiter: Waiter | null;
@@ -58,8 +54,6 @@ type FinalEvent = "superseded" | "reconnecting" | "ended" | "expired" | "signed_
 /** How a runtime close code ends a stream. 4001, 4002 and 4003 are terminal (a retry would kick the new holder, or fail with a revoked credential). */
 const endingFor = (code: number): FinalEvent => (code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "signed_out" : code === CLOSE_REMOVED ? "removed" : "reconnecting");
 
-// JSON.stringify escapes CR and LF, so a data line can never break the SSE framing.
-const sse = (event: string, data: unknown, id?: number) => `${id === undefined ? "" : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 const keyOf = (c: { sessionId: string; roleId: string; participantId: string }) => JSON.stringify([c.sessionId, c.roleId, c.participantId]);
 
 /**
@@ -112,7 +106,7 @@ export class StreamHub {
     const key = keyOf(cookie);
     const prev = this.streams.get(key);
     const s: Stream = {
-      key, sessionId: cookie.sessionId, address, expiresAt: cookie.expiresAt, conn, out, ended: false, skip: 0, pendingBytes: 0,
+      key, sessionId: cookie.sessionId, address, expiresAt: cookie.expiresAt, conn, out, ended: false, skip: 0, writer: new SseWriter(out, this.maxPendingBytes),
       cancelHeartbeat: () => {}, detach: () => {}, waiter: null, sendChain: Promise.resolve(),
     };
     const noop = { close: () => {} };
@@ -139,21 +133,18 @@ export class StreamHub {
     this.write(s, `retry: ${RETRY_MS}\n\n`);
     this.write(s, sse("joined", playerJoined(joined)));
     // The browser's projection cannot be continued: an incomplete or missing replay (lastSeq too old or past the head), or another log.
-    const reset = !joined.replay || !joined.replay.complete || joined.logIdentity !== cookie.logIdentity;
+    const reset = replayIncomplete(joined.replay) || joined.logIdentity !== cookie.logIdentity;
     if (reset) {
       // The id moves Last-Event-ID to the snapshot, so the next reconnect resumes from there. Replayed events are already in the snapshot.
       this.write(s, sse("reset", initPlayerView(joined.state), joined.state.lastSeq));
       s.skip = joined.replay?.events ?? 0;
     }
     if (s.ended) return noop;
-    const beat = () => {
-      s.cancelHeartbeat = this.o.setTimer(() => {
-        // The cookie's lifetime bounds the stream too: an expired one ends it (the browser treats it like signed out).
-        if (s.expiresAt <= this.o.now()) { this.finish(s, "expired"); return; }
-        if (this.write(s, ": hb\n\n")) beat();
-      }, HEARTBEAT_MS);
-    };
-    beat();
+    s.cancelHeartbeat = heartbeat(this.o.setTimer, () => {
+      // The cookie's lifetime bounds the stream too: an expired one ends it (the browser treats it like signed out).
+      if (s.expiresAt <= this.o.now()) { this.finish(s, "expired"); return false; }
+      return this.write(s, ": hb\n\n");
+    });
     // onFrame first: frames queued in the connection come out before a close that already happened.
     const offFrame = conn.onFrame((m) => this.onFrame(s, m));
     const offClose = conn.onClose((code) => this.finish(s, endingFor(code)));
@@ -211,12 +202,9 @@ export class StreamHub {
   /** False when the stream is over (or the write failed or the consumer stalled, which ends it). */
   private write(s: Stream, chunk: string): boolean {
     if (s.ended) return false;
-    let taken: boolean;
-    try { taken = s.out.write(chunk); }
-    catch { this.finish(s, null); return false; }
-    if (taken) { s.pendingBytes = 0; return true; }
-    s.pendingBytes += Buffer.byteLength(chunk);
-    if (s.pendingBytes > this.maxPendingBytes) { this.finish(s, "reconnecting"); return false; }
+    const r = s.writer.write(chunk);
+    if (r === "gone") { this.finish(s, null); return false; }
+    if (r === "stalled") { this.finish(s, "reconnecting"); return false; }
     return true;
   }
 

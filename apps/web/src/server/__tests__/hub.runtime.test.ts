@@ -392,7 +392,7 @@ const FAC_ROSTER_KEYS = keys<Extract<ServerMessage, { type: "roster"; audience: 
 /** One sample of every ClientMessage variant; the Record makes a new variant a compile error until it is added here. */
 const SENT: Record<ClientMessage["type"], ClientMessage> = {
   join: { type: "join", sessionId: SESSION, roleId: "delivery_lead", participantId: "p", joinCode: "abcd - efgh", displayName: "Ann", issueCredential: true, lastSeq: 0 },
-  join_facilitator: { type: "join_facilitator", sessionId: SESSION, token: "t".repeat(64) },
+  join_facilitator: { type: "join_facilitator", sessionId: SESSION, token: "t".repeat(64), lastSeq: 0 },
   start: { type: "start" },
   consent: { type: "consent", noticeVersion: "v1" },
   withdraw_consent: { type: "withdraw_consent" },
@@ -409,7 +409,7 @@ describe("wire contract: facilitator", () => {
   it("the facilitator's joined and roster frames use only pinned keys, and joinFacilitator returns the roster and status", async () => {
     const raw = await facilitator();
     const joined = raw.inbox.find((m) => m.type === "joined");
-    within(joined, [...JOINED_KEYS, "hiddenFacts", "notice"], ["type", "roleId", "state"], "facilitator joined");
+    within(joined, [...JOINED_KEYS, "hiddenFacts", "notice"], ["type", "roleId", "state", "scenes"], "facilitator joined");
     expect(joined.roleId).toBe("facilitator");
     await until(() => raw.inbox.some((m) => m.type === "roster"));
     const roster = raw.inbox.find((m) => m.type === "roster");

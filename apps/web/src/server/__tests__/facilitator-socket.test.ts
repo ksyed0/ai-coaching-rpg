@@ -4,14 +4,16 @@ import {
 } from "../facilitator-budget";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
+import { FacilitatorHub } from "../facilitator-hub";
 import type { Config } from "../config";
 import {
   FacilitatorSocketError,
+  openFacilitatorSocket,
   withFacilitatorSocket,
 } from "../facilitator-socket";
 import type { Deps } from "../handlers";
 import { LauncherError, type LauncherClient } from "../launcher-client";
-import { RuntimeConnection } from "../runtime-connection";
+import { RuntimeConnection, realTimer } from "../runtime-connection";
 import { fakeRuntime } from "./fakes";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
@@ -76,7 +78,7 @@ function depsWith(
     config: {} as Config,
     launcher: { facilitator } as unknown as LauncherClient,
     connect: connect as unknown as Deps["connect"],
-    facilitatorBudget: new FacilitatorBudget(),
+    facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }),
   } as Deps;
   return { deps, facilitator, connect };
 }
@@ -95,7 +97,10 @@ describe("withFacilitatorSocket", () => {
       },
     );
     expect(result).toBe("done");
-    expect(seen).toEqual([{ roster: ROSTER, status: "lobby" }, true]);
+    expect(seen).toEqual([
+      { frame: { type: "joined", roleId: "facilitator", state }, roster: ROSTER, status: "lobby" },
+      true,
+    ]);
     expect(facilitator).toHaveBeenCalledTimes(1);
     expect(facilitator).toHaveBeenCalledWith(SID);
     expect(rt.received[0]).toEqual({
@@ -279,5 +284,30 @@ describe("withFacilitatorSocket", () => {
         async () => "x",
       ),
     ).rejects.toMatchObject({ reason: "unavailable" });
+  });
+});
+
+describe("openFacilitatorSocket", () => {
+  it("returns an open connection whose slot frees on close", async () => {
+    const { rt, port } = await runtime(["tok-A"]);
+    const { deps } = depsWith([{ port, token: "tok-A" }]);
+    const { conn, joined } = await openFacilitatorSocket(deps, SID, { kind: "short", lastSeq: 0 });
+    expect(rt.received[0]).toEqual({ type: "join_facilitator", sessionId: SID, token: "tok-A", lastSeq: 0 });
+    expect(conn.isOpen).toBe(true);
+    expect(joined.roster).toEqual(ROSTER);
+    expect(joined.frame.roleId).toBe("facilitator");
+    expect(deps.facilitatorBudget.inUse(SID, "short")).toBe(1);
+    conn.close();
+    await vi.waitFor(() => expect(deps.facilitatorBudget.inUse(SID, "short")).toBe(0));
+  });
+
+  it("a live socket takes a live slot, not a short one, and frees it on close", async () => {
+    const { port } = await runtime(["tok-A"]);
+    const { deps } = depsWith([{ port, token: "tok-A" }]);
+    const { conn } = await openFacilitatorSocket(deps, SID, { kind: "live" });
+    expect(deps.facilitatorBudget.inUse(SID, "live")).toBe(1);
+    expect(deps.facilitatorBudget.inUse(SID, "short")).toBe(0);
+    conn.close();
+    await vi.waitFor(() => expect(deps.facilitatorBudget.inUse(SID, "live")).toBe(0));
   });
 });

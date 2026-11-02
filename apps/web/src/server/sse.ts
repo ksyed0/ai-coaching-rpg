@@ -1,4 +1,78 @@
-import type { SseOut } from "./stream-hub";
+import { ROBOTS_TAG } from "./headers";
+import type { SetTimer } from "./runtime-connection";
+import type { ReplaySummary } from "./wire";
+
+/** `write` returns false when the consumer has not taken the chunk yet (backpressure) or is gone. */
+export type SseOut = { write(chunk: string): boolean; end(): void };
+
+export const RETRY_MS = 3_000;
+export const HEARTBEAT_MS = 15_000;
+export const DEFAULT_MAX_PENDING_BYTES = 256 * 1024;
+
+// JSON.stringify escapes CR and LF, so a data line can never break the SSE framing. `event` is NOT escaped: pass constants only,
+// never a name derived from runtime or user input.
+export const sseFrame = (event: string, data: unknown, id?: number): string =>
+  `${id === undefined ? "" : `id: ${id}\n`}event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+
+const SSE_HEADERS: Record<string, string> = {
+  "Content-Type": "text/event-stream; charset=utf-8",
+  // no-transform: no proxy may compress (and so buffer) the stream.
+  "Cache-Control": "no-store, no-transform",
+  "X-Accel-Buffering": "no",
+  "X-Robots-Tag": ROBOTS_TAG,
+};
+export function sseHeaders(setCookie?: string): Headers {
+  const h = new Headers(SSE_HEADERS);
+  if (setCookie !== undefined) h.set("Set-Cookie", setCookie);
+  return h;
+}
+/**
+ * A stream that is over before it starts. `reconnecting` is the only final the browser's EventSource retries (after `retry`, with its
+ * Last-Event-ID kept: no id is sent here). The others close it: the player stream's `signed_out`, `removed`, `superseded` and `expired`,
+ * and the console stream's `ended`, `stopped`, `expired` and `busy`.
+ */
+export function sseFinal(event: string, data: unknown = {}, setCookie?: string): Response {
+  return new Response(`retry: ${RETRY_MS}\n\n${sseFrame(event, data)}`, { status: 200, headers: sseHeaders(setCookie) });
+}
+
+/** The browser's Last-Event-ID (the last seq it holds); anything that is not a plain safe integer resumes from 0. */
+export function lastSeqOf(v: string | null): number {
+  if (v === null || !/^\d{1,16}$/.test(v)) return 0;
+  const n = Number(v);
+  return Number.isSafeInteger(n) ? n : 0;
+}
+
+/** The browser's projection cannot be continued from this replay: it is missing or incomplete (lastSeq too old or past the head). */
+export const replayIncomplete = (replay: ReplaySummary | undefined): boolean => !replay || !replay.complete;
+
+/** Writes to `out`, counting the bytes written while the consumer signalled backpressure; past the cap it reports `stalled`. */
+export class SseWriter {
+  private pendingBytes = 0;
+  private opening = false;
+  constructor(private readonly out: SseOut, private readonly maxPendingBytes: number) {}
+  /** While opening, the stream's first frames (one can be a whole state snapshot) are not counted: nothing drains until the opener returns. */
+  beginOpening(): void { this.opening = true; }
+  endOpening(): void { this.opening = false; this.pendingBytes = 0; }
+  write(chunk: string): "ok" | "stalled" | "gone" {
+    let taken: boolean;
+    try { taken = this.out.write(chunk); } catch { return "gone"; }
+    if (taken) { this.pendingBytes = 0; return "ok"; }
+    if (this.opening) return "ok";
+    this.pendingBytes += Buffer.byteLength(chunk);
+    return this.pendingBytes > this.maxPendingBytes ? "stalled" : "ok";
+  }
+}
+
+/** Calls `beat` every HEARTBEAT_MS, re-arming while it returns true. Returns the cancel. */
+export function heartbeat(setTimer: SetTimer, beat: () => boolean): () => void {
+  let cancel = () => {};
+  let stopped = false; // a cancel from inside `beat` must win over its return value
+  const arm = () => {
+    cancel = setTimer(() => { if (beat() && !stopped) arm(); }, HEARTBEAT_MS);
+  };
+  arm();
+  return () => { stopped = true; cancel(); };
+}
 
 /** Bytes the body may hold before `write` reports backpressure. */
 const DEFAULT_HIGH_WATER_BYTES = 64 * 1024;

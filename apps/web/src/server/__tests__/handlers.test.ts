@@ -1,7 +1,10 @@
 import { FacilitatorBudget } from "../facilitator-budget";
+import { FacilitatorHub } from "../facilitator-hub";
+import { realTimer } from "../runtime-connection";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import type { Config } from "../config";
+import { CONSOLE_COOKIE } from "../console-session";
 import { setEnvelopeClock } from "../envelope";
 import { COOKIE_NAME, handleConsent, handleJoin, handleLeave, handleSay, handleStream, seatedIn, SIGNED_OUT_MESSAGE, type Deps } from "../handlers";
 import { RuntimeConnection } from "../runtime-connection";
@@ -51,7 +54,7 @@ function makeDeps(o: { hub?: Partial<ConstructorParameters<typeof StreamHub>[0]>
   const joinThrottle = new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock, ...o.throttle });
   const connect = vi.fn((url: string, address: string) => RuntimeConnection.connect(url, address));
   const config: Config = { runtimeUrl: o.runtimeUrl ?? rt.url, publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10 };
-  const deps: Deps = { config, now: () => clock, connect: connect as unknown as Deps["connect"], joinThrottle, consoleThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), consoleGlobalThrottle: new JoinThrottle({ max: 20, windowMs: 600_000, blockMs: 300_000, now: () => clock }), hub, facilitatorBudget: new FacilitatorBudget() };
+  const deps: Deps = { config, now: () => clock, connect: connect as unknown as Deps["connect"], joinThrottle, consoleThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => clock }), consoleGlobalThrottle: new JoinThrottle({ max: 20, windowMs: 600_000, blockMs: 300_000, now: () => clock }), hub, facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }) };
   return { deps, timers, connect, hub, joinThrottle };
 }
 
@@ -362,6 +365,14 @@ describe("GET /api/v1/stream", () => {
     }
     // A cookie that cannot be opened is cleared; another session's (valid) cookie is left alone.
     for (const { name, res } of results) expect(isCleared(res), name).toBe(["tampered", "other key", "expired"].includes(name));
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  it("a console cookie on /api/v1/stream is 401 and the runtime is never contacted", async () => {
+    const { deps, connect } = makeDeps();
+    const fac = seal({ name: "Ann", epoch: "e", expiresAt: T0 + HOUR }, KEYS, clock, "fac");
+    const res = await handleStream(streamReq(null, { headers: { Cookie: `${CONSOLE_COOKIE}=${fac}; ${COOKIE_NAME}=${fac}` } }), deps);
+    expect(res.status).toBe(401);
     expect(connect).not.toHaveBeenCalled();
   });
 
