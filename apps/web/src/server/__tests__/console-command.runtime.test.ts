@@ -117,6 +117,8 @@ afterEach(async () => {
   await until(() => deps.facilitatorHub.size() === 0, { what: "the console hub to empty" });
   for (const c of closers) c();
   closers = [];
+  // Every accepted command schedules a Game Master tick: let it finish, or it meets a closed log.
+  await runtime?.host.idle();
   await runtime?.stop(); runtime = null;
   await rm(tmp, { recursive: true, force: true });
 });
@@ -243,7 +245,7 @@ describe("the console's command and fact routes against the real runtime", () =>
     expect(ended).toHaveLength(1);
     expect(ended[0]).toMatchObject({ reason: "facilitator_end" });
     expect(eventsOf(tab.r).filter((e) => e.type === "facilitator.alert" && (e as { message: string }).message.length > 0)).toHaveLength(1);
-    // The runtime applied them once as well: each kind's event, and the fact released, are in the runtime's log of the stream the facilitator saw.
+    // The release and the stance each produced an npc.updated on the console stream.
     const released = eventsOf(tab.r).filter((e) => e.type === "npc.updated");
     expect(released.length).toBeGreaterThanOrEqual(2); // the release and the stance
   });
@@ -324,6 +326,11 @@ describe("the console's command and fact routes against the real runtime", () =>
       expect(text, role).toContain("session.ended");
       expect(text, `${role} saw the facilitator's name`).not.toContain(BY);
       expect(text, `${role} saw a by`).not.toContain("\"by\"");
+      // end_now's ref and its ack (sent after session.ended) never reach a player either.
+      const endRef = sentToRuntime.find((m) => m.type === "end_now")?.ref as string | undefined;
+      expect(endRef, "the hub sent no ref with end_now").toMatch(/^leakref-\d+$/);
+      expect(text, `${role} saw end_now's ref`).not.toContain(endRef!);
+      expect(text, `${role} saw an ack`).not.toContain("\"ack\"");
     }
   });
 
@@ -346,7 +353,12 @@ describe("the console's command and fact routes against the real runtime", () =>
     const factsAnswer = await factsOf(tab);
     expect(factsAnswer.status).toBe(200);
     await runtime!.host.idle();
-    for (const role of PLAYERS) await until(() => playerText(seats[role]).includes(whispers[role]), { what: `${role}'s own whisper` });
+    // Wait for the run's last frames on every player stream (separate sockets from the console's ack): the whisper, the pause and the resume.
+    for (const role of PLAYERS) {
+      await until(() => playerText(seats[role]).includes(whispers[role]), { what: `${role}'s own whisper` });
+      await until(() => playerText(seats[role]).includes("\"command\":\"pause\""), { what: `${role}'s pause` });
+      await until(() => playerText(seats[role]).includes("\"command\":\"resume\""), { what: `${role}'s resume` });
+    }
     await until(() => tab.r.frames().some((f) => f.event === "characters" && JSON.stringify(f.data).includes(GOAL)), { what: "the goal on the characters frame" });
     const consoleText = tab.r.text();
 
@@ -360,6 +372,7 @@ describe("the console's command and fact routes against the real runtime", () =>
     expect(eventsOf(tab.r).filter((e) => e.type === "facilitator.command" && (e as { by?: string }).by === BY).length).toBeGreaterThan(0);
     expect(consoleText, "the console stream has no characters frame").toContain("event: characters");
     expect(consoleText).toContain(GOAL);
+    expect(consoleText, "the console stream lacks the characters facts list").toContain("\"facts\":[{\"n\"");
     for (const role of PLAYERS) expect(consoleText, `the console stream lacks the whisper to ${role}`).toContain(whispers[role]);
     const scenes = tab.r.frames().find((f) => f.event === "joined")!.data.scenes as { injects?: { content: string }[] }[];
     expect(JSON.stringify(scenes), "the console's scenes lack the unfired inject").toContain(UNFIRED_INJECT);
@@ -368,11 +381,13 @@ describe("the console's command and fact routes against the real runtime", () =>
     expect(rawFac, "the facilitator socket lacks the fact").toContain(HIDDEN_FACT);
     expect(rawFac, "the facilitator socket lacks the unfired inject").toContain(UNFIRED_INJECT);
     expect(rawFac).toContain(GOAL);
+    expect(rawFac, "the facilitator socket lacks hiddenFacts").toContain("hiddenFacts");
     expect(JSON.stringify(factsAnswer.data), "the facts response lacks the text").toContain(HIDDEN_FACT);
     // Each player does get their own whisper, and a pause and a resume.
     for (const role of PLAYERS) {
       expect(playerText(seats[role]), role).toContain(whispers[role]);
       expect(playerText(seats[role]), role).toContain("\"command\":\"pause\"");
+      expect(playerText(seats[role]), role).toContain("\"command\":\"resume\"");
     }
 
     // The scan: nothing a player stream carries is any of it.
@@ -440,7 +455,7 @@ describe("the console's command and fact routes against the real runtime", () =>
     expect(budget.inUse(SESSION, "live")).toBe(1);
     expect(budget.inUse(SESSION, "short")).toBe(0);
     const pending = command(tab, { kind: "pause" });
-    // Neither before the command is answered nor after.
+    // Taken as the call starts (the handler has not reached the hub yet); the proof that a command opens no socket is the connection count below.
     expect(budget.inUse(SESSION, "live")).toBe(1);
     expect(budget.inUse(SESSION, "short")).toBe(0);
     expect(await pending).toMatchObject({ status: 200 });
@@ -453,7 +468,5 @@ describe("the console's command and fact routes against the real runtime", () =>
     expect(budget.inUse(SESSION, "live")).toBe(1);
     expect(budget.inUse(SESSION, "short")).toBe(0);
     expect(budget.inUse(OTHER_SESSION, "short")).toBe(0);
-    // The advance schedules a Game Master tick: let it finish before the runtime stops.
-    await runtime!.host.idle();
   });
 });
