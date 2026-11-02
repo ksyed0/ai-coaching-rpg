@@ -62,8 +62,9 @@ export class RuntimeConnection {
   }
 
   /**
-   * Opens the socket. `clientAddress` goes only into X-Forwarded-For (the runtime runs with TRUST_PROXY=1). `null` sends no such header:
-   * facilitator sockets, so the runtime charges them to the BFF's own address and never to a player's.
+   * Opens the socket. `clientAddress` goes only into X-Forwarded-For (the runtime runs with TRUST_PROXY=1). `null` sends no such header.
+   * Facilitator sockets send the reserved FACILITATOR_FORWARD_KEY (facilitator-budget.ts), so the runtime charges them to one key
+   * that is neither a player's address nor the BFF's loopback.
    */
   static connect(url: string, clientAddress: string | null, o: { setTimer?: SetTimer; timeoutMs?: number } = {}): Promise<RuntimeConnection> {
     const setTimer = o.setTimer ?? realTimer;

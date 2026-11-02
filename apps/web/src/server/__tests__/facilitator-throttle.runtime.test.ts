@@ -8,7 +8,7 @@ import { FACILITATOR_FORWARD_KEY } from "../facilitator-budget";
 import { RuntimeConnection } from "../runtime-connection";
 
 // The real runtime, in-process, mock models, port 0, private temp dirs. Proves the claim facilitator-socket.ts rests on: a stale
-// facilitator token costs only the BFF's own address, never a player's.
+// facilitator token costs only the console's reserved X-Forwarded-For key, never a player's address.
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
 // Loaded by a computed path (see hub.runtime.test.ts): a static import would type-check the runtime's sources under this app's settings.
@@ -147,9 +147,9 @@ describe("refused facilitator tokens and the runtime's per-address throttle", ()
   it("a ninth socket on one key is refused 503 while another key still connects", async () => {
     for (let i = 0; i < 8; i++)
       conns.push(await RuntimeConnection.connect(url(), KEY));
-    await expect(RuntimeConnection.connect(url(), KEY)).rejects.toBeInstanceOf(
-      Error,
-    );
+    await expect(RuntimeConnection.connect(url(), KEY)).rejects.toMatchObject({
+      code: "unavailable",
+    });
     const other = await RuntimeConnection.connect(url(), PLAYER);
     conns.push(other);
     expect(other.isOpen).toBe(true);

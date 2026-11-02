@@ -168,6 +168,7 @@ describe("withFacilitatorSocket", () => {
     // Held when the first pair was fetched, again for the fresh pair (the first socket was refused), and while fn ran.
     expect(held).toEqual([1, 1]);
     expect(inFn).toBe(1);
+    expect(budget.inUse(SID, "short")).toBe(1);
     // Freed by the sockets' close reports, not by the function's return.
     await vi.waitFor(() => expect(budget.inUse(SID, "short")).toBe(0));
     await stale.rt.closed();

@@ -273,7 +273,11 @@ export async function handleConsoleReadiness(
     joined = await withFacilitatorSocket(deps, id, async (_conn, j) => j);
   } catch (err) {
     if (err instanceof FacilitatorSocketError) {
-      log("the session runtime is not reachable");
+      log(
+        err.reason === "busy"
+          ? "the console has too many sockets open to this session"
+          : "the session runtime is not reachable",
+      );
       return ok(unknown);
     }
     return failure(err);

@@ -87,6 +87,10 @@ class FakeFacConn {
     };
   }
   onClose(fn: (c: number) => void) {
+    if (this.reportedCode !== null) {
+      fn(this.reportedCode);
+      return () => {};
+    }
     this.closes.add(fn);
     return () => {
       this.closes.delete(fn);
@@ -95,15 +99,20 @@ class FakeFacConn {
   close() {
     this.closed++;
     // Like the real connection, close() ends in a close report (the facilitator budget frees its slot on it).
-    queueMicrotask(() => {
-      for (const f of [...this.closes]) f(1000);
-    });
+    queueMicrotask(() => this.report(1000));
+  }
+  private reportedCode: number | null = null;
+  /** The close report, once only; a listener added afterwards is called at once (like RuntimeConnection.onClose). */
+  private report(code: number) {
+    if (this.reportedCode !== null) return;
+    this.reportedCode = code;
+    for (const f of [...this.closes]) f(code);
   }
   emit(m: ServerMessage) {
     for (const f of [...this.frames]) f(m);
   }
   drop() {
-    for (const f of [...this.closes]) f(1006);
+    this.report(1006);
   }
 }
 
@@ -553,6 +562,7 @@ describe("console session API", () => {
       canStart: false,
     });
     expect(connect).not.toHaveBeenCalled();
+    expect(launcher.facilitator).not.toHaveBeenCalled();
   });
 
   it("Start with no short slot is 503 busy", async () => {
@@ -567,6 +577,7 @@ describe("console session API", () => {
       "Too many console connections to this session are open. Close a console tab and try again.",
     );
     expect(connect).not.toHaveBeenCalled();
+    expect(launcher.facilitator).not.toHaveBeenCalled();
     expect(conn.sent).toEqual([]);
   });
 
