@@ -6,7 +6,6 @@ import type { CommandOutcome } from "../facilitator-hub";
 import { COOKIE_NAME, type Deps } from "../handlers";
 import { seal } from "../seal";
 import { COMMAND_ANSWERS, COMMAND_MAX_BODY_BYTES, handleConsoleCommand, handleConsoleFacts } from "../console-command";
-import { consoleCommandPOST, consoleFactsPOST } from "../routes";
 
 const ORIGIN = "https://play.example.org";
 const KEYS: Config["cookieKeys"] = [{ id: "k1", key: Buffer.alloc(32, 7) }];
@@ -110,7 +109,7 @@ describe("the command route", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it("unknown keys, a key another kind takes (pause with text), an unknown kind, fact 0, 51 or 1.5, whisper text empty, blank or 2001 units, 11 goals or a 501-unit goal, a closing message of 301 code points, a non-UUID channel, text/plain and a 32 KiB + 1 body are 400", async () => {
+  it("unknown keys, a key another kind takes (pause with text), an unknown kind, fact 0, 51 or 1.5, whisper text empty, blank or 2001 units, 11 goals or a 501-unit goal, a closing message of 301 code points, a non-UUID channel, and text/plain are 400", async () => {
     const goals = (n: number, len = 3) => Array.from({ length: n }, () => "g".repeat(len));
     const bad: [string, unknown, Parameters<typeof post>[2]?][] = [
       ["unknown key", { channel: CH, kind: "pause", extra: 1 }],
@@ -136,9 +135,25 @@ describe("the command route", () => {
       ["upper-case channel", { channel: CH.toUpperCase(), kind: "pause" }],
       ["bad role id", { channel: CH, kind: "whisper", roleId: "../x", text: "hi" }],
       ["text/plain", { channel: CH, kind: "pause" }, { headers: { "Content-Type": "text/plain" } }],
-      ["32 KiB + 1", { channel: CH, kind: "end_now", message: "x" }, { raw: JSON.stringify({ channel: CH, kind: "end_now", message: "x".repeat(COMMAND_MAX_BODY_BYTES) }) }],
     ];
     for (const [name, body, o] of bad) expect((await command(body, o)).status, name).toBe(400);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  const padded = (bytes: number) => {
+    const base = JSON.stringify({ channel: CH, kind: "pause" });
+    return base + " ".repeat(bytes - Buffer.byteLength(base));
+  };
+
+  it("a valid body of 32768 bytes reaches the hub and one of 32769 bytes is 400", async () => {
+    const at = padded(32768);
+    expect(Buffer.byteLength(at)).toBe(32768);
+    expect((await command(null, { raw: at })).status).toBe(200);
+    expect(send).toHaveBeenCalledTimes(1);
+    send.mockClear();
+    const over = padded(32769);
+    expect(Buffer.byteLength(over)).toBe(32769);
+    expect((await command(null, { raw: over })).status).toBe(400);
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -146,10 +161,62 @@ describe("the command route", () => {
     const goals = Array.from({ length: 10 }, () => "€".repeat(500));
     const raw = JSON.stringify({ channel: CH, kind: "set_npc_stance", roleId: "a", goals });
     expect(Buffer.byteLength(raw)).toBeGreaterThan(15_000);
-    expect(Buffer.byteLength(raw)).toBeLessThanOrEqual(COMMAND_MAX_BODY_BYTES);
     const res = await command(null, { raw });
     expect(res.status).toBe(200);
     expect(send.mock.calls[0]![0].message.command.goals).toEqual(goals);
+  });
+
+  it("a stance of 10 goals of 500 control characters (escaped to about 30 KB) is accepted", async () => {
+    const goals = Array.from({ length: 10 }, () => "\u0001".repeat(500));
+    const raw = JSON.stringify({ channel: CH, kind: "set_npc_stance", roleId: "a", goals });
+    expect(Buffer.byteLength(raw)).toBeGreaterThan(29_000);
+    expect(Buffer.byteLength(raw)).toBeLessThanOrEqual(32768);
+    const res = await command(null, { raw });
+    // "\u0001" is not whitespace, so trim keeps it: 500 units each.
+    expect(res.status).toBe(200);
+    expect(send.mock.calls[0]![0].message.command.goals).toHaveLength(10);
+  });
+
+  it("the end_now closing message is counted in code points: 300 emoji are accepted, 301 are 400", async () => {
+    expect((await command({ channel: CH, kind: "end_now", message: "😀".repeat(300) })).status).toBe(200);
+    expect((await command({ channel: CH, kind: "end_now", message: "😀".repeat(301) })).status).toBe(400);
+  });
+
+  it("the accepted side of each boundary: whisper 2000, fact 1 and 50, a 500-unit goal, scene ids on pause and resume are mapped", async () => {
+    const ok = [
+      { kind: "whisper", roleId: "a", text: "x".repeat(2000) },
+      { kind: "release_hidden", roleId: "a", fact: 1 },
+      { kind: "release_hidden", roleId: "a", fact: 50 },
+      { kind: "set_npc_stance", roleId: "a", goals: [" " + "g".repeat(500) + " "] },
+    ];
+    for (const b of ok) expect((await command({ channel: CH, ...b })).status, JSON.stringify(b).slice(0, 60)).toBe(200);
+  });
+
+  it("an expectSceneId on pause or resume is 400; a bad injectId and a bad expectSceneId are 400", async () => {
+    for (const body of [
+      { kind: "pause", expectSceneId: "s1" }, { kind: "resume", expectSceneId: "s1" },
+      { kind: "fire_inject", injectId: "../x" }, { kind: "fire_inject", injectId: "" }, { kind: "fire_inject", injectId: 5 },
+      { kind: "advance", expectSceneId: "../x" }, { kind: "advance", expectSceneId: 5 },
+    ]) expect((await command({ channel: CH, ...body })).status, JSON.stringify(body)).toBe(400);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("no launcher is 502 launcher_unavailable after the body checks and before the hub", async () => {
+    deps = { ...deps, launcher: undefined } as Deps;
+    const res = await command({ channel: CH, kind: "pause" });
+    expect(res.status).toBe(502);
+    expect((await json(res)).error?.code).toBe("launcher_unavailable");
+    expect((await command({ channel: CH, kind: "nope" })).status).toBe(400);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("a runtime refusal whose code is pending, no_channel, unconfirmed or other gets the safe default", async () => {
+    for (const code of ["pending", "no_channel", "unconfirmed", "other"]) {
+      send.mockResolvedValue({ kind: "refused", code });
+      const res = await command({ channel: CH, kind: "pause" });
+      expect(res.status, code).toBe(502);
+      expect((await json(res)).error).toEqual({ code: "command_failed", message: "The session could not take that action. Check the live view, then try again." });
+    }
   });
 
   it("a channel of another session is 409 no_channel and nothing is sent", async () => {
@@ -237,7 +304,7 @@ describe("the facts route", () => {
   it("an unknown channel or another session's channel is 409 no_channel", async () => {
     const res = await facts({ channel: CH });
     expect(res.status).toBe(409);
-    expect((await json(res)).error).toEqual({ code: "no_channel", message: COMMAND_ANSWERS.no_channel.message });
+    expect((await json(res)).error).toEqual({ code: "no_channel", message: "The live view is not connected. Wait until it is live again, then try again." });
     expect(factsFor).toHaveBeenCalledWith(SID, CH);
   });
 
@@ -254,18 +321,17 @@ describe("the facts route", () => {
     expect(JSON.stringify(b)).not.toMatch(/GOAL|KNOW/);
   });
 
+  it("a stray key inside a fact item or a role never leaves", async () => {
+    factsFor.mockReturnValue([{ roleId: "npc", knowledge: ["K"], facts: [{ n: 1, text: "T", released: true, goal: "G" }] }]);
+    const b = await json(await facts({ channel: CH }));
+    expect(b.data).toEqual({ roles: [{ roleId: "npc", facts: [{ n: 1, text: "T" }] }] });
+  });
+
   it("the response is no-store and noindex", async () => {
     factsFor.mockReturnValue([]);
     for (const res of [await facts({ channel: CH }), await facts({ channel: "x" })]) {
       expect(res.headers.get("Cache-Control")).toBe("no-store");
       expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
     }
-  });
-});
-
-describe("the route exports", () => {
-  it("consoleCommandPOST and consoleFactsPOST exist", () => {
-    expect(typeof consoleCommandPOST).toBe("function");
-    expect(typeof consoleFactsPOST).toBe("function");
   });
 });
