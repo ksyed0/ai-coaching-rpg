@@ -28,7 +28,7 @@ const LastSeq = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional();
 export const MAX_BY_RAW_CHARS = 200;
 /** US-0059: a console command's optional correlation id: 1 to 64 letters, digits and hyphens. */
 export const MAX_REF_CHARS = 64;
-const Ref = z.string().regex(/^[A-Za-z0-9-]{1,64}$/);
+const Ref = z.string().min(1).max(MAX_REF_CHARS).regex(/^[A-Za-z0-9-]+$/);
 /** US-0059: the most UTF-16 units a raw closing message may have on the wire (the host cleans it to 300 code points). */
 export const MAX_END_MESSAGE_RAW_CHARS = 1_200;
 

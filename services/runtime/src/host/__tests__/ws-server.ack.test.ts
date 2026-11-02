@@ -158,7 +158,7 @@ describe("console commands carry a ref and are acknowledged (US-0059)", () => {
     const { port, log } = await setup();
     const fac = await started(port);
     const before = (await log.all()).length;
-    for (const ref of ["a".repeat(65), "has space", ""]) {
+    for (const ref of ["a".repeat(65), "has space", "", "a.b"]) {
       const seen = fac.inbox.length;
       fac.send({ type: "command", ref, command: { command: "pause" } });
       const err = await fac.next((m) => isErr(m) && fac.inbox.indexOf(m) >= seen);
@@ -166,9 +166,25 @@ describe("console commands carry a ref and are acknowledged (US-0059)", () => {
       expect(Object.hasOwn(err, "ref")).toBe(false);
     }
     fac.send({ type: "end_now", ref: "a b" });
-    await vi.waitFor(() => expect(fac.inbox.filter((m) => isErr(m) && m.code === "bad_message")).toHaveLength(4));
+    await vi.waitFor(() => expect(fac.inbox.filter((m) => isErr(m) && m.code === "bad_message")).toHaveLength(5));
     expect(await log.all()).toHaveLength(before);
     expect(fac.inbox.some((m) => m.type === "ack")).toBe(false);
+  });
+
+  it("a host whose command throws a plain Error yields internal carrying the ref", async () => {
+    const { port, host } = await setup();
+    const fac = await started(port);
+    vi.spyOn(host, "command").mockRejectedValue(new Error("boom"));
+    fac.send({ type: "command", ref: "r-boom", command: { command: "pause" } });
+    expect(await fac.next(isErr)).toMatchObject({ code: "internal", ref: "r-boom" });
+    expect(fac.inbox.some((m) => m.type === "ack")).toBe(false);
+  });
+
+  it("a command with a ref on a socket that has not joined is not_joined with that ref", async () => {
+    const { port } = await setup();
+    const c = await open(port);
+    c.send({ type: "command", ref: "r-nj", command: { command: "pause" } });
+    expect(await c.next(isErr)).toMatchObject({ code: "not_joined", ref: "r-nj" });
   });
 
   it("the ack goes only to the sending facilitator connection, the event to both", async () => {

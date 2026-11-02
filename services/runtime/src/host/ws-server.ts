@@ -391,7 +391,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           else broadcastRoster(m.sessionId, h, liveEntry);
           return;
         }
-        if (!host || !who) return fail("not_joined", "join first");
+        if (!host || !who) return fail("not_joined", "join first", ref);
         if (m.type === "leave" || m.type === "withdraw_consent") {
           if (isFacilitator || !participantId) return fail("forbidden", m.type === "leave" ? "only a player may leave a role" : "only a player may give or withdraw consent");
           // US-0054: withdrawing consent gives the seat up like a leave (credential revoked, role released), so it ends the same way.
