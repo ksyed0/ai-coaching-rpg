@@ -1,4 +1,4 @@
-import type { PlayerScene, PlayerSnapshot, SessionEvent, SessionState } from "@acr/events";
+import type { FacilitatorScene, PlayerScene, PlayerSnapshot, SessionEvent, SessionState } from "@acr/events";
 import { commandForPlayer, endedForPlayer, snapshotForPlayer, startedForPlayer } from "./player-copies.js";
 import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
@@ -458,19 +458,21 @@ export class SessionHost {
     return Object.fromEntries(Object.values(this.scenario.roles).filter((r): r is NpcRole => r.type === "npc" && r.hidden.length > 0).map((r) => [r.id, [...r.hidden]]));
   }
 
-  /** US-0055: title, goal and time box of only the scenes `roleId` takes part in, in script order (for the player's `joined`). */
+  /** US-0055: title, goal and time box of only the scenes `roleId` takes part in, in script order (for the player's `joined`). Carries no injects. */
   scenesFor(roleId: string): PlayerScene[] {
-    return this.sceneList((sc) => sc.participants.includes(roleId));
+    return this.scenario.script.scenes.filter((sc) => sc.participants.includes(roleId)).map((sc) => this.plainScene(sc));
   }
 
-  /** US-0059: every scene in script order, same mapping as `scenesFor` (for the facilitator's `joined` ONLY, never a player's). */
-  allScenes(): PlayerScene[] {
-    return this.sceneList(() => true);
+  /** US-0059: every scene in script order with its injects (for the facilitator's `joined` ONLY, never a player's). `atMinute` only when set. */
+  allScenes(): FacilitatorScene[] {
+    return this.scenario.script.scenes.map((sc) => ({
+      ...this.plainScene(sc),
+      injects: (sc.injects ?? []).map((i) => ({ id: i.id, to: [...i.to], content: i.content, ...(i.at_minute !== undefined ? { atMinute: i.at_minute } : {}) })),
+    }));
   }
 
-  private sceneList(keep: (sc: Scenario["script"]["scenes"][number]) => boolean): PlayerScene[] {
-    return this.scenario.script.scenes.filter(keep)
-      .map((sc) => ({ id: sc.id, title: sc.title, goal: sc.goal, timeBoxMinutes: sc.time_box_minutes }));
+  private plainScene(sc: Scenario["script"]["scenes"][number]): PlayerScene {
+    return { id: sc.id, title: sc.title, goal: sc.goal, timeBoxMinutes: sc.time_box_minutes };
   }
 
   /** State snapshot safe to send to `who`: players never get NPC internals, GM verdicts, participant ids or other scenes' lines. */

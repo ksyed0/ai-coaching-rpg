@@ -261,7 +261,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       } catch (err) { log(`send failed: ${(err as Error).message}`); }
     };
     const send = (m: ServerMessage) => sendText(JSON.stringify(m));
-    const fail = (code: string, message: string) => send({ type: "error", code, message });
+    const fail = (code: string, message: string, ref?: string) => send({ type: "error", code, message, ...(ref !== undefined ? { ref } : {}) });
     /**
      * US-0013: sends `joined` and, when the join carried lastSeq, the replay right after it, before the subscription can deliver anything
      * newer. The snapshot is serialised first and the replay gets only the room left in the 1 MiB send buffer (MAX_BUFFERED_BYTES, minus
@@ -287,6 +287,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
         return fail("bad_message", issue ? `${issue.path.join(".") || "message"}: ${issue.message}` : "invalid message");
       }
       const m = parsed.data;
+      // US-0059: the ref of a console command, so every refusal of that message carries it.
+      const ref = m.type === "command" || m.type === "end_now" ? m.ref : undefined;
       try {
         if (m.type === "join" || m.type === "join_facilitator") {
           if (host) return fail("already_joined", "this connection has already joined");
@@ -389,7 +391,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           else broadcastRoster(m.sessionId, h, liveEntry);
           return;
         }
-        if (!host || !who) return fail("not_joined", "join first");
+        if (!host || !who) return fail("not_joined", "join first", ref);
         if (m.type === "leave" || m.type === "withdraw_consent") {
           if (isFacilitator || !participantId) return fail("forbidden", m.type === "leave" ? "only a player may leave a role" : "only a player may give or withdraw consent");
           // US-0054: withdrawing consent gives the seat up like a leave (credential revoked, role released), so it ends the same way.
@@ -421,17 +423,23 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           await host.onPlayerUtterance(who, m.text, { expectSceneId: m.expectSceneId });
         } else if (m.type === "end_now") {
           // US-0059: a separate facilitator message; it never starts the session (the host refuses before the start).
-          if (!isFacilitator) return fail("forbidden", "only the facilitator may end the session");
+          if (!isFacilitator) return fail("forbidden", "only the facilitator may end the session", ref);
           await host.endNow({ by: m.by, message: m.message });
+          if (ref !== undefined) send({ type: "ack", ref });
         } else if (m.type === "command") {
-          if (!isFacilitator) return fail("forbidden", "only the facilitator may send commands");
-          if (!host.hasStarted) await host.start();
+          if (!isFacilitator) return fail("forbidden", "only the facilitator may send commands", ref);
+          // A command with a ref never starts the session (the console starts it explicitly); without one the terminal's auto-start stays.
+          if (!host.hasStarted) {
+            if (ref !== undefined) { const code = host.isStarting ? "starting" : "not_started"; return fail(code, code, ref); }
+            await host.start();
+          }
           await host.command(m.command, { expectSceneId: m.expectSceneId, by: m.by });
+          if (ref !== undefined) send({ type: "ack", ref });
         }
       } catch (err) {
-        if (err instanceof HostError || err instanceof EngineError) return fail(err.code, err.message);
+        if (err instanceof HostError || err instanceof EngineError) return fail(err.code, err.message, ref);
         log(`error: ${err instanceof Error ? err.stack : String(err)}`);
-        fail("internal", "internal error");
+        fail("internal", "internal error", ref);
       }
     }
 

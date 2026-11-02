@@ -1457,3 +1457,20 @@ Actual Result: As expected (apps/web/src/lib/__tests__/console-view.test.ts, use
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-2b1, PR 3. Read-only: pause, resume, advance, inject, whisper, release, stance, Remove and End are slice 2b-2b2. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.
+
+TC-0095: A console command or end_now with a ref is acknowledged to the sender only
+Related Story: US-0059
+Related Task: TASK-0097
+Related AC: AC-0354
+Type: Integration
+Preconditions: A runtime server with a started session, a facilitator socket, a second facilitator socket and a player socket; the same server before the start.
+Steps:
+  1. Send a command and an end_now with a valid ref as the facilitator, and with a ref of 65 characters, an empty one and ones holding a space or a dot.
+  2. Send a command with a ref and one without before the start and after an interrupted start; send a command with a ref the engine refuses (a stale scene), one whose host call throws a plain Error and one on a socket that has not joined.
+  3. Send a command and an end_now with a ref as a player; read what the second facilitator and the player receive.
+  4. Join as a facilitator and as a player and read joined.scenes.
+Expected Result: A valid ref gets { type: ack, ref } after the host call, to the sender only; every refusal carries the ref (forbidden, not_joined, not_started, starting after an interrupted start, the engine and host codes, internal); a bad ref is bad_message; a command with a ref before the start is not_started or starting and the session does not start, while one without a ref still auto-starts; no other socket receives the ack, the error or the ref. The facilitator's scenes carry their injects (empty list when none, atMinute only when set); a player's scenes have no injects key.
+Actual Result: As expected (services/runtime/src/host/__tests__/ws-server.ack.test.ts 13 tests, ws-server.scenes.test.ts 7 tests; runtime vitest 187 files, 3754 tests passed; pnpm -r typecheck clean; the ack and scenes files also passed in node:22 as root and --user node).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-2b2, PR 1 (Tasks 1 and 2). The web server's command route and the console controls follow in PR 2 and PR 3.

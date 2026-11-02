@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CLIENT_ID_MAX_CHARS, type PlayerScene, type PlayerSnapshot, type SessionEvent, type SessionState } from "@acr/events";
+import { CLIENT_ID_MAX_CHARS, type FacilitatorScene, type PlayerScene, type PlayerSnapshot, type SessionEvent, type SessionState } from "@acr/events";
 import { MAX_JOIN_CODE_INPUT_CHARS } from "../engine/join-codes.js";
 import { REBIND_PENDING } from "../engine/consent.js";
 import { MAX_CREDENTIAL_INPUT_CHARS } from "../engine/credentials.js";
@@ -26,6 +26,9 @@ const LastSeq = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional();
 
 /** US-0059: the most UTF-16 units a raw `by` may have on the wire. */
 export const MAX_BY_RAW_CHARS = 200;
+/** US-0059: a console command's optional correlation id: 1 to 64 letters, digits and hyphens. */
+export const MAX_REF_CHARS = 64;
+const Ref = z.string().min(1).max(MAX_REF_CHARS).regex(/^[A-Za-z0-9-]+$/);
 /** US-0059: the most UTF-16 units a raw closing message may have on the wire (the host cleans it to 300 code points). */
 export const MAX_END_MESSAGE_RAW_CHARS = 1_200;
 
@@ -41,9 +44,9 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("start") }),
   z.object({ type: z.literal("say"), text: z.string().min(1).max(MAX_UTTERANCE_CHARS), expectSceneId: Id.optional() }),
   // US-0059: `by` is the facilitator's name as the control service gave it (raw at most 200 UTF-16 units; the host cleans it to 60 code points).
-  z.object({ type: z.literal("command"), command: FacilitatorCommandSchema, expectSceneId: Id.optional(), by: z.string().max(MAX_BY_RAW_CHARS).optional() }),
+  z.object({ type: z.literal("command"), command: FacilitatorCommandSchema, expectSceneId: Id.optional(), by: z.string().max(MAX_BY_RAW_CHARS).optional(), ref: Ref.optional() }),
   // US-0059: the facilitator ends the session now (never auto-starts). `message` is raw (the host cleans it to 300 code points); `by` as on `command`.
-  z.object({ type: z.literal("end_now"), message: z.string().max(MAX_END_MESSAGE_RAW_CHARS).optional(), by: z.string().max(MAX_BY_RAW_CHARS).optional() }),
+  z.object({ type: z.literal("end_now"), message: z.string().max(MAX_END_MESSAGE_RAW_CHARS).optional(), by: z.string().max(MAX_BY_RAW_CHARS).optional(), ref: Ref.optional() }),
   // US-0053: a player gives up the seat for good: the credential is revoked, consent withdrawn and the connection closed (1000).
   z.object({ type: z.literal("leave") }),
   // US-0054: a player agrees to the consent notice of this version (it must be the server's current one), or takes the consent back
@@ -67,8 +70,8 @@ export type ServerMessage =
       replay?: ReplaySummary;
       /** US-0053: the durable credential, only on the join by code that asked for it (issueCredential). The one copy: never sent again. */
       credential?: string;
-      /** US-0055: title, goal and time box of scenes, in script order. A player join lists only the scenes this role takes part in, never another role's (US-0055); the facilitator's join lists every scene (US-0059). */
-      scenes?: PlayerScene[];
+      /** US-0055: title, goal and time box of scenes, in script order. A player join lists only the scenes this role takes part in, never another role's (US-0055); the facilitator's join lists every scene with its injects (US-0059). */
+      scenes?: PlayerScene[] | FacilitatorScene[];
       /** US-0053: the session's random log identity, on every player join when the server keeps seats. */
       logIdentity?: string;
       /** US-0054: players only, when the server keeps seats: the notice to agree to and whether this participant has agreed. Never another role's. */
@@ -77,4 +80,6 @@ export type ServerMessage =
   // US-0055: who sits where. Each audience gets only its own frame: the facilitator's shows consent and connection, a player's only who is ready.
   | { type: "roster"; audience: "facilitator"; entries: FacilitatorRosterEntry[] }
   | { type: "roster"; audience: "peers"; entries: PeerRosterEntry[] }
-  | { type: "error"; code: string; message: string };
+  // US-0059: answers a console command that carried a `ref`, to the sender only, after the host call (and its events) completed.
+  | { type: "ack"; ref: string }
+  | { type: "error"; code: string; message: string; ref?: string };

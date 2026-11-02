@@ -129,6 +129,10 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
         const lines = renderRoster(m);
         const key = lines.join("\n");
         if (key !== lastRoster) { lastRoster = key; for (const l of lines) io.print(l); }
+      } else if (m.type !== "error") {
+        // US-0059: an `ack` answers a console command's ref; the terminal sends none, so it never receives one. parseServerMessage already
+        // drops it; this branch only narrows the type for the checker.
+        return;
       } else if (isFatalError(m.code, joined)) {
         finish(1, renderError(m.code, m.message, !opts.facilitator));
       } else {

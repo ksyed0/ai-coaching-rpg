@@ -6,6 +6,10 @@ import type { PlayerSnapshot, SessionState } from "./state.js";
 
 /** Scene info a player may see: only scenes the player takes part in (carried in `joined.scenes`). */
 export type PlayerScene = { id: string; title: string; goal: string; timeBoxMinutes: number };
+/** US-0059: an inject as the facilitator's console sees it. For the facilitator's `joined` ONLY: never in a player's message. */
+export type FacilitatorInject = { id: string; to: string[]; content: string; atMinute?: number };
+/** US-0059: a scene with its injects, in script order (the facilitator's `joined.scenes`). */
+export type FacilitatorScene = PlayerScene & { injects: FacilitatorInject[] };
 export type PlayerLine = { seq: number; ts: number; roleId: string; text: string; sceneId: string | null };
 export type PlayerView = {
   lastSeq: number;
