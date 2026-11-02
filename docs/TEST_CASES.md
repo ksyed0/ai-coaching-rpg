@@ -1441,3 +1441,19 @@ Actual Result: As expected (apps/web/src/server/__tests__/console-stream.test.ts
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-2b1, PR 2. The runtime test (console-stream.runtime.test.ts, 5 tests) also passed in the node:22 container as root and as --user node. The read-only page is PR 3. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.
+
+TC-0094: The console shows the live session read-only from the stream
+Related Story: US-0059
+Related Task: TASK-0096
+Related AC: AC-0311
+Type: Component, E2E
+Preconditions: The console page for a running session; a fake EventSource for the unit tests; the launcher-mode stack (real control service, runtime and `next start`) for the E2E.
+Steps:
+  1. Feed the hook a joined frame, a reset, events (lines, Game Master decisions, facilitator commands with and without `by`, injects, scene changes, an alert, the end), a roster, a gap, a reconnect, a server error frame and each final (ended, stopped, expired, busy), and a browser-side closed stream.
+  2. Render the live view with names, lines and notices holding `<img src=x onerror=alert(1)>`, `<b>`, U+202E and control characters, and a `by`, a role label and a whisper text holding bidi controls.
+  3. Open the page, start the session, send a player line, reissue a code after the start, reload, open a second tab and open the stream with a player cookie; run Axe at 1280 px and 400 px, light and dark.
+Expected Result: The view is the fold of the stream: scene bar and timer, status, transcript with Game Master notices, facilitator notices ("Facilitator:" prefix) and alerts (the word Alert or Warning, a fixed line per level), and the Words spoken tables (players, then AI characters as context; counts only, no clock). A gap reopens the stream without Last-Event-ID and keeps the view until the reset; the fourth consecutive gap is `lost` and the counter resets once an in-order event folds. Untrusted text is only text children, names are in `bdi`, a value with bidi controls is isolated with U+2068..U+2069 and no other is; nothing is added to the DOM from the markup. The shell shows the final message once (also after `stopped` sends the page back to the lobby). The transcript is a polite live region announcing additions. A reload keeps the line, two tabs follow the same events, a player cookie gets 401, no securitypolicyviolation is raised and Axe finds no serious or critical violation.
+Actual Result: As expected (apps/web/src/lib/__tests__/console-view.test.ts, use-console-stream.test.ts, use-readiness.test.tsx, apps/web/src/components/__tests__/LiveView.test.tsx, SessionConsole.test.tsx, Readiness.test.tsx, apps/web/src/__tests__/source-rules.test.ts: 89 tests passed in these 7 files; web suite 623 passed in 46 files; apps/web/e2e/console-live.spec.ts, Axe passed at 1280 px and 400 px in light and dark, as reported by Task 13 and not rerun for this PR).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-2b1, PR 3. Read-only: pause, resume, advance, inject, whisper, release, stance, Remove and End are slice 2b-2b2. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.
