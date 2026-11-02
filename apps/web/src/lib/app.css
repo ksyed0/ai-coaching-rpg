@@ -61,6 +61,9 @@ h2.s, h3.s { font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase;
 input.t {
   width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink);
 }
+textarea.t {
+  width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); font: inherit; resize: vertical;
+}
 input.t:disabled { background: var(--panel2); color: var(--muted); }
 
 .btn {
@@ -68,7 +71,7 @@ input.t:disabled { background: var(--panel2); color: var(--muted); }
   background: var(--panel); color: var(--ink); cursor: pointer;
 }
 .btn.pri { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
 
 .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid transparent; white-space: nowrap; }
 .pill.ok { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
