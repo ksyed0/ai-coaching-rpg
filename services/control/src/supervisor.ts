@@ -34,11 +34,15 @@ export type SessionInfo = { sessionId: string; scenarioId: string; status: Sessi
 export type CreateResult = { sessionId: string; status: "running"; port: number; modelLabel: string; codes: { roleId: string; code: string }[] };
 
 type Codes = { roleId: string; code: string }[];
+type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: string[] };
 type ExitState = { done: boolean; promise?: Promise<void> };
 type Proc = { child: ChildHandle; exit: ExitState };
 type Live = {
   scenarioId: string; status: SessionStatus; port?: number; modelLabel?: string; child?: ChildHandle; token?: string; graceCancel?: () => void;
+  /** The AI roles of the latest ready or successful set_ai_roles; a ready without aiRoles resets it. */
+  aiRoles?: string[];
 };
+type PendingAiRoles = { sessionId: string; child: ChildHandle; resolve: (codes: Codes) => void; reject: (e: ControlError) => void; cancel: () => void; roles: string[] };
 type PendingReissue = { sessionId: string; child: ChildHandle; resolve: (code: string) => void; reject: (e: ControlError) => void; cancel: () => void };
 
 const defaultSetTimer: SetTimer = (fn, ms) => {
@@ -67,6 +71,8 @@ export class Supervisor {
   private readonly locks = new Map<string, Promise<unknown>>();
   private readonly reissuing = new Set<string>();
   private readonly pendingReissues = new Map<string, PendingReissue>();
+  private readonly pendingAiRoles = new Map<string, PendingAiRoles>();
+  private readonly settingAiRoles = new Set<string>();
   private closed = false;
 
   constructor(private readonly o: {
@@ -149,7 +155,7 @@ export class Supervisor {
    * kept in this closure only: a child that dies, times out or never says ready discards them. With `requireCodes` (a brand-new
    * session, or a whole-session reissue) a ready without codes is a failed start; otherwise (restart/resume) it is normal.
    */
-  private awaitReady(child: ChildHandle, requireCodes: boolean, timer: { cancel?: () => void }, endedSeen: { v: boolean }): Promise<{ port: number; modelLabel: string; codes?: Codes }> {
+  private awaitReady(child: ChildHandle, requireCodes: boolean, timer: { cancel?: () => void }, endedSeen: { v: boolean }): Promise<ReadyInfo> {
     return new Promise((resolve, reject) => {
       let codes: Codes | undefined;
       let settled = false;
@@ -174,7 +180,7 @@ export class Supervisor {
           if (requireCodes && got === undefined) { fail(new ControlError("start_failed", START_FAILED)); return; }
           settled = true;
           codes = undefined;
-          resolve(got ? { port: m.port, modelLabel: m.modelLabel, codes: got } : { port: m.port, modelLabel: m.modelLabel });
+          resolve({ port: m.port, modelLabel: m.modelLabel, ...(got ? { codes: got } : {}), ...(m.aiRoles ? { aiRoles: m.aiRoles } : {}) });
         }
       });
     });
@@ -281,15 +287,16 @@ export class Supervisor {
   }
 
   /** Registers a started child as the session's live process and installs its handlers. */
-  private goLive(id: string, scenarioId: string, child: ChildHandle, exit: ExitState, token: string, ready: { port: number; modelLabel: string }, endedEarly = false): void {
+  private goLive(id: string, scenarioId: string, child: ChildHandle, exit: ExitState, token: string, ready: ReadyInfo, endedEarly = false): void {
     this.live.get(id)?.graceCancel?.();
-    this.live.set(id, { scenarioId, status: "running", port: ready.port, modelLabel: ready.modelLabel, child, token });
+    this.live.set(id, { scenarioId, status: "running", port: ready.port, modelLabel: ready.modelLabel, child, token, aiRoles: ready.aiRoles ?? [] });
     child.onMessage((raw) => {
       const parsed = ChildMessageSchema.safeParse(raw);
       if (!parsed.success) return;
       const m = parsed.data;
       if (m.type === "ended") this.onEnded(id, child, exit);
       else if (m.type === "reissued" || m.type === "reissue_failed") this.onReissueReply(child, m);
+      else if (m.type === "ai_roles_set" || m.type === "ai_roles_failed") this.onAiRolesReply(id, child, m);
     });
     child.onExit(() => this.onChildExit(id, child));
     if (exit.done) this.onChildExit(id, child);
@@ -312,6 +319,12 @@ export class Supervisor {
       this.pendingReissues.delete(rid);
       p.cancel();
       p.reject(new ControlError("unavailable", "the session stopped; restart it and reissue again"));
+    }
+    for (const [rid, p] of this.pendingAiRoles) {
+      if (p.child !== child) continue;
+      this.pendingAiRoles.delete(rid);
+      p.cancel();
+      p.reject(new ControlError("unavailable", "the session stopped; restart it and set the AI roles again"));
     }
     const l = this.live.get(id);
     if (!l || l.child !== child) return;
@@ -336,6 +349,51 @@ export class Supervisor {
     else p.reject(new ControlError("conflict", m.reason));
   }
 
+  private onAiRolesReply(id: string, child: ChildHandle, m: Extract<ChildMessage, { type: "ai_roles_set" | "ai_roles_failed" }>): void {
+    const p = this.pendingAiRoles.get(m.requestId);
+    if (!p || p.child !== child) return;
+    this.pendingAiRoles.delete(m.requestId);
+    p.cancel();
+    if (m.type === "ai_roles_failed") { p.reject(new ControlError("conflict", m.reason)); return; }
+    const l = this.live.get(id);
+    if (l && l.child === child) l.aiRoles = p.roles;
+    p.resolve(m.codes);
+  }
+
+  /** The AI roles of the session's latest ready or successful set; [] when unknown. */
+  aiRolesOf(id: string): string[] {
+    return [...(this.live.get(id)?.aiRoles ?? [])];
+  }
+
+  /** Switches the session's AI roles over IPC (no HTTP route, Ruling A1). Resolves with the new codes of the changed roles. */
+  setAiRoles(id: string, roles: string[]): Promise<Codes> {
+    if (!this.entryOf(id)) return Promise.reject(new ControlError("not_found", "that session does not exist"));
+    const requestId = randomBytes(8).toString("hex");
+    const msg = ParentMessageSchema.safeParse({ type: "set_ai_roles", requestId, roles });
+    if (!msg.success) return Promise.reject(new ControlError("bad_request", "that AI roles request is not valid"));
+    if (this.settingAiRoles.has(id)) return Promise.reject(new ControlError("conflict", "the AI roles are already being changed"));
+    this.settingAiRoles.add(id);
+    return this.withLock(id, async () => {
+      const l = this.live.get(id);
+      if (!l || l.status !== "running" || !l.child) throw new ControlError("conflict", "the session is not running");
+      const child = l.child;
+      return await new Promise<Codes>((resolve, reject) => {
+        const cancel = this.setTimer(() => {
+          this.pendingAiRoles.delete(requestId);
+          reject(new ControlError("timeout", "the AI roles may or may not have changed; reissue the changed roles"));
+        }, this.reissueTimeoutMs);
+        this.pendingAiRoles.set(requestId, { sessionId: id, child, resolve, reject, cancel, roles: [...roles] });
+        let sent = false;
+        try { sent = child.send(msg.data); } catch { sent = false; }
+        if (!sent) {
+          this.pendingAiRoles.delete(requestId);
+          cancel();
+          reject(new ControlError("unavailable", "the session could not be reached"));
+        }
+      });
+    }).finally(() => { this.settingAiRoles.delete(id); });
+  }
+
   private markStopped(id: string, scenarioId: string): void {
     const l = this.live.get(id);
     if (l) {
@@ -357,7 +415,7 @@ export class Supervisor {
    * Spawns a resumed child for an EXISTING session and waits for ready. On any failure the new child is stopped, its files are left
    * alone, the session is marked stopped and a plain ControlError is thrown. Codes are returned only if the child issued some.
    */
-  private async launch(id: string, scenarioId: string, requireCodes: boolean): Promise<{ port: number; modelLabel: string; codes?: Codes }> {
+  private async launch(id: string, scenarioId: string, requireCodes: boolean): Promise<ReadyInfo> {
     const timer: { cancel?: () => void } = {};
     let child: ChildHandle | undefined;
     let exit: ExitState | undefined;
@@ -504,6 +562,11 @@ export class Supervisor {
     for (const l of this.live.values()) { l.graceCancel?.(); l.graceCancel = undefined; }
     for (const [rid, p] of this.pendingReissues) {
       this.pendingReissues.delete(rid);
+      p.cancel();
+      p.reject(new ControlError("unavailable", "the service is shutting down"));
+    }
+    for (const [rid, p] of this.pendingAiRoles) {
+      this.pendingAiRoles.delete(rid);
       p.cancel();
       p.reject(new ControlError("unavailable", "the service is shutting down"));
     }

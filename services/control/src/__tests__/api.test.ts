@@ -85,6 +85,16 @@ describe("authentication", () => {
     expect(r.json.error.code).toBe("not_found");
   });
 
+  it("no control route sets AI roles: POST and PUT /sessions/:id/ai-roles with a valid X-Service-Token are 404 (routing, not 401)", async () => {
+    const { sup, calls } = stub();
+    const port = await boot(sup);
+    for (const m of ["POST", "PUT"]) {
+      const r = await call(port, m, `/sessions/${ID}/ai-roles`, { body: JSON.stringify({ roles: ["cfo"] }) });
+      expect(r.status, m).toBe(404);
+    }
+    expect(calls).toEqual([]);
+  });
+
   it("every response is JSON, uncacheable and uses the envelope", async () => {
     const port = await boot(stub().sup);
     for (const r of [await call(port, "GET", "/scenarios"), await call(port, "GET", "/nope"), await call(port, "GET", "/scenarios", { token: null })]) {
