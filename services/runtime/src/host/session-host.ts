@@ -9,7 +9,7 @@ import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import type { Seats } from "../engine/seats.js";
 import { ConsentError } from "../engine/consent.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
-import { actorLabel, cleanClosingMessage, cleanFacilitatorLabel } from "./display-name.js";
+import { actorLabel, cleanBotAlertMessage, cleanClosingMessage, cleanFacilitatorLabel } from "./display-name.js";
 import { ReviewUsageError } from "../review/errors.js";
 import { noticeNamesAiPlayers } from "./limits.js";
 
@@ -188,6 +188,20 @@ export class SessionHost {
     // Before the start the log must stay empty (engine.start refuses a log with events): no path may append an alert then.
     if (!this.started) return Promise.resolve();
     return this.engine.alert(message, "info").then(() => undefined, (err) => this.report("facilitator alert", err));
+  }
+
+  /**
+   * US-0060: a live AI player's alert for the facilitator (facilitator-only, level warning). Never throws and appends nothing before the
+   * start, after the end, or for a role that is no AI player. The message is flattened to one line (escape sequences and hidden,
+   * bidirectional and control characters stripped, whitespace collapsed) and cut to 200 code points; one empty after cleaning is dropped.
+   */
+  async botAlert(roleId: string, message: string): Promise<void> {
+    try {
+      if (!this.started || this.engine.state.status === "ended" || !this.isAiRole(roleId)) return;
+      const text = cleanBotAlertMessage(message);
+      if (text === undefined) return;
+      await this.engine.alert(`AI player for ${roleId}: ${text}`, "warning");
+    } catch (err) { this.report("bot alert", err); }
   }
 
   /** Whether the seat's consent stands: given by this participant, or not asked for (a session resumed from a log older than the gate). */
