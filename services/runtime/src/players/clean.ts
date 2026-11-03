@@ -4,7 +4,7 @@ import { cleanNpcReply, cutAtSeparator, type SpeakerName } from "../agents/npc-r
 export const MAX_LINE_CHARS = 2_000;
 
 /** C0/C1 controls (not tab or line breaks, which are folded into spaces later) and bidi controls: never sent to the server. */
-const CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f‎‏‪-‮⁦-⁩]/g;
+const CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 /** A leading echo of the private intent note: "[note to you only, not spoken]:", "Note:", and the note's own lead-in. */
 const NOTE_PREFIX = /^\s*(?:\[\s*note\b[^\]]*\]|note)\s*:\s*(?:what you want to get across in this turn\s*\(do not quote it\)\s*:\s*)?/i;
 const dropNote = (t: string): string => { let out = t; for (let i = 0; i < 3 && NOTE_PREFIX.test(out); i++) out = out.replace(NOTE_PREFIX, ""); return out; };
