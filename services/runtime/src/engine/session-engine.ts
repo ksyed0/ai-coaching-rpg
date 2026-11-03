@@ -1,4 +1,4 @@
-import { LOG_FORMAT, activeElapsedMs, initialState, reduce, reduceReplay, type Channel, type EventBody, type ExitReason, type FacilitatorCommand, type GmNoVerdictReason, type GmVia, type SessionEvent, type SessionState } from "@acr/events";
+import { LOG_FORMAT, activeElapsedMs, logFormatFor, initialState, reduce, reduceReplay, type Channel, type EventBody, type ExitReason, type FacilitatorCommand, type GmNoVerdictReason, type GmVia, type SessionEvent, type SessionState } from "@acr/events";
 import { dueInjects, earnedWhenOf, evaluateExit, nextSceneId, type Inject, type NpcRole, type Scenario, type Scene } from "@acr/script";
 import type { Clock } from "./clock.js";
 import { LogFailedError, type EventLog } from "./event-log.js";
@@ -45,6 +45,8 @@ export type ResumeInfo = {
    * log carries a `consents` field; absent for a log written before the gate, whose seats are then not checked on a rejoin.
    */
   startedConsents?: Record<string, { participantId: string; noticeVersion: string; at: number }>;
+  /** US-0060: session.started's aiRoles (validated, scenario order); present only when non-empty. The resumed lobby seats are seeded from it. */
+  startedAiRoles?: string[];
 };
 export type Repair =
   | { kind: "npc_init"; roleId: string }
@@ -65,6 +67,8 @@ export type SessionStartExtra = {
   consents?: Record<string, { noticeVersion: string; at: number }>;
   names?: Record<string, string>;
   logIdentity?: string;
+  /** US-0060: player roles an AI plays; written (log format 3) only when non-empty. Each must be a distinct player role of the scenario, else EngineError("bad_ai_roles"). */
+  aiRoles?: string[];
 };
 /** What markResumed reports for the operator. */
 export type ResumeNotes = { downSecs: number; clockBehindSecs: number; repairs: string[] };
@@ -73,7 +77,7 @@ export type RestoreOutcome = { kind: "empty" } | { kind: "ended"; events: number
 /** Own-property lookup: a client-supplied role id such as `__proto__` or `constructor` must never resolve to an inherited member. */
 const own = <T>(map: Record<string, T>, key: string): T | undefined => (Object.hasOwn(map, key) ? map[key] : undefined);
 
-export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released" | "log_failed" | "bad_identity" | "not_started" | "starting";
+export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released" | "log_failed" | "bad_identity" | "bad_ai_roles" | "not_started" | "starting";
 export class EngineError extends Error {
   constructor(readonly code: EngineErrorCode, message: string = code) { super(message); this.name = "EngineError"; }
 }
@@ -178,15 +182,21 @@ export class SessionEngine {
     if (this.opening === null) {
       // The same rule as PlayerCredentials: anything else would be written, ignored on restore and bypass the identity binding.
       if (extra?.logIdentity !== undefined && !/^[0-9a-f]{32}$/.test(extra.logIdentity)) throw new EngineError("bad_identity", "the log identity must be 32 lowercase hex characters");
+      const aiRoleIds = extra?.aiRoles;
+      if (aiRoleIds !== undefined && (!Array.isArray(aiRoleIds) || new Set(aiRoleIds).size !== aiRoleIds.length || aiRoleIds.some((id) => typeof id !== "string" || own(this.scenario.roles, id)?.type !== "player")))
+        throw new EngineError("bad_ai_roles", "aiRoles must name distinct player roles of the scenario");
       // Starting on a non-empty log would corrupt the seq order: a log with events is resumed (restore) or rotated aside, never started over.
       if (this.state.status !== "idle" || (await this.log.all()).length > 0) throw new EngineError("log_not_empty", "the session log already has events; resume it (SESSION_START=resume) or start fresh (SESSION_START=fresh)");
       const roles: Record<string, { kind: "player" | "npc"; participantId?: string }> = {};
       for (const [id, role] of Object.entries(this.scenario.roles)) {
         roles[id] = role.type === "npc" ? { kind: "npc" } : { kind: "player", participantId: assignments[id] };
       }
-      await this.emit({ type: "session.started", scenarioId: this.scenario.meta.id, version: this.scenario.meta.version, roles, logFormat: LOG_FORMAT, scenarioHash: scenarioHash(this.scenario),
+      // Scenario order, and only when non-empty: a session without AI roles stays format 2 so a rollback can still resume it.
+      const aiRoles = Object.keys(this.scenario.roles).filter((id) => aiRoleIds?.includes(id));
+      await this.emit({ type: "session.started", scenarioId: this.scenario.meta.id, version: this.scenario.meta.version, roles, logFormat: logFormatFor(aiRoles), scenarioHash: scenarioHash(this.scenario),
         // Only what was given: an absent field and an empty one must not both appear in the log.
-        ...(extra?.consents && Object.keys(extra.consents).length > 0 ? { consents: extra.consents } : {}), ...(extra?.names && Object.keys(extra.names).length > 0 ? { names: extra.names } : {}), ...(extra?.logIdentity ? { logIdentity: extra.logIdentity } : {}) });
+        ...(extra?.consents && Object.keys(extra.consents).length > 0 ? { consents: extra.consents } : {}), ...(extra?.names && Object.keys(extra.names).length > 0 ? { names: extra.names } : {}), ...(extra?.logIdentity ? { logIdentity: extra.logIdentity } : {}),
+        ...(aiRoles.length > 0 ? { aiRoles } : {}) });
       this.opening = this.openingSteps();
     }
     while (this.opening.length > 0) {
@@ -399,6 +409,7 @@ export class SessionEngine {
     let count = 0; let maxTs = Number.NEGATIVE_INFINITY; let format = 0; let lastGmSeq: number | null = null;
     let logIdentity: string | undefined; let identityInvalid = false;
     let startedConsents: ResumeInfo["startedConsents"];
+    let startedAiRoles: string[] = [];
     // US-0059: why the latest scene ended (null while a scene is current); a facilitator_end with no session.ended after it is repaired.
     let lastExit: ExitReason | null = null;
     // An inject's AI character updates follow its inject.fired directly; this tracks the ones still due if the log ends here.
@@ -425,6 +436,13 @@ export class SessionEngine {
             const who = own(e.roles ?? {}, id)?.participantId;
             if (typeof who === "string" && who.length > 0 && typeof c?.noticeVersion === "string" && typeof c.at === "number") startedConsents[id] = { participantId: who, noticeVersion: c.noticeVersion, at: c.at };
           }
+        }
+        // US-0060: aiRoles belong to format 3; anything but distinct player roles of the scenario cannot be trusted, and a label wrongly missing is worse than a refused resume.
+        const ai: unknown = e.aiRoles;
+        if (ai !== undefined) {
+          if (f < 3) throw new RestoreError("invalid_log", `aiRoles in a format ${f} log`);
+          if (!Array.isArray(ai) || new Set(ai).size !== ai.length || ai.some((id) => typeof id !== "string" || own(sc.roles, id)?.type !== "player")) throw new RestoreError("invalid_log", "aiRoles must name distinct player roles of the scenario");
+          startedAiRoles = ai as string[];
         }
         const logged = Object.entries(e.roles ?? {});
         const known = Object.values(sc.roles);
@@ -483,7 +501,7 @@ export class SessionEngine {
       const opening = sc.script.scenes.find((x) => x.id === cur.id)?.opening_inject;
       if (opening && !s.injectsFired.includes(opening)) repairs.push({ kind: "opening_inject", sceneId: cur.id });
     }
-    return { kind: "running", info: { events: count, lastTs: maxTs, format, partialTailBytes, sceneId: cur?.id ?? null, lastGmSeq, pendingLine, wasPaused: s.paused, repairs, ...(logIdentity ? { logIdentity } : {}), ...(startedConsents ? { startedConsents } : {}), ...(identityInvalid ? { identityInvalid: true as const } : {}) } };
+    return { kind: "running", info: { events: count, lastTs: maxTs, format, partialTailBytes, sceneId: cur?.id ?? null, lastGmSeq, pendingLine, wasPaused: s.paused, repairs, ...(logIdentity ? { logIdentity } : {}), ...(startedConsents ? { startedConsents } : {}), ...(startedAiRoles.length > 0 ? { startedAiRoles } : {}), ...(identityInvalid ? { identityInvalid: true as const } : {}) } };
   }
 
   /**

@@ -219,14 +219,21 @@ describe("session.resumed (US-0018)", () => {
 
 describe("event types", () => {
   it("lists every known type and rejects others", async () => {
-    const { EVENT_TYPES, isKnownEventType, LOG_FORMAT } = await import("../index.js");
+    const { EVENT_TYPES, isKnownEventType } = await import("../index.js");
     expect(EVENT_TYPES).toContain("session.resumed");
     expect(EVENT_TYPES).toHaveLength(13); // US-0034 added gm.fact_earned
     expect(isKnownEventType("utterance")).toBe(true);
     expect(isKnownEventType("toString")).toBe(false);
     expect(isKnownEventType("session.future")).toBe(false);
     expect(isKnownEventType(7)).toBe(false);
-    expect(LOG_FORMAT).toBe(2);
+  });
+
+  it("LOG_FORMAT is 3, logFormatFor([]) is 2 and logFormatFor([\"tech_lead\"]) is 3", async () => {
+    const { LOG_FORMAT, LOG_FORMAT_WITHOUT_AI_ROLES, logFormatFor } = await import("../index.js");
+    expect(LOG_FORMAT).toBe(3);
+    expect(LOG_FORMAT_WITHOUT_AI_ROLES).toBe(2);
+    expect(logFormatFor([])).toBe(2);
+    expect(logFormatFor(["tech_lead"])).toBe(3);
   });
 });
 
