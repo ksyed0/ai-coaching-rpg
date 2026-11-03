@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync, mkdirSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -86,6 +87,21 @@ describe("IntentLog", () => {
     expect(readdirSync(dir)).toEqual(["s2.cfo.jsonl"]);
     expect(() => log.remove("s1")).not.toThrow();
     expect(() => new IntentLog(path.join(root, "none")).remove("s1")).not.toThrow();
+  });
+  it.skipIf(process.platform === "win32")("a pre-existing 0755 directory and 0644 file end up 0700 and 0600", () => {
+    mkdirSync(dir, { recursive: true }); chmodSync(dir, 0o755);
+    const file = path.join(dir, "s1.tech_lead.jsonl");
+    writeFileSync(file, ""); chmodSync(file, 0o644);
+    new IntentLog(dir).append("s1", "tech_lead", entry());
+    expect(dirMode(dir)).toBe(0o700);
+    expect(readOnce(file).mode).toBe(0o600);
+  });
+  it.skipIf(process.platform === "win32")("a FIFO in the file's place does not block append or read", () => {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    execFileSync("mkfifo", [path.join(dir, "s1.tech_lead.jsonl")]);
+    const log = new IntentLog(dir);
+    log.append("s1", "tech_lead", entry());
+    expect(log.read("s1", "tech_lead")).toEqual([]);
   });
   it("append never throws when the directory cannot be made", () => {
     writeFileSync(path.join(root, "file"), "x");

@@ -7,6 +7,7 @@ export class SessionBudget {
   /** Set by the host once the facilitator has been told the budget is used up (once per session). */
   budgetAlerted = false;
 
+  /** A non-finite or non-positive limit counts as 0 (nothing can be taken). */
   constructor(private readonly limit: number, used = 0) {
     const cap = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 0;
     this.limit = cap;

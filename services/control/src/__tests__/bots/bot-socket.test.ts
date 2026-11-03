@@ -36,7 +36,9 @@ beforeEach(async () => {
       sockets.push(ws); live++; maxLive = Math.max(maxLive, live);
       ws.on("message", (d) => received.push(JSON.parse(d.toString())));
       ws.on("close", () => { live--; serverClosed++; });
-      if (ignoreClose) { (ws as unknown as { _receiver: { removeAllListeners(e: string): void } })._receiver.removeAllListeners("conclude"); }
+      if (ignoreClose) {
+        // Pinned to ws 8.22.0 internals (the receiver's `conclude` listener answers the close frame).
+        if (typeof (ws as unknown as { _receiver?: { on?: unknown } })._receiver?.on !== "function") throw new Error("ws internals changed"); (ws as unknown as { _receiver: { removeAllListeners(e: string): void } })._receiver.removeAllListeners("conclude"); }
     });
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
@@ -99,6 +101,8 @@ describe("BotSocket", () => {
     const concluded: number[] = [];
     const s = await open();
     await until("server socket", () => sockets.length === 1);
+    // Pinned to ws 8.22.0 internals: this guard fails loudly if a ws upgrade removes the receiver.
+    expect(typeof (sockets[0] as unknown as { _receiver?: { on?: unknown } })._receiver?.on).toBe("function");
     // The server's receiver emits `conclude` when the client's close frame arrives (before the server answers it).
     (sockets[0] as unknown as { _receiver: { on(e: string, f: (code: number) => void): void } })._receiver.on("conclude", (code) => concluded.push(code));
     await s.close();
@@ -107,13 +111,60 @@ describe("BotSocket", () => {
     expect(timers.every((t) => t.cancelled || t.ms === BOT_CLOSE_GRACE_MS)).toBe(true);
   });
 
-  it("reports the close code through onClose", async () => {
-    const codes: number[] = [];
-    await open({ onClose: (c) => codes.push(c) });
+  it("reports the close code through onClose, byUs false for a server-initiated close", async () => {
+    const closes: [number, boolean][] = [];
+    await open({ onClose: (c, i) => closes.push([c, i.byUs]) });
     await until("server socket", () => sockets.length === 1);
     sockets[0]!.close(4001, "no");
-    await until("onClose", () => codes.length === 1);
-    expect(codes).toEqual([4001]);
+    await until("onClose", () => closes.length === 1);
+    expect(closes).toEqual([[4001, false]]);
+  });
+
+  it("a close started by close() reports byUs true", async () => {
+    const closes: [number, boolean][] = [];
+    const s = await open({ onClose: (c, i) => closes.push([c, i.byUs]) });
+    await s.close();
+    expect(closes).toEqual([[1000, true]]);
+  });
+
+  it("no onClose follows a refused handshake, a 503 retry in flight, or a connection error", async () => {
+    const closes: number[] = [];
+    const onClose = (c: number) => closes.push(c);
+    server.removeAllListeners("upgrade");
+    server.on("upgrade", (_req, socket) => { socket.end("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); });
+    await expect(open({ onClose })).rejects.toThrow();
+    // 503 then accepted: attempt 1 gives no onClose while open() is pending
+    server.removeAllListeners("upgrade");
+    let n = 0;
+    server.on("upgrade", (req, socket, head) => {
+      if (n++ === 0) { socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); return; }
+      wss.handleUpgrade(req, socket, head, (ws) => { sockets.push(ws); });
+    });
+    const p = open({ onClose });
+    await until("retry timer", () => timers.length === 1);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(closes).toEqual([]);
+    timers[0]!.fn();
+    const s = await p;
+    await s.close();
+    expect(closes).toEqual([1000]); // only the opened socket's own close
+    closes.length = 0;
+    await new Promise<void>((r) => { server.closeAllConnections(); server.close(() => r()); });
+    await expect(open({ onClose })).rejects.toThrow();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(closes).toEqual([]);
+    server = http.createServer(); await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  });
+
+  it("drops a text frame longer than 1 MiB before parsing it", async () => {
+    const frames: BotFrame[] = [];
+    const s = await open({ onFrame: (f) => frames.push(f), ws: (url, o) => new WebSocket(url, { headers: o.headers, maxPayload: 4 * 1024 * 1024 }) });
+    await until("server socket", () => sockets.length === 1);
+    sockets[0]!.send(JSON.stringify({ type: "error", code: "x", message: "y".repeat(1024 * 1024 + 10) }));
+    sockets[0]!.send(JSON.stringify({ type: "error", code: "ok", message: "m" }));
+    await until("frame", () => frames.length >= 1);
+    expect(frames).toEqual([{ type: "error", code: "ok", message: "m" }]);
+    await s.close();
   });
 
   it("a peer that never answers the close is terminated after 2 s (fake timer) and close() then resolves", async () => {
@@ -187,10 +238,10 @@ describe("BotSocket", () => {
     server = http.createServer(); await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   });
 
-  it("an injected factory receives the url and the forward header", async () => {
-    const seen: { url: string; headers: Record<string, string> }[] = [];
-    const s = await open({ ws: (url, headers) => { seen.push({ url, headers }); return new WebSocket(url, { headers }); } });
-    expect(seen).toEqual([{ url: `ws://127.0.0.1:${port}`, headers: { "X-Forwarded-For": "scenecoach-bot" } }]);
+  it("an injected factory receives the url, the forward header and the 1 MiB payload limit", async () => {
+    const seen: { url: string; headers: Record<string, string>; maxPayload: number }[] = [];
+    const s = await open({ ws: (url, o) => { seen.push({ url, ...o }); return new WebSocket(url, o); } });
+    expect(seen).toEqual([{ url: `ws://127.0.0.1:${port}`, headers: { "X-Forwarded-For": "scenecoach-bot" }, maxPayload: 1024 * 1024 }]);
     await s.close();
   });
 });

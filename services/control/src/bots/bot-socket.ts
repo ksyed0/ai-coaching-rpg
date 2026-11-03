@@ -13,13 +13,17 @@ export const BOT_CLOSE_GRACE_MS = 2_000;
 export const BOT_HANDSHAKE_RETRY_MS = 1_000;
 const MAX_PAYLOAD_BYTES = 1024 * 1024;
 
-export type WsFactory = (url: string, headers: Record<string, string>) => WebSocket;
-const defaultWs: WsFactory = (url, headers) => new WebSocket(url, { headers, maxPayload: MAX_PAYLOAD_BYTES });
+/** The factory must pass `headers` and `maxPayload` on to the socket. */
+export type WsFactory = (url: string, opts: { headers: Record<string, string>; maxPayload: number }) => WebSocket;
+const defaultWs: WsFactory = (url, opts) => new WebSocket(url, opts);
+const dataLength = (d: WebSocket.RawData): number => (Array.isArray(d) ? d.reduce((n, b) => n + b.length, 0) : d.byteLength);
 const defaultSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return () => clearTimeout(t); };
 
 export type BotSocketOptions = {
   port: number; sessionId: string; roleId: string; participantId: string; code: string; reconnectToken?: string;
-  onFrame: (f: BotFrame) => void; onClose: (code: number) => void; ws?: WsFactory; setTimer?: SetTimer;
+  onFrame: (f: BotFrame) => void;
+  /** `info.byUs` is true when close() was called before the socket closed. Never called for a socket that did not open. */
+  onClose: (code: number, info: { byUs: boolean }) => void; ws?: WsFactory; setTimer?: SetTimer;
   /** Receives short, secret-free diagnostics (an error name only). */
   log?: (m: string) => void;
 };
@@ -30,6 +34,7 @@ class HandshakeRefused extends Error {
 
 export class BotSocket {
   private closing: Promise<void> | null = null;
+  private closedByUs = false;
 
   private constructor(private readonly ws: WebSocket, private readonly setTimer: SetTimer) {}
 
@@ -47,23 +52,24 @@ export class BotSocket {
 
   private static attempt(o: BotSocketOptions, setTimer: SetTimer): Promise<BotSocket> {
     return new Promise<BotSocket>((resolve, reject) => {
-      const ws = (o.ws ?? defaultWs)(`ws://127.0.0.1:${o.port}`, { "X-Forwarded-For": BOT_FORWARD_KEY });
+      const ws = (o.ws ?? defaultWs)(`ws://127.0.0.1:${o.port}`, { headers: { "X-Forwarded-For": BOT_FORWARD_KEY }, maxPayload: MAX_PAYLOAD_BYTES });
       const sock = new BotSocket(ws, setTimer);
       let settled = false;
+      let opened = false;
       const fail = (err: Error) => { if (settled) return; settled = true; try { ws.terminate(); } catch { /* already gone */ } reject(err); };
       ws.on("unexpected-response", (_req, res) => { res.resume(); fail(new HandshakeRefused(res.statusCode ?? 0)); });
       ws.on("error", (err) => { if (!settled) fail(new Error(`bot socket could not connect (${(err as NodeJS.ErrnoException).code ?? err.name})`)); });
       ws.on("message", (data, isBinary) => {
-        if (isBinary) return;
+        if (isBinary || dataLength(data) > MAX_PAYLOAD_BYTES) return;
         try { o.onFrame(parseBotFrame(data.toString())); } catch (err) { o.log?.(`bot frame handler failed: ${err instanceof Error ? err.name : "error"}`); }
       });
       ws.on("close", (code) => {
-        if (!settled) { fail(new Error("bot socket closed before it opened")); return; }
-        try { o.onClose(code); } catch (err) { o.log?.(`bot close handler failed: ${err instanceof Error ? err.name : "error"}`); }
+        if (!opened) { fail(new Error("bot socket closed before it opened")); return; }
+        try { o.onClose(code, { byUs: sock.closedByUs }); } catch (err) { o.log?.(`bot close handler failed: ${err instanceof Error ? err.name : "error"}`); }
       });
       ws.on("open", () => {
         if (settled) return;
-        settled = true;
+        settled = true; opened = true;
         const join: Record<string, unknown> = { type: "join", sessionId: o.sessionId, roleId: o.roleId, participantId: o.participantId, joinCode: o.code };
         if (o.reconnectToken !== undefined) join.reconnectToken = o.reconnectToken;
         ws.send(JSON.stringify(join));
@@ -82,6 +88,7 @@ export class BotSocket {
   close(): Promise<void> {
     if (this.ws.readyState === WebSocket.CLOSED) return Promise.resolve();
     if (this.closing) return this.closing;
+    this.closedByUs = true;
     this.closing = new Promise<void>((resolve) => {
       const cancel = this.setTimer(() => { if (this.ws.readyState !== WebSocket.CLOSED) this.ws.terminate(); }, BOT_CLOSE_GRACE_MS);
       this.ws.once("close", () => { cancel(); resolve(); });

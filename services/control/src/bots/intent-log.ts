@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, unlinkSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, constants, fchmodSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, unlinkSync, writeSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import { isValidSessionId } from "@acr/events";
@@ -44,7 +44,10 @@ export class IntentLog {
       const file = path.join(this.dir, intentFileName(sessionId, roleId));
       const line = JSON.stringify(IntentEntrySchema.parse(e)) + "\n";
       mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-      fd = openSync(file, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0), 0o600);
+      try { chmodSync(this.dir, 0o700); } catch { /* best effort */ }
+      // O_NONBLOCK: a FIFO in the file's place must not block the open (it is then refused as not a regular file).
+      fd = openSync(file, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0), 0o600);
+      try { fchmodSync(fd, 0o600); } catch { /* best effort */ }
       const st = fstatSync(fd);
       if (!st.isFile() || st.size + Buffer.byteLength(line) > MAX_INTENT_FILE_BYTES) return;
       writeSync(fd, line);
@@ -60,7 +63,7 @@ export class IntentLog {
     let fd: number | undefined;
     try {
       const file = path.join(this.dir, intentFileName(sessionId, roleId));
-      fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
       const st = fstatSync(fd);
       if (!st.isFile() || st.size > 4 * MAX_INTENT_FILE_BYTES) return [];
       const out: IntentEntry[] = [];
