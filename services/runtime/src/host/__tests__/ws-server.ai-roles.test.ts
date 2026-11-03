@@ -297,12 +297,16 @@ describe("the roster and player frames with AI seats (US-0060)", () => {
     await a.c.next((m) => m.type === "event" && m.event.type === "utterance" && m.event.text === "bot line two");
     await d.c.next((m) => m.type === "event" && m.event.type === "utterance" && m.event.text === "bot line two");
     // Each marker first exists where it is allowed to: the facilitator socket or the bot's own join reply.
-    const credential = bot.j.reconnectToken as string;
+    const credential = bot.j.credential as string;
     expect(typeof credential).toBe("string");
     expect(credential.length).toBeGreaterThan(8);
+    const reconnectToken = bot.j.reconnectToken as string;
+    expect(typeof reconnectToken).toBe("string");
+    expect(reconnectToken.length).toBeGreaterThan(8);
     const fText = JSON.stringify(f.inbox);
     expect(fText).toContain("BOT-PID-7");
     expect(JSON.stringify(bot.c.inbox)).toContain(credential);
+    expect(JSON.stringify(bot.c.inbox)).toContain(reconnectToken);
     expect(fStarted.names).toEqual(expect.objectContaining({ tech_lead: "AI player" }));
     expect(fStarted.roles.tech_lead.participantId).toBe("BOT-PID-7");
     expect(Object.keys(fStarted.consents)).not.toContain("tech_lead"); // by design the bot has no consent entry, for anyone
@@ -311,6 +315,7 @@ describe("the roster and player frames with AI seats (US-0060)", () => {
       const text = JSON.stringify(p.c.inbox);
       expect(text).not.toContain("BOT-PID-7");
       expect(text).not.toContain(credential);
+      expect(text).not.toContain(reconnectToken);
       expect(text).not.toContain(plain.tech_lead!);
       expect(text).not.toContain('"names"');
       expect(text).not.toContain('"tech_lead":{"noticeVersion"');
@@ -318,5 +323,15 @@ describe("the roster and player frames with AI seats (US-0060)", () => {
       expect(ps).not.toHaveProperty("names");
       expect(Object.keys(ps.consents ?? {})).not.toContain("tech_lead");
     }
+  });
+  it("a tampered consent entry for the AI role does not reach session.started.consents", async () => {
+    const { port, seats, plain } = await setup();
+    await humans(port, seats, plain);
+    await seat(port, "tech_lead", plain.tech_lead!, "bot1");
+    seats.consent.restoreEntry("tech_lead", { participantId: "bot1", noticeVersion: "v1", at: 1 });
+    const f = await facilitator(port);
+    f.send({ type: "start" });
+    const started = (await f.next((m) => m.type === "event" && m.event.type === "session.started")).event;
+    expect(Object.keys(started.consents).sort()).toEqual(["account_manager", "delivery_lead"]);
   });
 });

@@ -1586,7 +1586,8 @@ Related AC: AC-0320
 Type: Regression
 Preconditions: A checkout of the branch.
 Steps:
-  1. Run `pnpm --filter @acr/runtime exec vitest run src/host/__tests__/ws-server.ai-roles.test.ts src/host/__tests__/roster.test.ts src/host/__tests__/ws-server.roster.test.ts src/host/__tests__/roster.prompt-leak.test.ts src/host/__tests__/session-host.test.ts`.
+  1. Run `pnpm --filter @acr/events exec vitest run src/__tests__/ids.test.ts` (the reserved-name rule, "Aiden Player" and "AI-player" accepted).
+  2. Run `pnpm --filter @acr/runtime exec vitest run src/host/__tests__/ws-server.ai-roles.test.ts src/host/__tests__/roster.test.ts src/host/__tests__/ws-server.roster.test.ts src/host/__tests__/roster.prompt-leak.test.ts src/host/__tests__/session-host.test.ts`.
 Expected Result: the start gate needs a holder and consent for each human role and a connected bot, without consent, for each AI role, and refuses with `seats_not_ready` naming humans first and then AI roles without a bot; a session with AI roles starts with `aiRoles` in the log; a join to an AI seat skips the consent and rebind checks, gets no `consent` in `joined`, has its credential name fixed to "AI player", and `consent` and `withdraw_consent` from it are `forbidden` while `leave` works; a join whose cleaned name starts with "AI player" (case, width, spacing and hidden characters folded) is refused as reserved before authentication, a bot's included, while "Aiden Player" and "AI-player" are accepted; the roster marks AI seats `ai: true` for the facilitator and peers (absent otherwise, `consented` false, ready as soon as joined) and never carries consent or connection to peers.
 Actual Result: As expected (the runtime test files named in the steps), 2026-11-03.
 Status: [x] Pass

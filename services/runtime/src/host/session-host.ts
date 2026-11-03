@@ -346,7 +346,9 @@ export class SessionHost {
     const missing = [...roles.filter((r) => !this.isAiRole(r) && !ready(r)), ...roles.filter((r) => this.isAiRole(r) && !ready(r))];
     if (missing.length > 0) throw new HostError("seats_not_ready", missing);
     const aiRoles = this.aiRoleIds();
-    return { consents: seats.consent.snapshot(), names: seats.credentials.names(), logIdentity: seats.credentials.logIdentity, ...(aiRoles.length > 0 ? { aiRoles } : {}) };
+    // Defence in depth: an AI role has no consent, so a stray entry for one is never recorded.
+    const consents = Object.fromEntries(Object.entries(seats.consent.snapshot()).filter(([r]) => !aiRoles.includes(r)));
+    return { consents, names: seats.credentials.names(), logIdentity: seats.credentials.logIdentity, ...(aiRoles.length > 0 ? { aiRoles } : {}) };
   }
 
   /** Serialises everything that mutates the session so NPC turns never interleave. */
