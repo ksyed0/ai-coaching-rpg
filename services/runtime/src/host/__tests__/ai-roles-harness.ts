@@ -19,7 +19,7 @@ import type { AiRolesDeps } from "../set-ai-roles.js";
 // Shared by set-ai-roles.test.ts and set-ai-roles.socket.test.ts (US-0060, Task 7): a real host, real seats, a real server on port 0.
 const friday = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../scenarios/friday-escalation");
 export const BIND = { sessionId: "local", scenarioSha256: "d".repeat(64) };
-export const NOTICE = { version: "v1", text: "What we record and why." };
+export const NOTICE = { version: "v2", text: "What we record and why." };
 export const PLAYERS = ["account_manager", "delivery_lead", "tech_lead"];
 
 export type Client = { ws: WebSocket; inbox: any[]; closed: Promise<{ code: number; reason: string }>; send(m: unknown): void; next(pred: (m: any) => boolean): Promise<any> };
@@ -40,7 +40,7 @@ export async function open(port: number): Promise<Client> {
 }
 
 /** `persistFails` / `codesFail` make the fakes throw while true. `files` records what the fake disk holds: codes bytes and the AI-role bytes seats.persist last wrote. */
-export async function setup(o: { aiRoles?: string[] } = {}) {
+export async function setup(o: { aiRoles?: string[]; noticeVersion?: string } = {}) {
   const scenario = await loadScenario(friday);
   const clock = new FakeClock(7_000);
   const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock });
@@ -49,7 +49,7 @@ export async function setup(o: { aiRoles?: string[] } = {}) {
   const state = { persistFails: false, codesFail: false, persists: 0, order: [] as string[] };
   const files = { codes: "", aiRoles: JSON.stringify(aiRoles.toRecord(BIND)) };
   const seats: Seats = {
-    credentials: PlayerCredentials.create(BIND), consent: new ConsentStore(NOTICE), aiRoles,
+    credentials: PlayerCredentials.create(BIND), consent: new ConsentStore({ ...NOTICE, version: o.noticeVersion ?? NOTICE.version }), aiRoles,
     persist: () => { state.persists++; if (state.persistFails) throw new Error("disk full"); files.aiRoles = JSON.stringify(seats.aiRoles!.toRecord(BIND)); },
   };
   const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(["Hi!"]), gmProvider: new MockModelProvider(), clock, seats });
@@ -77,7 +77,7 @@ export async function seat(port: number, roleId: string, code: string, participa
   return Object.assign(c, { r });
 }
 export async function consent(c: Client, seats: Seats, roleId: string, participantId: string) {
-  c.send({ type: "consent", noticeVersion: "v1" });
+  c.send({ type: "consent", noticeVersion: seats.consent.notice.version });
   await vi.waitFor(() => expect(seats.consent.has(roleId, participantId)).toBe(true), { timeout: 30_000, interval: 5 });
 }
 export async function facilitator(port: number): Promise<Client> {

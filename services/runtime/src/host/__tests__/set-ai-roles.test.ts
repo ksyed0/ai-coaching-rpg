@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AI_ROLES_REFUSED, AiRolesRefusedError, setAiRoles } from "../set-ai-roles.js";
 import { CLOSE_AI_FILLED } from "../ws-server.js";
-import { PLAYERS, cleanup, consent, pat, seat, setup, stateOf, type Env } from "./ai-roles-harness.js";
+import { MAX_AI_ROLES, noticeNamesAiPlayers } from "../limits.js";
+import { JoinCodes } from "../../engine/join-codes.js";
+import { PlayerCredentials } from "../../engine/credentials.js";
+import { ConsentStore } from "../../engine/consent.js";
+import { AiRoleSet } from "../../engine/ai-roles.js";
+import type { Seats } from "../../engine/seats.js";
+import { BIND, PLAYERS, cleanup, consent, pat, seat, setup, stateOf, type Env } from "./ai-roles-harness.js";
 // US-0060 Task 7: the switch of player roles to AI players, step by step. Real-socket tests: a generous explicit limit.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 afterEach(cleanup);
@@ -16,7 +22,8 @@ describe("setAiRoles (US-0060)", () => {
   it("the fixed reasons are the contract", () => {
     expect(AI_ROLES_REFUSED).toEqual({
       started: "AI roles can only be changed before the start", invalid: "not a player role of this session",
-      noHuman: "at least one player role must stay human", failed: "the AI roles could not be changed",
+      noHuman: "at least one player role must stay human", tooMany: "at most 8 player roles can be AI players",
+      notice: "the consent notice in use does not mention AI players", failed: "the AI roles could not be changed",
     });
     expect(CLOSE_AI_FILLED).toBe(4004);
   });
@@ -191,5 +198,85 @@ describe("setAiRoles (US-0060)", () => {
     const started = events(e).find((x) => x.type === "session.started") as { consents?: Record<string, unknown>; aiRoles?: string[] };
     expect(Object.keys(started.consents ?? {}).sort()).toEqual(["delivery_lead", "tech_lead"]);
     expect(started.aiRoles).toEqual(["account_manager"]);
+  });
+});
+
+describe("setAiRoles under the consent notice (US-0060)", () => {
+  it("set_ai_roles [tech_lead] under CONSENT_NOTICE_VERSION=v1 is refused \"the consent notice in use does not mention AI players\" and nothing changes", async () => {
+    const e = await setup({ noticeVersion: "v1" });
+    const p = await pat(e);
+    const kick = vi.fn(); const roster = vi.fn();
+    const before = stateOf(e);
+    const reason = await refusal(setAiRoles({ ...e.deps, server: { kickRole: kick, broadcastRoster: roster } }, ["tech_lead"]));
+    expect(reason).toBe("the consent notice in use does not mention AI players");
+    expect(reason).toBe(AI_ROLES_REFUSED.notice);
+    expect(stateOf(e)).toBe(before); // codes file, seat files, credentials, consent, AI set, log
+    expect(kick).not.toHaveBeenCalled();
+    expect(roster).not.toHaveBeenCalled();
+    expect(p.ws.readyState).toBe(p.ws.OPEN);
+  });
+
+  it("the notice refusal comes first: an invalid role under v1 is still the notice refusal", async () => {
+    const e = await setup({ noticeVersion: "v1" });
+    expect(await refusal(setAiRoles(e.deps, ["nobody"]))).toBe(AI_ROLES_REFUSED.notice);
+  });
+
+  it("set_ai_roles [] under v1 is allowed, and switches a role back to human", async () => {
+    const e = await setup({ noticeVersion: "v1" });
+    expect(await setAiRoles(e.deps, [])).toEqual([]);
+    const e2 = await setup({ noticeVersion: "v1", aiRoles: ["tech_lead"] });
+    const out = await setAiRoles(e2.deps, []);
+    expect(out.map((x) => x.roleId)).toEqual(["tech_lead"]);
+    expect(e2.seats.aiRoles!.list()).toEqual([]);
+  });
+
+  it("noticeNamesAiPlayers is false for \"v1\", \"x2\", \"v\" and true for \"v2\", \"v10\"", () => {
+    for (const v of ["v1", "x2", "v", "", "v0", "v2a", "V2"]) expect(noticeNamesAiPlayers(v)).toBe(false);
+    for (const v of ["v2", "v10"]) expect(noticeNamesAiPlayers(v)).toBe(true);
+  });
+});
+
+describe("setAiRoles caps (US-0060)", () => {
+  /** A fake host with twelve player roles; the seats are real objects, the disk and the sockets fakes. */
+  function twelve() {
+    const players = Array.from({ length: 12 }, (_, i) => `p${i + 1}`);
+    const aiRoles = AiRoleSet.empty();
+    aiRoles.replace([], players);
+    const seats: Seats = { credentials: PlayerCredentials.create(BIND), consent: new ConsentStore({ version: "v2", text: "n" }), aiRoles, persist: () => {} };
+    const host = {
+      hasStarted: false, isStarting: false, engine: { state: { status: "idle" } },
+      hasPlayerRole: (r: string) => players.includes(r), playerRoleIds: () => players,
+    };
+    const issued = JoinCodes.issue(players, BIND);
+    let current = issued.codes;
+    const deps = {
+      host, seats, sessionId: "local", server: { kickRole: () => {}, broadcastRoster: () => {} },
+      codes: () => current, setCodes: (c: JoinCodes) => { current = c; }, writeCodes: () => {},
+    } as unknown as Parameters<typeof setAiRoles>[0];
+    return { players, deps, seats };
+  }
+
+  it("nine AI roles of a twelve-player scenario are refused \"at most 8 player roles can be AI players\" and nothing changed", async () => {
+    const { players, deps, seats } = twelve();
+    expect(MAX_AI_ROLES).toBe(8);
+    const writeCodes = vi.fn(); const kick = vi.fn(); const roster = vi.fn();
+    const spied = { ...deps, writeCodes, server: { kickRole: kick, broadcastRoster: roster } };
+    expect(await refusal(setAiRoles(spied, players.slice(0, 9)))).toBe("at most 8 player roles can be AI players");
+    expect(writeCodes).not.toHaveBeenCalled();
+    expect(kick).not.toHaveBeenCalled();
+    expect(roster).not.toHaveBeenCalled();
+    expect(seats.aiRoles!.list()).toEqual([]);
+  });
+
+  it("eight are accepted", async () => {
+    const { players, deps, seats } = twelve();
+    const out = await setAiRoles(deps, players.slice(0, 8));
+    expect(out).toHaveLength(8);
+    expect(seats.aiRoles!.list()).toEqual(players.slice(0, 8));
+  });
+
+  it("all twelve AI is \"at least one player role must stay human\" (that check comes first)", async () => {
+    const { players, deps } = twelve();
+    expect(await refusal(setAiRoles(deps, players))).toBe("at least one player role must stay human");
   });
 });

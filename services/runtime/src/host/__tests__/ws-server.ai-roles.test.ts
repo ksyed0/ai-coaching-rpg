@@ -25,7 +25,7 @@ class CountingThrottle extends AuthThrottle {
 
 const friday = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../scenarios/friday-escalation");
 const BIND = { sessionId: "local", scenarioSha256: "d".repeat(64) };
-const NOTICE = { version: "v1", text: "What we record and why." };
+const NOTICE = { version: "v2", text: "What we record and why." };
 const PLAYERS = ["account_manager", "delivery_lead", "tech_lead"];
 let server: Awaited<ReturnType<typeof startServer>> | null = null;
 let sockets: WebSocket[] = [];
@@ -49,12 +49,12 @@ async function open(port: number): Promise<Client> {
   return { drop: () => ws.terminate(), inbox, closed, next, send: (m) => ws.send(JSON.stringify(m)) };
 }
 
-async function setup(o: { aiRoles?: string[]; authThrottle?: AuthThrottle } = {}) {
+async function setup(o: { aiRoles?: string[]; authThrottle?: AuthThrottle; noticeVersion?: string } = {}) {
   const scenario = await loadScenario(friday);
   const clock = new FakeClock(7_000);
   const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock });
   const aiRoles = AiRoleSet.fromRecord({ v: 1, ...BIND, roles: o.aiRoles ?? ["tech_lead"] }, { ...BIND, roleIds: PLAYERS });
-  const seats: Seats = { credentials: PlayerCredentials.create(BIND), consent: new ConsentStore(NOTICE), aiRoles, persist: vi.fn() };
+  const seats: Seats = { credentials: PlayerCredentials.create(BIND), consent: new ConsentStore({ ...NOTICE, version: o.noticeVersion ?? NOTICE.version }), aiRoles, persist: vi.fn() };
   const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(["Hi!"]), gmProvider: new MockModelProvider(), clock, seats });
   const { codes, plain } = JoinCodes.issue(PLAYERS, BIND);
   server = await startServer({ port: 0, hosts: new Map([["local", host]]), joinCodes: new Map([["local", codes]]), ...(o.authThrottle ? { authThrottle: o.authThrottle } : {}) });
@@ -74,7 +74,7 @@ async function facilitator(port: number): Promise<Client> {
   return f;
 }
 async function consent(c: Client, seats: Seats, roleId: string, participantId: string) {
-  c.send({ type: "consent", noticeVersion: "v1" });
+  c.send({ type: "consent", noticeVersion: "v2" });
   await vi.waitFor(() => expect(seats.consent.has(roleId, participantId)).toBe(true), { timeout: 30_000, interval: 5 });
 }
 /** Both humans joined and consented. */
@@ -135,7 +135,7 @@ describe("the start gate with AI seats (US-0060)", () => {
     f0.send({ type: "start" });
     expect(await f0.next((m) => m.type === "error")).toMatchObject({ message: "seats_not_ready: account_manager,delivery_lead,tech_lead" });
     const { a, d } = await humans(port, seats, plain);
-    expect(a.j.consent).toEqual({ noticeVersion: "v1", notice: NOTICE.text, given: false });
+    expect(a.j.consent).toEqual({ noticeVersion: "v2", notice: NOTICE.text, given: false });
     expect(d.j.consent.given).toBe(false);
     const t = await seat(port, "tech_lead", plain.tech_lead!, "tess", "Tess");
     expect(t.j.consent).toMatchObject({ given: false });
@@ -147,6 +147,23 @@ describe("the start gate with AI seats (US-0060)", () => {
     expect(started).not.toHaveProperty("aiRoles");
     expect(host.isAiRole("tech_lead")).toBe(false);
     expect(host.aiRoleIds()).toEqual([]);
+  });
+});
+
+describe("the start gate and the consent notice (US-0060)", () => {
+  it("with an AI role under a notice that does not name AI players, start is refused ai_notice before any seat check and nothing starts", async () => {
+    const { port, engine } = await setup({ noticeVersion: "v1" });
+    const f = await facilitator(port); // nobody seated: seats_not_ready would be the answer if the seats came first
+    f.send({ type: "start" });
+    expect(await f.next((m) => m.type === "error")).toEqual({ type: "error", code: "ai_notice", message: "ai_notice" });
+    expect(engine.state.status).toBe("idle");
+  });
+
+  it("without AI roles a v1 notice does not block the start gate", async () => {
+    const { port } = await setup({ noticeVersion: "v1", aiRoles: [] });
+    const f = await facilitator(port);
+    f.send({ type: "start" });
+    expect(await f.next((m) => m.type === "error")).toMatchObject({ code: "seats_not_ready" });
   });
 });
 
@@ -181,7 +198,7 @@ describe("AI seats over the socket (US-0060)", () => {
     const { port, seats, plain, host } = await setup();
     const { c, j } = await seat(port, "tech_lead", plain.tech_lead!, "bot1");
     expect(j).not.toHaveProperty("consent");
-    c.send({ type: "consent", noticeVersion: "v1" });
+    c.send({ type: "consent", noticeVersion: "v2" });
     c.send({ type: "withdraw_consent" });
     await c.next(() => c.inbox.filter((m) => m.type === "error").length === 2);
     const errors = c.inbox.filter((m) => m.type === "error");
@@ -328,7 +345,7 @@ describe("the roster and player frames with AI seats (US-0060)", () => {
     const { port, seats, plain } = await setup();
     await humans(port, seats, plain);
     await seat(port, "tech_lead", plain.tech_lead!, "bot1");
-    seats.consent.restoreEntry("tech_lead", { participantId: "bot1", noticeVersion: "v1", at: 1 });
+    seats.consent.restoreEntry("tech_lead", { participantId: "bot1", noticeVersion: "v2", at: 1 });
     const f = await facilitator(port);
     f.send({ type: "start" });
     const started = (await f.next((m) => m.type === "event" && m.event.type === "session.started")).event;

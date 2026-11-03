@@ -22,7 +22,7 @@ function fakeParent() {
   const sent: ChildMessage[] = [];
   let handler: ((m: ParentMessage) => void) | undefined;
   const parent: ParentChannel = { send(m) { sent.push(m); return true; }, onMessage(fn) { handler = fn; }, onDisconnect() {} };
-  const ask = async (m: ParentMessage) => {
+  const ask = async (m: Exclude<ParentMessage, { type: "bot_alert" }>) => {
     handler!(m);
     const reply = () => sent.find((x) => "requestId" in x && x.requestId === m.requestId);
     await vi.waitFor(() => { if (!reply()) throw new Error("no reply yet"); }, { timeout: 30_000, interval: 10 });
@@ -89,24 +89,22 @@ describe("consent notice v2 (US-0060)", () => {
     expect(createHash("sha256").update(bytes).digest("hex")).toBe("7dde9e1e98d74b1f7b5943f96e6b808aad074d154e50b8224ee66d6f026b2b09");
   });
 
-  it('a started session whose players consented under v1 restarts on v2: both humans rejoin with their credentials, a different participant for account_manager is refused consent_required, a bot rejoins tech_lead with a reissued code, and the log still starts with logFormat 3 and aiRoles ["tech_lead"]', async () => {
+  it("a started session whose players consented under v1 restarts on v2: all three humans rejoin with their credentials and a different participant for account_manager is refused consent_required", async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-cv2-"));
     const a = fakeParent();
     const first = await boot(a.parent, dataDir(), "v1");
     const humanCodes = codesOf(a.sent);
-    const set = await a.ask({ type: "set_ai_roles", requestId: "s1", roles: ["tech_lead"] });
-    expect(set.type).toBe("ai_roles_set");
-    const botCode = (set as Extract<ChildMessage, { type: "ai_roles_set" }>).codes[0]!.code;
     const am = await join(first.port, "account_manager", "amy", { joinCode: humanCodes.account_manager! });
     const dl = await join(first.port, "delivery_lead", "dan", { joinCode: humanCodes.delivery_lead! });
-    await join(first.port, "tech_lead", "bot1", { joinCode: botCode });
+    const tl = await join(first.port, "tech_lead", "tess", { joinCode: humanCodes.tech_lead! });
     expect(am.reply.consent.noticeVersion).toBe("v1");
     await consent(am.c, first, "account_manager", "amy", "v1");
     await consent(dl.c, first, "delivery_lead", "dan", "v1");
+    await consent(tl.c, first, "tech_lead", "tess", "v1");
     const f = await facilitator(first.port);
     f.send({ type: "start" });
     await f.next((m) => m.type === "event" && m.event?.type === "scene.entered");
-    const credentials = { account_manager: am.reply.credential as string, delivery_lead: dl.reply.credential as string };
+    const credentials = { account_manager: am.reply.credential as string, delivery_lead: dl.reply.credential as string, tech_lead: tl.reply.credential as string };
     expect(credentials.account_manager).toBeTruthy();
     await first.stop(); runtimes.pop();
 
@@ -115,11 +113,36 @@ describe("consent notice v2 (US-0060)", () => {
     expect(second.host.seats!.consent.notice.version).toBe("v2");
     const amy = await join(second.port, "account_manager", "amy", { credential: credentials.account_manager });
     const dan = await join(second.port, "delivery_lead", "dan", { credential: credentials.delivery_lead });
+    const tess = await join(second.port, "tech_lead", "tess", { credential: credentials.tech_lead });
     expect(amy.reply.type).toBe("joined");
     expect(dan.reply.type).toBe("joined");
+    expect(tess.reply.type).toBe("joined");
     expect(amy.reply.consent).toMatchObject({ noticeVersion: "v2", given: true }); // the log's consent stands under the new notice
     const other = await join(second.port, "account_manager", "mallory", { credential: credentials.account_manager });
     expect(other.reply).toMatchObject({ type: "error", code: "consent_required" });
+  });
+
+  it('a started session with an AI tech_lead restarts on v2: a bot rejoins tech_lead with a reissued code, and the log still starts with logFormat 3 and aiRoles ["tech_lead"]', async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-cv2-"));
+    const a = fakeParent();
+    const first = await boot(a.parent, dataDir()); // v2
+    const humanCodes = codesOf(a.sent);
+    const set = await a.ask({ type: "set_ai_roles", requestId: "s1", roles: ["tech_lead"] });
+    expect(set.type).toBe("ai_roles_set");
+    const botCode = (set as Extract<ChildMessage, { type: "ai_roles_set" }>).codes[0]!.code;
+    const am = await join(first.port, "account_manager", "amy", { joinCode: humanCodes.account_manager! });
+    const dl = await join(first.port, "delivery_lead", "dan", { joinCode: humanCodes.delivery_lead! });
+    await join(first.port, "tech_lead", "bot1", { joinCode: botCode });
+    await consent(am.c, first, "account_manager", "amy", "v2");
+    await consent(dl.c, first, "delivery_lead", "dan", "v2");
+    const f = await facilitator(first.port);
+    f.send({ type: "start" });
+    await f.next((m) => m.type === "event" && m.event?.type === "scene.entered");
+    await first.stop(); runtimes.pop();
+
+    const b = fakeParent();
+    const second = await boot(b.parent, dataDir());
+    expect(second.host.seats!.consent.notice.version).toBe("v2");
     const re = await b.ask({ type: "reissue", requestId: "r1", roleId: "tech_lead" });
     expect(re.type).toBe("reissued");
     const bot = await join(second.port, "tech_lead", "bot2", { joinCode: (re as Extract<ChildMessage, { type: "reissued" }>).code });
@@ -134,13 +157,12 @@ describe("consent notice v2 (US-0060)", () => {
     const a = fakeParent();
     const first = await boot(a.parent, dataDir(), "v1");
     const humanCodes = codesOf(a.sent);
-    const set = await a.ask({ type: "set_ai_roles", requestId: "s1", roles: ["tech_lead"] });
-    const botCode = (set as Extract<ChildMessage, { type: "ai_roles_set" }>).codes[0]!.code;
     const am = await join(first.port, "account_manager", "amy", { joinCode: humanCodes.account_manager! });
     const dl = await join(first.port, "delivery_lead", "dan", { joinCode: humanCodes.delivery_lead! });
-    await join(first.port, "tech_lead", "bot1", { joinCode: botCode });
+    const tl = await join(first.port, "tech_lead", "tess", { joinCode: humanCodes.tech_lead! });
     await consent(am.c, first, "account_manager", "amy", "v1");
     await consent(dl.c, first, "delivery_lead", "dan", "v1");
+    await consent(tl.c, first, "tech_lead", "tess", "v1");
     const f = await facilitator(first.port);
     f.send({ type: "start" });
     await f.next((m) => m.type === "event" && m.event?.type === "scene.entered");
@@ -162,13 +184,11 @@ describe("consent notice v2 (US-0060)", () => {
     expect(other.reply).toMatchObject({ type: "error", code: "consent_required" });
   });
 
-  it('a lobby whose players consented under v1 restarts on v2: seats and the AI role are kept, the v1 consents are dropped, and start is refused "seats_not_ready: account_manager,delivery_lead"', async () => {
+  it('a lobby whose players consented under v1 restarts on v2: seats are kept, an AI role can then be set under v2, the v1 consents are dropped, and start is refused "seats_not_ready: account_manager,delivery_lead"', async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-cv2-"));
     const a = fakeParent();
     const first = await boot(a.parent, dataDir(), "v1");
     const humanCodes = codesOf(a.sent);
-    const set = await a.ask({ type: "set_ai_roles", requestId: "s1", roles: ["tech_lead"] });
-    const botCode = (set as Extract<ChildMessage, { type: "ai_roles_set" }>).codes[0]!.code;
     const am = await join(first.port, "account_manager", "amy", { joinCode: humanCodes.account_manager! });
     const dl = await join(first.port, "delivery_lead", "dan", { joinCode: humanCodes.delivery_lead! });
     await consent(am.c, first, "account_manager", "amy", "v1");
@@ -181,9 +201,12 @@ describe("consent notice v2 (US-0060)", () => {
     expect(seats.consent.notice.version).toBe("v2");
     expect(seats.credentials.has("account_manager")).toBe(true);
     expect(seats.credentials.has("delivery_lead")).toBe(true);
-    expect(second.host.aiRoleIds()).toEqual(["tech_lead"]);
+    expect(second.host.aiRoleIds()).toEqual([]);
     expect(seats.consent.hasEntry("account_manager")).toBe(false);
     expect(seats.consent.hasEntry("delivery_lead")).toBe(false);
+    const set = await b.ask({ type: "set_ai_roles", requestId: "s1", roles: ["tech_lead"] });
+    expect(set.type).toBe("ai_roles_set");
+    const botCode = (set as Extract<ChildMessage, { type: "ai_roles_set" }>).codes[0]!.code;
     const bot = await join(second.port, "tech_lead", "bot1", { joinCode: botCode });
     expect(bot.reply.type).toBe("joined");
     const f = await facilitator(second.port);

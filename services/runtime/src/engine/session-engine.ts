@@ -47,6 +47,8 @@ export type ResumeInfo = {
   startedConsents?: Record<string, { participantId: string; noticeVersion: string; at: number }>;
   /** US-0060: session.started's aiRoles (validated, scenario order); present only when non-empty. The resumed lobby seats are seeded from it. */
   startedAiRoles?: string[];
+  /** US-0060: the AI-player model calls already in the log: utterances whose role is one of the started aiRoles (never an AI character's line). */
+  aiCalls: number;
 };
 export type Repair =
   | { kind: "npc_init"; roleId: string }
@@ -410,6 +412,7 @@ export class SessionEngine {
     let logIdentity: string | undefined; let identityInvalid = false;
     let startedConsents: ResumeInfo["startedConsents"];
     let startedAiRoles: string[] = [];
+    let aiCalls = 0; // utterances of the started AI roles (startedAiRoles is final after the first event)
     // US-0059: why the latest scene ended (null while a scene is current); a facilitator_end with no session.ended after it is repaired.
     let lastExit: ExitReason | null = null;
     // An inject's AI character updates follow its inject.fired directly; this tracks the ones still due if the log ends here.
@@ -460,6 +463,7 @@ export class SessionEngine {
       // A restart's own bookkeeping (session.resumed and its alert) may sit between an inject and its updates when a crash cut the
       // resume's completion short; live code never puts anything else there, so only those two keep the pending updates due.
       else if (e.type !== "session.resumed" && e.type !== "facilitator.alert") injectDue = null;
+      if (e.type === "utterance" && startedAiRoles.includes(e.roleId)) aiCalls++;
       if (e.type === "scene.exited") lastExit = e.reason;
       else if (e.type === "scene.entered") lastExit = null;
       if (e.type === "scene.entered") lastGmSeq = null;
@@ -502,7 +506,7 @@ export class SessionEngine {
       const opening = sc.script.scenes.find((x) => x.id === cur.id)?.opening_inject;
       if (opening && !s.injectsFired.includes(opening)) repairs.push({ kind: "opening_inject", sceneId: cur.id });
     }
-    return { kind: "running", info: { events: count, lastTs: maxTs, format, partialTailBytes, sceneId: cur?.id ?? null, lastGmSeq, pendingLine, wasPaused: s.paused, repairs, ...(logIdentity ? { logIdentity } : {}), ...(startedConsents ? { startedConsents } : {}), ...(startedAiRoles.length > 0 ? { startedAiRoles } : {}), ...(identityInvalid ? { identityInvalid: true as const } : {}) } };
+    return { kind: "running", info: { events: count, lastTs: maxTs, format, partialTailBytes, sceneId: cur?.id ?? null, lastGmSeq, pendingLine, wasPaused: s.paused, repairs, ...(logIdentity ? { logIdentity } : {}), ...(startedConsents ? { startedConsents } : {}), ...(startedAiRoles.length > 0 ? { startedAiRoles } : {}), aiCalls, ...(identityInvalid ? { identityInvalid: true as const } : {}) } };
   }
 
   /**

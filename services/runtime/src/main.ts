@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { playerRoleCapError } from "./host/limits.js";
 import { loadScenario, validateScenario } from "@acr/script";
 import { describeModelProvider, selectModelProvider } from "@acr/adapters";
 import { NOTICE_VERSION_RULE_TEXT, SESSION_ID_RULE_TEXT, isNoticeVersion, isValidSessionId } from "@acr/events";
@@ -24,6 +25,9 @@ import { OPEN_SERVER_WARNING, parseSecurityConfig } from "./host/security.js";
 
 /** services/runtime/src/main.ts: the repo root is three levels up from this file's directory. */
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+
+/** The most `ready.aiCalls` the IPC schema accepts (parent-channel.ts); a larger count is sent as this cap. */
+const MAX_READY_AI_CALLS = 1_000_000;
 
 export type Runtime = { port: number; host: SessionHost; stop(): Promise<void> };
 export type BootstrapResult = { ok: true; runtime: Runtime } | { ok: false; errors: string[] };
@@ -120,6 +124,8 @@ export async function bootstrap(opts: {
   const { errors, warnings } = validateScenario(scenario);
   for (const w of warnings) warn(`warning: ${w}`);
   if (errors.length) return { ok: false, errors };
+  // US-0060: a managed session has a player-role cap; refused before the session is opened, so no file is written.
+  if (managed) { const capError = playerRoleCapError(scenario); if (capError) return { ok: false, errors: [capError] }; }
 
   // US-0058: SESSION_DATA_DIR (set by the control service, from the merged env like the other settings) names the data directory; it must be absolute, and a refusal never echoes it.
   const sessionDataDir = env.SESSION_DATA_DIR;
@@ -224,7 +230,9 @@ export async function bootstrap(opts: {
     // `ready` comes after the codes (sent above, inside the display hook), so the parent never sees a ready session whose codes it lacks.
     const logIdentity = store.seats?.credentials.logIdentity ?? store.resume?.logIdentity;
     const aiRoleIds = host.aiRoleIds(); // US-0060: from the AI-role file (lobby) or the started log (resume)
-    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new" /* an empty-lobby restart reports "new" with no codes (they are kept); the supervisor treats ready-without-codes as normal */, modelLabel: describeModelProvider(env), ...(aiRoleIds.length > 0 ? { aiRoles: aiRoleIds } : {}) });
+    // US-0060: the AI-player calls already in the log (the control service seeds a session budget from it); never above the schema's cap, and absent when 0.
+    const aiCalls = Math.min(store.resume?.aiCalls ?? 0, MAX_READY_AI_CALLS);
+    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new" /* an empty-lobby restart reports "new" with no codes (they are kept); the supervisor treats ready-without-codes as normal */, modelLabel: describeModelProvider(env), ...(aiRoleIds.length > 0 ? { aiRoles: aiRoleIds } : {}), ...(aiCalls > 0 ? { aiCalls } : {}) });
     if (!sent) {
       // A start failure, but the join codes are deliberately NOT withdrawn: the parent already holds them (they were sent first), and
       // withdrawing would make them stale. The parent reissues them if it restarts this session. Nothing may stay running or locked.
@@ -251,10 +259,13 @@ export async function bootstrap(opts: {
     });
     // US-0060: a failure reply is chosen by the message's own type; nothing but a fixed string ever reaches the parent.
     const fail = (m: ParentMessage, reason: string) => {
+      if (m.type === "bot_alert") return; // no requestId, so no reply is possible
       if (m.type === "set_ai_roles") parent.send({ type: "ai_roles_failed", requestId: m.requestId, reason });
       else parent.send({ type: "reissue_failed", requestId: m.requestId, reason });
     };
     const answer = (m: ParentMessage) => {
+      // US-0060: a bot alert is fire-and-forget: never answered (no requestId), and botAlert never rejects, so nothing here can reply.
+      if (m.type === "bot_alert") { void host.botAlert(m.roleId, m.message).catch(() => undefined); return; }
       if (!current || !seats) { fail(m, m.type === "set_ai_roles" ? AI_ROLES_REFUSED.failed : "this session has no join codes to reissue"); return; }
       if (m.type === "set_ai_roles") {
         setAiRoles(deps(), m.roles).then(

@@ -119,6 +119,29 @@ describe("parent channel", () => {
     expect(ParentMessageSchema.safeParse({ type: "reissue", requestId: "r1", roleId: "cfo" }).success).toBe(true);
   });
 
+  it("bot_alert with an extra key, a reserved role id or a 201-character message is dropped", () => {
+    const f = fakeProc();
+    const got: unknown[] = [];
+    openParentChannel(f.proc)!.onMessage((m) => got.push(m));
+    const valid = { type: "bot_alert", roleId: "tech_lead", message: "skipped a turn: the model did not answer" };
+    for (const bad of [
+      { ...valid, extra: 1 }, { ...valid, requestId: "r1" }, { ...valid, roleId: "facilitator" }, { ...valid, roleId: "Bad Id" }, { ...valid, message: "x".repeat(201) },
+      { ...valid, message: "" }, { ...valid, message: 7 }, { type: "bot_alert", message: "m" }, { type: "bot_alert", roleId: "tech_lead" },
+    ]) f.emit("message", bad);
+    expect(got).toEqual([]);
+    f.emit("message", valid);
+    f.emit("message", { ...valid, message: "x".repeat(200) });
+    expect(got).toHaveLength(2);
+  });
+
+  it("ready.aiCalls is an integer from 1 to 1000000", () => {
+    const ok = (m: unknown) => ChildMessageSchema.safeParse(m).success;
+    const ready = { type: "ready", port: 4000, status: "resumed", modelLabel: "Mock" };
+    expect(ok({ ...ready, aiCalls: 1 })).toBe(true);
+    expect(ok({ ...ready, aiCalls: 1_000_000 })).toBe(true);
+    for (const bad of [0, -1, 1.5, 1_000_001, "3", null]) expect(ok({ ...ready, aiCalls: bad })).toBe(false);
+  });
+
   it("ai_roles_set, ai_roles_failed and ready.aiRoles are bounded", () => {
     const ok = (m: unknown) => ChildMessageSchema.safeParse(m).success;
     const entry = (i: number) => ({ roleId: `r${i}`, code: "c" });

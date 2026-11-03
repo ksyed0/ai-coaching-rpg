@@ -9,8 +9,9 @@ import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import type { Seats } from "../engine/seats.js";
 import { ConsentError } from "../engine/consent.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
-import { actorLabel, cleanClosingMessage, cleanFacilitatorLabel } from "./display-name.js";
+import { actorLabel, cleanBotAlertMessage, cleanClosingMessage, cleanFacilitatorLabel } from "./display-name.js";
 import { ReviewUsageError } from "../review/errors.js";
+import { noticeNamesAiPlayers } from "./limits.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
 export const MAX_REPLAY_EVENTS = 1000;
@@ -25,7 +26,7 @@ export const MAX_REPLAY_BYTES = 256 * 1024;
  */
 export type Replay = { afterSeq: number; toSeq: number; complete: boolean; events: SessionEvent[] };
 
-export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message" | "consent_required" | "not_joined" | "starting";
+export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_started" | "seats_not_ready" | "consent_version" | "already_started" | "bad_message" | "consent_required" | "not_joined" | "starting" | "ai_notice";
 
 export class HostError extends Error {
   /** `roles`, when given, names the roles the error is about: the message becomes `code: role1,role2`. */
@@ -189,6 +190,20 @@ export class SessionHost {
     return this.engine.alert(message, "info").then(() => undefined, (err) => this.report("facilitator alert", err));
   }
 
+  /**
+   * US-0060: a live AI player's alert for the facilitator (facilitator-only, level warning). Never throws and appends nothing before the
+   * start, after the end, or for a role that is no AI player. The message is flattened to one line (escape sequences and hidden,
+   * bidirectional and control characters stripped, whitespace collapsed) and cut to 200 code points; one empty after cleaning is dropped.
+   */
+  async botAlert(roleId: string, message: string): Promise<void> {
+    try {
+      if (!this.started || this.engine.state.status === "ended" || !this.isAiRole(roleId)) return;
+      const text = cleanBotAlertMessage(message);
+      if (text === undefined) return;
+      await this.engine.alert(`AI player for ${roleId}: ${text}`, "warning");
+    } catch (err) { this.report("bot alert", err); }
+  }
+
   /** Whether the seat's consent stands: given by this participant, or not asked for (a session resumed from a log older than the gate). */
   consentGiven(roleId: string, participantId: string): boolean {
     return this.consentGrandfathered || (this.seats?.consent.has(roleId, participantId) ?? false);
@@ -339,6 +354,8 @@ export class SessionHost {
   private startGate(): SessionStartExtra | undefined {
     const seats = this.seats;
     if (!seats) return undefined;
+    // US-0060: AI players need a consent notice that names them; checked before any seat, so a restart on an older notice cannot start.
+    if (this.aiRoleIds().length > 0 && !noticeNamesAiPlayers(seats.consent.notice.version)) throw new HostError("ai_notice");
     // US-0060: a human seat needs a holder and its consent; an AI seat needs a connected bot and no consent. One refusal names the
     // humans first, then the AI roles without a bot (the BFF start route parses this message).
     const ready = (r: string): boolean => !!this.assignments[r] && (this.isAiRole(r) || seats.consent.has(r, this.assignments[r]!));

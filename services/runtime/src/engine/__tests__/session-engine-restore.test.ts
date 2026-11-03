@@ -527,6 +527,18 @@ describe("log format 3 and the AI roles (US-0060)", () => {
     await engine.markResumed(out.info);
     expect(await first(log)).toMatchObject({ logFormat: 2 });
   });
+  it("info.aiCalls counts only AI-player utterances", async () => {
+    const say = (roleId: string) => ({ type: "utterance", roleId, text: `line from ${roleId}`, channel: "text" });
+    const log = await logOf([body({ aiRoles: ["tech_lead"] }), enterFri(), say("tech_lead"), say("account_manager"), say("tech_lead"), say("client_sponsor"), say("delivery_lead"), say("tech_lead"),
+      { type: "facilitator.alert", level: "warning", message: "AI player for tech_lead: tech_lead" }]);
+    const out = await fresh(log).restore();
+    expect(out).toMatchObject({ kind: "running", info: { aiCalls: 3 } });
+  });
+  it("info.aiCalls is 0 without AI roles, however many lines the log holds", async () => {
+    const say = (roleId: string) => ({ type: "utterance", roleId, text: "hello", channel: "text" });
+    const out = await fresh(await logOf([body(), enterFri(), say("tech_lead"), say("client_sponsor")])).restore();
+    expect(out).toMatchObject({ kind: "running", info: { aiCalls: 0 } });
+  });
   it("a format 3 log without aiRoles resumes with none", async () => {
     const log = await logOf([body(), enterFri()]);
     const engine = fresh(log);

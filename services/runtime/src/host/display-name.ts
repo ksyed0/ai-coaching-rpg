@@ -49,3 +49,20 @@ export function cleanClosingMessage(raw: string | undefined): string | undefined
   if (stripHidden(raw).trim() === "") return undefined;
   return cleanText(raw, MAX_END_MESSAGE_CHARS, "message", []);
 }
+
+/** US-0060: the most code points a bot alert's message may have after cleaning. */
+export const MAX_BOT_ALERT_CHARS = 200;
+// eslint-disable-next-line no-control-regex
+const ANSI_SEQUENCE = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\)?|[@-Z\\-_])/g;
+
+/**
+ * US-0060: an AI player's alert message as one clean line: terminal escape sequences removed whole, line breaks and tabs and other
+ * whitespace collapsed to one space, then cut to 200 code points and cleaned like a facilitator's label (hidden, bidirectional and
+ * control characters stripped, trimmed). Undefined when nothing is left. Unlike the label, the text is cut, never refused.
+ */
+export function cleanBotAlertMessage(raw: string): string | undefined {
+  const flat = raw.replace(ANSI_SEQUENCE, "").replace(/\s+/g, " ");
+  const cut = [...stripHidden(flat).replace(/\s+/g, " ").trim()].slice(0, MAX_BOT_ALERT_CHARS).join("");
+  try { return cleanText(cut, MAX_BOT_ALERT_CHARS, "message", []); }
+  catch (err) { if (err instanceof ReviewUsageError) return undefined; throw err; }
+}

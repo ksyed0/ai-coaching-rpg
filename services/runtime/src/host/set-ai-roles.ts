@@ -1,4 +1,5 @@
 import type { ReissueDeps } from "./reissue.js";
+import { MAX_AI_ROLES, noticeNamesAiPlayers } from "./limits.js";
 import { CLOSE_AI_FILLED, CLOSE_REISSUED, type ServerHandle } from "./ws-server.js";
 
 /** What setAiRoles works on: the reissue wiring, and a server that can also re-send the roster. */
@@ -9,6 +10,8 @@ export const AI_ROLES_REFUSED = {
   started: "AI roles can only be changed before the start",
   invalid: "not a player role of this session",
   noHuman: "at least one player role must stay human",
+  tooMany: `at most ${MAX_AI_ROLES} player roles can be AI players`,
+  notice: "the consent notice in use does not mention AI players",
   failed: "the AI roles could not be changed",
 } as const;
 
@@ -21,8 +24,8 @@ export class AiRolesRefusedError extends Error {
 /**
  * US-0060: sets which player roles an AI plays, before the start. Only the control service can ask (fork() IPC). Mirrors reissueRole.
  *
- * 0. Refusals first, nothing changed: the start begun, in flight or done (`started`); an unknown, AI-character, reserved, non-string or
- *    duplicate role (`invalid`); every player role AI (`noHuman`); no AI-role set on the seats (`failed`).
+ * 0. Refusals first, nothing changed, in this order: no AI-role set on the seats (`failed`); a non-empty set under a consent notice that does not name AI players (`notice`); the start begun, in flight or done (`started`); an unknown, AI-character, reserved, non-string or
+ *    duplicate role (`invalid`); every player role AI (`noHuman`); more than MAX_AI_ROLES AI roles (`tooMany`).
  * 1. `changed` is the symmetric difference of the current and the wanted set, in the scenario's player-role order. None: return [] and
  *    write nothing (the same request again is a no-op).
  * 2. Every changed role gets a NEW code, written FIRST: a revoked credential reopens the seat to its old code, so a switched-out human
@@ -38,6 +41,7 @@ export class AiRolesRefusedError extends Error {
 export async function setAiRoles(d: AiRolesDeps, roles: string[]): Promise<{ roleId: string; code: string }[]> {
   const aiSet = d.seats.aiRoles;
   if (!aiSet) throw new AiRolesRefusedError(AI_ROLES_REFUSED.failed);
+  if (Array.isArray(roles) && roles.length > 0 && !noticeNamesAiPlayers(d.seats.consent.notice.version)) throw new AiRolesRefusedError(AI_ROLES_REFUSED.notice);
   if (d.host.hasStarted || d.host.isStarting || d.host.engine.state.status !== "idle") throw new AiRolesRefusedError(AI_ROLES_REFUSED.started);
   if (!Array.isArray(roles)) throw new AiRolesRefusedError(AI_ROLES_REFUSED.invalid);
   const wanted = new Set<string>();
@@ -48,6 +52,7 @@ export async function setAiRoles(d: AiRolesDeps, roles: string[]): Promise<{ rol
   const players = d.host.playerRoleIds();
   if (players.length === 0) throw new AiRolesRefusedError(AI_ROLES_REFUSED.failed);
   if (players.every((r) => wanted.has(r))) throw new AiRolesRefusedError(AI_ROLES_REFUSED.noHuman);
+  if (wanted.size > MAX_AI_ROLES) throw new AiRolesRefusedError(AI_ROLES_REFUSED.tooMany);
   const changed = players.filter((r) => aiSet.has(r) !== wanted.has(r));
   if (changed.length === 0) return [];
 
