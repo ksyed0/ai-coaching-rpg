@@ -70,7 +70,7 @@ export function SessionScreen({ sessionId, deps = {} }: SessionScreenProps) {
 
 /** A final state with nothing worth keeping on screen. No retry button: each of these is final (the browser must not come back). */
 function FinalScreen({ kind, message }: { kind: string; message: string }) {
-  const title = kind === "ended" ? "The session has ended" : kind === "left" ? "You have left" : kind === "superseded" ? "Open in another tab" : kind === "closed" ? "Connection closed" : kind === "removed" ? "Removed from the session" : "Signed out";
+  const title = kind === "ended" ? "The session has ended" : kind === "left" ? "You have left" : kind === "superseded" ? "Open in another tab" : kind === "closed" ? "Connection closed" : kind === "removed" ? "Removed from the session" : kind === "ai_filled" ? "Role filled by an AI player" : "Signed out";
   return (
     <>
       <TitleBlock title={title} lede="This page no longer updates." />
@@ -149,7 +149,7 @@ function Scene({ state, clock, onSay }: { state: ReturnType<typeof useSession>["
       <div className="body row">
         <section className="col col-main" aria-labelledby="transcript-h">
           <h2 className="s" id="transcript-h">Transcript</h2>
-          <Transcript lines={view.transcript} selfRole={joined.roleId} names={names} playerRoles={playerRoles} />
+          <Transcript lines={view.transcript} selfRole={joined.roleId} names={names} playerRoles={playerRoles} aiRoles={new Set(view.aiRoles)} />
           {ended ? null : <SayBox disabledReason={disabledReason} onSay={onSay} />}
         </section>
         <div className="col">

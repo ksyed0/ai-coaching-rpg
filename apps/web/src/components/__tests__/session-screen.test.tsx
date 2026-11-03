@@ -177,6 +177,30 @@ describe("SessionScreen", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
+  it("the ai_filled final shows its title and text and no say box", () => {
+    const m = mount();
+    emit(m.es(), "joined", joinedFrame({ state: snapshot({ status: "running" }) }));
+    emit(m.es(), "ai_filled", { message: "ignored: the page uses its own text" });
+    expect(screen.getByRole("heading", { name: "Role filled by an AI player" })).toBeTruthy();
+    expect(screen.getByText("The facilitator has filled this role.")).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByText(/ignored/)).toBeNull();
+    expect(m.es().closed).toBe(true);
+  });
+
+  it("the scene labels an AI seat's line from view.aiRoles whatever the roster calls it", () => {
+    const m = mount();
+    const state = snapshot({ status: "running", lastSeq: 5, aiRoles: ["tech_lead"], currentScene: { id: "s1", enteredAt: m.clock.t, participants: [], pausedMs: 0 } });
+    emit(m.es(), "joined", joinedFrame({ state, consent: { noticeVersion: "v1", notice: "n", given: true } }));
+    emit(m.es(), "roster", { audience: "peers", entries: [{ roleId: "account_manager", name: "Sam", ready: true }, { roleId: "tech_lead", name: "Pat", ready: true }] });
+    emit(m.es(), "event", ev(6, "utterance", { roleId: "tech_lead", text: "Done by Friday.", channel: "text" }, m.clock.t));
+    const item = screen.getByText("Done by Friday.").closest("li")!;
+    expect(item.textContent).toContain("AI player");
+    expect(item.textContent).toContain("AI");
+    expect(item.textContent).toContain("Tech lead");
+    expect(item.textContent).not.toContain("Pat");
+  });
+
   it("a stream the browser closed (an HTTP 401, 403, 406 or 503) says to reload first, then ask the facilitator, and offers no retry", () => {
     const m = mount();
     act(() => m.es().fail());

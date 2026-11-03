@@ -53,7 +53,7 @@ type Stream = {
   sendChain: Promise<unknown>;
 };
 type FinalEvent = "superseded" | "reconnecting" | "ended" | "expired" | "signed_out" | "removed" | "ai_filled";
-/** How a runtime close code ends a stream. 4001, 4002 and 4003 are terminal (a retry would kick the new holder, or fail with a revoked credential). */
+/** How a runtime close code ends a stream. 4001, 4002, 4003 and 4004 are terminal (a retry would kick the new holder, or fail with a revoked credential). */
 const endingFor = (code: number): FinalEvent => (code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "signed_out" : code === CLOSE_REMOVED ? "removed" : code === CLOSE_AI_FILLED ? "ai_filled" : "reconnecting");
 
 /** A peer seat as a player may see it: only these fields, whatever the runtime sent. */
