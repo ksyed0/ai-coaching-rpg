@@ -20,6 +20,17 @@ export type TurnTicket = { epoch: number; sceneId: string; trigger: Trigger };
 /**
  * The reactive turn policy of one live AI player: a pure state machine. No timers and no I/O; time comes only from
  * the injected `now()`, and the caller sleeps until `wakeAt()` and then asks `due()`.
+ *
+ * Host contract:
+ * - Emit `scene` only on a real scene change: a repeated `scene` with the same sceneId resets the cap and kills the
+ *   in-flight turn.
+ * - On a (re)join emit `scene` first, then seed only the current scene's lines with `replayed: true`. Replayed lines
+ *   touch neither pending nor the quiet clock; only the bot's own replayed AI lines (in a scene it is in) restore
+ *   `linesThisScene` and start one conservative gap.
+ * - `wakeAt()` is null when held, in flight, at the cap, or (with nothing pending) no human is connected, so the host
+ *   must re-ask after `setHeld(false)`, `finish`, a `scene` and a `humans` event.
+ * - `finish(t, true)` drops a pending reply that arrived mid-flight; `finish(t, false)` for a reply also clears
+ *   pending (a skipped turn must not spin).
  */
 export class TurnPolicy {
   private readonly roleId: string;
@@ -67,7 +78,14 @@ export class TurnPolicy {
         this.invalidate();
         return;
       case "line":
-        if (e.replayed) return; // history only: it neither wakes the bot nor moves the quiet clock
+        if (e.replayed) {
+          // history only: it neither wakes the bot nor moves the quiet clock; our own earlier lines restore the cap
+          if (e.roleId === this.roleId && e.ai && this.sceneId !== null && this.inScene) {
+            this.lines += 1;
+            this.lastSpokeAt = this.now();
+          }
+          return;
+        }
         this.lastActivityAt = this.now();
         if (this.active && !e.ai && e.roleId !== this.roleId) this.pending = true;
         return;

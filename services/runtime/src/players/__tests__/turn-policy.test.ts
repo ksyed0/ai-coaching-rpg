@@ -371,18 +371,82 @@ describe("TurnPolicy wakeAt", () => {
   });
 });
 
+describe("TurnPolicy replay seeding", () => {
+  const own = (): PolicyEvent => ({ kind: "line", roleId: ME, ai: true, replayed: true });
+
+  it("a rejoin that replays 4 own lines leaves linesThisScene 4 and the gap holds", () => {
+    const m = make();
+    m.p.observe({ kind: "started" });
+    m.p.observe({ kind: "scene", sceneId: "s1", participants: [ME, "human"] });
+    for (let i = 0; i < 4; i++) m.p.observe(own());
+    expect(m.p.linesThisScene).toBe(4);
+    m.p.observe(human());
+    m.adv(S.settleMs);
+    expect(m.p.due()).toBeNull();
+    m.adv(S.minGapMs - S.settleMs);
+    expect(m.p.due()).toEqual({ trigger: "reply" });
+  });
+
+  it("a replay of 10 own lines means nothing is due until the next scene", () => {
+    const m = make();
+    m.p.observe({ kind: "started" });
+    m.p.observe({ kind: "scene", sceneId: "s1", participants: [ME, "human"] });
+    m.p.observe({ kind: "humans", connected: true });
+    for (let i = 0; i < 10; i++) m.p.observe(own());
+    m.p.observe(human());
+    m.adv(10 * S.nudgeMs);
+    expect(m.p.due()).toBeNull();
+    expect(m.p.wakeAt()).toBeNull();
+    m.p.observe({ kind: "scene", sceneId: "s2", participants: [ME, "human"] });
+    m.p.observe(human());
+    m.adv(S.settleMs);
+    expect(m.p.due()).toEqual({ trigger: "reply" });
+  });
+
+  it("replayed lines of another role or a human seed nothing, and neither do own lines before any scene", () => {
+    const m = make();
+    m.p.observe({ kind: "started" });
+    m.p.observe(own());
+    m.p.observe({ kind: "scene", sceneId: "s1", participants: [ME, "human"] });
+    expect(m.p.linesThisScene).toBe(0);
+    m.p.observe({ kind: "line", roleId: "bot-b", ai: true, replayed: true });
+    m.p.observe({ kind: "line", roleId: "human", ai: false, replayed: true });
+    m.p.observe({ kind: "line", roleId: "npc", ai: false, replayed: true });
+    expect(m.p.linesThisScene).toBe(0);
+    m.p.observe(human());
+    m.adv(S.settleMs);
+    expect(m.p.due()).toEqual({ trigger: "reply" }); // no gap was seeded
+  });
+
+  it("own replayed lines in a scene the bot is not in seed nothing", () => {
+    const m = make();
+    m.p.observe({ kind: "started" });
+    m.p.observe({ kind: "scene", sceneId: "s1", participants: ["human"] });
+    m.p.observe(own());
+    expect(m.p.linesThisScene).toBe(0);
+  });
+});
+
 describe("TurnPolicy simulation", () => {
-  /** A fake room: bots A and B plus NPC lines. Steps the clock to each wake time; every bot line is followed by one NPC line. */
-  function room(extra: (bots: TurnPolicy[], emit: (e: PolicyEvent) => void) => void, npcAnswers: boolean) {
+  /** A fake room: bots A and B plus NPC lines. Steps the clock to each wake time. After a bot line, an NPC line follows
+   *  while `npcBudget` lasts. Records every bot turn that began although the only line since the bot's own last turn
+   *  came from an AI player (a bot triggered by a bot). */
+  function room(npcBudget: number, humans: boolean) {
     const clock = { t: 5_000_000 };
-    const mk = (id: string) => new TurnPolicy({ roleId: id, settings: S, now: () => clock.t });
-    const bots = [mk("bot-a"), mk("bot-b")];
+    const ids = ["bot-a", "bot-b"];
+    const bots = ids.map((id) => new TurnPolicy({ roleId: id, settings: S, now: () => clock.t }));
     const spoken = [0, 0];
-    const botLines: Array<[number, number]> = [];
-    const emit = (e: PolicyEvent) => { for (const b of bots) b.observe(e); };
+    const sawNonAi = [false, false]; // a human/NPC line since this bot's last turn
+    const botTriggered: number[] = [];
+    const emit = (e: PolicyEvent) => {
+      for (const b of bots) b.observe(e);
+      if (e.kind === "line" && !e.ai) sawNonAi.fill(true);
+    };
     emit({ kind: "started" });
-    emit({ kind: "scene", sceneId: "s1", participants: ["bot-a", "bot-b", "npc", "human"] });
-    extra(bots, emit);
+    emit({ kind: "scene", sceneId: "s1", participants: [...ids, "npc", "human"] });
+    emit({ kind: "humans", connected: humans });
+    emit({ kind: "line", roleId: "human", ai: false });
+    let npc = npcBudget;
     for (let guard = 0; guard < 500; guard++) {
       const wakes = bots.map((b) => b.wakeAt()).filter((w): w is number => w !== null);
       if (wakes.length === 0) break;
@@ -390,29 +454,38 @@ describe("TurnPolicy simulation", () => {
       const i = bots.findIndex((b) => b.due() !== null);
       if (i < 0) continue;
       const bot = bots[i]!;
-      const t = bot.begin(bot.due()!.trigger)!;
-      bot.finish(t, true);
+      const d = bot.due()!;
+      if (d.trigger === "reply" && !sawNonAi[i]) botTriggered.push(i);
+      sawNonAi[i] = false;
+      bot.finish(bot.begin(d.trigger)!, true);
       spoken[i]! += 1;
-      botLines.push([i, clock.t]);
-      emit({ kind: "line", roleId: i === 0 ? "bot-a" : "bot-b", ai: true });
-      if (npcAnswers) { clock.t += 1_000; emit({ kind: "line", roleId: "npc", ai: false }); }
+      emit({ kind: "line", roleId: ids[i]!, ai: true });
+      if (npc > 0) { npc -= 1; clock.t += 1_000; emit({ kind: "line", roleId: "npc", ai: false }); }
     }
-    return { bots, spoken, clock };
+    return { bots, spoken, botTriggered };
   }
 
-  it("two bots and NPCs reach the scene cap and stop", () => {
-    const { bots, spoken } = room((_b, emit) => emit({ kind: "line", roleId: "human", ai: false }), true);
+  it("two bots and NPCs reach the scene cap and stop, never triggered by each other", () => {
+    const { bots, spoken, botTriggered } = room(Infinity, false);
     expect(spoken).toEqual([S.linesPerScene, S.linesPerScene]);
     expect(bots.map((b) => b.linesThisScene)).toEqual([10, 10]);
+    expect(botTriggered).toEqual([]);
     expect(bots.map((b) => b.wakeAt())).toEqual([null, null]);
     expect(bots.map((b) => b.due())).toEqual([null, null]);
   });
 
-  it("two bots alone (no NPC, no human) speak at most once each after one human line", () => {
-    const { spoken, bots } = room((_b, emit) => emit({ kind: "line", roleId: "human", ai: false }), false);
-    expect(spoken[0]).toBeLessThanOrEqual(1);
-    expect(spoken[1]).toBeLessThanOrEqual(1);
-    expect(spoken[0]! + spoken[1]!).toBeGreaterThan(0);
+  it("an NPC that answers only once, with no humans connected, lets the bots speak three lines in all and stop", () => {
+    // human line -> A and B pending; A speaks; NPC answers once -> A pending again; B speaks; A speaks; then silence
+    const { spoken, botTriggered, bots } = room(1, false);
+    expect(spoken).toEqual([2, 1]);
+    expect(botTriggered).toEqual([]);
+    expect(bots.map((b) => b.wakeAt())).toEqual([null, null]);
+  });
+
+  it("two bots alone (no NPC, no human) speak exactly once each after one human line", () => {
+    const { spoken, botTriggered, bots } = room(0, false);
+    expect(spoken).toEqual([1, 1]);
+    expect(botTriggered).toEqual([]);
     expect(bots.map((b) => b.wakeAt())).toEqual([null, null]);
   });
 });
