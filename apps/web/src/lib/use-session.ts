@@ -7,7 +7,7 @@ import { MESSAGES } from "./messages";
 
 // One participant's live session in the browser. The stream is the browser's native EventSource on /api/v1/stream: it reconnects by
 // itself after the server's `retry:` and keeps Last-Event-ID, so this hook never runs a reconnect loop of its own. It only closes the
-// source on a final event (superseded, signed_out, removed, ended, expired), so the browser does not come back. Identity is the HttpOnly cookie,
+// source on a final event (superseded, signed_out, removed, ended, expired, ai_filled), so the browser does not come back. Identity is the HttpOnly cookie,
 // which this code never reads.
 
 /** Lines kept in the browser; older ones drop off (the transcript is copied on each line, so it must stay bounded). */
@@ -22,12 +22,12 @@ export type EventSourceLike = {
 export type EventSourceCtor = new (url: string) => EventSourceLike;
 export type SessionDeps = { EventSource: EventSourceCtor; fetch: typeof fetch };
 
-export type PeerRosterEntry = { roleId: string; name?: string; ready: boolean };
+export type PeerRosterEntry = { roleId: string; name?: string; ready: boolean; ai?: true };
 export type Consent = { noticeVersion: string; notice: string; given: boolean };
 /** The joined fields the page uses (the BFF already picked them; the credential never reaches the browser). */
 export type Joined = { roleId: string; brief?: string; privateFacts?: string[]; consent?: Consent; scenes: PlayerScene[]; logIdentity?: string };
 
-export type FinalKind = "superseded" | "signed_out" | "removed" | "ended" | "expired" | "left" | "closed";
+export type FinalKind = "superseded" | "signed_out" | "removed" | "ended" | "expired" | "left" | "closed" | "ai_filled";
 export type SessionUi = {
   /** connecting: no joined yet; live: joined; reconnecting: dropped, the browser is coming back. */
   conn: "connecting" | "live" | "reconnecting";
@@ -46,8 +46,9 @@ const FINAL_MESSAGES: Record<FinalKind, string> = {
   expired: MESSAGES.expired,
   left: MESSAGES.left,
   closed: MESSAGES.streamClosed,
+  ai_filled: MESSAGES.aiFilled,
 };
-const CLOSING_EVENTS = ["superseded", "signed_out", "removed", "ended", "expired"] as const;
+const CLOSING_EVENTS = ["superseded", "signed_out", "removed", "ended", "expired", "ai_filled"] as const;
 
 type Action =
   | { type: "open" }
@@ -126,9 +127,14 @@ function toJoined(d: unknown): { joined: Joined; state: PlayerSnapshot } | null 
 const toView = (d: unknown): PlayerView | null =>
   isObj(d) && typeof d.lastSeq === "number" && Array.isArray(d.transcript) && Array.isArray(d.injects) && typeof d.paused === "boolean" ? (d as unknown as PlayerView) : null;
 
+// Default deny: only the four known fields are kept, and `ai` only when it is exactly true.
 const toRoster = (d: unknown): PeerRosterEntry[] | null =>
   isObj(d) && Array.isArray(d.entries) && d.entries.every((e) => isObj(e) && typeof e.roleId === "string" && typeof e.ready === "boolean" && (e.name === undefined || typeof e.name === "string"))
-    ? (d.entries as PeerRosterEntry[]) : null;
+    ? (d.entries as Record<string, unknown>[]).map((e) => ({
+      roleId: e.roleId as string, ready: e.ready as boolean,
+      ...(e.name !== undefined ? { name: e.name as string } : {}),
+      ...(e.ai === true ? { ai: true as const } : {}),
+    })) : null;
 
 /** A 409 `no_stream` means the stream is between connections (the browser is reconnecting): say that, not "open the page first". */
 const actionResult = (r: Awaited<ReturnType<typeof postJson>>): ActionResult =>

@@ -219,7 +219,7 @@ describe("bootstrap", () => {
       expect(logs.join("\n")).not.toContain("sk-from-dotenv");
       // the event log lands under <root>/data/sessions
       await connect(runtime.port, { type: "join_facilitator", sessionId: "fromdotenv" });
-      runtime.host.join("host", "p1"); runtime.host.giveConsent("host", "p1", "v1"); // US-0054: the start gate wants the seated player's consent
+      runtime.host.join("host", "p1"); runtime.host.giveConsent("host", "p1", "v2"); // US-0054: the start gate wants the seated player's consent
       await runtime.host.start();
       expect((await stat(path.join(tmp, "data", "sessions", "fromdotenv.jsonl"))).isFile()).toBe(true);
     });
@@ -490,7 +490,7 @@ describe("bootstrap: player join codes (US-0033)", () => {
     const show = (c: { roleId: string; code: string }[]) => shown.push(c);
     const a = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: show });
     if (!a.ok) throw new Error(a.errors.join("; "));
-    a.runtime.host.join("host", "a"); a.runtime.host.giveConsent("host", "a", "v1"); // US-0054
+    a.runtime.host.join("host", "a"); a.runtime.host.giveConsent("host", "a", "v2"); // US-0054
     await a.runtime.host.start(); // the session has begun: its codes are now in people's hands
     await a.runtime.stop();
     const logs: string[] = [];
@@ -548,7 +548,7 @@ describe("bootstrap: player join codes (US-0033)", () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
     const a = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: () => {} });
     if (!a.ok) throw new Error(a.errors.join("; "));
-    a.runtime.host.join("host", "p1"); a.runtime.host.giveConsent("host", "p1", "v1"); // US-0054
+    a.runtime.host.join("host", "p1"); a.runtime.host.giveConsent("host", "p1", "v2"); // US-0054
     await a.runtime.host.start();
     await a.runtime.stop();
     await rm(codesFile()); // the operator moved the codes aside to get new ones...
@@ -582,7 +582,7 @@ describe("bootstrap: player join codes (US-0033)", () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-main-codes-"));
     const a = await bootstrap({ env: env(), root: tmp, logDir: tmp, tickMs: 60_000, log: () => {}, warn: () => {}, showJoinCodes: () => {} });
     if (!a.ok) throw new Error(a.errors.join("; "));
-    a.runtime.host.join("host", "p1"); a.runtime.host.giveConsent("host", "p1", "v1"); // US-0054
+    a.runtime.host.join("host", "p1"); a.runtime.host.giveConsent("host", "p1", "v2"); // US-0054
     await a.runtime.host.start(); // a running session resumes, so its codes file is read
     await a.runtime.stop();
     await writeFile(path.join(tmp, "jc.codes.json"), "{ broken", { mode: 0o600 });
@@ -613,7 +613,7 @@ describe("bootstrap: consent notice and seats (US-0053)", () => {
     const r = await bootstrap({ env: base(), root: tmp, logDir, consentDir, tickMs: 50, ...quiet });
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.errors.join("\n")).toMatch(/consent notice notice-v1\.md was not found/);
+    expect(r.errors.join("\n")).toMatch(/consent notice notice-v2\.md was not found/);
     expect(await readdir(logDir).catch(() => [])).toEqual([]); // refused before the session was opened
   });
 
@@ -634,7 +634,7 @@ describe("bootstrap: consent notice and seats (US-0053)", () => {
     const r = await bootstrap({ env: base(), root: tmp, logDir: tmp, tickMs: 50, ...quiet });
     if (!r.ok) throw new Error(r.errors.join("; "));
     runtime = r.runtime;
-    expect(runtime.host.seats?.consent.notice.version).toBe("v1");
+    expect(runtime.host.seats?.consent.notice.version).toBe("v2");
     expect(runtime.host.seats?.consent.notice.text).toMatch(/facilitator/);
     expect((await readdir(tmp)).filter((n) => /^t1\.(credentials|consent)\.json$/.test(n)).sort()).toEqual(["t1.consent.json", "t1.credentials.json"]);
   });

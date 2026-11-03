@@ -1592,4 +1592,32 @@ Expected Result: the start gate needs a holder and consent for each human role a
 Actual Result: As expected (the runtime test files named in the steps), 2026-11-03.
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2b-3a, PR 2 (Tasks 5 and 6). AC-0320 stays open: no build can hold an AI role until slice 2b-3b, and the console counts are 3b. The reserved-name check refuses any join with the prefix, so the 3b bot must send no displayName. The terminal client does not label AI seats or lines yet (a hard rule for 3b, docs/THREAT_MODEL.md).
+Notes: Slice 2b-3a, PR 2 (Tasks 5 and 6). AC-0320 stays open: no build can hold an AI role until slice 2b-3b, and the console counts are 3b. The reserved-name check refuses any join with the prefix, so the 3b bot must send no displayName. The terminal client does not label AI seats or lines yet (a hard rule for 3b, docs/THREAT_MODEL.md; owner decision of 2026-11-03: it will label them, not refuse AI sessions).
+
+TC-0103: the default consent notice is v2 and a restart on it keeps every consenting participant of a started session
+Related Story: US-0060
+Related Task: TASK-0098
+Related AC: AC-0360
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/__tests__/main.consent-v2.test.ts src/__tests__/main.test.ts src/__tests__/main.parent.test.ts`.
+Expected Result: without CONSENT_NOTICE_VERSION the runtime offers notice v2 in `joined`, and its text says a player role played by an AI is named "AI player" and its lines are marked AI; `consent/notice-v1.md` still has its recorded SHA-256 and can be selected; a lobby whose players consented under v1 restarts on v2 keeping its seats and its AI role while the v1 consents are dropped, so the start is refused `seats_not_ready` for the humans; a started session whose players consented under v1 restarts on v2: both humans rejoin with their credentials, a different participant is refused `consent_required`, a bot rejoins its AI seat with a reissued code, and the log still starts with logFormat 3 and the AI role; a participant who took a seat over after a code reissue (a rebound consent stored under v1) rejoins on v2 with their credential while another participant is still refused.
+Actual Result: As expected (3 files, 80 tests passed), 2026-11-03.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3a, PR 3. The tests that used to give consent under "v1" against the default now name the version they mean. Rollback: a build from before this slice, or of PR 1 or PR 2, serves v1 again and drops a lobby's v2 consents on read (docs/ROLLBACK.md, rulings R14 and R15 in docs/THREAT_MODEL.md).
+
+TC-0104: the player page marks AI seats and lines, reserves the name and ends a switched player's stream
+Related Story: US-0060
+Related Task: TASK-0098
+Related AC: AC-0321
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run, from `apps/web`: `pnpm exec vitest run src/components/__tests__/components.test.tsx src/components/__tests__/session-screen.test.tsx src/lib/__tests__/use-session.test.ts src/server/__tests__/stream-hub.test.ts src/server/__tests__/handlers.test.ts src/server/__tests__/handlers.launcher.test.ts src/server/__tests__/runtime-connection.test.ts src/server/__tests__/ai-roles.runtime.test.ts`.
+Expected Result: the roster shows an AI seat as "AI player" with its role label, never "Joined" and "Ready" once ready, and a seat without the flag is shown as before; the transcript names an AI seat's lines "AI player" and marks them AI from `aiRoles` alone (a human named like an AI gets no mark); the page and the stream hub keep only the four roster fields and `ai` only when exactly true; a join named "AI player Sam" is refused 400 `reserved_name` by the web server; close code 4004 ends the stream with the final `ai_filled` event and the fixed message "The facilitator has filled this role.", which the page shows and stops reconnecting; against the real runtime, both humans' streams carry `aiRoles` in `session.started` and the bot's line, a reset after a reconnect still carries `aiRoles`, no player stream byte carries the bot's participant id, credential or code, the names table or a consents entry for the AI role, and the next stream of a switched human with the old cookie ends "signed out".
+Actual Result: As expected (8 files, 207 tests passed), 2026-11-03.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3a, PR 3 (Tasks 12 to 14). AC-0321 stays open: the terminal client (which will label AI lines and seats, not refuse AI sessions), the console, the reports, exports and the bot intent log follow in 2b-3b, 2b-3c and 2c. No AI seat is reachable from a browser yet, so this is the label half of the hard rule in docs/THREAT_MODEL.md.

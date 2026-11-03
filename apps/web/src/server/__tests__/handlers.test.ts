@@ -308,6 +308,19 @@ describe("POST /api/v1/join", () => {
     expect(connect).toHaveBeenCalledTimes(1);
   });
 
+  it("a join named \"AI player Sam\" or \"A\u200BI player Sam\" is 400 reserved_name and the runtime is never contacted", async () => {
+    const { deps, connect } = makeDeps();
+    for (const displayName of ["AI player Sam", "A\u200BI player Sam", "  ai PLAYER"]) {
+      const res = await handleJoin(joinReq({ ...goodJoin, displayName }), deps);
+      expect(res.status, JSON.stringify(displayName)).toBe(400);
+      const e = (await res.json()).error;
+      expect(e.code).toBe("reserved_name");
+      expect(e.message).toBe("Names starting with \u201CAI player\u201D are kept for AI players. Choose another name.");
+    }
+    expect(connect).not.toHaveBeenCalled();
+    expect(deps.joinThrottle.size).toBe(0);
+  });
+
   it("refuses a bad display name with 400 bad_name before the runtime, and a body it cannot read with 400 bad_request", async () => {
     const { deps, connect } = makeDeps();
     for (const displayName of ["", "   ", "a".repeat(61), "two\nlines", "tab\there"]) {

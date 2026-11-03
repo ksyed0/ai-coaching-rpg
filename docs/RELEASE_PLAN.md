@@ -1784,9 +1784,9 @@ Notes: PR 1 (merged) is the runtime side: the optional ref on command and end_no
 TASK-0098 (US-0060): AI-role state, start gate, marking, consent notice v2 and log format 3 (slice 2b-3a)
 Type: Dev
 Assignee: Agent
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0002-US-0060-ai-role-record (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels)
-Notes: PR 1 (merged as #78) is the record: aiRoles in session.started, the state and the player copies, log format 3 for a session with AI roles, and the lobby's <id>.ai-roles.json beside the seat files (AC-0358, TC-0100). PR 2 (feature/EPIC-0002-US-0060-ai-role-gate) is the gate, marking and the set_ai_roles IPC: the start gate counts human seats and AI bots apart, AI seats skip consent and are marked, and the control service can set AI roles over the private channel (AC-0359, TC-0101; TC-0102 for the gate and the marking); PR 3 the labels. Nothing over HTTP sets AI roles before slice 2b-3b (ruling A1). Plan docs/superpowers/plans/2026-11-02-slice-2b-3a-ai-role-state.md.
+Notes: PR 1 (merged as #78) is the record: aiRoles in session.started, the state and the player copies, log format 3 for a session with AI roles, and the lobby's <id>.ai-roles.json beside the seat files (AC-0358, TC-0100). PR 2 (feature/EPIC-0002-US-0060-ai-role-gate) is the gate, marking and the set_ai_roles IPC: the start gate counts human seats and AI bots apart, AI seats skip consent and are marked, and the control service can set AI roles over the private channel (AC-0359, TC-0101; TC-0102 for the gate and the marking); PR 3 (feature/EPIC-0002-US-0060-ai-role-labels) is consent notice v2 as the default (AC-0360, TC-0103) and the labels on the player page: the roster and transcript mark AI seats from aiRoles, the web server reserves the name "AI player", and a switched human's stream ends ai_filled (player part of AC-0321, TC-0104). Done means the three PRs; US-0060 stays In Progress for slice 2b-3b. Nothing over HTTP sets AI roles before slice 2b-3b (ruling A1). Plan docs/superpowers/plans/2026-11-02-slice-2b-3a-ai-role-state.md.
 ```
 
 ```
@@ -1801,10 +1801,11 @@ Acceptance Criteria:
   - [ ] AC-0318: switching a joined human to AI asks for confirmation and revokes their credential and consent; switching back stops the bot and issues a new code once (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b)
   - [ ] AC-0319: the player bot code moves from demo/ to a shared module used by the demo and the control service, with its own PLAYER_MODEL and PLAYER_TEMPERATURE settings
   - [ ] AC-0320: session.started records aiRoles, AI roles skip consent, and the start gate counts human seats and connected AI bots separately (runtime part built in 2b-3a (aiRoles recorded, AI seats skip consent, the gate checks humans and bots apart); no build can hold an AI role and the console shows the counts in 2b-3b; TC-0102)
-  - [ ] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only
-  - [ ] AC-0322: an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored
+  - [ ] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client and the console in 2b-3b, reports and exports in 2b-3c and 2c, the intent log in 2b-3b)
+  - [ ] AC-0322: an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored (2b-3c and 2c read state.aiRoles from the log, which 2b-3a records)
   - [x] AC-0358: session.started records aiRoles in scenario order (log format 3) only when a session has AI roles, other sessions keep format 2, the runtime reads formats 0 to 3 and refuses aiRoles in an older format, and the lobby's AI roles are kept in <id>.ai-roles.json beside the seat files across a managed restart (events state and player-copy tests, session-engine-restore.test.ts, session-store.ai-roles.test.ts; TC-0100)
   - [x] AC-0359: the control service can set the AI roles of a session before the start over the private IPC channel only; each changed role gets a new code in the same step, a switched human's credential and consent are revoked and their socket closed with 4004, and the change is refused after the start (set-ai-roles, parent-channel, main.ai-roles, protocol drift and supervisor.ai-roles tests; TC-0101)
+  - [x] AC-0360: the default consent notice is v2, which says a participant's seat may be played by an AI player, and a started session whose players consented under v1 restarts on v2 with every consenting participant able to rejoin, a participant who took a seat over after a reissue included, and a different participant still refused (main.consent-v2.test.ts and the tests that used to pin v1; TC-0103)
 ```
 
 ```

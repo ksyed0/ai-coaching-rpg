@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { CLIENT_ID_MAX_CHARS, isNoticeVersion, isScenarioId, isValidSessionId } from "@acr/events";
+import { CLIENT_ID_MAX_CHARS, isNoticeVersion, isReservedDisplayName, isScenarioId, isValidSessionId } from "@acr/events";
 import type { Config } from "./config";
 import { fail, ok } from "./envelope";
 import type { FacilitatorBudget } from "./facilitator-budget";
@@ -10,7 +10,7 @@ import { resolveRuntimeUrl } from "./runtime-lookup";
 import { seal, unseal } from "./seal";
 import { lastSeqOf, sseBody, sseFinal, sseHeaders, type SseOut } from "./sse";
 import type { FacilitatorHub } from "./facilitator-hub";
-import { NoStreamError, REMOVED_MESSAGE, SIGNED_OUT_MESSAGE, type SessionCookie, type StreamHub } from "./stream-hub";
+import { AI_FILLED_MESSAGE, NoStreamError, REMOVED_MESSAGE, SIGNED_OUT_MESSAGE, type SessionCookie, type StreamHub } from "./stream-hub";
 import type { JoinThrottle } from "./throttle";
 import type { ClientMessage, JoinedFrame } from "./wire";
 
@@ -27,7 +27,7 @@ export type Deps = {
 
 /** `__Host-`: the browser accepts it only Secure, with Path=/ and no Domain, so a sibling subdomain cannot plant or shadow it. */
 export const COOKIE_NAME = "__Host-scenecoach";
-export { REMOVED_MESSAGE, SIGNED_OUT_MESSAGE };
+export { AI_FILLED_MESSAGE, REMOVED_MESSAGE, SIGNED_OUT_MESSAGE };
 
 const HOUR_MS = 3_600_000;
 const MAX_BODY_BYTES = 8 * 1024;
@@ -41,6 +41,7 @@ type Answer = { status: number; code: string; message: string };
 const A = {
   forbidden: { status: 403, code: "forbidden", message: "This request was refused." },
   badRequest: { status: 400, code: "bad_request", message: "The request could not be read." },
+  reservedName: { status: 400, code: "reserved_name", message: "Names starting with \u201CAI player\u201D are kept for AI players. Choose another name." },
   badName: { status: 400, code: "bad_name", message: "Enter a name of 1 to 60 characters on one line." },
   // The one answer to every refused join: it never tells whether the session, the role or the code was wrong, or the pair is blocked.
   joinRefused: { status: 401, code: "join_refused", message: "That did not work. Check the link and the code, or ask your facilitator for a new code." },
@@ -179,6 +180,7 @@ export async function handleJoin(req: Request, deps: Deps): Promise<Response> {
   if (typeof sessionId !== "string" || typeof role !== "string" || typeof joinCode !== "string" || typeof body.displayName !== "string") return answer(A.badRequest);
   const name = displayName(body.displayName);
   if (name === null) return answer(A.badName);
+  if (isReservedDisplayName(name)) return answer(A.reservedName); // a courtesy: the runtime refuses it too, with a generic bad_message
   if (!isValidSessionId(sessionId) || !isRoleId(role) || joinCode.length < 1 || joinCode.length > MAX_JOIN_CODE_CHARS) return answer(A.joinRefused);
   const throttle = deps.joinThrottle;
   if (throttle.blockedForMs(address, role) > 0) return answer(A.joinRefused);
@@ -260,6 +262,7 @@ export async function handleStream(req: Request, deps: Deps): Promise<Response> 
     if (code === "reissued") return sseFinal("signed_out", { message: SIGNED_OUT_MESSAGE }, CLEAR_COOKIE);
     // The facilitator removed this player while the stream was joining: same as a revoked credential, with its own message.
     if (code === "removed") return sseFinal("removed", { message: REMOVED_MESSAGE }, CLEAR_COOKIE);
+    if (code === "ai_filled") return sseFinal("ai_filled", { message: AI_FILLED_MESSAGE }, CLEAR_COOKIE);
     return sseFinal("reconnecting");
   }
   // Nobody is listening any more.

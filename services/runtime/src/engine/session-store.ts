@@ -164,15 +164,15 @@ export async function openSession(o: {
   /**
    * US-0053: reads both seat files for a resume BEFORE anything is changed, so an unusable file refuses the start untouched. The
    * consent file is read only beside credentials bound to this session (otherwise both are replaced unread). The AI-role file
-   * (US-0060) is read only with `readAiRoles`, which only the managed empty-log path passes: a started log is the record of its AI
+   * (US-0060) is read only with `readAiRoles`, which only the managed empty-log path passes (`started`, the resume path's flag, keeps consents of any notice version): a started log is the record of its AI
    * roles, so no file can refuse or change a started session.
    */
-  const readSeats = (readAiRoles = false): { credentials: PlayerCredentials | null; consent: ConsentStore | null; aiRoles: AiRoleSet | null } | undefined => {
+  const readSeats = (readAiRoles = false, started = false): { credentials: PlayerCredentials | null; consent: ConsentStore | null; aiRoles: AiRoleSet | null } | undefined => {
     if (!o.consentNotice) return undefined;
     try {
       const credentials = readCredentialsFile(o.dataDir, o.sessionId);
       const matches = credentials?.matches(bind) === true;
-      const consent = matches ? readConsentFile(o.dataDir, bind, o.consentNotice) : null;
+      const consent = matches ? readConsentFile(o.dataDir, bind, o.consentNotice, started) : null;
       const aiRoles = matches && readAiRoles ? readAiRolesFile(o.dataDir, bind) : null;
       return { credentials, consent, aiRoles };
     } catch (err) {
@@ -202,7 +202,7 @@ export async function openSession(o: {
     const identityKept = !logIdentity || found?.credentials?.logIdentity === logIdentity;
     if (codesKept && found?.credentials?.matches(bind) && identityKept) {
       credentials = found.credentials;
-      consent = found.consent ?? new ConsentStore(notice); // entries under another notice version were dropped on read
+      consent = found.consent ?? new ConsentStore(notice); // a lobby drops entries under another notice version on read; a started session keeps them
       if (!found.consent) {
         try { writeConsentFile(o.dataDir, bind, consent, holdLockNow); }
         catch (err) { throw new SessionStoreError("io", `cannot write the consent file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
@@ -330,7 +330,7 @@ export async function openSession(o: {
       return done(opened, rotatedTo ? { outcome: "rotated", rotatedTo, rotatedBecause: "ended", joinCodes, seats } : { outcome: "new", joinCodes, seats });
     }
     // Both read before anything is written or appended: a refused codes or seat file leaves everything untouched.
-    const found = readSeats();
+    const found = readSeats(false, true); // a started session: consents of any notice version stand (R15)
     const joinCodes = settleCodes(true, true);
     // The log's own identity (logs written before US-0053 carry none: then a new one) survives a lost credentials file.
     const seats = settleSeats(!joinCodes?.issued, found, restored.info.logIdentity, restored.info.startedAiRoles ?? []);

@@ -145,14 +145,15 @@ describe("openSession with seats (US-0053)", () => {
     expect(existsSync(credFile()) && existsSync(consentFile())).toBe(true); // and new ones written after
   });
 
-  it("consent under another notice version is dropped on resume", async () => {
+  it("consent under another notice version stands on the resume of a started session (R15: no version comparison after the start)", async () => {
     const a = await openIt("resume");
     const plain = await seatHost(a);
     await crash(a);
     const b = await openIt("resume", V2);
     expect(b.outcome).toBe("resumed");
     expect(b.seats!.consent.notice).toEqual(V2);
-    expect(b.seats!.consent.has("host", "p")).toBe(false);
+    expect(b.seats!.consent.has("host", "p")).toBe(true); // the notice differs, the consent stands
+    expect(b.seats!.consent.snapshot().host?.noticeVersion).toBe("v1");
     expect(b.seats!.credentials.verify("host", plain)).toBe(true); // the credentials stay
   });
 
