@@ -199,7 +199,9 @@ export class StreamHub {
       if (!this.write(s, sse("event", m.event, Number.isSafeInteger(seq) ? seq : undefined))) return;
       if (m.event.type === "session.ended") this.finish(s, "ended");
     } else if (m.type === "roster") {
-      this.write(s, sse("roster", { audience: m.audience, entries: m.audience === "peers" ? m.entries.map(peerEntryOf) : m.entries }));
+      // Default-deny: a player's stream carries only the peers roster, picked field by field. Any other audience (a facilitator frame
+      // with consent and connection) is dropped, never forwarded as it came.
+      if (m.audience === "peers") this.write(s, sse("roster", { audience: "peers", entries: m.entries.map(peerEntryOf) }));
     } else if (m.type === "error") {
       // The answer to the waiting send, if its message can produce this code; anything else (log_failed, sent to everyone unasked) goes to the page.
       const w = s.waiter;

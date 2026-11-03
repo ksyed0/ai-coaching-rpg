@@ -1594,7 +1594,7 @@ Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-3a, PR 2 (Tasks 5 and 6). AC-0320 stays open: no build can hold an AI role until slice 2b-3b, and the console counts are 3b. The reserved-name check refuses any join with the prefix, so the 3b bot must send no displayName. The terminal client does not label AI seats or lines yet (a hard rule for 3b, docs/THREAT_MODEL.md; owner decision of 2026-11-03: it will label them, not refuse AI sessions).
 
-TC-0103: the default consent notice is v2 and a restart on it locks nobody out
+TC-0103: the default consent notice is v2 and a restart on it keeps every consenting participant of a started session
 Related Story: US-0060
 Related Task: TASK-0098
 Related AC: AC-0360
@@ -1602,11 +1602,11 @@ Type: Regression
 Preconditions: A checkout of the branch.
 Steps:
   1. Run `pnpm --filter @acr/runtime exec vitest run src/__tests__/main.consent-v2.test.ts src/__tests__/main.test.ts src/__tests__/main.parent.test.ts`.
-Expected Result: without CONSENT_NOTICE_VERSION the runtime offers notice v2 in `joined`, and its text says a player role played by an AI is named "AI player" and its lines are marked AI; `consent/notice-v1.md` still has its recorded SHA-256 and can be selected; a lobby whose players consented under v1 restarts on v2 keeping its seats and its AI role while the v1 consents are dropped, so the start is refused `seats_not_ready` for the humans; a started session whose players consented under v1 restarts on v2: both humans rejoin with their credentials, a different participant is refused `consent_required`, a bot rejoins its AI seat with a reissued code, and the log still starts with logFormat 3 and the AI role.
+Expected Result: without CONSENT_NOTICE_VERSION the runtime offers notice v2 in `joined`, and its text says a player role played by an AI is named "AI player" and its lines are marked AI; `consent/notice-v1.md` still has its recorded SHA-256 and can be selected; a lobby whose players consented under v1 restarts on v2 keeping its seats and its AI role while the v1 consents are dropped, so the start is refused `seats_not_ready` for the humans; a started session whose players consented under v1 restarts on v2: both humans rejoin with their credentials, a different participant is refused `consent_required`, a bot rejoins its AI seat with a reissued code, and the log still starts with logFormat 3 and the AI role; a participant who took a seat over after a code reissue (a rebound consent stored under v1) rejoins on v2 with their credential while another participant is still refused.
 Actual Result: As expected (3 files, 80 tests passed), 2026-11-03.
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2b-3a, PR 3. The tests that used to give consent under "v1" against the default now name the version they mean. Rollback: a build from before this slice serves v1 again and drops a lobby's v2 consents on read (docs/ROLLBACK.md, rulings R14 and R15 in docs/THREAT_MODEL.md).
+Notes: Slice 2b-3a, PR 3. The tests that used to give consent under "v1" against the default now name the version they mean. Rollback: a build from before this slice, or of PR 1 or PR 2, serves v1 again and drops a lobby's v2 consents on read (docs/ROLLBACK.md, rulings R14 and R15 in docs/THREAT_MODEL.md).
 
 TC-0104: the player page marks AI seats and lines, reserves the name and ends a switched player's stream
 Related Story: US-0060

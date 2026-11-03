@@ -2633,7 +2633,7 @@
         },
         {
           "id": "AC-0360",
-          "text": "the default consent notice is v2, which says a participant's seat may be played by an AI player, and a started session whose players consented under v1 is not locked out after a restart on v2 (main.consent-v2.test.ts and the tests that used to pin v1; TC-0103)",
+          "text": "the default consent notice is v2, which says a participant's seat may be played by an AI player, and a started session whose players consented under v1 restarts on v2 with every consenting participant able to rejoin, a participant who took a seat over after a reissue included, and a different participant still refused (main.consent-v2.test.ts and the tests that used to pin v1; TC-0103)",
           "done": true
         }
       ],
@@ -4735,7 +4735,7 @@
     },
     {
       "id": "TC-0103",
-      "title": "the default consent notice is v2 and a restart on it locks nobody out",
+      "title": "the default consent notice is v2 and a restart on it keeps every consenting participant of a started session",
       "relatedStory": "US-0060",
       "relatedTask": "TASK-0098",
       "relatedAC": "AC-0360",
@@ -6287,9 +6287,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-03T19:01:09.694Z",
-  "commitSha": "3587168",
-  "buildNumber": "501",
+  "generatedAt": "2026-11-03T19:10:34.721Z",
+  "commitSha": "14910e5",
+  "buildNumber": "502",
   "branch": "feature/EPIC-0002-US-0060-ai-role-labels",
   "sessionTimeline": [
     {
@@ -6565,7 +6565,7 @@
       "2026-11-03T01:09:21.726Z",
       "2026-11-03T15:10:25.909Z",
       "2026-11-03T17:54:55.879Z",
-      "2026-11-03T19:01:09.770Z"
+      "2026-11-03T19:10:34.810Z"
     ],
     "doneCounts": [
       0,

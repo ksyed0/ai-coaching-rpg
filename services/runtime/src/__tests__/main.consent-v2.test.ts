@@ -129,6 +129,39 @@ describe("consent notice v2 (US-0060)", () => {
     expect(firstLine).toMatchObject({ type: "session.started", logFormat: 3, aiRoles: ["tech_lead"] });
   });
 
+  it("a participant who took a seat over after a code reissue keeps it across the bump to v2; a different participant is still refused consent_required", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "acr-cv2-"));
+    const a = fakeParent();
+    const first = await boot(a.parent, dataDir(), "v1");
+    const humanCodes = codesOf(a.sent);
+    const set = await a.ask({ type: "set_ai_roles", requestId: "s1", roles: ["tech_lead"] });
+    const botCode = (set as Extract<ChildMessage, { type: "ai_roles_set" }>).codes[0]!.code;
+    const am = await join(first.port, "account_manager", "amy", { joinCode: humanCodes.account_manager! });
+    const dl = await join(first.port, "delivery_lead", "dan", { joinCode: humanCodes.delivery_lead! });
+    await join(first.port, "tech_lead", "bot1", { joinCode: botCode });
+    await consent(am.c, first, "account_manager", "amy", "v1");
+    await consent(dl.c, first, "delivery_lead", "dan", "v1");
+    const f = await facilitator(first.port);
+    f.send({ type: "start" });
+    await f.next((m) => m.type === "event" && m.event?.type === "scene.entered");
+    await vi.waitFor(() => expect(first.host.hasStarted).toBe(true), { timeout: 30_000, interval: 5 });
+    // The seat changes hands after the start: Bob joins with the reissued code and inherits the consent the log records.
+    const re = await a.ask({ type: "reissue", requestId: "r1", roleId: "account_manager" });
+    expect(re.type).toBe("reissued");
+    const bob = await join(first.port, "account_manager", "bob", { joinCode: (re as Extract<ChildMessage, { type: "reissued" }>).code });
+    expect(bob.reply.type).toBe("joined");
+    expect(first.host.consentGiven("account_manager", "bob")).toBe(true);
+    const bobCredential = bob.reply.credential as string;
+    await first.stop(); runtimes.pop();
+
+    const second = await boot(fakeParent().parent, dataDir()); // the default: v2
+    expect(second.host.seats!.consent.notice.version).toBe("v2");
+    const again = await join(second.port, "account_manager", "bob", { credential: bobCredential });
+    expect(again.reply.type).toBe("joined");
+    const other = await join(second.port, "account_manager", "amy", { credential: bobCredential });
+    expect(other.reply).toMatchObject({ type: "error", code: "consent_required" });
+  });
+
   it('a lobby whose players consented under v1 restarts on v2: seats and the AI role are kept, the v1 consents are dropped, and start is refused "seats_not_ready: account_manager,delivery_lead"', async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-cv2-"));
     const a = fakeParent();

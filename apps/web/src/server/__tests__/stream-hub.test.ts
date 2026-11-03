@@ -125,6 +125,16 @@ describe("StreamHub endings: out.end() exactly once, timers cancelled, listeners
     expect(conn.listeners()).toBe(0);
   });
 
+  it("a roster frame of any audience but peers (a facilitator frame with consent and connection) never reaches a player's stream", () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    const before = rec.frames().length;
+    conn.emit({ type: "roster", audience: "facilitator", entries: [{ roleId: "a", name: "Al", ready: true, connected: true, consent: { noticeVersion: "v2", at: 1 }, participantId: "p-secret" }] } as never);
+    conn.emit({ type: "roster", audience: "somebody-else", entries: [{ roleId: "a", ready: true, participantId: "p-secret" }] } as never);
+    expect(rec.frames().length).toBe(before);
+    expect(rec.chunks.join("")).not.toContain("p-secret");
+  });
+
   it("a peers roster entry keeps ai true; ai \"yes\", an extra key participantId and a non-boolean ready are dropped or false", () => {
     const { h } = hub();
     const { conn, rec } = opened(h);

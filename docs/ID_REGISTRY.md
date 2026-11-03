@@ -52,4 +52,4 @@ Assigned 2026-11-03 (slice 2b-3a, PR 1): AC-0358 (US-0060: session.started recor
 
 Assigned 2026-11-03 (slice 2b-3a, PR 2): AC-0359 (US-0060: the control service sets AI roles over the private IPC channel before the start); TC-0101 (AC-0359) and TC-0102 (AC-0320 runtime part: the gate and the marking). No new TASK: the work is under TASK-0098 (next free stays TASK-0099).
 
-Assigned 2026-11-03 (slice 2b-3a, PR 3): AC-0360 (US-0060: the default consent notice is v2 and a started session whose players consented under v1 is not locked out after a restart on v2); TC-0103 (AC-0360) and TC-0104 (AC-0321, player part: roster, transcript, reserved name, ai_filled). No new TASK: the work closes TASK-0098 (next free stays TASK-0099).
+Assigned 2026-11-03 (slice 2b-3a, PR 3): AC-0360 (US-0060: the default consent notice is v2 and a started session whose players consented under v1 keeps every consenting participant, rebound seats included, after a restart on v2); TC-0103 (AC-0360) and TC-0104 (AC-0321, player part: roster, transcript, reserved name, ai_filled). No new TASK: the work closes TASK-0098 (next free stays TASK-0099).
