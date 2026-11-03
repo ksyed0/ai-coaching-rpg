@@ -32,4 +32,19 @@ describe("cleanHint", () => {
   it("removes zero-width and control characters and folds tabs and line breaks into spaces", () => {
     expect(cleanHint("a\u200bb\u0007c\td\r\ne")).toBe("abc d e");
   });
+
+  it("removes soft hyphens, tag characters, invisible operators and variation selectors placed inside a fence", () => {
+    for (const raw of ["<<\u00ad<", "<<\u{E0041}<", "<<\u2061<", ">\ufe0f>>", "<<\u180b<", "<<\u0085<"]) {
+      const out = cleanHint(raw + "x") ?? "";
+      expect(out, raw).not.toContain("<<<");
+      expect(out, raw).not.toContain(">>>");
+    }
+    expect(cleanHint("a\u00adb\u{E0041}c\u2061d\ufe0fe")).toBe("abcde");
+    expect(cleanHint("a\u0085b\u2028c")).toBe("a b c");
+  });
+
+  it("is idempotent", () => {
+    const once = cleanHint("  x <<<<y>>>> \n z ")!;
+    expect(cleanHint(once)).toBe(once);
+  });
 });

@@ -56,4 +56,24 @@ describe("parseAiPlayerSettings", () => {
     const s = ok({ NPC_REPLY_TIMEOUT_MS: "30000", NPC_MAX_TOKENS: "250", PLAYER_TEMPERATURE: "0.4" });
     expect(s).toMatchObject({ replyTimeoutMs: 30_000, hardTimeoutMs: 35_000, maxTokens: 250, temperature: 0.4 });
   });
+
+  it("boundary pairs: both bounds of each setting are accepted, one beyond is refused", () => {
+    const cases: Array<[string, number, number, (s: ReturnType<typeof ok>) => number]> = [
+      ["AI_PLAYER_LINES_PER_SCENE", 1, 100, (s) => s.turn.linesPerScene],
+      ["AI_PLAYER_NUDGE_MS", 10_000, 3_600_000, (s) => s.turn.nudgeMs],
+      ["AI_PLAYER_MIN_GAP_MS", 0, 600_000, (s) => s.turn.minGapMs],
+      ["AI_PLAYER_SETTLE_MS", 0, 60_000, (s) => s.turn.settleMs],
+      ["AI_PLAYER_CALLS_PER_SESSION", 0, 1000, (s) => s.callsPerSession],
+    ];
+    for (const [name, min, max, get] of cases) {
+      expect(get(ok({ [name]: String(min) }))).toBe(min);
+      expect(get(ok({ [name]: String(max) }))).toBe(max);
+      expect(errs({ [name]: String(max + 1) }).join("\n")).toContain(name);
+      if (min > 0) expect(errs({ [name]: String(min - 1) }).join("\n")).toContain(name);
+    }
+  });
+
+  it("an invalid GM_MAX_TOKENS does not refuse the AI player settings", () => {
+    expect(ok({ GM_MAX_TOKENS: "nope" }).maxTokens).toBe(600);
+  });
 });
