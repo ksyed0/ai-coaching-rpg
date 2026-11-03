@@ -252,3 +252,27 @@ describe("reduceReplay (US-0018: linear restore)", () => {
     expect(() => reduceReplay(fast, { ...env(99), type: "inject.fired", injectId: "x", sceneId: "s", to: [], content: "" })).toThrow(/out of order/);
   });
 });
+
+describe("aiRoles (US-0060)", () => {
+  const startedAi = (aiRoles?: unknown): SessionEvent => ({
+    ...env(1), type: "session.started", scenarioId: "sc", version: "1",
+    roles: { tech_lead: { kind: "player" }, delivery_lead: { kind: "player" }, client_sponsor: { kind: "npc" } },
+    ...(aiRoles === undefined ? {} : { aiRoles }),
+  } as SessionEvent);
+
+  it('session.started with aiRoles ["tech_lead", 7, "client_sponsor", "tech_lead"] folds to ["tech_lead"] when client_sponsor is an npc; without the field aiRoles is []', () => {
+    expect(reduce(initialState(), startedAi(["tech_lead", 7, "client_sponsor", "tech_lead", "ghost"])).aiRoles).toEqual(["tech_lead"]);
+    expect(reduce(initialState(), startedAi()).aiRoles).toEqual([]);
+    expect(reduce(initialState(), startedAi("tech_lead")).aiRoles).toEqual([]);
+    expect(initialState().aiRoles).toEqual([]);
+  });
+
+  it("reduceReplay agrees with reduce on aiRoles", async () => {
+    const { reduceReplay } = await import("../index.js");
+    const evs = [startedAi(["delivery_lead", "tech_lead"]), { ...env(2), type: "utterance", roleId: "tech_lead", text: "a", channel: "text" } as SessionEvent];
+    const pure = evs.reduce((st, e) => reduce(st, e), initialState());
+    const fast = evs.reduce((st, e) => reduceReplay(st, e), initialState());
+    expect(fast.aiRoles).toEqual(["delivery_lead", "tech_lead"]);
+    expect(fast).toEqual(pure);
+  });
+});

@@ -10,7 +10,7 @@ import { asConn, FakeConn, manualTimers, parseSse, sseRecorder } from "./fakes";
 const state = (lastSeq = 5): SessionState => ({
   status: "running", lastSeq, scenarioId: "sc", version: "1", roles: { lead: { kind: "player", participantId: "P-SECRET" } },
   currentScene: null, sceneHistory: [], paused: false, pausedSince: null, transcript: [], injectsFired: [],
-  npcs: { npc: { goals: ["GOAL-SECRET"], knowledge: [], released: [] } }, advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {},
+  npcs: { npc: { goals: ["GOAL-SECRET"], knowledge: [], released: [] } }, advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [],
 });
 const entries: FacilitatorRosterEntry[] = [{ roleId: "lead", name: "Ann", joined: true, consented: true, connected: true }];
 const scenes = [{ id: "a", title: "T", goal: "G", timeBoxMinutes: 5 }];

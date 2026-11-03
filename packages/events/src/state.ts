@@ -34,6 +34,8 @@ export type SessionState = {
   factsEarned: Record<string, number[]>;
   /** US-0059: words and lines per role that has spoken (the kind comes from `roles`, so NPC lines count apart). Folded from `utterance` only. Facilitator snapshot only: never in a player snapshot. */
   talk: Record<string, TalkCount>;
+  /** US-0060: player roles an AI plays (from session.started.aiRoles; distinct, each a player role of the event). Always present, [] without AI roles. Not facilitator-only: players label AI lines with it. */
+  aiRoles: string[];
 };
 
 /** A snapshot a player may hold: everything but the facilitator-only fields. */
@@ -45,11 +47,21 @@ function withTalk(talk: SessionState["talk"], roleId: string, text: string): Ses
   return { ...talk, [roleId]: { words: prev.words + countWords(text), lines: prev.lines + 1 } };
 }
 
+/** Distinct strings of `aiRoles` that name a player role of the event, first occurrence only; anything else (a non-string, an AI character, an unknown role) is dropped. */
+function foldAiRoles(e: Extract<SessionEvent, { type: "session.started" }>): string[] {
+  if (!Array.isArray(e.aiRoles)) return [];
+  const out: string[] = [];
+  for (const r of e.aiRoles as unknown[]) {
+    if (typeof r === "string" && !out.includes(r) && Object.hasOwn(e.roles, r) && e.roles[r]?.kind === "player") out.push(r);
+  }
+  return out;
+}
+
 export function initialState(): SessionState {
   return {
     status: "idle", lastSeq: 0, scenarioId: null, version: null, roles: {},
     currentScene: null, sceneHistory: [], paused: false, pausedSince: null, transcript: [], injectsFired: [], npcs: {},
-    advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {},
+    advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [],
   };
 }
 
@@ -58,7 +70,7 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
   const s: SessionState = { ...state, lastSeq: e.seq };
   switch (e.type) {
     case "session.started":
-      return { ...s, status: "running", scenarioId: e.scenarioId, version: e.version, roles: e.roles };
+      return { ...s, status: "running", scenarioId: e.scenarioId, version: e.version, roles: e.roles, aiRoles: foldAiRoles(e) };
     case "scene.entered":
       return { ...s, advanceRequested: false, gmVerdicts: {}, currentScene: { id: e.sceneId, enteredAt: e.ts, participants: e.participants, pausedMs: 0 },
         pausedSince: s.paused ? e.ts : null,

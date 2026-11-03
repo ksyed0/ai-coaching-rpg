@@ -33,7 +33,12 @@ export type EventBody =
        */
       consents?: Record<string, { noticeVersion: string; at: number }>;
       names?: Record<string, string>;
-      logIdentity?: string }
+      logIdentity?: string;
+      /**
+       * US-0060: player roles an AI plays, in scenario order; present only when non-empty. Readers treat absence as none. Unlike `consents`
+       * it is public to every player (labels), and never lists an AI character.
+       */
+      aiRoles?: string[] }
   | { type: "scene.entered"; sceneId: string; participants: string[] }
   | { type: "scene.exited"; sceneId: string; reason: ExitReason }
   | { type: "utterance"; roleId: string; text: string; channel: Channel;

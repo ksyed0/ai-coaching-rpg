@@ -21,7 +21,11 @@ export type PlayerView = {
   transcript: PlayerLine[];
   injects: { seq: number; content: string; sceneId: string }[];
   ended: { reason: string; message?: string } | null;
+  /** US-0060: player roles an AI plays; [] when none. Labels come from this, never from a name. */
+  aiRoles: string[];
 };
+
+const stringsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
 /** Seeds the view from the redacted join snapshot. The snapshot carries no inject content, so `injects` starts empty. */
 export function initPlayerView(snapshot: PlayerSnapshot): PlayerView {
@@ -30,7 +34,7 @@ export function initPlayerView(snapshot: PlayerSnapshot): PlayerView {
     lastSeq: snapshot.lastSeq, status: snapshot.status, paused: snapshot.paused, pausedSince: snapshot.pausedSince,
     scene: sc ? { id: sc.id, enteredAt: sc.enteredAt, pausedMs: sc.pausedMs } : null,
     transcript: snapshot.transcript.map((u) => ({ seq: u.seq, ts: u.ts, roleId: u.roleId, text: u.text, sceneId: u.sceneId })),
-    injects: [], ended: null,
+    injects: [], ended: null, aiRoles: stringsOf(snapshot.aiRoles),
   };
 }
 
@@ -46,7 +50,7 @@ export function applyPlayerEvent(view: PlayerView, e: SessionEvent): PlayerView 
   const tsOk = Number.isFinite(e.ts);
   switch (e.type) {
     case "session.started":
-      return { ...v, status: "running" };
+      return { ...v, status: "running", aiRoles: stringsOf(e.aiRoles) };
     case "scene.entered":
       if (!tsOk) return v;
       return { ...v, scene: { id: e.sceneId, enteredAt: e.ts, pausedMs: 0 }, pausedSince: v.paused ? e.ts : null };

@@ -8,7 +8,7 @@ const state = (): SessionState => ({
   currentScene: { id: "a", enteredAt: 1, participants: ["lead"], pausedMs: 0 }, sceneHistory: [{ id: "a", participants: ["lead"] }],
   paused: false, pausedSince: null, transcript: [{ seq: 2, ts: 2, sceneId: "a", roleId: "lead", text: "hi", channel: "text" }],
   injectsFired: ["i1"], npcs: { npc: { goals: ["GOAL-SECRET"], knowledge: ["KNOW-SECRET"], released: ["REL-SECRET"] } },
-  advanceRequested: true, gmVerdicts: { c: true }, factsEarned: { npc: [1] }, talk: { lead: { words: 1, lines: 1 } },
+  advanceRequested: true, gmVerdicts: { c: true }, factsEarned: { npc: [1] }, talk: { lead: { words: 1, lines: 1 } }, aiRoles: [],
 });
 
 describe("console copies", () => {
@@ -35,6 +35,17 @@ describe("console copies", () => {
     expect(JSON.stringify(consoleEvent(alert))).not.toContain("SECRET");
     const utt = { type: "utterance", seq: 5, ts: 5, sessionId: "s", roleId: "lead", text: "hello", channel: "text" } as SessionEvent;
     expect(consoleEvent(utt)).toEqual(utt);
+  });
+
+  it("consoleState carries aiRoles and consoleEvent copies them only when non-empty, dropping non-strings", () => {
+    const s = { ...state(), aiRoles: ["lead", 3] } as unknown as SessionState;
+    expect(consoleState(s).aiRoles).toEqual(["lead"]);
+    expect(consoleState(s).aiRoles).not.toBe(s.aiRoles);
+    const base = { type: "session.started", seq: 1, ts: 1, sessionId: "s", scenarioId: "sc", version: "1", roles: { lead: { kind: "player" } } };
+    expect(consoleEvent({ ...base, aiRoles: ["lead", 3] } as unknown as SessionEvent)).toMatchObject({ aiRoles: ["lead"] });
+    expect(Object.hasOwn(consoleEvent({ ...base, aiRoles: [] } as unknown as SessionEvent), "aiRoles")).toBe(false);
+    expect(Object.hasOwn(consoleEvent({ ...base, aiRoles: [3] } as unknown as SessionEvent), "aiRoles")).toBe(false);
+    expect(Object.hasOwn(consoleEvent(base as unknown as SessionEvent), "aiRoles")).toBe(false);
   });
 
   it("consoleRoster keeps only the listed entry fields", () => {
