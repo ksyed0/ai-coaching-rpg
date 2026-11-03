@@ -6,4 +6,4 @@ export { buildLiveRequest, LIVE_INTENTS } from "./prompt.js";
 export { MAX_HINT_CHARS, cleanHint } from "./hint.js";
 export { parseAiPlayerSettings, startLivePlayerProvider, type AiPlayerSettings } from "./settings.js";
 export { generateLiveLine, type LiveLine, type LiveSkipReason } from "./live.js";
-export { DEFAULT_TURN_SETTINGS, type TurnSettings, type Trigger } from "./turn-policy.js";
+export { DEFAULT_TURN_SETTINGS, TurnPolicy, type TurnSettings, type Trigger, type PolicyEvent, type TurnTicket } from "./turn-policy.js";
