@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { postJson } from "../../lib/api";
+import { postJson, type ApiResult } from "../../lib/api";
 import {
   CONSOLE_COPY,
   failureText,
@@ -11,9 +11,11 @@ import {
   type Readiness as ReadinessData,
   type RosterEntry,
 } from "../../lib/console-api";
+import { isolate } from "../../lib/console-view";
 import { roleLabel } from "../../lib/names";
 import { useReadiness, type SetTimer } from "../../lib/use-readiness";
 import { CodesPanel } from "./CodesPanel";
+import { confirmCopy } from "../../lib/console-confirm";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 // The facilitator's view of one session before and after the start: the model, who has joined, consented and connected (in words,
@@ -37,6 +39,7 @@ export type SessionStatus = "idle" | "running" | "ended";
 
 type Confirm =
   | { kind: "role"; roleId: string; opener: HTMLElement }
+  | { kind: "remove"; roleId: string; opener: HTMLElement }
   | { kind: "all"; opener: HTMLElement };
 type Shown = { seq: number; heading: string; codes: CodeEntry[] };
 
@@ -84,6 +87,9 @@ export function Readiness({
   const [error, setError] = useState<string | null>(null);
   const [startedHere, setStartedHere] = useState(false);
   const busy = useRef(false);
+  // After a successful Remove the seat's row loses its Remove button (and with it the dialog's opener): focus moves to that row's
+  // Reissue button once the refreshed roster has arrived, so it never falls to the page.
+  const refocus = useRef<string | null>(null);
   // Every issue gets its own number, so a new code is never shown by a panel that still holds the previous one.
   const seq = useRef(0);
   const show = (heading: string, codes: CodeEntry[]) =>
@@ -92,6 +98,7 @@ export function Readiness({
   async function act<T>(
     run: () => ReturnType<typeof postJson>,
     onOk: (d: unknown) => T | void,
+    errorText: (r: Extract<ApiResult, { ok: false }>) => string = failureText,
   ) {
     if (busy.current) return;
     busy.current = true;
@@ -101,7 +108,7 @@ export function Readiness({
     busy.current = false;
     setWorking(false);
     if (!r.ok) {
-      setError(failureText(r));
+      setError(errorText(r));
       return;
     }
     onOk(r.data);
@@ -119,6 +126,24 @@ export function Readiness({
         if (typeof o.code === "string")
           show(`New code for ${roleLabel(roleId)}`, [{ roleId, code: o.code }]);
       },
+    );
+    setConfirm(null);
+  }
+  async function remove(roleId: string) {
+    await act(
+      () => postJson(url(sessionId, "remove"), { roleId }, fetchImpl),
+      (d) => {
+        const o = (typeof d === "object" && d !== null ? d : {}) as Record<
+          string,
+          unknown
+        >;
+        refocus.current = roleId;
+        if (typeof o.code === "string")
+          show(`New code for ${roleLabel(roleId)}`, [{ roleId, code: o.code }]);
+      },
+      // The BFF's own words for "already started" (the generic 409 text would say nothing about removing).
+      (r) =>
+        r.status === 409 && r.message !== "" ? r.message : failureText(r),
     );
     setConfirm(null);
   }
@@ -186,6 +211,17 @@ export function Readiness({
     setError(failureText(r));
   }
 
+  useEffect(() => {
+    const roleId = refocus.current;
+    if (roleId === null || !data) return;
+    const sel = (a: string) => `[data-${a}="${CSS.escape(roleId)}"]`;
+    if (document.querySelector(sel("remove"))) return; // the refreshed roster has not arrived yet
+    const next = document.querySelector<HTMLElement>(sel("reissue"));
+    if (!next) return;
+    refocus.current = null;
+    next.focus();
+  }, [data]);
+
   if (signedOut) {
     return (
       <p className="banner warn" role="alert">
@@ -219,9 +255,13 @@ export function Readiness({
       onAskRole={(roleId, opener) =>
         setConfirm({ kind: "role", roleId, opener })
       }
+      onAskRemove={(roleId, opener) =>
+        setConfirm({ kind: "remove", roleId, opener })
+      }
       onAskAll={(opener) => setConfirm({ kind: "all", opener })}
       onCancel={() => setConfirm(null)}
       onReissue={(id) => void reissue(id)}
+      onRemove={(id) => void remove(id)}
       onReissueAll={() => void reissueAll()}
       onStart={() => void start()}
       onRestart={() => void restart()}
@@ -243,9 +283,11 @@ type ViewProps = {
   shown: Shown | null;
   confirm: Confirm | null;
   onAskRole: (roleId: string, opener: HTMLElement) => void;
+  onAskRemove: (roleId: string, opener: HTMLElement) => void;
   onAskAll: (opener: HTMLElement) => void;
   onCancel: () => void;
   onReissue: (roleId: string) => void;
+  onRemove: (roleId: string) => void;
   onReissueAll: () => void;
   onStart: () => void;
   onRestart: () => void;
@@ -377,6 +419,7 @@ function View(p: ViewProps) {
                         className="btn"
                         type="button"
                         disabled={!(idle || running) || p.working}
+                        data-reissue={e.roleId}
                         aria-label={`Reissue code for ${roleLabel(e.roleId)}`}
                         onClick={(ev) =>
                           p.onAskRole(e.roleId, ev.currentTarget)
@@ -384,6 +427,24 @@ function View(p: ViewProps) {
                       >
                         Reissue code
                       </button>
+                      {idle && e.joined ? (
+                        <button
+                          className="btn"
+                          type="button"
+                          disabled={p.working}
+                          data-remove={e.roleId}
+                          aria-label={
+                            e.name
+                              ? `Remove ${isolate(e.name)} from ${roleLabel(e.roleId)}`
+                              : `Remove the participant from ${roleLabel(e.roleId)}`
+                          }
+                          onClick={(ev) =>
+                            p.onAskRemove(e.roleId, ev.currentTarget)
+                          }
+                        >
+                          Remove
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -453,6 +514,16 @@ function View(p: ViewProps) {
           }
         />
       ) : null}
+      {p.confirm?.kind === "remove" ? (
+        <RemoveDialog
+          roleId={p.confirm.roleId}
+          name={data.roster.find((r) => r.roleId === (p.confirm as { roleId: string }).roleId)?.name}
+          pending={p.working}
+          opener={p.confirm.opener}
+          onCancel={p.onCancel}
+          onConfirm={() => p.onRemove((p.confirm as { roleId: string }).roleId)}
+        />
+      ) : null}
       {p.confirm?.kind === "all" ? (
         <ConfirmDialog
           title="Reissue all codes?"
@@ -465,6 +536,33 @@ function View(p: ViewProps) {
         />
       ) : null}
     </div>
+  );
+}
+
+function RemoveDialog(p: {
+  roleId: string;
+  name: string | undefined;
+  pending: boolean;
+  opener: HTMLElement;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const copy = confirmCopy({
+    kind: "remove",
+    ...(p.name ? { name: p.name } : {}),
+    role: roleLabel(p.roleId),
+  });
+  return (
+    <ConfirmDialog
+      title={copy.title}
+      description={copy.description}
+      confirmLabel={copy.confirmLabel}
+      tone={copy.tone}
+      pending={p.pending}
+      opener={p.opener}
+      onCancel={p.onCancel}
+      onConfirm={p.onConfirm}
+    />
   );
 }
 

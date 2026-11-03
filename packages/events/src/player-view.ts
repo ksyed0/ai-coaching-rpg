@@ -59,6 +59,8 @@ export function applyPlayerEvent(view: PlayerView, e: SessionEvent): PlayerView 
       return { ...v, injects: [...v.injects, { seq: e.seq, content: e.content, sceneId: e.sceneId }] };
     case "facilitator.command":
       if (!tsOk) return v;
+      // A whisper the runtime sent to this player (a player's stream carries only its own): shown with the updates, as text.
+      if (e.command === "whisper") return typeof e.text === "string" ? { ...v, injects: [...v.injects, { seq: e.seq, content: e.text, sceneId: v.scene?.id ?? "" }] } : v;
       if (e.command === "pause") return v.paused ? v : { ...v, paused: true, pausedSince: e.ts };
       if (e.command === "resume") {
         if (!v.paused) return v;

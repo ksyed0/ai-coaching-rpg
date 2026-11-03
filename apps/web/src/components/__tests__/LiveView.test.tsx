@@ -19,7 +19,7 @@ function ui(over: Partial<ConsoleStreamUi> = {}, state: Partial<SessionState> = 
     currentScene: { id: "s1", enteredAt: T, participants: ["a"], pausedMs: 0 }, ...state,
   };
   return {
-    conn: "live", final: null, channel: "c1", scenes: [scene], view: { ...viewFromReset(st), timeline }, notice: null,
+    conn: "live", final: null, channel: "c1", scenes: [{ ...scene, injects: [] }], characters: [], view: { ...viewFromReset(st), timeline }, notice: null,
     roster: [{ roleId: "a", name: EVIL, joined: true, consented: true, connected: true }], ...over,
   };
 }
@@ -129,6 +129,20 @@ describe("LiveView", () => {
     expect(region.textContent).toContain("Reconnecting");
     expect(region.textContent).toContain("Server said hmm");
     expect(screen.queryByText("The session has ended.")).toBeNull();
+  });
+
+  it("controls render after the status card", () => {
+    render(<LiveView ui={ui()} clock={new FakeClock(T)} controls={<p data-testid="ctl">CONTROLS</p>} />);
+    const card = screen.getByRole("heading", { name: "Live session" }).closest("section")!;
+    const ctl = screen.getByTestId("ctl");
+    expect(card.compareDocumentPosition(ctl) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(card.contains(ctl)).toBe(false);
+    expect(card.nextElementSibling).toBe(ctl);
+  });
+
+  it("without controls nothing extra renders", () => {
+    render(<LiveView ui={ui()} clock={new FakeClock(T)} />);
+    expect(screen.queryByTestId("ctl")).toBeNull();
   });
 
   it("Words spoken shows the name in bdi and a muted role label", () => {

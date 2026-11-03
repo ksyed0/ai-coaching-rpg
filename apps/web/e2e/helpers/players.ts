@@ -82,11 +82,11 @@ export const transcript = (page: Page) => page.getByRole("list", { name: "Transc
  * response (null while none came, or for good when the request failed, such as a retry that met a closed port).
  */
 export type StreamOpen = { lastEventId: string | null; status: number | null };
-export function trackStreams(page: Page): StreamOpen[] {
+export function trackStreams(page: Page, path = "/api/v1/stream"): StreamOpen[] {
   const seen: StreamOpen[] = [];
   const byRequest = new WeakMap<object, StreamOpen>();
   page.on("request", (r) => {
-    if (new URL(r.url()).pathname !== "/api/v1/stream") return;
+    if (new URL(r.url()).pathname !== path) return;
     const entry: StreamOpen = { lastEventId: null, status: null };
     seen.push(entry);
     byRequest.set(r, entry);

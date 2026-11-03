@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { isolate } from "../../lib/console-view";
 import { ConfirmDialog } from "../console/ConfirmDialog";
 import { Readiness } from "../console/Readiness";
 import {
@@ -205,7 +206,19 @@ describe("Readiness", () => {
     expect(screen.getByText(XSS)).toBeTruthy();
     expect(screen.getByText(`Model: ${XSS}`)).toBeTruthy();
     expect(container.querySelector("img")).toBeNull();
-    expect(container.innerHTML).not.toContain("<img");
+    // The joined seat's Remove button carries the name in its aria-label: an attribute value, never markup.
+    expect(
+      screen.getByRole("button", { name: `Remove ${XSS} from Account manager` }),
+    ).toBeTruthy();
+    expect(container.querySelector("[onerror]")).toBeNull();
+    // The Remove button's aria-label legitimately holds the name inside an attribute value, so attribute values are blanked before
+    // looking for markup: a name rendered as markup (not text) would still leave "<img" and an on* attribute behind.
+    const markup = container.innerHTML.replace(/="[^"]*"/g, '=""');
+    expect(markup).not.toContain("<img");
+    const handlers = [...container.querySelectorAll("*")].flatMap((el) =>
+      el.getAttributeNames().filter((n) => n.startsWith("on")),
+    );
+    expect(handlers).toEqual([]);
   });
 
   it("Reissue confirmation names the role and says the old code stops working", async () => {
@@ -514,6 +527,133 @@ describe("Readiness: a new code replaces an undismissed one", () => {
     await reissueFlow("Reissue code for Delivery lead");
     await screen.findByText("FOR-delivery_lead");
     expect(document.body.textContent).not.toContain("FOR-account_manager");
+  });
+});
+
+describe("Readiness: Remove", () => {
+  const BOTH = readiness({
+    roster: [
+      { roleId: "account_manager", name: "Sam", joined: true, consented: true, connected: true },
+      { roleId: "delivery_lead", joined: false, consented: false, connected: false },
+      { roleId: "finance_lead", name: "Ana", joined: true, consented: true, connected: false },
+    ],
+  });
+
+  it("the Remove button's label isolates a name that holds a bidi control, as the dialog copy does", async () => {
+    mount(
+      readiness({
+        roster: [{ roleId: "account_manager", name: "Eve\u202E", joined: true, consented: true, connected: true }],
+      }),
+    );
+    await ready();
+    const btn = screen.getAllByRole("button", { name: /^Remove / })[0]!;
+    expect(btn.getAttribute("aria-label")).toBe(`Remove ${isolate("Eve\u202E")} from Account manager`);
+    expect(btn.getAttribute("aria-label")).toContain("\u2068");
+  });
+
+  it("Remove is offered only for joined seats before the start; its dialog names the person and the role; the new code is shown once", async () => {
+    const m = mount(BOTH, {
+      "/remove": { status: 200, body: ok({ roleId: "account_manager", code: "REMOVED-CODE-1" }) },
+    });
+    await ready();
+    expect(screen.getByRole("button", { name: "Remove Sam from Account manager" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remove Ana from Finance lead" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Remove .* from Delivery lead$/ })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /^Remove / })).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove Sam from Account manager" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByRole("heading", { name: "Remove Sam from Account manager?" })).toBeTruthy();
+    expect(dialog.textContent).toContain(
+      "They are signed out of the Account manager seat and their code stops working. A new code for the seat is shown once. This affects the Account manager role only.",
+    );
+    expect(m.posts()).toHaveLength(0);
+    m.current.readiness = readiness({
+      roster: [
+        { roleId: "account_manager", joined: false, consented: false, connected: false },
+        { roleId: "delivery_lead", joined: false, consented: false, connected: false },
+      ],
+    });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    });
+    await screen.findByText("REMOVED-CODE-1");
+    expect(m.posts().map((c) => c.url)).toEqual([`/api/v1/console/sessions/${SID}/remove`]);
+    expect(m.posts()[0]!.body).toEqual({ roleId: "account_manager" });
+    expect(screen.getByRole("heading", { name: "New code for Account manager" })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.body.textContent!.split("REMOVED-CODE-1")).toHaveLength(2);
+    // The seat is empty now, so its Remove button is gone; focus lands on the same row's Reissue button, not on the body.
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Remove Sam/ })).toBeNull());
+    await waitFor(() =>
+      expect((document.activeElement as HTMLElement).getAttribute("aria-label")).toBe("Reissue code for Account manager"),
+    );
+  });
+
+  it("the removal's code is cleared by 'I have copied the codes' and a second removal shows only its own code", async () => {
+    let n = 0;
+    const f = fakeFetch((url) => {
+      if (url.endsWith("/readiness")) return { status: 200, body: ok(BOTH) };
+      return { status: 200, body: ok({ roleId: "x", code: `RM-${++n}` }) };
+    });
+    render(<Readiness sessionId={SID} fetch={f.fetch} setTimer={fakeTimer().setTimer} />);
+    await ready();
+    const removeSam = async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove Sam from Account manager" }));
+      await act(async () => {
+        fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }));
+      });
+    };
+    await removeSam();
+    await screen.findByText("RM-1");
+    await removeSam();
+    await screen.findByText("RM-2");
+    expect(document.body.textContent).not.toContain("RM-1");
+    fireEvent.click(screen.getByRole("button", { name: "I have copied the codes" }));
+    expect(document.body.textContent).not.toContain("RM-2");
+    expect(screen.queryByRole("heading", { name: /^New code for/ })).toBeNull();
+  });
+
+  it("Remove is not offered once the session is running, ended or unreachable", async () => {
+    for (const status of ["running", "ended", null] as const) {
+      mount({ ...BOTH, status });
+      await screen.findByText(/Model:/);
+      expect(screen.queryByRole("button", { name: /^Remove / }), String(status)).toBeNull();
+      cleanup();
+    }
+  });
+
+  it("a nameless joined seat reads 'Remove the participant from <role>?'", async () => {
+    mount(readiness({ roster: [{ roleId: "account_manager", joined: true, consented: false, connected: false }] }));
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "Remove the participant from Account manager" }));
+    expect(within(screen.getByRole("dialog")).getByRole("heading", { name: "Remove the participant from Account manager?" })).toBeTruthy();
+  });
+
+  it("cancelling Remove sends nothing and returns focus to its button", async () => {
+    const m = mount(BOTH);
+    await ready();
+    const btn = screen.getByRole("button", { name: "Remove Sam from Account manager" });
+    fireEvent.click(btn);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    expect(m.posts()).toHaveLength(0);
+    expect(document.activeElement).toBe(btn);
+  });
+
+  it('a 409 shows "A participant can only be removed before the start."', async () => {
+    mount(BOTH, {
+      "/remove": { status: 409, body: refused("conflict", "A participant can only be removed before the start.") },
+    });
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Sam from Account manager" }));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }));
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe("A participant can only be removed before the start."),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("heading", { name: /^New code for/ })).toBeNull();
   });
 });
 

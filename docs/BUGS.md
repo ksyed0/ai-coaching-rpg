@@ -240,3 +240,19 @@ Lesson Encoded: No
 ```
 
 `services/runtime/src/agents/__tests__/npc-agent.silence.test.ts` ("is linear on abusive input") has an absolute elapsed-time bound that a loaded machine can exceed; it was seen once in the slice 2b-2b1 work and passed in both close-out coverage runs. It is the same pattern as the 2026-10 coverage-check failures recorded in `docs/LESSONS.md`. Fix: assert the scaling between two input sizes (or count operations) and keep only a generous absolute cap.
+
+```
+BUG-0019: A facilitator whisper never reached a web player's screen
+Severity: Medium
+Related Story: US-0059
+Related Task: TASK-0097
+Status: Fixed (feature/EPIC-0002-US-0059-console-controls)
+Fix Branch: feature/EPIC-0002-US-0059-console-controls
+Lesson Encoded: No
+```
+
+Found by the first end-to-end run of the console controls. The runtime delivers a whisper (a `facilitator.command` with `command: "whisper"`) only to the addressed role's stream, and the console confirmed "Whisper sent.", but the shared player reducer `applyPlayerEvent` (`packages/events/src/player-view.ts`) ignored every `facilitator.command` except pause and resume, so no web player could see one. The terminal player was not affected.
+
+**Fix.** A whisper is added to the player's updates (`view.injects`, shown under "Updates") as plain text, with the scene it arrived in; the player sees the text only (no sender name, `by`, ref or ack). Tests: `packages/events/src/__tests__/player-view.test.ts` (a whisper is shown with the updates and changes nothing else) and the e2e `apps/web/e2e/console-controls.spec.ts` "pause, whisper and resume" (the addressed player sees it once, the other two never do, and no player page contains the facilitator's name).
+
+**Limits (not fixed).** A full page reload loses the whisper: it is not in the join snapshot, as with injects. It also appears as an ordinary update with no "private" label; whether it needs one is an owner decision (`progress.md`).

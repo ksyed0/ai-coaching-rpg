@@ -61,6 +61,9 @@ h2.s, h3.s { font-size: 12px; letter-spacing: 0.07em; text-transform: uppercase;
 input.t {
   width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink);
 }
+textarea.t {
+  width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); font: inherit; resize: vertical;
+}
 input.t:disabled { background: var(--panel2); color: var(--muted); }
 
 .btn {
@@ -68,7 +71,7 @@ input.t:disabled { background: var(--panel2); color: var(--muted); }
   background: var(--panel); color: var(--ink); cursor: pointer;
 }
 .btn.pri { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.btn:disabled, .btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
 
 .pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px; border: 1px solid transparent; white-space: nowrap; }
 .pill.ok { background: var(--ok-soft); color: var(--ok); border-color: var(--ok); }
@@ -133,6 +136,7 @@ table.grid tbody th { font-weight: 600; }
 .code-value { font-size: 17px; letter-spacing: 0.04em; padding: 4px 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
 .dialog-backdrop { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; padding: var(--gutter); background: rgba(0, 0, 0, 0.5); }
 .dialog { width: 100%; max-width: 480px; max-height: 100%; overflow-y: auto; }
+.preview { white-space: pre-wrap; overflow-wrap: anywhere; }
 .dialog-title { font-size: 18px; }
 .dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 
@@ -144,3 +148,6 @@ table.grid tbody th { font-weight: 600; }
 .msg.note .line { white-space: pre-wrap; }
 .liveview .tablewrap { max-width: 100%; }
 .liveview .tablewrap table.grid th, .liveview .tablewrap table.grid td { overflow-wrap: anywhere; }
+
+/* Facilitator interventions: lists without bullets (its own class: ul.plain is the player's brief and keeps its indent). */
+ul.console-list { list-style: none; padding: 0; margin: 0; }

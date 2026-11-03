@@ -5,9 +5,9 @@
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
 | TASK         | TASK-0098             | TASK-0097         |
-| AC           | AC-0357               | AC-0356           |
-| TC           | TC-0098               | TC-0097           |
-| BUG          | BUG-0019              | BUG-0018          |
+| AC           | AC-0358               | AC-0357           |
+| TC           | TC-0100               | TC-0099           |
+| BUG          | BUG-0020              | BUG-0019          |
 | L            | L-0032                | L-0031            |
 
 Reserved blocks (2026-10-06): AC-0130..AC-0139 and TASK-0040..TASK-0042 US-0025; AC-0140..AC-0149 and TASK-0043..TASK-0045 US-0017; AC-0150..AC-0159 and TASK-0046..TASK-0048 US-0016; AC-0160..AC-0169 and TASK-0049..TASK-0051 US-0018. Free below the blocks: AC-0127..AC-0129 and TASK-0035..TASK-0039. Next/Last point past the reserved blocks; an id in a block that its story does not use stays unused (ids are never reassigned).
@@ -45,3 +45,5 @@ Assigned 2026-11-01 (slice 2b-2b1, PR 3, final review): BUG-0017 (player StreamH
 Assigned 2026-11-02 (slice 2b-2b2, PR 1): AC-0354 (US-0059: command and end_now ref, ack and error with the ref, no auto-start with a ref); TC-0095 (AC-0354); TASK-0097 (US-0059 facilitator command route, controls and confirmations, three PRs).
 
 Assigned 2026-11-02 (slice 2b-2b2, PR 2): AC-0355 (US-0059: the console command route), AC-0356 (US-0059: injects and characters on the console stream, hidden-fact text on request); TC-0096 (AC-0355), TC-0097 (AC-0356). No new TASK: the work is under TASK-0097.
+
+Assigned 2026-11-02 (slice 2b-2b2, PRs 1 to 3): AC-0354 (ref and ack), AC-0355 (command route), AC-0356 (characters and facts) and AC-0357 (stale scene on confirm); TC-0095 (AC-0354), TC-0096 (AC-0355), TC-0097 (AC-0356), TC-0098 (controls, AC-0311, AC-0312, AC-0314, AC-0315, AC-0357) and TC-0099 (Axe on the controls, AC-0316); TASK-0097 (US-0059 facilitator command route, controls and confirmations, three PRs); BUG-0019 (a whisper never reached a web player). The slice assigned AC-0354..AC-0356 and TC-0095..TC-0097 in its earlier PRs.

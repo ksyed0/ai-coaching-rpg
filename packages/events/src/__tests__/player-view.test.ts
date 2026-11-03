@@ -43,6 +43,12 @@ describe("applyPlayerEvent", () => {
     const v = applyPlayerEvent(initPlayerView(snapshot()), { ...env(6), type: "inject.fired", injectId: "i2", sceneId: "s1", to: ["me"], content: "Note" });
     expect(v.injects).toEqual([{ seq: 6, content: "Note", sceneId: "s1" }]);
   });
+  it("a whisper that reached this player is shown with the updates; it changes nothing else", () => {
+    const v0 = initPlayerView(snapshot());
+    const v = applyPlayerEvent(v0, { ...env(6), type: "facilitator.command", command: "whisper", roleId: "me", text: "Keep the price out" });
+    expect(v.injects).toEqual([{ seq: 6, content: "Keep the price out", sceneId: "s1" }]);
+    expect({ ...v, injects: [], lastSeq: v0.lastSeq }).toEqual(v0);
+  });
   it("scene.entered and scene.exited set and clear the scene", () => {
     let v = applyPlayerEvent(initPlayerView(snapshot({ currentScene: null })), entered(6, 2_000));
     expect(v.scene).toEqual({ id: "s1", enteredAt: 2_000, pausedMs: 0 });
