@@ -122,6 +122,19 @@ export class SessionHost {
   }
 
   /**
+   * US-0060: whether a player role is played by an AI. Before the start the seat file decides; from the start on the log's record
+   * (the folded `aiRoles`) does, so a changed seat file can never relabel a started session.
+   */
+  isAiRole(roleId: string): boolean {
+    return this.engine.state.status === "idle" ? (this.seats?.aiRoles?.has(roleId) ?? false) : this.engine.state.aiRoles.includes(roleId);
+  }
+
+  /** US-0060: the AI roles in the scenario's player-role order. */
+  aiRoleIds(): string[] {
+    return this.playerRoleIds().filter((r) => this.isAiRole(r));
+  }
+
+  /**
    * `rebound` is true when this join took over the consent a code reissue after the start had left waiting for the next participant
    * (US-0058); the caller that then fails to save the seat calls `undoRebind`.
    */
@@ -134,11 +147,13 @@ export class SessionHost {
     // next participant to hold the seat inherits it. A credential still on the role means the seat is not free: the check below refuses.
     // Only a STARTED session has a marker worth claiming (a reissue before the start clears consent instead): one found earlier is
     // dropped, so the person must consent. While the start is in flight (`starting`) nothing is claimable either.
-    if (this.seats && !this.started && !this.startBegun && this.seats.consent.isRebindPending(roleId)) { this.seats.consent.withdraw(roleId); this.seatsDirty = true; }
-    const rebinding = !!this.seats && this.started && this.seats.consent.isRebindPending(roleId) && !this.seats.credentials.has(roleId);
+    // US-0060: an AI seat has no consent to check or rebind: only a human seat is subject to the consent rules below.
+    const ai = this.isAiRole(roleId);
+    if (!ai && this.seats && !this.started && !this.startBegun && this.seats.consent.isRebindPending(roleId)) { this.seats.consent.withdraw(roleId); this.seatsDirty = true; }
+    const rebinding = !ai && !!this.seats && this.started && this.seats.consent.isRebindPending(roleId) && !this.seats.credentials.has(roleId);
     // US-0054: from the start on, a seat is only for the participant whose consent the start recorded (or who gave it since):
     // a dropped seat cannot be taken by someone else with the code. The same participant still reconnects.
-    if (this.seats && !this.consentGrandfathered && (this.started || this.startBegun) && !rebinding && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
+    if (!ai && this.seats && !this.consentGrandfathered && (this.started || this.startBegun) && !rebinding && !this.seats.consent.has(roleId, participantId)) throw new HostError("consent_required");
     if (this.assignments[roleId] && this.assignments[roleId] !== participantId) throw new HostError("role_taken");
     let rebound = false;
     if (rebinding && this.seats!.consent.claimRebind(roleId, participantId, this.clock.now())) {
@@ -324,9 +339,14 @@ export class SessionHost {
   private startGate(): SessionStartExtra | undefined {
     const seats = this.seats;
     if (!seats) return undefined;
-    const missing = Object.keys(this.scenario.roles).filter((r) => this.hasPlayerRole(r) && (!this.assignments[r] || !seats.consent.has(r, this.assignments[r])));
+    // US-0060: a human seat needs a holder and its consent; an AI seat needs a connected bot and no consent. One refusal names the
+    // humans first, then the AI roles without a bot (the BFF start route parses this message).
+    const ready = (r: string): boolean => !!this.assignments[r] && (this.isAiRole(r) || seats.consent.has(r, this.assignments[r]!));
+    const roles = this.playerRoleIds();
+    const missing = [...roles.filter((r) => !this.isAiRole(r) && !ready(r)), ...roles.filter((r) => this.isAiRole(r) && !ready(r))];
     if (missing.length > 0) throw new HostError("seats_not_ready", missing);
-    return { consents: seats.consent.snapshot(), names: seats.credentials.names(), logIdentity: seats.credentials.logIdentity };
+    const aiRoles = this.aiRoleIds();
+    return { consents: seats.consent.snapshot(), names: seats.credentials.names(), logIdentity: seats.credentials.logIdentity, ...(aiRoles.length > 0 ? { aiRoles } : {}) };
   }
 
   /** Serialises everything that mutates the session so NPC turns never interleave. */

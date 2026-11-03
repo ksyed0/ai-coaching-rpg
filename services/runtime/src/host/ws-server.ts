@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import http from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
-import { isReservedRoleId } from "@acr/events";
+import { AI_PLAYER_NAME, isReservedDisplayName, isReservedRoleId } from "@acr/events";
 import { ClientMessageSchema, type ReplaySummary, type ServerMessage } from "./protocol.js";
 import { HostError, MAX_REPLAY_BYTES, type Replay, type SessionHost } from "./session-host.js";
 import { EngineError } from "../engine/session-engine.js";
@@ -302,6 +302,9 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           if (m.type === "join" && m.displayName !== undefined) {
             name = normalizeDisplayName(m.displayName);
             if (name === null) return fail("bad_message", "displayName: 1 to 60 visible characters on one line");
+            // US-0060: the prefix is kept for AI players. The cleaned name is checked (hidden characters are already stripped), before
+            // any authentication, and a refusal is not charged: like a bad name it proves nothing about a secret.
+            if (isReservedDisplayName(name)) return fail("bad_message", `displayName: names starting with "${AI_PLAYER_NAME}" are reserved`);
           }
           const h = opts.hosts.get(m.sessionId);
           if (m.type === "join") {
@@ -347,7 +350,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
             if (seats && m.issueCredential && byCode) {
               // US-0053: the credential is on disk before the browser learns it, so a restart can never lose a seat it was told about.
               try {
-                credential = seats.credentials.issue(m.roleId, name ?? m.roleId);
+                credential = seats.credentials.issue(m.roleId, h.isAiRole(m.roleId) ? AI_PLAYER_NAME : name ?? m.roleId);
                 seats.persist(); // synchronous: the block stays free of awaits
               } catch (err) {
                 // Undo everything: an unsaved credential left in memory would lock the role's code out until a restart.
@@ -367,7 +370,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
             sendJoined(h, m.roleId, m.lastSeq, {
               type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId), ...(scenes.length > 0 ? { scenes } : {}),
               ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
-              ...(seats ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
+              ...(seats && !h.isAiRole(m.roleId) ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
             });
           } else {
             if (!h) return fail("unknown_session", "no such session");
@@ -392,6 +395,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           return;
         }
         if (!host || !who) return fail("not_joined", "join first", ref);
+        // US-0060: an AI player gives no consent and has none to withdraw (a leave still frees its seat).
+        if ((m.type === "consent" || m.type === "withdraw_consent") && !isFacilitator && host.isAiRole(who)) return fail("forbidden", "an AI player gives no consent");
         if (m.type === "leave" || m.type === "withdraw_consent") {
           if (isFacilitator || !participantId) return fail("forbidden", m.type === "leave" ? "only a player may leave a role" : "only a player may give or withdraw consent");
           // US-0054: withdrawing consent gives the seat up like a leave (credential revoked, role released), so it ends the same way.
