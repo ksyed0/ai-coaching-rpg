@@ -15,6 +15,7 @@ import { HostError, SessionHost } from "../session-host.js";
 import { CLOSE_REISSUED, startServer, type ServerHandle } from "../ws-server.js";
 import { ClientMessageSchema } from "../protocol.js";
 import { reissueRole, type ReissueDeps } from "../reissue.js";
+import * as harness from "./ai-roles-harness.js";
 // Real-socket tests: a generous explicit limit. Nothing here measures elapsed time; each step awaits the event it needs.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
@@ -22,7 +23,7 @@ const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../.
 const BIND = { sessionId: "local", scenarioSha256: "d".repeat(64) };
 let server: ServerHandle | null = null;
 let sockets: WebSocket[] = [];
-afterEach(async () => { for (const s of sockets) s.terminate(); sockets = []; await server?.close(); server = null; });
+afterEach(async () => { for (const s of sockets) s.terminate(); sockets = []; await server?.close(); server = null; await harness.cleanup(); });
 
 type Client = { ws: WebSocket; inbox: any[]; closed: Promise<number>; send(m: unknown): void; next(pred: (m: any) => boolean): Promise<any> };
 async function open(port: number): Promise<Client> {
@@ -312,5 +313,45 @@ describe("code reissue (US-0058)", () => {
     expect(store.hasEntry("host")).toBe(false);
     // A refused injection leaves the lobby startable.
     await seated(e, true);
+  });
+});
+
+// US-0060: a started session's AI roles come from the log; an AI seat has no consent to rebind. The friday scenario, real seats and server.
+describe("code reissue after the start with an AI seat (US-0060)", () => {
+  async function started() {
+    const e = await harness.setup({ aiRoles: ["tech_lead"] });
+    const a = await harness.pat(e);
+    const d = await harness.seat(e.port, "delivery_lead", e.plain.delivery_lead!, "dana", "Dana");
+    await harness.consent(d, e.seats, "delivery_lead", "dana");
+    const bot = await harness.seat(e.port, "tech_lead", e.plain.tech_lead!, "bot1");
+    expect(bot.r.type).toBe("joined");
+    await e.host.start();
+    expect(e.host.hasStarted).toBe(true);
+    const alerts = () => { const r = e.engine.eventsAfter(0); if (!r.complete) throw new Error("window incomplete"); return [...r.events].filter((x) => x.type === "facilitator.alert").map((x) => (x as { message: string }).message); };
+    return { e, a, bot, alerts };
+  }
+
+  it("a post-start reissue of tech_lead (AI) leaves its consent entry untouched, appends no alert and returns a code that opens tech_lead for a new participant without consent", async () => {
+    const { e, bot, alerts } = await started();
+    e.seats.aiRoles!.replace([], harness.PLAYERS); // the seat file no longer says AI: only the log does
+    const consentBefore = JSON.stringify(e.seats.consent.snapshot());
+    const code = await reissueRole(e.deps, "tech_lead", "Kim");
+    expect((await bot.closed).code).toBe(CLOSE_REISSUED);
+    expect(JSON.stringify(e.seats.consent.snapshot())).toBe(consentBefore);
+    expect(e.seats.consent.isRebindPending("tech_lead")).toBe(false);
+    expect(e.seats.credentials.has("tech_lead")).toBe(false);
+    expect(alerts()).toEqual([]);
+    const next = await harness.seat(e.port, "tech_lead", code, "bot2");
+    expect(next.r.type).toBe("joined");
+    expect(next.r).not.toHaveProperty("consent");
+    expect(e.seats.consent.hasEntry("tech_lead")).toBe(false);
+  });
+
+  it("a post-start reissue of account_manager (human) still releases for rebind and appends \"consent for account_manager will be rebound ...\"", async () => {
+    const { e, a, alerts } = await started();
+    await reissueRole(e.deps, "account_manager", "Kim");
+    expect((await a.closed).code).toBe(CLOSE_REISSUED);
+    expect(e.seats.consent.isRebindPending("account_manager")).toBe(true);
+    expect(alerts()).toEqual(["consent for account_manager will be rebound after a code reissue by Kim"]);
   });
 });

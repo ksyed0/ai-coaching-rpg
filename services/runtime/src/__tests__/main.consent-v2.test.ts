@@ -8,6 +8,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootstrap, type Runtime } from "../main.js";
 import type { ChildMessage, ParentChannel, ParentMessage } from "../host/parent-channel.js";
 
+// The v1 -> v2 bump tests recreate sessions that were set up under v1 BEFORE the AI-notice gate existed (slice 2b-3b refuses an AI role
+// under a notice that does not name AI players); `legacyV1` lets the first phase of those tests through the gate.
+let legacyV1 = false;
+vi.mock("../host/limits.js", async (orig) => {
+  const real = await orig<typeof import("../host/limits.js")>();
+  return { ...real, noticeNamesAiPlayers: (v: string) => (legacyV1 && v === "v1") || real.noticeNamesAiPlayers(v) };
+});
+
 // US-0060 (slice 2b-3a, Task 11): notice v2 is the default and names AI player seats; a restart on it never locks out a started session.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const friday = path.join(here, "../../../../scenarios/friday-escalation");
@@ -16,7 +24,7 @@ vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 let tmp = "";
 const sockets: WebSocket[] = [];
 const runtimes: Runtime[] = [];
-afterEach(async () => { vi.restoreAllMocks(); for (const s of sockets.splice(0)) s.terminate(); for (const r of runtimes.splice(0)) await r.stop(); if (tmp) await rm(tmp, { recursive: true, force: true }); tmp = ""; });
+afterEach(async () => { legacyV1 = false; vi.restoreAllMocks(); for (const s of sockets.splice(0)) s.terminate(); for (const r of runtimes.splice(0)) await r.stop(); if (tmp) await rm(tmp, { recursive: true, force: true }); tmp = ""; });
 
 function fakeParent() {
   const sent: ChildMessage[] = [];
@@ -92,6 +100,7 @@ describe("consent notice v2 (US-0060)", () => {
   it('a started session whose players consented under v1 restarts on v2: both humans rejoin with their credentials, a different participant for account_manager is refused consent_required, a bot rejoins tech_lead with a reissued code, and the log still starts with logFormat 3 and aiRoles ["tech_lead"]', async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-cv2-"));
     const a = fakeParent();
+    legacyV1 = true;
     const first = await boot(a.parent, dataDir(), "v1");
     const humanCodes = codesOf(a.sent);
     const set = await a.ask({ type: "set_ai_roles", requestId: "s1", roles: ["tech_lead"] });
@@ -108,7 +117,7 @@ describe("consent notice v2 (US-0060)", () => {
     await f.next((m) => m.type === "event" && m.event?.type === "scene.entered");
     const credentials = { account_manager: am.reply.credential as string, delivery_lead: dl.reply.credential as string };
     expect(credentials.account_manager).toBeTruthy();
-    await first.stop(); runtimes.pop();
+    await first.stop(); runtimes.pop(); legacyV1 = false;
 
     const b = fakeParent();
     const second = await boot(b.parent, dataDir()); // the default: v2
@@ -132,6 +141,7 @@ describe("consent notice v2 (US-0060)", () => {
   it("a participant who took a seat over after a code reissue keeps it across the bump to v2; a different participant is still refused consent_required", async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-cv2-"));
     const a = fakeParent();
+    legacyV1 = true;
     const first = await boot(a.parent, dataDir(), "v1");
     const humanCodes = codesOf(a.sent);
     const set = await a.ask({ type: "set_ai_roles", requestId: "s1", roles: ["tech_lead"] });
@@ -152,7 +162,7 @@ describe("consent notice v2 (US-0060)", () => {
     expect(bob.reply.type).toBe("joined");
     expect(first.host.consentGiven("account_manager", "bob")).toBe(true);
     const bobCredential = bob.reply.credential as string;
-    await first.stop(); runtimes.pop();
+    await first.stop(); runtimes.pop(); legacyV1 = false;
 
     const second = await boot(fakeParent().parent, dataDir()); // the default: v2
     expect(second.host.seats!.consent.notice.version).toBe("v2");
@@ -165,6 +175,7 @@ describe("consent notice v2 (US-0060)", () => {
   it('a lobby whose players consented under v1 restarts on v2: seats and the AI role are kept, the v1 consents are dropped, and start is refused "seats_not_ready: account_manager,delivery_lead"', async () => {
     tmp = await mkdtemp(path.join(os.tmpdir(), "acr-cv2-"));
     const a = fakeParent();
+    legacyV1 = true;
     const first = await boot(a.parent, dataDir(), "v1");
     const humanCodes = codesOf(a.sent);
     const set = await a.ask({ type: "set_ai_roles", requestId: "s1", roles: ["tech_lead"] });
@@ -173,7 +184,7 @@ describe("consent notice v2 (US-0060)", () => {
     const dl = await join(first.port, "delivery_lead", "dan", { joinCode: humanCodes.delivery_lead! });
     await consent(am.c, first, "account_manager", "amy", "v1");
     await consent(dl.c, first, "delivery_lead", "dan", "v1");
-    await first.stop(); runtimes.pop();
+    await first.stop(); runtimes.pop(); legacyV1 = false;
 
     const b = fakeParent();
     const second = await boot(b.parent, dataDir());

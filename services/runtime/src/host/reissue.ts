@@ -64,11 +64,13 @@ export async function reissueRole(d: ReissueDeps, roleId: string, by?: string, r
   const { codes, plain } = old.withRole(roleId); // throws when the codes hold no entry for the role
   d.writeCodes(codes);
   const afterStart = d.host.hasStarted;
+  // US-0060: a started session's AI roles come from the log (host.isAiRole), not the seat file. An AI seat has no consent to rebind.
+  const isAi = d.host.isAiRole(roleId);
   const credBefore = d.seats.credentials.snapshotRole(roleId);
   const consentBefore = d.seats.consent.entryOf(roleId);
   try {
     d.seats.credentials.revoke(roleId);
-    if (afterStart) d.seats.consent.releaseForRebind(roleId); else d.seats.consent.withdraw(roleId);
+    if (afterStart) { if (!isAi) d.seats.consent.releaseForRebind(roleId); } else d.seats.consent.withdraw(roleId);
     d.seats.persist();
   } catch (err) {
     // Put the seat back first, so the old code cannot open a role whose holder is still connected, then the old file.
@@ -84,6 +86,6 @@ export async function reissueRole(d: ReissueDeps, roleId: string, by?: string, r
   finally { d.setCodes(codes); }
   // Before the start the log must stay EMPTY (engine.start refuses a log that has events, and a managed restart relies on an empty
   // lobby log), so there is no event to append: the console shows the reissue from the control service's own state instead.
-  if (afterStart) await d.host.noteFacilitator(`consent for ${roleId} will be rebound after a code reissue by ${actorLabel(by)}`);
+  if (afterStart && !isAi) await d.host.noteFacilitator(`consent for ${roleId} will be rebound after a code reissue by ${actorLabel(by)}`);
   return plain;
 }

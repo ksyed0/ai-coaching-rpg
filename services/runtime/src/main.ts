@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { playerRoleCapError } from "./host/limits.js";
 import { loadScenario, validateScenario } from "@acr/script";
 import { describeModelProvider, selectModelProvider } from "@acr/adapters";
 import { NOTICE_VERSION_RULE_TEXT, SESSION_ID_RULE_TEXT, isNoticeVersion, isValidSessionId } from "@acr/events";
@@ -120,6 +121,8 @@ export async function bootstrap(opts: {
   const { errors, warnings } = validateScenario(scenario);
   for (const w of warnings) warn(`warning: ${w}`);
   if (errors.length) return { ok: false, errors };
+  // US-0060: a managed session has a player-role cap; refused before the session is opened, so no file is written.
+  if (managed) { const capError = playerRoleCapError(scenario); if (capError) return { ok: false, errors: [capError] }; }
 
   // US-0058: SESSION_DATA_DIR (set by the control service, from the merged env like the other settings) names the data directory; it must be absolute, and a refusal never echoes it.
   const sessionDataDir = env.SESSION_DATA_DIR;
