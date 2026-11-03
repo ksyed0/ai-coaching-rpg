@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ChildMessageSchema, openParentChannel, type ChildMessage } from "../parent-channel.js";
+import { ChildMessageSchema, ParentMessageSchema, openParentChannel, type ChildMessage } from "../parent-channel.js";
 
 type Handler = (...a: unknown[]) => void;
 const fakeProc = (over: { send?: unknown; connected?: boolean } = {}) => {
@@ -71,6 +71,10 @@ describe("parent channel", () => {
       { type: "ended" },
       { type: "reissued", requestId: "r1", code: "XYZ" },
       { type: "reissue_failed", requestId: "r1", reason: "no such role" },
+      { type: "ai_roles_set", requestId: "r1", codes: [{ roleId: "tech_lead", code: "XYZ" }] },
+      { type: "ai_roles_set", requestId: "r1", codes: [] },
+      { type: "ai_roles_failed", requestId: "r1", reason: "the AI roles could not be changed" },
+      { type: "ready", port: 4000, status: "resumed", modelLabel: "Mock", aiRoles: ["tech_lead"] },
     ];
     for (const v of variants) expect(ChildMessageSchema.parse(JSON.parse(JSON.stringify(v)))).toEqual(v);
     expect(ChildMessageSchema.safeParse({ type: "ended", extra: 1 }).success).toBe(false);
@@ -96,5 +100,38 @@ describe("parent channel", () => {
     expect(ok({ type: "codes", codes: [{ roleId: "facilitator", code: "c" }] })).toBe(false);
     expect(ok({ type: "codes", codes: [{ roleId: "Bad Id", code: "c" }] })).toBe(false);
     expect(ok({ type: "codes", codes: [{ roleId: "a", code: "c".repeat(65) }] })).toBe(false);
+  });
+
+  it("set_ai_roles with an extra key, a reserved role id, 257 roles or roles as a string is dropped", () => {
+    const f = fakeProc();
+    const got: unknown[] = [];
+    openParentChannel(f.proc)!.onMessage((m) => got.push(m));
+    const valid = { type: "set_ai_roles", requestId: "r1", roles: ["tech_lead"] };
+    for (const bad of [
+      { ...valid, extra: 1 }, { ...valid, by: "Kim" }, { ...valid, includeInGroup: true }, { ...valid, roles: ["facilitator"] }, { ...valid, roles: ["Bad Id"] },
+      { ...valid, roles: Array.from({ length: 257 }, (_, i) => `r${i}`) }, { ...valid, roles: "tech_lead" }, { ...valid, roles: [7] }, { ...valid, requestId: "a b" }, { type: "set_ai_roles", roles: [] },
+    ]) f.emit("message", bad);
+    expect(got).toEqual([]);
+    f.emit("message", valid);
+    f.emit("message", { type: "set_ai_roles", requestId: "r2", roles: [] });
+    f.emit("message", { type: "set_ai_roles", requestId: "r3", roles: Array.from({ length: 256 }, (_, i) => `r${i}`) });
+    expect(got).toHaveLength(3);
+    expect(ParentMessageSchema.safeParse({ type: "reissue", requestId: "r1", roleId: "cfo" }).success).toBe(true);
+  });
+
+  it("ai_roles_set, ai_roles_failed and ready.aiRoles are bounded", () => {
+    const ok = (m: unknown) => ChildMessageSchema.safeParse(m).success;
+    const entry = (i: number) => ({ roleId: `r${i}`, code: "c" });
+    expect(ok({ type: "ai_roles_set", requestId: "r", codes: Array.from({ length: 256 }, (_, i) => entry(i)) })).toBe(true);
+    expect(ok({ type: "ai_roles_set", requestId: "r", codes: Array.from({ length: 257 }, (_, i) => entry(i)) })).toBe(false);
+    expect(ok({ type: "ai_roles_set", requestId: "r", codes: [{ roleId: "facilitator", code: "c" }] })).toBe(false);
+    expect(ok({ type: "ai_roles_set", requestId: "../x", codes: [] })).toBe(false);
+    expect(ok({ type: "ai_roles_failed", requestId: "r", reason: "r".repeat(200) })).toBe(true);
+    expect(ok({ type: "ai_roles_failed", requestId: "r", reason: "r".repeat(201) })).toBe(false);
+    const ready = { type: "ready", port: 4000, status: "new", modelLabel: "Mock" };
+    expect(ok({ ...ready, aiRoles: Array.from({ length: 256 }, (_, i) => `r${i}`) })).toBe(true);
+    expect(ok({ ...ready, aiRoles: Array.from({ length: 257 }, (_, i) => `r${i}`) })).toBe(false);
+    expect(ok({ ...ready, aiRoles: ["facilitator"] })).toBe(false);
+    expect(ok({ ...ready, aiRoles: "tech_lead" })).toBe(false);
   });
 });

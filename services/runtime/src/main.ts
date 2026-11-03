@@ -19,6 +19,7 @@ import { parseGmConfig } from "./agents/gm-config.js";
 import { createGmTraceWriter, parseGmTraceEnv } from "./agents/gm-trace.js";
 import { openParentChannel, type ParentChannel, type ParentMessage } from "./host/parent-channel.js";
 import { REMOVE_REFUSED_REASON, RemoveRefusedError, reissueRole } from "./host/reissue.js";
+import { AI_ROLES_REFUSED, AiRolesRefusedError, setAiRoles } from "./host/set-ai-roles.js";
 import { OPEN_SERVER_WARNING, parseSecurityConfig } from "./host/security.js";
 
 /** services/runtime/src/main.ts: the repo root is three levels up from this file's directory. */
@@ -222,7 +223,8 @@ export async function bootstrap(opts: {
   if (parent) {
     // `ready` comes after the codes (sent above, inside the display hook), so the parent never sees a ready session whose codes it lacks.
     const logIdentity = store.seats?.credentials.logIdentity ?? store.resume?.logIdentity;
-    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new" /* an empty-lobby restart reports "new" with no codes (they are kept); the supervisor treats ready-without-codes as normal */, modelLabel: describeModelProvider(env) });
+    const aiRoleIds = host.aiRoleIds(); // US-0060: from the AI-role file (lobby) or the started log (resume)
+    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new" /* an empty-lobby restart reports "new" with no codes (they are kept); the supervisor treats ready-without-codes as normal */, modelLabel: describeModelProvider(env), ...(aiRoleIds.length > 0 ? { aiRoles: aiRoleIds } : {}) });
     if (!sent) {
       // A start failure, but the join codes are deliberately NOT withdrawn: the parent already holds them (they were sent first), and
       // withdrawing would make them stale. The parent reissues them if it restarts this session. Nothing may stay running or locked.
@@ -240,21 +242,34 @@ export async function bootstrap(opts: {
     // a path, a value or an Error message. The handler never throws (the channel does not isolate handler exceptions).
     let current = store.joinCodes?.codes;
     const seats = store.seats;
+    const deps = () => ({
+      host, seats: seats!, sessionId, server,
+      codes: () => current!,
+      setCodes: (c: NonNullable<typeof current>) => { current = c; server.replaceCodes(sessionId, c); },
+      writeCodes: (c: NonNullable<typeof current>) => store.writeJoinCodes(c),
+      report: (what: string, err: unknown) => warn(`${what}: ${err instanceof Error ? err.name : "error"}`), // the name only: a message could quote a path
+    });
+    // US-0060: a failure reply is chosen by the message's own type; nothing but a fixed string ever reaches the parent.
+    const fail = (m: ParentMessage, reason: string) => {
+      if (m.type === "set_ai_roles") parent.send({ type: "ai_roles_failed", requestId: m.requestId, reason });
+      else parent.send({ type: "reissue_failed", requestId: m.requestId, reason });
+    };
     const answer = (m: ParentMessage) => {
-      if (!current || !seats) { parent.send({ type: "reissue_failed", requestId: m.requestId, reason: "this session has no join codes to reissue" }); return; }
+      if (!current || !seats) { fail(m, m.type === "set_ai_roles" ? AI_ROLES_REFUSED.failed : "this session has no join codes to reissue"); return; }
+      if (m.type === "set_ai_roles") {
+        setAiRoles(deps(), m.roles).then(
+          (codes) => { if (!parent.send({ type: "ai_roles_set", requestId: m.requestId, codes })) warn("the new AI-role codes could not be handed to the control service; set the AI roles again"); },
+          (err) => { parent.send({ type: "ai_roles_failed", requestId: m.requestId, reason: err instanceof AiRolesRefusedError ? err.reason : AI_ROLES_REFUSED.failed }); },
+        );
+        return;
+      }
       if (!host.hasPlayerRole(m.roleId)) { parent.send({ type: "reissue_failed", requestId: m.requestId, reason: "not a player role of this session" }); return; }
-      reissueRole({
-        host, seats, sessionId, server,
-        codes: () => current!,
-        setCodes: (c) => { current = c; server.replaceCodes(sessionId, c); },
-        writeCodes: (c) => store.writeJoinCodes(c),
-        report: (what, err) => warn(`${what}: ${err instanceof Error ? err.name : "error"}`), // the name only: a message could quote a path
-      }, m.roleId, m.by, m.reason).then(
+      reissueRole(deps(), m.roleId, m.by, m.reason).then(
         (code) => { if (!parent.send({ type: "reissued", requestId: m.requestId, code })) warn("a reissued code could not be handed to the control service; reissue it again"); },
         (err) => { parent.send({ type: "reissue_failed", requestId: m.requestId, reason: err instanceof RemoveRefusedError ? REMOVE_REFUSED_REASON : "the code could not be reissued" }); },
       );
     };
-    parent.onMessage((m) => { try { answer(m); } catch { parent.send({ type: "reissue_failed", requestId: m.requestId, reason: "the code could not be reissued" }); } });
+    parent.onMessage((m) => { try { answer(m); } catch { fail(m, m.type === "set_ai_roles" ? AI_ROLES_REFUSED.failed : "the code could not be reissued"); } });
   }
   return { ok: true, runtime: { port: server.port, host, stop: async () => { unsubscribeEnded?.(); host.stopTicker(); await server.close(); gmTrace?.close(); await store.close(); } } };
 }
