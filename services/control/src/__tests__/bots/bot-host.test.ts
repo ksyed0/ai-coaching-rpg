@@ -82,6 +82,7 @@ beforeEach(() => {
 });
 afterEach(async () => {
   for (const h of hosts) await h.close();
+  expect(vi.getTimerCount()).toBe(0);
   vi.useRealTimers();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -119,13 +120,67 @@ describe("BotHost", () => {
     expect(liveNow).toBe(1);
   });
 
-  it("a failing operation does not poison the chain", async () => {
+  it("a failing operation does not poison the chain: the error name is logged and the next operation runs", async () => {
     const h = mk();
-    openFails = 1;
-    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
+    vi.spyOn(intents, "remove").mockImplementationOnce(() => { throw new Error("x"); });
+    await h.removeRoles(SID, ["account_manager"]);
+    expect(logs).toEqual([`session ${SID} bot host operation failed: Error`]);
     await h.setCodes(SID, [{ roleId: "tech_lead", code: SECRET }]);
-    await flush();
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
     expect(h.isAiConnected(SID, "tech_lead")).toBe(true);
+  });
+
+  it("a reissue result that arrives after detach does not reconnect and raises no alert", async () => {
+    let resolve!: (c: string) => void;
+    reissue.mockImplementation(() => new Promise<string>((res) => { resolve = res; }));
+    const h = mk();
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
+    await h.detach(SID);
+    resolve("LATE-CODE");
+    await adv(10 * 60_000);
+    expect(socks).toHaveLength(0);
+    expect(alerts).toEqual([]);
+  });
+
+  it("setCodes after attach ignores a role that is not AI (no bot, no code stored) and a role removed by removeRoles", async () => {
+    const h = mk();
+    await h.setCodes(SID, [{ roleId: "tech_lead", code: "c1" }]);
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
+    await h.setCodes(SID, [{ roleId: "account_manager", code: "c2" }]);
+    expect(socks.filter((x) => x.opts.roleId === "account_manager")).toHaveLength(0);
+    expect(logs).toContain(`session ${SID} ignored a code for a non-AI role account_manager`);
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead", "account_manager"] });
+    await flush();
+    expect(reissue).toHaveBeenCalledWith(SID, "account_manager"); // the ignored code was not stored
+    await h.removeRoles(SID, ["tech_lead"]);
+    await h.setCodes(SID, [{ roleId: "tech_lead", code: "late" }]);
+    expect(h.isAiConnected(SID, "tech_lead")).toBe(false);
+    expect(socks.some((x) => x.opts.code === "late")).toBe(false);
+    for (const l of logs) expect(l).not.toContain("c2");
+  });
+
+  it("a setCodes for a role removed before any attach is ignored", async () => {
+    const h = mk();
+    await h.removeRoles(SID, ["tech_lead"]);
+    await h.setCodes(SID, [{ roleId: "tech_lead", code: "late" }]);
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
+    await flush();
+    expect(reissue).toHaveBeenCalledTimes(1);
+  });
+
+  it("attach skips a bot already connected on the same port with the same code, and re-attaches on a changed port, a changed code or a disconnected bot", async () => {
+    const h = mk();
+    await h.setCodes(SID, [{ roleId: "tech_lead", code: "c1" }]);
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
+    expect(socks).toHaveLength(1);
+    await h.attach(SID, { port: 4001, aiRoles: ["tech_lead"] });
+    expect(socks).toHaveLength(2);
+    await h.setCodes(SID, [{ roleId: "tech_lead", code: "c2" }]);
+    expect(socks).toHaveLength(3);
+    dropped(lastFor("tech_lead"), 4001);
+    await h.attach(SID, { port: 4001, aiRoles: ["tech_lead"] });
+    expect(socks).toHaveLength(4);
   });
 
   it("a reissue that never resolves does not block a later detach on the same session", async () => {
@@ -186,9 +241,10 @@ describe("BotHost", () => {
   it("after removeRoles a late model reply does not recreate the intent file", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
+    let entered = false;
     const provider: ModelProvider = {
       name: "gated",
-      async *stream(_req: ChatRequest) { await gate; yield "I hear you, let us look at the rollback plan first."; },
+      async *stream(_req: ChatRequest) { entered = true; await gate; yield "I hear you, let us look at the rollback plan first."; },
     } as unknown as ModelProvider;
     const h = mk({ provider });
     await h.setCodes(SID, [{ roleId: "tech_lead", code: "c1" }]);
@@ -196,6 +252,7 @@ describe("BotHost", () => {
     const s = lastFor("tech_lead");
     joined(s); human(s, 6);
     await adv(6_000);
+    expect(entered).toBe(true);
     await h.removeRoles(SID, ["tech_lead"]);
     release();
     await adv(1_000);
@@ -337,6 +394,29 @@ describe("BotHost", () => {
       expect(socks).toHaveLength(9);
     });
 
+    it("failures before a joined count; joined resets them: the next delay is 2 s and only the 5th consecutive failure alerts", async () => {
+      const h = mk();
+      let s = await up(h);
+      openFails = 3;
+      dropped(s);
+      await adv(2_000); await adv(4_000); await adv(8_000); // three failed attempts (fails = 3)
+      await adv(16_000);
+      s = lastFor("tech_lead");
+      expect(socks).toHaveLength(2);
+      joined(s);
+      dropped(s);
+      await adv(1_999);
+      expect(socks).toHaveLength(2);
+      await adv(1);
+      expect(socks).toHaveLength(3);
+      openFails = 100;
+      dropped(lastFor("tech_lead"));
+      await adv(2_000); await adv(4_000); await adv(8_000); await adv(16_000);
+      expect(alerts).toEqual([]);
+      await adv(30_000);
+      expect(alerts.filter((a) => a.message === BOT_ALERTS.rejoinFailed)).toHaveLength(1);
+    });
+
     it("detach, end, removeRoles and forget cancel a pending re-attach", async () => {
       for (const op of ["detach", "end", "removeRoles", "forget"] as const) {
         socks.length = 0;
@@ -344,6 +424,7 @@ describe("BotHost", () => {
         const s = await up(h);
         dropped(s);
         if (op === "removeRoles") await h.removeRoles(SID, ["tech_lead"]); else await h[op](SID);
+        expect(vi.getTimerCount()).toBe(0);
         await adv(120_000);
         expect(socks).toHaveLength(1);
         await h.close();

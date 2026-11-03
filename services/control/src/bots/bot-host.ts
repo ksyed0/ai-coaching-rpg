@@ -38,9 +38,18 @@ type Sess = {
   bots: Map<string, AiPlayerBot>;
   retries: Map<string, Retry>;
   reissuing: Set<string>;
+  /** True once `attach` has run: from then on only roles in `aiRoles` take codes. */
+  attached: boolean;
+  /** Roles removed by `removeRoles` before any attach. */
+  removed: Set<string>;
+  /** The port and code each bot was last attached with (to skip a no-op re-attach). */
+  bound: Map<string, { port: number; code: string }>;
 };
 
 /**
+ * Note for the supervisor (Task 9): a role switched back to human needs `removeRoles` (B12 deletes its intent file there); `attach` with
+ * a reduced role set stops that bot and forgets its code but keeps the intent file.
+ *
  * US-0060: owns the live AI player bots of every session: their join codes, the shared per-session model budget, and the re-attach of a
  * dropped bot. Every mutating method runs on a per-session promise chain (one operation at a time; a failed one does not break it). The
  * host never awaits `reissue` inside the chain: its result is queued on the chain as a code assignment. Codes are only ever held in a
@@ -65,15 +74,17 @@ export class BotHost {
     return this.enqueue(sessionId, async () => {
       const st = this.state(sessionId);
       st.port = o.port;
+      st.attached = true;
       st.budget ??= new SessionBudget(this.o.settings.callsPerSession, o.aiCalls ?? 0);
       const wanted = new Set(o.aiRoles);
       await this.stopBots(st, [...st.bots.keys()].filter((r) => !wanted.has(r)));
       for (const r of [...st.aiRoles]) if (!wanted.has(r)) { st.aiRoles.delete(r); st.codes.delete(r); this.cancelRetry(st, r); }
       st.aiRoles = wanted;
+      for (const r of wanted) st.removed.delete(r);
       const work: Promise<void>[] = [];
       for (const r of wanted) {
         this.cancelRetry(st, r);
-        if (st.codes.has(r)) work.push(this.attemptAttach(st, sessionId, r));
+        if (st.codes.has(r)) work.push(this.attemptAttach(st, sessionId, r, true));
         else this.requestCode(st, sessionId, r);
       }
       await Promise.all(work);
@@ -81,27 +92,40 @@ export class BotHost {
   }
 
   setCodes(sessionId: string, codes: { roleId: string; code: string }[]): Promise<void> {
-    return this.enqueue(sessionId, () => this.applyCodes(this.state(sessionId), sessionId, codes));
+    return this.enqueue(sessionId, () => {
+      const st = this.state(sessionId);
+      const take = codes.filter((c) => {
+        // Before the first attach any role may be given a code; after it (or once removed) only a current AI role.
+        if (!st.attached && !st.removed.has(c.roleId)) return true;
+        if (st.aiRoles.has(c.roleId)) return true;
+        this.log(`session ${sessionId} ignored a code for a non-AI role ${c.roleId}`);
+        return false;
+      });
+      return this.applyCodes(st, sessionId, take);
+    });
   }
 
   removeRoles(sessionId: string, roles: string[]): Promise<void> {
     return this.enqueue(sessionId, async () => {
-      const st = this.sessions.get(sessionId);
-      if (st) {
-        await this.stopBots(st, roles);
-        for (const r of roles) { st.aiRoles.delete(r); st.codes.delete(r); }
-      }
+      const st = this.state(sessionId);
+      await this.stopBots(st, roles);
+      for (const r of roles) { st.aiRoles.delete(r); st.codes.delete(r); st.bound.delete(r); st.removed.add(r); }
       // Stopped first: a late model reply of the stopped bot cannot recreate the file.
       for (const r of roles) this.o.intents.remove(sessionId, r);
     });
   }
 
-  /** Closes the sockets; codes, port and budget stay. */
+  /**
+   * Closes the sockets; codes and budget stay. The port is forgotten (a later `attach` supplies it), so a reissue result or a late
+   * `setCodes` that arrives after a detach cannot reconnect to a possibly dead port.
+   */
   detach(sessionId: string): Promise<void> {
     return this.enqueue(sessionId, async () => {
       const st = this.sessions.get(sessionId);
       if (!st) return;
       for (const r of [...st.retries.keys()]) this.cancelRetry(st, r);
+      st.port = undefined;
+      st.bound.clear();
       await Promise.allSettled([...st.bots.values()].map((b) => b.detach()));
     });
   }
@@ -141,7 +165,7 @@ export class BotHost {
   private state(sessionId: string): Sess {
     let st = this.sessions.get(sessionId);
     if (!st) {
-      st = { aiRoles: new Set(), codes: new Map(), bots: new Map(), retries: new Map(), reissuing: new Set() };
+      st = { aiRoles: new Set(), codes: new Map(), bots: new Map(), retries: new Map(), reissuing: new Set(), attached: false, removed: new Set(), bound: new Map() };
       this.sessions.set(sessionId, st);
     }
     return st;
@@ -163,6 +187,7 @@ export class BotHost {
       this.cancelRetry(st, r);
       const b = st.bots.get(r);
       st.bots.delete(r);
+      st.bound.delete(r);
       if (b) stopping.push(b.stop());
     }
     await Promise.allSettled(stopping);
@@ -216,6 +241,7 @@ export class BotHost {
     st.retries.delete(roleId);
   }
 
+  /** A failure of `scenarioFor` leaves the role botless until the next `attach`. */
   private async botFor(st: Sess, sessionId: string, roleId: string): Promise<AiPlayerBot | null> {
     const have = st.bots.get(roleId);
     if (have) return have;
@@ -224,7 +250,8 @@ export class BotHost {
       return null;
     }
     if (this.sessions.get(sessionId) !== st) return null;
-    st.budget ??= new SessionBudget(this.o.settings.callsPerSession, 0);
+    // The budget is created by `attach` (seeded with aiCalls) before any bot exists; a bot is only ever made once a port is known.
+    if (!st.budget) return null;
     const bot = new AiPlayerBot({
       sessionId, roleId, scenario: st.scenario, provider: this.o.provider, settings: this.o.settings, budget: st.budget, intents: this.o.intents,
       alert: (a) => this.raise(sessionId, roleId, BOT_ALERTS[a]),
@@ -238,15 +265,18 @@ export class BotHost {
   }
 
   /** Attaches the role's bot with its remembered code and port; a failure counts as a failed (re-)attach. */
-  private async attemptAttach(st: Sess, sessionId: string, roleId: string): Promise<void> {
+  private async attemptAttach(st: Sess, sessionId: string, roleId: string, skipIfSame = false): Promise<void> {
     const code = st.codes.get(roleId);
     const port = st.port;
     if (code === undefined || port === undefined) return;
     const bot = await this.botFor(st, sessionId, roleId);
     if (!bot || this.sessions.get(sessionId) !== st) return;
+    const b = st.bound.get(roleId);
+    if (skipIfSame && bot.connected && b && b.port === port && b.code === code) return;
     const rs = this.retry(st, roleId);
     rs.attempting = true;
-    try { await bot.attach(port, code); } catch {
+    st.bound.delete(roleId);
+    try { await bot.attach(port, code); st.bound.set(roleId, { port, code }); } catch {
       if (this.sessions.get(sessionId) !== st || st.retries.get(roleId) !== rs) return;
       this.log(`session ${sessionId} AI player ${roleId} could not connect`);
       this.failed(st, sessionId, roleId, rs);
