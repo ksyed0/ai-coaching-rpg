@@ -196,7 +196,7 @@ export async function openSession(o: {
     // US-0060: a resumed started session takes its AI roles from the log (`startedAiRoles`, never from the file); a lobby from the file.
     const fromLog = startedAiRoles !== undefined;
     const aiRoles = AiRoleSet.empty();
-    if (fromLog) aiRoles.replace(playerRoles.filter((id) => startedAiRoles.includes(id)));
+    if (fromLog) aiRoles.replace(startedAiRoles, playerRoles);
     let aiFileNeeded = true; // false when the lobby's own file was read and stands
     // A log that records an identity the credentials do not carry belongs to other seats (a restored or swapped file): they are not used.
     const identityKept = !logIdentity || found?.credentials?.logIdentity === logIdentity;
@@ -207,7 +207,7 @@ export async function openSession(o: {
         try { writeConsentFile(o.dataDir, bind, consent, holdLockNow); }
         catch (err) { throw new SessionStoreError("io", `cannot write the consent file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
       }
-      if (!fromLog && found.aiRoles) { aiRoles.replace(found.aiRoles.list()); aiFileNeeded = false; }
+      if (!fromLog && found.aiRoles) { aiRoles.replace(found.aiRoles.list(), playerRoles); aiFileNeeded = false; }
     } else {
       if (codesKept && found) notes.push(found.credentials
         ? found.credentials.matches(bind)

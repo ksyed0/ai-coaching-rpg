@@ -161,7 +161,7 @@ describe("AI seats over the socket (US-0060)", () => {
     const f = await facilitator(port);
     f.send({ type: "start" });
     await f.next((m) => m.type === "event" && m.event.type === "session.started");
-    seats.aiRoles!.replace([]); // after the start the log's record counts, not the seat file
+    seats.aiRoles!.replace([], PLAYERS); // after the start the log's record counts, not the seat file
     expect(host.isAiRole("tech_lead")).toBe(true);
     expect(host.aiRoleIds()).toEqual(["tech_lead"]);
     expect(host.isAiRole("delivery_lead")).toBe(false);
