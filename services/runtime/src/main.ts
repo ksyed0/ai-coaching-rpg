@@ -108,7 +108,7 @@ export async function bootstrap(opts: {
   const lockStale = parseLockStaleMs(env.SESSION_LOCK_STALE_MS);
   if (!lockStale.ok) return { ok: false, errors: [lockStale.error] };
   // US-0053: the notice players agree to; the value is never echoed.
-  const noticeVersion = (env.CONSENT_NOTICE_VERSION ?? "").trim() || "v1";
+  const noticeVersion = (env.CONSENT_NOTICE_VERSION ?? "").trim() || "v2";
   if (!isNoticeVersion(noticeVersion)) return { ok: false, errors: [`CONSENT_NOTICE_VERSION must be ${NOTICE_VERSION_RULE_TEXT}`] };
   let consentNotice: ConsentNotice;
   try { consentNotice = loadConsentNotice(opts.consentDir ?? path.join(REPO_ROOT, "consent"), noticeVersion); }

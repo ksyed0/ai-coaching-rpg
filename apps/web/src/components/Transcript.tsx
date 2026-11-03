@@ -7,12 +7,12 @@ import { roleLabel } from "../lib/names";
 // The scene's lines. Every line and name is untrusted text and rendered as text. A speaker that is not a player seat is an AI character.
 // The list scrolls by itself to a new line unless the reader has scrolled up to read; it is focusable so a keyboard can scroll it.
 
-export type TranscriptProps = { lines: PlayerLine[]; selfRole: string; names: Record<string, string>; playerRoles: ReadonlySet<string> };
+export type TranscriptProps = { lines: PlayerLine[]; selfRole: string; names: Record<string, string>; playerRoles: ReadonlySet<string>; aiRoles: ReadonlySet<string> };
 
 /** How close to the bottom (px) still counts as "at the bottom". */
 const FOLLOW_SLACK_PX = 40;
 
-export function Transcript({ lines, selfRole, names, playerRoles }: TranscriptProps) {
+export function Transcript({ lines, selfRole, names, playerRoles, aiRoles }: TranscriptProps) {
   const list = useRef<HTMLOListElement>(null);
   const follow = useRef(true);
   const last = lines.at(-1)?.seq;
@@ -30,8 +30,10 @@ export function Transcript({ lines, selfRole, names, playerRoles }: TranscriptPr
     <ol ref={list} className="card tstream" tabIndex={0} aria-label="Transcript" aria-live="polite" aria-relevant="additions" onScroll={onScroll}>
       {lines.map((l) => {
         const self = l.roleId === selfRole;
-        const ai = !self && !playerRoles.has(l.roleId);
-        const name = self ? "You" : Object.hasOwn(names, l.roleId) ? names[l.roleId]! : roleLabel(l.roleId);
+        // An AI player seat is known from `aiRoles` alone, never from a name; an AI character is a speaker that is no player seat.
+        const aiPlayer = !self && aiRoles.has(l.roleId);
+        const ai = aiPlayer || (!self && !playerRoles.has(l.roleId));
+        const name = self ? "You" : aiPlayer ? "AI player" : Object.hasOwn(names, l.roleId) ? names[l.roleId]! : roleLabel(l.roleId);
         return (
           <li className="msg" key={l.seq}>
             <div className="h">

@@ -2,6 +2,7 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initPlayerView } from "@acr/events";
+import { AI_FILLED_MESSAGE } from "../../server/stream-hub";
 import { REMOVED_MESSAGE, SIGNED_OUT_MESSAGE } from "../../server/handlers";
 import { MESSAGES } from "../messages";
 import { MAX_TRANSCRIPT_LINES, useSession, type SessionDeps } from "../use-session";
@@ -102,6 +103,34 @@ describe("useSession: the stream", () => {
     emit(a.es(), "removed", { message: "ignored: the page uses its own text" });
     expect(a.es().closed).toBe(true);
     expect(a.hook.result.current.state.final).toEqual({ kind: "removed", message: MESSAGES.removed });
+  });
+
+  it("use-session finishes on ai_filled with MESSAGES.aiFilled", () => {
+    const a = start();
+    emit(a.es(), "joined", joinedFrame());
+    emit(a.es(), "ai_filled", { message: "ignored" });
+    expect(a.es().closed).toBe(true);
+    expect(a.hook.result.current.state.final).toEqual({ kind: "ai_filled", message: MESSAGES.aiFilled });
+  });
+
+  it("MESSAGES.aiFilled equals AI_FILLED_MESSAGE", () => {
+    expect(MESSAGES.aiFilled).toBe(AI_FILLED_MESSAGE);
+    expect(MESSAGES.aiFilled).toBe("The facilitator has filled this role.");
+  });
+
+  it("toRoster drops unknown keys and keeps ai only when true", () => {
+    const a = start();
+    emit(a.es(), "joined", joinedFrame());
+    emit(a.es(), "roster", { audience: "peers", entries: [
+      { roleId: "a", name: "Sam", ready: true, ai: true, secret: "x" },
+      { roleId: "b", ready: false, ai: "yes" },
+      { roleId: "c", ready: false, ai: false },
+    ] });
+    expect(a.hook.result.current.state.roster).toEqual([
+      { roleId: "a", name: "Sam", ready: true, ai: true },
+      { roleId: "b", ready: false },
+      { roleId: "c", ready: false },
+    ]);
   });
 
   it("REMOVED_MESSAGE equals MESSAGES.removed", () => {

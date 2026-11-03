@@ -3,8 +3,8 @@ import type { Bind } from "./credentials.js";
 
 /**
  * US-0053: who has agreed to the consent notice. Each entry names the participant who gave it and counts only for that participant;
- * a different person later holding the same role must agree again. An entry under another notice version never counts and is
- * dropped when a session resumes.
+ * a different person later holding the same role must agree again. In a lobby an entry under another notice version never
+ * counts and is dropped when it resumes; a started session keeps every entry whatever its version (no comparison after the start).
  */
 export const CONSENT_RECORD_VERSION = 1;
 
@@ -32,9 +32,13 @@ export const REBIND_PENDING = "rebind-pending";
 
 export class ConsentStore {
   private readonly entries: Map<string, ConsentEntry>;
-  constructor(private readonly noticeValue: ConsentNotice, initial: Record<string, ConsentEntry> = {}) {
+  /**
+   * `keepAnyVersion` is for a started session (R15: after the start there is no version comparison): every entry stands, so a
+   * participant who took a seat over after a code reissue keeps the consent they hold. A lobby drops entries under another version.
+   */
+  constructor(private readonly noticeValue: ConsentNotice, initial: Record<string, ConsentEntry> = {}, keepAnyVersion = false) {
     // A pending rebind is kept under any version: it holds no person's agreement, only the right to inherit the one the log records.
-    this.entries = new Map(Object.entries(initial).filter(([, e]) => e.noticeVersion === noticeValue.version || e.participantId === REBIND_PENDING));
+    this.entries = new Map(Object.entries(initial).filter(([, e]) => keepAnyVersion || e.noticeVersion === noticeValue.version || e.participantId === REBIND_PENDING));
   }
 
   get notice(): ConsentNotice { return this.noticeValue; }
@@ -109,7 +113,7 @@ export class ConsentStore {
   }
 
   /** Throws ConsentRecordError (never quoting the record) for an invalid record or one bound to another session or scenario. */
-  static fromRecord(raw: unknown, notice: ConsentNotice, bind: Bind): ConsentStore {
+  static fromRecord(raw: unknown, notice: ConsentNotice, bind: Bind, keepAnyVersion = false): ConsentStore {
     if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw new ConsentRecordError("the consent file is not a JSON object");
     const r = raw as Record<string, unknown>;
     if (Object.keys(r).sort().join(",") !== "entries,scenarioSha256,sessionId,v") throw new ConsentRecordError("the consent file has missing or unexpected fields");
@@ -129,6 +133,6 @@ export class ConsentStore {
       if (typeof at !== "number" || !Number.isFinite(at) || at < 0) throw new ConsentRecordError("the consent file has an invalid time");
       initial[roleId] = { participantId, noticeVersion, at };
     }
-    return new ConsentStore(notice, initial); // the constructor drops entries under another version
+    return new ConsentStore(notice, initial, keepAnyVersion); // unless keepAnyVersion, the constructor drops entries under another version
   }
 }

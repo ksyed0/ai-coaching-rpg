@@ -21,7 +21,7 @@ const noInlineStyles = (c: HTMLElement) => expect(c.querySelectorAll("[style]"))
 
 describe("text from the runtime is rendered as text", () => {
   it("a transcript line containing HTML renders as text", () => {
-    const { container } = render(<Transcript lines={[{ seq: 1, ts: 1, roleId: "priya", text: XSS, sceneId: "s1" }]} selfRole="am" names={{}} playerRoles={new Set(["am"])} />);
+    const { container } = render(<Transcript lines={[{ seq: 1, ts: 1, roleId: "priya", text: XSS, sceneId: "s1" }]} selfRole="am" names={{}} playerRoles={new Set(["am"])} aiRoles={new Set()} />);
     expect(screen.getByText(XSS)).toBeTruthy();
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("script")).toBeNull();
@@ -37,7 +37,7 @@ describe("text from the runtime is rendered as text", () => {
   });
 
   it("a display name with markup renders as text in the transcript speaker", () => {
-    const { container } = render(<Transcript lines={[{ seq: 1, ts: 1, roleId: "dl", text: "hi", sceneId: null }]} selfRole="am" names={{ dl: XSS }} playerRoles={new Set(["am", "dl"])} />);
+    const { container } = render(<Transcript lines={[{ seq: 1, ts: 1, roleId: "dl", text: "hi", sceneId: null }]} selfRole="am" names={{ dl: XSS }} playerRoles={new Set(["am", "dl"])} aiRoles={new Set()} />);
     expect(screen.getByText(XSS)).toBeTruthy();
     expect(container.querySelector("img")).toBeNull();
   });
@@ -65,7 +65,7 @@ describe("Transcript", () => {
           { seq: 2, ts: 2, roleId: "dl", text: "peer", sceneId: null },
           { seq: 3, ts: 3, roleId: "client_sponsor", text: "npc", sceneId: null },
         ]}
-        selfRole="am" names={{ dl: "Jo" }} playerRoles={new Set(["am", "dl"])}
+        selfRole="am" names={{ dl: "Jo" }} playerRoles={new Set(["am", "dl"])} aiRoles={new Set()}
       />,
     );
     const items = screen.getAllByRole("listitem");
@@ -75,14 +75,14 @@ describe("Transcript", () => {
     expect(items[2]!.textContent).toContain("Client sponsor");
   });
   it("the scrollable transcript is keyboard focusable and named", () => {
-    render(<Transcript lines={[{ seq: 1, ts: 1, roleId: "am", text: "a", sceneId: null }]} selfRole="am" names={{}} playerRoles={new Set(["am"])} />);
+    render(<Transcript lines={[{ seq: 1, ts: 1, roleId: "am", text: "a", sceneId: null }]} selfRole="am" names={{}} playerRoles={new Set(["am"])} aiRoles={new Set()} />);
     const list = screen.getByRole("list", { name: "Transcript" });
     expect(list.tabIndex).toBe(0);
   });
 
   it("follows new lines unless the reader has scrolled up", () => {
     const line = (seq: number) => ({ seq, ts: seq, roleId: "am", text: `l${seq}`, sceneId: null });
-    const props = { selfRole: "am", names: {}, playerRoles: new Set(["am"]) };
+    const props = { selfRole: "am", names: {}, playerRoles: new Set(["am"]), aiRoles: new Set<string>() };
     const { rerender } = render(<Transcript lines={[line(1)]} {...props} />);
     const list = screen.getByRole("list", { name: "Transcript" });
     let height = 1_000;
@@ -105,8 +105,37 @@ describe("Transcript", () => {
   });
 
   it("says so when nothing has been said yet", () => {
-    render(<Transcript lines={[]} selfRole="am" names={{}} playerRoles={new Set()} />);
+    render(<Transcript lines={[]} selfRole="am" names={{}} playerRoles={new Set()} aiRoles={new Set()} />);
     expect(screen.getByText(/Nothing has been said yet/)).toBeTruthy();
+  });
+  it("a line from tech_lead reads \"AI player\" with the AI pill and \"Tech lead\" even when the roster names tech_lead \"Pat\"", () => {
+    render(
+      <Transcript
+        lines={[{ seq: 1, ts: 1, roleId: "tech_lead", text: "I can do that.", sceneId: null }]}
+        selfRole="am" names={{ tech_lead: "Pat" }} playerRoles={new Set(["am", "tech_lead"])} aiRoles={new Set(["tech_lead"])}
+      />,
+    );
+    const item = screen.getByRole("listitem");
+    expect(within(item).getByText("AI player")).toBeTruthy();
+    expect(within(item).getByText("AI")).toBeTruthy();
+    expect(within(item).getByText("Tech lead")).toBeTruthy();
+    expect(item.textContent).not.toContain("Pat");
+  });
+  it("a human player's line has no AI pill and an AI character's line keeps it", () => {
+    render(
+      <Transcript
+        lines={[
+          { seq: 1, ts: 1, roleId: "dl", text: "human", sceneId: null },
+          { seq: 2, ts: 2, roleId: "client_sponsor", text: "npc", sceneId: null },
+        ]}
+        selfRole="am" names={{ dl: "Pat" }} playerRoles={new Set(["am", "dl", "tech_lead"])} aiRoles={new Set(["tech_lead"])}
+      />,
+    );
+    const items = screen.getAllByRole("listitem");
+    expect(within(items[0]!).queryByText("AI")).toBeNull();
+    expect(items[0]!.textContent).toContain("Pat");
+    expect(within(items[1]!).getByText("AI")).toBeTruthy();
+    expect(items[1]!.textContent).not.toContain("AI player");
   });
 });
 
@@ -120,6 +149,18 @@ describe("Roster", () => {
     expect(items[1]!.textContent).toContain("Joined");
     expect(items[2]!.textContent).toContain("Tech lead");
     expect(items[2]!.textContent).toContain("Not joined");
+  });
+  it("the roster shows an ai seat as \"AI player\" with \"Tech lead\" and Ready, or Not joined", () => {
+    render(<Roster entries={[{ roleId: "tech_lead", name: "Pat", ready: true, ai: true }, { roleId: "delivery_lead", ready: false, ai: true }, { roleId: "am", ready: true }]} selfRole="am" />);
+    const items = screen.getAllByRole("listitem");
+    expect(items[0]!.textContent).toContain("AI player");
+    expect(items[0]!.textContent).toContain("Tech lead");
+    expect(items[0]!.textContent).toContain("Ready");
+    expect(items[0]!.textContent).not.toContain("Pat");
+    expect(items[1]!.textContent).toContain("AI player");
+    expect(items[1]!.textContent).toContain("Delivery lead");
+    expect(items[1]!.textContent).toContain("Not joined");
+    expect(items[2]!.textContent).not.toContain("AI player");
   });
   it("an empty roster says it is loading", () => {
     render(<Roster entries={[]} selfRole="am" />);

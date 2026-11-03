@@ -104,7 +104,7 @@ describe("bootstrap answers reissue over the parent channel (US-0058)", () => {
     const seats = runtime.host.seats!;
     runtime.host.join("host", "alice");
     seats.credentials.issue("host", "Pat");
-    runtime.host.giveConsent("host", "alice", "v1");
+    runtime.host.giveConsent("host", "alice", "v2");
     await runtime.host.start();
     const reply = await ask({ requestId: "r1", roleId: "host", by: "Kim" });
     expect(reply.type).toBe("reissued");

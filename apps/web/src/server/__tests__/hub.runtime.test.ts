@@ -329,7 +329,7 @@ const JOINED_KEYS = keys<JoinedFrame>()(["type", "roleId", "brief", "privateFact
 const PLAYER_JOINED_KEYS = JOINED_KEYS.filter((k) => k !== "hiddenFacts");
 const REPLAY_KEYS = keys<ReplaySummary>()(["afterSeq", "toSeq", "events", "complete"]);
 const CONSENT_KEYS = keys<NonNullable<JoinedFrame["consent"]>>()(["noticeVersion", "notice", "given"]);
-const PEER_KEYS = keys<PeerRosterEntry>()(["roleId", "name", "ready"]);
+const PEER_KEYS = keys<PeerRosterEntry>()(["roleId", "name", "ready", "ai"]);
 const EVENT_FRAME_KEYS = keys<Extract<ServerMessage, { type: "event" }>>()(["type", "event"]);
 const ERROR_KEYS = keys<Extract<ServerMessage, { type: "error" }>>()(["type", "code", "message", "ref"]);
 const ROSTER_KEYS = keys<Extract<ServerMessage, { type: "roster"; audience: "peers" }>>()(["type", "audience", "entries"]);

@@ -19,7 +19,7 @@
 | `EVAL_TIMEOUT_MS`, `EVAL_TRANSCRIPT_CHARS` | 180000 | evaluator calls, one per player plus one for the group |
 | `FACILITATOR_TOKEN`, `RUNTIME_HOST`, `ALLOWED_ORIGINS`, `TRUST_PROXY`, `WS_*` | token unset (server open, loud warning) | see `docs/THREAT_MODEL.md` |
 | `SESSION_START`, `SESSION_LOCK_STALE_MS` | `resume`, 30000 (10000 to 600000) | `fresh` moves the old log aside |
-| `CONSENT_NOTICE_VERSION` | `v1` | runtime reads `consent/notice-<v>.md`; does not start without it; bump = new file + new value + restart (THREAT_MODEL "Consent notice versions") |
+| `CONSENT_NOTICE_VERSION` | `v2` | runtime reads `consent/notice-<v>.md`; does not start without it; v2 (default since slice 2b-3a) names AI player seats, v1 stays as the record; bump = new file + new value + restart (THREAT_MODEL "Consent notice versions") |
 | Web app (`apps/web`, read by `next start`/`next dev`, NOT from the root `.env`): `RUNTIME_URL`, `PUBLIC_ORIGIN`, `COOKIE_KEYS` | required | `COOKIE_KEYS=id:base64key,...` newest first, 32-byte keys |
 | `COOKIE_MAX_AGE_HOURS`, `WEB_MAX_STREAMS`, `WEB_MAX_STREAMS_PER_SESSION`, `WEB_MAX_STREAMS_PER_ADDRESS` | 12, 200, 64, 16 | the runtime behind the web app needs `TRUST_PROXY=1`, loopback bind |
 

@@ -6,6 +6,7 @@ import type { WebSocket } from "ws";
 import type { Config } from "../config";
 import { setEnvelopeClock } from "../envelope";
 import {
+  AI_FILLED_MESSAGE,
   COOKIE_NAME,
   handleJoin,
   handleStream,
@@ -284,6 +285,17 @@ describe("stream with a launcher", () => {
       event: "signed_out",
       data: { message: SIGNED_OUT_MESSAGE },
     });
+    expect(r.text()).not.toContain("reconnecting");
+  });
+
+  it("a stream join refused with ai_filled (4004) answers the ai_filled final with the message and clears the cookie", async () => {
+    script = (ws) => ws.close(4004, "ai_filled");
+    const { deps } = makeDeps(running());
+    const res = await handleStream(streamReq(cookie()), deps);
+    expect(res.headers.get("Set-Cookie")).toContain("Max-Age=0");
+    const r = sseReader(res);
+    await r.finished;
+    expect(r.frames().at(-1)).toEqual({ event: "ai_filled", data: { message: AI_FILLED_MESSAGE } });
     expect(r.text()).not.toContain("reconnecting");
   });
 
