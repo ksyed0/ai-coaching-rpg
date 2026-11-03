@@ -1353,7 +1353,7 @@ Expected Result: The facilitator's event carries the cleaned by ("Sam"), or no b
 Actual Result: As expected (services/runtime/src/host/__tests__/ws-server.test.ts, display-name.test.ts, services/runtime/src/engine/__tests__/session-engine.test.ts, player-copies.test.ts; apps/web/src/server/__tests__/hub.runtime.test.ts and pnpm demo --web W-07 scan every player stream for the marker LEAK-BY-FACILITATOR; runtime suite 3734 passed, web 494 passed).
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2b-2a, PR 2. The console buttons that send by are slice 2b-2b.
+Notes: Slice 2b-2a, PR 2. The console controls that send it were built in slice 2b-2b2 (TC-0098).
 
 TC-0089: Talk time ("Words spoken") per role, facilitator only
 Related Story: US-0059
@@ -1369,7 +1369,7 @@ Expected Result: Each speaking role has its words (whitespace-separated runs) an
 Actual Result: As expected (packages/events/src/__tests__/talk.test.ts, services/runtime/src/engine/__tests__/session-engine-restore.test.ts, services/runtime/src/host/__tests__/player-copies.test.ts; pnpm demo --web W-07 finds no "talk": on any player stream).
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2b-2a, PR 2. The console table is slice 2b-2b.
+Notes: Slice 2b-2a, PR 2. The console table was built in slice 2b-2b1 (TC-0094).
 
 TC-0090: end_now ends the session with an optional closing message
 Related Story: US-0059
@@ -1404,7 +1404,7 @@ Expected Result: The new code is written first, then the credential is revoked, 
 Actual Result: As expected (services/runtime/src/host/__tests__/reissue.remove.test.ts, reissue.test.ts, display-name.test.ts, src/__tests__/main.parent.test.ts, services/control/src/__tests__/api.test.ts, protocol.drift.test.ts, supervisor.lifecycle.test.ts, apps/web/src/server/__tests__/stream-hub.test.ts, runtime-connection.test.ts, handlers.launcher.test.ts, apps/web/src/lib/__tests__/use-session.test.ts, apps/web/src/components/__tests__/session-screen.test.tsx; runtime 3740 passed, control 158 passed, web 499 passed).
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2b-2a, PR 3. The console button is slice 2b-2b. Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md.
+Notes: Slice 2b-2a, PR 3. The console button was built in slice 2b-2b2 PR 3 (TC-0098). Plan docs/superpowers/plans/2026-11-01-slice-2b-2a-runtime-protocol.md.
 
 
 TC-0092: Facilitator sockets share a reserved key and a per-session budget
@@ -1456,7 +1456,7 @@ Expected Result: The view is the fold of the stream: scene bar and timer, status
 Actual Result: As expected (apps/web/src/lib/__tests__/console-view.test.ts, use-console-stream.test.ts, use-readiness.test.tsx, apps/web/src/components/__tests__/LiveView.test.tsx, SessionConsole.test.tsx, Readiness.test.tsx, apps/web/src/__tests__/source-rules.test.ts: 90 tests passed in these 7 files; web suite 624 passed in 46 files; apps/web/e2e/console-live.spec.ts, Axe passed at 1280 px and 400 px in light and dark and no horizontal scroll at either width; the Playwright suite was re-run at 312a4ee: console-live.spec.ts 5 of 5, the whole `pnpm --filter @acr/web e2e` 22 passed, per the task-13 fix report; web vitest 624 with the isolate test, tsc clean).
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2b-2b1, PR 3. Read-only: pause, resume, advance, inject, whisper, release, stance, Remove and End are slice 2b-2b2. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.
+Notes: Slice 2b-2b1, PR 3. Read-only: pause, resume, advance, inject, whisper, release, stance, Remove and End were added in slice 2b-2b2 (TC-0098). Plan docs/superpowers/plans/2026-11-01-slice-2b-2b1-facilitator-live-view.md.
 
 TC-0095: A console command or end_now with a ref is acknowledged to the sender only
 Related Story: US-0059
@@ -1473,7 +1473,7 @@ Expected Result: A valid ref gets { type: ack, ref } after the host call, to the
 Actual Result: As expected (services/runtime/src/host/__tests__/ws-server.ack.test.ts 13 tests, ws-server.scenes.test.ts 7 tests; runtime vitest 187 files, 3754 tests passed; pnpm -r typecheck clean; the ack and scenes files also passed in node:22 as root and --user node).
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2b-2b2, PR 1 (Tasks 1 and 2). The web server's command route and the console controls follow in PR 2 and PR 3.
+Notes: Slice 2b-2b2, PR 1 (Tasks 1 and 2). The web server's command route followed in PR 2 (TC-0096, TC-0097) and the console controls in PR 3 (TC-0098).
 
 TC-0096: The console command route sends a facilitator action over the tab's own socket and answers with fixed copy
 Related Story: US-0059
@@ -1493,7 +1493,7 @@ Expected Result: A guard failure is 401, 403 or 503, a bad body 400 and no launc
 Actual Result: As expected (apps/web/src/server/__tests__/console-command.test.ts 38 tests, console-command.runtime.test.ts 8 tests (commands, stale scene, two tabs, before the start, end_now, no new socket), facilitator-hub.test.ts (the 15 tests of describe "FacilitatorHub commands", for step 6) and console-sessions.test.ts (the five remove tests, including the player-cookie 401 and the disabled-console 503; the file has 33 tests); the four files pass, and the whole web suite passed (706 tests, typecheck clean). The two real-runtime files console-command.runtime.test.ts and console-stream.runtime.test.ts (13 tests) also passed in node:22 from a git archive, as root and --user node, 13 of 13 each).
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2b-2b2, PR 2. The remove route has no real-runtime test (the launcher reissue is covered in slice 2b-2a, TC-0091); the console buttons and confirmations are PR 3. A command is never retried by the server.
+Notes: Slice 2b-2b2, PR 2. The remove route has no real-runtime test (the launcher reissue is covered in slice 2b-2a, TC-0091); the console buttons and confirmations are PR 3 (TC-0098). A command is never retried by the server.
 
 TC-0097: The console stream names injects and characters, and hidden-fact text leaves only through the facts route
 Related Story: US-0059
@@ -1510,4 +1510,41 @@ Expected Result: joined.scenes carries each scene's injects (id, to, content, at
 Actual Result: As expected (apps/web/src/server/__tests__/facilitator-copies.test.ts 6 tests, facilitator-hub.test.ts 41 tests, console-command.test.ts 38 tests ("the facts route"), console-command.runtime.test.ts 8 tests (the player-frame scan and the facts route against the real runtime); the four files pass, 93 tests in all (6 + 41 + 38 + 8), and the runtime file also passed in node:22 as root and --user node).
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2b-2b2, PR 2. The console page does not yet handle the characters frame or the injects, nor call the facts route: that is PR 3, which must also drop the text from the page when "Hidden facts" is closed, the channel changes or the stream ends. The released fact text of a character and its goals are shown to anyone who can see the facilitator's screen once opened (threat model).
+Notes: Slice 2b-2b2, PR 2. The console page handles the characters frame and the injects and calls the facts route since PR 3 (TC-0098), which also drops the text from the page when "Hidden facts" is closed or the channel changes. The released fact text of a character and its goals are shown to anyone who can see the facilitator's screen once opened (threat model).
+
+TC-0098: The console controls run a live session from the browser, each action behind a confirmation that names its subject and audience
+Related Story: US-0059
+Related Task: TASK-0097
+Related AC: AC-0311, AC-0312, AC-0314, AC-0315, AC-0357
+Type: E2E
+Preconditions: The real control service, runtime and web server (launcher stack, apps/web/e2e/helpers/start-launcher-stack.ts) with the mock model; a started session with three players in three browser contexts and the facilitator signed in as "Ann Facilitator" (unit tests: jsdom with a fake fetch and a fake EventSource).
+Steps:
+  1. Pause; send a whisper to one player; resume.
+  2. Fire the scene's inject again.
+  3. Open Move on in two console tabs; confirm in the first; when both show the next scene, confirm in the second.
+  4. Before opening "Hidden facts", read the page and the requests; open the list with a real click; release fact 1; change the stance; close the list.
+  5. End the session with a closing message; reload the console.
+  6. Before the start, remove a joined participant; dismiss the new code; reload; try the old and the new code.
+  7. Open a fifth console tab; take the console offline while a player speaks; crash the runtime and press Restart.
+  Unit: press each control with a fake command client, double click, drop the connection, let the command fail, answer 409 stale_scene, 504 and 0; render markup, U+202E and a tab in inject content, fact text, a goal, a name and a whisper; open and close two facts lists with answers that arrive late.
+Expected Result: Pause shows "Paused." and the button reads Resume, the timeline says "Paused by Ann Facilitator", the paused player sees the paused pill and a disabled Say box. The whisper dialog reads "Whisper to <recipient>?" and "Only <recipient> sees this message. It cannot be taken back." with the text; after "Whisper sent." the addressed player sees the text once under Updates and the other two never do, and the timeline says "Whisper to <name> by Ann Facilitator". No player page or markup contains the facilitator's name. Firing the inject again names the three players in the dialog and each sees it twice. In the second tab, Move on after the scene changed shows "The scene changed. Review the live view and try again." and the scene changed once (AC-0357). Before the list is opened the page holds no fact text and no /facts request was made; opening it makes exactly one request and shows "Fact 1: <text>"; the release dialog reads "Release fact 1 of Client sponsor?" with "Client sponsor may now share this fact with everyone in the room. It cannot be taken back."; the timeline shows the release and the stance change by Ann Facilitator; closing the list removes the text from the page; no player page holds the fact text or the new goals. End session shows "The session has ended." once on the console, which keeps its Live session view and loses the controls; players see the closing message; a reload shows the ended lobby with no Live session, no controls and no Remove buttons. Remove is offered only for a joined seat; its dialog names the person and the role; the player sees "Removed from the session"; the new code is shown once (dismissing it and a reload leave no trace), the old code gets the join refusal and the new code joins. A fifth console tab shows the busy message with no controls; after the console goes offline and returns, the stream reopens with a Last-Event-ID and the player's line is shown once; after the runtime crash the console says "The session stopped. Restart it from this page." and Restart brings the live view back, paused, with the earlier line. Unit: Pause has no dialog and announces "Paused."; Move on sends the scene id captured when the dialog opened; a stale answer closes the dialog, returns focus to Move on and shows the message in the alert; a double click sends one command; controls are disabled while reconnecting or ended and aria-disabled (still focusable) while a command is pending; the status and alert are written only after the dialog lifted inert; nothing is retried after a 504; hidden-fact text is requested once per opened list, is in the DOM only inside an open list, is gone after the list closes and a late answer after a close or a channel change is ignored; markup and U+202E render as literal text with no img, script or unwrapped b element and names in bdi; Remove is not offered once the session runs, ends or is unreachable, and a 409 shows "A participant can only be removed before the start."
+Actual Result: As expected (apps/web/e2e/console-controls.spec.ts, the first seven of its 8 tests: "pause, whisper and resume ...", "fire the scene's inject again ...", "move on in one tab while a second tab's Move on dialog is open ...", "release a hidden fact and change a stance ...", "end now with a closing message ...", "remove a participant before the start ...", "channel cases ..."; 8 of 8 passed in the final run, 1.1 min. Unit tests: SessionControls.test.tsx 12, Interventions.test.tsx 21, console-commands.test.ts 9, console-confirm.test.ts 10, ConfirmDialog.test.tsx 8, Readiness.test.tsx 30 (6 for Remove), SessionConsole.test.tsx 11, LiveView.test.tsx 15, use-console-stream.test.ts 16; 132 tests in those nine files pass).
+Status: [x] Pass
+Defect Raised: BUG-0019 (a whisper never reached a web player; found by the first e2e and fixed in this PR)
+Notes: Slice 2b-2b2, PR 3. The same spec's "channel cases" test also covers the 2b-2b1 channel behaviour (fifth tab, offline reconnect, crash and Restart) that that slice left to the browser. Not covered by a running test: the same-fact-released-twice race at the browser (only against the runtime, TC-0096); a connection that drops while a confirmation is open (focus falls to the page body, carried in progress.md); the Release button beside a Game Master suggestion is tested in jsdom (Interventions.test.tsx) only, and the e2e does not assert that the fact it releases was suggested. The node:22 container recipe was not run for this PR (no socket or filesystem unit test was added); the new `crashRuntimes` helper runs `ps -A -ww` and CI is its first Linux run. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b2-facilitator-controls.md.
+
+TC-0099: The controls and every confirmation pass Axe at laptop and phone width, light and dark
+Related Story: US-0059
+Related Task: TASK-0097
+Related AC: AC-0316
+Type: Accessibility
+Preconditions: As TC-0098; a started session; the facilitator page at 1280 px and 400 px wide, in the light and the dark colour scheme; a whisper made of a 190-character unbroken word, markup and U+202E; the fact list open.
+Steps:
+  1. With the controls and the open "Hidden facts" list showing, run Axe and measure the page width at each size and scheme.
+  2. Open the Move on, End session, Fire inject, Send whisper and Release fact confirmations one after another; run Axe in each scheme and measure the page width; cancel each.
+  3. Before the start, open the Remove confirmation and run Axe at both widths and schemes.
+Expected Result: No Axe violation of serious or critical impact in any of the screens, widths and schemes, and the document is never wider than the viewport (no horizontal scroll), including with the unbroken whisper text in its confirmation.
+Actual Result: As expected (apps/web/e2e/console-controls.spec.ts "no serious or critical Axe violations with the controls, the expanded facts list and each confirmation dialog open, at 1280 px and 400 px, light and dark, with no horizontal scroll at either width" and, for the Remove confirmation, "remove a participant before the start ..."; both passed in the final run of the spec, 8 of 8).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-2b2, PR 3. Only serious and critical findings fail the check (the owner's reading of AC-0296, as in slice 2a). Axe finds what it can find automatically; keyboard focus order, the live-region announcements and the focus return are covered by unit tests (SessionControls.test.tsx, ConfirmDialog.test.tsx), not by a screen-reader pass. Open: focus return when the opener is disabled by a dropped connection (progress.md). Axe runs with the WCAG 2.0 and 2.1 A and AA tags in both schemes.

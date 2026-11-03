@@ -2504,7 +2504,7 @@
       "title": "As a facilitator, I want a live console to get the room ready, run the scene and step in, so that I can facilitate entirely in the browser.",
       "priority": "High",
       "estimate": "XL",
-      "status": "In Progress",
+      "status": "Complete",
       "branch": "feature/EPIC-0002-US-0059-live-console",
       "acs": [
         {
@@ -2514,13 +2514,13 @@
         },
         {
           "id": "AC-0311",
-          "text": "the live console shows scene status, timers, the transcript with Game Master notices and alerts, and talk time, and offers pause, resume, advance and end now (runtime part landed in slice 2b-2a: the fold projects \"Words spoken\" per role, facilitator only, TC-0089; the console screens follow in slice 2b-2b; scene status, timers, transcript with Game Master notices and alerts and Words spoken are built in slice 2b-2b1 (TC-0094); pause, resume, advance and end now follow in 2b-2b2)",
-          "done": false
+          "text": "the live console shows scene status, timers, the transcript with Game Master notices and alerts, and talk time, and offers pause, resume, advance and end now (runtime part landed in slice 2b-2a: the fold projects \"Words spoken\" per role, facilitator only, TC-0089; the console screens follow in slice 2b-2b; scene status, timers, transcript with Game Master notices and alerts and Words spoken are built in slice 2b-2b1 (TC-0094); pause, resume, Move on (advance) and End session are built in slice 2b-2b2 PR 3 behind the command route: e2e console-controls.spec.ts \"pause, whisper and resume\", \"move on in one tab ...\" and \"end now with a closing message ...\", unit SessionControls.test.tsx; TC-0098)",
+          "done": true
         },
         {
           "id": "AC-0312",
-          "text": "inject, whisper, release hidden fact (including one click on a Game Master suggestion) and NPC stance work and are logged with the facilitator name (runtime part landed in slice 2b-2a: `command` and `end_now` carry `by`, cleaned to 60 code points, recorded on the event and never in a player frame, TC-0088; the console buttons follow in slice 2b-2b)",
-          "done": false
+          "text": "inject, whisper, release hidden fact (including one click on a Game Master suggestion) and NPC stance work and are logged with the facilitator name (runtime part landed in slice 2b-2a: `command` and `end_now` carry `by`, cleaned to 60 code points, recorded on the event and never in a player frame, TC-0088; the console controls are built in slice 2b-2b2 PR 3: Fire inject (e2e \"fire the scene's inject again\"), Send whisper (e2e \"pause, whisper and resume\"), Release fact and Set stance (e2e \"release a hidden fact and change a stance\"), each with a confirmation that names the audience, and the console timeline names the facilitator for each of them in those specs. The Release button beside a Game Master suggestion (\"Suggested by the Game Master\") is covered by a unit test only (Interventions.test.tsx); the e2e releases a fact that was not suggested. TC-0098)",
+          "done": true
         },
         {
           "id": "AC-0313",
@@ -2529,18 +2529,18 @@
         },
         {
           "id": "AC-0314",
-          "text": "remove_participant before the start revokes the credential, closes the socket, clears consent, frees the seat and always reissues the role's code (moved from AC-0308) (addendum: Remove is the existing parent-only reissue with reason \"removed\" (control API `POST /sessions/:id/codes/reissue` with `{ roleId, reason: \"removed\" }`), allowed before the start only (409 \"a participant can only be removed before the start\" when started or starting); the new code is written first, then the credential is revoked, consent withdrawn, seats persisted, the socket closed with code 4003 reason \"removed\" and the codes swapped, so the old code cannot reopen the seat; it has no network surface and mid-session removal is out of scope (end the session instead); the web server turns 4003 into a terminal `removed` event and the final screen \"Removed from the session\" and clears the cookie on the join path; the `reissueActor` alias was removed; the console button is slice 2b-2b; built in slice 2b-2a, TC-0091) (note, slice 2b-2b2 PR 2: the BFF route POST /api/v1/console/sessions/:id/remove is built in 2b-2b2 PR 2 (TC-0096); the button follows in PR 3)",
+          "text": "remove_participant before the start revokes the credential, closes the socket, clears consent, frees the seat and always reissues the role's code (moved from AC-0308) (addendum: Remove is the existing parent-only reissue with reason \"removed\" (control API `POST /sessions/:id/codes/reissue` with `{ roleId, reason: \"removed\" }`), allowed before the start only (409 \"a participant can only be removed before the start\" when started or starting); the new code is written first, then the credential is revoked, consent withdrawn, seats persisted, the socket closed with code 4003 reason \"removed\" and the codes swapped, so the old code cannot reopen the seat; it has no network surface and mid-session removal is out of scope (end the session instead); the web server turns 4003 into a terminal `removed` event and the final screen \"Removed from the session\" and clears the cookie on the join path; the `reissueActor` alias was removed; the console button is slice 2b-2b; built in slice 2b-2a, TC-0091) (note, slice 2b-2b2: the BFF route POST /api/v1/console/sessions/:id/remove is built in PR 2 (TC-0096); the Remove button in the readiness list is built in PR 3: it is offered only for a joined seat before the start, its confirmation names the person and the role, and the new code is shown once (Readiness.test.tsx, e2e \"remove a participant before the start\"; TC-0098))",
           "done": true
         },
         {
           "id": "AC-0315",
-          "text": "irreversible actions use one confirmation that names the subject and audience",
-          "done": false
+          "text": "irreversible actions use one confirmation that names the subject and audience (built in slice 2b-2b2 PR 3: Move on, End session, Fire inject, Send whisper, Release fact and Remove each open the one ConfirmDialog with fixed copy from lib/console-confirm.ts that names the scene, the audience, the recipient, the character or the person; console-confirm.test.ts and the e2e specs; TC-0098)",
+          "done": true
         },
         {
           "id": "AC-0316",
-          "text": "the layout works at laptop width and keyboard focus and labels pass an accessibility audit (the live view passes Axe at 400 px and 1280 px, light and dark, in apps/web/e2e/console-live.spec.ts; the controls are audited in 2b-2b2)",
-          "done": false
+          "text": "the layout works at laptop width and keyboard focus and labels pass an accessibility audit (the live view passes Axe at 400 px and 1280 px, light and dark, in apps/web/e2e/console-live.spec.ts; the controls, the expanded facts list and the Move on, End session, Fire inject, Send whisper and Release fact confirmations pass Axe (serious and critical findings) at 1280 px and 400 px, light and dark, with no horizontal scroll, in apps/web/e2e/console-controls.spec.ts, and the Remove confirmation in the same file; TC-0099)",
+          "done": true
         },
         {
           "id": "AC-0351",
@@ -2570,6 +2570,11 @@
         {
           "id": "AC-0356",
           "text": "the console stream names each scene's injects and, in its characters frame only, each AI character's goals and hidden-fact numbers with their release state, and POST /api/v1/console/sessions/:id/facts answers fact text on request; no player frame carries any of it (apps/web/src/server/facilitator-copies.ts, facilitator-hub.ts, console-command.ts; TC-0097)",
+          "done": true
+        },
+        {
+          "id": "AC-0357",
+          "text": "when the scene changed between opening a confirmation and confirming it, the console shows \"The scene changed. Review the live view and try again.\" and nothing is applied (the confirmation sends the scene id the console showed when it opened; the command route answers 409 stale_scene; e2e console-controls.spec.ts \"move on in one tab while a second tab's Move on dialog is open\", SessionControls.test.tsx; TC-0098)",
           "done": true
         }
       ],
@@ -3597,9 +3602,9 @@
       "title": "Console screens, interventions, end_now and remove_participant",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0059-live-console",
-      "notes": "Spec sections 5.6 and 5.7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "notes": "Delivered under TASK-0094, TASK-0095, TASK-0096 and TASK-0097 (the umbrella task, split into slices 2b-1 to 2b-2b2). Spec sections 5.6 and 5.7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
     },
     {
       "id": "TASK-0094",
@@ -3637,9 +3642,9 @@
       "title": "Facilitator command route, controls and confirmations (slice 2b-2b2)",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0059-command-ack (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-command-route and feature/EPIC-0002-US-0059-console-controls)",
-      "notes": "PR 1 (merged) is the runtime side: the optional ref on command and end_now with ack and error carrying it (AC-0354, TC-0095) and injects in the facilitator's scene list. PR 2 (this PR, feature/EPIC-0002-US-0059-command-route) is the web server's command, hidden-fact and remove routes with the hub's correlation and the characters frame (AC-0355, AC-0356, TC-0096, TC-0097); PR 3 is the console controls and confirmations (AC-0311, AC-0312, AC-0315, AC-0316 stay open until then). Plan docs/superpowers/plans/2026-11-01-slice-2b-2b2-facilitator-controls.md."
+      "notes": "PR 1 (merged) is the runtime side: the optional ref on command and end_now with ack and error carrying it (AC-0354, TC-0095) and injects in the facilitator's scene list. PR 2 (merged as #74, feature/EPIC-0002-US-0059-command-route) is the web server's command, hidden-fact and remove routes with the hub's correlation and the characters frame (AC-0355, AC-0356, TC-0096, TC-0097); PR 3 (this PR, feature/EPIC-0002-US-0059-console-controls) is the console controls, confirmations, Remove button and their end-to-end and Axe checks (AC-0311, AC-0312, AC-0314 button, AC-0315, AC-0316, AC-0357; TC-0098, TC-0099) and a fix so a whisper reaches the web player (BUG-0019). Delivered in three PRs: #73, #74 and this PR. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b2-facilitator-controls.md."
     },
     {
       "id": "TASK-0089",
@@ -4652,6 +4657,26 @@
       "type": "Integration",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0098",
+      "title": "The console controls run a live session from the browser, each action behind a confirmation that names its subject and audience",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0097",
+      "relatedAC": "AC-0311, AC-0312, AC-0314, AC-0315, AC-0357",
+      "type": "E2E",
+      "status": "Pass",
+      "defect": "BUG-0019 (a whisper never reached a web player; found by the first e2e and fixed in this PR)"
+    },
+    {
+      "id": "TC-0099",
+      "title": "The controls and every confirmation pass Axe at laptop and phone width, light and dark",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0097",
+      "relatedAC": "AC-0316",
+      "type": "Accessibility",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -4867,6 +4892,18 @@
       "relatedTask": "None",
       "status": "Open",
       "fixBranch": "None",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0019",
+      "title": "A facilitator whisper never reached a web player's screen",
+      "severity": "Medium",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0097",
+      "status": "Fixed (feature/EPIC-0002-US-0059-console-controls)",
+      "fixBranch": "feature/EPIC-0002-US-0059-console-controls",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5406,6 +5443,14 @@
         "projectedUsd": 400
       },
       "BUG-0018": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0019": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -6167,10 +6212,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-02T20:15:07.415Z",
-  "commitSha": "d8c15b9",
+  "generatedAt": "2026-11-03T00:00:24.508Z",
+  "commitSha": "26b9d95",
   "buildNumber": "500",
-  "branch": "feature/EPIC-0002-US-0059-command-route",
+  "branch": "feature/EPIC-0002-US-0059-console-controls",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6440,9 +6485,11 @@
       "2026-11-02T01:22:39.762Z",
       "2026-11-02T02:24:55.020Z",
       "2026-11-02T14:44:58.877Z",
-      "2026-11-02T20:15:07.540Z"
+      "2026-11-02T20:15:07.540Z",
+      "2026-11-03T00:00:24.592Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6532,6 +6579,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6565,6 +6613,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -6624,9 +6673,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -6716,9 +6767,11 @@
       0,
       2,
       2,
+      2,
       2
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -6808,6 +6861,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -6841,6 +6895,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -6900,7 +6955,8 @@
       1.136923076923077,
       1.1461538461538459,
       1.1461538461538459,
-      1.1461538461538459
+      1.1461538461538459,
+      1.1415384615384614
     ],
     "velocityByWeek": {
       "labels": [
