@@ -248,3 +248,75 @@ describe("reserved display names (US-0060)", () => {
     expect(throttle.calls).toBe(2);
   });
 });
+
+describe("the roster and player frames with AI seats (US-0060)", () => {
+  const rosterOf = (c: Client, audience: string) => [...c.inbox].reverse().find((m) => m.type === "roster" && m.audience === audience)?.entries;
+
+  it("the peers roster before the start shows tech_lead as ai and ready after the bot joined", async () => {
+    const { port, plain } = await setup();
+    const a = await seat(port, "account_manager", plain.account_manager!, "alice", "Alice");
+    expect(await a.c.next((m) => m.type === "roster" && m.entries.some((e: any) => e.roleId === "tech_lead"))).toMatchObject({ audience: "peers" });
+    expect(rosterOf(a.c, "peers").find((e: any) => e.roleId === "tech_lead")).toEqual({ roleId: "tech_lead", ready: false, ai: true });
+    await seat(port, "tech_lead", plain.tech_lead!, "bot1");
+    await a.c.next((m) => m.type === "roster" && m.entries.some((e: any) => e.roleId === "tech_lead" && e.ready));
+    expect(rosterOf(a.c, "peers").find((e: any) => e.roleId === "tech_lead")).toEqual({ roleId: "tech_lead", name: "AI player", ready: true, ai: true });
+    const human = rosterOf(a.c, "peers").find((e: any) => e.roleId === "account_manager");
+    expect(human).not.toHaveProperty("ai");
+    const f = await facilitator(port);
+    const fr = (await f.next((m) => m.type === "roster" && m.audience === "facilitator")).entries;
+    expect(fr.find((e: any) => e.roleId === "tech_lead")).toEqual({ roleId: "tech_lead", name: "AI player", joined: true, consented: false, connected: true, ai: true });
+    expect(fr.find((e: any) => e.roleId === "account_manager")).not.toHaveProperty("ai");
+  });
+
+  it("a player frame labels an AI line: account_manager's session.started copy lists aiRoles [\"tech_lead\"], the bot's line in scene 1 reaches account_manager with roleId tech_lead, and account_manager rejoining afterwards gets aiRoles [\"tech_lead\"] in its snapshot", async () => {
+    const { port, seats, plain } = await setup();
+    const { a } = await humans(port, seats, plain);
+    const bot = await seat(port, "tech_lead", plain.tech_lead!, "bot1");
+    const f = await facilitator(port);
+    f.send({ type: "start" });
+    const started = await a.c.next((m) => m.type === "event" && m.event.type === "session.started");
+    expect(started.event.aiRoles).toEqual(["tech_lead"]);
+    bot.c.send({ type: "say", text: "bot line one" });
+    const line = await a.c.next((m) => m.type === "event" && m.event.type === "utterance" && m.event.text === "bot line one");
+    expect(line.event.roleId).toBe("tech_lead");
+    const again = await open(port);
+    again.send({ type: "join", sessionId: "local", roleId: "account_manager", participantId: "alice", reconnectToken: a.j.reconnectToken });
+    const j = await again.next((m) => m.type === "joined" || m.type === "error");
+    expect(j.type).toBe("joined");
+    expect(j.state.aiRoles).toEqual(["tech_lead"]);
+  });
+
+  it("no frame a player receives carries the bot's participant id \"BOT-PID-7\", its credential, its join code, the names table or a consents entry for tech_lead", async () => {
+    const { port, seats, plain } = await setup();
+    const { a, d } = await humans(port, seats, plain);
+    const bot = await seat(port, "tech_lead", plain.tech_lead!, "BOT-PID-7");
+    const f = await facilitator(port);
+    f.send({ type: "start" });
+    const fStarted = (await f.next((m) => m.type === "event" && m.event.type === "session.started")).event;
+    bot.c.send({ type: "say", text: "bot line two" });
+    await a.c.next((m) => m.type === "event" && m.event.type === "utterance" && m.event.text === "bot line two");
+    await d.c.next((m) => m.type === "event" && m.event.type === "utterance" && m.event.text === "bot line two");
+    // Each marker first exists where it is allowed to: the facilitator socket or the bot's own join reply.
+    const credential = bot.j.reconnectToken as string;
+    expect(typeof credential).toBe("string");
+    expect(credential.length).toBeGreaterThan(8);
+    const fText = JSON.stringify(f.inbox);
+    expect(fText).toContain("BOT-PID-7");
+    expect(JSON.stringify(bot.c.inbox)).toContain(credential);
+    expect(fStarted.names).toEqual(expect.objectContaining({ tech_lead: "AI player" }));
+    expect(fStarted.roles.tech_lead.participantId).toBe("BOT-PID-7");
+    expect(Object.keys(fStarted.consents)).not.toContain("tech_lead"); // by design the bot has no consent entry, for anyone
+    for (const p of [a, d]) {
+      await vi.waitFor(() => expect(p.c.inbox.some((m) => m.type === "event" && m.event.type === "utterance")).toBe(true), { timeout: 30_000, interval: 5 });
+      const text = JSON.stringify(p.c.inbox);
+      expect(text).not.toContain("BOT-PID-7");
+      expect(text).not.toContain(credential);
+      expect(text).not.toContain(plain.tech_lead!);
+      expect(text).not.toContain('"names"');
+      expect(text).not.toContain('"tech_lead":{"noticeVersion"');
+      const ps = p.c.inbox.find((m) => m.type === "event" && m.event.type === "session.started").event;
+      expect(ps).not.toHaveProperty("names");
+      expect(Object.keys(ps.consents ?? {})).not.toContain("tech_lead");
+    }
+  });
+});

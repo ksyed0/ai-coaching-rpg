@@ -178,7 +178,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
     const playerRoles = h.playerRoleIds();
     const connected = new Set<string>();
     for (const role of playerRoles) { const held = holders.get(`${sessionId}:${role}`); if (held && held.ws.readyState === held.ws.OPEN) connected.add(role); }
-    const roster = buildRoster({ playerRoles, assignments: h.assignments, connected, seats: h.seats });
+    const roster = buildRoster({ playerRoles, assignments: h.assignments, connected, seats: h.seats, aiRoles: new Set(h.aiRoleIds?.() ?? []) });
     for (const c of only ? [only] : live) {
       if (c.h !== h || c.closing() || c.ws.readyState !== c.ws.OPEN) continue;
       c.send(c.facilitator ? { type: "roster", audience: "facilitator", entries: roster.facilitator } : { type: "roster", audience: "peers", entries: roster.peers });
