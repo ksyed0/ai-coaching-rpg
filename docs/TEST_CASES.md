@@ -1563,3 +1563,32 @@ Actual Result: As expected (the events and runtime test files named in the steps
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-3a, PR 1 (Tasks 1 to 3: aiRoles in events, state and copies; log format 3; the AI-role file). The rollback consequence is in docs/ROLLBACK.md. Nothing over HTTP sets AI roles until slice 2b-3b, so no 3a build writes a format-3 log; the tests drive the engine and the store directly.
+
+TC-0101: the control service sets AI roles over the private channel (rotation, revoke, 4004, refusals)
+Related Story: US-0060
+Related Task: TASK-0098
+Related AC: AC-0359
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/host/__tests__/set-ai-roles.test.ts src/host/__tests__/set-ai-roles.socket.test.ts src/host/__tests__/parent-channel.test.ts src/__tests__/main.ai-roles.test.ts src/__tests__/main.reissue.test.ts src/engine/__tests__/ai-roles.test.ts src/engine/__tests__/session-store.ai-roles.test.ts`.
+  2. Run `pnpm --filter @acr/control exec vitest run src/__tests__/protocol.drift.test.ts src/__tests__/supervisor.ai-roles.test.ts src/__tests__/api.test.ts`.
+Expected Result: every changed role gets a new code written before anything else, and the old code, a switched human's credential and a reconnect token of their closed socket are refused; a switched human's consent is withdrawn and their socket closed with 4004 (to AI) or 4002 (back to human); an unchanged request answers no codes and writes nothing; a request after the start, while the start is in flight or after the end, an unknown, AI-character or duplicate role and a set that leaves no human role are refused with the fixed reasons only; a failed persist restores memory, writes the old codes back and rethrows; the strict schema refuses extra keys and more than 256 roles and the runtime and control copies agree; `ready` carries `aiRoles` only when there are some; any unexpected error answers "the AI roles could not be changed"; the supervisor resolves the codes, keeps the latest set for `aiRolesOf`, refuses a second request for the session while one is pending, and rejects on a timeout, a lost child or a shutdown; the control API has no AI-role route (POST and PUT `/sessions/:id/ai-roles` are 404).
+Actual Result: As expected (the runtime and control test files named in the steps), 2026-11-03.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3a, PR 2 (Tasks 7 to 9). Nothing over HTTP sets AI roles until slice 2b-3b (ruling A1), so the tests drive the host, the channel and the supervisor directly. If persist fails the disk may keep a revoked credential or withdrawn consent (a role "human without credential", never "AI with a human's credential"); the tests pin the in-memory restore and the order, not a second failing write. The persist order and its residue are in docs/THREAT_MODEL.md ("AI-role state").
+
+TC-0102: the start gate counts humans and AI bots apart, and AI seats are marked
+Related Story: US-0060
+Related Task: TASK-0098
+Related AC: AC-0320
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/host/__tests__/ws-server.ai-roles.test.ts src/host/__tests__/roster.test.ts src/host/__tests__/ws-server.roster.test.ts src/host/__tests__/roster.prompt-leak.test.ts src/host/__tests__/session-host.test.ts`.
+Expected Result: the start gate needs a holder and consent for each human role and a connected bot, without consent, for each AI role, and refuses with `seats_not_ready` naming humans first and then AI roles without a bot; a session with AI roles starts with `aiRoles` in the log; a join to an AI seat skips the consent and rebind checks, gets no `consent` in `joined`, has its credential name fixed to "AI player", and `consent` and `withdraw_consent` from it are `forbidden` while `leave` works; a join whose cleaned name starts with "AI player" (case, width, spacing and hidden characters folded) is refused as reserved before authentication, a bot's included, while "Aiden Player" and "AI-player" are accepted; the roster marks AI seats `ai: true` for the facilitator and peers (absent otherwise, `consented` false, ready as soon as joined) and never carries consent or connection to peers.
+Actual Result: As expected (the runtime test files named in the steps), 2026-11-03.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3a, PR 2 (Tasks 5 and 6). AC-0320 stays open: no build can hold an AI role until slice 2b-3b, and the console counts are 3b. The reserved-name check refuses any join with the prefix, so the 3b bot must send no displayName. The terminal client does not label AI seats or lines yet (a hard rule for 3b, docs/THREAT_MODEL.md).

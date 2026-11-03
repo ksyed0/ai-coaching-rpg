@@ -5,8 +5,8 @@
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
 | TASK         | TASK-0099             | TASK-0098         |
-| AC           | AC-0359               | AC-0358           |
-| TC           | TC-0101               | TC-0100           |
+| AC           | AC-0360               | AC-0359           |
+| TC           | TC-0103               | TC-0102           |
 | BUG          | BUG-0020              | BUG-0019          |
 | L            | L-0032                | L-0031            |
 
@@ -49,3 +49,5 @@ Assigned 2026-11-02 (slice 2b-2b2, PR 2): AC-0355 (US-0059: the console command 
 Assigned 2026-11-02 (slice 2b-2b2, PRs 1 to 3): AC-0354 (ref and ack), AC-0355 (command route), AC-0356 (characters and facts) and AC-0357 (stale scene on confirm); TC-0095 (AC-0354), TC-0096 (AC-0355), TC-0097 (AC-0356), TC-0098 (controls, AC-0311, AC-0312, AC-0314, AC-0315, AC-0357) and TC-0099 (Axe on the controls, AC-0316); TASK-0097 (US-0059 facilitator command route, controls and confirmations, three PRs); BUG-0019 (a whisper never reached a web player). The slice assigned AC-0354..AC-0356 and TC-0095..TC-0097 in its earlier PRs.
 
 Assigned 2026-11-03 (slice 2b-3a, PR 1): AC-0358 (US-0060: session.started records aiRoles, log format 3, and the lobby's AI-role file); TC-0100 (AC-0358); TASK-0098 (US-0060 AI-role state, start gate, marking, consent notice v2 and log format 3, three PRs). Later PRs of the slice file their own.
+
+Assigned 2026-11-03 (slice 2b-3a, PR 2): AC-0359 (US-0060: the control service sets AI roles over the private IPC channel before the start); TC-0101 (AC-0359) and TC-0102 (AC-0320 runtime part: the gate and the marking). No new TASK: the work is under TASK-0098 (next free stays TASK-0099).
