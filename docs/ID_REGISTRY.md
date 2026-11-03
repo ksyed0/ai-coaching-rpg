@@ -4,9 +4,9 @@
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
-| TASK         | TASK-0099             | TASK-0098         |
-| AC           | AC-0361               | AC-0360           |
-| TC           | TC-0105               | TC-0104           |
+| TASK         | TASK-0100             | TASK-0099         |
+| AC           | AC-0362               | AC-0361           |
+| TC           | TC-0107               | TC-0106           |
 | BUG          | BUG-0020              | BUG-0019          |
 | L            | L-0032                | L-0031            |
 
@@ -53,3 +53,5 @@ Assigned 2026-11-03 (slice 2b-3a, PR 1): AC-0358 (US-0060: session.started recor
 Assigned 2026-11-03 (slice 2b-3a, PR 2): AC-0359 (US-0060: the control service sets AI roles over the private IPC channel before the start); TC-0101 (AC-0359) and TC-0102 (AC-0320 runtime part: the gate and the marking). No new TASK: the work is under TASK-0098 (next free stays TASK-0099).
 
 Assigned 2026-11-03 (slice 2b-3a, PR 3): AC-0360 (US-0060: the default consent notice is v2 and a started session whose players consented under v1 keeps every consenting participant, rebound seats included, after a restart on v2); TC-0103 (AC-0360) and TC-0104 (AC-0321, player part: roster, transcript, reserved name, ai_filled). No new TASK: the work closes TASK-0098 (next free stays TASK-0099).
+
+Assigned 2026-11-03 (slice 2b-3b, PR 1): AC-0361 (US-0060: the live AI player's turn rules, skips, stale-reply drops and shared budget); TC-0105 (AC-0319: the shared players/ module) and TC-0106 (AC-0361: the turn policy, the runtime limits, bot_alert and ready.aiCalls, the control bot plumbing, the bot and the bot host); TASK-0099 (US-0060 live AI players, toggle and Prompt AI player, three PRs). Later PRs of the slice file their own (expected AC-0362, TC-0107).

@@ -1790,22 +1790,32 @@ Notes: PR 1 (merged as #78) is the record: aiRoles in session.started, the state
 ```
 
 ```
+TASK-0099 (US-0060): live AI players, toggle and Prompt AI player (slice 2b-3b)
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0002-US-0060-bot-engine (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-seats-reachable and feature/EPIC-0002-US-0060-ai-toggle-prompt)
+Notes: PR 1 (bot engine, no route) is the shared players/ module (the demo's player bot moved there, plus the live prompt with its fenced steer, the hint cleaner, the settings parser, a hard-timeout line generator that never returns a canned line, and the reactive TurnPolicy), the runtime limits (at most 8 AI roles, at most 12 player roles in a managed session, AI roles only under consent notice v2 or later, the AI reissue without the consent rebind), bot_alert and ready.aiCalls over IPC, and in the control service the bot socket, frame parser, session budget, intent log, AiPlayerBot and BotHost (AC-0319, AC-0361; TC-0105, TC-0106). Nothing creates a bot, no route sets AI roles and no client shows one yet. PR 2 (feature/EPIC-0002-US-0060-ai-seats-reachable) wires the bots into the supervisor, labels AI seats in the terminal client, console and player page, and only then adds the routes; PR 3 adds the toggle and Prompt AI player. No release before slice 2b-3c. Plan docs/superpowers/plans/2026-11-03-slice-2b-3b-ai-players.md.
+```
+
+```
 US-0060 (EPIC-0002): As a facilitator, I want to fill a player role with an AI player until I start the session, so that a no-show does not stop the session.
 Priority: High
 Estimate: L
 Status: In Progress
-Branch: feature/EPIC-0002-US-0060-ai-role-record (slice 2b-3a PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels)
+Branch: feature/EPIC-0002-US-0060-ai-role-record (slice 2b-3a PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels); slice 2b-3b: feature/EPIC-0002-US-0060-bot-engine (PR 1), feature/EPIC-0002-US-0060-ai-seats-reachable (PR 2), feature/EPIC-0002-US-0060-ai-toggle-prompt (PR 3)
 Dependencies: US-0058, US-0059
 Acceptance Criteria:
   - [ ] AC-0317: any player role can be switched to an AI player or back to human from the New session and readiness screens until the start, and roles are fixed after the start (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b)
   - [ ] AC-0318: switching a joined human to AI asks for confirmation and revokes their credential and consent; switching back stops the bot and issues a new code once (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b)
-  - [ ] AC-0319: the player bot code moves from demo/ to a shared module used by the demo and the control service, with its own PLAYER_MODEL and PLAYER_TEMPERATURE settings
+  - [x] AC-0319: the player bot code moves from demo/ to a shared module used by the demo and the control service, with its own PLAYER_MODEL and PLAYER_TEMPERATURE settings (built in slice 2b-3b PR 1: services/runtime/src/players/, exported as @acr/runtime/players, with a boundary test; the settings are parsed by parseAiPlayerSettings and read by the control service from PR 2 on; players, hint, live, settings tests and the demo suite; TC-0105)
   - [ ] AC-0320: session.started records aiRoles, AI roles skip consent, and the start gate counts human seats and connected AI bots separately (runtime part built in 2b-3a (aiRoles recorded, AI seats skip consent, the gate checks humans and bots apart); no build can hold an AI role and the console shows the counts in 2b-3b; TC-0102)
   - [ ] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client and the console in 2b-3b, reports and exports in 2b-3c and 2c, the intent log in 2b-3b)
   - [ ] AC-0322: an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored (2b-3c and 2c read state.aiRoles from the log, which 2b-3a records)
   - [x] AC-0358: session.started records aiRoles in scenario order (log format 3) only when a session has AI roles, other sessions keep format 2, the runtime reads formats 0 to 3 and refuses aiRoles in an older format, and the lobby's AI roles are kept in <id>.ai-roles.json beside the seat files across a managed restart (events state and player-copy tests, session-engine-restore.test.ts, session-store.ai-roles.test.ts; TC-0100)
   - [x] AC-0359: the control service can set the AI roles of a session before the start over the private IPC channel only; each changed role gets a new code in the same step, a switched human's credential and consent are revoked and their socket closed with 4004, and the change is refused after the start (set-ai-roles, parent-channel, main.ai-roles, protocol drift and supervisor.ai-roles tests; TC-0101)
   - [x] AC-0360: the default consent notice is v2, which says a participant's seat may be played by an AI player, and a started session whose players consented under v1 restarts on v2 with every consenting participant able to rejoin, a participant who took a seat over after a reissue included, and a different participant still refused (main.consent-v2.test.ts and the tests that used to pin v1; TC-0103)
+  - [x] AC-0361: a live AI player speaks only when a human or AI character has finished, after a quiet-time nudge while a human is connected, or when prompted; never reacts to another AI player; keeps a minimum gap and a per-scene cap; skips a failed, late or unusable turn with a facilitator alert and never a canned line; drops a reply produced for an earlier scene, a pause, the end or an old connection; and all bots of a session share one model-call budget (turn-policy, live, bot and bot-host tests; the bot engine is built in slice 2b-3b PR 1 but nothing creates a bot until PR 2; TC-0106)
 ```
 
 ```
@@ -1814,7 +1824,7 @@ Type: Dev
 Assignee: Agent
 Status: To Do
 Branch: feature/EPIC-0002-US-0060-ai-player-roles
-Notes: Spec section 5.9. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Spec section 5.9. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Superseded by TASK-0098 and TASK-0099.
 ```
 
 ```
