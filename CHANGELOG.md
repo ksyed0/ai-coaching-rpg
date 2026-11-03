@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- Log format 3 and the AI-role file (EPIC-0002, US-0060, AC-0358): `session.started` now records `aiRoles` (in scenario order) when a session has AI roles, and such a session's log has format 3; sessions without AI roles keep format 2. The runtime reads formats 0 to 3. The lobby's AI roles are kept in `<id>.ai-roles.json` beside the seat files and survive a managed restart. Nothing in the web app sets AI roles yet (slice 2b-3b), so no new log can be format 3 in this release; a build from before this slice refuses a format-3 log (see docs/ROLLBACK.md).
+
 ### Recorded
 - Owner decisions for web client slice 2a, 2026-10-28: consent notice v1 wording approved; the AC-0290 (cookie lifetime), AC-0296 (Axe serious and critical findings only) and AC-0298 (scripted web demo players) interpretations accepted. Two Web E2E specs failed on the first CI runs and are tracked as BUG-0009 and BUG-0010; the CodeQL alert in the web handler test is fixed (BUG-0011).
 

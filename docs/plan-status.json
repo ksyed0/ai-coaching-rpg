@@ -2588,8 +2588,8 @@
       "title": "As a facilitator, I want to fill a player role with an AI player until I start the session, so that a no-show does not stop the session.",
       "priority": "High",
       "estimate": "L",
-      "status": "Planned",
-      "branch": "feature/EPIC-0002-US-0060-ai-player-roles",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0002-US-0060-ai-role-record (slice 2b-3a PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels)",
       "acs": [
         {
           "id": "AC-0317",
@@ -2620,6 +2620,11 @@
           "id": "AC-0322",
           "text": "an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored",
           "done": false
+        },
+        {
+          "id": "AC-0358",
+          "text": "session.started records aiRoles in scenario order (log format 3) only when a session has AI roles, other sessions keep format 2, the runtime reads formats 0 to 3 and refuses aiRoles in an older format, and the lobby's AI roles are kept in <id>.ai-roles.json beside the seat files across a managed restart (events state and player-copy tests, session-engine-restore.test.ts, session-store.ai-roles.test.ts; TC-0100)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -3645,6 +3650,16 @@
       "status": "Done",
       "branch": "feature/EPIC-0002-US-0059-command-ack (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0059-command-route and feature/EPIC-0002-US-0059-console-controls)",
       "notes": "PR 1 (merged) is the runtime side: the optional ref on command and end_now with ack and error carrying it (AC-0354, TC-0095) and injects in the facilitator's scene list. PR 2 (merged as #74, feature/EPIC-0002-US-0059-command-route) is the web server's command, hidden-fact and remove routes with the hub's correlation and the characters frame (AC-0355, AC-0356, TC-0096, TC-0097); PR 3 (this PR, feature/EPIC-0002-US-0059-console-controls) is the console controls, confirmations, Remove button and their end-to-end and Axe checks (AC-0311, AC-0312, AC-0314 button, AC-0315, AC-0316, AC-0357; TC-0098, TC-0099) and a fix so a whisper reaches the web player (BUG-0019). Delivered in three PRs: #73, #74 and this PR. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b2-facilitator-controls.md."
+    },
+    {
+      "id": "TASK-0098",
+      "storyId": "US-0060",
+      "title": "AI-role state, start gate, marking, consent notice v2 and log format 3 (slice 2b-3a)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0002-US-0060-ai-role-record (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels)",
+      "notes": "PR 1 (this PR) is the record: aiRoles in session.started, the state and the player copies, log format 3 for a session with AI roles, and the lobby's <id>.ai-roles.json beside the seat files (AC-0358, TC-0100). PR 2 is the gate, marking and the set_ai_roles IPC; PR 3 the labels. Nothing over HTTP sets AI roles before slice 2b-3b (ruling A1). Plan docs/superpowers/plans/2026-11-02-slice-2b-3a-ai-role-state.md."
     },
     {
       "id": "TASK-0089",
@@ -4675,6 +4690,16 @@
       "relatedTask": "TASK-0097",
       "relatedAC": "AC-0316",
       "type": "Accessibility",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0100",
+      "title": "session.started records the AI roles (log format 3) and the lobby keeps them in a file",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0098",
+      "relatedAC": "AC-0358",
+      "type": "Regression",
       "status": "Pass",
       "defect": "None"
     }
@@ -5887,11 +5912,11 @@
       "isAtRisk": false
     },
     "US-0060": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0061": {
       "missingTCs": true,
@@ -6212,10 +6237,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-03T01:09:21.619Z",
-  "commitSha": "f02d096",
-  "buildNumber": "493",
-  "branch": "docs/US-0059-session-close-2b-2b2",
+  "generatedAt": "2026-11-03T15:10:25.788Z",
+  "commitSha": "3e66f67",
+  "buildNumber": "498",
+  "branch": "feature/EPIC-0002-US-0060-ai-role-record",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6357,13 +6382,13 @@
     }
   },
   "budget": {
-    "totalBudget": 17999.4862,
+    "totalBudget": 16399.4862,
     "totalSpent": 799.4862,
     "totalProjected": 70400,
-    "percentUsed": 4,
+    "percentUsed": 5,
     "burnRate": 21.137890111111112,
-    "daysRemaining": 813,
-    "projectedExhaustion": 813,
+    "daysRemaining": 738,
+    "projectedExhaustion": 738,
     "thresholds": [
       50,
       75,
@@ -6399,9 +6424,9 @@
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 8984.49682,
+        "budget": 7384.49682,
         "spent": 184.49682000000004,
-        "remaining": 8800,
+        "remaining": 7200,
         "percentUsed": 2
       },
       {
@@ -6487,9 +6512,11 @@
       "2026-11-02T14:44:58.877Z",
       "2026-11-02T20:15:07.540Z",
       "2026-11-03T00:07:53.456Z",
-      "2026-11-03T01:09:21.726Z"
+      "2026-11-03T01:09:21.726Z",
+      "2026-11-03T15:10:25.909Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6583,6 +6610,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6616,6 +6644,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -6679,9 +6708,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -6775,9 +6806,11 @@
       2,
       2,
       2,
+      2,
       2
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -6871,6 +6904,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -6904,6 +6938,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -6967,7 +7002,8 @@
       1.1461538461538459,
       1.1461538461538459,
       1.1415384615384614,
-      1.1415384615384614
+      1.1415384615384614,
+      1.146153846153846
     ],
     "velocityByWeek": {
       "labels": [

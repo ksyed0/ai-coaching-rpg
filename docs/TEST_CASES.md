@@ -969,7 +969,7 @@ Preconditions: A checkout of the branch.
 Steps:
   1. Run `pnpm --filter @acr/events exec vitest run`.
   2. Run `pnpm --filter @acr/runtime exec vitest run src/engine/__tests__/session-engine-restore.test.ts src/host/__tests__/session-host.test.ts src/host/__tests__/session-host-resume-consent.test.ts`.
-Expected Result: new logs carry format 2 and `session.started` holds the consents, names and log identity; logs of format 0, 1 and 2 restore and format 3 is refused with `log_format` (the same check makes an older runtime refuse format 2); a player's copy of `session.started` carries only their own consent (allowlist), the facilitator's everything; a resumed session seeds missing consent entries from `session.started`, keeps them across a notice-version change for the same participant, and skips the consent check on rejoin for a log written before the gate.
+Expected Result: new logs carry format 2 and `session.started` holds the consents, names and log identity; logs of format 0, 1 and 2 restore (slice 2b-3a also restores format 3) and a newer format (4 since slice 2b-3a; 3 when this test was written) is refused with `log_format` (the same check makes an older runtime refuse format 2); a player's copy of `session.started` carries only their own consent (allowlist), the facilitator's everything; a resumed session seeds missing consent entries from `session.started`, keeps them across a notice-version change for the same participant, and skips the consent check on rejoin for a log written before the gate.
 Actual Result: As expected (events suite and the three runtime test files) during the slice 2a build, 2026-10-27/28.
 Status: [x] Pass
 Defect Raised: None
@@ -1548,3 +1548,18 @@ Actual Result: As expected (apps/web/e2e/console-controls.spec.ts "no serious or
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-2b2, PR 3. Only serious and critical findings fail the check (the owner's reading of AC-0296, as in slice 2a). Axe finds what it can find automatically; keyboard focus order, the live-region announcements and the focus return are covered by unit tests (SessionControls.test.tsx, ConfirmDialog.test.tsx), not by a screen-reader pass. Open: focus return when the opener is disabled by a dropped connection (progress.md). Axe runs with the WCAG 2.0 and 2.1 A and AA tags in both schemes.
+
+TC-0100: session.started records the AI roles (log format 3) and the lobby keeps them in a file
+Related Story: US-0060
+Related Task: TASK-0098
+Related AC: AC-0358
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/events exec vitest run src/__tests__/ids.test.ts src/__tests__/state.test.ts src/__tests__/player-view.test.ts`.
+  2. Run `pnpm --filter @acr/runtime exec vitest run src/engine/__tests__/ai-roles.test.ts src/engine/__tests__/session-store.ai-roles.test.ts src/engine/__tests__/session-engine-restore.test.ts src/host/__tests__/player-copies.test.ts src/__tests__/main.test.ts`.
+Expected Result: LOG_FORMAT is 3 and logFormatFor([]) is 2; a start without AI roles writes format 2 and no aiRoles key, a start with AI roles writes format 3 and the roles in scenario role order; a format-3 log resumes with state.aiRoles, a format-2 log resumes with none and keeps its format, a newer format (4) is refused with log_format; the state fold keeps only strings that are player roles and removes duplicates, and a player's copy of session.started carries the roles (a copy, no other key). The AI-role file holds the roles with the session and scenario hash, refuses another session, a changed scenario, an extra key, an unknown or duplicate role without echoing the value, is written mode 0600 and never through a symbolic link, is kept across a managed restart of an empty log, is removed with the seats, a fresh start and the rotation of an ended log, and is written after the credentials and consent files; a corrupt file refuses a managed lobby open with a seats error naming it, while a started session resumes from the log and rewrites the file.
+Actual Result: As expected (the events and runtime test files named in the steps), 2026-11-03.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3a, PR 1 (Tasks 1 to 3: aiRoles in events, state and copies; log format 3; the AI-role file). The rollback consequence is in docs/ROLLBACK.md. Nothing over HTTP sets AI roles until slice 2b-3b, so no 3a build writes a format-3 log; the tests drive the engine and the store directly.
