@@ -12,6 +12,8 @@ import { ConsentRecordError, ConsentStore, type ConsentNotice } from "./consent.
 import { CredentialRecordError, PlayerCredentials } from "./credentials.js";
 import { credentialsFileName, readCredentialsFile, removeCredentialsFile, sweepCredentialsTemps, writeCredentialsFile } from "./credentials-file.js";
 import { consentFileName, readConsentFile, removeConsentFile, sweepConsentTemps, writeConsentFile } from "./consent-file.js";
+import { AiRolesRecordError, AiRoleSet } from "./ai-roles.js";
+import { aiRolesFileName, readAiRolesFile, removeAiRolesFile, sweepAiRolesTemps, writeAiRolesFile } from "./ai-roles-file.js";
 import type { Seats } from "./seats.js";
 
 export type StartMode = "resume" | "fresh";
@@ -125,7 +127,7 @@ export async function openSession(o: {
   }
   // US-0053: the same for the credentials and consent files.
   if (o.consentNotice) {
-    try { sweepCredentialsTemps(o.dataDir, o.sessionId); sweepConsentTemps(o.dataDir, o.sessionId); }
+    try { sweepCredentialsTemps(o.dataDir, o.sessionId); sweepConsentTemps(o.dataDir, o.sessionId); sweepAiRolesTemps(o.dataDir, o.sessionId); }
     catch (err) { lock.release(); throw new SessionStoreError("io", `cannot remove a stale seat temp file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? "error"}`); }
   }
   // A crash between a rotation's link and unlink leaves the log under two names: finish that rotation (the data stays rotated).
@@ -152,24 +154,29 @@ export async function openSession(o: {
     try { holdLockNow(); }
     catch { throw new SessionStoreError("lock", "cannot open the session: the session lock was lost (removed or taken over by another process); nothing was removed"); }
   };
-  /** US-0053: removes the credentials and consent files (a missing file is fine). */
+  /** US-0053: removes the AI-role, credentials and consent files (a missing file is fine). */
   const removeSeats = () => {
     if (!o.consentNotice) return;
     holdLockForRemoval();
-    try { removeCredentialsFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); }
+    try { removeAiRolesFile(o.dataDir, o.sessionId); removeCredentialsFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); }
     catch (err) { throw new SessionStoreError("io", `cannot remove the previous seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
   };
   /**
    * US-0053: reads both seat files for a resume BEFORE anything is changed, so an unusable file refuses the start untouched. The
-   * consent file is read only beside credentials bound to this session (otherwise both are replaced unread).
+   * consent file is read only beside credentials bound to this session (otherwise both are replaced unread). The AI-role file
+   * (US-0060) is read only with `readAiRoles`, which only the managed empty-log path passes: a started log is the record of its AI
+   * roles, so no file can refuse or change a started session.
    */
-  const readSeats = (): { credentials: PlayerCredentials | null; consent: ConsentStore | null } | undefined => {
+  const readSeats = (readAiRoles = false): { credentials: PlayerCredentials | null; consent: ConsentStore | null; aiRoles: AiRoleSet | null } | undefined => {
     if (!o.consentNotice) return undefined;
     try {
       const credentials = readCredentialsFile(o.dataDir, o.sessionId);
-      const consent = credentials?.matches(bind) ? readConsentFile(o.dataDir, bind, o.consentNotice) : null;
-      return { credentials, consent };
+      const matches = credentials?.matches(bind) === true;
+      const consent = matches ? readConsentFile(o.dataDir, bind, o.consentNotice) : null;
+      const aiRoles = matches && readAiRoles ? readAiRolesFile(o.dataDir, bind) : null;
+      return { credentials, consent, aiRoles };
     } catch (err) {
+      if (err instanceof AiRolesRecordError) throw new SessionStoreError("seats", `cannot use the AI-role file: ${err.message}. Nothing was changed; move ${aiRolesFileName(o.sessionId)} aside and start again (the lobby's AI roles are then human; set them again)`);
       if (err instanceof CredentialRecordError || err instanceof ConsentRecordError) throw new SessionStoreError("seats", `cannot use the seat files: ${err.message}. Nothing was changed; to seat everyone again by join code, move ${credentialsFileName(o.sessionId)} and ${consentFileName(o.sessionId)} aside and start again`);
       throw new SessionStoreError("io", `cannot read the seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? "error"}`); // fixed text: never a message that could quote the file
     }
@@ -182,10 +189,15 @@ export async function openSession(o: {
    * US-0053: keeps the seats read from disk when the codes were kept and the credentials fit this session, or writes new empty ones.
    * `logIdentity` (a resumed log's own) keeps the pseudonyms of a running session stable when its credentials file was lost.
    */
-  const settleSeats = (codesKept: boolean, found: ReturnType<typeof readSeats>, logIdentity?: string): Seats | undefined => {
+  const settleSeats = (codesKept: boolean, found: ReturnType<typeof readSeats>, logIdentity?: string, startedAiRoles?: string[]): Seats | undefined => {
     const notice = o.consentNotice;
     if (!notice) return undefined;
     let credentials: PlayerCredentials; let consent: ConsentStore;
+    // US-0060: a resumed started session takes its AI roles from the log (`startedAiRoles`, never from the file); a lobby from the file.
+    const fromLog = startedAiRoles !== undefined;
+    const aiRoles = AiRoleSet.empty();
+    if (fromLog) aiRoles.replace(playerRoles.filter((id) => startedAiRoles.includes(id)));
+    let aiFileNeeded = true; // false when the lobby's own file was read and stands
     // A log that records an identity the credentials do not carry belongs to other seats (a restored or swapped file): they are not used.
     const identityKept = !logIdentity || found?.credentials?.logIdentity === logIdentity;
     if (codesKept && found?.credentials?.matches(bind) && identityKept) {
@@ -195,6 +207,7 @@ export async function openSession(o: {
         try { writeConsentFile(o.dataDir, bind, consent, holdLockNow); }
         catch (err) { throw new SessionStoreError("io", `cannot write the consent file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
       }
+      if (!fromLog && found.aiRoles) { aiRoles.replace(found.aiRoles.list()); aiFileNeeded = false; }
     } else {
       if (codesKept && found) notes.push(found.credentials
         ? found.credentials.matches(bind)
@@ -206,16 +219,25 @@ export async function openSession(o: {
       // The old consent goes first: a crash after the credentials write then leaves no consent file (replaced next start), never
       // stale consent (possibly bound elsewhere, which would refuse every later start) beside new credentials.
       holdLockForRemoval();
-      try { removeConsentFile(o.dataDir, o.sessionId); }
+      try { removeAiRolesFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); }
       catch (err) { throw new SessionStoreError("io", `cannot remove the previous consent file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
       try { writeCredentialsFile(o.dataDir, o.sessionId, credentials, holdLockNow); writeConsentFile(o.dataDir, bind, consent, holdLockNow); }
       catch (err) { throw new SessionStoreError("io", `cannot write the seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
       seatsCreated = true;
     }
+    // The AI-role file goes last (after the credentials and consent): a crash before it leaves every role human, never an AI role
+    // beside a human's credential. A resumed started session rewrites it best effort (the log is the record); a lobby must succeed.
+    if (fromLog || aiFileNeeded) {
+      try { writeAiRolesFile(o.dataDir, bind, aiRoles, holdLockNow); }
+      catch (err) { if (!fromLog) throw new SessionStoreError("io", `cannot write the AI-role file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
+    }
     const seats: Seats = {
-      credentials, consent,
+      credentials, consent, aiRoles,
       // Throws (SessionLockError) when the lock was lost: the files may be another server's now.
-      persist: () => { writeCredentialsFile(o.dataDir, o.sessionId, seats.credentials, holdLockNow); writeConsentFile(o.dataDir, bind, seats.consent, holdLockNow); },
+      persist: () => {
+        writeCredentialsFile(o.dataDir, o.sessionId, seats.credentials, holdLockNow); writeConsentFile(o.dataDir, bind, seats.consent, holdLockNow);
+        if (seats.aiRoles) writeAiRolesFile(o.dataDir, bind, seats.aiRoles, holdLockNow);
+      },
     };
     return seats;
   };
@@ -267,7 +289,7 @@ export async function openSession(o: {
       discardIssuedCodes: () => {
         if (!rest.joinCodes?.issued && !seatsCreated) return true;
         try { holdLockNow(); } catch { return false; } // lost: the files may be another server's now, never touch them
-        if (seatsCreated) { try { removeCredentialsFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); } catch { /* best effort, see above */ } }
+        if (seatsCreated) { try { removeAiRolesFile(o.dataDir, o.sessionId); removeCredentialsFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); } catch { /* best effort, see above */ } }
         if (!rest.joinCodes?.issued) return true;
         try { removeJoinCodesFile(o.dataDir, o.sessionId); return true; } catch { return false; }
       },
@@ -293,7 +315,7 @@ export async function openSession(o: {
     if (restored.kind === "empty" && o.managed) {
       // Order matters: seats are read BEFORE settleCodes, which removes them when the codes on file do not fit (and issues new
       // ones); `!issued` then drops `found` exactly in that case, so no credential outlives the codes it was issued under.
-      const found = readSeats();
+      const found = readSeats(true);
       const joinCodes = settleCodes(true, false);
       return done(opened, { outcome: "new", joinCodes, seats: settleSeats(!joinCodes?.issued, found) });
     }
@@ -311,7 +333,7 @@ export async function openSession(o: {
     const found = readSeats();
     const joinCodes = settleCodes(true, true);
     // The log's own identity (logs written before US-0053 carry none: then a new one) survives a lost credentials file.
-    const seats = settleSeats(!joinCodes?.issued, found, restored.info.logIdentity);
+    const seats = settleSeats(!joinCodes?.issued, found, restored.info.logIdentity, restored.info.startedAiRoles ?? []);
     const resumeNotes = await opened.engine.markResumed(restored.info);
     return done(opened, { outcome: "resumed", resume: restored.info, resumeNotes, joinCodes, seats });
   } catch (err) {

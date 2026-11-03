@@ -451,7 +451,7 @@ describe("bootstrap", () => {
       const r = await bootstrap({ env: env(), root: tmp, log: () => {} });
       if (!r.ok) throw new Error(r.errors.join("; "));
       runtime = r.runtime;
-      expect((await readdir(dataDir())).filter((f) => !/\.(lock|codes\.json|credentials\.json|consent\.json)$/.test(f))).toEqual(["local.jsonl"]); // the running server holds local.lock (and its join codes and seat files)
+      expect((await readdir(dataDir())).filter((f) => !/\.(lock|codes\.json|credentials\.json|consent\.json|ai-roles\.json)$/.test(f))).toEqual(["local.jsonl"]); // the running server holds local.lock (and its join codes and seat files)
     });
   });
 });
