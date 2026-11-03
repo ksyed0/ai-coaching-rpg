@@ -376,8 +376,8 @@ describe("RuntimeConnection facilitator sockets", () => {
     expect(c3.isOpen).toBe(false);
   });
 
-  it("a close with code 4002 is classified reissued, 4001 superseded", async () => {
-    for (const [code, word] of [[4002, "reissued"], [4003, "removed"], [4001, "superseded"]] as const) {
+  it("a close with code 4002 is classified reissued, 4001 superseded, 4003 removed, 4004 ai_filled", async () => {
+    for (const [code, word] of [[4002, "reissued"], [4003, "removed"], [4004, "ai_filled"], [4001, "superseded"]] as const) {
       const rt = await runtime((ws, m) => { if (m.type === "join") ws.close(code, "x"); });
       const c = await connect(rt.url);
       expect((await rejection(c.joinWithCredential({ ...ids, credential: "k".repeat(32) }))).code).toBe(word);

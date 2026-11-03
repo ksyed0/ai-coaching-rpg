@@ -1,7 +1,7 @@
 import { initPlayerView } from "@acr/events";
-import { CLOSE_REISSUED, CLOSE_REMOVED, CLOSE_SUPERSEDED, type RuntimeConnection, type SetTimer } from "./runtime-connection";
+import { CLOSE_AI_FILLED, CLOSE_REISSUED, CLOSE_REMOVED, CLOSE_SUPERSEDED, type RuntimeConnection, type SetTimer } from "./runtime-connection";
 import { DEFAULT_MAX_PENDING_BYTES, heartbeat, replayIncomplete, RETRY_MS, sseFrame as sse, SseWriter, type SseOut } from "./sse";
-import type { ClientMessage, JoinedFrame, ServerMessage } from "./wire";
+import type { ClientMessage, JoinedFrame, PeerRosterEntry, ServerMessage } from "./wire";
 
 // Bridges one participant's runtime socket to one server-sent-events response. No Next imports: the route hands in an `out` writer.
 // The hub never reconnects: on a drop it tells the browser, whose native EventSource reconnects with Last-Event-ID, and the next request
@@ -36,6 +36,8 @@ const DEFAULT_SEND_WAIT_MS = 300;
 export const SIGNED_OUT_MESSAGE = "ask your facilitator for a new code";
 /** What a player the facilitator removed is told (the stream's `removed` event). Equal to MESSAGES.removed; the page shows its own copy. */
 export const REMOVED_MESSAGE = "The facilitator removed you from this session.";
+/** What a player whose role the facilitator filled with an AI player is told (the stream's `ai_filled` event). */
+export const AI_FILLED_MESSAGE = "The facilitator has filled this role.";
 /** Sent instead of the runtime's own text, so nothing the BFF did not choose reaches the page as a sentence. */
 const ERROR_MESSAGE = "the server reported an error";
 
@@ -50,9 +52,17 @@ type Stream = {
   waiter: Waiter | null;
   sendChain: Promise<unknown>;
 };
-type FinalEvent = "superseded" | "reconnecting" | "ended" | "expired" | "signed_out" | "removed";
+type FinalEvent = "superseded" | "reconnecting" | "ended" | "expired" | "signed_out" | "removed" | "ai_filled";
 /** How a runtime close code ends a stream. 4001, 4002 and 4003 are terminal (a retry would kick the new holder, or fail with a revoked credential). */
-const endingFor = (code: number): FinalEvent => (code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "signed_out" : code === CLOSE_REMOVED ? "removed" : "reconnecting");
+const endingFor = (code: number): FinalEvent => (code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "signed_out" : code === CLOSE_REMOVED ? "removed" : code === CLOSE_AI_FILLED ? "ai_filled" : "reconnecting");
+
+/** A peer seat as a player may see it: only these fields, whatever the runtime sent. */
+export const peerEntryOf = (e: PeerRosterEntry): PeerRosterEntry => {
+  const out: PeerRosterEntry = { roleId: e.roleId, ready: e.ready === true };
+  if (typeof e.name === "string") out.name = [...e.name].slice(0, 60).join("");
+  if (e.ai === true) out.ai = true;
+  return out;
+};
 
 const keyOf = (c: { sessionId: string; roleId: string; participantId: string }) => JSON.stringify([c.sessionId, c.roleId, c.participantId]);
 
@@ -189,7 +199,7 @@ export class StreamHub {
       if (!this.write(s, sse("event", m.event, Number.isSafeInteger(seq) ? seq : undefined))) return;
       if (m.event.type === "session.ended") this.finish(s, "ended");
     } else if (m.type === "roster") {
-      this.write(s, sse("roster", { audience: m.audience, entries: m.entries }));
+      this.write(s, sse("roster", { audience: m.audience, entries: m.audience === "peers" ? m.entries.map(peerEntryOf) : m.entries }));
     } else if (m.type === "error") {
       // The answer to the waiting send, if its message can produce this code; anything else (log_failed, sent to everyone unasked) goes to the page.
       const w = s.waiter;
@@ -216,7 +226,7 @@ export class StreamHub {
     s.cancelHeartbeat();
     s.detach();
     s.waiter?.done(null);
-    if (event) { try { s.out.write(sse(event, event === "signed_out" ? { message: SIGNED_OUT_MESSAGE } : event === "removed" ? { message: REMOVED_MESSAGE } : {})); } catch { /* the client is gone */ } }
+    if (event) { try { s.out.write(sse(event, event === "signed_out" ? { message: SIGNED_OUT_MESSAGE } : event === "removed" ? { message: REMOVED_MESSAGE } : event === "ai_filled" ? { message: AI_FILLED_MESSAGE } : {})); } catch { /* the client is gone */ } }
     try { s.out.end(); } catch { /* already closed by the client */ }
     s.conn.close();
   }

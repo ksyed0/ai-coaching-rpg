@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import { initPlayerView } from "@acr/events";
 import { RuntimeConnection } from "../runtime-connection";
-import { NoStreamError, REMOVED_MESSAGE, StreamHub, type SessionCookie } from "../stream-hub";
+import { AI_FILLED_MESSAGE, NoStreamError, REMOVED_MESSAGE, StreamHub, type SessionCookie } from "../stream-hub";
 import type { ClientMessage, JoinedFrame, ServerMessage } from "../wire";
 import { asConn, FakeConn, fakeRuntime, manualTimers, sseRecorder, until } from "./fakes";
 
@@ -112,6 +112,40 @@ describe("StreamHub endings: out.end() exactly once, timers cancelled, listeners
     expect(rec.ends()).toBe(1);
     expect(timers.live()).toEqual([]);
     expect(conn.listeners()).toBe(0);
+  });
+
+  it("an ai_filled close (4004) ends the player stream with the ai_filled event and AI_FILLED_MESSAGE, no reconnect", () => {
+    const { h, timers } = hub();
+    const { conn, rec } = opened(h);
+    conn.drop(4004);
+    expect(rec.frames().at(-1)).toEqual({ event: "ai_filled", data: { message: AI_FILLED_MESSAGE } });
+    expect(rec.chunks.join("")).not.toContain("reconnecting");
+    expect(rec.ends()).toBe(1);
+    expect(timers.live()).toEqual([]);
+    expect(conn.listeners()).toBe(0);
+  });
+
+  it("a peers roster entry keeps ai true; ai \"yes\", an extra key participantId and a non-boolean ready are dropped or false", () => {
+    const { h } = hub();
+    const { conn, rec } = opened(h);
+    conn.emit({
+      type: "roster", audience: "peers",
+      entries: [
+        { roleId: "a", name: "AI player 1", ready: true, ai: true },
+        { roleId: "b", name: "Bo", ready: true, ai: "yes", participantId: "p-secret" },
+        { roleId: "c", ready: "true", ai: false },
+        { roleId: "d", name: "x".repeat(70), ready: false },
+      ],
+    } as never);
+    const f = rec.frames().at(-1)!;
+    expect(f.event).toBe("roster");
+    expect((f.data as { entries: unknown[] }).entries).toEqual([
+      { roleId: "a", name: "AI player 1", ready: true, ai: true },
+      { roleId: "b", name: "Bo", ready: true },
+      { roleId: "c", ready: false },
+      { roleId: "d", name: "x".repeat(60), ready: false },
+    ]);
+    expect(rec.chunks.join("")).not.toContain("p-secret");
   });
 
   it("a runtime close 4003 ends the stream with a removed event carrying the message and no reconnect", () => {
