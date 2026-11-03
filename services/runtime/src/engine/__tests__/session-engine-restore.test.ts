@@ -542,6 +542,12 @@ describe("log format 3 and the AI roles (US-0060)", () => {
     expect(err).toMatchObject({ code: "invalid_log" });
     expect((await log.all()).length).toBe(n);
   });
+  it("a hand-ordered log with aiRoles written reversed restores info.startedAiRoles in scenario order", async () => {
+    const want = Object.keys(fri.roles).filter((id) => id === "tech_lead" || id === "delivery_lead");
+    const log = await logOf([body({ aiRoles: [...want].reverse() }), enterFri()]);
+    const out = await fresh(log).restore();
+    expect(out).toMatchObject({ kind: "running", info: { startedAiRoles: want } });
+  });
   it.each([["an AI character", ["client_sponsor"]], ["an unknown role", ["ghost"]], ["a number", [7]], ["a duplicate", ["tech_lead", "tech_lead"]], ["a non-array", "tech_lead"], ["an inherited name", ["__proto__"]]])("aiRoles naming %s in a format 3 log is invalid_log", async (_n, aiRoles) => {
     const log = await logOf([body({ aiRoles }), enterFri()]);
     const err = await fresh(log).restore().then(() => null, (e: unknown) => e);

@@ -442,7 +442,8 @@ export class SessionEngine {
         if (ai !== undefined) {
           if (f < 3) throw new RestoreError("invalid_log", `aiRoles in a format ${f} log`);
           if (!Array.isArray(ai) || new Set(ai).size !== ai.length || ai.some((id) => typeof id !== "string" || own(sc.roles, id)?.type !== "player")) throw new RestoreError("invalid_log", "aiRoles must name distinct player roles of the scenario");
-          startedAiRoles = ai as string[];
+          const inLog = new Set(ai as string[]);
+          startedAiRoles = Object.keys(sc.roles).filter((id) => inLog.has(id)); // scenario order, whatever order the log wrote
         }
         const logged = Object.entries(e.roles ?? {});
         const known = Object.values(sc.roles);

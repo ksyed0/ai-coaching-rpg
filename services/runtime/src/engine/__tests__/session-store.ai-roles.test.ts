@@ -2,11 +2,21 @@ import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile 
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadScenario, type Scenario } from "@acr/script";
 import { FakeClock } from "../clock.js";
 import { SessionStoreError, openSession, type OpenedSession } from "../session-store.js";
 
+// Seams: make the credentials write fail, or the Nth removal of the AI-role file fail (a hook that throws simulates the failure).
+const hooks = vi.hoisted(() => ({ failCredWrite: false, failAiRemoveCall: 0, aiRemoveCalls: 0 }));
+vi.mock("../credentials-file.js", async (orig) => {
+  const actual = await orig<typeof import("../credentials-file.js")>();
+  return { ...actual, writeCredentialsFile: (...a: Parameters<typeof actual.writeCredentialsFile>) => { if (hooks.failCredWrite) throw Object.assign(new Error("boom"), { code: "EIO" }); actual.writeCredentialsFile(...a); } };
+});
+vi.mock("../ai-roles-file.js", async (orig) => {
+  const actual = await orig<typeof import("../ai-roles-file.js")>();
+  return { ...actual, removeAiRolesFile: (...a: Parameters<typeof actual.removeAiRolesFile>) => { if (++hooks.aiRemoveCalls === hooks.failAiRemoveCall) throw Object.assign(new Error("boom"), { code: "EIO" }); actual.removeAiRolesFile(...a); } };
+});
 const friday = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../scenarios/friday-escalation");
 const T0 = 2_000_000;
 const V1 = { version: "v1", text: "Notice one." };
@@ -14,7 +24,7 @@ const SECRET = "SECRET-ROLE-X";
 let scenario: Scenario;
 let dir: string;
 const open: OpenedSession[] = [];
-beforeEach(async () => { scenario = await loadScenario(friday); dir = await mkdtemp(path.join(os.tmpdir(), "acr-airoles-")); });
+beforeEach(async () => { hooks.failCredWrite = false; hooks.failAiRemoveCall = 0; hooks.aiRemoveCalls = 0; scenario = await loadScenario(friday); dir = await mkdtemp(path.join(os.tmpdir(), "acr-airoles-")); });
 afterEach(async () => { for (const o of open.splice(0)) await o.close(); await rm(dir, { recursive: true, force: true }); });
 const now = () => new Date("2031-02-03T04:05:06Z");
 const openIt = async (o: { managed?: boolean; mode?: "resume" | "fresh" } = {}) => {
@@ -125,6 +135,30 @@ describe("the AI-role seat file (US-0060)", () => {
     expect(await readRoles()).toEqual([]); // the AI-role file was not reached
     const consent = JSON.parse(await readFile(path.join(dir, "s.consent.json"), "utf8")) as { entries: Record<string, unknown> };
     expect(Object.keys(consent.entries)).toEqual([]); // nor the consent file
+  });
+
+  it("new seats remove the AI-role file BEFORE the credentials are written: a failing credentials write leaves it absent, with an io error naming the seat files", async () => {
+    const a = await lobby();
+    await crash(a);
+    // Force new seats with the codes KEPT (no credentials file: removeSeats does not run, only settleSeats' own removal) and make the credentials write fail.
+    await rm(path.join(dir, "s.credentials.json"));
+    hooks.failCredWrite = true;
+    const err = await openIt().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SessionStoreError);
+    expect(err).toMatchObject({ code: "io" });
+    expect((await readdir(dir)).includes("s.ai-roles.json")).toBe(false);
+  });
+
+  it("a failing removal of the AI-role file says \"seat files\" (io, never the seats error)", async () => {
+    const a = await lobby();
+    await crash(a);
+    await rm(path.join(dir, "s.credentials.json")); // codes kept, new seats: the only removal is the one before the new credentials
+    hooks.aiRemoveCalls = 0; hooks.failAiRemoveCall = 1;
+    const err = await openIt().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SessionStoreError);
+    expect(err).toMatchObject({ code: "io" });
+    expect((err as Error).message).toContain("cannot remove the previous seat files");
+    expect((err as Error).message).not.toContain("consent file");
   });
 
   it("the file is mode 0600 and a symbolic link in its place is refused unread", async () => {

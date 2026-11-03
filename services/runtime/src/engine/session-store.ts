@@ -220,7 +220,7 @@ export async function openSession(o: {
       // stale consent (possibly bound elsewhere, which would refuse every later start) beside new credentials.
       holdLockForRemoval();
       try { removeAiRolesFile(o.dataDir, o.sessionId); removeConsentFile(o.dataDir, o.sessionId); }
-      catch (err) { throw new SessionStoreError("io", `cannot remove the previous consent file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
+      catch (err) { throw new SessionStoreError("io", `cannot remove the previous seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
       try { writeCredentialsFile(o.dataDir, o.sessionId, credentials, holdLockNow); writeConsentFile(o.dataDir, bind, consent, holdLockNow); }
       catch (err) { throw new SessionStoreError("io", `cannot write the seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
       seatsCreated = true;

@@ -123,4 +123,4 @@ Rollback trigger: a session with AI roles cannot resume, the AI-role file blocks
 3. **Smoke test:** `pnpm demo --fast` passes its 29 checks; `pnpm demo --web` passes W-01 to W-08.
 
 ### Rolling forward again
-Redeploy slice 2b-3a. Lobby files without an AI-role file read as "no AI roles" and the file is written at the next change; logs of format 0 to 2 resume as before.
+Redeploy slice 2b-3a. If a build from before 3a has run a lobby meanwhile, move that lobby's `<id>.ai-roles.json` aside first: the older build does not maintain it, so it could name a role whose seat now holds a human credential. Lobby files without an AI-role file read as "no AI roles" and the file is written when the runtime next opens the session; logs of format 0 to 2 resume as before.
