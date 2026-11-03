@@ -131,12 +131,21 @@ importers:
 
   services/control:
     dependencies:
+      '@acr/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
       '@acr/events':
         specifier: workspace:*
         version: link:../../packages/events
+      '@acr/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       '@acr/script':
         specifier: workspace:*
         version: link:../../packages/script
+      ws:
+        specifier: 8.22.0
+        version: 8.22.0
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -156,9 +165,6 @@ importers:
       vitest:
         specifier: 5.0.3
         version: 5.0.3(@types/node@22.20.5)(@vitest/coverage-v8@5.0.3)(jsdom@30.1.2)(vite@7.3.7(@types/node@22.20.5)(tsx@4.23.15)(yaml@2.9.1))
-      ws:
-        specifier: 8.22.0
-        version: 8.22.0
 
   services/runtime:
     dependencies:
