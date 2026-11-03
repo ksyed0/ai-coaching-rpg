@@ -74,7 +74,7 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     if (!first.r.ok) throw new Error(first.r.errors.join("; "));
     const hostCode = (firstParent.sent[0] as Extract<ChildMessage, { type: "codes" }>).codes.find((c) => c.roleId === "host")!.code;
     // Produce a non-empty log: seat and consent the player, then start the session over the real socket path.
-    const inbox: { type: string; code?: string; event?: { type: string } }[] = [];
+    const inbox: { type: string; code?: string; event?: { type: string }; consent?: { noticeVersion: string } }[] = [];
     const wait = async (pred: (m: (typeof inbox)[number]) => boolean) => vi.waitFor(() => { if (!inbox.some(pred)) throw new Error("not yet"); }, { timeout: 30_000, interval: 20 });
     const open = (port: number) => new Promise<WebSocket>((res, rej) => { const w = new WebSocket(`ws://127.0.0.1:${port}`); w.on("message", (d) => inbox.push(JSON.parse(d.toString()))); w.on("open", () => res(w)); w.on("error", rej); });
     const fac = await open(first.r.runtime.port);
@@ -83,7 +83,8 @@ describe("bootstrap with a parent channel (US-0058)", () => {
       fac.send(JSON.stringify({ type: "join_facilitator", sessionId: "p1" }));
       player.send(JSON.stringify({ type: "join", sessionId: "p1", roleId: "host", participantId: "alice", joinCode: hostCode }));
       await wait((m) => m.type === "joined");
-      player.send(JSON.stringify({ type: "consent", noticeVersion: "v1" }));
+      const joined = inbox.find((m) => m.type === "joined" && m.consent)!; // the player's (not the facilitator's) frame: the notice version offered, whatever the default is
+      player.send(JSON.stringify({ type: "consent", noticeVersion: joined.consent!.noticeVersion }));
       player.send(JSON.stringify({ type: "say", text: "settle" }));
       await wait((m) => m.type === "error" && m.code === "not_started");
       fac.send(JSON.stringify({ type: "start" }));
@@ -134,7 +135,7 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     const h = first.r.runtime.host;
     h.join("host", "alice");
     h.seats!.credentials.issue("host", "Pat");
-    h.giveConsent("host", "alice", "v1");
+    h.giveConsent("host", "alice", "v2");
     await h.start();
     await h.engine.command({ command: "advance" });
     await h.engine.tick(); // now in the last scene (s2_close)
@@ -247,7 +248,7 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     const h = r.runtime.host;
     h.join("host", "alice");
     h.seats!.credentials.issue("host", "Pat");
-    h.giveConsent("host", "alice", "v1");
+    h.giveConsent("host", "alice", "v2");
     await h.start();
     expect(sent.some((m) => m.type === "ended")).toBe(false);
     await h.endNow({ by: "Dana", message: "Thanks" });
@@ -265,7 +266,7 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     const h = r.runtime.host;
     h.join("host", "alice");
     h.seats!.credentials.issue("host", "Pat");
-    h.giveConsent("host", "alice", "v1");
+    h.giveConsent("host", "alice", "v2");
     // Before the start the removal goes through: a new code, the credential and the consent gone.
     ask({ type: "reissue", requestId: "rm1", roleId: "host", reason: "removed" });
     await vi.waitFor(() => expect(sent.some((m) => m.type === "reissued" && m.requestId === "rm1")).toBe(true));
@@ -274,7 +275,7 @@ describe("bootstrap with a parent channel (US-0058)", () => {
     // After the start it is refused with the FIXED reason, while a plain reissue failure keeps its own.
     h.join("host", "bob");
     h.seats!.credentials.issue("host", "Bo");
-    h.giveConsent("host", "bob", "v1");
+    h.giveConsent("host", "bob", "v2");
     await h.start();
     ask({ type: "reissue", requestId: "rm2", roleId: "host", reason: "removed" });
     await vi.waitFor(() => expect(sent.some((m) => m.type === "reissue_failed" && m.requestId === "rm2")).toBe(true));
