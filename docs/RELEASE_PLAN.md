@@ -1786,7 +1786,7 @@ Type: Dev
 Assignee: Agent
 Status: In Progress
 Branch: feature/EPIC-0002-US-0060-ai-role-record (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels)
-Notes: PR 1 (this PR) is the record: aiRoles in session.started, the state and the player copies, log format 3 for a session with AI roles, and the lobby's <id>.ai-roles.json beside the seat files (AC-0358, TC-0100). PR 2 is the gate, marking and the set_ai_roles IPC; PR 3 the labels. Nothing over HTTP sets AI roles before slice 2b-3b (ruling A1). Plan docs/superpowers/plans/2026-11-02-slice-2b-3a-ai-role-state.md.
+Notes: PR 1 (merged as #78) is the record: aiRoles in session.started, the state and the player copies, log format 3 for a session with AI roles, and the lobby's <id>.ai-roles.json beside the seat files (AC-0358, TC-0100). PR 2 (feature/EPIC-0002-US-0060-ai-role-gate) is the gate, marking and the set_ai_roles IPC: the start gate counts human seats and AI bots apart, AI seats skip consent and are marked, and the control service can set AI roles over the private channel (AC-0359, TC-0101; TC-0102 for the gate and the marking); PR 3 the labels. Nothing over HTTP sets AI roles before slice 2b-3b (ruling A1). Plan docs/superpowers/plans/2026-11-02-slice-2b-3a-ai-role-state.md.
 ```
 
 ```
@@ -1797,13 +1797,14 @@ Status: In Progress
 Branch: feature/EPIC-0002-US-0060-ai-role-record (slice 2b-3a PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels)
 Dependencies: US-0058, US-0059
 Acceptance Criteria:
-  - [ ] AC-0317: any player role can be switched to an AI player or back to human from the New session and readiness screens until the start, and roles are fixed after the start
-  - [ ] AC-0318: switching a joined human to AI asks for confirmation and revokes their credential and consent; switching back stops the bot and issues a new code once
+  - [ ] AC-0317: any player role can be switched to an AI player or back to human from the New session and readiness screens until the start, and roles are fixed after the start (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b)
+  - [ ] AC-0318: switching a joined human to AI asks for confirmation and revokes their credential and consent; switching back stops the bot and issues a new code once (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b)
   - [ ] AC-0319: the player bot code moves from demo/ to a shared module used by the demo and the control service, with its own PLAYER_MODEL and PLAYER_TEMPERATURE settings
-  - [ ] AC-0320: session.started records aiRoles, AI roles skip consent, and the start gate counts human seats and connected AI bots separately
+  - [ ] AC-0320: session.started records aiRoles, AI roles skip consent, and the start gate counts human seats and connected AI bots separately (runtime part built in 2b-3a (aiRoles recorded, AI seats skip consent, the gate checks humans and bots apart); no build can hold an AI role and the console shows the counts in 2b-3b; TC-0102)
   - [ ] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only
   - [ ] AC-0322: an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored
   - [x] AC-0358: session.started records aiRoles in scenario order (log format 3) only when a session has AI roles, other sessions keep format 2, the runtime reads formats 0 to 3 and refuses aiRoles in an older format, and the lobby's AI roles are kept in <id>.ai-roles.json beside the seat files across a managed restart (events state and player-copy tests, session-engine-restore.test.ts, session-store.ai-roles.test.ts; TC-0100)
+  - [x] AC-0359: the control service can set the AI roles of a session before the start over the private IPC channel only; each changed role gets a new code in the same step, a switched human's credential and consent are revoked and their socket closed with 4004, and the change is refused after the start (set-ai-roles, parent-channel, main.ai-roles, protocol drift and supervisor.ai-roles tests; TC-0101)
 ```
 
 ```

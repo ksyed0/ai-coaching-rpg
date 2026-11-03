@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- AI-role gate and the `set_ai_roles` channel (EPIC-0002, US-0060, AC-0359, runtime part of AC-0317, AC-0318 and AC-0320): the runtime's start gate now counts human seats (holder and consent) and AI roles (a connected bot, no consent) apart and still refuses with `seats_not_ready`; AI seats skip consent, are named "AI player" and are marked `ai: true` in the roster, and a join whose name starts with "AI player" is refused as reserved. The control service can set a session's AI roles before the start over the private IPC channel only: each changed role gets a new code in the same step, a switched human's credential and consent are revoked and their socket is closed with the new code 4004 (`ai_filled`), and the change is refused after the start. Nothing reachable over HTTP sets AI roles yet, and no build can hold a bot, so this release changes nothing for a facilitator or a player (slice 2b-3b adds the toggle; see docs/THREAT_MODEL.md for what it must do first).
+
 ### Changed
 - Log format 3 and the AI-role file (EPIC-0002, US-0060, AC-0358): `session.started` now records `aiRoles` (in scenario order) when a session has AI roles, and such a session's log has format 3; sessions without AI roles keep format 2. The runtime reads formats 0 to 3. The lobby's AI roles are kept in `<id>.ai-roles.json` beside the seat files and survive a managed restart. Nothing in the web app sets AI roles yet (slice 2b-3b), so no new log can be format 3 in this release; a build from before this slice refuses a format-3 log (see docs/ROLLBACK.md).
 

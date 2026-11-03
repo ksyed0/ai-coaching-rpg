@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import http from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
-import { isReservedRoleId } from "@acr/events";
+import { AI_PLAYER_NAME, isReservedDisplayName, isReservedRoleId } from "@acr/events";
 import { ClientMessageSchema, type ReplaySummary, type ServerMessage } from "./protocol.js";
 import { HostError, MAX_REPLAY_BYTES, type Replay, type SessionHost } from "./session-host.js";
 import { EngineError } from "../engine/session-engine.js";
@@ -20,6 +20,8 @@ export const CLOSE_SUPERSEDED = 4001;
 export const CLOSE_REISSUED = 4002;
 /** US-0059: the facilitator removed this participant before the start; the connection is closed and must not reconnect. */
 export const CLOSE_REMOVED = 4003;
+/** US-0060: the facilitator made this role an AI player before the start; the connection that held the seat is closed and must not reconnect. */
+export const CLOSE_AI_FILLED = 4004;
 /** US-0013: the answer to a `lastSeq` past the session's last event (sent only once the join is authorised, so it probes nothing). */
 const BEYOND_HEAD = "lastSeq: after the last event of this session";
 /** The failed-login scope of a wrong join code: the role if the session has it, else one shared bucket so made-up role ids cannot fill the map. */
@@ -74,6 +76,8 @@ export type ServerHandle = {
    * Only that role in that session is touched; an unknown session or role is a no-op.
    */
   kickRole(sessionId: string, roleId: string, closeCode: number): void;
+  /** US-0060: sends every live connection of the session its roster afresh (an AI flag changed). An unknown session is a no-op. */
+  broadcastRoster(sessionId: string): void;
 };
 
 export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
@@ -178,7 +182,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
     const playerRoles = h.playerRoleIds();
     const connected = new Set<string>();
     for (const role of playerRoles) { const held = holders.get(`${sessionId}:${role}`); if (held && held.ws.readyState === held.ws.OPEN) connected.add(role); }
-    const roster = buildRoster({ playerRoles, assignments: h.assignments, connected, seats: h.seats });
+    const roster = buildRoster({ playerRoles, assignments: h.assignments, connected, seats: h.seats, aiRoles: new Set(h.aiRoleIds()) });
     for (const c of only ? [only] : live) {
       if (c.h !== h || c.closing() || c.ws.readyState !== c.ws.OPEN) continue;
       c.send(c.facilitator ? { type: "roster", audience: "facilitator", entries: roster.facilitator } : { type: "roster", audience: "peers", entries: roster.peers });
@@ -302,6 +306,9 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           if (m.type === "join" && m.displayName !== undefined) {
             name = normalizeDisplayName(m.displayName);
             if (name === null) return fail("bad_message", "displayName: 1 to 60 visible characters on one line");
+            // US-0060: the prefix is kept for AI players. The cleaned name is checked (hidden characters are already stripped), before
+            // any authentication, and a refusal is not charged: like a bad name it proves nothing about a secret.
+            if (isReservedDisplayName(name)) return fail("bad_message", `displayName: names starting with "${AI_PLAYER_NAME}" are reserved`);
           }
           const h = opts.hosts.get(m.sessionId);
           if (m.type === "join") {
@@ -347,7 +354,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
             if (seats && m.issueCredential && byCode) {
               // US-0053: the credential is on disk before the browser learns it, so a restart can never lose a seat it was told about.
               try {
-                credential = seats.credentials.issue(m.roleId, name ?? m.roleId);
+                credential = seats.credentials.issue(m.roleId, h.isAiRole(m.roleId) ? AI_PLAYER_NAME : name ?? m.roleId);
                 seats.persist(); // synchronous: the block stays free of awaits
               } catch (err) {
                 // Undo everything: an unsaved credential left in memory would lock the role's code out until a restart.
@@ -359,7 +366,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
               }
             }
             const token = randomUUID();
-            const kickWith = (code: number) => { dropCounted = true; shut(code, code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "reissued" : code === CLOSE_REMOVED ? "removed" : "closed"); };
+            const kickWith = (code: number) => { dropCounted = true; shut(code, code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "reissued" : code === CLOSE_REMOVED ? "removed" : code === CLOSE_AI_FILLED ? "ai_filled" : "closed"); };
             holders.set(key, { ws, token, kick: () => kickWith(CLOSE_SUPERSEDED), kickWith });
             holderKey = key; participantId = m.participantId; who = m.roleId;
             // Its close handler leaves the seat alone: `holders` already points at this socket. A disconnect never revokes.
@@ -367,7 +374,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
             sendJoined(h, m.roleId, m.lastSeq, {
               type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId), ...(scenes.length > 0 ? { scenes } : {}),
               ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
-              ...(seats ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
+              ...(seats && !h.isAiRole(m.roleId) ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
             });
           } else {
             if (!h) return fail("unknown_session", "no such session");
@@ -392,6 +399,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           return;
         }
         if (!host || !who) return fail("not_joined", "join first", ref);
+        // US-0060: an AI player gives no consent and has none to withdraw (a leave still frees its seat).
+        if ((m.type === "consent" || m.type === "withdraw_consent") && !isFacilitator && host.isAiRole(who)) return fail("forbidden", "an AI player gives no consent");
         if (m.type === "leave" || m.type === "withdraw_consent") {
           if (isFacilitator || !participantId) return fail("forbidden", m.type === "leave" ? "only a player may leave a role" : "only a player may give or withdraw consent");
           // US-0054: withdrawing consent gives the seat up like a leave (credential revoked, role released), so it ends the same way.
@@ -494,6 +503,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
       held?.kickWith(closeCode); // marks the socket closing, so the broadcast below does not reach it
       if (held || occupant !== undefined) { log(`kicked ${roleId}`); rosterChanged(roleId, "left"); broadcastRoster(sessionId, h); }
     },
+    broadcastRoster: (sessionId) => { const h = opts.hosts.get(sessionId); if (h) broadcastRoster(sessionId, h); },
     close: () => new Promise<void>((resolve) => {
       for (const u of unsubscribeFatal) u();
       for (const u of unsubscribeEnd) u();

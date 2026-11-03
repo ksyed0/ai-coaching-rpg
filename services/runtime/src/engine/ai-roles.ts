@@ -45,8 +45,14 @@ export class AiRoleSet {
 
   has(roleId: string): boolean { return this.roles.includes(roleId); }
   list(): string[] { return [...this.roles]; }
-  /** Replaces the set; the caller passes distinct player roles in scenario order. */
-  replace(roles: string[]): void { this.roles = [...roles]; }
+  /**
+   * Replaces the set with the distinct entries of `roles` that are player roles of the bind (`roleIds`, in bind order); anything else
+   * (an unknown role, a duplicate, a non-string, a prototype key) is dropped, so the set can never hold garbage or be out of order.
+   */
+  replace(roles: readonly string[], roleIds: readonly string[]): void {
+    const wanted = new Set<unknown>(roles);
+    this.roles = roleIds.filter((id) => wanted.has(id));
+  }
 
   toRecord(bind: Bind): AiRolesRecord {
     return { v: AI_ROLES_RECORD_VERSION, sessionId: bind.sessionId, scenarioSha256: bind.scenarioSha256, roles: [...this.roles] };

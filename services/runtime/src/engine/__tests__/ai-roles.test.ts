@@ -9,7 +9,7 @@ describe("AiRoleSet (US-0060)", () => {
     const s = AiRoleSet.empty();
     expect(s.list()).toEqual([]);
     expect(s.has("tech_lead")).toBe(false);
-    s.replace(["tech_lead"]);
+    s.replace(["tech_lead"], BIND.roleIds);
     expect(s.has("tech_lead")).toBe(true);
     expect(AI_ROLES_RECORD_VERSION).toBe(1);
   });
@@ -41,7 +41,17 @@ describe("AiRoleSet (US-0060)", () => {
 
   it("list returns a copy and replace copies its input", () => {
     const s = AiRoleSet.empty(); const input = ["tech_lead"];
-    s.replace(input); input.push("x"); s.list().push("y");
+    s.replace(input, BIND.roleIds); input.push("x"); s.list().push("y");
     expect(s.list()).toEqual(["tech_lead"]);
+  });
+
+  it("replace keeps only distinct player roles of the bind, in bind order", () => {
+    const s = AiRoleSet.empty();
+    s.replace(["tech_lead", "ghost", "account_manager", "tech_lead", "__proto__", "client_sponsor"], BIND.roleIds);
+    expect(s.list()).toEqual(["account_manager", "tech_lead"]);
+    s.replace(["nobody"], BIND.roleIds);
+    expect(s.list()).toEqual([]);
+    s.replace(["delivery_lead", 5 as unknown as string, null as unknown as string], BIND.roleIds);
+    expect(s.list()).toEqual(["delivery_lead"]);
   });
 });

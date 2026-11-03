@@ -41,7 +41,7 @@ const lobby = async () => {
   const a = await openIt();
   a.seats!.credentials.issue("account_manager", "Pat");
   a.seats!.consent.give("account_manager", "p", "v1", T0);
-  a.seats!.aiRoles!.replace(["tech_lead"]);
+  a.seats!.aiRoles!.replace(["tech_lead"], ["account_manager", "delivery_lead", "tech_lead"]);
   a.seats!.persist();
   return a;
 };
@@ -91,7 +91,7 @@ describe("the AI-role seat file (US-0060)", () => {
     const f = await openIt({ mode: "fresh", managed: false });
     expect(f.seats!.aiRoles!.list()).toEqual([]);
     expect(await readRoles()).toEqual([]);
-    f.seats!.aiRoles!.replace(["tech_lead"]); f.seats!.persist();
+    f.seats!.aiRoles!.replace(["tech_lead"], ["account_manager", "delivery_lead", "tech_lead"]); f.seats!.persist();
     await f.engine.start(Object.fromEntries(players().map((id) => [id, `p_${id}`])), { aiRoles: ["tech_lead"] });
     for (let i = 0; i < 40 && f.engine.state.status !== "ended"; i++) { await f.engine.command({ command: "advance" }); await f.engine.tick(); }
     expect(f.engine.state.status).toBe("ended");
@@ -128,7 +128,7 @@ describe("the AI-role seat file (US-0060)", () => {
 
   it("persist writes the credentials, then the consent, then the AI-role file (a failure at the credentials leaves the later files untouched)", async () => {
     const a = await openIt();
-    a.seats!.aiRoles!.replace(["tech_lead"]);
+    a.seats!.aiRoles!.replace(["tech_lead"], ["account_manager", "delivery_lead", "tech_lead"]);
     a.seats!.consent.give("account_manager", "p", "v1", T0);
     await rm(path.join(dir, "s.credentials.json")); await mkdir(path.join(dir, "s.credentials.json"));
     expect(() => a.seats!.persist()).toThrow();

@@ -15,6 +15,7 @@ let sockets: WebSocket[] = [];
 const runtimes: Runtime[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const s of sockets.splice(0)) s.terminate(); for (const r of runtimes.splice(0)) await r.stop(); if (tmp) await rm(tmp, { recursive: true, force: true }); tmp = ""; });
 
+type Reissue = Extract<ParentMessage, { type: "reissue" }>;
 function fakeParent(opts: { failReply?: boolean } = {}) {
   const sent: ChildMessage[] = [];
   let handler: ((m: ParentMessage) => void) | undefined;
@@ -22,13 +23,13 @@ function fakeParent(opts: { failReply?: boolean } = {}) {
     send(m) { if (opts.failReply && (m.type === "reissued" || m.type === "reissue_failed")) return false; sent.push(m); return true; },
     onMessage(fn) { handler = fn; }, onDisconnect() {},
   };
-  const ask = async (m: Omit<ParentMessage, "type">) => {
+  const ask = async (m: Omit<Reissue, "type">) => {
     handler!({ type: "reissue", ...m });
     const reply = () => sent.find((x) => (x.type === "reissued" || x.type === "reissue_failed") && x.requestId === m.requestId);
     await vi.waitFor(() => { if (!reply()) throw new Error("no reply yet"); }, { timeout: 30_000, interval: 10 });
     return reply() as Extract<ChildMessage, { type: "reissued" | "reissue_failed" }>;
   };
-  const fire = (m: Omit<ParentMessage, "type">) => handler!({ type: "reissue", ...m });
+  const fire = (m: Omit<Reissue, "type">) => handler!({ type: "reissue", ...m });
   return { parent, sent, ask, fire };
 }
 async function boot(parent: ParentChannel) {
