@@ -30,6 +30,8 @@ export type BotDeps = {
    * reconnects. Codes 4001 to 4004 are final: the host must NOT re-attach on them; any other code (1006 ...) the host may answer with attach().
    */
   onDisconnected?: (code: number) => void;
+  /** Called on every `joined` frame of the current generation (the host resets its re-attach backoff on it). */
+  onJoined?: () => void;
 };
 
 type Skip = "model_failed" | "timeout" | "unusable";
@@ -181,6 +183,7 @@ export class AiPlayerBot {
     this.policy.reset();
     this.authRefusals = 0;
     this.reconnectToken = j.reconnectToken;
+    this.d.onJoined?.();
     this.brief = j.brief;
     this.privateFacts = j.privateFacts;
     this.scenes = new Map(j.scenes.map((s) => [s.id, { title: s.title, goal: s.goal }]));
