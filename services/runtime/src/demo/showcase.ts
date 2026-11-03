@@ -19,7 +19,7 @@ import { sanitizeAlert } from "./live-evidence.js";
 import { fallbackReason, isFallbackReply } from "./provenance.js";
 import { scrubText } from "./report.js";
 import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from "./showcase-report.js";
-import type { PlayerBotGenerator } from "./player-bot.js";
+import type { PlayerBotGenerator } from "../players/index.js";
 import { playerSource, type PlayerLineRecord, type PlayerLines } from "./player-lines.js";
 import { buildShowcaseCases, lastNegativeLine, loadCases, type GmCase } from "../gm-eval/cases.js";
 import { expectedGmEvaluations, gmRoundLines, type ShowcaseScript } from "./showcase-script.js";

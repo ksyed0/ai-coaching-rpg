@@ -4,10 +4,9 @@ import { parse } from "yaml";
 import { ZodError, z } from "zod";
 import { GM_EVERY_N_UTTERANCES } from "../agents/game-master.js";
 import { parseGmReply } from "../agents/gm-parse.js";
+import { MAX_LINE_CHARS } from "../players/clean.js";
 
 export const SHOWCASE_FILE = "showcase.yaml";
-/** The server refuses a `say` longer than this (see the protocol), so a longer scripted line could never be spoken. */
-export const MAX_LINE_CHARS = 2_000;
 /** A showcase script is a few KiB; refuse anything absurd before parsing it (YAML aliases can expand). */
 export const MAX_SHOWCASE_BYTES = 256 * 1024;
 
