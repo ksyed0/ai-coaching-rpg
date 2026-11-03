@@ -60,6 +60,15 @@ export const isValidSessionId = (id: string): boolean => isSafeId(id);
 /** The rule in words, for refusals. */
 export const SESSION_ID_RULE_TEXT = "1 to 64 letters, digits, '_' or '-'";
 
+/** US-0060: the fixed display name of an AI-played player role; a human cannot take a name that starts with it. */
+export const AI_PLAYER_NAME = "AI player";
+/**
+ * True when `name`, folded (NFKC, default-ignorable characters removed, whitespace collapsed, trimmed, lower case), starts with "ai player".
+ * Applied to a name already cleaned by the runtime and to the BFF's raw input, so both catch the same names.
+ */
+export const isReservedDisplayName = (name: string): boolean =>
+  typeof name === "string" && name.normalize("NFKC").replace(/\p{Default_Ignorable_Code_Point}/gu, "").replace(/\s+/gu, " ").trim().toLowerCase().startsWith(AI_PLAYER_NAME.toLowerCase());
+
 /** The longest id a client may send in a message or type on the command line. */
 export const CLIENT_ID_MAX_CHARS = 128;
 /** C0 controls, DEL and C1 controls. */

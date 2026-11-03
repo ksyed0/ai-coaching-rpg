@@ -16,7 +16,14 @@ describe("initPlayerView", () => {
   it("initPlayerView takes the redacted snapshot as is", () => {
     const v = initPlayerView(snapshot({ paused: true, pausedSince: 1_500 }));
     expect(v).toEqual({ lastSeq: 5, status: "running", paused: true, pausedSince: 1_500, scene: { id: "s1", enteredAt: 1_002, pausedMs: 40 },
-      transcript: [{ seq: 3, ts: 1_003, roleId: "me", text: "earlier", sceneId: "s1" }], injects: [], ended: null });
+      transcript: [{ seq: 3, ts: 1_003, roleId: "me", text: "earlier", sceneId: "s1" }], injects: [], ended: null, aiRoles: [] });
+  });
+  it("initPlayerView takes aiRoles from the snapshot and [] when absent", () => {
+    expect(initPlayerView(snapshot({ aiRoles: ["them"] })).aiRoles).toEqual(["them"]);
+    const bare = snapshot() as Partial<SessionState>;
+    delete bare.aiRoles;
+    expect(initPlayerView(bare as SessionState).aiRoles).toEqual([]);
+    expect(initPlayerView({ ...snapshot(), aiRoles: ["ok", 5] } as unknown as SessionState).aiRoles).toEqual(["ok"]);
   });
 });
 
@@ -201,5 +208,17 @@ describe("applyPlayerEvent with malformed events", () => {
   it("an utterance without text is not added", () => {
     const v = v0();
     expect(applyPlayerEvent(v, bad({ text: undefined })).transcript).toEqual(v.transcript);
+  });
+});
+
+describe("applyPlayerEvent aiRoles (US-0060)", () => {
+  it("applyPlayerEvent sets aiRoles from session.started and a duplicate seq changes nothing", () => {
+    const v0 = initPlayerView(snapshot({ lastSeq: 0, status: "idle" }));
+    const ev = { ...started, aiRoles: ["them", 4] } as SessionEvent;
+    const v1 = applyPlayerEvent(v0, ev);
+    expect(v1.aiRoles).toEqual(["them"]);
+    expect(applyPlayerEvent(v1, { ...ev, aiRoles: ["other"] } as SessionEvent)).toBe(v1);
+    expect(applyPlayerEvent(v0, started).aiRoles).toEqual([]);
+    expect(applyPlayerEvent(v1, { ...started, ...env(2), aiRoles: undefined } as SessionEvent).aiRoles).toEqual([]);
   });
 });

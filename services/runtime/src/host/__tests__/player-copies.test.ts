@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { SessionEvent } from "@acr/events";
+import { initialState, reduce, type SessionEvent } from "@acr/events";
+import { snapshotForPlayer, startedForPlayer, type StartedEvent } from "../player-copies.js";
 import { loadScenario } from "@acr/script";
 import { MockModelProvider } from "@acr/adapters";
 import { SessionEngine } from "../../engine/session-engine.js";
@@ -35,7 +36,7 @@ const TODAYS_PLAYER_SNAPSHOT = {
     { seq: 4, ts: 0, sceneId: "s1_open", roleId: "host", text: "Hi Sam", channel: "text" },
     { seq: 5, ts: 0, sceneId: "s1_open", roleId: "guest", text: "Hello host, lovely to be here", channel: "text" },
   ],
-  injectsFired: [], npcs: {}, advanceRequested: false, gmVerdicts: {}, factsEarned: {},
+  injectsFired: [], npcs: {}, advanceRequested: false, gmVerdicts: {}, factsEarned: {}, aiRoles: [],
 };
 
 const events = (engine: SessionEngine): SessionEvent[] => {
@@ -51,6 +52,31 @@ describe("player copies (a new field is denied until it is listed)", () => {
     const snap = host.snapshotFor("host");
     expect(Object.keys(snap).sort()).toEqual(Object.keys(TODAYS_PLAYER_SNAPSHOT).sort());
     expect(snap).toEqual(TODAYS_PLAYER_SNAPSHOT);
+  });
+
+  it("a player snapshot of a session started with tech_lead as AI lists [\"tech_lead\"]", () => {
+    const e = { type: "session.started", seq: 1, ts: 1, sessionId: "s", scenarioId: "sc", version: "1",
+      roles: { tech_lead: { kind: "player" }, delivery_lead: { kind: "player" } }, aiRoles: ["tech_lead"] } as StartedEvent;
+    const st = reduce(initialState(), e);
+    const snap = snapshotForPlayer(st, "delivery_lead");
+    expect(snap.aiRoles).toEqual(["tech_lead"]);
+    expect(snap.aiRoles).not.toBe(st.aiRoles);
+  });
+
+  it("a player's session.started carries aiRoles equal to but not the same array as the event's, and a poison key aiSecret never", () => {
+    const e = { type: "session.started", seq: 1, ts: 1, sessionId: "s", scenarioId: "sc", version: "1", roles: { a: { kind: "player" }, b: { kind: "player" } },
+      aiRoles: ["b", 9], aiSecret: "LEAK-AI" } as unknown as StartedEvent;
+    const out = startedForPlayer(e, "a");
+    expect(out.aiRoles).toEqual(["b"]);
+    expect(out.aiRoles).not.toBe(e.aiRoles);
+    expect(JSON.stringify(out)).not.toContain("LEAK-AI");
+    expect(Object.hasOwn(out, "aiSecret")).toBe(false);
+  });
+
+  it("a session.started without aiRoles reaches a player without the key", () => {
+    const base = { type: "session.started", seq: 1, ts: 1, sessionId: "s", scenarioId: "sc", version: "1", roles: { a: { kind: "player" } } } as StartedEvent;
+    expect(Object.hasOwn(startedForPlayer(base, "a"), "aiRoles")).toBe(false);
+    expect(Object.hasOwn(startedForPlayer({ ...base, aiRoles: [] }, "a"), "aiRoles")).toBe(false);
   });
 
   it("the facilitator snapshot carries talk and no player snapshot does", async () => {

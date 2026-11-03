@@ -1781,11 +1781,20 @@ Branch: feature/EPIC-0002-US-0059-command-ack (PR 1; PR 2 and PR 3 use feature/E
 Notes: PR 1 (merged) is the runtime side: the optional ref on command and end_now with ack and error carrying it (AC-0354, TC-0095) and injects in the facilitator's scene list. PR 2 (merged as #74, feature/EPIC-0002-US-0059-command-route) is the web server's command, hidden-fact and remove routes with the hub's correlation and the characters frame (AC-0355, AC-0356, TC-0096, TC-0097); PR 3 (this PR, feature/EPIC-0002-US-0059-console-controls) is the console controls, confirmations, Remove button and their end-to-end and Axe checks (AC-0311, AC-0312, AC-0314 button, AC-0315, AC-0316, AC-0357; TC-0098, TC-0099) and a fix so a whisper reaches the web player (BUG-0019). Delivered in three PRs: #73, #74 and this PR. Plan docs/superpowers/plans/2026-11-01-slice-2b-2b2-facilitator-controls.md.
 
 ```
+TASK-0098 (US-0060): AI-role state, start gate, marking, consent notice v2 and log format 3 (slice 2b-3a)
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0002-US-0060-ai-role-record (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels)
+Notes: PR 1 (this PR) is the record: aiRoles in session.started, the state and the player copies, log format 3 for a session with AI roles, and the lobby's <id>.ai-roles.json beside the seat files (AC-0358, TC-0100). PR 2 is the gate, marking and the set_ai_roles IPC; PR 3 the labels. Nothing over HTTP sets AI roles before slice 2b-3b (ruling A1). Plan docs/superpowers/plans/2026-11-02-slice-2b-3a-ai-role-state.md.
+```
+
+```
 US-0060 (EPIC-0002): As a facilitator, I want to fill a player role with an AI player until I start the session, so that a no-show does not stop the session.
 Priority: High
 Estimate: L
-Status: Planned
-Branch: feature/EPIC-0002-US-0060-ai-player-roles
+Status: In Progress
+Branch: feature/EPIC-0002-US-0060-ai-role-record (slice 2b-3a PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels)
 Dependencies: US-0058, US-0059
 Acceptance Criteria:
   - [ ] AC-0317: any player role can be switched to an AI player or back to human from the New session and readiness screens until the start, and roles are fixed after the start
@@ -1794,6 +1803,7 @@ Acceptance Criteria:
   - [ ] AC-0320: session.started records aiRoles, AI roles skip consent, and the start gate counts human seats and connected AI bots separately
   - [ ] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only
   - [ ] AC-0322: an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored
+  - [x] AC-0358: session.started records aiRoles in scenario order (log format 3) only when a session has AI roles, other sessions keep format 2, the runtime reads formats 0 to 3 and refuses aiRoles in an older format, and the lobby's AI roles are kept in <id>.ai-roles.json beside the seat files across a managed restart (events state and player-copy tests, session-engine-restore.test.ts, session-store.ai-roles.test.ts; TC-0100)
 ```
 
 ```

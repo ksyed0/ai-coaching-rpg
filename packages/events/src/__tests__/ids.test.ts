@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import path from "node:path";
 import {
-  CLIENT_ID_MAX_CHARS, FACILITATOR_ROLE_ID, FILE_SAFE_ID_PATTERN, PROTOTYPE_KEYS, SAFE_ID_MAX_CHARS, SAFE_ID_PATTERN, SCENARIO_ID_PATTERN,
+  AI_PLAYER_NAME, isReservedDisplayName, CLIENT_ID_MAX_CHARS, FACILITATOR_ROLE_ID, FILE_SAFE_ID_PATTERN, PROTOTYPE_KEYS, SAFE_ID_MAX_CHARS, SAFE_ID_PATTERN, SCENARIO_ID_PATTERN,
   hasControlCharacters, isClientRoleKey, isClientSuppliedId, isFileSafeId, isPrototypeKey, isReservedRoleId, isSafeId, isScenarioId, isValidSessionId,
 } from "../index.js";
 
@@ -136,5 +136,13 @@ describe("identifier rules: the shared module (US-0020, AC-0062)", () => {
       const control = c <= 0x1f || (c >= 0x7f && c <= 0x9f);
       expect(hasControlCharacters(`a${String.fromCharCode(c)}b`), `U+${c.toString(16)}`).toBe(control);
     }
+  });
+});
+
+describe("isReservedDisplayName (US-0060)", () => {
+  it('"AI player", "ai  PLAYER Bob", " AI player", "\uFF21\uFF29 player" are reserved; "Aiden Player", "AI-player", "Player AI" and "A.I. player" are not', () => {
+    expect(AI_PLAYER_NAME).toBe("AI player");
+    for (const n of ["AI player", "ai  PLAYER Bob", " AI player", "\uFF21\uFF29 player", "A\u200bI player", "AI\u00a0player"]) expect(isReservedDisplayName(n), n).toBe(true);
+    for (const n of ["Aiden Player", "AI-player", "Player AI", "A.I. player", "", "AI", "AIplayer"]) expect(isReservedDisplayName(n), n).toBe(false);
   });
 });

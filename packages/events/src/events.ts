@@ -33,7 +33,12 @@ export type EventBody =
        */
       consents?: Record<string, { noticeVersion: string; at: number }>;
       names?: Record<string, string>;
-      logIdentity?: string }
+      logIdentity?: string;
+      /**
+       * US-0060: player roles an AI plays, in scenario order; present only when non-empty. Readers treat absence as none. Unlike `consents`
+       * it is public to every player (labels), and never lists an AI character.
+       */
+      aiRoles?: string[] }
   | { type: "scene.entered"; sceneId: string; participants: string[] }
   | { type: "scene.exited"; sceneId: string; reason: ExitReason }
   | { type: "utterance"; roleId: string; text: string; channel: Channel;
@@ -67,8 +72,12 @@ export type EventBody =
 export type SessionEvent = EventEnvelope & EventBody;
 export type EventType = EventBody["type"];
 
-/** The session log format this version writes (session.started.logFormat). A log without the field is format 0. */
-export const LOG_FORMAT = 2;
+/** The newest session log format this version reads and writes (session.started.logFormat). A log without the field is format 0. Format 3 (US-0060) adds `aiRoles`. */
+export const LOG_FORMAT = 3;
+/** The format written when a session has no AI roles, so an older runtime can still resume it after a rollback. */
+export const LOG_FORMAT_WITHOUT_AI_ROLES = 2;
+/** The format a new log gets: 3 only when it records AI roles, else 2. */
+export const logFormatFor = (aiRoles: readonly string[]): number => (aiRoles.length > 0 ? LOG_FORMAT : LOG_FORMAT_WITHOUT_AI_ROLES);
 
 const EVENT_TYPE_SET: Record<EventType, true> = {
   "session.started": true, "scene.entered": true, "scene.exited": true, utterance: true, "inject.fired": true, "npc.updated": true,

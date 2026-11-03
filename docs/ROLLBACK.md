@@ -51,7 +51,7 @@ Rollback trigger: the control service or the console misbehaves (sessions cannot
 
 ### What changes on disk and in the log
 
-- **No log-format change.** Slice 2b-1 writes `LOG_FORMAT` 2, exactly as slice 2a, and reads formats 0 to 2. Nothing in 2b-1 makes an older runtime that reads format 2 refuse a log. (Log format 3 belongs to slice 2b-3, when sessions record AI roles; its rollback note will be added then.)
+- **No log-format change.** Slice 2b-1 writes `LOG_FORMAT` 2, exactly as slice 2a, and reads formats 0 to 2. Nothing in 2b-1 makes an older runtime that reads format 2 refuse a log. (Log format 3 arrived with slice 2b-3a, which records AI roles; its rollback note is the section "EPIC-0002 slice 2b-3a" below.)
 - **New service and directory.** `services/control` keeps `<CONTROL_DATA_DIR>/sessions.json` (session id, scenario id, status; mode `0600`), `<CONTROL_DATA_DIR>/sessions/` (each session's own log, codes, seat and consent files, written by the runtime) and per-session child logs (`CONTROL_LOG_DIR`, default `<CONTROL_DATA_DIR>/child-logs`; no codes or tokens are written to them). The control service never stores join codes.
 - **Data directories stay compatible with a terminal-started runtime, with one exception.** A runtime started from the terminal with `SESSION_DATA_DIR` pointed at a session directory reads the same log, codes, seat and consent files. The exception is `CONTROL_MANAGED=1`: only a managed runtime keeps the lobby files (codes, seats, consent) when it restarts on an empty log. A runtime started without it discards them and issues new codes on an empty log, as before, and moves an ended log aside instead of refusing it.
 - **Facilitator-only alerts.** A reissue after the start appends facilitator-only alerts about the consent rebind. They are ordinary events that an older runtime ignores.
@@ -100,3 +100,27 @@ Rollback trigger: players see something they should not, `end_now` misbehaves, o
 ### Rolling forward again
 
 Nothing to repair: the newer build reads logs written by the older one, and a `facilitator_end` cut left by the hazard above is repaired on restore.
+
+## EPIC-0002 slice 2b-3a: AI roles in the log and the lobby (US-0060)
+
+```
+Release: unreleased (feature/EPIC-0002-US-0060-ai-role-record, then ...-ai-role-gate and ...-ai-role-labels, each merged by its pull request)
+Date: not deployed
+Rollback trigger: a session with AI roles cannot resume, the AI-role file blocks a lobby from opening, or the runtime must go back to a build from before this slice.
+```
+
+### What changes on disk and in the log
+
+- **Log format 3, only for a session with AI roles.** The runtime now reads formats 0 to 3. It writes format 3 only when `session.started` records `aiRoles` (in scenario role order); every other session still gets format 2, so a rollback is unaffected for them. A newer format (4 and above) is refused with `log_format`.
+- **A build from before this slice refuses a format-3 log** with `log_format` (it reads up to format 2). No build of slice 2b-3a can produce a format-3 log: nothing over HTTP sets AI roles until slice 2b-3b (ruling A1), so rolling back from 3a to an older build leaves nothing it cannot read. Rolling back from 2b-3b to 3a resumes format-3 logs (3a reads them); rolling back from 2b-3b to a build before 3a leaves any session started with AI roles unresumable (finish or abandon it first).
+- **New file `<id>.ai-roles.json`** beside the seat files (mode `0600`, same writer and reader checks as the codes, credentials and consent files). It holds the lobby's AI roles across a managed restart and is removed with the other lobby files when they are discarded. After the start the log is the record and the file is only rewritten from it. An older build ignores the file.
+- **Projections.** `aiRoles` in the state, in the console state and in the player copies are rebuilt from the log; there is nothing to migrate.
+
+### Steps
+
+1. Redeploy the previous runtime, control service and web app (no data migration).
+2. Before rolling back past this slice, list the sessions under the control service's `sessions/` directory whose first log line says `"logFormat":3`. None can exist from a 3a build; from a 2b-3b build, end them or keep the 3b/3a build until they are done.
+3. **Smoke test:** `pnpm demo --fast` passes its 29 checks; `pnpm demo --web` passes W-01 to W-08.
+
+### Rolling forward again
+Redeploy slice 2b-3a. If a build from before 3a has run a lobby meanwhile, move that lobby's `<id>.ai-roles.json` aside first: the older build does not maintain it, so it could name a role whose seat now holds a human credential. Lobby files without an AI-role file read as "no AI roles" and the file is written when the runtime next opens the session; logs of format 0 to 2 resume as before.

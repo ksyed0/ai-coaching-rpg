@@ -141,13 +141,14 @@ describe("restore outcomes", () => {
     expect(r.engine.state.status).toBe("idle");
   });
 
-  it("new logs carry the current log format (2) and the scenario's sha256", async () => {
+  it("new logs without AI roles carry log format 2 and the scenario's sha256", async () => {
     const log = new MemoryEventLog("f");
     await liveOn(log);
     const first = (await log.all())[0]!;
-    expect(first).toMatchObject({ type: "session.started", logFormat: LOG_FORMAT, scenarioHash: scenarioHash(scenario) });
+    expect(first).toMatchObject({ type: "session.started", logFormat: 2, scenarioHash: scenarioHash(scenario) });
+    expect(Object.hasOwn(first, "aiRoles")).toBe(false);
     expect(scenarioHash(scenario)).toMatch(/^[0-9a-f]{64}$/);
-    expect(LOG_FORMAT).toBe(2);
+    expect(LOG_FORMAT).toBe(3);
   });
 
   const ID = "0123456789abcdef0123456789abcdef";
@@ -232,7 +233,7 @@ describe("restore refuses what it cannot trust (fail closed, nothing appended)",
   it("another scenario id", () => refuses([startedBody({ scenarioId: "other" }), entered], "scenario_mismatch", /different scenario/));
   it("another scenario version", () => refuses([startedBody({ version: "9.9" }), entered], "scenario_mismatch", /different scenario/));
   it("changed scenario files (format 1 hash)", () => refuses([startedBody({ scenarioHash: "0".repeat(64) }), entered], "scenario_mismatch", /sha256 differs/));
-  it("a newer log format (regression guard: 3 is refused before and after format 2 was added)", () => refuses([startedBody({ logFormat: 3 }), entered], "log_format", /format 3, newer/));
+  it("a newer log format: 4 is refused", () => refuses([startedBody({ logFormat: 4 }), entered], "log_format", /format 4, newer/));
   it.each([[-1], [1.5], ["1"]])("a format that is not a whole number (%j)", (f) => refuses([startedBody({ logFormat: f }), entered], "log_format", /not a whole number/));
   it("roles that do not match the scenario", () => refuses([startedBody({ roles: { host: { kind: "player" } } }), entered], "scenario_mismatch", /roles/));
   it("a role of the wrong kind", () => refuses([startedBody({ roles: { host: { kind: "npc" }, guest: { kind: "npc" } } }), entered], "scenario_mismatch", /roles/));
@@ -466,5 +467,91 @@ describe("released hidden facts across a restart (US-0016 + US-0018)", () => {
     await expect(engine.command({ command: "release_hidden", roleId: "guest", fact: 1 })).rejects.toMatchObject({ code: "already_released" });
     const again = await restoreOf(log);
     expect(again.engine.state).toEqual(engine.state);
+  });
+});
+
+describe("log format 3 and the AI roles (US-0060)", () => {
+  let fri: Scenario;
+  beforeEach(async () => { fri = await loadScenario(path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../scenarios/friday-escalation")); });
+  const roles = () => Object.fromEntries(Object.values(fri.roles).map((r) => [r.id, r.type === "npc" ? { kind: "npc" } : { kind: "player", participantId: `p_${r.id}` }]));
+  const body = (over: Record<string, unknown> = {}) => ({ type: "session.started", scenarioId: fri.meta.id, version: fri.meta.version, roles: roles(), logFormat: 3, scenarioHash: scenarioHash(fri), ...over });
+  const enterFri = () => ({ type: "scene.entered", sceneId: fri.script.scenes[0]!.id, participants: ["delivery_lead"] });
+  const fresh = (log: EventLog) => new SessionEngine({ scenario: fri, log, clock: new FakeClock(T0) });
+  const assign = () => Object.fromEntries(Object.values(fri.roles).filter((r) => r.type === "player").map((r) => [r.id, `p_${r.id}`]));
+  const first = async (log: MemoryEventLog) => (await log.all())[0]! as Record<string, unknown>;
+
+  it("a start without AI roles writes logFormat 2 and no aiRoles key (also for an empty list)", async () => {
+    for (const x of [undefined, { aiRoles: [] }]) {
+      const log = new MemoryEventLog("f");
+      await fresh(log).start(assign(), x);
+      expect(await first(log)).toMatchObject({ logFormat: 2 });
+      expect(Object.hasOwn(await first(log), "aiRoles")).toBe(false);
+    }
+  });
+  it("a start with aiRoles [tech_lead] writes logFormat 3 and aiRoles [tech_lead]", async () => {
+    const log = new MemoryEventLog("f");
+    await fresh(log).start(assign(), { aiRoles: ["tech_lead"] });
+    expect(await first(log)).toMatchObject({ logFormat: 3, aiRoles: ["tech_lead"] });
+  });
+  it("aiRoles [tech_lead, delivery_lead] are written in scenario role order", async () => {
+    const log = new MemoryEventLog("f");
+    const engine = fresh(log);
+    await engine.start(assign(), { aiRoles: ["tech_lead", "delivery_lead"] });
+    const want = Object.keys(fri.roles).filter((id) => id === "tech_lead" || id === "delivery_lead");
+    expect(want).toHaveLength(2);
+    expect((await first(log))["aiRoles"]).toEqual(want);
+    expect(engine.state.aiRoles).toEqual(want);
+  });
+  it.each([["an AI character", ["client_sponsor"]], ["an unknown role", ["ghost"]], ["a duplicate", ["tech_lead", "tech_lead"]], ["an inherited name", ["__proto__"]]])("aiRoles naming %s is bad_ai_roles and the log stays empty", async (_n, aiRoles) => {
+    const log = new MemoryEventLog("f");
+    const err = await fresh(log).start(assign(), { aiRoles }).then(() => null, (e: unknown) => e);
+    expect(err).toMatchObject({ code: "bad_ai_roles" });
+    expect((await log.all()).length).toBe(0);
+  });
+  it("a format 3 log with aiRoles [tech_lead] resumes with state.aiRoles and info.startedAiRoles [tech_lead]", async () => {
+    const log = new MemoryEventLog("f");
+    await fresh(log).start(assign(), { aiRoles: ["tech_lead"] });
+    const engine = fresh(log);
+    const out = await engine.restore();
+    expect(out).toMatchObject({ kind: "running", info: { format: 3, startedAiRoles: ["tech_lead"] } });
+    expect(engine.state.aiRoles).toEqual(["tech_lead"]);
+  });
+  it("a format 2 log written before this change resumes with aiRoles [], no startedAiRoles, and its first line still says logFormat 2 after markResumed", async () => {
+    const log = new MemoryEventLog("f");
+    await fresh(log).start(assign());
+    const engine = fresh(log);
+    const out = await engine.restore();
+    if (out.kind !== "running") throw new Error("expected running");
+    expect(engine.state.aiRoles).toEqual([]);
+    expect(Object.hasOwn(out.info, "startedAiRoles")).toBe(false);
+    await engine.markResumed(out.info);
+    expect(await first(log)).toMatchObject({ logFormat: 2 });
+  });
+  it("a format 3 log without aiRoles resumes with none", async () => {
+    const log = await logOf([body(), enterFri()]);
+    const engine = fresh(log);
+    const out = await engine.restore();
+    expect(out).toMatchObject({ kind: "running", info: { format: 3 } });
+    expect(Object.hasOwn((out as { info: object }).info, "startedAiRoles")).toBe(false);
+    expect(engine.state.aiRoles).toEqual([]);
+  });
+  it.each([["a format 2 log", { logFormat: 2, aiRoles: ["tech_lead"] }], ["a format 0 log", { logFormat: undefined, scenarioHash: undefined, aiRoles: ["tech_lead"] }]])("aiRoles in %s is invalid_log and nothing is appended", async (_n, over) => {
+    const log = await logOf([body(over), enterFri()]);
+    const n = (await log.all()).length;
+    const err = await fresh(log).restore().then(() => null, (e: unknown) => e);
+    expect(err).toMatchObject({ code: "invalid_log" });
+    expect((await log.all()).length).toBe(n);
+  });
+  it("a hand-ordered log with aiRoles written reversed restores info.startedAiRoles in scenario order", async () => {
+    const want = Object.keys(fri.roles).filter((id) => id === "tech_lead" || id === "delivery_lead");
+    const log = await logOf([body({ aiRoles: [...want].reverse() }), enterFri()]);
+    const out = await fresh(log).restore();
+    expect(out).toMatchObject({ kind: "running", info: { startedAiRoles: want } });
+  });
+  it.each([["an AI character", ["client_sponsor"]], ["an unknown role", ["ghost"]], ["a number", [7]], ["a duplicate", ["tech_lead", "tech_lead"]], ["a non-array", "tech_lead"], ["an inherited name", ["__proto__"]]])("aiRoles naming %s in a format 3 log is invalid_log", async (_n, aiRoles) => {
+    const log = await logOf([body({ aiRoles }), enterFri()]);
+    const err = await fresh(log).restore().then(() => null, (e: unknown) => e);
+    expect(err).toBeInstanceOf(RestoreError);
+    expect(err).toMatchObject({ code: "invalid_log" });
   });
 });

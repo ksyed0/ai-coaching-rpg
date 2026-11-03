@@ -34,6 +34,7 @@ export const PLAYER_SNAPSHOT: { [K in keyof SessionState]: PlayerField<K> } = {
   advanceRequested: () => false,
   gmVerdicts: () => ({}),
   factsEarned: () => ({}),
+  aiRoles: (s) => [...s.aiRoles], // US-0060: public, so players can label AI lines
   talk: "omit", // US-0059: words spoken are for the facilitator console only
 };
 
@@ -47,7 +48,7 @@ export function snapshotForPlayer(s: SessionState, who: string): PlayerSnapshot 
 }
 
 /** Fields of session.started copied to a player as they are. A field added to the event type must be listed here (or handled in startedForPlayer) to compile. */
-const STARTED_FOR_PLAYERS: Record<Exclude<keyof StartedEvent, "roles" | "consents" | "names" | "logIdentity">, true> = {
+const STARTED_FOR_PLAYERS: Record<Exclude<keyof StartedEvent, "roles" | "consents" | "names" | "logIdentity" | "aiRoles">, true> = {
   type: true, seq: true, ts: true, sessionId: true, scenarioId: true, version: true, logFormat: true, scenarioHash: true,
 };
 
@@ -57,6 +58,9 @@ export function startedForPlayer(e: StartedEvent, who: string): StartedEvent {
   out.roles = redactRoles(e.roles);
   const own = e.consents && Object.hasOwn(e.consents, who) ? e.consents[who] : undefined;
   // Copied key by key: a hand-edited log entry with extra keys must not leak them.
+  // A new array of strings only (a hand-edited log could hold anything), and only when there is something to say, so 2a frames stay as they were.
+  const ai = Array.isArray(e.aiRoles) ? (e.aiRoles as unknown[]).filter((r): r is string => typeof r === "string") : [];
+  if (ai.length > 0) out.aiRoles = ai;
   if (own) out.consents = { [who]: { noticeVersion: own.noticeVersion, at: own.at } };
   return out as StartedEvent;
 }

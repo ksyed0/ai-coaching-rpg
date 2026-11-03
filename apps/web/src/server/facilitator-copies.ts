@@ -30,6 +30,7 @@ export const CONSOLE_STATE: { [K in keyof SessionState]: (s: SessionState) => Se
   gmVerdicts: (s) => s.gmVerdicts,
   factsEarned: (s) => s.factsEarned,
   talk: (s) => s.talk,
+  aiRoles: (s) => strings(s.aiRoles),
 };
 
 export function consoleState(s: SessionState): SessionState {
@@ -52,6 +53,8 @@ const EVENT_COPY: { [T in EventType]: (e: Ev<T>) => SessionEvent } = {
     const out: Ev<"session.started"> = { type: e.type, ...env(e), scenarioId: e.scenarioId, version: e.version, roles: kindsOnly(e.roles) };
     if (e.consents) out.consents = Object.fromEntries(Object.entries(e.consents).map(([id, c]) => [id, { noticeVersion: c.noticeVersion, at: c.at }]));
     if (e.names) out.names = { ...e.names };
+    const ai = strings(e.aiRoles);
+    if (ai.length > 0) out.aiRoles = ai;
     return out;
   },
   "scene.entered": (e) => ({ type: e.type, ...env(e), sceneId: e.sceneId, participants: e.participants }),

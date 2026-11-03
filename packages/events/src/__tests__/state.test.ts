@@ -219,14 +219,21 @@ describe("session.resumed (US-0018)", () => {
 
 describe("event types", () => {
   it("lists every known type and rejects others", async () => {
-    const { EVENT_TYPES, isKnownEventType, LOG_FORMAT } = await import("../index.js");
+    const { EVENT_TYPES, isKnownEventType } = await import("../index.js");
     expect(EVENT_TYPES).toContain("session.resumed");
     expect(EVENT_TYPES).toHaveLength(13); // US-0034 added gm.fact_earned
     expect(isKnownEventType("utterance")).toBe(true);
     expect(isKnownEventType("toString")).toBe(false);
     expect(isKnownEventType("session.future")).toBe(false);
     expect(isKnownEventType(7)).toBe(false);
-    expect(LOG_FORMAT).toBe(2);
+  });
+
+  it("LOG_FORMAT is 3, logFormatFor([]) is 2 and logFormatFor([\"tech_lead\"]) is 3", async () => {
+    const { LOG_FORMAT, LOG_FORMAT_WITHOUT_AI_ROLES, logFormatFor } = await import("../index.js");
+    expect(LOG_FORMAT).toBe(3);
+    expect(LOG_FORMAT_WITHOUT_AI_ROLES).toBe(2);
+    expect(logFormatFor([])).toBe(2);
+    expect(logFormatFor(["tech_lead"])).toBe(3);
   });
 });
 
@@ -250,5 +257,29 @@ describe("reduceReplay (US-0018: linear restore)", () => {
     expect(fast.injectsFired).toBe(fresh.injectsFired);
     expect(() => reduceReplay(fast, { ...env(99), type: "utterance", roleId: "x", text: "x", channel: "text" })).toThrow(/out of order/);
     expect(() => reduceReplay(fast, { ...env(99), type: "inject.fired", injectId: "x", sceneId: "s", to: [], content: "" })).toThrow(/out of order/);
+  });
+});
+
+describe("aiRoles (US-0060)", () => {
+  const startedAi = (aiRoles?: unknown): SessionEvent => ({
+    ...env(1), type: "session.started", scenarioId: "sc", version: "1",
+    roles: { tech_lead: { kind: "player" }, delivery_lead: { kind: "player" }, client_sponsor: { kind: "npc" } },
+    ...(aiRoles === undefined ? {} : { aiRoles }),
+  } as SessionEvent);
+
+  it('session.started with aiRoles ["tech_lead", 7, "client_sponsor", "tech_lead"] folds to ["tech_lead"] when client_sponsor is an npc; without the field aiRoles is []', () => {
+    expect(reduce(initialState(), startedAi(["tech_lead", 7, "client_sponsor", "tech_lead", "ghost"])).aiRoles).toEqual(["tech_lead"]);
+    expect(reduce(initialState(), startedAi()).aiRoles).toEqual([]);
+    expect(reduce(initialState(), startedAi("tech_lead")).aiRoles).toEqual([]);
+    expect(initialState().aiRoles).toEqual([]);
+  });
+
+  it("reduceReplay agrees with reduce on aiRoles", async () => {
+    const { reduceReplay } = await import("../index.js");
+    const evs = [startedAi(["delivery_lead", "tech_lead"]), { ...env(2), type: "utterance", roleId: "tech_lead", text: "a", channel: "text" } as SessionEvent];
+    const pure = evs.reduce((st, e) => reduce(st, e), initialState());
+    const fast = evs.reduce((st, e) => reduceReplay(st, e), initialState());
+    expect(fast.aiRoles).toEqual(["delivery_lead", "tech_lead"]);
+    expect(fast).toEqual(pure);
   });
 });
