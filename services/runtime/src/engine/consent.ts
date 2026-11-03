@@ -3,8 +3,8 @@ import type { Bind } from "./credentials.js";
 
 /**
  * US-0053: who has agreed to the consent notice. Each entry names the participant who gave it and counts only for that participant;
- * a different person later holding the same role must agree again. An entry under another notice version never counts and is
- * dropped when a session resumes.
+ * a different person later holding the same role must agree again. In a lobby an entry under another notice version never
+ * counts and is dropped when it resumes; a started session keeps every entry whatever its version (no comparison after the start).
  */
 export const CONSENT_RECORD_VERSION = 1;
 

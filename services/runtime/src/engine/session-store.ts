@@ -202,7 +202,7 @@ export async function openSession(o: {
     const identityKept = !logIdentity || found?.credentials?.logIdentity === logIdentity;
     if (codesKept && found?.credentials?.matches(bind) && identityKept) {
       credentials = found.credentials;
-      consent = found.consent ?? new ConsentStore(notice); // entries under another notice version were dropped on read
+      consent = found.consent ?? new ConsentStore(notice); // a lobby drops entries under another notice version on read; a started session keeps them
       if (!found.consent) {
         try { writeConsentFile(o.dataDir, bind, consent, holdLockNow); }
         catch (err) { throw new SessionStoreError("io", `cannot write the consent file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
