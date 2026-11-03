@@ -221,9 +221,13 @@ describe("setAiRoles under the consent notice (US-0060)", () => {
     expect(await refusal(setAiRoles(e.deps, ["nobody"]))).toBe(AI_ROLES_REFUSED.notice);
   });
 
-  it("set_ai_roles [] under v1 is allowed", async () => {
+  it("set_ai_roles [] under v1 is allowed, and switches a role back to human", async () => {
     const e = await setup({ noticeVersion: "v1" });
     expect(await setAiRoles(e.deps, [])).toEqual([]);
+    const e2 = await setup({ noticeVersion: "v1", aiRoles: ["tech_lead"] });
+    const out = await setAiRoles(e2.deps, []);
+    expect(out.map((x) => x.roleId)).toEqual(["tech_lead"]);
+    expect(e2.seats.aiRoles!.list()).toEqual([]);
   });
 
   it("noticeNamesAiPlayers is false for \"v1\", \"x2\", \"v\" and true for \"v2\", \"v10\"", () => {
@@ -255,7 +259,12 @@ describe("setAiRoles caps (US-0060)", () => {
   it("nine AI roles of a twelve-player scenario are refused \"at most 8 player roles can be AI players\" and nothing changed", async () => {
     const { players, deps, seats } = twelve();
     expect(MAX_AI_ROLES).toBe(8);
-    expect(await refusal(setAiRoles(deps, players.slice(0, 9)))).toBe("at most 8 player roles can be AI players");
+    const writeCodes = vi.fn(); const kick = vi.fn(); const roster = vi.fn();
+    const spied = { ...deps, writeCodes, server: { kickRole: kick, broadcastRoster: roster } };
+    expect(await refusal(setAiRoles(spied, players.slice(0, 9)))).toBe("at most 8 player roles can be AI players");
+    expect(writeCodes).not.toHaveBeenCalled();
+    expect(kick).not.toHaveBeenCalled();
+    expect(roster).not.toHaveBeenCalled();
     expect(seats.aiRoles!.list()).toEqual([]);
   });
 

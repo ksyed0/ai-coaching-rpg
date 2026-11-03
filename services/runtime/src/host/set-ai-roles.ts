@@ -24,8 +24,8 @@ export class AiRolesRefusedError extends Error {
 /**
  * US-0060: sets which player roles an AI plays, before the start. Only the control service can ask (fork() IPC). Mirrors reissueRole.
  *
- * 0. Refusals first, nothing changed, in this order: a non-empty set under a consent notice that does not name AI players (`notice`); the start begun, in flight or done (`started`); an unknown, AI-character, reserved, non-string or
- *    duplicate role (`invalid`); every player role AI (`noHuman`); more than MAX_AI_ROLES AI roles (`tooMany`); no AI-role set on the seats (`failed`).
+ * 0. Refusals first, nothing changed, in this order: no AI-role set on the seats (`failed`); a non-empty set under a consent notice that does not name AI players (`notice`); the start begun, in flight or done (`started`); an unknown, AI-character, reserved, non-string or
+ *    duplicate role (`invalid`); every player role AI (`noHuman`); more than MAX_AI_ROLES AI roles (`tooMany`).
  * 1. `changed` is the symmetric difference of the current and the wanted set, in the scenario's player-role order. None: return [] and
  *    write nothing (the same request again is a no-op).
  * 2. Every changed role gets a NEW code, written FIRST: a revoked credential reopens the seat to its old code, so a switched-out human
