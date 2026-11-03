@@ -58,11 +58,11 @@ describe("TurnPolicy reply", () => {
 
   it("a replayed human line never makes a reply due and moves nothing", () => {
     const { p, adv } = inScene();
+    p.observe({ kind: "humans", connected: true });
     adv(1_000);
     p.observe({ kind: "line", roleId: "human", ai: false, replayed: true });
     adv(S.settleMs);
     expect(p.due()).toBeNull();
-    p.observe({ kind: "humans", connected: true });
     // the quiet clock still counts from the scene start, not from the replayed line
     adv(S.nudgeMs - S.settleMs - 1_000);
     expect(p.due()).toEqual({ trigger: "nudge" });
@@ -123,6 +123,8 @@ describe("TurnPolicy nudge", () => {
     adv(S.nudgeMs);
     expect(p.due()).toBeNull();
     p.observe({ kind: "humans", connected: true });
+    expect(p.due()).toBeNull(); // the quiet clock restarts when the human becomes ready
+    adv(S.nudgeMs);
     expect(p.due()).toEqual({ trigger: "nudge" });
     p.observe({ kind: "humans", connected: false });
     expect(p.due()).toBeNull();
@@ -487,5 +489,38 @@ describe("TurnPolicy simulation", () => {
     expect(spoken).toEqual([1, 1]);
     expect(botTriggered).toEqual([]);
     expect(bots.map((b) => b.wakeAt())).toEqual([null, null]);
+  });
+});
+
+describe("TurnPolicy humans and the quiet clock", () => {
+  it("humans becoming ready at t makes the nudge due at t + nudgeMs, not before", () => {
+    const { p, adv } = inScene();
+    adv(500_000);
+    p.observe({ kind: "humans", connected: true });
+    adv(S.nudgeMs - 1);
+    expect(p.due()).toBeNull();
+    adv(1);
+    expect(p.due()).toEqual({ trigger: "nudge" });
+  });
+
+  it("a repeated humans true does not move the nudge", () => {
+    const { p, adv } = inScene();
+    p.observe({ kind: "humans", connected: true });
+    adv(S.nudgeMs - 1_000);
+    p.observe({ kind: "humans", connected: true });
+    adv(1_000);
+    expect(p.due()).toEqual({ trigger: "nudge" });
+  });
+
+  it("a flap (false, then true) restarts the quiet clock", () => {
+    const { p, adv } = inScene();
+    p.observe({ kind: "humans", connected: true });
+    adv(S.nudgeMs - 1_000);
+    p.observe({ kind: "humans", connected: false });
+    p.observe({ kind: "humans", connected: true });
+    adv(1_000);
+    expect(p.due()).toBeNull();
+    adv(S.nudgeMs - 1_000);
+    expect(p.due()).toEqual({ trigger: "nudge" });
   });
 });

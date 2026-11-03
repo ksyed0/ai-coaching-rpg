@@ -1,8 +1,7 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { ModelProvider } from "@acr/adapters";
-import type { SessionEvent } from "@acr/events";
 import type { Scenario } from "@acr/script";
-import { TurnPolicy, cleanHint, generateLiveLine, viewFromEvents, type AiPlayerSettings, type PolicyEvent, type Trigger, type TurnTicket } from "@acr/runtime/players";
+import { TurnPolicy, cleanHint, generateLiveLine, type AiPlayerSettings, type PlayerView, type PolicyEvent, type Trigger, type TurnTicket } from "@acr/runtime/players";
 import type { SetTimer } from "../supervisor.js";
 import { BOT_AUTH_BACKOFF_MS, BotSocket } from "./bot-socket.js";
 import type { BotEvent, BotFrame } from "./bot-frames.js";
@@ -16,8 +15,9 @@ export const BOT_SAY_CONFIRM_MS = 10_000;
 export const BOT_MAX_VIEW_LINES = 200;
 /**
  * Nudge failures are bounded only by the session budget, so after this many CONSECUTIVE failed or skipped nudges (model, timeout,
- * unusable, budget, or a say that was refused or never confirmed) the bot stops nudging until a human line arrives. A reply to a
- * human line is never held back by this, and a spoken line (of any kind) also clears the count.
+ * unusable, budget, or a say that was refused or never confirmed) the bot stops nudging until a HUMAN line arrives (a line from a player
+ * role that is not an AI player; AI characters and other AI players do not count). A reply is never held back by this, and a spoken line
+ * (of any kind) also clears the count.
  */
 export const BOT_MAX_FAILED_NUDGES = 3;
 
@@ -25,11 +25,16 @@ export type BotDeps = {
   sessionId: string; roleId: string; scenario: Scenario; provider: ModelProvider; settings: AiPlayerSettings;
   budget: SessionBudget; intents: IntentLog; alert: (a: BotAlert) => void; needCode: () => void;
   now: () => number; setTimer: SetTimer; open?: typeof BotSocket.open;
+  /**
+   * Called when a socket of the current generation closes without us closing it (never after detach, stop or attach). The bot itself never
+   * reconnects. Codes 4001 to 4004 are final: the host must NOT re-attach on them; any other code (1006 ...) the host may answer with attach().
+   */
+  onDisconnected?: (code: number) => void;
 };
 
 type Skip = "model_failed" | "timeout" | "unusable";
 const SKIP_ALERT: Record<Skip, BotAlert> = { model_failed: "skippedModel", timeout: "skippedTimeout", unusable: "skippedUnusable" };
-type Turn = { ticket: TurnTicket; hint: string | null };
+type Turn = { ticket: TurnTicket; hint: string | null; ac: AbortController };
 type Joined = Extract<BotFrame, { type: "joined" }>;
 const noop = (): void => undefined;
 
@@ -51,6 +56,9 @@ export class AiPlayerBot {
   private sock: BotSocket | null = null;
   private reconnectToken: string | undefined;
   private closing: Promise<void> = Promise.resolve();
+  /** The open() in flight, resolving to the socket (null when it failed). Never two sockets: drop() closes it as soon as it arrives. */
+  private opening: Promise<BotSocket | null> | null = null;
+  private codeDigest: string | null = null;
   private wake: (() => void) | null = null;
   private retry: (() => void) | null = null;
   private current: Turn | null = null;
@@ -78,6 +86,10 @@ export class AiPlayerBot {
   /** Closes any old socket (waiting for it), then opens one with `code` and the last reconnect token. Rejects when the socket cannot open. */
   async attach(port: number, code: string): Promise<void> {
     if (this.dead) return;
+    // After rejoinFailed only a fresh attach with a NEW code re-arms the refusal count (a digest, never the code, is kept to tell).
+    const digest = createHash("sha256").update(code).digest("hex");
+    if (this.authRefusals >= 3 && digest !== this.codeDigest) this.authRefusals = 0;
+    this.codeDigest = digest;
     this.drop();
     const gen = this.gen;
     await this.closing;
@@ -106,13 +118,18 @@ export class AiPlayerBot {
 
   private async connect(port: number, code: string, gen: number): Promise<void> {
     const open = this.d.open ?? BotSocket.open.bind(BotSocket);
-    const s = await open({
+    const attempt = open({
       port, sessionId: this.d.sessionId, roleId: this.d.roleId, participantId: this.participantId, code,
       ...(this.reconnectToken !== undefined ? { reconnectToken: this.reconnectToken } : {}), setTimer: this.d.setTimer,
       onFrame: (f) => { if (gen === this.gen) this.onFrame(f, port, code); },
-      onClose: (_code, info) => { if (!info.byUs && gen === this.gen) this.drop(); },
+      onClose: (c, info) => { if (!info.byUs && gen === this.gen) { this.drop(); this.d.onDisconnected?.(c); } },
     });
-    if (gen !== this.gen || this.dead) { void s.close().catch(noop); return; }
+    const tracked = attempt.then((x) => x, () => null);
+    this.opening = tracked;
+    let s: BotSocket;
+    try { s = await attempt; } catch (err) { if (gen !== this.gen || this.dead) return; throw err; } finally { if (this.opening === tracked) this.opening = null; }
+    // A drop() while the open was pending already chained this socket's close into `closing`.
+    if (gen !== this.gen || this.dead) return;
     this.sock = s;
     this.arm();
   }
@@ -125,9 +142,13 @@ export class AiPlayerBot {
     const a = this.awaiting;
     this.awaiting = null;
     if (a) { a.cancel(); this.record(a.turn, "dropped"); }
+    this.current?.ac.abort();
     this.current = null;
     this.policy.reset();
     this.humans = false;
+    const pending = this.opening;
+    this.opening = null;
+    if (pending) this.closing = Promise.all([this.closing, pending.then((x) => x?.close()).catch(noop)]).then(noop);
     const old = this.sock;
     this.sock = null;
     if (old) {
@@ -144,14 +165,8 @@ export class AiPlayerBot {
       case "joined": this.seed(f); return;
       case "event": this.onEvent(f.event); return;
       case "roster":
-      {
-        const was = this.humans;
         this.humans = f.entries.some((e) => !e.ai && e.ready);
         this.policy.observe({ kind: "humans", connected: this.humans });
-        // A human becoming ready counts as activity (the policy's `humans` event leaves the quiet clock alone): the first nudge comes a full
-        // nudge interval later, not at once. The bot's own non-replayed AI line only moves the clock; it sets no pending reply.
-        if (!was && this.humans) this.policy.observe({ kind: "line", roleId: this.d.roleId, ai: true });
-      }
         this.arm();
         return;
       case "error":
@@ -217,7 +232,7 @@ export class AiPlayerBot {
     this.policy.observe(ev);
     if (!replayed) {
       if (e.roleId === this.d.roleId) { if (this.awaiting) { this.settleSay("spoken"); return; } }
-      else if (!ev.ai) this.nudgeFails = 0;
+      else if (!ev.ai && this.d.scenario.roles[e.roleId]?.type === "player") this.nudgeFails = 0;
     }
     this.arm();
   }
@@ -232,7 +247,7 @@ export class AiPlayerBot {
       this.retry = this.d.setTimer(() => {
         this.retry = null;
         if (gen !== this.gen || this.dead) return;
-        void this.connect(port, code, gen).catch(noop);
+        this.connect(port, code, gen).catch(() => { if (gen === this.gen && !this.dead) this.d.alert("rejoinFailed"); });
       }, BOT_AUTH_BACKOFF_MS);
     } else this.d.alert("rejoinFailed");
   }
@@ -262,19 +277,16 @@ export class AiPlayerBot {
     const ticket = this.policy.begin(trigger);
     if (!ticket) return false;
     this.wake?.(); this.wake = null;
-    const turn: Turn = { ticket, hint };
+    const turn: Turn = { ticket, hint, ac: new AbortController() };
     this.current = turn;
     void this.runTurn(turn, this.gen);
     return true;
   }
 
-  private buildView(sceneId: string) {
+  /** The role's own view. `injects` is always empty: the bot's frames carry no inject events. */
+  private buildView(sceneId: string): PlayerView {
     const scene = this.scenes.get(sceneId) ?? { title: sceneId, goal: "" };
-    const events = [
-      { type: "scene.entered", sceneId, participants: [] },
-      ...this.lines.map((l) => ({ type: "utterance", roleId: l.roleId, text: l.text })),
-    ] as unknown as SessionEvent[];
-    return viewFromEvents({ roleId: this.d.roleId, joined: { brief: this.brief, privateFacts: this.privateFacts }, scene: { id: sceneId, ...scene }, events });
+    return { roleId: this.d.roleId, brief: this.brief, privateFacts: this.privateFacts, scene, injects: [], lines: this.lines.map((l) => ({ roleId: l.roleId, text: l.text })) };
   }
 
   private async runTurn(turn: Turn, gen: number): Promise<void> {
@@ -287,9 +299,10 @@ export class AiPlayerBot {
       return;
     }
     const line = await generateLiveLine({
-      provider: this.d.provider, scenario: this.d.scenario, view: this.buildView(ticket.sceneId), trigger: ticket.trigger, hint: turn.hint, settings: this.d.settings,
+      signal: turn.ac.signal, provider: this.d.provider, scenario: this.d.scenario, view: this.buildView(ticket.sceneId), trigger: ticket.trigger, hint: turn.hint, settings: this.d.settings,
     });
     if (gen !== this.gen || !this.policy.isCurrent(ticket)) {
+      if (this.dead) return;
       this.record(turn, "dropped");
       if (this.current === turn) this.current = null;
       this.policy.finish(ticket, false);

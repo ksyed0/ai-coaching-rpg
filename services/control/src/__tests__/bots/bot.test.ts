@@ -569,3 +569,187 @@ describe("AiPlayerBot secrets", () => {
     }
   });
 });
+
+describe("AiPlayerBot review fixes", () => {
+  /** An `open` that stays pending until released; tracks how many sockets are open at once. */
+  function gatedOpen() {
+    const gates: Deferred<void>[] = [];
+    const made: FakeSock[] = [];
+    let live = 0, maxLive = 0;
+    const fn = vi.fn(async (o: BotSocketOptions): Promise<BotSocket> => {
+      const g = deferred<void>(); gates.push(g);
+      await g.promise;
+      const f = { opts: o, said: [], closeCalls: 0, closeGate: null } as unknown as FakeSock;
+      live += 1; maxLive = Math.max(maxLive, live);
+      f.socket = { say: () => {}, close: () => { f.closeCalls += 1; if (f.closeCalls === 1) live -= 1; return Promise.resolve(); } } as unknown as BotSocket;
+      made.push(f);
+      return f.socket;
+    });
+    return { fn, gates, made, maxLive: () => maxLive };
+  }
+
+  it("a second attach and a detach while the first open is pending open nothing until it resolves, and the first socket is closed", async () => {
+    const g = gatedOpen();
+    const m = make({ open: g.fn });
+    const p1 = m.bot.attach(4000, CODE);
+    await flush();
+    const p2 = m.bot.attach(4000, CODE);
+    const p3 = m.bot.detach();
+    await flush();
+    expect(g.fn).toHaveBeenCalledTimes(1);
+    g.gates[0]!.resolve();
+    await Promise.all([p1, p2, p3]);
+    expect(g.made).toHaveLength(1);
+    expect(g.made[0]!.closeCalls).toBe(1);
+    expect(m.bot.connected).toBe(false);
+    expect(g.fn).toHaveBeenCalledTimes(1);
+    const p4 = m.bot.attach(4000, CODE);
+    await flush();
+    g.gates[1]!.resolve();
+    await p4;
+    expect(m.bot.connected).toBe(true);
+    expect(g.maxLive()).toBe(1);
+  });
+
+  it("a second attach waits for the first pending open, closes it, then opens exactly one more", async () => {
+    const g = gatedOpen();
+    const m = make({ open: g.fn });
+    void m.bot.attach(4000, CODE).catch(() => {});
+    await flush();
+    const p2 = m.bot.attach(4000, CODE);
+    await flush();
+    expect(g.fn).toHaveBeenCalledTimes(1);
+    g.gates[0]!.resolve();
+    await flush();
+    expect(g.fn).toHaveBeenCalledTimes(2);
+    g.gates[1]!.resolve();
+    await p2;
+    expect(g.made[0]!.closeCalls).toBe(1);
+    expect(g.maxLive()).toBe(1);
+    expect(m.bot.connected).toBe(true);
+  });
+
+  it("a late model reply after stop() adds no intent entry, and stop aborted the provider's signal", async () => {
+    const gate = deferred();
+    let signal: AbortSignal | undefined;
+    const provider: ModelProvider = { name: "g", stream: (_r, sig) => { signal = sig; return (async function* () { await gate.promise; yield "too late"; })(); } };
+    const m = make({ provider });
+    const s = await up(m);
+    human(s, 6);
+    await adv(6_000);
+    expect(signal).toBeDefined();
+    await m.bot.stop();
+    expect(signal!.aborted).toBe(true);
+    gate.resolve();
+    await flush();
+    expect(intents.entries).toEqual([]);
+    expect(intents.read("sess-1", "tech_lead")).toEqual([]);
+  });
+
+  it("detach aborts the provider's signal too", async () => {
+    const gate = deferred();
+    let signal: AbortSignal | undefined;
+    const provider: ModelProvider = { name: "g", stream: (_r, sig) => { signal = sig; return (async function* () { await gate.promise; yield "x"; })(); } };
+    const m = make({ provider });
+    const s = await up(m);
+    human(s, 6);
+    await adv(6_000);
+    await m.bot.detach();
+    expect(signal!.aborted).toBe(true);
+    gate.resolve();
+  });
+
+  it("onDisconnected: a transient 1006 calls it once; 4002 calls it with 4002; a close by us or after stop calls nothing", async () => {
+    const onDisconnected = vi.fn<(c: number) => void>();
+    const m = make({ onDisconnected });
+    const s1 = await up(m);
+    s1.opts.onClose(1006, { byUs: false });
+    s1.opts.onClose(1006, { byUs: false }); // the same generation is gone now
+    expect(onDisconnected.mock.calls).toEqual([[1006]]);
+    const s2 = await up(m);
+    s2.opts.onClose(4002, { byUs: false });
+    expect(onDisconnected.mock.calls).toEqual([[1006], [4002]]);
+    const s3 = await up(m);
+    s3.opts.onClose(1000, { byUs: true });
+    await m.bot.detach();
+    s3.opts.onClose(1006, { byUs: false });
+    await m.bot.stop();
+    expect(onDisconnected).toHaveBeenCalledTimes(2);
+  });
+
+  it("a failed 65 s retry open raises rejoinFailed once and leaves the bot disconnected", async () => {
+    let n = 0;
+    const flaky = vi.fn(async (o: BotSocketOptions): Promise<BotSocket> => { if (++n === 3) throw new Error("bot socket could not connect (ECONNREFUSED)"); return open(o); });
+    const m = make({ open: flaky });
+    await m.bot.attach(4000, "OLD");
+    feed(socks[0]!, { type: "error", code: "unauthorized", message: "no" });
+    await m.bot.attach(4000, "NEW");
+    feed(socks[1]!, { type: "error", code: "unauthorized", message: "no" });
+    await adv(BOT_AUTH_BACKOFF_MS);
+    expect(flaky).toHaveBeenCalledTimes(3);
+    expect(alerts).toEqual(["rejoinFailed"]);
+    expect(m.bot.connected).toBe(false);
+  });
+
+  it("after rejoinFailed only an attach with a different code re-arms the refusal count", async () => {
+    const m = make();
+    await m.bot.attach(4000, "A");
+    feed(socks[0]!, { type: "error", code: "unauthorized", message: "no" });
+    await m.bot.attach(4000, "B");
+    feed(socks[1]!, { type: "error", code: "unauthorized", message: "no" });
+    await adv(BOT_AUTH_BACKOFF_MS);
+    feed(socks[2]!, { type: "error", code: "unauthorized", message: "no" });
+    expect(alerts).toEqual(["rejoinFailed"]);
+    await m.bot.attach(4000, "B"); // same code: still given up
+    feed(socks[3]!, { type: "error", code: "unauthorized", message: "no" });
+    expect(alerts).toEqual(["rejoinFailed", "rejoinFailed"]);
+    expect(needCode).toHaveBeenCalledTimes(1);
+    await m.bot.attach(4000, "C"); // a new code: the count restarts, so a refusal asks the host once more
+    feed(socks[4]!, { type: "error", code: "unauthorized", message: "no" });
+    expect(needCode).toHaveBeenCalledTimes(2);
+  });
+
+  it("two bots sharing one SessionBudget raise exactly ONE budget alert", async () => {
+    const budget = new SessionBudget(0);
+    const a = make({ budget });
+    const b = make({ budget, roleId: "delivery_lead" });
+    const sa = await up(a, { state: { ...joinedFrame().state, aiRoles: ["tech_lead", "delivery_lead"] } });
+    const sb = await up(b, { roleId: "delivery_lead", state: { ...joinedFrame().state, aiRoles: ["tech_lead", "delivery_lead"] } });
+    ev(sa, { seq: 6, type: "utterance", roleId: "account_manager", text: "Where do we stand on the plan?" });
+    ev(sb, { seq: 6, type: "utterance", roleId: "account_manager", text: "Where do we stand on the plan?" });
+    await adv(6_000);
+    expect(intents.entries.map((e) => e.reason)).toEqual(["budget", "budget"]);
+    expect(alerts).toEqual(["budget"]);
+  });
+
+  it("a repeated scene.entered with the same sceneId is ignored: it neither resets the cap nor kills a pending reply", async () => {
+    const m = make();
+    const s = await up(m);
+    human(s, 6);
+    ev(s, { seq: 7, type: "scene.entered", sceneId: SCENE1, participants: PARTICIPANTS });
+    await adv(6_000);
+    expect(s.said).toHaveLength(1);
+  });
+
+  it("replayed own lines in joined restore the scene cap after a re-join", async () => {
+    const m = make({}, { turn: { ...baseSettings.turn, linesPerScene: 1 } });
+    const s = await up(m, { state: { ...joinedFrame().state, transcript: [{ seq: 2, roleId: "tech_lead", text: "I said my piece", sceneId: SCENE1 }] } });
+    human(s, 6);
+    await adv(60_000);
+    expect(s.said).toHaveLength(0);
+    expect((m.provider as MockModelProvider).calls).toHaveLength(0);
+  });
+
+  it("an AI character's line does not reset the failed-nudge count; a human player's does", async () => {
+    const m = make({ provider: new MockModelProvider([new Error("a"), new Error("b"), new Error("c")]) });
+    const s = await up(m);
+    roster(s, true);
+    for (let i = 0; i < 3; i++) await adv(90_000);
+    ev(s, { seq: 6, type: "utterance", roleId: "client_sponsor", text: "An NPC speaking up" });
+    await adv(6_000); // the NPC line makes a reply due, not a nudge; the count stays at 3
+    await adv(500_000);
+    const nudgeCalls = (m.provider as MockModelProvider).calls.length;
+    expect(nudgeCalls).toBe(4); // 3 failed nudges + the reply to the NPC line; no further nudge
+  });
+});
+

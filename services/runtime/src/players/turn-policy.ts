@@ -28,7 +28,8 @@ export type TurnTicket = { epoch: number; sceneId: string; trigger: Trigger };
  *   touch neither pending nor the quiet clock; only the bot's own replayed AI lines (in a scene it is in) restore
  *   `linesThisScene` and start one conservative gap.
  * - `wakeAt()` is null when held, in flight, at the cap, or (with nothing pending) no human is connected, so the host
- *   must re-ask after `setHeld(false)`, `finish`, a `scene` and a `humans` event.
+ *   must re-ask after `setHeld(false)`, `finish`, a `scene` and a `humans` event. A `humans` event with `connected: true` after
+ *   `false` (or at the start) restarts the quiet clock, so a nudge is due `nudgeMs` after the humans became ready.
  * - `finish(t, true)` drops a pending reply that arrived mid-flight; `finish(t, false)` for a reply also clears
  *   pending (a skipped turn must not spin).
  */
@@ -105,6 +106,9 @@ export class TurnPolicy {
         this.invalidate();
         return;
       case "humans":
+        // A human becoming ready counts as activity: the first nudge comes a full nudge interval later, not at once.
+        // A repeated `true` changes nothing; a flap (false, then true) restarts the quiet clock.
+        if (e.connected && !this.humans) this.lastActivityAt = this.now();
         this.humans = e.connected;
         return;
     }
