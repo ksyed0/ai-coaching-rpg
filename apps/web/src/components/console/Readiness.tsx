@@ -11,6 +11,7 @@ import {
   type Readiness as ReadinessData,
   type RosterEntry,
 } from "../../lib/console-api";
+import { isolate } from "../../lib/console-view";
 import { roleLabel } from "../../lib/names";
 import { useReadiness, type SetTimer } from "../../lib/use-readiness";
 import { CodesPanel } from "./CodesPanel";
@@ -434,7 +435,7 @@ function View(p: ViewProps) {
                           data-remove={e.roleId}
                           aria-label={
                             e.name
-                              ? `Remove ${e.name} from ${roleLabel(e.roleId)}`
+                              ? `Remove ${isolate(e.name)} from ${roleLabel(e.roleId)}`
                               : `Remove the participant from ${roleLabel(e.roleId)}`
                           }
                           onClick={(ev) =>

@@ -2168,7 +2168,7 @@
         },
         {
           "id": "AC-0272",
-          "text": "a credential is revoked only by an explicit leave, consent withdrawal, facilitator removal, code reissue or the end of the session (leave, withdrawal and the end are built and tested: ws-server.credentials.test.ts, ws-server.consent.test.ts; facilitator removal (US-0059) and code reissue (US-0058) do not exist yet, and no other path revokes; a start that discards the old codes discards the seat files too, AC-0275; TC-0060)",
+          "text": "a credential is revoked only by an explicit leave, consent withdrawal, facilitator removal, code reissue or the end of the session (leave, withdrawal and the end are built and tested: ws-server.credentials.test.ts, ws-server.consent.test.ts; facilitator removal (US-0059, before the start only, with the console's Remove button since slice 2b-2b2) and code reissue (US-0058) now exist, and no other path revokes; a start that discards the old codes discards the seat files too, AC-0275; TC-0060)",
           "done": true
         },
         {
@@ -6212,9 +6212,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-03T00:00:24.508Z",
-  "commitSha": "26b9d95",
-  "buildNumber": "500",
+  "generatedAt": "2026-11-03T00:07:53.355Z",
+  "commitSha": "4f20713",
+  "buildNumber": "501",
   "branch": "feature/EPIC-0002-US-0059-console-controls",
   "sessionTimeline": [
     {
@@ -6486,7 +6486,7 @@
       "2026-11-02T02:24:55.020Z",
       "2026-11-02T14:44:58.877Z",
       "2026-11-02T20:15:07.540Z",
-      "2026-11-03T00:00:24.592Z"
+      "2026-11-03T00:07:53.456Z"
     ],
     "doneCounts": [
       0,

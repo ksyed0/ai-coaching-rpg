@@ -39,7 +39,7 @@ export function InjectsPanel({
       ) : scene.injects.length === 0 ? (
         <p className="muted">This scene has no injects.</p>
       ) : (
-        <ul className="plain stack">
+        <ul className="console-list stack">
           {scene.injects.map((inj) => {
             const again = fired.includes(inj.id);
             return (

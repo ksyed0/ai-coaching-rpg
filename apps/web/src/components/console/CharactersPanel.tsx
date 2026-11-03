@@ -172,7 +172,7 @@ export function CharactersPanel({
             {c.goals.length === 0 ? (
               <p className="muted small">No goals are set.</p>
             ) : (
-              <ul className="plain">
+              <ul className="console-list">
                 {c.goals.map((g, i) => (
                   <li key={i} className="preview">
                     {g}
@@ -203,7 +203,7 @@ export function CharactersPanel({
                 }
               />
               {errors[c.roleId] ? (
-                <p className="err" id={errId}>
+                <p className="err" id={errId} role="alert">
                   {GOALS_ERROR}
                 </p>
               ) : null}
@@ -236,7 +236,7 @@ export function CharactersPanel({
                     again.
                   </p>
                 ) : null}
-                <ul className="plain stack">
+                <ul className="console-list stack">
                   {c.facts.map((f) => {
                     const text =
                       isOpen && facts.phase === "ready"

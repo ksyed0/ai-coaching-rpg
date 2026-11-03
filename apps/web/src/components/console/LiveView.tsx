@@ -10,7 +10,7 @@ import { ConsoleTimeline } from "./ConsoleTimeline";
 import { WordsSpoken } from "./WordsSpoken";
 
 // The facilitator's read-only live view of a session: status, scene and timer, the transcript with notices and alerts, and words spoken.
-// It sends nothing and has no control. All runtime text below is rendered as text children only.
+// It sends nothing itself; the facilitator controls are passed in as `controls` and sit right after the status card. All runtime text below is rendered as text children only.
 
 export type LiveViewProps = { ui: ConsoleStreamUi; clock: Clock; /** The facilitator controls, placed right after the status card. */ controls?: ReactNode };
 

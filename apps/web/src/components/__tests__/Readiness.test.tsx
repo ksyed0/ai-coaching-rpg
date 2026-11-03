@@ -10,6 +10,7 @@ import {
 } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { isolate } from "../../lib/console-view";
 import { ConfirmDialog } from "../console/ConfirmDialog";
 import { Readiness } from "../console/Readiness";
 import {
@@ -536,6 +537,18 @@ describe("Readiness: Remove", () => {
       { roleId: "delivery_lead", joined: false, consented: false, connected: false },
       { roleId: "finance_lead", name: "Ana", joined: true, consented: true, connected: false },
     ],
+  });
+
+  it("the Remove button's label isolates a name that holds a bidi control, as the dialog copy does", async () => {
+    mount(
+      readiness({
+        roster: [{ roleId: "account_manager", name: "Eve\u202E", joined: true, consented: true, connected: true }],
+      }),
+    );
+    await ready();
+    const btn = screen.getAllByRole("button", { name: /^Remove / })[0]!;
+    expect(btn.getAttribute("aria-label")).toBe(`Remove ${isolate("Eve\u202E")} from Account manager`);
+    expect(btn.getAttribute("aria-label")).toContain("\u2068");
   });
 
   it("Remove is offered only for joined seats before the start; its dialog names the person and the role; the new code is shown once", async () => {

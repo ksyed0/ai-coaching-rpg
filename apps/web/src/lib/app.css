@@ -149,5 +149,5 @@ table.grid tbody th { font-weight: 600; }
 .liveview .tablewrap { max-width: 100%; }
 .liveview .tablewrap table.grid th, .liveview .tablewrap table.grid td { overflow-wrap: anywhere; }
 
-/* Facilitator interventions: lists without bullets, state words beside the facts. */
-ul.plain { list-style: none; padding: 0; margin: 0; }
+/* Facilitator interventions: lists without bullets (its own class: ul.plain is the player's brief and keeps its indent). */
+ul.console-list { list-style: none; padding: 0; margin: 0; }

@@ -330,6 +330,7 @@ describe("Interventions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Set stance of Client sponsor" }));
     const err = screen.getByText("Enter 1 to 10 goals, one per line, each at most 500 characters.");
     expect(box.getAttribute("aria-describedby")).toBe(err.id);
+    expect(err.getAttribute("role")).toBe("alert");
     expect(f.calls).toHaveLength(n);
     // exactly 10 is allowed; an empty box and a 501-character line are not
     fireEvent.change(box, { target: { value: "x".repeat(501) } });
