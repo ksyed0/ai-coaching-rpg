@@ -54,4 +54,41 @@ describe("players/ import boundary", () => {
     expect(violation("../evaluator/config.js")).toBeUndefined();
     expect(violation("../evaluator/other.js")).toBeDefined();
   });
+
+  it("the transitive closure of players/ stays out of host/, engine/, cli/ and demo/ and uses only allowed packages", () => {
+    const { files: closure, externals } = closureOf(files.map((f) => path.join(PLAYERS, f)), (f) => readFileSync(f, "utf8"));
+    expect(closure.length).toBeGreaterThan(files.length);
+    const rel = closure.map((f) => path.relative(SRC, f).split(path.sep).join("/"));
+    expect(rel.filter((r) => /^(host|engine|cli|demo)\//.test(r))).toEqual([]);
+    expect(externals.filter((e) => !externalOk(e))).toEqual([]);
+  });
+
+  it("the closure walker follows relative imports and reports a planted forbidden file and package", () => {
+    const fake: Record<string, string> = {
+      [path.join(SRC, "players/a.ts")]: 'import "../agents/b.js"; import "node:fs";',
+      [path.join(SRC, "agents/b.ts")]: 'import { x } from "../host/c.js"; import "lodash"; import "@acr/events";',
+      [path.join(SRC, "host/c.ts")]: "export const x = 1;",
+    };
+    const r = closureOf([path.join(SRC, "players/a.ts")], (f) => fake[f] ?? "");
+    const rel = r.files.map((f) => path.relative(SRC, f).split(path.sep).join("/"));
+    expect(rel).toEqual(["players/a.ts", "agents/b.ts", "host/c.ts"]);
+    expect(r.externals.filter((e) => !externalOk(e))).toEqual(["lodash"]);
+  });
 });
+
+function externalOk(spec: string): boolean { return spec.startsWith("node:") || PACKAGES.has(spec); }
+
+/** Every file reachable through relative imports from `start` (inside services/runtime/src), and every non-relative specifier met on the way. */
+function closureOf(start: string[], read: (file: string) => string): { files: string[]; externals: string[] } {
+  const seen = new Set<string>(); const externals = new Set<string>(); const queue = [...start];
+  while (queue.length) {
+    const f = queue.shift()!;
+    if (seen.has(f)) continue;
+    seen.add(f);
+    for (const spec of specifiers(read(f))) {
+      if (!spec.startsWith(".")) { externals.add(spec); continue; }
+      queue.push(path.resolve(path.dirname(f), spec).replace(/\.js$/, ".ts"));
+    }
+  }
+  return { files: [...seen], externals: [...externals] };
+}

@@ -2638,8 +2638,8 @@
         },
         {
           "id": "AC-0361",
-          "text": "a live AI player speaks only when a human or AI character has finished, after a quiet-time nudge while a human is connected, or when prompted; never reacts to another AI player; keeps a minimum gap and a per-scene cap; skips a failed, late or unusable turn with a facilitator alert and never a canned line; drops a reply produced for an earlier scene, a pause, the end or an old connection; and all bots of a session share one model-call budget (turn-policy, live, bot and bot-host tests; the bot engine is built in slice 2b-3b PR 1 but nothing creates a bot until PR 2; TC-0106)",
-          "done": true
+          "text": "a live AI player speaks only when a human or AI character has finished, after a quiet-time nudge while a human is connected, or when prompted; never reacts to another AI player; keeps a minimum gap and a per-scene cap; skips a failed, late or unusable turn with a facilitator alert and never a canned line; drops a reply produced for an earlier scene, a pause, the end or an old connection; and all bots of a session share one model-call budget (turn-policy, live, bot and bot-host tests; the bot engine is built in slice 2b-3b PR 1 but nothing creates a bot until PR 2; TC-0106) Engine built in 2b-3b PR 1; the alert and shared-budget behaviour are reachable and verified end to end in PR 2.",
+          "done": false
         }
       ],
       "dependencies": [
@@ -6322,9 +6322,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-03T22:16:01.304Z",
-  "commitSha": "73d7905",
-  "buildNumber": "514",
+  "generatedAt": "2026-11-03T22:30:32.336Z",
+  "commitSha": "3ddcf90",
+  "buildNumber": "515",
   "branch": "feature/EPIC-0002-US-0060-bot-engine",
   "sessionTimeline": [
     {
@@ -6601,7 +6601,7 @@
       "2026-11-03T15:10:25.909Z",
       "2026-11-03T17:54:55.879Z",
       "2026-11-03T19:10:34.810Z",
-      "2026-11-03T22:16:01.398Z"
+      "2026-11-03T22:30:32.438Z"
     ],
     "doneCounts": [
       0,

@@ -7,7 +7,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { MockModelProvider, type ModelProvider } from "@acr/adapters";
 import { loadScenario, type Scenario } from "@acr/script";
 import { parseAiPlayerSettings, type AiPlayerSettings } from "@acr/runtime/players";
-import { AiPlayerBot, BOT_SAY_CONFIRM_MS, type BotDeps } from "../../bots/bot.js";
+import { AiPlayerBot, BOT_JOIN_WAIT_MS, BOT_NO_JOIN_CODE, BOT_SAY_CONFIRM_MS, type BotDeps } from "../../bots/bot.js";
 import { BOT_AUTH_BACKOFF_MS, type BotSocket, type BotSocketOptions } from "../../bots/bot-socket.js";
 import { parseBotFrame } from "../../bots/bot-frames.js";
 import type { BotAlert } from "../../bots/bot-alerts.js";
@@ -751,5 +751,52 @@ describe("AiPlayerBot review fixes", () => {
     const nudgeCalls = (m.provider as MockModelProvider).calls.length;
     expect(nudgeCalls).toBe(4); // 3 failed nudges + the reply to the NPC line; no further nudge
   });
-});
 
+  it("a socket that stays open without a parseable joined: one rejoinFailed alert after 15 s, onDisconnected(1011), not joinedOk; a joined in time cancels it", async () => {
+    const onDisconnected = vi.fn<(c: number) => void>();
+    const m = make({ onDisconnected });
+    await m.bot.attach(4000, CODE);
+    expect(m.bot.connected).toBe(true);
+    expect(m.bot.joinedOk).toBe(false);
+    feed(socks[0]!, { type: "joined", state: "flattened nonsense" }); // parses to ignored
+    await adv(BOT_JOIN_WAIT_MS - 1);
+    expect(alerts).toEqual([]);
+    await adv(1);
+    expect(alerts).toEqual(["rejoinFailed"]);
+    expect(onDisconnected.mock.calls).toEqual([[BOT_NO_JOIN_CODE]]);
+    expect(m.bot.connected).toBe(false);
+    expect(socks[0]!.closeCalls).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+    await m.bot.attach(4000, CODE); // the host retries; a second silent socket does not alert again
+    await adv(BOT_JOIN_WAIT_MS);
+    expect(alerts).toEqual(["rejoinFailed"]);
+    expect(onDisconnected).toHaveBeenCalledTimes(2);
+    await m.bot.attach(4000, CODE);
+    feed(socks[2]!, joinedFrame());
+    expect(m.bot.joinedOk).toBe(true);
+    await adv(BOT_JOIN_WAIT_MS * 2);
+    expect(onDisconnected).toHaveBeenCalledTimes(2);
+    expect(m.bot.connected).toBe(true);
+  });
+
+  it("a joined with more than 1000 transcript lines still seats the bot", async () => {
+    const m = make();
+    const s = await up(m, { state: { ...joinedFrame().state, transcript: Array.from({ length: 1500 }, (_, i) => ({ seq: i, roleId: "delivery_lead", text: `old ${i}`, sceneId: SCENE1 })) } });
+    expect(m.bot.joinedOk).toBe(true);
+    void s;
+  });
+
+  it("detach while an open is pending aborts it (the socket layer cancels the 503 wait) and passes a log", async () => {
+    let seen: BotSocketOptions | undefined;
+    const g = deferred<void>();
+    const m = make({ log: () => {}, open: vi.fn(async (o: BotSocketOptions) => { seen = o; await g.promise; throw new Error("bot open aborted"); }) });
+    const p = m.bot.attach(4000, CODE).catch(() => {});
+    await flush();
+    expect(seen!.signal!.aborted).toBe(false);
+    expect(typeof seen!.log).toBe("function");
+    const d = m.bot.detach();
+    expect(seen!.signal!.aborted).toBe(true);
+    g.resolve();
+    await Promise.all([p, d]);
+  });
+});

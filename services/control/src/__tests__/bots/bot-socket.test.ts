@@ -2,13 +2,14 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { WebSocket, WebSocketServer } from "ws";
-import { BOT_CLOSE_GRACE_MS, BOT_HANDSHAKE_RETRY_MS, BotSocket } from "../../bots/bot-socket.js";
+import { BOT_CLOSE_GRACE_MS, BOT_HANDSHAKE_RETRY_MS, BOT_HANDSHAKE_TIMEOUT_MS, BOT_MAX_PAYLOAD_BYTES, BotSocket } from "../../bots/bot-socket.js";
 import type { BotFrame } from "../../bots/bot-frames.js";
 
 type Timer = { fn: () => void; ms: number; cancelled: boolean };
 let timers: Timer[];
-const setTimer = (fn: () => void, ms: number) => { const t: Timer = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; };
-const until = async (what: string, fn: () => boolean) => { const end = Date.now() + 10_000; while (!fn()) { if (Date.now() > end) throw new Error(`timed out: ${what}`); await new Promise((r) => setTimeout(r, 5)); } };
+let handshakeTimers: Timer[];
+const setTimer = (fn: () => void, ms: number) => { const t: Timer = { fn, ms, cancelled: false }; (ms === BOT_HANDSHAKE_TIMEOUT_MS ? handshakeTimers : timers).push(t); return () => { t.cancelled = true; }; };
+const until = async (what: string, fn: () => boolean) => { const end = Date.now() + 3_000; while (!fn()) { if (Date.now() > end) throw new Error(`timed out: ${what}`); await new Promise((r) => setTimeout(r, 5)); } };
 
 let server: http.Server;
 let wss: WebSocketServer;
@@ -25,7 +26,7 @@ let attempts: number;
 let ignoreClose: boolean;
 
 beforeEach(async () => {
-  timers = []; upgradeHeaders = []; received = []; sockets = []; live = 0; maxLive = 0; serverClosed = 0; attempts = 0; refuse = () => false; ignoreClose = false;
+  timers = []; handshakeTimers = []; upgradeHeaders = []; received = []; sockets = []; live = 0; maxLive = 0; serverClosed = 0; attempts = 0; refuse = () => false; ignoreClose = false;
   server = http.createServer();
   wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => {
@@ -156,11 +157,11 @@ describe("BotSocket", () => {
     server = http.createServer(); await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   });
 
-  it("drops a text frame longer than 1 MiB before parsing it", async () => {
+  it("drops a text frame longer than 4 MiB before parsing it", async () => {
     const frames: BotFrame[] = [];
-    const s = await open({ onFrame: (f) => frames.push(f), ws: (url, o) => new WebSocket(url, { headers: o.headers, maxPayload: 4 * 1024 * 1024 }) });
+    const s = await open({ onFrame: (f) => frames.push(f), ws: (url, o) => new WebSocket(url, { headers: o.headers, maxPayload: 16 * 1024 * 1024 }) });
     await until("server socket", () => sockets.length === 1);
-    sockets[0]!.send(JSON.stringify({ type: "error", code: "x", message: "y".repeat(1024 * 1024 + 10) }));
+    sockets[0]!.send(JSON.stringify({ type: "error", code: "x", message: "y".repeat(BOT_MAX_PAYLOAD_BYTES + 10) }));
     sockets[0]!.send(JSON.stringify({ type: "error", code: "ok", message: "m" }));
     await until("frame", () => frames.length >= 1);
     expect(frames).toEqual([{ type: "error", code: "ok", message: "m" }]);
@@ -238,10 +239,41 @@ describe("BotSocket", () => {
     server = http.createServer(); await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   });
 
-  it("an injected factory receives the url, the forward header and the 1 MiB payload limit", async () => {
-    const seen: { url: string; headers: Record<string, string>; maxPayload: number }[] = [];
+  it("an injected factory receives the url, the forward header, the 4 MiB payload limit and the handshake timeout", async () => {
+    const seen: { url: string; headers: Record<string, string>; maxPayload: number; handshakeTimeout: number }[] = [];
     const s = await open({ ws: (url, o) => { seen.push({ url, ...o }); return new WebSocket(url, o); } });
-    expect(seen).toEqual([{ url: `ws://127.0.0.1:${port}`, headers: { "X-Forwarded-For": "scenecoach-bot" }, maxPayload: 1024 * 1024 }]);
+    expect(seen).toEqual([{ url: `ws://127.0.0.1:${port}`, headers: { "X-Forwarded-For": "scenecoach-bot" }, maxPayload: 4 * 1024 * 1024, handshakeTimeout: 10_000 }]);
     await s.close();
+  });
+
+  it("a server that accepts the TCP connection and never answers the upgrade makes open() reject at the handshake timeout, with no secret", async () => {
+    server.removeAllListeners("upgrade");
+    server.on("upgrade", () => { /* never answered */ });
+    let error: Error | undefined;
+    const p = open().then(() => undefined, (e: Error) => { error = e; });
+    await until("handshake timer", () => handshakeTimers.length === 1);
+    expect(handshakeTimers[0]!.ms).toBe(10_000);
+    handshakeTimers[0]!.fn();
+    await p;
+    expect(error!.message).toBe("bot handshake timed out");
+    expect(error!.message).not.toContain("CODE-1234");
+  });
+
+  it("an abort during the 503 wait cancels the retry: no second attempt, no join", async () => {
+    refuse = () => true;
+    const ac = new AbortController();
+    const p = open({ signal: ac.signal }).then(() => "resolved", (e: Error) => e.message);
+    await until("retry timer", () => timers.length === 1);
+    ac.abort();
+    expect(await p).toBe("bot open aborted");
+    expect(timers[0]!.cancelled).toBe(true);
+    expect(attempts).toBe(1);
+    expect(received).toEqual([]);
+  });
+
+  it("an already aborted signal opens nothing", async () => {
+    const ac = new AbortController(); ac.abort();
+    await expect(open({ signal: ac.signal })).rejects.toThrow("bot open aborted");
+    expect(attempts).toBe(0);
   });
 });

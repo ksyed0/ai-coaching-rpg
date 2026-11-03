@@ -38,6 +38,7 @@ type Sess = {
   bots: Map<string, AiPlayerBot>;
   retries: Map<string, Retry>;
   reissuing: Set<string>;
+  reissueAlerted: Set<string>;
   /** True once `attach` has run: from then on only roles in `aiRoles` take codes. */
   attached: boolean;
   /** Roles removed by `removeRoles` before any attach. */
@@ -144,7 +145,8 @@ export class BotHost {
 
   intents(sessionId: string, roleId: string): IntentEntry[] { return this.o.intents.read(sessionId, roleId); }
 
-  isAiConnected(sessionId: string, roleId: string): boolean { return this.sessions.get(sessionId)?.bots.get(roleId)?.connected ?? false; }
+  /** True only when the role's socket is open AND it has joined (`joinedOk`); an open socket that never got a joined does not count. */
+  isAiConnected(sessionId: string, roleId: string): boolean { return this.sessions.get(sessionId)?.bots.get(roleId)?.joinedOk ?? false; }
 
   async close(): Promise<void> {
     await Promise.allSettled([...this.sessions.keys()].map((id) => this.end(id)));
@@ -165,7 +167,7 @@ export class BotHost {
   private state(sessionId: string): Sess {
     let st = this.sessions.get(sessionId);
     if (!st) {
-      st = { aiRoles: new Set(), codes: new Map(), bots: new Map(), retries: new Map(), reissuing: new Set(), attached: false, removed: new Set(), bound: new Map() };
+      st = { aiRoles: new Set(), codes: new Map(), bots: new Map(), retries: new Map(), reissuing: new Set(), reissueAlerted: new Set(), attached: false, removed: new Set(), bound: new Map() };
       this.sessions.set(sessionId, st);
     }
     return st;
@@ -220,7 +222,12 @@ export class BotHost {
           await this.applyCodes(st, sessionId, [{ roleId, code }]);
         });
       },
-      () => { st.reissuing.delete(roleId); this.log(`session ${sessionId} AI player could not get a code`); },
+      () => {
+        st.reissuing.delete(roleId);
+        this.log(`session ${sessionId} AI player could not get a code`);
+        // Told once per role (before the start the runtime ignores the alert, B15).
+        if (!st.reissueAlerted.has(roleId)) { st.reissueAlerted.add(roleId); this.raise(sessionId, roleId, BOT_ALERTS.rejoinFailed); }
+      },
     );
   }
 
@@ -256,6 +263,7 @@ export class BotHost {
       sessionId, roleId, scenario: st.scenario, provider: this.o.provider, settings: this.o.settings, budget: st.budget, intents: this.o.intents,
       alert: (a) => this.raise(sessionId, roleId, BOT_ALERTS[a]),
       needCode: () => { if (this.sessions.get(sessionId) === st) this.requestCode(st, sessionId, roleId); },
+      log: (m) => this.log(`session ${sessionId} AI player ${roleId}: ${m}`),
       now: this.now, setTimer: this.setTimer, ...(this.o.open ? { open: this.o.open } : {}),
       onDisconnected: (code) => { if (this.sessions.get(sessionId) === st && st.bots.get(roleId) === bot) this.onDropped(st, sessionId, roleId, code); },
       onJoined: () => { const rs = st.retries.get(roleId); if (rs) { rs.fails = 0; rs.attempting = false; } },

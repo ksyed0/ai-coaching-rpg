@@ -62,7 +62,8 @@ const JoinedSchema = z.object({
     aiRoles: Ids.default([]),
     currentScene: z.object({ id: Id, participants: Ids }).nullable(),
     lastSeq: Seq,
-    transcript: z.array(z.object({ seq: Seq, roleId: Id, text: z.string().max(MAX_TEXT), sceneId: Id.nullable() })).max(MAX_TRANSCRIPT),
+    // The runtime does not cap the snapshot: keep the LAST MAX_TRANSCRIPT entries rather than refusing the frame (a refused joined leaves the bot mute).
+    transcript: z.array(z.object({ seq: Seq, roleId: Id, text: z.string().max(MAX_TEXT), sceneId: Id.nullable() })).transform((t) => t.slice(-MAX_TRANSCRIPT)),
   }),
   scenes: z.array(z.object({ id: Id, title: z.string().max(MAX_SHORT), goal: z.string().max(MAX_TEXT) })).max(MAX_SCENES).default([]),
 });

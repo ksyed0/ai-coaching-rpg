@@ -27,11 +27,17 @@ describe("parseBotFrame", () => {
     expect(parseBotFrame(j({ type: "event", event: { seq: 1, type: "utterance", roleId: 5, text: "x" } }))).toEqual({ type: "ignored" });
     for (const raw of ["", "not json", "null", "[]", "42", j({})]) expect(parseBotFrame(raw)).toEqual({ type: "ignored" });
   });
-  it("a joined with a flattened state (no state object) or 1001 transcript lines is ignored", () => {
+  it("a joined with a flattened state (no state object) is ignored; 1001+ transcript lines keep the LAST 1000", () => {
     const { state: _st, ...flat } = joined;
     expect(parseBotFrame(j({ ...flat, ...state }))).toEqual({ type: "ignored" });
-    const long = { ...joined, state: { ...state, transcript: Array.from({ length: 1001 }, (_, i) => ({ seq: i, roleId: "cfo", text: "x", sceneId: null })) } };
-    expect(parseBotFrame(j(long))).toEqual({ type: "ignored" });
+    const long = { ...joined, state: { ...state, transcript: Array.from({ length: 2500 }, (_, i) => ({ seq: i, roleId: "cfo", text: "x", sceneId: null })) } };
+    const kept = parseBotFrame(j(long));
+    expect(kept.type).toBe("joined");
+    if (kept.type === "joined") {
+      expect(kept.state.transcript).toHaveLength(1000);
+      expect(kept.state.transcript[0]!.seq).toBe(1500);
+      expect(kept.state.transcript[999]!.seq).toBe(2499);
+    }
     const ok = { ...joined, state: { ...state, transcript: Array.from({ length: 1000 }, (_, i) => ({ seq: i, roleId: "cfo", text: "x", sceneId: null })) } };
     expect(parseBotFrame(j(ok)).type).toBe("joined");
     const manyScenes = { ...joined, scenes: Array.from({ length: 201 }, (_, i) => ({ id: `s${i}`, title: "t", goal: "g" })) };

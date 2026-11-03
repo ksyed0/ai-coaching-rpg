@@ -97,6 +97,8 @@ describe("BotHost", () => {
     expect(socks).toHaveLength(1);
     expect(socks[0]!.opts.code).toBe("REISSUED-CODE");
     expect(socks[0]!.opts.port).toBe(4000);
+    expect(h.isAiConnected(SID, "tech_lead")).toBe(false); // open, not yet joined
+    joined(socks[0]!);
     expect(h.isAiConnected(SID, "tech_lead")).toBe(true);
   });
 
@@ -106,8 +108,9 @@ describe("BotHost", () => {
     await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
     await flush();
     expect(logs).toEqual([`session ${SID} AI player could not get a code`]);
-    expect(alerts).toEqual([]);
+    expect(alerts).toEqual([{ sessionId: SID, roleId: "tech_lead", message: BOT_ALERTS.rejoinFailed }]);
     expect(socks).toHaveLength(0);
+    expect(strings.join(" ")).not.toContain(SECRET);
   });
 
   it("attach([]) and attach([tech_lead]) issued back to back run in order: the bot ends attached", async () => {
@@ -116,6 +119,7 @@ describe("BotHost", () => {
     const b = h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
     await Promise.all([a, b]);
     await flush();
+    joined(lastFor("tech_lead"));
     expect(h.isAiConnected(SID, "tech_lead")).toBe(true);
     expect(liveNow).toBe(1);
   });
@@ -127,6 +131,7 @@ describe("BotHost", () => {
     expect(logs).toEqual([`session ${SID} bot host operation failed: Error`]);
     await h.setCodes(SID, [{ roleId: "tech_lead", code: SECRET }]);
     await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
+    joined(lastFor("tech_lead"));
     expect(h.isAiConnected(SID, "tech_lead")).toBe(true);
   });
 
@@ -299,6 +304,7 @@ describe("BotHost", () => {
     const h = mk();
     await h.setCodes(SID, [{ roleId: "tech_lead", code: "c1" }, { roleId: "account_manager", code: "c2" }]);
     await h.attach(SID, { port: 4000, aiRoles: ["tech_lead", "account_manager"] });
+    joined(lastFor("tech_lead"));
     await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
     expect(h.isAiConnected(SID, "account_manager")).toBe(false);
     expect(h.isAiConnected(SID, "tech_lead")).toBe(true);

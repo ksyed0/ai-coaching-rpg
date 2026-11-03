@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import type { ModelProvider } from "@acr/adapters";
 import type { Scenario } from "@acr/script";
 import { TurnPolicy, cleanHint, generateLiveLine, type AiPlayerSettings, type PlayerView, type PolicyEvent, type Trigger, type TurnTicket } from "@acr/runtime/players";
@@ -20,6 +20,10 @@ export const BOT_MAX_VIEW_LINES = 200;
  * (of any kind) also clears the count.
  */
 export const BOT_MAX_FAILED_NUDGES = 3;
+/** A socket that opened but got no parseable `joined` within this long is given up on: `rejoinFailed` once, then `onDisconnected(BOT_NO_JOIN_CODE)`. */
+export const BOT_JOIN_WAIT_MS = 15_000;
+/** The synthetic close code passed to `onDisconnected` for that case (WebSocket 1011, "internal error"); not final, the host may re-attach. */
+export const BOT_NO_JOIN_CODE = 1011;
 
 export type BotDeps = {
   sessionId: string; roleId: string; scenario: Scenario; provider: ModelProvider; settings: AiPlayerSettings;
@@ -32,6 +36,8 @@ export type BotDeps = {
   onDisconnected?: (code: number) => void;
   /** Called on every `joined` frame of the current generation (the host resets its re-attach backoff on it). */
   onJoined?: () => void;
+  /** Receives short, secret-free diagnostics (an error name only) from the socket's handlers. */
+  log?: (m: string) => void;
 };
 
 type Skip = "model_failed" | "timeout" | "unusable";
@@ -60,7 +66,13 @@ export class AiPlayerBot {
   private closing: Promise<void> = Promise.resolve();
   /** The open() in flight, resolving to the socket (null when it failed). Never two sockets: drop() closes it as soon as it arrives. */
   private opening: Promise<BotSocket | null> | null = null;
+  /** A keyed digest (HMAC, a fresh random key per bot) of the last code: tells whether a different code arrived without keeping any digest of the code itself. */
+  private readonly codeKey = randomBytes(32);
   private codeDigest: string | null = null;
+  private joinedSeen = false;
+  private joinWait: (() => void) | null = null;
+  private joinAlerted = false;
+  private openAbort: AbortController | null = null;
   private wake: (() => void) | null = null;
   private retry: (() => void) | null = null;
   private current: Turn | null = null;
@@ -82,14 +94,17 @@ export class AiPlayerBot {
     this.policy = new TurnPolicy({ roleId: d.roleId, settings: d.settings.turn, now: d.now });
   }
 
+  /** The socket is open. It does NOT mean the bot has joined: see `joinedOk`. */
   get connected(): boolean { return this.sock !== null; }
+  /** The socket is open AND a `joined` frame was parsed on it (the bot is seated and sees the room). */
+  get joinedOk(): boolean { return this.sock !== null && this.joinedSeen; }
   get speaking(): boolean { return this.current !== null; }
 
   /** Closes any old socket (waiting for it), then opens one with `code` and the last reconnect token. Rejects when the socket cannot open. */
   async attach(port: number, code: string): Promise<void> {
     if (this.dead) return;
-    // After rejoinFailed only a fresh attach with a NEW code re-arms the refusal count (a digest, never the code, is kept to tell).
-    const digest = createHash("sha256").update(code).digest("hex");
+    // After rejoinFailed only a fresh attach with a NEW code re-arms the refusal count (a keyed digest, never the code, is kept to tell).
+    const digest = createHmac("sha256", this.codeKey).update(code).digest("hex");
     if (this.authRefusals >= 3 && digest !== this.codeDigest) this.authRefusals = 0;
     this.codeDigest = digest;
     this.drop();
@@ -120,19 +135,29 @@ export class AiPlayerBot {
 
   private async connect(port: number, code: string, gen: number): Promise<void> {
     const open = this.d.open ?? BotSocket.open.bind(BotSocket);
+    const ac = new AbortController();
+    this.openAbort = ac;
     const attempt = open({
       port, sessionId: this.d.sessionId, roleId: this.d.roleId, participantId: this.participantId, code,
-      ...(this.reconnectToken !== undefined ? { reconnectToken: this.reconnectToken } : {}), setTimer: this.d.setTimer,
+      ...(this.reconnectToken !== undefined ? { reconnectToken: this.reconnectToken } : {}), setTimer: this.d.setTimer, signal: ac.signal, ...(this.d.log ? { log: this.d.log } : {}),
       onFrame: (f) => { if (gen === this.gen) this.onFrame(f, port, code); },
       onClose: (c, info) => { if (!info.byUs && gen === this.gen) { this.drop(); this.d.onDisconnected?.(c); } },
     });
     const tracked = attempt.then((x) => x, () => null);
     this.opening = tracked;
     let s: BotSocket;
-    try { s = await attempt; } catch (err) { if (gen !== this.gen || this.dead) return; throw err; } finally { if (this.opening === tracked) this.opening = null; }
+    try { s = await attempt; } catch (err) { if (gen !== this.gen || this.dead) return; throw err; } finally { if (this.opening === tracked) this.opening = null; if (this.openAbort === ac) this.openAbort = null; }
     // A drop() while the open was pending already chained this socket's close into `closing`.
     if (gen !== this.gen || this.dead) return;
     this.sock = s;
+    // An open socket with no parseable joined (e.g. a frame the parser refuses) would sit mute: give up on it after a while.
+    this.joinWait = this.d.setTimer(() => {
+      this.joinWait = null;
+      if (gen !== this.gen || this.joinedSeen) return;
+      if (!this.joinAlerted) { this.joinAlerted = true; this.d.alert("rejoinFailed"); }
+      this.drop();
+      this.d.onDisconnected?.(BOT_NO_JOIN_CODE);
+    }, BOT_JOIN_WAIT_MS);
     this.arm();
   }
 
@@ -141,6 +166,9 @@ export class AiPlayerBot {
     this.gen += 1;
     this.wake?.(); this.wake = null;
     this.retry?.(); this.retry = null;
+    this.joinWait?.(); this.joinWait = null;
+    this.joinedSeen = false;
+    this.openAbort?.abort(); this.openAbort = null;
     const a = this.awaiting;
     this.awaiting = null;
     if (a) { a.cancel(); this.record(a.turn, "dropped"); }
@@ -181,6 +209,8 @@ export class AiPlayerBot {
 
   private seed(j: Joined): void {
     this.policy.reset();
+    this.joinedSeen = true;
+    this.joinWait?.(); this.joinWait = null;
     this.authRefusals = 0;
     this.reconnectToken = j.reconnectToken;
     this.d.onJoined?.();

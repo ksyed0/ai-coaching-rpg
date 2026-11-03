@@ -291,7 +291,7 @@ All settings are environment variables (read from `.env` at the repository root;
 | `AI_PLAYER_NUDGE_MS` | `90000` | Quiet time after which a live AI player speaks unprompted, only while a human is connected (control service; used from slice 2b-3b PR 2). Whole number, `10000` to `3600000` |
 | `AI_PLAYER_LINES_PER_SCENE` | `10` | Most lines one live AI player speaks in a scene (control service; used from slice 2b-3b PR 2). Whole number, `1` to `100` |
 | `AI_PLAYER_SETTLE_MS` | `6000` | How long a live AI player waits after the last line before it replies (control service; used from slice 2b-3b PR 2). Whole number, `0` to `60000` |
-| `AI_PLAYER_CALLS_PER_SESSION` | `60` | Model calls all live AI players of one session share; at 0 they never speak (control service; used from slice 2b-3b PR 2). Whole number, `0` to `1000` |
+| `AI_PLAYER_CALLS_PER_SESSION` | `60` | Model calls all live AI players of one session share; at 0 they never speak. After a control-service restart the count is rebuilt from the AI players' spoken lines, so it can only under-count: skipped or dropped calls are forgotten and up to this many more calls may follow (control service; used from slice 2b-3b PR 2). Whole number, `0` to `1000` |
 | `GM_TEMPERATURE` | `0.2` | Sampling temperature for Game Master verdicts (low, for steadier JSON). A decimal, `0` to `2` |
 | `EVAL_MODEL` | the NPC model | Model for the post-session evaluator (`pnpm evaluate`, `--evaluate`). See [docs/EVALUATOR.md](docs/EVALUATOR.md) |
 | `EVAL_MAX_TOKENS`, `EVAL_TEMPERATURE` | `3000`, `0.2` | Token budget (`200` to `8000`) and temperature (`0` to `2`) per evaluator call |
