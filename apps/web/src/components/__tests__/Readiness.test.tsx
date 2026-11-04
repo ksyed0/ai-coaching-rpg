@@ -655,6 +655,42 @@ describe("Readiness: Remove", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("heading", { name: /^New code for/ })).toBeNull();
   });
+
+  // BUG-0022: focus after a refused Remove.
+  const refusedRemove = { "/remove": { status: 409, body: refused("conflict", "A participant can only be removed before the start.") } };
+  const confirmRemove = async () => {
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove" }));
+    });
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("only be removed before the start"));
+  };
+
+  it("a 409 whose Remove button is gone (the session started meanwhile) puts focus on the error message", async () => {
+    const m = mount(BOTH, refusedRemove);
+    await ready();
+    const btn = screen.getByRole("button", { name: "Remove Sam from Account manager" });
+    btn.focus();
+    fireEvent.click(btn);
+    m.current.readiness = readiness({ status: "running", roster: BOTH.roster });
+    await act(async () => {
+      m.t.fire();
+    });
+    await waitFor(() => expect(btn.isConnected).toBe(false));
+    await confirmRemove();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("alert"));
+    expect(screen.getByRole("alert").getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("a 409 with its Remove button still there returns focus to that button, as before", async () => {
+    mount(BOTH, refusedRemove);
+    await ready();
+    const btn = screen.getByRole("button", { name: "Remove Sam from Account manager" });
+    btn.focus();
+    fireEvent.click(btn);
+    await confirmRemove();
+    expect(document.activeElement).toBe(btn);
+  });
 });
 
 describe("ConfirmDialog", () => {
