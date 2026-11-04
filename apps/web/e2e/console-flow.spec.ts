@@ -2,9 +2,11 @@ import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import {
   checkBothSchemes,
   createSession,
+  expectAiSeatReady,
   expectSeatReady,
   facilitator,
   JOIN_REFUSED,
+  makeAiPlayer,
   noHorizontalScroll,
   ROLE_LABEL,
   startButton,
@@ -331,10 +333,10 @@ test("a player cookie on /api/v1/console/sessions returns 401 and a facilitator 
   ).toBe(200);
 });
 
-test("Axe passes on /console, /console/new and /console/[id] at 400 px and laptop width, light and dark", async ({
+test("Axe passes on /console, /console/new and /console/[id] (with an AI player: the created panel, the switch confirmation, the readiness row and the live view's AI players panel) at 400 px and laptop width, light and dark", async ({
   browser,
 }) => {
-  test.setTimeout(420_000);
+  test.setTimeout(600_000);
   stack = await startLauncherStack();
   const fac = await facilitator(
     browser,
@@ -342,6 +344,7 @@ test("Axe passes on /console, /console/new and /console/[id] at 400 px and lapto
     stack.facilitatorSecret,
   );
   const seated: BrowserContext[] = [];
+  const HUMANS = ["delivery_lead", "account_manager"] as const;
   for (const width of [400, 1280] as const) {
     await fac.setViewportSize({ width, height: 860 });
     const at = `at ${width} px`;
@@ -359,6 +362,21 @@ test("Axe passes on /console, /console/new and /console/[id] at 400 px and lapto
       fac,
       `New session, after Create (codes shown) ${at}`,
     );
+    await noHorizontalScroll(fac, width);
+
+    // US-0060: the created panel with its switches, the confirmation open, then the AI player in place (its code leaves the page).
+    await expect(
+      fac.getByRole("button", { name: "Make Tech lead an AI player" }),
+    ).toBeEnabled();
+    await makeAiPlayer(fac, "tech_lead", { confirm: false });
+    await checkBothSchemes(fac, `New session, AI switch confirmation open ${at}`);
+    await noHorizontalScroll(fac, width);
+    await fac.getByRole("dialog").getByRole("button", { name: "Use AI player" }).click();
+    await expect(fac.getByRole("dialog")).toHaveCount(0);
+    await expect(
+      fac.getByRole("button", { name: "Make Tech lead human" }),
+    ).toBeVisible();
+    await checkBothSchemes(fac, `New session, with an AI player ${at}`);
     await noHorizontalScroll(fac, width);
 
     await fac.goto(`${stack.baseUrl}/console`);
@@ -394,7 +412,7 @@ test("Axe passes on /console, /console/new and /console/[id] at 400 px and lapto
     await fac.getByRole("button", { name: "Cancel" }).click();
     await expect(fac.getByRole("dialog")).toHaveCount(0);
 
-    for (const role of PLAYERS)
+    for (const role of HUMANS)
       seated.push(
         (
           await seatLauncher(
@@ -407,9 +425,33 @@ test("Axe passes on /console, /console/new and /console/[id] at 400 px and lapto
           )
         ).context,
       );
-    for (const role of PLAYERS) await expectSeatReady(fac, role);
+    for (const role of HUMANS) await expectSeatReady(fac, role);
+    await expectAiSeatReady(fac, "tech_lead");
     await expect(startButton(fac)).toBeEnabled();
-    await checkBothSchemes(fac, `readiness, everyone joined ${at}`);
+    await checkBothSchemes(fac, `readiness, everyone in, an AI player in a seat ${at}`);
+    await noHorizontalScroll(fac, width);
+
+    // The switch back to human asks first; the AI row has a switch and no reissue.
+    await fac.getByRole("button", { name: "Make Tech lead human" }).click();
+    await expect(fac.getByRole("dialog")).toBeVisible();
+    await checkBothSchemes(fac, `readiness, switch to human confirmation open ${at}`);
+    await noHorizontalScroll(fac, width);
+    await fac.getByRole("button", { name: "Cancel" }).click();
+    await expect(fac.getByRole("dialog")).toHaveCount(0);
+
+    // Start: the live view with the AI players panel, collapsed and with the recent turns open.
+    await startButton(fac).click();
+    await expect(fac.getByText("The session has started.", { exact: true })).toBeVisible();
+    const panel = fac.getByRole("region", { name: "AI players" });
+    await expect(panel).toBeVisible();
+    await expect(
+      panel.getByRole("button", { name: "Prompt the AI player for Tech lead" }),
+    ).toBeEnabled();
+    await checkBothSchemes(fac, `live view, AI players panel ${at}`);
+    await noHorizontalScroll(fac, width);
+    await panel.getByRole("button", { name: "Show recent turns for Tech lead" }).click();
+    await expect(panel.getByText("No turns yet.")).toBeVisible();
+    await checkBothSchemes(fac, `live view, AI players panel with the recent turns open ${at}`);
     await noHorizontalScroll(fac, width);
   }
 });

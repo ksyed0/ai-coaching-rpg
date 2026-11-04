@@ -66,6 +66,11 @@ async function startControl(
     MODEL_PROVIDER: "mock",
     CONTROL_GRACE_MS: "2000",
     CONTROL_READY_TIMEOUT_MS: "60000",
+    // US-0060: an AI player answers at once and never nudges on its own during a test (a stray quiet-time line would be a line no
+    // assertion expects); the only lines it speaks are replies to a human line and the ones the facilitator prompts.
+    AI_PLAYER_SETTLE_MS: "0",
+    AI_PLAYER_MIN_GAP_MS: "0",
+    AI_PLAYER_NUDGE_MS: "600000",
   };
   const child: ChildProcess = spawn(TSX, ["src/main.ts"], {
     cwd: CONTROL_DIR,

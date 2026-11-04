@@ -93,6 +93,66 @@ export async function expectSeatReady(
   await expect(cells.nth(2)).toHaveText(/Yes/, { timeout }); // Consented
 }
 
+/** Waits until the AI player's row shows it as the seat's holder, joined (its bot is in) and connected; consent is "Not needed". */
+export async function expectAiSeatReady(
+  page: Page,
+  role: Player,
+  timeout = 60_000,
+): Promise<void> {
+  const row = seatRow(page, role);
+  const cells = row.locator("td");
+  await expect(cells.nth(0)).toContainText("AI player", { timeout });
+  await expect(cells.nth(1)).toHaveText(/Yes/, { timeout }); // Joined
+  await expect(cells.nth(2)).toHaveText(/Not needed/);
+  await expect(cells.nth(3)).toHaveText(/Yes/, { timeout }); // Connected
+}
+
+/**
+ * Presses "Make <role> an AI player" and, unless `confirm` is false, the dialog's "Use AI player" (the dialog is gone afterwards and
+ * the switch has been answered); otherwise it leaves the dialog open. The failure names the notice the page shows, if any.
+ */
+export async function makeAiPlayer(
+  page: Page,
+  role: Player,
+  o: { confirm?: boolean } = {},
+): Promise<void> {
+  await page
+    .getByRole("button", { name: `Make ${ROLE_LABEL[role]} an AI player` })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  if (o.confirm === false) return;
+  await dialog.getByRole("button", { name: "Use AI player" }).click();
+  try {
+    await expect(dialog).toHaveCount(0);
+  } catch (err) {
+    const shown = await page.locator("[role=alert]").allInnerTexts();
+    throw new Error(
+      `the switch to an AI player was not answered; the page shows: ${JSON.stringify(shown)}`,
+      { cause: err },
+    );
+  }
+}
+
+/** Presses "Make <role> human" and confirms "Switch to human". */
+export async function makeHuman(page: Page, role: Player): Promise<void> {
+  await page
+    .getByRole("button", { name: `Make ${ROLE_LABEL[role]} human` })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Switch to human" }).click();
+  try {
+    await expect(dialog).toHaveCount(0);
+  } catch (err) {
+    const shown = await page.locator("[role=alert]").allInnerTexts();
+    throw new Error(
+      `the switch to a human was not answered; the page shows: ${JSON.stringify(shown)}`,
+      { cause: err },
+    );
+  }
+}
+
 export const startButton = (page: Page) =>
   page.getByRole("button", { name: "Start", exact: true });
 
