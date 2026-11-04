@@ -40,7 +40,7 @@ export type SessionInfo = { sessionId: string; scenarioId: string; status: Sessi
 export type CreateResult = { sessionId: string; status: "running"; port: number; modelLabel: string; codes: { roleId: string; code: string }[] };
 
 type Codes = { roleId: string; code: string }[];
-type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: string[]; aiCalls?: number };
+type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: string[]; aiRolesReset?: string[]; aiCalls?: number };
 type ExitState = { done: boolean; promise?: Promise<void> };
 type Proc = { child: ChildHandle; exit: ExitState };
 type Live = {
@@ -210,7 +210,7 @@ export class Supervisor {
           if (requireCodes && got === undefined) { fail(new ControlError("start_failed", START_FAILED)); return; }
           settled = true;
           codes = undefined;
-          resolve({ port: m.port, modelLabel: m.modelLabel, ...(got ? { codes: got } : {}), ...(m.aiRoles ? { aiRoles: m.aiRoles } : {}), ...(m.aiCalls !== undefined ? { aiCalls: m.aiCalls } : {}) });
+          resolve({ port: m.port, modelLabel: m.modelLabel, ...(got ? { codes: got } : {}), ...(m.aiRoles ? { aiRoles: m.aiRoles } : {}), ...(m.aiRolesReset ? { aiRolesReset: m.aiRolesReset } : {}), ...(m.aiCalls !== undefined ? { aiCalls: m.aiCalls } : {}) });
         }
       });
     });
@@ -536,12 +536,13 @@ export class Supervisor {
    * child restored (`ready.aiRoles`) stand. Codes of AI roles go to the bots only; the result holds the human roles' codes.
    * Runs INSIDE `withLock` and calls only unlocked helpers.
    */
-  // KNOWN GAP (M-1): after a control-service restart `captured` is empty (nothing is kept in memory), so if fresh codes dropped the
-  // lobby's <id>.ai-roles.json its AI roles silently come back as human. Follow-up: persist the AI set beside the session list.
+  // BUG-0021 (was known gap M-1): after a control-service restart the in-memory set is empty, so the set to restore comes from
+  // `ready.aiRolesReset`, the lobby's AI roles the runtime dropped with the old seats. The in-memory set wins when there is one.
   // KNOWN GAP (M4): reissueAll inside the B14 window re-sends a captured AI set that may be stale (the roles are labelled, but the
   // facilitator's intent of the timed-out set is lost). Recorded in docs/THREAT_MODEL.md.
-  private async afterCodedLaunch(id: string, ready: ReadyInfo, captured: string[]): Promise<Codes> {
+  private async afterCodedLaunch(id: string, ready: ReadyInfo, inMemory: string[]): Promise<Codes> {
     const issued = ready.codes ?? [];
+    const captured = inMemory.length > 0 ? inMemory : (ready.aiRolesReset ?? []);
     let ai = ready.aiRoles ?? [];
     let status: "empty" | "running" | "ended";
     try { status = readLogStatus(path.join(this.o.config.sessionsDir, `${id}.jsonl`)); } catch { status = "running"; }
