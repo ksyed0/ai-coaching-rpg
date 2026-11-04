@@ -39,6 +39,8 @@ export const ChildMessageSchema = z.discriminatedUnion("type", [
     status: z.enum(["new", "resumed"]), modelLabel: z.string().min(1).max(MAX_LABEL_CHARS),
     /** US-0060: the AI roles, present only when there are any. */
     aiRoles: z.array(RoleId).max(MAX_CODES).optional(),
+    /** BUG-0021: the lobby's AI roles this start dropped with the old seats (fresh codes); present only when there were any. The parent restores them. */
+    aiRolesReset: z.array(RoleId).max(MAX_CODES).optional(),
     /** US-0060: the AI-player model calls already recorded in the log (utterances of AI roles); present only when above 0. */
     aiCalls: z.number().int().min(1).max(MAX_AI_CALLS).optional(),
   }),

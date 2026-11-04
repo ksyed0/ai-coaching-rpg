@@ -232,7 +232,7 @@ export async function bootstrap(opts: {
     const aiRoleIds = host.aiRoleIds(); // US-0060: from the AI-role file (lobby) or the started log (resume)
     // US-0060: the AI-player calls already in the log (the control service seeds a session budget from it); never above the schema's cap, and absent when 0.
     const aiCalls = Math.min(store.resume?.aiCalls ?? 0, MAX_READY_AI_CALLS);
-    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new" /* an empty-lobby restart reports "new" with no codes (they are kept); the supervisor treats ready-without-codes as normal */, modelLabel: describeModelProvider(env), ...(aiRoleIds.length > 0 ? { aiRoles: aiRoleIds } : {}), ...(aiCalls > 0 ? { aiCalls } : {}) });
+    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new" /* an empty-lobby restart reports "new" with no codes (they are kept); the supervisor treats ready-without-codes as normal */, modelLabel: describeModelProvider(env), ...(aiRoleIds.length > 0 ? { aiRoles: aiRoleIds } : {}), ...(store.aiRolesReset && store.aiRolesReset.length > 0 ? { aiRolesReset: store.aiRolesReset } : {}), ...(aiCalls > 0 ? { aiCalls } : {}) });
     if (!sent) {
       // A start failure, but the join codes are deliberately NOT withdrawn: the parent already holds them (they were sent first), and
       // withdrawing would make them stale. The parent reissues them if it restarts this session. Nothing may stay running or locked.

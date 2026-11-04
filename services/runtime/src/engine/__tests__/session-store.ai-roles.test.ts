@@ -85,6 +85,73 @@ describe("the AI-role seat file (US-0060)", () => {
     expect((await openIt()).seats!.aiRoles!.list()).toEqual([]);
   });
 
+  it("BUG-0021: fresh codes in an empty lobby report the dropped AI roles and still remove the file", async () => {
+    const a = await lobby();
+    await crash(a);
+    await rm(path.join(dir, "s.codes.json"));
+    const b = await openIt();
+    expect(b.joinCodes!.issued).not.toBeNull();
+    expect(b.aiRolesReset).toEqual(["tech_lead"]);
+    expect(b.seats!.aiRoles!.list()).toEqual([]);
+    expect(await readRoles()).toEqual([]);
+  });
+
+  it("BUG-0021: seats replaced because the credentials fit another scenario also report the dropped roles", async () => {
+    const a = await lobby();
+    await crash(a);
+    await rm(path.join(dir, "s.credentials.json"));
+    const b = await openIt();
+    expect(b.joinCodes!.issued).toBeNull();
+    expect(b.aiRolesReset).toEqual(["tech_lead"]);
+    expect(await readRoles()).toEqual([]);
+  });
+
+  it("BUG-0021: a lobby on a matching codes file keeps its AI-role file and reports nothing", async () => {
+    const a = await lobby();
+    await crash(a);
+    const b = await openIt();
+    expect(b.joinCodes!.issued).toBeNull();
+    expect(b.aiRolesReset).toBeUndefined();
+    expect(await readRoles()).toEqual(["tech_lead"]);
+  });
+
+  it("BUG-0021: no AI roles on file means nothing to report even with fresh codes", async () => {
+    const a = await openIt();
+    await crash(a);
+    await rm(path.join(dir, "s.codes.json"));
+    const b = await openIt();
+    expect(b.joinCodes!.issued).not.toBeNull();
+    expect(b.aiRolesReset).toBeUndefined();
+  });
+
+  describe("BUG-0021: an unusable AI-role file reports nothing and never crashes the start", () => {
+    const fresh = async (damage: () => Promise<void>) => {
+      const a = await lobby();
+      await crash(a);
+      await rm(path.join(dir, "s.codes.json"));
+      await rm(path.join(dir, "s.credentials.json")); // not matching: the AI-role file is not read by the seat read, so the start does not refuse
+      await damage();
+      return openIt();
+    };
+    it("corrupt JSON", async () => {
+      const b = await fresh(() => writeFile(aiFile(), "{not json", { mode: 0o600 }));
+      expect(b.aiRolesReset).toBeUndefined();
+      expect(await readRoles()).toEqual([]);
+    });
+    it("a record bound to another scenario", async () => {
+      const b = await fresh(() => writeFile(aiFile(), JSON.stringify({ v: 1, sessionId: "s", scenarioSha256: "0".repeat(64), roles: ["tech_lead"] }), { mode: 0o600 }));
+      expect(b.aiRolesReset).toBeUndefined();
+    });
+    it("an oversized file", async () => {
+      const b = await fresh(() => writeFile(aiFile(), " ".repeat(64 * 1024), { mode: 0o600 }));
+      expect(b.aiRolesReset).toBeUndefined();
+    });
+    it("a symbolic link", async () => {
+      const b = await fresh(async () => { const target = path.join(dir, "elsewhere.json"); await writeFile(target, "{}"); await rm(aiFile()); await symlink(target, aiFile()); });
+      expect(b.aiRolesReset).toBeUndefined();
+    });
+  });
+
   it("SESSION_START=fresh and the rotation of an ended log remove the file", async () => {
     const a = await lobby();
     await crash(a);
