@@ -1103,11 +1103,10 @@ describe("console session API", () => {
       ai_no_human: [409, "ai_no_human", "At least one role must stay human."],
       ai_too_many: [409, "ai_too_many", "At most 8 roles can be AI players."],
       ai_invalid: [400, "bad_request", "The request could not be read."],
-      // Task 22 gives the prompt reasons their own copy; until then they fall to the neutral answer.
-      ai_busy: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
-      ai_budget: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
-      ai_absent: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
-      ai_expired: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      ai_busy: [409, "ai_busy", "The AI player is already answering. Wait a moment, then try again."],
+      ai_budget: [409, "ai_budget", "The AI players have used this session's model budget. They stay silent."],
+      ai_absent: [409, "ai_absent", "The AI player is not connected right now."],
+      ai_expired: [409, "ai_expired", "The prompt took too long to confirm. Try again."],
     };
     for (const [reason, [status, code, message]] of Object.entries(
       expected,

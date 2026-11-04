@@ -583,3 +583,41 @@ describe("LauncherClient AI roles", () => {
     expect(f.calls).toHaveLength(0);
   });
 });
+
+describe("LauncherClient AI turns", () => {
+  const RES = "0123456789abcdef0123456789abcdef";
+  it("reserveTurn, runTurn and releaseTurn: POST to reserve, run and release with the reservation in the body only", async () => {
+    const f = fakeFetch((c) => reply(envelope(c.url.endsWith("/reserve") ? { reservation: RES } : c.url.endsWith("/run") ? { started: true } : {})));
+    const c = client(f.fetch);
+    expect(await c.reserveTurn(SID, "tech_lead")).toBe(RES);
+    await c.runTurn(SID, "tech_lead", RES, "HINT");
+    await c.runTurn(SID, "tech_lead", RES);
+    await c.releaseTurn(SID, "tech_lead", RES);
+    expect(f.calls.map((x) => [x.method, x.url])).toEqual([
+      ["POST", `${BASE}/sessions/${SID}/ai-roles/tech_lead/reserve`],
+      ["POST", `${BASE}/sessions/${SID}/ai-roles/tech_lead/run`],
+      ["POST", `${BASE}/sessions/${SID}/ai-roles/tech_lead/run`],
+      ["POST", `${BASE}/sessions/${SID}/ai-roles/tech_lead/release`],
+    ]);
+    expect(JSON.parse(f.calls[0]!.body!)).toEqual({});
+    expect(JSON.parse(f.calls[1]!.body!)).toEqual({ reservation: RES, hint: "HINT" });
+    expect(JSON.parse(f.calls[2]!.body!)).toEqual({ reservation: RES });
+    expect(JSON.parse(f.calls[3]!.body!)).toEqual({ reservation: RES });
+    expect(f.calls.some((x) => x.url.includes(RES))).toBe(false);
+  });
+
+  it("reserveTurn: a reply without a 32-hex reservation is a failure; a bad role id never reaches the network", async () => {
+    const f = fakeFetch(() => reply(envelope({ reservation: "nope" })));
+    expect((await reasonOf(client(f.fetch).reserveTurn(SID, "tech_lead"))).reason).toBe("failed");
+    expect((await reasonOf(client(f.fetch).reserveTurn(SID, "../x"))).reason).toBe("not_found");
+    expect((await reasonOf(client(f.fetch).runTurn(SID, "a/b", RES))).reason).toBe("not_found");
+    expect(f.calls).toHaveLength(1);
+  });
+
+  it.each(["ai_busy", "ai_budget", "ai_absent", "ai_expired"] as const)("%s is its own reason and the server text never passes through", async (code) => {
+    const f = fakeFetch(() => reply(errorEnvelope(code, "SECRET"), 409));
+    const r = await reasonOf(client(f.fetch).reserveTurn(SID, "tech_lead"));
+    expect(r.reason).toBe(code);
+    expect(r.text).not.toContain("SECRET");
+  });
+});

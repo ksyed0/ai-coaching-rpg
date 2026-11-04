@@ -12,7 +12,9 @@ export type FacilitatorCommand =
   | { command: "fire_inject"; injectId: string }
   | { command: "whisper"; roleId: string; text: string }
   | { command: "release_hidden"; roleId: string; fact: number }
-  | { command: "set_npc_stance"; roleId: string; goals: string[] };
+  | { command: "set_npc_stance"; roleId: string; goals: string[] }
+  /** US-0060: only the AI prompt route sends this one (the hint never goes to the runtime). */
+  | { command: "prompt_ai"; roleId: string };
 
 export type ClientMessage =
   | { type: "join"; sessionId: string; roleId: string; participantId: string; reconnectToken?: string; joinCode?: string; lastSeq?: number;

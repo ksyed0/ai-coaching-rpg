@@ -11,6 +11,10 @@ export const AI_COPY = {
   ai_started: { status: 409, text: "Roles can no longer be changed: the session has started." },
   ai_no_human: { status: 409, text: "At least one role must stay human." },
   ai_too_many: { status: 409, text: "At most 8 roles can be AI players." },
+  ai_busy: { status: 409, text: "The AI player is already answering. Wait a moment, then try again." },
+  ai_budget: { status: 409, text: "The AI players have used this session's model budget. They stay silent." },
+  ai_absent: { status: 409, text: "The AI player is not connected right now." },
+  ai_expired: { status: 409, text: "The prompt took too long to confirm. Try again." },
 } as const;
 export const UNCONFIRMED = "The change may or may not have been made. Check the roster, then switch the role again.";
 
