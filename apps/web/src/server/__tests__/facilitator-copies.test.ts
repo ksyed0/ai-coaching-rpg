@@ -53,6 +53,13 @@ describe("console copies", () => {
       .toEqual([{ roleId: "a", name: "Ann", joined: true, consented: false, connected: true }]);
   });
 
+  it("consoleRoster keeps ai true and drops ai \"yes\"", () => {
+    const e = { roleId: "a", joined: true, consented: false, connected: true };
+    expect(consoleRoster([{ ...e, ai: true } as never])).toEqual([{ ...e, ai: true }]);
+    for (const bad of ["yes", 1, false, {}, null]) expect(Object.hasOwn(consoleRoster([{ ...e, ai: bad } as never])[0]!, "ai")).toBe(false);
+    expect(Object.hasOwn(consoleRoster([e as never])[0]!, "ai")).toBe(false);
+  });
+
   it("consoleScenes keeps scene and inject fields and nothing else", () => {
     const raw = [
       { id: "a", title: "T", goal: "G", timeBoxMinutes: 5, hiddenFacts: ["SCENE-HIDDEN"], knowledge: ["K"], injects: [

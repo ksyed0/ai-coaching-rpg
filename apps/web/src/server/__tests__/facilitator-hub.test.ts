@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+import type { RosterEntry as ConsoleApiRosterEntry } from "../../lib/console-api";
 import type { SessionState } from "@acr/events";
 import { COMMAND_TIMEOUT_MS, FacilitatorHub } from "../facilitator-hub";
 import type { FacilitatorJoin } from "../facilitator-socket";
@@ -543,5 +544,11 @@ describe("FacilitatorHub commands", () => {
 describe("client and server roster types", () => {
   it("the console hook's roster entry equals the wire type", () => {
     expectTypeOf<ClientEntry>().toEqualTypeOf<FacilitatorRosterEntry>();
+  });
+
+  it("the console API's roster entry equals the wire type, ai key included", () => {
+    expectTypeOf<ConsoleApiRosterEntry>().toEqualTypeOf<FacilitatorRosterEntry>();
+    expectTypeOf<ConsoleApiRosterEntry["ai"]>().toEqualTypeOf<true | undefined>();
+    expectTypeOf<FacilitatorRosterEntry["ai"]>().toEqualTypeOf<true | undefined>();
   });
 });

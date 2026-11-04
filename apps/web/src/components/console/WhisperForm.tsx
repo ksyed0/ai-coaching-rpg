@@ -29,7 +29,7 @@ export function WhisperForm({
   const [to, setTo] = useState("");
   const [text, setText] = useState("");
   const target = recipients.includes(to) ? to : (recipients[0] ?? "");
-  const text_ = (r: string) => who(r, { names: label.names, ai: label.ai(r) });
+  const text_ = (r: string) => who(r, { names: label.names, ai: label.ai(r), aiPlayer: label.aiPlayer?.(r) === true });
   const empty = recipients.length === 0;
   const blank = text.trim() === "";
 

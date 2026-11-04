@@ -345,3 +345,101 @@ describe("client core: roster frames (US-0055)", () => {
     expect(t.exits).toEqual([]);
   });
 });
+
+describe("AI player labels in the terminal client (US-0060)", () => {
+  const joinedAi = (aiRoles: unknown, extra: Record<string, unknown> = {}) => JSON.stringify({ type: "joined", roleId: "host", state: { aiRoles, transcript: [{ seq: 1, roleId: "tech_lead", text: "old" }] }, ...extra });
+  const say = (roleId: string, seq: number, text = "hello") => JSON.stringify({ type: "event", event: { seq, ts: 0, sessionId: "s", type: "utterance", roleId, text, channel: "text" } });
+  const started = (aiRoles: unknown, seq: number) => JSON.stringify({ type: "event", event: { seq, ts: 0, sessionId: "s", type: "session.started", scenarioId: "sc", version: "1", roles: {}, aiRoles } });
+  it("labels history and live lines from joined.state.aiRoles", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi(["tech_lead"])); t.c.onMessage(say("tech_lead", 2)); t.c.onMessage(say("guest", 3));
+    expect(t.out).toContain("AI player (tech_lead) [AI]: old");
+    expect(t.out).toContain("AI player (tech_lead) [AI]: hello");
+    expect(t.out).toContain("guest: hello");
+  });
+  it("labels a line after session.started carried aiRoles [\"tech_lead\"]", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi([])); t.c.onMessage(say("tech_lead", 2));
+    expect(t.out.at(-1)).toBe("tech_lead: hello");
+    t.c.onMessage(started(["tech_lead"], 3)); t.c.onMessage(say("tech_lead", 4));
+    expect(t.out.at(-1)).toBe("AI player (tech_lead) [AI]: hello");
+  });
+  it("a later session.started replaces the set rather than accumulating", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi(["tech_lead"])); t.c.onMessage(started([], 2)); t.c.onMessage(say("tech_lead", 3));
+    expect(t.out.at(-1)).toBe("tech_lead: hello");
+    t.c.onMessage(started(["cfo"], 4)); t.c.onMessage(say("tech_lead", 5)); t.c.onMessage(say("cfo", 6));
+    expect(t.out.slice(-2)).toEqual(["tech_lead: hello", "AI player (cfo) [AI]: hello"]);
+  });
+  it("aiRoles holding 7 or an escape string are ignored: never printed, never labelled", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi([7, "\u001b[2J", { a: 1 }]));
+    t.c.onMessage(started([7, "\u001b[2J"], 2)); t.c.onMessage(say("\u001b[2J", 3));
+    expect(t.out.join("\n")).not.toContain("[AI]");
+    expect(t.out.join("\n")).not.toContain("\u001b");
+  });
+  it("my own role is never labelled AI", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi(["host"])); t.c.onMessage(say("host", 2));
+    expect(t.out.at(-1)).toBe("you: hello");
+  });
+  it("the roster labels an AI seat", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi(["tech_lead"]));
+    t.c.onMessage(JSON.stringify({ type: "roster", audience: "peers", entries: [{ roleId: "tech_lead", name: "AI player", ready: true, ai: true }] }));
+    expect(t.out.at(-1)).toBe("roster | tech_lead: AI player, ready");
+  });
+  it("a joined with an adopted consent never says the player agreed to this notice", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi([], { consent: { noticeVersion: "v2", notice: "Current.", given: true } }));
+    expect(t.out.join("\n")).not.toContain("agreed to this notice");
+    expect(t.out.at(-1)).toBe("this seat agreed to a consent notice earlier; the text above is the current notice");
+  });
+  it("ai_notice from the server prints the fixed line", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi([])); t.c.onMessage(err("ai_notice"));
+    expect(t.out.at(-1)).toBe("cannot start: this server's consent notice does not mention AI players; switch the AI roles back to human or restart on notice v2");
+  });
+});
+
+describe("seats_not_ready and AI seats; event and joined edge cases (US-0060 review)", () => {
+  const joinedFac = JSON.stringify({ type: "joined", roleId: "facilitator", state: {} });
+  const facOpts = { facilitator: true, name: "n", url: "ws://x", session: "s" };
+  const facSetup = () => {
+    const out: string[] = [];
+    const sock: Sock = { send: () => {}, close: () => {}, terminate: () => {} };
+    const io: Io = { print: (l) => out.push(l), err: () => {}, closeInput: () => {}, exit: () => {} };
+    return { c: createClient({ opts: facOpts as never, sock, io, idleMs: 30 }), out };
+  };
+  const roster = (entries: unknown[]) => JSON.stringify({ type: "roster", audience: "facilitator", entries });
+  const notReady = (roles: string) => JSON.stringify({ type: "error", code: "seats_not_ready", message: `seats_not_ready: ${roles}` });
+  const entries = [{ roleId: "account_manager", joined: false, consented: false, connected: false }, { roleId: "tech_lead", joined: false, consented: false, connected: false, ai: true }];
+  it("an AI seat in seats_not_ready is labelled and never told to type /consent", () => {
+    const t = facSetup(); t.c.onOpen(); t.c.onMessage(joinedFac); t.c.onMessage(roster(entries)); t.c.onMessage(notReady("account_manager,tech_lead"));
+    const l = t.out.at(-1)!;
+    expect(l).toBe("cannot start yet: waiting for account_manager to join and type /consent; waiting for the bot of AI player (tech_lead)");
+    expect(l).not.toContain("tech_lead to join and type /consent");
+  });
+  it("only the AI seat missing, only a human missing, and a role not in the last roster", () => {
+    const t = facSetup(); t.c.onOpen(); t.c.onMessage(joinedFac); t.c.onMessage(roster(entries));
+    t.c.onMessage(notReady("tech_lead")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for the bot of AI player (tech_lead)");
+    t.c.onMessage(notReady("account_manager")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for account_manager to join and type /consent");
+    t.c.onMessage(notReady("stranger")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for stranger to join and type /consent");
+  });
+  it("the AI roster set is replaced per frame and cleared by joined", () => {
+    const t = facSetup(); t.c.onOpen(); t.c.onMessage(joinedFac); t.c.onMessage(roster(entries));
+    t.c.onMessage(roster([{ roleId: "tech_lead", joined: false, consented: false, connected: false }]));
+    t.c.onMessage(notReady("tech_lead")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for tech_lead to join and type /consent");
+    t.c.onMessage(roster(entries)); t.c.onMessage(joinedFac);
+    t.c.onMessage(notReady("tech_lead")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for tech_lead to join and type /consent");
+  });
+  it("an event frame before joined is dropped", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(ev("early"));
+    expect(t.out).toEqual([]);
+  });
+  it("a second joined replaces the AI set", () => {
+    const j = (aiRoles: string[]) => JSON.stringify({ type: "joined", roleId: "host", state: { aiRoles } });
+    const t = setup(); t.c.onOpen(); t.c.onMessage(j(["guest"])); t.c.onMessage(ev("one"));
+    expect(t.out.at(-1)).toBe("AI player (guest) [AI]: one");
+    t.c.onMessage(j([])); t.c.onMessage(JSON.stringify({ type: "event", event: { seq: 2, ts: 0, sessionId: "s", type: "utterance", roleId: "guest", text: "two", channel: "text" } }));
+    expect(t.out.at(-1)).toBe("guest: two");
+  });
+  it("a replayed utterance after joined with aiRoles is labelled", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(JSON.stringify({ type: "joined", roleId: "host", state: { aiRoles: ["guest"], lastSeq: 5 }, replay: { afterSeq: 0, toSeq: 5, events: 1, complete: true } }));
+    t.c.onMessage(ev("replayed"));
+    expect(t.out.at(-1)).toBe("AI player (guest) [AI]: replayed");
+  });
+});

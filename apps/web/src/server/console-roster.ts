@@ -12,4 +12,6 @@ export const entryOf = (e: FacilitatorRosterEntry): FacilitatorRosterEntry => ({
   joined: e.joined === true,
   consented: e.consented === true,
   connected: e.connected === true,
+  // Default-deny: only the literal boolean true marks an AI seat; any other value is dropped.
+  ...(e.ai === true && { ai: true as const }),
 });

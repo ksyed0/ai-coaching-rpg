@@ -375,7 +375,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       st.ev.rejoinReplay = { ok: true, value: { at, toSeq: r.toSeq, events: r.events } };
       await n.step(`delivery_lead's rejoin says the last event it saw was seq ${lastSeq}: it is replayed the ${r.events} events after it that it may see (the inject and the whisper among them), exactly what it had received live, in order`);
       // What the terminal client shows: the history up to lastSeq, then the replayed events.
-      const lines = [...renderJoined(back), ...replayed.flatMap((e) => renderEvent(e, "delivery_lead") ?? [])];
+      const lines = [...renderJoined(back), ...replayed.flatMap((e) => renderEvent(e, "delivery_lead", new Set()) ?? [])];
       ensure((back.state.transcript.length) >= heard, `the rejoin history has ${back.state.transcript.length} lines, ${heard} were heard`);
       ensure(lines.some((l) => l.includes(S1_LINES[0]![1])), "the rendered history lacks an early line of the session");
       await n.step(`delivery_lead rejoins with the reconnect token (no join code needed): role kept, ${back.state.transcript.length} lines of history rendered, old connection closed by the server`);
@@ -422,7 +422,7 @@ export async function playStory(ctx: Ctx, st: Story): Promise<void> {
       const e = (seen as Extract<Inbound, { type: "event" }>).event;
       ensure(e.type === "utterance" && /\u001b/.test(e.text), "the raw text did not carry the escape sequence (the test would be vacuous)");
       for (const [viewer, label] of [["delivery_lead", "a player"], ["facilitator", "the facilitator"], ["tech_lead", "the speaker"]] as const) {
-        const out = renderEvent(e, viewer);
+        const out = renderEvent(e, viewer, new Set());
         ensure(out !== null, `${label}'s client rendered nothing`);
         ensure(!UNSAFE_CHARS.test(out), `${label}'s rendering contains a control or bidi character`);
         ensure(!/[\r\n]/.test(out), `${label}'s rendering contains a line break`);

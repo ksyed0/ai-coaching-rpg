@@ -125,3 +125,33 @@ Rollback trigger: a session with AI roles cannot resume, the AI-role file blocks
 
 ### Rolling forward again
 Redeploy slice 2b-3a. If a build from before 3a has run a lobby meanwhile, move that lobby's `<id>.ai-roles.json` aside first: the older build does not maintain it, so it could name a role whose seat now holds a human credential. Lobby files without an AI-role file read as "no AI roles" and the file is written when the runtime next opens the session; logs of format 0 to 2 resume as before.
+
+## EPIC-0002 slice 2b-3b: reachable AI seats (US-0060)
+
+```
+Release: unreleased (feature/EPIC-0002-US-0060-bot-engine, then ...-ai-seats-reachable and ...-ai-toggle-prompt, each merged by its pull request; no release is tagged before slice 2b-3c)
+Date: not deployed
+Rollback trigger: AI players misbehave or exhaust the model budget, a session with AI roles cannot start or resume, or the control service must go back to a build without a bot host.
+```
+
+### What changes on disk and in the log
+
+- **New directory `<CONTROL_DATA_DIR>/intents/`** (mode `0700`, files `0600`): the facilitator-only intent log, one `<sessionId>.<roleId>.jsonl` per AI role (at most 256 KiB each; a role's file is deleted when it goes back to human, a session's files on a whole-session reissue or a failed create; an ended session keeps them). An older control service ignores the directory. Delete it by hand when the sessions are gone.
+- **Join codes of AI roles are not on disk.** They live only in the control service's memory, so a restart of the control service reissues each AI role once (a post-start reissue skips the consent rebind). Nothing to migrate.
+- **No log-format change.** The log stays format 3 for a session with AI roles (3a); the runtime reads formats 0 to 3.
+
+### Rolling back to 3a
+
+- **Format-3 logs stay readable.** A 3a runtime reads and resumes them.
+- **A 3a control service has no bot host.** The AI seats of a running session stay empty (no bot joins), so a lobby with AI roles cannot start (the start gate waits for the bots) until the roles are switched back to human; a started session with AI roles resumes but its AI players say nothing. Switch the roles back to human (or end the sessions) before the rollback if you can. A 3a web app has no AI routes, labels or readiness split; a 3a runtime's `ready` has no `aiCalls`, so the budget starts again.
+- **3b and 3c roll back together** (they are released together; before 3c the evaluator could score an AI seat individually).
+- Rolling back past 3a is as described for slice 2b-3a.
+
+### Steps
+
+1. Redeploy the previous control service, runtime and web app (no data migration).
+2. Before the rollback, list the sessions with AI roles (the first log line says `"logFormat":3`) and switch their roles back to human before the start, or end them.
+3. **Smoke test:** `pnpm demo --fast` passes its 29 checks; `pnpm demo --web` passes W-01 to W-08.
+
+### Rolling forward again
+Redeploy slice 2b-3b. The `intents/` directory, if it was kept, is read again; stale files of sessions that no longer exist are harmless.

@@ -503,3 +503,83 @@ describe("LauncherClient error mapping", () => {
     expect(init.redirect).toBe("error");
   });
 });
+
+describe("LauncherClient AI roles", () => {
+  it("setAiRoles: PUT /sessions/:id/ai-roles { roles }, answers roles and the human codes only", async () => {
+    const f = fakeFetch(() =>
+      reply(envelope({ roles: ["tech_lead"], codes: [{ roleId: "delivery_lead", code: "ABCD-EFGH", extra: 1 }], secret: "x" })),
+    );
+    const r = await client(f.fetch).setAiRoles(SID, ["tech_lead"]);
+    expect(r).toEqual({ roles: ["tech_lead"], codes: [{ roleId: "delivery_lead", code: "ABCD-EFGH" }] });
+    expect(f.calls[0]).toMatchObject({ url: `${BASE}/sessions/${SID}/ai-roles`, method: "PUT" });
+    expect(JSON.parse(f.calls[0]!.body!)).toEqual({ roles: ["tech_lead"] });
+  });
+
+  it("setAiRoles: a reply that is not roles plus codes is a failure", async () => {
+    for (const data of [{ roles: "x", codes: [] }, { roles: [1], codes: [] }, { roles: [], codes: [{ roleId: "a" }] }, { codes: [] }]) {
+      const f = fakeFetch(() => reply(envelope(data)));
+      expect((await reasonOf(client(f.fetch).setAiRoles(SID, []))).reason).toBe("failed");
+    }
+  });
+
+  it.each(["ai_role", "ai_notice", "ai_started", "ai_no_human", "ai_too_many"] as const)("the control code %s is its own reason, 409, and the server text never passes through", async (code) => {
+    const f = fakeFetch(() => reply(errorEnvelope(code, "SECRET server text"), 409));
+    const r = await reasonOf(client(f.fetch).setAiRoles(SID, ["a"]));
+    expect(r.reason).toBe(code);
+    expect(r.text).not.toContain("SECRET");
+  });
+
+  it("ai_invalid (400) is its own reason", async () => {
+    const f = fakeFetch(() => reply(errorEnvelope("ai_invalid", "SECRET"), 400));
+    expect((await reasonOf(client(f.fetch).setAiRoles(SID, ["a"]))).reason).toBe("ai_invalid");
+  });
+
+  it("intents: GET /sessions/:id/ai-roles/:roleId/intents keeps only the six fields, drops unknown trigger/outcome/reason, caps hint at 300 code points and entries at 50", async () => {
+    const good = { ts: 5, sceneId: "s1", trigger: "reply", outcome: "spoken" };
+    const hint = "\u{1F600}".repeat(400);
+    const many = Array.from({ length: 60 }, (_, i) => ({ ...good, ts: i }));
+    const f = fakeFetch(() =>
+      reply(
+        envelope({
+          entries: [
+            { ...good, extra: "x", hint },
+            { ...good, sceneId: null, outcome: "skipped", reason: "budget" },
+            { ...good, trigger: "x" },
+            { ...good, outcome: "x" },
+            { ...good, outcome: "skipped", reason: "x" },
+            "nope",
+          ],
+          other: 1,
+        }),
+      ),
+    );
+    const r = await client(f.fetch).intents(SID, "tech_lead");
+    expect(r).toEqual([
+      { ...good, hint: "\u{1F600}".repeat(300) },
+      { ...good, sceneId: null, outcome: "skipped", reason: "budget" },
+    ]);
+    expect(f.calls[0]).toMatchObject({ url: `${BASE}/sessions/${SID}/ai-roles/tech_lead/intents`, method: "GET" });
+    const g = fakeFetch(() => reply(envelope({ entries: many })));
+    expect(await client(g.fetch).intents(SID, "tech_lead")).toHaveLength(50);
+  });
+
+  it("intents: an entry whose sceneId is not an id (or too long) is dropped", async () => {
+    const good = { ts: 5, trigger: "reply", outcome: "spoken" };
+    const f = fakeFetch(() =>
+      reply(envelope({ entries: [{ ...good, sceneId: "Not An Id" }, { ...good, sceneId: "x".repeat(129) }, { ...good, sceneId: "scene_1" }] })),
+    );
+    expect(await client(f.fetch).intents(SID, "tech_lead")).toEqual([{ ...good, sceneId: "scene_1" }]);
+  });
+
+  it("setAiRoles: a returned role that is not an id is a failure", async () => {
+    const f = fakeFetch(() => reply(envelope({ roles: ["Tech Lead"], codes: [] })));
+    expect((await reasonOf(client(f.fetch).setAiRoles(SID, []))).reason).toBe("failed");
+  });
+
+  it("intents: a role id that is not an id never reaches the network", async () => {
+    const f = fakeFetch(() => reply(envelope({ entries: [] })));
+    for (const bad of ["../x", "a/b", "Tech Lead", "", "x".repeat(129)])
+      expect((await reasonOf(client(f.fetch).intents(SID, bad))).reason).toBe("not_found");
+    expect(f.calls).toHaveLength(0);
+  });
+});

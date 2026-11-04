@@ -1,6 +1,6 @@
 import type { Options } from "./commands.js";
 import { isFatalError, joinMessage, parseInput, parseServerMessage } from "./commands.js";
-import { parseFactsEarned, parseHiddenFacts, renderConsentNotice, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, renderRoster, sanitizeText, validReplay } from "./render.js";
+import { parseAiRoles, parseFactsEarned, parseHiddenFacts, renderConsentNotice, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, renderRoster, sanitizeText, validReplay } from "./render.js";
 
 export const MAX_PREJOIN_LINES = 100;
 export const DEFAULT_IDLE_MS = 1_500;
@@ -44,6 +44,10 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
   // US-0054: the notice version the server announced at join; /consent sends exactly this one. Null: no consent is asked for.
   let noticeVersion: string | null = null;
   let lastRoster: string | null = null;
+  // US-0060: the player roles an AI plays. Replaced (never accumulated) by every joined snapshot and session.started; the only source of AI labels.
+  let ai: ReadonlySet<string> = new Set();
+  // US-0060: the roles flagged `ai: true` in the last roster frame (replaced per frame, cleared at join): a lobby has no aiRoles in state yet, but seats_not_ready may name them.
+  let rosterAi: ReadonlySet<string> = new Set();
 
   function finish(code: number, message?: string, polite = false): void {
     if (done) return;
@@ -94,7 +98,9 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
             if (Array.isArray(r)) released.set(role, r.filter((t): t is string => typeof t === "string"));
           }
         }
-        for (const l of renderJoined(m)) io.print(l);
+        rosterAi = new Set();
+        ai = parseAiRoles(m.state?.aiRoles);
+        for (const l of renderJoined(m, ai)) io.print(l);
         if (!opts.facilitator) {
           const c = m.consent as { noticeVersion?: unknown } | undefined;
           noticeVersion = typeof c?.noticeVersion === "string" ? c.noticeVersion : null;
@@ -103,12 +109,14 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
         for (const queued of pending.splice(0)) send(queued);
         if (eof) armIdle();
       } else if (m.type === "event") {
+        if (!joined) return; // the server sends no event before joined; nothing is labelled or shown until the AI set is known
         const seq = (m.event as { seq?: unknown }).seq;
         if (typeof seq === "number" && Number.isSafeInteger(seq)) {
           if (dedupeUpTo !== null) { if (seq <= dedupeUpTo) return; dedupeUpTo = seq; }
           if (seen === null || seq > seen) seen = seq;
         }
-        const line = renderEvent(m.event, opts.facilitator ? "facilitator" : opts.role!);
+        if (m.event.type === "session.started") ai = parseAiRoles(m.event.aiRoles);
+        const line = renderEvent(m.event, opts.facilitator ? "facilitator" : opts.role!, ai);
         if (line) io.print(line);
         // US-0013 M1: a release that happened while away arrives as its replayed command; its npc.updated adds nothing new to the
         // snapshot's released list, so name the fact here (the facilitator's own hidden-fact list holds the text).
@@ -126,6 +134,7 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
         }
       } else if (m.type === "roster") {
         // Printed only when it changed: the server repeats the frame to everyone after each change, most of which do not alter this view.
+        rosterAi = new Set(m.entries.filter((e) => e.ai === true).map((e) => e.roleId));
         const lines = renderRoster(m);
         const key = lines.join("\n");
         if (key !== lastRoster) { lastRoster = key; for (const l of lines) io.print(l); }
@@ -134,9 +143,9 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
         // drops it; this branch only narrows the type for the checker.
         return;
       } else if (isFatalError(m.code, joined)) {
-        finish(1, renderError(m.code, m.message, !opts.facilitator));
+        finish(1, renderError(m.code, m.message, !opts.facilitator, rosterAi));
       } else {
-        io.print(renderError(m.code, m.message, !opts.facilitator));
+        io.print(renderError(m.code, m.message, !opts.facilitator, rosterAi));
       }
     },
     onLine(line: string): void {

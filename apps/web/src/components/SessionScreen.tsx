@@ -158,7 +158,7 @@ function Scene({ state, clock, onSay }: { state: ReturnType<typeof useSession>["
             <details className="card">
               <summary>Consent notice</summary>
               <p className="prose">{joined.consent.notice}</p>
-              <p className="muted small">Notice {joined.consent.noticeVersion}. The seat has agreed to it.</p>
+              <p className="muted small">This seat agreed to a consent notice earlier. The text above is the current notice.</p>
             </details>
           ) : null}
           <BriefPanel roleId={joined.roleId} brief={joined.brief} privateFacts={joined.privateFacts} injects={view.injects} />

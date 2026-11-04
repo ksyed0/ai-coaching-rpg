@@ -1,3 +1,4 @@
+import { parseAiPlayerSettings } from "@acr/runtime/players";
 import type { ChildMessage, ParentMessage } from "../protocol.js";
 import type { ChildHandle } from "../supervisor.js";
 
@@ -28,3 +29,10 @@ export const CODES = [{ roleId: "cfo", code: "alpha-1" }, { roleId: "cto", code:
 export const READY = { type: "ready", port: 4321, status: "new", modelLabel: "test-model" } as const;
 export const sid = (n: number): string => n.toString(16).padStart(32, "0");
 export const flush = (): Promise<void> => new Promise<void>((r) => setImmediate(r));
+
+/** The AI-player part of a ControlConfig for tests that build one by hand. */
+export const AI_CONFIG = (() => {
+  const r = parseAiPlayerSettings({});
+  if (!r.ok) throw new Error("default AI player settings are invalid");
+  return { intentsDir: "/nonexistent/intents", aiPlayer: r.settings };
+})();

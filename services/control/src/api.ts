@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
 import { isSafeId, isValidSessionId } from "@acr/events";
 import { z } from "zod";
+import { RoleIdSchema } from "./protocol.js";
 import type { ControlConfig } from "./config.js";
 import { ControlError, type ControlErrorCode, type Supervisor } from "./supervisor.js";
 
@@ -12,6 +13,7 @@ type Envelope<T> = { success: boolean; data: T | null; error: { code: string; me
 
 const STATUS: Record<ControlErrorCode, number> = {
   bad_request: 400, unknown_scenario: 400, not_found: 404, conflict: 409, capacity: 429, timeout: 504, start_failed: 502, unavailable: 503,
+  ai_role: 409, ai_notice: 409, ai_started: 409, ai_no_human: 409, ai_too_many: 409, ai_invalid: 400,
 };
 const BAD_REQUEST = "That request is not valid.";
 const UNAUTHORIZED = "Unauthorized.";
@@ -23,6 +25,7 @@ const CreateBody = z.strictObject({ scenarioId: z.string().min(1).max(MAX_FIELD)
 const ReissueBody = z.strictObject({ roleId: z.string().min(1).max(MAX_FIELD).optional(), all: z.literal(true).optional(), by: z.string().max(MAX_FIELD).optional(), reason: z.literal("removed").optional() })
   .refine((b) => (b.roleId === undefined) !== (b.all === undefined))
   .refine((b) => b.reason === undefined || b.roleId !== undefined); // a remove names its role
+const AiRolesBody = z.strictObject({ roles: z.array(z.string().min(1).max(MAX_FIELD)).max(12) });
 const NoBody = z.strictObject({});
 
 class HttpError extends Error {
@@ -139,6 +142,16 @@ export function createApi(deps: {
     if (seg.length === 3 && seg[2] === "restart" && method === "POST") {
       parse(NoBody, (await jsonBody(req)) ?? {});
       return ok(res, await supervisor.restart(id));
+    }
+    if (seg.length === 3 && seg[2] === "ai-roles" && method === "PUT") {
+      const body = parse(AiRolesBody, await jsonBody(req));
+      return ok(res, await supervisor.setAiRoles(id, body.roles)); // codes: human roles only (the supervisor keeps AI codes to the bots)
+    }
+    if (seg.length === 5 && seg[2] === "ai-roles" && seg[4] === "intents" && method === "GET") {
+      let roleId: string;
+      try { roleId = decodeURIComponent(seg[3]!); } catch { return notFound(); }
+      if (!RoleIdSchema.safeParse(roleId).success) return notFound(); // before anything reads a file
+      return ok(res, { entries: supervisor.intents(id, roleId) });
     }
     if (seg.length === 4 && seg[2] === "codes" && seg[3] === "reissue" && method === "POST") {
       const body = parse(ReissueBody, (await jsonBody(req)) ?? {});

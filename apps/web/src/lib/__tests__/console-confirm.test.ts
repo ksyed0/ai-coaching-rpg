@@ -72,6 +72,7 @@ describe("who", () => {
     expect(who("client_sponsor", { names: { client_sponsor: "Ann" }, ai: false })).toBe("Ann (Client sponsor)");
     expect(who("client_sponsor", { names: {}, ai: false })).toBe("Client sponsor");
     expect(who("cfo", { names: { cfo: "Sam" }, ai: true })).toBe("Sam (Cfo) (AI character)");
+    expect(who("tech_lead", { names: { tech_lead: "Pat" }, ai: false, aiPlayer: true })).toBe("Tech lead (AI player)");
     expect(who("cfo", { names: {}, ai: true })).toBe("Cfo (AI character)");
   });
   it("isolates a name with a bidi control", () => {

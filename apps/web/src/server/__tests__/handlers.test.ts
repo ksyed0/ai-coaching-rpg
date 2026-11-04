@@ -193,6 +193,15 @@ describe("POST /api/v1/join", () => {
     expect(rt.headers.map((h) => h["x-forwarded-for"])).toEqual(Array(6).fill(ADDR));
   });
 
+  it("join and stream with X-Forwarded-For scenecoach-bot are a 400 and never call connect", async () => {
+    const { deps, connect } = makeDeps();
+    const j = await handleJoin(joinReq(goodJoin, { "X-Forwarded-For": "scenecoach-bot" }), deps);
+    expect(j.status).toBe(400);
+    const s = await handleStream(streamReq(cookieValue(), { headers: { "X-Forwarded-For": "scenecoach-bot" } }), deps);
+    expect(s.status).toBe(400);
+    expect(connect).not.toHaveBeenCalled();
+  });
+
   it("join and stream with X-Forwarded-For scenecoach-console are a 400 and never call connect", async () => {
     const { deps, connect } = makeDeps();
     const j = await handleJoin(joinReq(goodJoin, { "X-Forwarded-For": "scenecoach-console" }), deps);

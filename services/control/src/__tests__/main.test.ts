@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BotHost } from "../bots/bot-host.js";
 import { startControl, type RunningControl } from "../main.js";
 import { SessionList } from "../session-list.js";
 import type { SpawnFn } from "../supervisor.js";
@@ -45,6 +46,19 @@ describe("startControl", () => {
     logs.length = 0;
     running = await startControl({ ...env, CONTROL_READY_TIMEOUT_MS: "90000", CONTROL_GRACE_MS: "10000" }, { port: 0, log: (m) => logs.push(m) });
     expect(logs.filter((l) => l.includes("CONTROL_READY_TIMEOUT_MS"))).toEqual([]);
+  });
+
+  it("wires a BotHost whose close is awaited by close()", async () => {
+    let finished = false;
+    const close = vi.spyOn(BotHost.prototype, "close").mockImplementation(async () => { await new Promise((r) => setTimeout(r, 30)); finished = true; });
+    try {
+      running = await startControl(env, { port: 0 });
+      const r = running;
+      running = undefined;
+      await r.close();
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(finished).toBe(true);
+    } finally { close.mockRestore(); }
   });
 
   it("listens on loopback, answers with the token only and close() stops it", async () => {

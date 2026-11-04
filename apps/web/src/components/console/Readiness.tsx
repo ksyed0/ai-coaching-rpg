@@ -7,6 +7,7 @@ import {
   failureText,
   parseCodes,
   shortId,
+  splitWaiting,
   type CodeEntry,
   type Readiness as ReadinessData,
   type RosterEntry,
@@ -46,6 +47,12 @@ type Shown = { seq: number; heading: string; codes: CodeEntry[] };
 const yesNo = (v: boolean) => (v ? "Yes" : "No");
 const url = (id: string, tail: string) =>
   `/api/v1/console/sessions/${encodeURIComponent(id)}/${tail}`;
+/** The waiting sentences ("Waiting for: a, b" and "AI player not connected yet: Tech lead"), each only when it has roles; no final period. */
+const waitingSentences = (humans: string[], ai: string[]): string =>
+  [
+    ...(humans.length > 0 ? [`Waiting for: ${humans.join(", ")}`] : []),
+    ...(ai.length > 0 ? [`${CONSOLE_COPY.aiNotConnected} ${ai.map(roleLabel).join(", ")}`] : []),
+  ].join(". ");
 
 export function Readiness({
   sessionId,
@@ -72,6 +79,8 @@ export function Readiness({
           roster: live.roster.length > 0 ? live.roster : polled.roster,
         }
       : polled;
+  const polledRoster = useRef<RosterEntry[]>([]);
+  polledRoster.current = data?.roster ?? [];
   const stateCb = useRef(onState);
   stateCb.current = onState;
   useEffect(() => {
@@ -192,14 +201,19 @@ export function Readiness({
         typeof r.data === "object" && r.data !== null ? r.data : null
       ) as { reason?: unknown; missing?: unknown } | null;
       if (d?.reason === "seats_not_ready") {
-        const missing = Array.isArray(d.missing)
-          ? d.missing.filter((m): m is string => typeof m === "string")
-          : [];
-        setError(
-          missing.length > 0
-            ? `${CONSOLE_COPY.notReady} Waiting for: ${missing.join(", ")}`
-            : CONSOLE_COPY.notReady,
+        const strs = (v: unknown) =>
+          Array.isArray(v) ? v.filter((m): m is string => typeof m === "string") : [];
+        // Humans and AI players are listed apart, split by the roster's `ai` flag (and the server's own aiWaiting).
+        const w = splitWaiting(
+          polledRoster.current,
+          strs((d as { missing?: unknown }).missing),
+          strs((d as { aiWaiting?: unknown }).aiWaiting),
         );
+        const ws = waitingSentences(w.humans, w.ai);
+        setError(ws === "" ? CONSOLE_COPY.notReady : `${CONSOLE_COPY.notReady} ${ws}`);
+      } else if (d?.reason === "ai_notice") {
+        // The BFF's own sentence (the server's notice does not mention AI players).
+        setError(r.message !== "" ? r.message : failureText(r));
       } else {
         // 409 without the gate's detail is "already started": the goal is reached, so it reads as started.
         setStartedHere(true);
@@ -302,14 +316,15 @@ function View(p: ViewProps) {
   const idle = data.status === "idle";
   const running = data.status === "running";
   const started = p.startedHere || data.status === "running";
+  const waiting = splitWaiting(data.roster, data.missing, data.aiWaiting);
   const reason = !idle
     ? null
     : data.roster.length === 0
       ? "Nobody has joined yet"
       : data.canStart
         ? null
-        : data.missing.length > 0
-          ? `Waiting for: ${data.missing.join(", ")}`
+        : waiting.humans.length > 0 || waiting.ai.length > 0
+          ? waitingSentences(waiting.humans, waiting.ai)
           : "Waiting for everyone to join and consent";
 
   return (
@@ -403,18 +418,34 @@ function View(p: ViewProps) {
                   <tr key={e.roleId}>
                     <th scope="row">{roleLabel(e.roleId)}</th>
                     <td>
-                      {e.name !== undefined && e.name !== "" ? e.name : "—"}
+                      {e.ai === true ? (
+                        <>
+                          <b>AI player</b> <span className="pill ai">AI</span>
+                        </>
+                      ) : e.name !== undefined && e.name !== "" ? (
+                        e.name
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td>
                       <State on={e.joined} />
                     </td>
                     <td>
-                      <State on={e.consented} />
+                      {e.ai === true ? (
+                        <span className="muted">Not needed</span>
+                      ) : (
+                        <State on={e.consented} />
+                      )}
                     </td>
                     <td>
                       <State on={e.connected} />
                     </td>
                     <td>
+                      {e.ai === true ? (
+                        // The supervisor refuses reissue and remove for an AI role: no buttons.
+                        <span className="muted">—</span>
+                      ) : (<>
                       <button
                         className="btn"
                         type="button"
@@ -445,6 +476,7 @@ function View(p: ViewProps) {
                           Remove
                         </button>
                       ) : null}
+                      </>)}
                     </td>
                   </tr>
                 ))}

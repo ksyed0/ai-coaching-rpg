@@ -62,6 +62,8 @@ export class BotHost {
   private readonly setTimer: SetTimer;
   private readonly log: (m: string) => void;
   private readonly now: () => number;
+  /** Set at the start of close(): every operation queued or enqueued after it does nothing. */
+  private closed = false;
 
   constructor(private readonly o: BotHostOptions) {
     this.setTimer = o.setTimer ?? defaultSetTimer;
@@ -71,7 +73,11 @@ export class BotHost {
 
   // --- public API ---
 
-  attach(sessionId: string, o: { port: number; aiRoles: string[]; aiCalls?: number }): Promise<void> {
+  /**
+   * `codes` (optional) are the join codes of roles that just became AI: stored before the reissue decision, so a role taken in with its
+   * code never asks for a reissue. A code for a role not in `aiRoles` is dropped.
+   */
+  attach(sessionId: string, o: { port: number; aiRoles: string[]; aiCalls?: number; codes?: { roleId: string; code: string }[] }): Promise<void> {
     return this.enqueue(sessionId, async () => {
       const st = this.state(sessionId);
       st.port = o.port;
@@ -82,6 +88,7 @@ export class BotHost {
       for (const r of [...st.aiRoles]) if (!wanted.has(r)) { st.aiRoles.delete(r); st.codes.delete(r); this.cancelRetry(st, r); }
       st.aiRoles = wanted;
       for (const r of wanted) st.removed.delete(r);
+      for (const c of o.codes ?? []) if (wanted.has(c.roleId)) st.codes.set(c.roleId, c.code);
       const work: Promise<void>[] = [];
       for (const r of wanted) {
         this.cancelRetry(st, r);
@@ -133,14 +140,14 @@ export class BotHost {
 
   /** Stops every bot and forgets codes, port and budget. Intent files stay (B12). */
   end(sessionId: string): Promise<void> {
-    return this.enqueue(sessionId, () => this.endNow(sessionId));
+    return this.enqueue(sessionId, () => this.endNow(sessionId), true);
   }
 
   forget(sessionId: string): Promise<void> {
     return this.enqueue(sessionId, async () => {
       await this.endNow(sessionId);
       this.o.intents.remove(sessionId);
-    });
+    }, true);
   }
 
   intents(sessionId: string, roleId: string): IntentEntry[] { return this.o.intents.read(sessionId, roleId); }
@@ -149,15 +156,16 @@ export class BotHost {
   isAiConnected(sessionId: string, roleId: string): boolean { return this.sessions.get(sessionId)?.bots.get(roleId)?.joinedOk ?? false; }
 
   async close(): Promise<void> {
+    this.closed = true;
     await Promise.allSettled([...this.sessions.keys()].map((id) => this.end(id)));
   }
 
   // --- the chain ---
 
   /** Runs `fn` after everything queued before it on this session; a rejection never poisons the chain. */
-  private enqueue(sessionId: string, fn: () => Promise<void>): Promise<void> {
+  private enqueue(sessionId: string, fn: () => Promise<void>, alwaysRun = false): Promise<void> {
     const prev = this.chains.get(sessionId) ?? Promise.resolve();
-    const run = prev.then(fn);
+    const run = prev.then(() => (this.closed && !alwaysRun ? undefined : fn()));
     const tail = run.catch((err) => { this.log(`session ${sessionId} bot host operation failed: ${err instanceof Error ? err.name : "error"}`); });
     this.chains.set(sessionId, tail);
     void tail.then(() => { if (this.chains.get(sessionId) === tail) this.chains.delete(sessionId); });
@@ -222,9 +230,11 @@ export class BotHost {
           await this.applyCodes(st, sessionId, [{ roleId, code }]);
         });
       },
-      () => {
+      (err: unknown) => {
         st.reissuing.delete(roleId);
         this.log(`session ${sessionId} AI player could not get a code`);
+        // The supervisor refuses a role that is no longer AI (or uncertain): nothing to retry and nobody to alert.
+        if ((err as { code?: unknown } | null)?.code === "ai_role") return;
         // Told once per role (before the start the runtime ignores the alert, B15).
         if (!st.reissueAlerted.has(roleId)) { st.reissueAlerted.add(roleId); this.raise(sessionId, roleId, BOT_ALERTS.rejoinFailed); }
       },

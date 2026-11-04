@@ -35,6 +35,16 @@ describe("loadControlConfig", () => {
     expect([c.port, c.maxSessions, c.logDir, c.scenariosDir, c.graceMs, c.readyTimeoutMs]).toEqual([9001, 3, logDir, scen, 0, 1000]);
   });
 
+  it("derives intentsDir and refuses AI_PLAYER_NUDGE_MS 5 in the one settings error, with the other problems", () => {
+    expect(loadControlConfig(base()).intentsDir).toBe(path.join(DATA, "intents"));
+    const m = problems({ ...base(), AI_PLAYER_NUDGE_MS: "5", CONTROL_PORT: "0", PLAYER_MODEL: "bad model/secret-xyz" });
+    expect(m).not.toContain("secret-xyz");
+    expect(m).not.toContain("NUDGE_MS=5");
+    expect(m).toContain("AI_PLAYER_NUDGE_MS");
+    expect(m).toContain("CONTROL_PORT");
+    expect(m.match(/invalid control service settings/g)).toHaveLength(1);
+  });
+
   it("a short token is refused, naming the variable and never the value", () => {
     const secret = "short-secret-value";
     const m = problems({ ...base(), LAUNCHER_TOKEN: secret });

@@ -17,16 +17,20 @@ let port: number;
 let upgradeHeaders: http.IncomingHttpHeaders[];
 let received: unknown[];
 let sockets: WebSocket[];
-let live: number;
-let maxLive: number;
-let serverClosed: number;
+/**
+ * Server-side connection counters. Each test gets its own object, captured by the handlers installed in beforeEach: a previous test's
+ * sockets are terminated in afterEach but their server-side `close` events can still arrive after the next beforeEach, and must not
+ * decrement (or otherwise touch) the next test's counters. Writing to shared `let` counters let that late close push `live` to -1, so the
+ * next test's first connection brought it to 0 and `maxLive` read 0 (the flake in "a second open after close() never overlaps").
+ */
+let count: { live: number; maxLive: number; serverClosed: number };
 /** What the upgrade handler does with the Nth attempt (0-based); default accept. */
 let refuse: (n: number) => boolean;
 let attempts: number;
 let ignoreClose: boolean;
 
 beforeEach(async () => {
-  timers = []; handshakeTimers = []; upgradeHeaders = []; received = []; sockets = []; live = 0; maxLive = 0; serverClosed = 0; attempts = 0; refuse = () => false; ignoreClose = false;
+  timers = []; handshakeTimers = []; upgradeHeaders = []; received = []; sockets = []; const mine = count = { live: 0, maxLive: 0, serverClosed: 0 }; attempts = 0; refuse = () => false; ignoreClose = false;
   server = http.createServer();
   wss = new WebSocketServer({ noServer: true });
   server.on("upgrade", (req, socket, head) => {
@@ -34,9 +38,9 @@ beforeEach(async () => {
     const n = attempts++;
     if (refuse(n)) { socket.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); return; }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      sockets.push(ws); live++; maxLive = Math.max(maxLive, live);
+      sockets.push(ws); mine.live++; mine.maxLive = Math.max(mine.maxLive, mine.live);
       ws.on("message", (d) => received.push(JSON.parse(d.toString())));
-      ws.on("close", () => { live--; serverClosed++; });
+      ws.on("close", () => { mine.live--; mine.serverClosed++; });
       if (ignoreClose) {
         // Pinned to ws 8.22.0 internals (the receiver's `conclude` listener answers the close frame).
         if (typeof (ws as unknown as { _receiver?: { on?: unknown } })._receiver?.on !== "function") throw new Error("ws internals changed"); (ws as unknown as { _receiver: { removeAllListeners(e: string): void } })._receiver.removeAllListeners("conclude"); }
@@ -191,7 +195,7 @@ describe("BotSocket", () => {
     const b = await open();
     await until("b", () => sockets.length === 2);
     await b.close();
-    expect(maxLive).toBe(1);
+    expect(count.maxLive).toBe(1);
   });
 
   it("a 503 handshake is retried once after 1 s and a second 503 rejects", async () => {

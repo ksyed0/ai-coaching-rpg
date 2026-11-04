@@ -12,7 +12,7 @@ import {
 import { fetchFacts, useConsoleCommands } from "../../lib/console-commands";
 import type { ConsoleCommand } from "../../lib/console-commands";
 import { confirmCopy } from "../../lib/console-confirm";
-import type { ConsoleStreamUi } from "../../lib/use-console-stream";
+import { aiPlayerRoles, type ConsoleStreamUi } from "../../lib/use-console-stream";
 import { CharactersPanel } from "./CharactersPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { InjectsPanel } from "./InjectsPanel";
@@ -66,10 +66,11 @@ export function ConsoleControls({
     return cur ? (ui.scenes.find((s) => s.id === cur.id) ?? null) : null;
   }, [state?.currentScene, ui.scenes]);
   const label = useMemo<Labeler>(() => {
+    const aiSeats = aiPlayerRoles(state?.aiRoles, ui.roster);
     const names: Record<string, string> = {};
-    for (const r of ui.roster) if (r.name) names[r.roleId] = r.name;
-    return { names, ai: (roleId) => state?.roles[roleId]?.kind === "npc" };
-  }, [ui.roster, state?.roles]);
+    for (const r of ui.roster) if (r.name && !aiSeats.has(r.roleId)) names[r.roleId] = r.name;
+    return { names, ai: (roleId) => state?.roles[roleId]?.kind === "npc", aiPlayer: (roleId) => aiSeats.has(roleId) };
+  }, [ui.roster, state?.roles, state?.aiRoles]);
   // Whisper goes to a player: the current scene's players, else every player role.
   const recipients = useMemo(() => {
     const players = (ids: string[]) =>

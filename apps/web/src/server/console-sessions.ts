@@ -3,6 +3,7 @@ import {
   isScenarioId,
   isValidSessionId,
 } from "@acr/events";
+import { AI_COPY, aiAnswer } from "./console-ai-copy";
 import { requireConsole } from "./console-handlers";
 import type { ConsoleSession } from "./console-session";
 import { fail, ok } from "./envelope";
@@ -31,7 +32,7 @@ const MAX_MISSING = 64;
  * on the same socket (a stray `not_started` or `forbidden`), so it must not end a start that is still going.
  */
 const START_ERRORS: ReadonlySet<string> = new Set([
-  "seats_not_ready", "already_started", "log_not_empty", "bad_identity", "log_failed", "internal", "bad_message", "bad_json", "rate_limited",
+  "seats_not_ready", "ai_notice", "already_started", "log_not_empty", "bad_identity", "log_failed", "internal", "bad_message", "bad_json", "rate_limited",
 ]);
 const START_TIMEOUT_MS = 10_000;
 
@@ -76,7 +77,7 @@ export function sessionIdOf(req: Request): string | null {
 export const isId = (v: unknown): v is string =>
   typeof v === "string" && v.length <= CLIENT_ID_MAX_CHARS && isScenarioId(v);
 
-/** A JSON object of at most 1 KiB whose keys are all in `allowed`; an empty body is `{}`. Null for anything else. */
+/** A JSON object of at most `maxBytes` (default 1 KiB) whose keys are all in `allowed`; an empty body is `{}`. Null for anything else. */
 export async function readBody(
   req: Request,
   allowed: readonly string[],
@@ -124,8 +125,10 @@ export async function readBody(
 // ---- failures ----
 
 /** The one place a launcher or socket failure becomes an answer: our own text, never the launcher's. */
-function failure(err: unknown): Response {
+export function failure(err: unknown): Response {
   if (err instanceof LauncherError) {
+    const ai = aiAnswer(err.reason);
+    if (ai) return ai;
     switch (err.reason) {
       case "not_found":
         return notFound();
@@ -172,8 +175,17 @@ const listed = (s: SessionInfo) => ({
   ...(s.modelLabel !== undefined && { modelLabel: s.modelLabel }),
 });
 
+/** People who have not joined and consented. An AI seat never consents, so it is never counted here. */
 const notReady = (roster: FacilitatorRosterEntry[]) =>
-  roster.filter((e) => !(e.joined && e.consented)).map((e) => e.roleId);
+  roster.filter((e) => e.ai !== true && !(e.joined && e.consented)).map((e) => e.roleId);
+/** AI seats whose bot has not joined yet. */
+const aiNotJoined = (roster: FacilitatorRosterEntry[]) =>
+  roster.filter((e) => e.ai === true && !e.joined).map((e) => e.roleId);
+/** Splits role ids by the roster's ai flag; an id the roster does not list counts as a person (default-deny for AI). */
+const splitByAi = (ids: string[], roster: FacilitatorRosterEntry[]) => {
+  const ai = new Set(roster.filter((e) => e.ai === true).map((e) => e.roleId));
+  return { missing: ids.filter((i) => !ai.has(i)), aiWaiting: ids.filter((i) => ai.has(i)) };
+};
 
 // ---- reads ----
 
@@ -259,6 +271,7 @@ export async function handleConsoleReadiness(
     roster: [] as FacilitatorRosterEntry[],
     canStart: false,
     missing: [] as string[],
+    aiWaiting: [] as string[],
   };
   if (info.status !== "running") return ok(unknown);
   let joined: { roster: FacilitatorRosterEntry[]; status: SessionStatus };
@@ -277,13 +290,18 @@ export async function handleConsoleReadiness(
   }
   const roster = joined.roster.map(entryOf);
   const missing = notReady(roster);
+  const aiWaiting = aiNotJoined(roster);
   return ok({
     ...base,
     status: joined.status,
     roster,
     canStart:
-      joined.status === "idle" && roster.length > 0 && missing.length === 0,
+      joined.status === "idle" &&
+      roster.length > 0 &&
+      missing.length === 0 &&
+      aiWaiting.length === 0,
     missing,
+    aiWaiting,
   });
 }
 
@@ -517,18 +535,24 @@ export async function handleConsoleStart(
     case "refused": {
       if (outcome.code === "seats_not_ready") {
         const parsed = rolesIn(outcome.message);
-        const missing =
+        const roster = outcome.roster.map(entryOf);
+        const ids =
           parsed.length > 0
             ? parsed
-            : notReady(outcome.roster.map(entryOf)).slice(0, MAX_MISSING);
+            : [...notReady(roster), ...aiNotJoined(roster)].slice(0, MAX_MISSING);
         return fail(
           409,
           "conflict",
           "Not everyone has joined and consented yet.",
           undefined,
-          { started: false, reason: "seats_not_ready", missing },
+          { started: false, reason: "seats_not_ready", ...splitByAi(ids, roster) },
         );
       }
+      if (outcome.code === "ai_notice")
+        return fail(409, "ai_notice", AI_COPY.ai_notice.text, undefined, {
+          started: false,
+          reason: "ai_notice",
+        });
       if (outcome.code === "already_started")
         return fail(409, "conflict", "The session has already started.");
       log("the session runtime refused the start");

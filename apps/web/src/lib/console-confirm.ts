@@ -39,12 +39,13 @@ export function audienceText(labels: string[]): string {
 /** "Name (Role label)" for a seated player, "Role label" for an empty seat, "... (AI character)" for an AI character. */
 export function who(
   roleId: string,
-  o: { names: Record<string, string>; ai: boolean },
+  o: { names: Record<string, string>; ai: boolean; aiPlayer?: boolean },
 ): string {
   const label = roleLabel(roleId);
-  const name = o.names[roleId];
+  const name = o.aiPlayer ? undefined : o.names[roleId];
   const base = name ? `${isolate(name)} (${label})` : label;
-  return o.ai ? `${base} (AI character)` : base;
+  const marked = o.aiPlayer ? `${base} (AI player)` : base;
+  return o.ai ? `${marked} (AI character)` : marked;
 }
 
 export function confirmCopy(s: ConfirmSubject): ConfirmCopy {

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ControlConfig } from "../config.js";
-import { CODES, FakeChild, READY, flush, sid } from "./fake-child.js";
+import { AI_CONFIG, CODES, FakeChild, READY, flush, sid } from "./fake-child.js";
 import { dirMode } from "./read-once.js";
 import { SessionList } from "../session-list.js";
 import { ControlError, Supervisor, type SetTimer, type SpawnFn } from "../supervisor.js";
@@ -25,7 +25,7 @@ beforeEach(() => {
   mkdirSync(path.join(scenariosDir, "other"), { recursive: true });
   config = {
     port: 1, serviceToken: "t".repeat(40), maxSessions: 3, dataDir: root, sessionsDir: path.join(root, "sessions"),
-    listFile: path.join(root, "sessions.json"), scenariosDir, logDir: path.join(root, "child-logs"), graceMs: 777, readyTimeoutMs: 5000,
+    listFile: path.join(root, "sessions.json"), scenariosDir, logDir: path.join(root, "child-logs"), graceMs: 777, readyTimeoutMs: 5000, ...AI_CONFIG,
   };
   mkdirSync(config.sessionsDir, { recursive: true });
   list = new SessionList(config.listFile);

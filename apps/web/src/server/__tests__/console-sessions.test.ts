@@ -516,6 +516,7 @@ describe("console session API", () => {
         roster: [],
         canStart: false,
         missing: [],
+        aiWaiting: [],
       });
     }
     expect(launcher.facilitator).not.toHaveBeenCalled();
@@ -562,6 +563,7 @@ describe("console session API", () => {
       roster: [],
       canStart: false,
       missing: [],
+      aiWaiting: [],
     });
   });
 
@@ -622,6 +624,7 @@ describe("console session API", () => {
       started: false,
       reason: "seats_not_ready",
       missing: ["b", "c"],
+      aiWaiting: [],
     });
     expect(JSON.stringify(body)).not.toContain("script");
     expect(conn.sent).toEqual([{ type: "start" }]);
@@ -646,7 +649,89 @@ describe("console session API", () => {
       started: false,
       reason: "seats_not_ready",
       missing: ["b"],
+      aiWaiting: [],
     });
+  });
+
+  const aiSeat = (roleId: string, joined: boolean): FacilitatorRosterEntry => ({
+    ...seat(roleId, joined, false),
+    ai: true,
+  });
+  const refuse = (message: string, code = "seats_not_ready") => {
+    conn.onSend = (m, c) => {
+      if (m.type === "start")
+        queueMicrotask(() => c.emit({ type: "error", code, message }));
+    };
+  };
+
+  it("readiness lists an AI seat with ai true, counts it in aiWaiting until joined and never in missing", async () => {
+    const a = await api();
+    conn = new FakeFacConn([seat("a", true, true), seat("b", true, true), aiSeat("tech_lead", false)]);
+    let d = (await json(await a.readiness(get(`/sessions/${SID}/readiness`)))).data;
+    expect(d.roster.find((e: { roleId: string }) => e.roleId === "tech_lead").ai).toBe(true);
+    expect(d.missing).toEqual([]);
+    expect(d.aiWaiting).toEqual(["tech_lead"]);
+    expect(d.canStart).toBe(false);
+    conn = new FakeFacConn([seat("a", true, true), seat("b", true, true), aiSeat("tech_lead", true)]);
+    d = (await json(await a.readiness(get(`/sessions/${SID}/readiness`)))).data;
+    expect(d.missing).toEqual([]);
+    expect(d.aiWaiting).toEqual([]);
+    expect(d.canStart).toBe(true);
+  });
+
+  it("an AI seat that joined but never consented does not keep a human missing, and a human not consented still does", async () => {
+    const a = await api();
+    conn = new FakeFacConn([seat("a", true, false), aiSeat("tech_lead", true)]);
+    const d = (await json(await a.readiness(get(`/sessions/${SID}/readiness`)))).data;
+    expect(d.missing).toEqual(["a"]);
+    expect(d.aiWaiting).toEqual([]);
+    expect(d.canStart).toBe(false);
+  });
+
+  it("readiness for a session with no AI roles has aiWaiting [] (also when not asked)", async () => {
+    const a = await api();
+    expect((await json(await a.readiness(get(`/sessions/${SID}/readiness`)))).data.aiWaiting).toEqual([]);
+    launcher.session.mockResolvedValueOnce({ sessionId: SID, scenarioId: "pitch", status: "stopped" });
+    expect((await json(await a.readiness(get(`/sessions/${SID}/readiness`)))).data.aiWaiting).toEqual([]);
+  });
+
+  it("a start refused \"seats_not_ready: b,tech_lead\" answers missing [b] and aiWaiting [tech_lead]", async () => {
+    const a = await api();
+    conn = new FakeFacConn([seat("a", true, true), seat("b", false, false), aiSeat("tech_lead", false)]);
+    refuse("seats_not_ready: b,tech_lead");
+    const res = await a.start(post(`/sessions/${SID}/start`));
+    expect(res.status).toBe(409);
+    expect((await json(res)).data).toEqual({ started: false, reason: "seats_not_ready", missing: ["b"], aiWaiting: ["tech_lead"] });
+  });
+
+  it("a refusal where all missing are AI answers missing [] and drops an id that is not an id", async () => {
+    const a = await api();
+    conn = new FakeFacConn([seat("a", true, true), aiSeat("tech_lead", false)]);
+    refuse("seats_not_ready: tech_lead,Tech Lead,<x>");
+    const body = await json(await a.start(post(`/sessions/${SID}/start`)));
+    expect(body.data).toEqual({ started: false, reason: "seats_not_ready", missing: [], aiWaiting: ["tech_lead"] });
+  });
+
+  it("the unparseable-message fallback splits the roster the same way", async () => {
+    const a = await api();
+    conn = new FakeFacConn([seat("a", true, false), aiSeat("tech_lead", false)]);
+    refuse("nope");
+    const body = await json(await a.start(post(`/sessions/${SID}/start`)));
+    expect(body.data).toEqual({ started: false, reason: "seats_not_ready", missing: ["a"], aiWaiting: ["tech_lead"] });
+  });
+
+  it("a start refused ai_notice answers 409 with the notice copy and does not wait for the timeout", async () => {
+    const a = await api();
+    refuse("ai_notice", "ai_notice");
+    const res = await a.start(post(`/sessions/${SID}/start`));
+    expect(res.status).toBe(409);
+    const body = await json(res);
+    expect(body.error).toEqual({
+      code: "ai_notice",
+      message: "This server's consent notice does not mention AI players. AI players need notice v2 or later.",
+    });
+    expect(body.data).toEqual({ started: false, reason: "ai_notice" });
+    expect(conn.closed).toBe(1);
   });
 
   it("start succeeds when session.started arrives and the socket is closed", async () => {
@@ -1000,6 +1085,24 @@ describe("console session API", () => {
       ],
       capacity: [429, "capacity", "The maximum number of sessions is running."],
       bad_request: [400, "bad_request", "The request could not be read."],
+      ai_role: [
+        409,
+        "ai_role",
+        "This role is played by an AI player. Switch it back to human first.",
+      ],
+      ai_notice: [
+        409,
+        "ai_notice",
+        "This server's consent notice does not mention AI players. AI players need notice v2 or later.",
+      ],
+      ai_started: [
+        409,
+        "ai_started",
+        "Roles can no longer be changed: the session has started.",
+      ],
+      ai_no_human: [409, "ai_no_human", "At least one role must stay human."],
+      ai_too_many: [409, "ai_too_many", "At most 8 roles can be AI players."],
+      ai_invalid: [400, "bad_request", "The request could not be read."],
     };
     for (const [reason, [status, code, message]] of Object.entries(
       expected,

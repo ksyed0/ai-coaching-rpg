@@ -1,10 +1,11 @@
+import { AI_CONFIG } from "./fake-child.js";
 import { describe, expect, it } from "vitest";
 import { buildChildEnv, CHILD_ENV_ALLOWLIST, CHILD_WS_MAX_CONNECTIONS, CHILD_WS_MAX_CONNECTIONS_PER_IP } from "../child-env.js";
 import type { ControlConfig } from "../config.js";
 
 const config: ControlConfig = {
   port: 8787, serviceToken: "x".repeat(40), maxSessions: 10, dataDir: "/data/control", sessionsDir: "/data/control/sessions",
-  listFile: "/data/control/sessions.json", scenariosDir: "/scen", logDir: "/data/control/child-logs", graceMs: 1, readyTimeoutMs: 1000,
+  listFile: "/data/control/sessions.json", scenariosDir: "/scen", logDir: "/data/control/child-logs", graceMs: 1, readyTimeoutMs: 1000, ...AI_CONFIG,
 };
 const TOKEN = "ab".repeat(32);
 const build = (parentEnv: NodeJS.ProcessEnv, token = TOKEN) =>
