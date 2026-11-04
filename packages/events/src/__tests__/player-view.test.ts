@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialState, reduce, initPlayerView, applyPlayerEvent, type PlayerView, type SessionEvent, type SessionState } from "../index.js";
+import { initialState, reduce, initPlayerView, applyPlayerEvent, type PlayerSnapshot, type PlayerView, type SessionEvent, type SessionState } from "../index.js";
 
 const env = (seq: number, ts = 1_000 + seq) => ({ seq, ts, sessionId: "s1" });
 const started: SessionEvent = { ...env(1), type: "session.started", scenarioId: "sc", version: "1", roles: { me: { kind: "player" }, npc: { kind: "npc" } } };
@@ -8,9 +8,12 @@ const said = (seq: number, text = "hi"): SessionEvent => ({ ...env(seq), type: "
 const cmd = (seq: number, ts: number, command: "pause" | "resume"): SessionEvent => ({ seq, ts, sessionId: "s1", type: "facilitator.command", command });
 
 /** The redacted join snapshot of a player (what SessionHost.snapshotFor returns): roles reduced to kinds, no internals. */
-const snapshot = (over: Partial<SessionState> = {}): SessionState => ({ ...initialState(), status: "running", lastSeq: 5, scenarioId: "sc", version: "1",
+const snapshot = (over: Partial<PlayerSnapshot> = {}): PlayerSnapshot => ({ ...initialState(), whispers: [], status: "running", lastSeq: 5, scenarioId: "sc", version: "1",
   roles: { me: { kind: "player" } }, currentScene: { id: "s1", enteredAt: 1_002, participants: ["me"], pausedMs: 40 },
   transcript: [{ seq: 3, ts: 1_003, sceneId: "s1", roleId: "me", text: "earlier", channel: "text" }], injectsFired: ["i1"], ...over });
+
+/** A snapshot of a session that has not started. */
+const idle = (): PlayerSnapshot => ({ ...initialState(), whispers: [] });
 
 describe("initPlayerView", () => {
   it("initPlayerView takes the redacted snapshot as is", () => {
@@ -20,10 +23,10 @@ describe("initPlayerView", () => {
   });
   it("initPlayerView takes aiRoles from the snapshot and [] when absent", () => {
     expect(initPlayerView(snapshot({ aiRoles: ["them"] })).aiRoles).toEqual(["them"]);
-    const bare = snapshot() as Partial<SessionState>;
+    const bare = snapshot() as Partial<PlayerSnapshot>;
     delete bare.aiRoles;
-    expect(initPlayerView(bare as SessionState).aiRoles).toEqual([]);
-    expect(initPlayerView({ ...snapshot(), aiRoles: ["ok", 5] } as unknown as SessionState).aiRoles).toEqual(["ok"]);
+    expect(initPlayerView(bare as PlayerSnapshot).aiRoles).toEqual([]);
+    expect(initPlayerView({ ...snapshot(), aiRoles: ["ok", 5] } as unknown as PlayerSnapshot).aiRoles).toEqual(["ok"]);
   });
 });
 
@@ -53,8 +56,32 @@ describe("applyPlayerEvent", () => {
   it("a whisper that reached this player is shown with the updates; it changes nothing else", () => {
     const v0 = initPlayerView(snapshot());
     const v = applyPlayerEvent(v0, { ...env(6), type: "facilitator.command", command: "whisper", roleId: "me", text: "Keep the price out" });
-    expect(v.injects).toEqual([{ seq: 6, content: "Keep the price out", sceneId: "s1" }]);
+    expect(v.injects).toEqual([{ seq: 6, content: "Keep the price out", sceneId: "s1", private: true }]);
     expect({ ...v, injects: [], lastSeq: v0.lastSeq }).toEqual(v0);
+  });
+  it("BUG-0023: the player's own whispers in the snapshot are private updates, in seq order, kept once", () => {
+    const v = initPlayerView(snapshot({ whispers: [{ seq: 4, sceneId: "s1", text: "second" }, { seq: 2, sceneId: null, text: "first" }, { seq: 4, sceneId: "s1", text: "dup" }] }));
+    expect(v.injects).toEqual([{ seq: 2, content: "first", sceneId: "", private: true }, { seq: 4, content: "second", sceneId: "s1", private: true }]);
+  });
+  it("BUG-0023: a snapshot without whispers (an older runtime) or with a malformed list gives none", () => {
+    const old = snapshot() as Partial<PlayerSnapshot>;
+    delete old.whispers;
+    expect(initPlayerView(old as PlayerSnapshot).injects).toEqual([]);
+    expect(initPlayerView({ ...snapshot(), whispers: "no" } as unknown as PlayerSnapshot).injects).toEqual([]);
+    const bad = [null, 7, { seq: "x", text: "a" }, { seq: 3, text: 9 }, { seq: 1.5, text: "b" }, { seq: 5, text: "ok" }];
+    expect(initPlayerView({ ...snapshot(), whispers: bad } as unknown as PlayerSnapshot).injects).toEqual([{ seq: 5, content: "ok", sceneId: "", private: true }]);
+  });
+  it("BUG-0023: the same whisper delivered again by the replay after the snapshot is shown once", () => {
+    const v0 = initPlayerView(snapshot({ lastSeq: 7, whispers: [{ seq: 6, sceneId: "s1", text: "once" }] }));
+    const v1 = applyPlayerEvent(v0, { ...env(6), type: "facilitator.command", command: "whisper", roleId: "me", text: "once" });
+    expect(v1).toBe(v0);
+    expect(v1.injects).toHaveLength(1);
+  });
+  it("BUG-0023: a whisper kept by the snapshot and a later live one are both shown, in order, with an inject between them", () => {
+    let v = initPlayerView(snapshot({ lastSeq: 6, whispers: [{ seq: 6, sceneId: "s1", text: "w1" }] }));
+    v = applyPlayerEvent(v, { ...env(7), type: "inject.fired", injectId: "i2", sceneId: "s1", to: ["me"], content: "Note" });
+    v = applyPlayerEvent(v, { ...env(8), type: "facilitator.command", command: "whisper", roleId: "me", text: "w2" });
+    expect(v.injects.map((x) => [x.seq, x.content, x.private ?? false])).toEqual([[6, "w1", true], [7, "Note", false], [8, "w2", true]]);
   });
   it("scene.entered and scene.exited set and clear the scene", () => {
     let v = applyPlayerEvent(initPlayerView(snapshot({ currentScene: null })), entered(6, 2_000));
@@ -102,7 +129,7 @@ describe("applyPlayerEvent", () => {
     expect(v).toMatchObject({ status: "ended", ended: { reason: "script_complete" }, scene: null });
   });
   it("session.started marks the session running and keeps no roles", () => {
-    const v = applyPlayerEvent(initPlayerView({ ...initialState() }), started);
+    const v = applyPlayerEvent(initPlayerView(idle()), started);
     expect(v.status).toBe("running");
     expect(JSON.stringify(v)).not.toContain("participantId");
     expect(v).not.toHaveProperty("roles");
@@ -154,7 +181,7 @@ const projectView = (v: PlayerView) => ({ paused: v.paused, pausedSince: v.pause
 describe("applyPlayerEvent against reduce", () => {
   it("agrees with reduce on every prefix of many random gap-free sequences", () => {
     for (let seed = 1; seed <= 400; seed++) {
-      let s = initialState(); let v = initPlayerView(s);
+      let s = initialState(); let v = initPlayerView(idle());
       for (const e of randomSequence(seed, 40)) {
         s = reduce(s, e); v = applyPlayerEvent(v, e);
         expect(projectView(v), `seed ${seed} seq ${e.seq} ${e.type}`).toEqual(projectState(s));
@@ -165,7 +192,7 @@ describe("applyPlayerEvent against reduce", () => {
     for (let seed = 1; seed <= 200; seed++) {
       const rnd = prng(seed * 7919);
       const kept = randomSequence(seed, 40).filter(() => rnd() < 0.6);
-      let v = initPlayerView(initialState());
+      let v = initPlayerView(idle());
       for (const e of kept) v = applyPlayerEvent(v, e);
       expect(v.lastSeq).toBe(kept.at(-1)?.seq ?? 0);
       expect(Number.isFinite(v.pausedSince ?? 0)).toBe(true);

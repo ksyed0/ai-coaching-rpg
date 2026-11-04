@@ -37,6 +37,7 @@ const TODAYS_PLAYER_SNAPSHOT = {
     { seq: 5, ts: 0, sceneId: "s1_open", roleId: "guest", text: "Hello host, lovely to be here", channel: "text" },
   ],
   injectsFired: [], npcs: {}, advanceRequested: false, gmVerdicts: {}, factsEarned: {}, aiRoles: [],
+  whispers: [], // BUG-0023: the one deliberate addition since the pin was taken; empty without a whisper
 };
 
 const events = (engine: SessionEngine): SessionEvent[] => {
@@ -77,6 +78,33 @@ describe("player copies (a new field is denied until it is listed)", () => {
     const base = { type: "session.started", seq: 1, ts: 1, sessionId: "s", scenarioId: "sc", version: "1", roles: { a: { kind: "player" } } } as StartedEvent;
     expect(Object.hasOwn(startedForPlayer(base, "a"), "aiRoles")).toBe(false);
     expect(Object.hasOwn(startedForPlayer({ ...base, aiRoles: [] }, "a"), "aiRoles")).toBe(false);
+  });
+
+  it("BUG-0023: a whisper is in the addressed player's snapshot as seq, sceneId and text only, and in nobody else's", async () => {
+    const { host, engine } = await running();
+    await host.command({ command: "resume" });
+    await host.command({ command: "whisper", roleId: "host", text: "Keep the price out" }, { by: "LEAK-BY" });
+    const mine = host.snapshotFor("host");
+    expect(mine.whispers).toEqual([{ seq: engine.state.lastSeq, sceneId: "s1_open", text: "Keep the price out" }]);
+    expect(Object.keys(mine.whispers[0]!).sort()).toEqual(["sceneId", "seq", "text"]);
+    expect(JSON.stringify(mine)).not.toMatch(/LEAK-BY|"by"|"ref"|"ack"/);
+    expect(host.snapshotFor("guest").whispers).toEqual([]);
+    expect(JSON.stringify(host.snapshotFor("guest"))).not.toContain("Keep the price out");
+    expect(Array.isArray(mine.whispers)).toBe(true); // a list for this player, never the record keyed by role
+    // the facilitator's snapshot is the state whole (it sent the whisper)
+    expect(host.snapshotFor("facilitator").whispers.host).toHaveLength(1);
+  });
+
+  it("BUG-0023: with two players each snapshot holds only its own whispers, and an unknown or prototype-named viewer gets none", () => {
+    let st = reduce(initialState(), { type: "session.started", seq: 1, ts: 1, sessionId: "s", scenarioId: "sc", version: "1", roles: { a: { kind: "player" }, b: { kind: "player" }, n: { kind: "npc" } } } as StartedEvent);
+    st = reduce(st, { type: "scene.entered", seq: 2, ts: 2, sessionId: "s", sceneId: "s1", participants: ["a", "n"] });
+    st = reduce(st, { type: "facilitator.command", seq: 3, ts: 3, sessionId: "s", command: "whisper", roleId: "a", text: "TO-A" });
+    st = reduce(st, { type: "facilitator.command", seq: 4, ts: 4, sessionId: "s", command: "whisper", roleId: "b", text: "TO-B" });
+    expect(snapshotForPlayer(st, "a").whispers).toEqual([{ seq: 3, sceneId: "s1", text: "TO-A" }]);
+    expect(snapshotForPlayer(st, "b").whispers).toEqual([{ seq: 4, sceneId: null, text: "TO-B" }]);
+    expect(JSON.stringify(snapshotForPlayer(st, "a"))).not.toContain("TO-B");
+    expect(JSON.stringify(snapshotForPlayer(st, "b"))).not.toContain("TO-A");
+    for (const who of ["n", "ghost", "__proto__", "constructor", "toString"]) expect(snapshotForPlayer(st, who).whispers).toEqual([]);
   });
 
   it("the facilitator snapshot carries talk and no player snapshot does", async () => {

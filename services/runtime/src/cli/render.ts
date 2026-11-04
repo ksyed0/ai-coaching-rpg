@@ -151,6 +151,17 @@ export function renderNewReleases(e: Extract<SessionEvent, { type: "npc.updated"
   });
 }
 
+/** BUG-0023: the whispers of a `joined` snapshot, or [] for anything that is not a list of {seq, text}. Total: a bad entry is dropped. */
+function parseWhispers(v: unknown): { seq: number; text: string }[] {
+  if (!Array.isArray(v)) return [];
+  const out: { seq: number; text: string }[] = [];
+  for (const w of v as unknown[]) {
+    const x = w as { seq?: unknown; text?: unknown } | null;
+    if (typeof x === "object" && x !== null && typeof x.seq === "number" && Number.isSafeInteger(x.seq) && typeof x.text === "string") out.push({ seq: x.seq, text: x.text });
+  }
+  return out;
+}
+
 export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>, ai: ReadonlySet<string> = parseAiRoles(m.state?.aiRoles)): string[] {
   const lines = [`joined as ${s(m.roleId)}`]; // never the reconnect token
   if (m.notice) lines.push(`warning: ${s(m.notice)}`);
@@ -168,11 +179,20 @@ export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>, ai: 
   const all = m.state?.transcript ?? [];
   // The server already filtered the transcript to what this viewer may see; it still goes through sanitizeText (R26).
   const transcript = replay?.complete ? all.filter((u) => u.seq <= replay.afterSeq) : all;
-  if (transcript.length > 0) {
+  // BUG-0023: the whispers sent to this player are in their snapshot (a player's only; the server never lists another role's). They print in seq order
+  // among the history lines, with the same [whisper] label a live one has, and the replay's range is skipped like the transcript's.
+  const whispers = parseWhispers(m.state?.whispers).filter((w) => !replay?.complete || w.seq <= replay.afterSeq).slice(-MAX_HISTORY_LINES);
+  if (transcript.length > 0 || whispers.length > 0) {
     const shown = transcript.slice(-MAX_HISTORY_LINES);
     lines.push("--- history ---");
     if (transcript.length > shown.length) lines.push(`(+${transcript.length - shown.length} earlier lines)`);
-    for (const u of shown) lines.push(`${speaker(u.roleId, m.roleId, ai)}: ${s(u.text)}`);
+    const firstShown = shown[0]?.seq ?? 0;
+    const items = [
+      ...shown.map((u) => ({ seq: u.seq, line: `${speaker(u.roleId, m.roleId, ai)}: ${s(u.text)}` })),
+      // A whisper older than the oldest line shown would float to the top of a truncated history: keep it only when it falls inside the shown range.
+      ...whispers.filter((w) => transcript.length === shown.length || w.seq > firstShown).map((w) => ({ seq: w.seq, line: `[whisper] ${s(w.text)}` })),
+    ].sort((x, y) => x.seq - y.seq);
+    for (const it of items) lines.push(it.line);
   }
   if (replay?.complete) lines.push(`(catching up: ${replay.events} missed event${replay.events === 1 ? "" : "s"} follow)`);
   else if (replay) lines.push("(too much was missed to replay it: the history above is what you may see; earlier injects and whispers are not shown)");

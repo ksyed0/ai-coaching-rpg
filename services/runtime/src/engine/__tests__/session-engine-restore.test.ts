@@ -79,6 +79,24 @@ describe("restore: replay equals live state (property)", () => {
   }
 });
 
+describe("whispers on restore (BUG-0023)", () => {
+  it("the restored per-role whispers equal the live ones, in order, with the scene each arrived in", async () => {
+    const log = new MemoryEventLog("whispers");
+    const clock = new FakeClock(T0);
+    const live = new SessionEngine({ scenario, log, clock });
+    await live.start({ host: "p1" });
+    await live.command({ command: "whisper", roleId: "host", text: "first" }, { by: "Dana" });
+    await live.command({ command: "pause" });
+    await live.command({ command: "whisper", roleId: "host", text: "second" });
+    const again = new SessionEngine({ scenario, log, clock: new FakeClock(T0) });
+    await again.restore();
+    expect(again.state.whispers).toEqual(live.state.whispers);
+    expect(again.state.whispers["host"]!.map((w) => w.text)).toEqual(["first", "second"]);
+    expect(again.state.whispers["host"]![0]!.sceneId).toBe(live.state.currentScene?.id);
+    expect(JSON.stringify(again.state.whispers)).not.toContain("Dana");
+  });
+});
+
 describe("talk time on restore (US-0059)", () => {
   it("the restored talk equals the live talk", async () => {
     const log = new MemoryEventLog("talk");

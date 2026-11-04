@@ -11,7 +11,7 @@ import { asConn, FakeConn, manualTimers, parseSse, sseRecorder } from "./fakes";
 const state = (lastSeq = 5): SessionState => ({
   status: "running", lastSeq, scenarioId: "sc", version: "1", roles: { lead: { kind: "player", participantId: "P-SECRET" } },
   currentScene: null, sceneHistory: [], paused: false, pausedSince: null, transcript: [], injectsFired: [],
-  npcs: { npc: { goals: ["GOAL-SECRET"], knowledge: [], released: [] } }, advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [],
+  npcs: { npc: { goals: ["GOAL-SECRET"], knowledge: [], released: [] } }, advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [], whispers: {}, whisperFloor: {},
 });
 const entries: FacilitatorRosterEntry[] = [{ roleId: "lead", name: "Ann", joined: true, consented: true, connected: true }];
 const scenes = [{ id: "a", title: "T", goal: "G", timeBoxMinutes: 5 }];
@@ -328,6 +328,21 @@ describe("FacilitatorHub", () => {
     expect(ends).toBe(1);
     expect(conn.closed).toBe(1);
     expect(chunks.join("")).toContain("event: reconnecting");
+    clean(timers, conn, h);
+  });
+
+  it("a replay flushed right after the opening is part of the opening; a stall after it still ends the stream (BUG-0024)", () => {
+    const timers = manualTimers();
+    const h = new FacilitatorHub({ setTimer: timers.setTimer, now: () => 0, maxPendingBytes: 1_200 });
+    const chunks: string[] = []; let ends = 0;
+    const conn = new FakeConn();
+    for (let i = 6; i <= 15; i++) conn.queued.push({ type: "event", event: { ...ev(i), text: "x".repeat(400) } } as ServerMessage); // ~5 KB of replay
+    h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: join({ replay: { afterSeq: 5, toSeq: 15, events: 10, complete: true } }), out: { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } } });
+    expect(chunks.filter((c) => c.includes("event: event"))).toHaveLength(10); // the whole replay is delivered, in order
+    expect(ends).toBe(0);
+    for (let i = 16; i <= 18; i++) conn.emit({ type: "event", event: { ...ev(i), text: "x".repeat(400) } } as ServerMessage);
+    expect(ends).toBe(1);
+    expect(chunks.at(-1)).toContain("event: reconnecting");
     clean(timers, conn, h);
   });
 

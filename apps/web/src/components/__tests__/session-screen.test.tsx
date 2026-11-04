@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SessionScreen } from "../SessionScreen";
 import { MESSAGES } from "../../lib/messages";
-import { FakeClock, FakeEventSource, ev, fakeFetch, joinedFrame, snapshot } from "../../lib/__tests__/fakes";
+import { FakeClock, FakeEventSource, ev, fakeFetch, joinedFrame, playerSnapshot, snapshot } from "../../lib/__tests__/fakes";
 
 afterEach(cleanup);
 beforeEach(() => FakeEventSource.reset());
@@ -75,6 +75,23 @@ describe("SessionScreen", () => {
     emit(m.es(), "event", ev(9, "inject.fired", { injectId: "i1", sceneId: "s2", to: ["account_manager"], content: "Email from the CFO." }, T + 4_000));
     expect(screen.getByText("Email from the CFO.")).toBeTruthy();
     expect(m.container.querySelectorAll("[style]")).toHaveLength(0);
+  });
+
+  it("BUG-0023: a whisper shows as Private under Updates; after a reload (a new page, the join snapshot) it is shown once, also when the replay repeats it", () => {
+    const T = 10_000_000 - 60_000;
+    const m = mount();
+    emit(m.es(), "joined", joinedFrame({ state: snapshot({ status: "running", lastSeq: 5 }), consent: { noticeVersion: "v1", notice: "n", given: true } }));
+    emit(m.es(), "event", ev(6, "facilitator.command", { command: "whisper", roleId: "account_manager", text: "Keep the price out" } as never, T));
+    const updates = () => screen.getAllByText(/Keep the price out/).map((e) => e.closest("li")!.textContent);
+    expect(updates()).toEqual(["Private: Keep the price out"]);
+    cleanup(); FakeEventSource.reset();
+    // The reloaded page: nothing but the runtime's join snapshot (with the whisper) and a replay that repeats the same event.
+    const r = mount();
+    const state = playerSnapshot({ status: "running", lastSeq: 6, whispers: [{ seq: 6, sceneId: null, text: "Keep the price out" }] });
+    emit(r.es(), "joined", joinedFrame({ state, consent: { noticeVersion: "v1", notice: "n", given: true }, replay: { afterSeq: 5, toSeq: 6, events: 1, complete: true } }));
+    emit(r.es(), "event", ev(6, "facilitator.command", { command: "whisper", roleId: "account_manager", text: "Keep the price out" } as never, T));
+    expect(updates()).toEqual(["Private: Keep the price out"]);
+    expect(screen.getAllByText("Private")).toHaveLength(1);
   });
 
   it("after the end the transcript stays, the end is announced, there is no say box and the stream is closed", () => {
