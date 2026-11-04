@@ -85,14 +85,133 @@ describe("authentication", () => {
     expect(r.json.error.code).toBe("not_found");
   });
 
-  it("no control route sets AI roles: POST and PUT /sessions/:id/ai-roles with a valid X-Service-Token are 404 (routing, not 401)", async () => {
+  it("POST /sessions/:id/ai-roles is 404 (method not routed) and nothing is called", async () => {
     const { sup, calls } = stub();
     const port = await boot(sup);
-    for (const m of ["POST", "PUT"]) {
-      const r = await call(port, m, `/sessions/${ID}/ai-roles`, { body: JSON.stringify({ roles: ["cfo"] }) });
-      expect(r.status, m).toBe(404);
-    }
+    const r = await call(port, "POST", `/sessions/${ID}/ai-roles`, { body: JSON.stringify({ roles: ["cfo"] }) });
+    expect(r.status).toBe(404);
     expect(calls).toEqual([]);
+  });
+
+  describe("AI roles and intents routes", () => {
+    const AI_CODE = "ai-secret-code-1";
+    const aiStub = (over: Partial<Record<string, (...a: any[]) => unknown>> = {}) => stub({
+      setAiRoles: (_id: string, roles: string[]) => Promise.resolve({ roles, codes: [] }),
+      intents: () => [{ at: 1, kind: "spoke", text: "hello" }],
+      ...over,
+    });
+    const put = (port: number, body: unknown, o: { token?: string | null; path?: string } = {}) =>
+      call(port, "PUT", o.path ?? `/sessions/${ID}/ai-roles`, { body: typeof body === "string" ? body : JSON.stringify(body), ...(o.token !== undefined ? { token: o.token } : {}) });
+
+    it("PUT without the service token is 401 and calls nothing; GET intents too", async () => {
+      const { sup, calls } = aiStub();
+      const port = await boot(sup);
+      expect((await put(port, { roles: ["tech_lead"] }, { token: null })).status).toBe(401);
+      expect((await call(port, "GET", `/sessions/${ID}/ai-roles/tech_lead/intents`, { token: "x".repeat(40) })).status).toBe(401);
+      expect(calls).toEqual([]);
+    });
+
+    it("PUT with {roles:[tech_lead]} answers roles and an empty codes list", async () => {
+      const { sup, calls } = aiStub();
+      const port = await boot(sup);
+      const r = await put(port, { roles: ["tech_lead"] });
+      expect(r.status).toBe(200);
+      expect(r.json).toEqual({ success: true, data: { roles: ["tech_lead"], codes: [] }, error: null });
+      expect(calls).toEqual([{ name: "setAiRoles", args: [ID, ["tech_lead"]] }]);
+    });
+
+    it("PUT passes the supervisor's human codes through and never an AI code", async () => {
+      const { sup } = aiStub({ setAiRoles: () => Promise.resolve({ roles: ["tech_lead"], codes: [{ roleId: "cfo", code: CODE }] }) });
+      const port = await boot(sup);
+      const r = await put(port, { roles: ["tech_lead"] });
+      expect(r.json.data).toEqual({ roles: ["tech_lead"], codes: [{ roleId: "cfo", code: CODE }] });
+      expect(r.text).not.toContain(AI_CODE);
+    });
+
+    it("PUT with an extra key, 13 roles, a non-array or a bad body is 400 and calls nothing", async () => {
+      const { sup, calls } = aiStub();
+      const port = await boot(sup);
+      for (const body of [{ roles: [], x: 1 }, { roles: Array.from({ length: 13 }, (_, i) => `r${i}`) }, { roles: "tech_lead" }, { roles: [""] }, { roles: ["a".repeat(201)] }, "{nope", {}]) {
+        expect((await put(port, body)).status, JSON.stringify(body).slice(0, 40)).toBe(400);
+      }
+      expect(calls).toEqual([]);
+    });
+
+    it("the AI refusals answer with their own code and status", async () => {
+      const cases: [ControlErrorCode, number][] = [["ai_too_many", 409], ["ai_notice", 409], ["ai_started", 409], ["ai_no_human", 409], ["ai_invalid", 400], ["ai_role", 409]];
+      for (const [code, status] of cases) {
+        const { sup } = aiStub({ setAiRoles: () => Promise.reject(new ControlError(code, "fixed text")) });
+        const port = await boot(sup);
+        const r = await put(port, { roles: ["tech_lead"] });
+        expect([r.status, r.json.error.code, r.json.error.message]).toEqual([status, code, "fixed text"]);
+      }
+    });
+
+    it("reissue and remove of an AI role answer 409 ai_role through the routes", async () => {
+      const { sup } = aiStub({ reissue: () => Promise.reject(new ControlError("ai_role", "switch the role back to human first")) });
+      const port = await boot(sup);
+      for (const body of [{ roleId: "tech_lead" }, { roleId: "tech_lead", reason: "removed" }]) {
+        const r = await call(port, "POST", `/sessions/${ID}/codes/reissue`, { body: JSON.stringify(body) });
+        expect([r.status, r.json.error.code, r.json.error.message]).toEqual([409, "ai_role", "switch the role back to human first"]);
+      }
+    });
+
+    it("create, restart and reissueAll answer exactly what the supervisor returned (the route reconstructs no AI code)", async () => {
+      const human = [{ roleId: "cfo", code: CODE }];
+      const info = { sessionId: ID, scenarioId: "friday-escalation", status: "running", port: 4321, modelLabel: "mock" };
+      const { sup } = aiStub({
+        create: () => Promise.resolve({ ...info, codes: human }), restart: () => Promise.resolve({ ...info, codes: human }), reissueAll: () => Promise.resolve(human),
+        get: () => ({ ...info, aiRoles: ["tech_lead"] }),
+      });
+      const port = await boot(sup);
+      const texts = [
+        (await call(port, "POST", "/sessions", { body: JSON.stringify({ scenarioId: "friday-escalation" }) })).text,
+        (await call(port, "POST", `/sessions/${ID}/restart`)).text,
+        (await call(port, "POST", `/sessions/${ID}/codes/reissue`, { body: JSON.stringify({ all: true }) })).text,
+      ];
+      for (const t of texts) { expect(t).toContain(CODE); expect(t).not.toContain(AI_CODE); }
+    });
+
+    it("GET intents returns the host's entries", async () => {
+      const { sup, calls } = aiStub();
+      const port = await boot(sup);
+      const r = await call(port, "GET", `/sessions/${ID}/ai-roles/tech_lead/intents`);
+      expect(r.status).toBe(200);
+      expect(r.json).toEqual({ success: true, data: { entries: [{ at: 1, kind: "spoke", text: "hello" }] }, error: null });
+      expect(calls).toEqual([{ name: "intents", args: [ID, "tech_lead"] }]);
+    });
+
+    it("GET intents for a bad role segment or path trick is 404 and the host is never asked", async () => {
+      const { sup, calls } = aiStub();
+      const port = await boot(sup);
+      const paths = [
+        "..%2Fx", "Tech_Lead", "a%00b", "%zz", "%E0%A4%A", "%2e%2e", "a".repeat(300), "facilitator", "tech lead", "tech_lead%2F..%2Fx", "",
+      ].map((r) => `/sessions/${ID}/ai-roles/${r}/intents`);
+      paths.push(`/sessions/${ID}/ai-roles//intents`, `/sessions/${ID}/ai-roles/./intents`, `/sessions/${ID}/ai-roles/../intents`, `/sessions/${ID}//ai-roles/tech_lead/intents`);
+      for (const p of paths) {
+        const r = await call(port, "GET", p);
+        expect(r.status, p).toBe(404);
+        expect(r.json.error.code, p).toBe("not_found");
+      }
+      expect(calls.filter((c) => c.name === "intents")).toEqual([]);
+    });
+
+    it("GET intents of an unknown session is 404", async () => {
+      const { sup } = aiStub({ intents: () => { throw new ControlError("not_found", "that session does not exist"); } });
+      const port = await boot(sup);
+      expect((await call(port, "GET", `/sessions/${ID}/ai-roles/tech_lead/intents`)).status).toBe(404);
+      expect((await call(port, "GET", `/sessions/${"b".repeat(32)}/ai-roles/tech_lead/intents`)).status).toBe(404);
+    });
+
+    it("no log line of the new routes carries a code or a secret", async () => {
+      const logs: string[] = [];
+      const { sup } = aiStub({ setAiRoles: () => Promise.reject(new Error(`boom ${AI_CODE}`)) });
+      const port = await boot(sup, { log: (m) => logs.push(m) });
+      const r = await put(port, { roles: ["tech_lead"] });
+      expect(r.status).toBe(500);
+      expect(r.text).not.toContain(AI_CODE);
+      expect(logs.join("\n")).not.toContain(AI_CODE);
+    });
   });
 
   it("every response is JSON, uncacheable and uses the envelope", async () => {

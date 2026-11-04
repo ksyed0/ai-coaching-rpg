@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { isValidSessionId } from "@acr/events";
 import type { BotHost } from "./bots/bot-host.js";
+import type { IntentEntry } from "./bots/intent-log.js";
 import { buildChildEnv } from "./child-env.js";
 import type { ControlConfig } from "./config.js";
 import { readLogStatus } from "./log-tail.js";
@@ -553,6 +554,12 @@ export class Supervisor {
       } catch { throw new ControlError("conflict", "the codes were reissued but the AI roles could not be set again; set them again"); }
     }
     return issued.filter((c) => !ai.includes(c.roleId));
+  }
+
+  /** The validated intent-log entries of one AI role (the caller has already checked `roleId`); [] without a bot host. */
+  intents(id: string, roleId: string): IntentEntry[] {
+    if (!this.entryOf(id)) throw new ControlError("not_found", "that session does not exist");
+    return this.bots?.intents(id, roleId) ?? [];
   }
 
   /** Stops the session's bots and deletes its intent files; never awaited. */
