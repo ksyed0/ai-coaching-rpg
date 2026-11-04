@@ -1700,3 +1700,66 @@ Actual Result: As expected, 2026-11-04: step 1 5 files, 198 tests; step 2 7 file
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-3b, PR 2 (Tasks 13 to 18). AC-0321 stays open: reports and exports in 2b-3c and 2c. The terminal client labels AI seats and lines and does not refuse a terminal player's join (owner decision of 2026-11-03).
+
+TC-0110: A role is switched to an AI player and back from the readiness screen and the created-session panel, and only before the start
+Related Story: US-0060
+Related Task: TASK-0099
+Related AC: AC-0317
+Type: Regression
+Preconditions: A checkout of the branch; for step 2 the web app's end-to-end stack (`pnpm --filter @acr/web e2e`, a Chromium; set PLAYWRIGHT_CHROMIUM_EXECUTABLE when the pinned build is not installed).
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/Readiness.test.tsx src/components/__tests__/NewSessionForm.test.tsx src/lib/__tests__/console-confirm.test.ts` (Tasks 23: the switch on the readiness Code cell, idle sessions only, and the "Roles" card of the created panel; the whole wanted AI set is posted each time; a switched-to-AI role's code is removed from the one-time panels; the returned code of a role switched back is shown once; `ai_roles_unconfirmed` resynchronises from one roster read).
+  2. Run `pnpm --filter @acr/web e2e ai-players.spec.ts` (Task 25): "facilitator creates a session, makes Tech lead an AI player on the created panel (confirm), two players join and consent, readiness shows the AI player ready, Start succeeds, a player says a ...", "switching back to human shows New code for Tech lead once and the code joins the seat" and "Reissue is not offered for the AI row and a direct POST answers This role is played by an AI player. Switch it back to human first."
+Expected Result: any player role can be switched to an AI player and back to human on the readiness screen (before the start) and on the created-session panel; after the start the switch is not offered; an AI row has no Reissue or Remove; the returned code of a role switched back is shown once and the switched-to-AI role's code is never shown; against the real stack the AI player joins without consent and answers a player's line marked AI.
+Actual Result: As expected, 2026-11-04: step 1 3 files, 85 tests (all passed); step 2 the 3 named tests of ai-players.spec.ts passed; whole `pnpm --filter @acr/web e2e` run 2026-11-04: 35 passed in 4.0 min (Chromium headless shell 1223 via PLAYWRIGHT_CHROMIUM_EXECUTABLE).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3b, PR 3 (Tasks 23 and 25). The toggle is on the created-session panel after Create, not a pre-create choice (owner decision B10, 2026-11-03). Manual check not done; the whole screen is covered by the specs above.
+
+TC-0111: Switching a joined human to an AI player asks first, revokes their seat and credential, and switching back stops the bot and shows a new code once
+Related Story: US-0060
+Related Task: TASK-0099
+Related AC: AC-0318
+Type: Regression
+Preconditions: As TC-0110.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/supervisor.ai-roles.test.ts` (Task 11: the control service's switch, the credential revoked, the bot stopped and the intent file removed for a role switched back, the uncertain-role window).
+  2. From `apps/web`: `pnpm exec vitest run src/components/__tests__/Readiness.test.tsx src/components/__tests__/NewSessionForm.test.tsx src/lib/__tests__/console-confirm.test.ts` (Task 23: the confirmation for a joined person in a danger tone naming the person, the primary tone for an unjoined seat, the code shown once).
+  3. Run `pnpm --filter @acr/web e2e ai-players.spec.ts` (Task 25): "a joined player switched to AI sees Role filled by an AI player" and "switching back to human shows New code for Tech lead once and the code joins the seat".
+Expected Result: switching a joined human to AI shows a confirmation that names the person and warns that their seat and consent end; after it the person's page reads "Role filled by an AI player"; switching back stops the bot, issues a new code, shows it once and the code joins the seat.
+Actual Result: As expected, 2026-11-04: step 1 1 file, 34 tests; step 2 3 files, 85 tests (all passed); step 3 the 2 named tests of ai-players.spec.ts passed; whole `pnpm --filter @acr/web e2e` run 2026-11-04: 35 passed in 4.0 min (Chromium headless shell 1223 via PLAYWRIGHT_CHROMIUM_EXECUTABLE).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3b, PR 3 (Tasks 11, 23 and 25). The created panel has no "joined" information of its own, so it reads the roster once for the dialog tone and falls back to the danger tone when that read fails.
+
+TC-0112: Prompt AI player: reserve, logged command, run; the hint reaches only the model and the facilitator-only intent log
+Related Story: US-0060
+Related Task: TASK-0099
+Related AC: AC-0363
+Type: Regression
+Preconditions: As TC-0110.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/engine/__tests__/session-engine.test.ts src/engine/__tests__/session-engine-restore.test.ts src/host/__tests__/player-copies.test.ts src/host/__tests__/ws-server.ai-roles.test.ts src/cli/__tests__/render.test.ts` (Task 20: `prompt_ai` carries no hint, a `hint` key is `bad_message`, the refusals `not_started`, `ended`, `stale_scene`, `paused`, `not_ai_role`, `not_in_scene`, players never receive it, the restore fold counts it in `aiCalls`).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/bots/bot-host.prompt.test.ts src/__tests__/bots/bot.test.ts src/__tests__/api.test.ts src/__tests__/supervisor.bots.integration.test.ts` (Task 21: reserve, run and release, the policy hold, the 15 s expiry, the 5 s debounce, `ai_busy`, `ai_budget`, `ai_absent`, `ai_expired`, constant-time token, a prompted turn skips the gap, nudge and cap and takes a budget unit, the hint is in no log line, alert or error).
+  3. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-ai-prompt.test.ts src/server/__tests__/console-command.test.ts src/server/__tests__/launcher-client.test.ts src/server/__tests__/facilitator-copies.test.ts src/lib/__tests__/console-view.test.ts src/components/__tests__/AiPlayersPanel.test.tsx src/components/__tests__/SessionConsole.test.tsx` (Tasks 22 and 24: the BFF order reserve, command with its ack, run; release on every failure; 502 `ai_run_failed`; the hint only in the run call; the panel with the 300-code-point hint, Prompt AI player and the recent turns).
+  4. Run `pnpm --filter @acr/web e2e ai-players.spec.ts` (Task 25): "Prompt AI player with the hint HINT-MARKER-77 makes the AI player speak; no player page, no answer delivered to a player and not the console timeline holds the hint, and the recent turns list shows it".
+Expected Result: the facilitator can prompt an AI player with an optional private hint of at most 300 characters; the turn is reserved first, the prompt is logged without the hint, the turn runs only after the log succeeded, it skips the gap, the nudge and the scene cap but counts against the session's model budget, and the hint reaches only the model and the facilitator-only intent log: against the real stack the marker hint is on no player page, in no frame or response delivered to a player and not in the console timeline, and is shown in the recent turns list.
+Actual Result: As expected, 2026-11-04: step 1 5 files, 242 tests; step 2 4 files, 127 tests; step 3 7 files, 195 tests (all passed); step 4 the named test of ai-players.spec.ts passed; whole `pnpm --filter @acr/web e2e` run 2026-11-04: 35 passed in 4.0 min (Chromium headless shell 1223 via PLAYWRIGHT_CHROMIUM_EXECUTABLE).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3b, PR 3 (Tasks 20 to 22, 24 and 25). The reservation lasts 15 s by ruling (the plan said 10 s; the hub waits 10 s for the command's ack). `aiCalls` counts +1 for every `prompt_ai`, so a prompted line counts twice after a control-service restart (an over-count) and a skipped policy turn leaves no trace (an under-count). The console timeline does not hold the hint (the brief's test text said it did; the specification and the code say it does not).
+
+TC-0113: The AI toggle, its confirmations and the AI players panel pass Axe at laptop and phone width, light and dark
+Related Story: US-0060
+Related Task: TASK-0099
+Related AC: AC-0316
+Type: Accessibility
+Preconditions: As TC-0110; the facilitator pages at 1280 px and 400 px wide, in the light and the dark colour scheme.
+Steps:
+  1. Run `pnpm --filter @acr/web e2e console-flow.spec.ts` (Task 25: the Axe test is extended).
+  2. In that test, Axe and the page-width check run on the created panel with its AI switches, the switch-to-AI confirmation open, the created panel with an AI player, readiness with an AI row ready, the switch-to-human confirmation open, and the live view with the AI players panel (also with recent turns open), at each width and scheme.
+Expected Result: No Axe violation of serious or critical impact in any of the screens, widths and schemes, and the document is never wider than the viewport (no horizontal scroll).
+Actual Result: As expected, 2026-11-04: console-flow.spec.ts "Axe passes on /console, /console/new and /console/[id] (with an AI player: the created panel, the switch confirmation, the readiness row and the live view's AI players panel) at 400 px and laptop width, light and dark" passed; whole `pnpm --filter @acr/web e2e` run 2026-11-04: 35 passed in 4.0 min (Chromium headless shell 1223 via PLAYWRIGHT_CHROMIUM_EXECUTABLE).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3b, PR 3 (Task 25). Only serious and critical findings fail the check (AC-0296 reading, as TC-0099). Axe cannot judge keyboard order, announcements or focus return; those are unit-tested (ConfirmDialog, Readiness, AiPlayersPanel) and BUG-0022 (focus after End session and the other two cases) stays open.

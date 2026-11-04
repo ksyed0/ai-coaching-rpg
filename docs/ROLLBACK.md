@@ -129,7 +129,7 @@ Redeploy slice 2b-3a. If a build from before 3a has run a lobby meanwhile, move 
 ## EPIC-0002 slice 2b-3b: reachable AI seats (US-0060)
 
 ```
-Release: unreleased (feature/EPIC-0002-US-0060-bot-engine, then ...-ai-seats-reachable and ...-ai-toggle-prompt, each merged by its pull request; no release is tagged before slice 2b-3c)
+Release: unreleased (feature/EPIC-0002-US-0060-bot-engine, then ...-ai-seats-reachable and ...-ai-toggle-prompt, each merged by its pull request; no release is tagged before slice 2b-3c). PR 3 adds the toggle, Prompt AI player and the AI players panel
 Date: not deployed
 Rollback trigger: AI players misbehave or exhaust the model budget, a session with AI roles cannot start or resume, or the control service must go back to a build without a bot host.
 ```
@@ -139,11 +139,13 @@ Rollback trigger: AI players misbehave or exhaust the model budget, a session wi
 - **New directory `<CONTROL_DATA_DIR>/intents/`** (mode `0700`, files `0600`): the facilitator-only intent log, one `<sessionId>.<roleId>.jsonl` per AI role (at most 256 KiB each; a role's file is deleted when it goes back to human, a session's files on a whole-session reissue or a failed create; an ended session keeps them). An older control service ignores the directory. Delete it by hand when the sessions are gone.
 - **Join codes of AI roles are not on disk.** They live only in the control service's memory, so a restart of the control service reissues each AI role once (a post-start reissue skips the consent rebind). Nothing to migrate.
 - **No log-format change.** The log stays format 3 for a session with AI roles (3a); the runtime reads formats 0 to 3.
-
+- **New event content (PR 3): `facilitator.command` with `command: "prompt_ai"`** in the session log of a session where the facilitator used Prompt AI player (no hint, no free text). A 3a runtime that resumes such a log keeps the event type (`facilitator.command` is a known type, the log reader checks the type only) and its reducers fall through unknown commands without a change of state, so the event is folded as a no-op; the AI player's own lines are ordinary utterances. That is from reading the 3a reducers (`packages/events` `state.ts`, `player-view.ts`), not from running a 3a binary. A 3a runtime does not count the command in `ready.aiCalls`, so its rebuilt budget counts the utterances only. A build from before 3a never sees it: it refuses a format-3 log with `log_format` before reading an event.
+- **Reservations are not on disk.** A prompt reservation (a 32-hex token, valid `RESERVATION_TTL_MS` = 15 s, ruling: the hub waits 10 s for a command ack) lives in the control service's memory; a restart or a rollback of the control service drops it and nothing needs cleaning. The `RESERVATION_TTL` is a constant in `bots/bot-host.ts`, not a setting, so a rollback needs no environment change.
 ### Rolling back to 3a
 
 - **Format-3 logs stay readable.** A 3a runtime reads and resumes them.
 - **A 3a control service has no bot host.** The AI seats of a running session stay empty (no bot joins), so a lobby with AI roles cannot start (the start gate waits for the bots) until the roles are switched back to human; a started session with AI roles resumes but its AI players say nothing. Switch the roles back to human (or end the sessions) before the rollback if you can. A 3a web app has no AI routes, labels or readiness split; a 3a runtime's `ready` has no `aiCalls`, so the budget starts again.
+- **A 3b PR 2 web app** has no toggle, panel or prompt route: AI roles set through the API stay set and keep their bots; a control service of PR 2 has no reserve, run or release routes, so the prompt of a PR 3 web app could not work against it (roll the web app back with the control service).
 - **3b and 3c roll back together** (they are released together; before 3c the evaluator could score an AI seat individually).
 - Rolling back past 3a is as described for slice 2b-3a.
 

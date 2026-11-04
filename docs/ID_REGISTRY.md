@@ -5,8 +5,8 @@
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
 | TASK         | TASK-0100             | TASK-0099         |
-| AC           | AC-0363               | AC-0362           |
-| TC           | TC-0110               | TC-0109           |
+| AC           | AC-0364               | AC-0363           |
+| TC           | TC-0114               | TC-0113           |
 | BUG          | BUG-0024              | BUG-0023          |
 | L            | L-0032                | L-0031            |
 
@@ -59,3 +59,5 @@ Assigned 2026-11-03 (slice 2b-3b, PR 1): AC-0361 (US-0060: the live AI player's 
 Assigned 2026-11-04 (slice 2b-3b, PR 2): AC-0362 (US-0060: AI codes in control-service memory only, the reissue refusal, the notice gate, the rejoin of the bots after a runtime or control-service restart and the shared budget); TC-0107 (AC-0362), TC-0108 (AC-0320: the console readiness split) and TC-0109 (AC-0321: the labels and the facilitator-only intent log). No new TASK: the work is under TASK-0099 (next free stays TASK-0100).
 
 Assigned 2026-11-04 (slice 2b-3b, after PR 2): BUG-0020 (the bot socket overlap test flake, fixed), BUG-0021 (a lobby's AI roles can come back as human after a control-service restart, open), BUG-0022 (keyboard focus falls to the body after End session, a connection drop under a dialog or a 409 on Remove, open) and BUG-0023 (a whisper has no "private" label and is lost on reload, open). BUG-0022 and BUG-0023 record the two owner decisions of 2026-11-03.
+
+Assigned 2026-11-04 (slice 2b-3b, PR 3): AC-0363 (US-0060: the facilitator can prompt an AI player with an optional private hint; reserve, logged command, run; the hint only to the model and the intent log); TC-0110 (AC-0317), TC-0111 (AC-0318), TC-0112 (AC-0363) and TC-0113 (AC-0316: Axe on the toggle, the confirmations and the AI players panel). No new TASK: the work closes TASK-0099 (next free stays TASK-0100). Slice 2b-3b is complete; the next AC is AC-0364 and the next TC is TC-0114.
