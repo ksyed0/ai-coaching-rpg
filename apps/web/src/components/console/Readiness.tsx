@@ -171,11 +171,24 @@ export function Readiness({
     await act(
       () => setAiRoles(sessionId, wanted, fetchImpl),
       (d) => {
-        // A returned human code is shown once; an AI role never has one (the BFF sends human codes only).
-        const code = toAi ? undefined : parseAiAnswer(d).codes.find((c) => c.roleId === roleId);
-        if (code) show(`New code for ${roleLabel(roleId)}`, [code]);
+        // The answer is taken as a whole: no role that is AI now keeps a code on screen, and every code it returns is shown once.
+        const answer = parseAiAnswer(d);
+        const ai = new Set(answer.roles);
+        const fresh = answer.codes.filter((c) => !ai.has(c.roleId));
+        if (fresh.length > 0)
+          show(fresh.length === 1 ? `New code for ${roleLabel(fresh[0]!.roleId)}` : "New codes", fresh);
+        else
+          setShown((cur) => {
+            if (!cur) return cur;
+            const left = cur.codes.filter((c) => !ai.has(c.roleId));
+            return left.length === cur.codes.length ? cur : left.length === 0 ? null : { ...cur, seq: ++seq.current, codes: left };
+          });
       },
-      aiErrorText,
+      // A refused or unconfirmed change: the roster the message points to must be current.
+      (r) => {
+        refresh();
+        return aiErrorText(r);
+      },
     );
     setConfirm(null);
   }

@@ -9,7 +9,7 @@ export type AiRoleSwitchProps = {
   roleId: string;
   /** True when an AI player holds the seat now: the button offers the way back. */
   ai: boolean;
-  /** The participant's name and whether anyone has joined: the parent builds the confirmation from them; unused here. */
+  /** `name` and `joined` are part of the interface only: the button does not use them (the parent builds the confirmation from the roster). */
   name?: string;
   joined: boolean;
   disabled: boolean;

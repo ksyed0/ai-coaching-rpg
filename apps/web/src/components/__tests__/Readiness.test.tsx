@@ -876,8 +876,9 @@ describe("Readiness: switching roles to AI players and back", () => {
   });
 
   it("Make human posts the set without it and shows \"New code for Tech lead\" once", async () => {
+    // The runtime returns codes only for roles whose flag changed.
     const m = mount(readiness({ roster: [...ROSTER, AI("cfo")] }), {
-      "/ai-roles": { status: 200, body: ok({ roles: ["cfo"], codes: [{ roleId: "tech_lead", code: "TL-NEW" }, { roleId: "account_manager", code: "AM-OTHER" }] }) },
+      "/ai-roles": { status: 200, body: ok({ roles: ["cfo"], codes: [{ roleId: "tech_lead", code: "TL-NEW" }] }) },
     });
     await ready();
     fireEvent.click(sw("Make Tech lead human"));
@@ -889,7 +890,6 @@ describe("Readiness: switching roles to AI players and back", () => {
     expect(aiPosts(m)[0]!.body).toEqual({ roles: ["cfo"] });
     await screen.findByRole("heading", { name: "New code for Tech lead" });
     expect(screen.getByText("TL-NEW")).toBeTruthy();
-    expect(document.body.textContent).not.toContain("AM-OTHER");
     fireEvent.click(screen.getByRole("button", { name: "I have copied the codes" }));
     expect(document.body.textContent).not.toContain("TL-NEW");
   });
@@ -910,7 +910,7 @@ describe("Readiness: switching roles to AI players and back", () => {
     expect(aiPosts(m)).toHaveLength(1);
   });
 
-  it("an ai_notice answer shows the notice copy; with no message the client's own copy is used", async () => {
+  it("an ai_notice answer shows the notice copy", async () => {
     const notice = "This server's consent notice does not mention AI players. AI players need notice v2 or later.";
     const m = mount(readiness({ roster: ROSTER }), { "/ai-roles": { status: 409, body: refused("ai_notice", notice) } });
     await ready();
@@ -919,25 +919,69 @@ describe("Readiness: switching roles to AI players and back", () => {
       fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
     });
     await screen.findByText(notice);
-    cleanup();
-    mount(readiness({ roster: ROSTER }), { "/ai-roles": { status: 409, body: refused("ai_no_human", "") } });
+    expect(aiPosts(m)).toHaveLength(1);
+  });
+
+  it("with no message in the answer the client's own copy is used", async () => {
+    const m = mount(readiness({ roster: ROSTER }), { "/ai-roles": { status: 409, body: refused("ai_no_human", "") } });
     await ready();
     fireEvent.click(sw("Make Delivery lead an AI player"));
     await act(async () => {
       fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
     });
     await screen.findByText("At least one role must stay human.");
-    expect(m.posts().length).toBe(1);
+    expect(aiPosts(m)).toHaveLength(1);
   });
 
-  it("an unconfirmed answer (504) says the change may or may not have been made", async () => {
-    mount(readiness({ roster: ROSTER }), { "/ai-roles": { status: 504, body: refused("ai_roles_unconfirmed", "") } });
+  it("an unconfirmed answer (504) says the change may or may not have been made, leaves the row unchanged and refetches the roster", async () => {
+    const m = mount(readiness({ roster: ROSTER }), { "/ai-roles": { status: 504, body: refused("ai_roles_unconfirmed", "") } });
     await ready();
+    const reads = () => m.f.calls.filter((c) => c.url.endsWith("/readiness")).length;
+    const before = reads();
     fireEvent.click(sw("Make Delivery lead an AI player"));
     await act(async () => {
       fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
     });
     await screen.findByText("The change may or may not have been made. Check the roster, then switch the role again.");
+    expect(sw("Make Delivery lead an AI player")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Make Delivery lead human" })).toBeNull();
+    await waitFor(() => expect(reads()).toBe(before + 1));
+  });
+
+  it("a role switched back to human (code shown) and then to AI again leaves no dead code on screen", async () => {
+    const routes: Record<string, Answer> = {
+      "/ai-roles": { status: 200, body: ok({ roles: [], codes: [{ roleId: "tech_lead", code: "TL-NEW" }] }) },
+    };
+    const m = mount(readiness({ roster: ROSTER }), routes);
+    await ready();
+    fireEvent.click(sw("Make Tech lead human"));
+    m.current.readiness = readiness({ roster: [ROSTER[0]!, { roleId: "tech_lead", joined: false, consented: false, connected: false }, ROSTER[2]!] });
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Switch to human" }));
+    });
+    await screen.findByText("TL-NEW");
+    routes["/ai-roles"] = { status: 200, body: ok({ roles: ["tech_lead"], codes: [] }) };
+    fireEvent.click(await screen.findByRole("button", { name: "Make Tech lead an AI player" }));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+    expect(aiPosts(m)[1]!.body).toEqual({ roles: ["tech_lead"] });
+    await waitFor(() => expect(document.body.textContent).not.toContain("TL-NEW"));
+    expect(screen.queryByRole("heading", { name: "New code for Tech lead" })).toBeNull();
+  });
+
+  it("an answer that returns several codes shows every one once under \"New codes\"", async () => {
+    mount(readiness({ roster: ROSTER }), {
+      "/ai-roles": { status: 200, body: ok({ roles: [], codes: [{ roleId: "tech_lead", code: "TL-NEW" }, { roleId: "delivery_lead", code: "DL-NEW" }] }) },
+    });
+    await ready();
+    fireEvent.click(sw("Make Tech lead human"));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Switch to human" }));
+    });
+    await screen.findByRole("heading", { name: "New codes" });
+    expect(screen.getByText("TL-NEW")).toBeTruthy();
+    expect(screen.getByText("DL-NEW")).toBeTruthy();
   });
 
   it("no toggle is rendered once status is running", async () => {

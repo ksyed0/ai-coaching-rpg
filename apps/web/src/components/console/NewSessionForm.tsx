@@ -9,7 +9,7 @@ import {
   shortId,
   type CodeEntry,
 } from "../../lib/console-api";
-import { aiErrorText, parseAiAnswer, setAiRoles } from "../../lib/console-ai";
+import { aiErrorText, parseAiAnswer, readRoster, setAiRoles } from "../../lib/console-ai";
 import { confirmCopy } from "../../lib/console-confirm";
 import { roleLabel } from "../../lib/names";
 import { AiRoleSwitch } from "./AiRoleSwitch";
@@ -23,9 +23,9 @@ import { ConfirmDialog } from "./ConfirmDialog";
 export type NewSessionFormProps = { fetch?: typeof fetch };
 
 type Created = { sessionId: string; modelLabel: string | null };
-type Ask = { roleId: string; toAi: boolean; opener: HTMLElement };
-/** The code of a role switched back to a human: shown once, in its own panel. */
-type Fresh = { seq: number; code: CodeEntry };
+type Ask = { roleId: string; toAi: boolean; opener: HTMLElement; joined: boolean; name?: string };
+/** The codes of roles switched back to a human: shown once, in their own panel (they accumulate until copied). */
+type Fresh = { seq: number; codes: CodeEntry[] };
 
 export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
   const [scenarios, setScenarios] = useState<
@@ -39,7 +39,7 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
   const [codes, setCodes] = useState<CodeEntry[]>([]);
   const busy = useRef(false);
   // The roles of the created session (kept when the join codes are dismissed) and which of them an AI player holds. A just-created
-  // session has nobody joined, so every row is a primary confirmation.
+  // session may have people who joined since: a switch to AI reads the roster once to word the confirmation.
   const [roleIds, setRoleIds] = useState<string[]>([]);
   const [aiRoles, setAiRolesState] = useState<string[]>([]);
   const [ask, setAsk] = useState<Ask | null>(null);
@@ -48,6 +48,8 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
   const [fresh, setFresh] = useState<Fresh | null>(null);
   // Every panel of a switched-to-AI role's remaining codes gets its own number, so the panel is rebuilt without the removed code.
   const [codesSeq, setCodesSeq] = useState(0);
+  // True when a role switch could not be confirmed and the roster could not be read: the switches stay off (open the session instead).
+  const [stale, setStale] = useState(false);
   const switchBusy = useRef(false);
   const refocus = useRef<string | null>(null);
   const freshSeq = useRef(0);
@@ -61,6 +63,44 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
     refocus.current = null;
     el.focus();
   });
+
+  /** Applies a whole answer: no AI role keeps a code on screen, and every returned code is shown once. */
+  function applyAi(roles: string[], returned: CodeEntry[]) {
+    const ai = new Set(roles);
+    setAiRolesState(roles);
+    setCodes((cur) => {
+      const left = cur.filter((c) => !ai.has(c.roleId));
+      return left.length === cur.length ? cur : left;
+    });
+    setCodesSeq((n) => n + 1);
+    const incoming = returned.filter((c) => !ai.has(c.roleId));
+    setFresh((cur) => {
+      const merged = [...(cur?.codes ?? []).filter((c) => !ai.has(c.roleId) && !incoming.some((i) => i.roleId === c.roleId)), ...incoming];
+      return merged.length === 0 ? null : { seq: ++freshSeq.current, codes: merged };
+    });
+  }
+
+  async function askSwitch(roleId: string, toAi: boolean, opener: HTMLElement) {
+    if (switchBusy.current || !created) return;
+    if (!toAi) {
+      setAsk({ roleId, toAi, opener, joined: false });
+      return;
+    }
+    // One read, not a poll. If it fails the safe wording is the stronger one (someone may have joined).
+    switchBusy.current = true;
+    setSwitching(true);
+    const roster = await readRoster(created.sessionId, fetchImpl);
+    switchBusy.current = false;
+    setSwitching(false);
+    const entry = roster?.find((e) => e.roleId === roleId);
+    setAsk({
+      roleId,
+      toAi,
+      opener,
+      joined: roster === null ? true : entry?.joined === true,
+      ...(entry?.name ? { name: entry.name } : {}),
+    });
+  }
 
   async function switchRole(a: Ask) {
     if (switchBusy.current || !created) return;
@@ -76,17 +116,15 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
     setSwitching(false);
     if (!r.ok) {
       setSwitchError(aiErrorText(r));
+      if (r.code === "ai_roles_unconfirmed") {
+        // The change may have been applied: take the roster as the truth, or switch the switches off.
+        const roster = await readRoster(created.sessionId, fetchImpl);
+        if (roster === null) setStale(true);
+        else applyAi(roster.filter((e) => e.ai === true).map((e) => e.roleId), []);
+      }
     } else {
       const answer = parseAiAnswer(r.data);
-      setAiRolesState(answer.roles);
-      if (a.toAi) {
-        // The seat no longer has a code: drop it from the issued codes.
-        setCodes((cur) => cur.filter((c) => c.roleId !== a.roleId));
-        setCodesSeq((n) => n + 1);
-      } else {
-        const code = answer.codes.find((c) => c.roleId === a.roleId);
-        setFresh(code ? { seq: ++freshSeq.current, code } : null);
-      }
+      applyAi(answer.roles, answer.codes);
     }
     setAsk(null);
   }
@@ -182,8 +220,8 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
                     roleId={roleId}
                     ai={ai}
                     joined={false}
-                    disabled={switching}
-                    onAsk={(opener) => setAsk({ roleId, toAi: !ai, opener })}
+                    disabled={switching || stale}
+                    onAsk={(opener) => void askSwitch(roleId, !ai, opener)}
                   />
                 </li>
               );
@@ -192,13 +230,16 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
           <p className="err" role="alert">
             {switchError}
           </p>
+          {stale ? (
+            <p className="muted">The roster could not be read. Open the session to see which roles are AI players.</p>
+          ) : null}
         </section>
         <CodesPanel key={`codes-${codesSeq}`} codes={codes} onDismiss={() => setCodes([])} />
         {fresh ? (
           <CodesPanel
             key={`fresh-${fresh.seq}`}
-            codes={[fresh.code]}
-            heading={`New code for ${roleLabel(fresh.code.roleId)}`}
+            codes={fresh.codes}
+            heading={fresh.codes.length === 1 ? `New code for ${roleLabel(fresh.codes[0]!.roleId)}` : "New codes"}
             onDismiss={() => setFresh(null)}
           />
         ) : null}
@@ -268,7 +309,11 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
 
 function SwitchDialog(p: { ask: Ask; pending: boolean; onCancel: () => void; onConfirm: () => void }) {
   const role = roleLabel(p.ask.roleId);
-  const copy = confirmCopy(p.ask.toAi ? { kind: "to_ai", role, joined: false } : { kind: "to_human", role });
+  const copy = confirmCopy(
+    p.ask.toAi
+      ? { kind: "to_ai", role, joined: p.ask.joined, ...(p.ask.name ? { name: p.ask.name } : {}) }
+      : { kind: "to_human", role },
+  );
   return (
     <ConfirmDialog
       title={copy.title}

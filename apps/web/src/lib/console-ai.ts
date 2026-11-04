@@ -1,5 +1,5 @@
-import { postJson, type ApiResult } from "./api";
-import { failureText, parseCodes, type CodeEntry } from "./console-api";
+import { getJson, postJson, type ApiResult } from "./api";
+import { failureText, parseCodes, parseReadiness, type CodeEntry, type RosterEntry } from "./console-api";
 
 // US-0060: the console's calls for AI players. The BFF answers a refusal with its own sentence in the error envelope and the client
 // shows that sentence; `AI_ERRORS` holds the same words for the case where the message did not arrive (too long, or not a string).
@@ -33,4 +33,11 @@ export function parseAiAnswer(d: unknown): { roles: string[]; codes: CodeEntry[]
     roles: Array.isArray(o.roles) ? o.roles.filter((r): r is string => typeof r === "string") : [],
     codes: parseCodes(o.codes),
   };
+}
+
+/** A ONE-SHOT roster read (not a poll): the entry for each role, or null when the read failed or the answer was not a roster. */
+export async function readRoster(sessionId: string, fetchImpl?: typeof fetch): Promise<RosterEntry[] | null> {
+  const r = await getJson(`/api/v1/console/sessions/${encodeURIComponent(sessionId)}/readiness`, fetchImpl);
+  if (!r.ok) return null;
+  return parseReadiness(r.data)?.roster ?? null;
 }
