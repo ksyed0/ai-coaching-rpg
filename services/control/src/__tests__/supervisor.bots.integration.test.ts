@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MockModelProvider } from "@acr/adapters";
 import { loadScenario, type Scenario } from "@acr/script";
 import { BotHost } from "../bots/bot-host.js";
@@ -11,6 +11,7 @@ import { IntentLog } from "../bots/intent-log.js";
 import type { ControlConfig } from "../config.js";
 import { SessionList } from "../session-list.js";
 import { Supervisor, type BotDeps, type SetTimer, type SpawnFn } from "../supervisor.js";
+import { AI_ROLES_REFUSED } from "../../../runtime/src/host/set-ai-roles.js";
 import { AI_CONFIG, FakeChild, READY, flush } from "./fake-child.js";
 
 /** The Supervisor with a REAL BotHost (only the socket factory is fake): what a role switched to AI after the session went live really does. */
@@ -222,5 +223,139 @@ describe("Supervisor with a real BotHost", () => {
     expect(() => sup.releaseTurn("f".repeat(32), "tech_lead", "0".repeat(32))).not.toThrow();
     c.exit(1); await settle();
     expect(() => sup.releaseTurn(id, "tech_lead", "0".repeat(32))).not.toThrow();
+  });
+});
+
+describe("BUG-0021: a lobby's AI roles after a control-service restart (the runtime reports what fresh codes dropped)", () => {
+  const FRESH = ROLES.map((roleId) => ({ roleId, code: `fresh-${roleId}` }));
+  /** A control restart: a NEW Supervisor (and list reader) over the same data dir; the first one is abandoned with its child. */
+  const restarted = () => { list = new SessionList(config.listFile); return make(); };
+  const lastChild = (): FakeChild => children[children.length - 1]!;
+
+  it("resumeAll: ready.aiRolesReset is re-sent with set_ai_roles, the bot gets its code, and no AI code is logged", async () => {
+    const { id } = await boot(make());
+    const sup2 = restarted();
+    const p = sup2.resumeAll(); await settle();
+    const c2 = lastChild();
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7101, aiRolesReset: ["tech_lead"] }); await settle();
+    expect(c2.sent.map((m) => [m.type, (m as { roles?: string[] }).roles])).toEqual([["set_ai_roles", ["tech_lead"]]]);
+    c2.emit({ type: "ai_roles_set", requestId: c2.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "ai-after-restart" }] });
+    await p; await settle();
+    expect(opened.map((o) => [o.roleId, o.code, o.port, o.closed])).toEqual([["tech_lead", "ai-after-restart", 7101, false]]);
+    expect(sup2.aiRolesOf(id)).toEqual(["tech_lead"]);
+    expect(reissues).toEqual([]);
+    expect(logs.join("\n")).not.toContain("ai-after-restart");
+  });
+
+  it("restart of a stopped lobby after a control restart: the returned codes are the humans' only and the bot holds the AI code", async () => {
+    const { id, c } = await boot(make());
+    c.exit(1); await settle();
+    const sup2 = restarted();
+    const p = sup2.restart(id); await settle();
+    const c2 = lastChild();
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7102, aiRolesReset: ["tech_lead"] }); await settle();
+    c2.emit({ type: "ai_roles_set", requestId: c2.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "ai-tl-r" }] });
+    const r = await p; await settle();
+    expect(r.codes).toEqual(FRESH.filter((x) => x.roleId !== "tech_lead"));
+    expect(JSON.stringify(r)).not.toContain("ai-tl-r");
+    expect(JSON.stringify(r)).not.toContain("fresh-tech_lead");
+    expect(opened.map((o) => [o.roleId, o.code, o.port])).toEqual([["tech_lead", "ai-tl-r", 7102]]);
+  });
+
+  it("a ready with NO codes but aiRolesReset (codes kept, seats replaced) restores the roles on resumeAll", async () => {
+    const { id } = await boot(make());
+    const sup2 = restarted();
+    const p = sup2.resumeAll(); await settle();
+    const c2 = lastChild();
+    c2.emit({ ...READY, port: 7108, aiRolesReset: ["tech_lead"] }); await settle();
+    // no codes in the ready, so the role order is read from the scenario file (real I/O): wait for the send instead of counting flushes
+    await vi.waitFor(() => expect(c2.sent).toHaveLength(1));
+    expect(c2.sent.map((m) => (m as { roles?: string[] }).roles)).toEqual([["tech_lead"]]);
+    c2.emit({ type: "ai_roles_set", requestId: c2.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "ai-nc" }] });
+    await p; await settle();
+    expect(opened.map((o) => [o.roleId, o.code, o.port])).toEqual([["tech_lead", "ai-nc", 7108]]);
+    expect(sup2.aiRolesOf(id)).toEqual(["tech_lead"]);
+  });
+
+  it("a ready with NO codes but aiRolesReset restores the roles on restart and returns the human codes of the re-send", async () => {
+    const { id, c } = await boot(make());
+    c.exit(1); await settle();
+    const sup2 = restarted();
+    const p = sup2.restart(id); await settle();
+    const c2 = lastChild();
+    c2.emit({ ...READY, port: 7109, aiRolesReset: ["tech_lead"] }); await settle();
+    // no codes in the ready, so the role order is read from the scenario file (real I/O): wait for the send instead of counting flushes
+    await vi.waitFor(() => expect(c2.sent).toHaveLength(1));
+    c2.emit({ type: "ai_roles_set", requestId: c2.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "ai-nc2" }] });
+    const r = await p; await settle();
+    expect(JSON.stringify(r)).not.toContain("ai-nc2");
+    expect(opened.map((o) => [o.roleId, o.code, o.port])).toEqual([["tech_lead", "ai-nc2", 7109]]);
+  });
+
+  it("a ready without aiRolesReset (codes kept, or no AI roles) re-sends nothing", async () => {
+    await boot(make());
+    const sup2 = restarted();
+    const p = sup2.resumeAll(); await settle();
+    const c2 = lastChild();
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7103 });
+    await p; await settle();
+    expect(c2.sent).toEqual([]);
+    expect(opened).toEqual([]);
+  });
+
+  it("a started log never re-sends, even if a ready claims roles were reset (the runtime would refuse)", async () => {
+    const { id } = await boot(make());
+    writeFileSync(path.join(config.sessionsDir, `${id}.jsonl`), '{"type":"session.started"}\n');
+    const sup2 = restarted();
+    const p = sup2.resumeAll(); await settle();
+    const c2 = lastChild();
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7104, aiRolesReset: ["tech_lead"] });
+    await p; await settle();
+    expect(c2.sent).toEqual([]);
+    expect(opened).toEqual([]);
+  });
+
+  it("the in-memory captured set wins over ready.aiRolesReset", async () => {
+    const sup = make();
+    const { id, c } = await boot(sup);
+    await set(sup, id, c, ["tech_lead"], [{ roleId: "tech_lead", code: "ai-old" }]);
+    c.exit(1); await settle();
+    const p = sup.restart(id); await settle();
+    const c2 = lastChild();
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7105, aiRolesReset: ["account_manager"] }); await settle();
+    expect(c2.sent.map((m) => (m as { roles?: string[] }).roles)).toEqual([["tech_lead"]]);
+    c2.emit({ type: "ai_roles_set", requestId: c2.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "ai-new" }] });
+    await p; await settle();
+    expect(opened[opened.length - 1]!.code).toBe("ai-new");
+  });
+
+  it("an ai_notice refusal is a conflict with no codes; the roles stay human and the bot host is not half-configured", async () => {
+    const { id, c } = await boot(make());
+    c.exit(1); await settle();
+    const sup2 = restarted();
+    const p = sup2.restart(id).catch((e: Error & { code?: string }) => e); await settle();
+    const c2 = lastChild();
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7106, aiRolesReset: ["tech_lead"] }); await settle();
+    c2.emit({ type: "ai_roles_failed", requestId: c2.sent[0]!.requestId, reason: AI_ROLES_REFUSED.notice });
+    const e = await p;
+    expect(e).toMatchObject({ code: "conflict" });
+    expect(JSON.stringify(e)).not.toContain("fresh-");
+    await settle();
+    expect(opened).toEqual([]);
+    expect(sup2.aiRolesOf(id)).toEqual([]);
+    expect(c2.sent.map((m) => m.type)).toEqual(["set_ai_roles"]);
+  });
+
+  it("resumeAll with an ai_notice refusal: it resolves, nothing is opened, and the failure is logged without a code", async () => {
+    await boot(make());
+    const sup2 = restarted();
+    const p = sup2.resumeAll(); await settle();
+    const c2 = lastChild();
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7107, aiRolesReset: ["tech_lead"] }); await settle();
+    c2.emit({ type: "ai_roles_failed", requestId: c2.sent[0]!.requestId, reason: AI_ROLES_REFUSED.notice });
+    await expect(p).resolves.toBeUndefined(); await settle();
+    expect(opened).toEqual([]);
+    expect(logs.join("\n")).toContain("AI roles could not be set again");
+    expect(logs.join("\n")).not.toContain("fresh-");
   });
 });

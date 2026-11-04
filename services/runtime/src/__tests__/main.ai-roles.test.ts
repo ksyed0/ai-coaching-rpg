@@ -152,6 +152,25 @@ describe("bootstrap answers set_ai_roles over the parent channel (US-0060)", () 
     expect(ready.aiRoles).toEqual(["tech_lead"]);
   });
 
+  it("BUG-0021: a managed restart that issues fresh codes sends ready with aiRolesReset; a restart that keeps the codes sends neither the key nor loses the roles", async () => {
+    const a = fakeParent();
+    const first = await boot(a.parent);
+    expect((await a.setRoles("a1", ["tech_lead"])).type).toBe("ai_roles_set");
+    await first.runtime.stop(); runtimes.pop();
+    const kept = fakeParent();
+    const second = await boot(kept.parent, { data: first.data });
+    expect("aiRolesReset" in readyOf(kept.sent)).toBe(false);
+    expect(readyOf(kept.sent).aiRoles).toEqual(["tech_lead"]);
+    await second.runtime.stop(); runtimes.pop();
+    await unlink(path.join(first.data, "p1.codes.json"));
+    const fresh = fakeParent();
+    await boot(fresh.parent, { data: first.data });
+    const ready = readyOf(fresh.sent);
+    expect(ready.aiRolesReset).toEqual(["tech_lead"]);
+    expect("aiRoles" in ready).toBe(false); // the file went with the old seats: the roles are human again until the parent re-sends them
+    expect(JSON.stringify(ready)).not.toMatch(/code/i);
+  });
+
   it("a reissue still answers reissued as before", async () => {
     const { parent, sent, ask } = fakeParent();
     const { runtime } = await boot(parent);

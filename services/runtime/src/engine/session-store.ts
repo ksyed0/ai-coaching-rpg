@@ -57,6 +57,12 @@ export type OpenedSession = {
    */
   seats?: Seats;
   /**
+   * BUG-0021 (managed, empty log only): the lobby's AI roles that this start dropped because it replaced the seats (fresh join codes, or credentials
+   * that do not fit). Present only when there were any and the AI-role file was valid; an unusable file is "nothing to report". The control
+   * service uses it to restore the roles after its own restart, when it holds no copy.
+   */
+  aiRolesReset?: string[];
+  /**
    * US-0033 (review I-1): withdraws codes that THIS start issued and nobody has seen yet (call it when the start fails before they were
    * shown, then close). Removes the codes file only while this process holds the lock; codes kept from an earlier start are never
    * removed. Never throws; false when the file could not be removed (the next start must then be told). Seat files this start created
@@ -181,6 +187,13 @@ export async function openSession(o: {
       throw new SessionStoreError("io", `cannot read the seat files in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? "error"}`); // fixed text: never a message that could quote the file
     }
   };
+  /**
+   * BUG-0021: the roles in a valid AI-role file, or [] when there is none or it is unusable (corrupt, wrong bind, oversized, a link, unreadable).
+   * It never throws and quotes nothing: this is a report for the parent, not a gate, and the replace that follows is unchanged.
+   */
+  const readDroppableAiRoles = (): string[] => {
+    try { return readAiRolesFile(o.dataDir, bind)?.list() ?? []; } catch { return []; }
+  };
   /** Set when this start wrote new seat files (discardIssuedCodes removes those, never kept ones). */
   let seatsCreated = false;
   /** Set once this start wrote new join codes: a later failure of the open withdraws them (nobody has seen them). */
@@ -277,8 +290,8 @@ export async function openSession(o: {
   };
   let opened: { log: JsonlEventLog; engine: SessionEngine } | null = null;
   try {
-    const done = (x: { log: JsonlEventLog; engine: SessionEngine }, rest: Pick<OpenedSession, "outcome" | "rotatedTo" | "rotatedBecause" | "resume" | "resumeNotes" | "joinCodes" | "seats">): OpenedSession => ({
-      ...x, lock, notes, ...rest,
+    const done = (x: { log: JsonlEventLog; engine: SessionEngine }, rest: Pick<OpenedSession, "outcome" | "rotatedTo" | "rotatedBecause" | "resume" | "resumeNotes" | "joinCodes" | "seats">, aiRolesReset?: string[]): OpenedSession => ({
+      ...x, lock, notes, ...rest, ...(aiRolesReset ? { aiRolesReset } : {}),
       writeJoinCodes: (c) => {
         try { writeJoinCodesFile(o.dataDir, o.sessionId, c, holdLockNow); }
         catch (err) {
@@ -316,8 +329,11 @@ export async function openSession(o: {
       // Order matters: seats are read BEFORE settleCodes, which removes them when the codes on file do not fit (and issues new
       // ones); `!issued` then drops `found` exactly in that case, so no credential outlives the codes it was issued under.
       const found = readSeats(true);
+      // BUG-0021: settleCodes may remove the AI-role file with the old seats, so what it holds is noted first (only a valid file counts).
+      const onFile = o.consentNotice ? readDroppableAiRoles() : [];
       const joinCodes = settleCodes(true, false);
-      return done(opened, { outcome: "new", joinCodes, seats: settleSeats(!joinCodes?.issued, found) });
+      const seats = settleSeats(!joinCodes?.issued, found);
+      return done(opened, { outcome: "new", joinCodes, seats }, seatsCreated && onFile.length > 0 ? onFile : undefined);
     }
     if (restored.kind === "empty") { const joinCodes = settleCodes(false, false); return done(opened, { outcome: "new", joinCodes, seats: settleSeats(false, undefined) }); }
     if (restored.kind === "ended" && o.managed) throw new SessionStoreError("resume_refused", "the session has ended");

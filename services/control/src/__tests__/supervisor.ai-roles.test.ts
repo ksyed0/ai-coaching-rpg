@@ -474,7 +474,7 @@ describe("whole-session reissue, restart, resume and timeout recovery (Task 12)"
     expect(sup2.aiRolesOf(id)).toEqual(["tech_lead"]);
   });
 
-  it("resumeAll, empty log, after a control restart the captured AI set is empty (known gap M-1): no set_ai_roles is re-sent, and it resolves", async () => {
+  it("resumeAll, empty log, after a control restart the captured AI set is empty and the ready reports nothing reset (BUG-0021): no set_ai_roles is re-sent, and it resolves", async () => {
     const sup = makeB();
     await bootT(sup);
     const sup2 = makeB();
