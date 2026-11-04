@@ -5,23 +5,28 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { BotHost } from "../bots/bot-host.js";
 import type { ControlConfig } from "../config.js";
 import { SessionList } from "../session-list.js";
-import { Supervisor, type SetTimer, type SpawnFn } from "../supervisor.js";
+import { Supervisor, type BotDeps, type SetTimer, type SpawnFn } from "../supervisor.js";
 import { AI_CONFIG, CODES, FakeChild, READY, flush, sid } from "./fake-child.js";
 
 type Call = { op: string; id: string; arg?: unknown };
 let root: string, config: ControlConfig, list: SessionList, children: FakeChild[], spawn: SpawnFn, calls: Call[], logs: string[];
 let attachImpl: (id: string, o: { port: number; aiRoles: string[]; aiCalls?: number }) => Promise<void>;
-const setTimer: SetTimer = () => () => {};
+type T = { fn: () => void; ms: number; cancelled: boolean };
+let timers: T[];
+let deps: BotDeps;
+let closeImpl: () => Promise<void>;
+const setTimer: SetTimer = (fn, ms) => { const t: T = { fn, ms, cancelled: false }; timers.push(t); return () => { t.cancelled = true; }; };
 const settle = async (): Promise<void> => { for (let i = 0; i < 6; i++) await flush(); };
 /** A recording stand-in for the BotHost: only the methods the supervisor uses. */
 const fakeBots = (): BotHost => ({
   attach: (id: string, o: { port: number; aiRoles: string[]; aiCalls?: number }) => { calls.push({ op: "attach", id, arg: o }); return attachImpl(id, o); },
   end: async (id: string) => { calls.push({ op: "end", id }); },
   detach: async (id: string) => { calls.push({ op: "detach", id }); },
-  close: async () => { calls.push({ op: "close", id: "" }); },
+  close: () => { calls.push({ op: "close", id: "" }); return closeImpl(); },
 } as unknown as BotHost);
-const make = (bots: BotHost | null = fakeBots()) => new Supervisor({
-  config, list, scenarios: async () => [{ id: "other", title: "Other" }], spawn, setTimer, now: () => 1234, log: (m) => logs.push(m), ...(bots ? { bots } : {}),
+const make = (withBots = true) => new Supervisor({
+  config, list, scenarios: async () => [{ id: "other", title: "Other" }], spawn, setTimer, now: () => 1234, log: (m) => logs.push(m),
+  ...(withBots ? { bots: (d: BotDeps) => { deps = d; return fakeBots(); } } : {}),
 });
 const boot = async (sup: Supervisor, ready: Record<string, unknown> = READY): Promise<{ id: string; c: FakeChild }> => {
   const p = sup.create("other");
@@ -43,7 +48,7 @@ beforeEach(() => {
   };
   mkdirSync(config.sessionsDir, { recursive: true });
   list = new SessionList(config.listFile);
-  children = []; calls = []; logs = [];
+  children = []; calls = []; logs = []; timers = []; closeImpl = async () => {};
   attachImpl = async () => {};
   spawn = ({ env, logFile }) => { const c = new FakeChild(env, logFile); writeFileSync(logFile, "log"); children.push(c); return c; };
 });
@@ -70,11 +75,66 @@ describe("Supervisor and the BotHost", () => {
     attachImpl = () => { throw new TypeError("boom"); };
     const r2 = await boot(sup);
     expect(sup.get(r2.id)!.status).toBe("running");
-    expect(logs.join("\n")).toContain("TypeError");
+    expect(logs.filter((l) => l.includes("TypeError"))).toHaveLength(1);
     attachImpl = () => Promise.reject(new RangeError("late"));
     const r3 = await boot(sup);
     await settle();
     expect(sup.get(r3.id)!.status).toBe("running");
+    expect(logs.filter((l) => l.includes("RangeError"))).toHaveLength(1);
+  });
+
+  it("an ended before ready calls end and never attach; a child exit before goLive calls detach and never attach", async () => {
+    const sup = make();
+    const p = sup.create("other"); await settle();
+    const c = children[0]!;
+    c.emit({ type: "codes", codes: CODES }); c.emit(READY); c.emit({ type: "ended" });
+    const r = await p;
+    expect(calls).toEqual([{ op: "end", id: r.sessionId }]);
+    calls.length = 0;
+    const p2 = sup.create("other"); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: CODES }); c2.emit(READY); c2.exit(1);
+    const r2 = await p2;
+    expect(calls).toEqual([{ op: "detach", id: r2.sessionId }]);
+  });
+
+  it("after shutdown a late goLive attaches nothing", async () => {
+    const sup = make();
+    await sup.shutdown();
+    calls.length = 0;
+    await boot(sup);
+    expect(calls).toEqual([]);
+  });
+
+  it("the deps' reissue waits for the session lock: it is sent only after a pending setAiRoles releases it", async () => {
+    const sup = make();
+    const { id, c } = await boot(sup);
+    const set = sup.setAiRoles(id, ["cfo"]); await settle();
+    expect(c.sent.map((m) => m.type)).toEqual(["set_ai_roles"]);
+    const rp = deps.reissue(id, "cfo"); await settle();
+    expect(c.sent.map((m) => m.type)).toEqual(["set_ai_roles"]); // queued behind the lock
+    c.emit({ type: "ai_roles_set", requestId: c.sent[0]!.requestId, codes: [] });
+    await set; await settle();
+    expect(c.sent.map((m) => m.type)).toEqual(["set_ai_roles", "reissue"]);
+    c.emit({ type: "reissued", requestId: c.sent[1]!.requestId, code: "X-CODE" });
+    await expect(rp).resolves.toBe("X-CODE");
+    sup.botAlert(id, "cfo", "hi");
+    deps.alert(id, "cfo", "via deps");
+    expect(c.alerts.map((a) => a.message)).toEqual(["hi", "via deps"]);
+  });
+
+  it("a bots.close() that never resolves is cut off after 3 s and the children are still disconnected", async () => {
+    closeImpl = () => new Promise<void>(() => {});
+    const sup = make();
+    const { c } = await boot(sup);
+    c.disconnect = () => { c.disconnected++; setImmediate(() => c.exit(0)); };
+    const done = sup.shutdown(); await settle();
+    expect(c.disconnected).toBe(0);
+    const t = timers.find((x) => x.ms === 3000 && !x.cancelled)!;
+    t.fn();
+    await done;
+    expect(c.disconnected).toBe(1);
+    expect(logs.join("\n")).toContain("bots did not close in time");
   });
 
   it("ended calls end; a child exit calls detach and a restart attaches again with the new port", async () => {
@@ -98,7 +158,7 @@ describe("Supervisor and the BotHost", () => {
     const sup = make();
     let reissued: Promise<string> | undefined;
     // The host's chain calls the dep without awaiting it, from inside attach (which runs while resumeAll holds the lock).
-    attachImpl = async (id) => { reissued = (sup as unknown as { reissueAiRole(i: string, r: string): Promise<string> }).reissueAiRole(id, "tech_lead"); };
+    attachImpl = async (id) => { reissued = deps.reissue(id, "tech_lead"); };
     const p = sup.resumeAll(); await settle();
     children[0]!.emit({ ...READY, status: "resumed", aiRoles: ["tech_lead"] });
     await p; // no deadlock: resumeAll's lock is released although a reissue is queued behind it
@@ -136,7 +196,7 @@ describe("Supervisor and the BotHost", () => {
     calls.length = 0;
     await sup.shutdown();
     expect(calls[0]).toEqual({ op: "close", id: "" }); // before the children's exits are handled
-    const plain = make(null);
+    const plain = make(false);
     const { c: c2 } = await boot(plain);
     c2.exit(1); await settle();
     await plain.shutdown();

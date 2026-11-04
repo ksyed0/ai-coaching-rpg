@@ -55,6 +55,10 @@ const DEFAULT_REISSUE_TIMEOUT_MS = 15_000;
 const REISSUE_BEFORE_START = "codes can only be reissued for the whole session before it starts";
 const START_FAILED = "the session could not be started";
 
+/** What the BotHost is built with: the supervisor's own reissue and alert, handed over once through the `bots` factory. */
+export type BotDeps = { reissue: (id: string, roleId: string) => Promise<string>; alert: (sessionId: string, roleId: string, message: string) => void };
+const BOTS_CLOSE_TIMEOUT_MS = 3_000;
+
 export class Supervisor {
   protected readonly live = new Map<string, Live>();
   private inflight = 0;
@@ -75,6 +79,7 @@ export class Supervisor {
   private readonly pendingAiRoles = new Map<string, PendingAiRoles>();
   private readonly settingAiRoles = new Set<string>();
   private closed = false;
+  private readonly bots?: BotHost;
 
   constructor(private readonly o: {
     config: ControlConfig; list: SessionList; scenarios: () => Promise<{ id: string; title: string }[]>; spawn: SpawnFn;
@@ -83,7 +88,7 @@ export class Supervisor {
     /** What the allowlist copies from (default: this process's environment; the entry point passes it with `.env` merged under). */
     parentEnv?: NodeJS.ProcessEnv;
     /** US-0060: the live AI players. Optional: without it no bot is ever started. */
-    bots?: BotHost;
+    bots?: (deps: BotDeps) => BotHost;
   }) {
     this.parentEnv = o.parentEnv ?? process.env;
     this.now = o.now ?? Date.now;
@@ -92,6 +97,7 @@ export class Supervisor {
     this.logFn = o.log ?? (() => {});
     this.newSessionId = o.newSessionId ?? (() => randomBytes(16).toString("hex"));
     this.newToken = o.newToken ?? (() => randomBytes(32).toString("hex"));
+    this.bots = o.bots?.({ reissue: (id, roleId) => this.reissueAiRole(id, roleId), alert: (id, roleId, message) => this.botAlert(id, roleId, message) });
   }
 
   /** Sessions that hold a slot: everything not ended, plus creates still starting. */
@@ -302,9 +308,10 @@ export class Supervisor {
       else if (m.type === "ai_roles_set" || m.type === "ai_roles_failed") this.onAiRolesReply(id, child, m);
     });
     child.onExit(() => this.onChildExit(id, child));
+    // A child already gone or ended gets no attach (it would join a dead port or an ended runtime); the end/detach below stops any bots.
+    if (!exit.done && !endedEarly) this.attachBots(id, ready);
     if (exit.done) this.onChildExit(id, child);
     else if (endedEarly) this.onEnded(id, child, exit);
-    this.attachBots(id, ready);
   }
 
   /**
@@ -312,8 +319,8 @@ export class Supervisor {
    * own per-session chain, and a lock is held here. A throw (or a rejection) is logged by name only and never reaches the caller.
    */
   private attachBots(id: string, ready: ReadyInfo): void {
-    const bots = this.o.bots;
-    if (!bots) return;
+    const bots = this.bots;
+    if (!bots || this.closed) return;
     const failed = (err: unknown): void => this.logFn(`session ${id} bots attach failed (${err instanceof Error ? err.name : "error"})`);
     try { bots.attach(id, { port: ready.port, aiRoles: ready.aiRoles ?? [], aiCalls: ready.aiCalls }).catch(failed); }
     catch (err) { failed(err); }
@@ -321,7 +328,7 @@ export class Supervisor {
 
   /** Fire-and-forget calls into the BotHost for the session's end and the child's exit; never throws, never awaited. */
   private botsCall(id: string, what: "end" | "detach"): void {
-    const bots = this.o.bots;
+    const bots = this.bots;
     if (!bots) return;
     const failed = (err: unknown): void => this.logFn(`session ${id} bots ${what} failed (${err instanceof Error ? err.name : "error"})`);
     try { bots[what](id).catch(failed); } catch (err) { failed(err); }
@@ -518,11 +525,6 @@ export class Supervisor {
     return this.withLock(id, () => this.reissueLocked(id, msg));
   }
 
-  /** What the entry point hands the BotHost: its `reissue` and `alert` deps. */
-  botDeps(): { reissue: (id: string, roleId: string) => Promise<string>; alert: (id: string, roleId: string, message: string) => void } {
-    return { reissue: (id, roleId) => this.reissueAiRole(id, roleId), alert: (id, roleId, message) => this.botAlert(id, roleId, message) };
-  }
-
   private reissueMessage(roleId: string, by?: string, reason?: "removed"): Extract<ParentMessage, { type: "reissue" }> | undefined {
     const requestId = randomBytes(8).toString("hex");
     const msg = ParentMessageSchema.safeParse({ type: "reissue", requestId, roleId, ...(by !== undefined ? { by } : {}), ...(reason !== undefined ? { reason } : {}) });
@@ -621,7 +623,16 @@ export class Supervisor {
 
   async shutdown(): Promise<void> {
     this.closed = true;
-    try { await this.o.bots?.close(); } catch { this.logFn("bots did not close cleanly"); }
+    if (this.bots) {
+      // Bounded: a slow close must not eat the shutdown budget before the children are disconnected.
+      let cancel = (): void => {};
+      const timedOut = new Promise<"timeout">((resolve) => { cancel = this.setTimer(() => resolve("timeout"), BOTS_CLOSE_TIMEOUT_MS); });
+      try {
+        const r = await Promise.race([this.bots.close().then(() => "closed" as const), timedOut]);
+        if (r === "timeout") this.logFn("bots did not close in time");
+      } catch (err) { this.logFn(`bots close failed (${err instanceof Error ? err.name : "error"})`); }
+      cancel();
+    }
     for (const l of this.live.values()) { l.graceCancel?.(); l.graceCancel = undefined; }
     for (const [rid, p] of this.pendingReissues) {
       this.pendingReissues.delete(rid);

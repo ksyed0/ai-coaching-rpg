@@ -47,30 +47,18 @@ export async function startControl(
   mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
   const scenarios = () => listScenarios(config.scenariosDir, (folder) => log(`scenario folder skipped: ${folder}`));
   const list = new SessionList(config.listFile);
-  // The BotHost's reissue and alert deps are the supervisor's, which is built after it; the host is only called once the supervisor runs.
-  let supervisor: Supervisor | undefined;
-  const sup = (): Supervisor => supervisor ?? (() => { throw new Error("the supervisor is not ready"); })();
-  const scenarioCache = new Map<string, Promise<Scenario>>();
-  const scenarioFor = (sessionId: string): Promise<Scenario> => {
-    let p = scenarioCache.get(sessionId);
-    if (!p) {
-      p = (async () => {
-        const entry = list.read().find((e) => e.sessionId === sessionId);
-        if (!entry) throw new Error("unknown session");
-        return loadScenario(scenarioDir(config.scenariosDir, entry.scenarioId));
-      })();
-      scenarioCache.set(sessionId, p);
-      p.catch(() => { if (scenarioCache.get(sessionId) === p) scenarioCache.delete(sessionId); });
-    }
-    return p;
+  const intents = new IntentLog(config.intentsDir, log);
+  const provider = startLivePlayerProvider(env, config.aiPlayer);
+  // BotHost caches the scenario per session itself.
+  const scenarioFor = async (sessionId: string): Promise<Scenario> => {
+    const entry = list.read().find((e) => e.sessionId === sessionId);
+    if (!entry) throw new Error("unknown session");
+    return loadScenario(scenarioDir(config.scenariosDir, entry.scenarioId));
   };
-  const bots = new BotHost({
-    provider: startLivePlayerProvider(env, config.aiPlayer), settings: config.aiPlayer, intents: new IntentLog(config.intentsDir, log),
-    scenarioFor, log,
-    reissue: (id, roleId) => sup().botDeps().reissue(id, roleId),
-    alert: (id, roleId, message) => sup().botDeps().alert(id, roleId, message),
+  const supervisor = new Supervisor({
+    config, list, scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env,
+    bots: (deps) => new BotHost({ provider, settings: config.aiPlayer, intents, scenarioFor, log, ...deps }),
   });
-  supervisor = new Supervisor({ config, list, scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env, bots });
   await supervisor.resumeAll();
 
   const server = http.createServer(createApi({ config, supervisor, scenarios, log }));
