@@ -136,6 +136,28 @@ describe("BotHost", () => {
     expect(socks[0]!.closeCalls).toBe(0);
   });
 
+  it("after close() an attach queued before it (for a session not yet created) opens nothing, and later operations are no-ops", async () => {
+    const h = mk();
+    const a = h.attach("never-seen", { port: 4000, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: SECRET }] });
+    const c = h.close();
+    await Promise.all([a, c]);
+    await flush();
+    expect(socks).toHaveLength(0);
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: SECRET }] });
+    await flush();
+    expect(socks).toHaveLength(0);
+  });
+
+  it("a refusal from reissue (code ai_role) is a quiet no-op: one log line, no alert, no socket", async () => {
+    reissue.mockRejectedValue(Object.assign(new Error("switch the role back to human first"), { code: "ai_role" }));
+    const h = mk();
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"] });
+    await flush();
+    expect(logs).toEqual([`session ${SID} AI player could not get a code`]);
+    expect(alerts).toEqual([]);
+    expect(socks).toHaveLength(0);
+  });
+
   it("a failing reissue logs 'could not get a code' and nothing else", async () => {
     reissue.mockRejectedValue(new Error("boom " + SECRET));
     const h = mk();

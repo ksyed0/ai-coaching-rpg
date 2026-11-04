@@ -427,7 +427,7 @@ describe("whole-session reissue, restart, resume and timeout recovery (Task 12)"
     c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7001 }); await settle();
     c2.emit({ type: "ai_roles_failed", requestId: c2.sent[0]!.requestId, reason: "AI roles can only be changed before the start" });
     const e = await bounded(p);
-    expect(e).toMatchObject({ code: "conflict", message: "the codes were reissued but the AI roles could not be set again; set them again" });
+    expect(e).toMatchObject({ code: "conflict", message: "the codes were reissued but the AI roles could not be set again; reissue the codes again" });
     expect(e.message).not.toMatch(/fresh-/);
   });
 

@@ -519,7 +519,7 @@ export class Supervisor {
     const bots = this.bots;
     const now = this.live.get(id);
     // The bots are told only while the same child still runs on a known port (nothing is awaited here: the host has its own chain).
-    if (bots && now && now.child === child && now.status === "running" && now.port !== undefined) {
+    if (bots && !this.closed && now && now.child === child && now.status === "running" && now.port !== undefined) {
       const failed = (what: string) => (err: unknown): void => this.logFn(`session ${id} bots ${what} failed (${err instanceof Error ? err.name : "error"})`);
       const left = before.filter((r) => !aiSet.has(r));
       // Order matters: removeRoles first, then ONE attach that takes the new AI roles in with their codes (setCodes would drop them).
@@ -537,6 +537,8 @@ export class Supervisor {
    */
   // KNOWN GAP (M-1): after a control-service restart `captured` is empty (nothing is kept in memory), so if fresh codes dropped the
   // lobby's <id>.ai-roles.json its AI roles silently come back as human. Follow-up: persist the AI set beside the session list.
+  // KNOWN GAP (M4): reissueAll inside the B14 window re-sends a captured AI set that may be stale (the roles are labelled, but the
+  // facilitator's intent of the timed-out set is lost). Recorded in docs/THREAT_MODEL.md.
   private async afterCodedLaunch(id: string, ready: ReadyInfo, captured: string[]): Promise<Codes> {
     const issued = ready.codes ?? [];
     let ai = ready.aiRoles ?? [];
@@ -551,7 +553,7 @@ export class Supervisor {
         const merged = issued.map((c) => ({ roleId: c.roleId, code: newer.get(c.roleId) ?? c.code }));
         for (const [roleId, code] of newer) if (!merged.some((c) => c.roleId === roleId)) merged.push({ roleId, code });
         return merged.filter((c) => !ai.includes(c.roleId));
-      } catch { throw new ControlError("conflict", "the codes were reissued but the AI roles could not be set again; set them again"); }
+      } catch { throw new ControlError("conflict", "the codes were reissued but the AI roles could not be set again; reissue the codes again"); }
     }
     return issued.filter((c) => !ai.includes(c.roleId));
   }
@@ -672,7 +674,12 @@ export class Supervisor {
     if (!this.entryOf(id)) return Promise.reject(new ControlError("not_found", "that session does not exist"));
     const msg = this.reissueMessage(roleId);
     if (!msg) return Promise.reject(new ControlError("bad_request", "that reissue request is not valid"));
-    return this.withLock(id, () => this.reissueLocked(id, msg));
+    return this.withLock(id, () => {
+      // Inside the lock, like the public reissue: a set queued ahead may just have made the role human, and in the B14 window the
+      // role may be human already. The runtime would rotate the seat's code for nothing (or hand a bot a code for a human seat).
+      if (!this.aiRolesOf(id).includes(roleId) || this.uncertain.get(id)?.includes(roleId)) return Promise.reject(new ControlError("ai_role", AI_ROLE_REFUSED));
+      return this.reissueLocked(id, msg);
+    });
   }
 
   private reissueMessage(roleId: string, by?: string, reason?: "removed"): Extract<ParentMessage, { type: "reissue" }> | undefined {

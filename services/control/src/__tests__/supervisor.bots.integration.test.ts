@@ -148,4 +148,57 @@ describe("Supervisor with a real BotHost", () => {
     expect(reissues).toEqual([]);
     expect(logs.join("\n")).not.toMatch(/ai-(tl|am)/);
   });
+
+  describe("the bots' own reissue (C1)", () => {
+    /** A session whose tech_lead is AI per the supervisor, with the host holding no code for it. */
+    const setup = async () => {
+      const sup = make();
+      const { id, c } = await boot(sup);
+      await set(sup, id, c, ["tech_lead"], [{ roleId: "tech_lead", code: "ai-1" }]);
+      await host!.forget(id); await settle();
+      opened.length = 0; c.sent.length = 0;
+      return { sup, id, c };
+    };
+    const types = (c: FakeChild): string[] => c.sent.map((m) => m.type);
+
+    it("(a) a bot reissue queued behind a TIMED-OUT set that made the role human is refused: nothing is sent, no bot opens", async () => {
+      const { sup, id, c } = await setup();
+      const s = sup.setAiRoles(id, []).catch((e: Error & { code?: string }) => e); await settle();
+      void host!.attach(id, { port: 4321, aiRoles: ["tech_lead"] }); await settle(); // no code: the bot asks for one, queued behind the lock
+      fireSet();
+      expect(await s).toMatchObject({ code: "timeout" });
+      await settle();
+      expect(types(c)).toEqual(["set_ai_roles"]);
+      expect(opened).toEqual([]);
+    });
+
+    it("(b) behind a SUCCESSFUL set that made the role human, and behind a reissueAll with no AI role: not sent", async () => {
+      const { sup, id, c } = await setup();
+      const s = sup.setAiRoles(id, []); await settle();
+      void host!.attach(id, { port: 4321, aiRoles: ["tech_lead"] }); await settle();
+      c.emit({ type: "ai_roles_set", requestId: c.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "human-new" }] });
+      expect(await s).toEqual({ roles: [], codes: [{ roleId: "tech_lead", code: "human-new" }] });
+      await settle();
+      expect(types(c)).toEqual(["set_ai_roles"]);
+      expect(opened).toEqual([]);
+      // reissueAll (aiRolesOf is now empty)
+      await host!.forget(id); await settle();
+      c.onKill = () => setImmediate(() => c.exit(null));
+      const all = sup.reissueAll(id); await settle();
+      void host!.attach(id, { port: 4321, aiRoles: ["tech_lead"] }); await settle();
+      const c2 = children[children.length - 1]!;
+      const fresh = ROLES.map((roleId) => ({ roleId, code: `fresh-${roleId}` }));
+      c2.emit({ type: "codes", codes: fresh }); c2.emit({ ...READY, port: 7001 });
+      await all; await settle();
+      expect(c2.sent.filter((m) => m.type === "reissue")).toEqual([]);
+    });
+
+    it("(c) a legitimate bot reissue for a still-AI, certain role still works", async () => {
+      const { id, c } = await setup();
+      void host!.attach(id, { port: 4321, aiRoles: ["tech_lead"] }); await settle();
+      expect(types(c)).toEqual(["reissue"]);
+      c.emit({ type: "reissued", requestId: c.sent[0]!.requestId, code: "ai-2" }); await settle();
+      expect(opened.map((o) => [o.roleId, o.code])).toEqual([["tech_lead", "ai-2"]]);
+    });
+  });
 });
