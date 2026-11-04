@@ -755,7 +755,8 @@ describe("ConfirmDialog", () => {
     expect(within(row).getByText("AI")).toBeTruthy();
     expect(within(row).getByText("Not needed")).toBeTruthy();
     expect(row.textContent).not.toContain("Pat");
-    expect(within(row).queryByRole("button")).toBeNull();
+    // The only button is the switch back to a human: no Reissue, no Remove.
+    expect(within(row).getAllByRole("button").map((b) => b.textContent)).toEqual(["Make human"]);
     // A human row keeps its buttons and its Consented cell.
     const human = screen.getByRole("row", { name: /Account manager/ });
     expect(within(human).getByRole("button", { name: "Reissue code for Account manager" })).toBeTruthy();
@@ -821,5 +822,174 @@ describe("ConfirmDialog", () => {
     mount(readiness({ roster: AI_ROSTER, missing: ["delivery_lead"] }));
     await ready();
     expect(document.getElementById("start-reason")!.textContent).toBe("Waiting for: delivery_lead");
+  });
+});
+
+describe("Readiness: switching roles to AI players and back", () => {
+  const HUMAN = (roleId: string, name: string) => ({ roleId, name, joined: true, consented: true, connected: true });
+  const AI = (roleId: string) => ({ roleId, joined: true, consented: false, connected: true, ai: true as const });
+  const ROSTER = [HUMAN("account_manager", "Pat"), AI("tech_lead"), { roleId: "delivery_lead", joined: false, consented: false, connected: false }];
+  const aiPosts = (m: ReturnType<typeof mount>) => m.posts().filter((c) => c.url.endsWith("/ai-roles"));
+  const sw = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
+
+  it("Make AI player on a joined row opens the danger dialog \"Replace Pat with an AI player in Account manager?\" and Cancel sends nothing", async () => {
+    const m = mount(readiness({ roster: ROSTER }));
+    await ready();
+    const opener = sw("Make Account manager an AI player");
+    expect(opener.textContent).toBe("Make AI player");
+    fireEvent.click(opener);
+    const dlg = screen.getByRole("dialog");
+    expect(within(dlg).getByText("Replace Pat with an AI player in Account manager?")).toBeTruthy();
+    expect(within(dlg).getByRole("button", { name: "Use AI player" }).className).toContain("danger");
+    fireEvent.click(within(dlg).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(aiPosts(m)).toHaveLength(0);
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("a seat nobody has joined opens a primary dialog \"Fill Delivery lead with an AI player?\"", async () => {
+    mount(readiness({ roster: ROSTER }));
+    await ready();
+    fireEvent.click(sw("Make Delivery lead an AI player"));
+    const dlg = screen.getByRole("dialog");
+    expect(within(dlg).getByText("Fill Delivery lead with an AI player?")).toBeTruthy();
+    expect(within(dlg).getByRole("button", { name: "Use AI player" }).className).not.toContain("danger");
+  });
+
+  it("confirming posts {roles:[\"account_manager\"]...} with the current AI set kept, then refreshes the readiness", async () => {
+    const m = mount(readiness({ roster: ROSTER }), {
+      "/ai-roles": { status: 200, body: ok({ roles: ["tech_lead", "account_manager"], codes: [] }) },
+    });
+    await ready();
+    const readsBefore = m.f.calls.filter((c) => c.url.endsWith("/readiness")).length;
+    fireEvent.click(sw("Make Account manager an AI player"));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+    expect(aiPosts(m)).toHaveLength(1);
+    expect(aiPosts(m)[0]!.body).toEqual({ roles: ["tech_lead", "account_manager"] });
+    expect(aiPosts(m)[0]!.init.headers).toMatchObject({ "X-Requested-With": "scenecoach" });
+    await waitFor(() => expect(m.f.calls.filter((c) => c.url.endsWith("/readiness")).length).toBe(readsBefore + 1));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // The switch was not the only AI role: posting the toggled role alone would have dropped tech_lead.
+    expect(document.body.textContent).not.toContain("New code for");
+  });
+
+  it("Make human posts the set without it and shows \"New code for Tech lead\" once", async () => {
+    const m = mount(readiness({ roster: [...ROSTER, AI("cfo")] }), {
+      "/ai-roles": { status: 200, body: ok({ roles: ["cfo"], codes: [{ roleId: "tech_lead", code: "TL-NEW" }, { roleId: "account_manager", code: "AM-OTHER" }] }) },
+    });
+    await ready();
+    fireEvent.click(sw("Make Tech lead human"));
+    const dlg = screen.getByRole("dialog");
+    expect(within(dlg).getByText("Switch Tech lead back to a human?")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(within(dlg).getByRole("button", { name: "Switch to human" }));
+    });
+    expect(aiPosts(m)[0]!.body).toEqual({ roles: ["cfo"] });
+    await screen.findByRole("heading", { name: "New code for Tech lead" });
+    expect(screen.getByText("TL-NEW")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("AM-OTHER");
+    fireEvent.click(screen.getByRole("button", { name: "I have copied the codes" }));
+    expect(document.body.textContent).not.toContain("TL-NEW");
+  });
+
+  it("an ai_too_many answer shows \"At most 8 roles can be AI players.\" and an ai_notice answer its notice copy; the state is unchanged", async () => {
+    const m = mount(readiness({ roster: ROSTER }), {
+      "/ai-roles": { status: 409, body: refused("ai_too_many", "At most 8 roles can be AI players.") },
+    });
+    await ready();
+    fireEvent.click(sw("Make Delivery lead an AI player"));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+    await screen.findByText("At most 8 roles can be AI players.");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(sw("Make Delivery lead an AI player").disabled).toBe(false);
+    expect(document.activeElement).toBe(sw("Make Delivery lead an AI player"));
+    expect(aiPosts(m)).toHaveLength(1);
+  });
+
+  it("an ai_notice answer shows the notice copy; with no message the client's own copy is used", async () => {
+    const notice = "This server's consent notice does not mention AI players. AI players need notice v2 or later.";
+    const m = mount(readiness({ roster: ROSTER }), { "/ai-roles": { status: 409, body: refused("ai_notice", notice) } });
+    await ready();
+    fireEvent.click(sw("Make Delivery lead an AI player"));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+    await screen.findByText(notice);
+    cleanup();
+    mount(readiness({ roster: ROSTER }), { "/ai-roles": { status: 409, body: refused("ai_no_human", "") } });
+    await ready();
+    fireEvent.click(sw("Make Delivery lead an AI player"));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+    await screen.findByText("At least one role must stay human.");
+    expect(m.posts().length).toBe(1);
+  });
+
+  it("an unconfirmed answer (504) says the change may or may not have been made", async () => {
+    mount(readiness({ roster: ROSTER }), { "/ai-roles": { status: 504, body: refused("ai_roles_unconfirmed", "") } });
+    await ready();
+    fireEvent.click(sw("Make Delivery lead an AI player"));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+    await screen.findByText("The change may or may not have been made. Check the roster, then switch the role again.");
+  });
+
+  it("no toggle is rendered once status is running", async () => {
+    mount(readiness({ status: "running", roster: ROSTER }));
+    await ready();
+    expect(screen.queryByRole("button", { name: /an AI player$/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /human$/ })).toBeNull();
+  });
+
+  it("no toggle is rendered while the session is unreachable", async () => {
+    mount(readiness({ status: null, roster: ROSTER }));
+    await ready();
+    expect(screen.queryByRole("button", { name: /AI player$|human$/ })).toBeNull();
+  });
+
+  it("an AI row has the switch back and still no Reissue or Remove", async () => {
+    mount(readiness({ roster: ROSTER }));
+    await ready();
+    const row = screen.getByRole("row", { name: /Tech lead/ });
+    expect(within(row).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Make Tech lead human"]);
+    expect(row.textContent).not.toContain("Pat");
+  });
+
+  it("while the request is in flight every switch is disabled and nothing is posted twice", async () => {
+    const m = mount(readiness({ roster: ROSTER }), { "/ai-roles": { status: 200, body: ok({ roles: ["tech_lead", "delivery_lead"], codes: [] }) } });
+    await ready();
+    fireEvent.click(sw("Make Delivery lead an AI player"));
+    m.f.hold();
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+    expect(sw("Make Account manager an AI player").disabled).toBe(true);
+    expect(sw("Make Tech lead human").disabled).toBe(true);
+    fireEvent.click(sw("Make Account manager an AI player"));
+    // The dialog of the pending change stays; the click on the disabled switch opened nothing else.
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(screen.getByText("Fill Delivery lead with an AI player?")).toBeTruthy();
+    await act(async () => {
+      m.f.release();
+    });
+    expect(aiPosts(m)).toHaveLength(1);
+  });
+
+  it("focus returns to the row's switch after a confirmed change (the roster re-renders under it)", async () => {
+    const m = mount(readiness({ roster: ROSTER }), { "/ai-roles": { status: 200, body: ok({ roles: ["tech_lead", "delivery_lead"], codes: [] }) } });
+    await ready();
+    fireEvent.click(sw("Make Delivery lead an AI player"));
+    m.current.readiness = readiness({ roster: [ROSTER[0]!, ROSTER[1]!, AI("delivery_lead")] });
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+    const next = await screen.findByRole("button", { name: "Make Delivery lead human" });
+    await waitFor(() => expect(document.activeElement).toBe(next));
   });
 });

@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { NewSessionForm } from "../console/NewSessionForm";
@@ -126,5 +127,117 @@ describe("NewSessionForm", () => {
         }) as HTMLButtonElement
       ).disabled,
     ).toBe(false);
+  });
+});
+
+describe("NewSessionForm: AI players on the created panel", () => {
+  const ROLES = ["account_manager", "delivery_lead"];
+  const created = {
+    sessionId: "abcd1234efgh5678",
+    modelLabel: "m",
+    codes: [
+      { roleId: "account_manager", code: "CODE-AM" },
+      { roleId: "delivery_lead", code: "CODE-DL" },
+    ],
+  };
+  /** A control service that keeps the AI set it was sent and answers a fresh code for every human role. */
+  async function open(fail?: { status: number; body: unknown }) {
+    const f = fakeFetch((url, body) => {
+      if (url.endsWith("/scenarios")) return { status: 200, body: ok(SCENARIOS) };
+      if (url.endsWith("/ai-roles")) {
+        if (fail) return fail;
+        const roles = (body as { roles: string[] }).roles;
+        return { status: 200, body: ok({ roles, codes: ROLES.filter((r) => !roles.includes(r)).map((r) => ({ roleId: r, code: `NEW-${r}` })) }) };
+      }
+      return { status: 200, body: ok(created) };
+    });
+    render(<NewSessionForm fetch={f.fetch} />);
+    await waitFor(() => expect((screen.getByLabelText("Scenario") as HTMLSelectElement).options).toHaveLength(2));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Create session" }));
+    });
+    await screen.findByText("CODE-AM");
+    return f;
+  }
+  const aiPosts = (f: ReturnType<typeof fakeFetch>) => f.calls.filter((c) => c.url.endsWith("/ai-roles"));
+  const confirmUse = async () => {
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+  };
+
+  it("the created panel shows a toggle per issued code; switching delivery_lead to AI hides its code and reads \"AI player\"", async () => {
+    const f = await open();
+    expect(screen.getAllByRole("button", { name: /^Make .* an AI player$/ })).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "Make Delivery lead an AI player" }));
+    // Nobody has joined a just-created session: the primary wording.
+    expect(within(screen.getByRole("dialog")).getByText("Fill Delivery lead with an AI player?")).toBeTruthy();
+    await confirmUse();
+    expect(aiPosts(f)[0]!.body).toEqual({ roles: ["delivery_lead"] });
+    await waitFor(() => expect(document.body.textContent).not.toContain("CODE-DL"));
+    expect(document.body.textContent).not.toContain("NEW-delivery_lead");
+    expect(screen.getByText("CODE-AM")).toBeTruthy();
+    const row = screen.getByText("AI player").closest("li")!;
+    expect(row.textContent).toContain("Delivery lead");
+    expect(screen.queryByRole("button", { name: "Copy code for Delivery lead" })).toBeNull();
+    const back = within(row).getByRole("button", { name: "Make Delivery lead human" });
+    await waitFor(() => expect(document.activeElement).toBe(back));
+  });
+
+  it("a second switch posts the whole AI set, not only the toggled role", async () => {
+    const f = await open();
+    fireEvent.click(screen.getByRole("button", { name: "Make Delivery lead an AI player" }));
+    await confirmUse();
+    await screen.findByRole("button", { name: "Make Delivery lead human" });
+    fireEvent.click(screen.getByRole("button", { name: "Make Account manager an AI player" }));
+    await confirmUse();
+    expect(aiPosts(f)[1]!.body).toEqual({ roles: ["delivery_lead", "account_manager"] });
+  });
+
+  it("Make human posts the set without it, shows the new code once under \"New code for Delivery lead\" and drops it on dismissal", async () => {
+    const f = await open();
+    fireEvent.click(screen.getByRole("button", { name: "Make Delivery lead an AI player" }));
+    await confirmUse();
+    fireEvent.click(await screen.findByRole("button", { name: "Make Delivery lead human" }));
+    expect(within(screen.getByRole("dialog")).getByText("Switch Delivery lead back to a human?")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Switch to human" }));
+    });
+    expect(aiPosts(f)[1]!.body).toEqual({ roles: [] });
+    expect(await screen.findByRole("heading", { name: "New code for Delivery lead" })).toBeTruthy();
+    expect(screen.getByText("NEW-delivery_lead")).toBeTruthy();
+    // Only the switched role's code is shown; the other human keeps the code it was issued.
+    expect(document.body.textContent).not.toContain("NEW-account_manager");
+    expect(screen.getByText("CODE-AM")).toBeTruthy();
+    expect(screen.queryByText("CODE-DL")).toBeNull();
+    const dismiss = screen.getAllByRole("button", { name: "I have copied the codes" });
+    fireEvent.click(dismiss[dismiss.length - 1]!);
+    expect(document.body.textContent).not.toContain("NEW-delivery_lead");
+    expect(screen.getByRole("button", { name: "Make Delivery lead an AI player" })).toBeTruthy();
+  });
+
+  it("an error leaves the row as it was, shows the BFF copy and returns focus to the switch", async () => {
+    await open({ status: 409, body: refused("ai_too_many", "At most 8 roles can be AI players.") });
+    fireEvent.click(screen.getByRole("button", { name: "Make Delivery lead an AI player" }));
+    await confirmUse();
+    await screen.findByText("At most 8 roles can be AI players.");
+    expect(screen.getByText("CODE-DL")).toBeTruthy();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Make Delivery lead an AI player" }));
+  });
+
+  it("Cancel sends nothing and returns focus to the switch", async () => {
+    const f = await open();
+    const opener = screen.getByRole("button", { name: "Make Delivery lead an AI player" });
+    fireEvent.click(opener);
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    expect(aiPosts(f)).toHaveLength(0);
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("dismissing the join codes keeps the role rows and their switches", async () => {
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "I have copied the codes" }));
+    expect(document.body.textContent).not.toContain("CODE-AM");
+    expect(screen.getAllByRole("button", { name: /^Make .* an AI player$/ })).toHaveLength(2);
   });
 });

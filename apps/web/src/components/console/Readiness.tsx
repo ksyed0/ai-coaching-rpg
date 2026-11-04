@@ -17,6 +17,8 @@ import { roleLabel } from "../../lib/names";
 import { useReadiness, type SetTimer } from "../../lib/use-readiness";
 import { CodesPanel } from "./CodesPanel";
 import { confirmCopy } from "../../lib/console-confirm";
+import { aiErrorText, parseAiAnswer, setAiRoles } from "../../lib/console-ai";
+import { AiRoleSwitch } from "./AiRoleSwitch";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 // The facilitator's view of one session before and after the start: the model, who has joined, consented and connected (in words,
@@ -41,7 +43,9 @@ export type SessionStatus = "idle" | "running" | "ended";
 type Confirm =
   | { kind: "role"; roleId: string; opener: HTMLElement }
   | { kind: "remove"; roleId: string; opener: HTMLElement }
-  | { kind: "all"; opener: HTMLElement };
+  | { kind: "all"; opener: HTMLElement }
+  | { kind: "to_ai"; roleId: string; opener: HTMLElement }
+  | { kind: "to_human"; roleId: string; opener: HTMLElement };
 type Shown = { seq: number; heading: string; codes: CodeEntry[] };
 
 const yesNo = (v: boolean) => (v ? "Yes" : "No");
@@ -99,6 +103,9 @@ export function Readiness({
   // After a successful Remove the seat's row loses its Remove button (and with it the dialog's opener): focus moves to that row's
   // Reissue button once the refreshed roster has arrived, so it never falls to the page.
   const refocus = useRef<string | null>(null);
+  // After a role switch (confirmed, refused or cancelled) focus goes back to that role's switch, found by its data attribute because the
+  // roster re-renders under it.
+  const refocusSwitch = useRef<string | null>(null);
   // Every issue gets its own number, so a new code is never shown by a panel that still holds the previous one.
   const seq = useRef(0);
   const show = (heading: string, codes: CodeEntry[]) =>
@@ -153,6 +160,22 @@ export function Readiness({
       // The BFF's own words for "already started" (the generic 409 text would say nothing about removing).
       (r) =>
         r.status === 409 && r.message !== "" ? r.message : failureText(r),
+    );
+    setConfirm(null);
+  }
+  /** Posts the WHOLE wanted AI set: the roster's current AI roles with this one added or taken out. */
+  async function switchRole(roleId: string, toAi: boolean) {
+    const current = polledRoster.current.filter((e) => e.ai === true).map((e) => e.roleId);
+    const wanted = toAi ? [...current.filter((r) => r !== roleId), roleId] : current.filter((r) => r !== roleId);
+    refocusSwitch.current = roleId;
+    await act(
+      () => setAiRoles(sessionId, wanted, fetchImpl),
+      (d) => {
+        // A returned human code is shown once; an AI role never has one (the BFF sends human codes only).
+        const code = toAi ? undefined : parseAiAnswer(d).codes.find((c) => c.roleId === roleId);
+        if (code) show(`New code for ${roleLabel(roleId)}`, [code]);
+      },
+      aiErrorText,
     );
     setConfirm(null);
   }
@@ -236,6 +259,15 @@ export function Readiness({
     next.focus();
   }, [data]);
 
+  useEffect(() => {
+    const roleId = refocusSwitch.current;
+    if (roleId === null || confirm !== null || !data) return;
+    const el = document.querySelector<HTMLElement>(`[data-ai-switch="${CSS.escape(roleId)}"]`);
+    if (!el || (el as HTMLButtonElement).disabled) return; // the refreshed roster has not arrived yet, or the request is still in flight
+    refocusSwitch.current = null;
+    el.focus();
+  });
+
   if (signedOut) {
     return (
       <p className="banner warn" role="alert">
@@ -273,6 +305,11 @@ export function Readiness({
         setConfirm({ kind: "remove", roleId, opener })
       }
       onAskAll={(opener) => setConfirm({ kind: "all", opener })}
+      onAskSwitch={(roleId, toAi, opener) => {
+        refocusSwitch.current = roleId;
+        setConfirm({ kind: toAi ? "to_ai" : "to_human", roleId, opener });
+      }}
+      onSwitch={(roleId, toAi) => void switchRole(roleId, toAi)}
       onCancel={() => setConfirm(null)}
       onReissue={(id) => void reissue(id)}
       onRemove={(id) => void remove(id)}
@@ -299,6 +336,8 @@ type ViewProps = {
   onAskRole: (roleId: string, opener: HTMLElement) => void;
   onAskRemove: (roleId: string, opener: HTMLElement) => void;
   onAskAll: (opener: HTMLElement) => void;
+  onAskSwitch: (roleId: string, toAi: boolean, opener: HTMLElement) => void;
+  onSwitch: (roleId: string, toAi: boolean) => void;
   onCancel: () => void;
   onReissue: (roleId: string) => void;
   onRemove: (roleId: string) => void;
@@ -477,6 +516,16 @@ function View(p: ViewProps) {
                         </button>
                       ) : null}
                       </>)}
+                      {idle ? (
+                        <AiRoleSwitch
+                          roleId={e.roleId}
+                          ai={e.ai === true}
+                          {...(e.name ? { name: e.name } : {})}
+                          joined={e.joined}
+                          disabled={p.working}
+                          onAsk={(opener) => p.onAskSwitch(e.roleId, e.ai !== true, opener)}
+                        />
+                      ) : null}
                     </td>
                   </tr>
                 ))}
@@ -556,6 +605,17 @@ function View(p: ViewProps) {
           onConfirm={() => p.onRemove((p.confirm as { roleId: string }).roleId)}
         />
       ) : null}
+      {p.confirm?.kind === "to_ai" || p.confirm?.kind === "to_human" ? (
+        <SwitchDialog
+          roleId={p.confirm.roleId}
+          toAi={p.confirm.kind === "to_ai"}
+          entry={data.roster.find((r) => r.roleId === (p.confirm as { roleId: string }).roleId)}
+          pending={p.working}
+          opener={p.confirm.opener}
+          onCancel={p.onCancel}
+          onConfirm={() => p.onSwitch((p.confirm as { roleId: string }).roleId, p.confirm?.kind === "to_ai")}
+        />
+      ) : null}
       {p.confirm?.kind === "all" ? (
         <ConfirmDialog
           title="Reissue all codes?"
@@ -584,6 +644,35 @@ function RemoveDialog(p: {
     ...(p.name ? { name: p.name } : {}),
     role: roleLabel(p.roleId),
   });
+  return (
+    <ConfirmDialog
+      title={copy.title}
+      description={copy.description}
+      confirmLabel={copy.confirmLabel}
+      tone={copy.tone}
+      pending={p.pending}
+      opener={p.opener}
+      onCancel={p.onCancel}
+      onConfirm={p.onConfirm}
+    />
+  );
+}
+
+function SwitchDialog(p: {
+  roleId: string;
+  toAi: boolean;
+  entry: RosterEntry | undefined;
+  pending: boolean;
+  opener: HTMLElement;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const role = roleLabel(p.roleId);
+  const copy = confirmCopy(
+    p.toAi
+      ? { kind: "to_ai", role, joined: p.entry?.joined === true, ...(p.entry?.name ? { name: p.entry.name } : {}) }
+      : { kind: "to_human", role },
+  );
   return (
     <ConfirmDialog
       title={copy.title}
