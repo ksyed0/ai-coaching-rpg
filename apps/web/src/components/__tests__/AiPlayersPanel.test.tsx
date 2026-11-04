@@ -157,7 +157,7 @@ describe("AiPlayersPanel", () => {
     expect(posts(m.f, "/intents")).toHaveLength(1);
   });
 
-  it("a recent-turns failure shows the failure and an empty log says so", async () => {
+  it("an empty log says so", async () => {
     mount({}, { "tech_lead/intents": { status: 200, body: ok({ entries: [] }) } });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Show recent turns for Tech lead" }));
@@ -180,6 +180,63 @@ describe("AiPlayersPanel", () => {
       fireEvent.click(screen.getByRole("button", { name: "Show recent turns for Tech lead" }));
     });
     await waitFor(() => expect(document.body.textContent).toContain("Hint: ⁨a‮b⁩"));
+  });
+
+  it("a refused recent-turns request shows its copy", async () => {
+    mount({}, { "tech_lead/intents": { status: 409, body: refused("ai_absent", "The AI player is not connected right now.") } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show recent turns for Tech lead" }));
+    });
+    await screen.findByText("The AI player is not connected right now.");
+  });
+
+  it("an entry with an out-of-range time is dropped and the panel does not crash", async () => {
+    mount({}, { "tech_lead/intents": { status: 200, body: ok({ entries: [{ ts: 9e15, sceneId: null, trigger: "reply", outcome: "spoken" }, { ts: 1, sceneId: null, trigger: "prompt", outcome: "spoken" }] }) } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show recent turns for Tech lead" }));
+    });
+    await screen.findByText("prompt");
+    expect(screen.queryByText("reply")).toBeNull();
+  });
+
+  it("closing and reopening posts again and the older answer is ignored", async () => {
+    const gates: ((r: Response) => void)[] = [];
+    const calls: string[] = [];
+    const fetchStub = ((url: string) => {
+      calls.push(url);
+      return new Promise<Response>((res) => gates.push(res));
+    }) as unknown as typeof fetch;
+    render(<AiPlayersPanel sessionId="s1" channel={CH} aiRoles={["tech_lead"]} running fetch={fetchStub} />);
+    const toggle = () => screen.getByRole("button", { name: /recent turns for Tech lead$/ });
+    const body = (trigger: string) => new Response(JSON.stringify(ok({ entries: [{ ts: 1, sceneId: null, trigger, outcome: "spoken" }] })), { status: 200 });
+    await act(async () => { fireEvent.click(toggle()); });
+    await act(async () => { fireEvent.click(toggle()); });
+    await act(async () => { fireEvent.click(toggle()); });
+    expect(calls).toHaveLength(2);
+    await act(async () => { gates[1]!(body("prompt")); });
+    await screen.findByText("prompt");
+    await act(async () => { gates[0]!(body("nudge")); });
+    expect(screen.queryByText("quiet-time nudge")).toBeNull();
+    expect(screen.getByText("prompt")).toBeTruthy();
+  });
+
+  it("a 300-code-point hint with a trailing space is accepted and shows 300 of 300", async () => {
+    const m = mount();
+    fireEvent.change(hintBox(), { target: { value: `${"a".repeat(300)} ` } });
+    expect(screen.getByText("300 of 300")).toBeTruthy();
+    await send();
+    expect(posts(m.f, "/prompt")).toHaveLength(1);
+  });
+
+  it("focus is not pulled back from the hint field the user moved to while the request ran", async () => {
+    const m = mount();
+    m.f.hold();
+    await send();
+    hintBox().focus();
+    await act(async () => {
+      m.f.release();
+    });
+    expect(document.activeElement).toBe(hintBox());
   });
 
   it("each AI role has its own labelled controls", () => {

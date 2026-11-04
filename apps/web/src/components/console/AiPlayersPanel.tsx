@@ -48,11 +48,15 @@ function Row({ sessionId, roleId, channel, running, fetchImpl }: { sessionId: st
   const btn = useRef<HTMLButtonElement>(null);
   const busy = useRef(false);
   const wasPending = useRef(false);
-  const count = Array.from(hint).length;
+  // Counted as it is sent (trimmed).
+  const count = Array.from(hint.trim()).length;
+  const asked = useRef(0);
 
   // A button that was focused becomes disabled while the request is in flight, and focus would fall to the page: put it back.
   useEffect(() => {
-    if (wasPending.current && !pending) btn.current?.focus();
+    // Only when focus was lost to the page (or is still on the button): never pull it back from the hint field the user moved to.
+    const at = document.activeElement;
+    if (wasPending.current && !pending && (at === null || at === document.body || at === btn.current)) btn.current?.focus();
     wasPending.current = pending;
   }, [pending]);
 
@@ -79,10 +83,12 @@ function Row({ sessionId, roleId, channel, running, fetchImpl }: { sessionId: st
 
   async function toggle() {
     const next = !open;
+    const mine = ++asked.current; // a slower, older answer never overwrites a newer one (or one that arrives after closing)
     setOpen(next);
     if (!next) return;
     setTurns(null);
     const r = await fetchIntents(sessionId, roleId, fetchImpl);
+    if (mine !== asked.current) return;
     setTurns(r.ok ? { entries: r.entries } : { message: r.message });
   }
 

@@ -104,7 +104,8 @@ export async function fetchIntents(sessionId: string, roleId: string, fetchImpl?
   for (const x of Array.isArray(raw) ? raw : []) {
     if (typeof x !== "object" || x === null) continue;
     const o = x as Record<string, unknown>;
-    if (typeof o.ts !== "number" || !Number.isFinite(o.ts)) continue;
+    // A time the page can format: finite and inside the Date range (an out-of-range value would make toISOString throw).
+    if (typeof o.ts !== "number" || !Number.isFinite(o.ts) || Number.isNaN(new Date(o.ts).getTime())) continue;
     if (typeof o.trigger !== "string" || !TRIGGERS.includes(o.trigger)) continue;
     if (typeof o.outcome !== "string" || !OUTCOMES.includes(o.outcome)) continue;
     const reason = typeof o.reason === "string" && Object.hasOwn(INTENT_REASONS, o.reason) ? (o.reason as NonNullable<IntentView["reason"]>) : undefined;
