@@ -141,7 +141,8 @@ export class StreamHub {
 
     this.streams.set(key, s);
     // The opening frames are not counted towards the stall cap: nothing drains `out` until this call returns, and the reset can be a whole
-    // state snapshot over the cap on its own. The cap (and so the per-client memory bound) applies from the first frame after the opening.
+    // state snapshot over the cap on its own. The opening lasts until the queued replay has been flushed by the first `onFrame` (below); the
+    // cap (and so the per-client memory bound) applies from the first frame after that.
     s.writer.beginOpening();
     try {
       this.write(s, `retry: ${RETRY_MS}\n\n`);
@@ -153,8 +154,9 @@ export class StreamHub {
         this.write(s, sse("reset", initPlayerView(joined.state), joined.state.lastSeq));
         s.skip = joined.replay?.events ?? 0;
       }
-    } finally {
+    } catch (e) {
       s.writer.endOpening();
+      throw e;
     }
     if (s.ended) return noop;
     s.cancelHeartbeat = heartbeat(this.o.setTimer, () => {
@@ -164,6 +166,8 @@ export class StreamHub {
     });
     // onFrame first: frames queued in the connection come out before a close that already happened.
     const offFrame = conn.onFrame((m) => this.onFrame(s, m));
+    // The first onFrame flushed the queued replay synchronously, still undrained: it is part of the opening (BUG-0024).
+    s.writer.endOpening();
     const offClose = conn.onClose((code) => this.finish(s, endingFor(code)));
     s.detach = () => { offFrame(); offClose(); };
     if (s.ended) s.detach(); // the close was reported during onClose, before detach existed

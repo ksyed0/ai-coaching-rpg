@@ -118,7 +118,13 @@ export class FakeConn {
   get isOpen() { return this.code === null && this.closed === 0 && !this.closing; }
   get closeCode() { return this.code; }
   send(m: ClientMessage) { if (!this.isOpen) throw new Error("closed"); this.sent.push(m); const a = this.answer?.(m); if (a) queueMicrotask(() => this.emit(a)); }
-  onFrame(fn: (m: ServerMessage) => void) { this.frameFns.add(fn); return () => { this.frameFns.delete(fn); }; }
+  /** Frames that arrived before any listener (the replay); like RuntimeConnection, the first onFrame gets them synchronously, in order. */
+  queued: ServerMessage[] = [];
+  onFrame(fn: (m: ServerMessage) => void) {
+    this.frameFns.add(fn);
+    for (const m of this.queued.splice(0)) fn(m);
+    return () => { this.frameFns.delete(fn); };
+  }
   onClose(fn: (code: number) => void) { if (this.code !== null) { fn(this.code); return () => {}; } this.closeFns.add(fn); return () => { this.closeFns.delete(fn); }; }
   close() { this.closed++; }
   emit(m: ServerMessage) { for (const fn of [...this.frameFns]) fn(m); }

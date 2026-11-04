@@ -394,7 +394,7 @@ describe("StreamHub backpressure and expiry", () => {
     const conn = new FakeConn();
     const chunks: string[] = []; let ends = 0;
     h.open(cookieFor(), "x", asConn(conn), joinedFrame(), { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } });
-    expect(ends).toBe(0); // retry, joined (and a reset) are over the cap and the stream is still open
+    expect(ends).toBe(0); // retry and joined are over the cap and the stream is still open
     conn.emit({ type: "event", event: ev(6) });
     expect(ends).toBe(1);
     expect(conn.closed).toBe(1);
@@ -408,12 +408,29 @@ describe("StreamHub backpressure and expiry", () => {
     h.open(cookieFor(), "x", asConn(conn), joinedFrame({ replay: undefined, state: big }), body.out);
     expect(conn.closed).toBe(0);
     const reader = body.stream.getReader(); const dec = new TextDecoder(); let text = "";
-    while (!/event: reset/.test(text) || !/\n\n$/.test(text)) text += dec.decode((await reader.read()).value);
+    while (!/event: reset/.test(text) || !/\n\n$/.test(text)) {
+      const r = await reader.read();
+      if (r.done) break; // a regression ends the stream: fail fast instead of hanging
+      text += dec.decode(r.value);
+    }
     expect(text.length).toBeGreaterThan(256 * 1024);
     expect(parseSse(text).map((f) => f.event)).toEqual(["retry:3000", "joined", "reset"]);
     conn.emit({ type: "event", event: ev(6) });
     expect(conn.closed).toBe(0);
     await reader.cancel();
+  });
+
+  it("a replay flushed right after the opening is part of the opening; a stall after it still ends the stream (BUG-0024)", () => {
+    const { h } = hub({ maxPendingBytes: 1_200 });
+    const conn = new FakeConn();
+    const chunks: string[] = []; let ends = 0;
+    for (let i = 6; i <= 15; i++) conn.queued.push({ type: "event", event: { ...ev(i), text: "x".repeat(400) } } as ServerMessage); // ~5 KB of replay
+    h.open(cookieFor(), "x", asConn(conn), joinedFrame({ replay: { afterSeq: 5, toSeq: 15, events: 10, complete: true } }), { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } });
+    expect(chunks.filter((c) => c.includes("event: event"))).toHaveLength(10); // the whole replay is delivered, in order
+    expect(ends).toBe(0);
+    for (let i = 16; i <= 18; i++) conn.emit({ type: "event", event: { ...ev(i), text: "x".repeat(400) } } as ServerMessage);
+    expect(ends).toBe(1);
+    expect(chunks.at(-1)).toContain("event: reconnecting");
   });
 
   it("the stream ends with expired at the first heartbeat after the cookie's expiry (injected clock)", () => {
