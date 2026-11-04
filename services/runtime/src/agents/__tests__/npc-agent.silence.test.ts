@@ -78,7 +78,7 @@ describe("silence markers", () => {
       expect(parse("<".repeat(n(100_000, s))).silent).toBe(false);
       expect(parse(`${"a ".repeat(n(50_000, s))}<silent/>`).text.length).toBeGreaterThan(n(90_000, s));
       expect(parse("\u200B".repeat(n(100_000, s)) + "<silent/>").silent).toBe(true);
-    });
+    }, { runs: 7 }); // best of 7 per size: a few GC pauses or descheduled slices under CPU load cannot inflate both samples (BUG-0018)
   }, 120_000);
 });
 

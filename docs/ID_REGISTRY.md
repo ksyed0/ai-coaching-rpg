@@ -7,7 +7,7 @@
 | TASK         | TASK-0100             | TASK-0099         |
 | AC           | AC-0364               | AC-0363           |
 | TC           | TC-0114               | TC-0113           |
-| BUG          | BUG-0024              | BUG-0023          |
+| BUG          | BUG-0025              | BUG-0024          |
 | L            | L-0032                | L-0031            |
 
 Reserved blocks (2026-10-06): AC-0130..AC-0139 and TASK-0040..TASK-0042 US-0025; AC-0140..AC-0149 and TASK-0043..TASK-0045 US-0017; AC-0150..AC-0159 and TASK-0046..TASK-0048 US-0016; AC-0160..AC-0169 and TASK-0049..TASK-0051 US-0018. Free below the blocks: AC-0127..AC-0129 and TASK-0035..TASK-0039. Next/Last point past the reserved blocks; an id in a block that its story does not use stays unused (ids are never reassigned).
@@ -61,3 +61,5 @@ Assigned 2026-11-04 (slice 2b-3b, PR 2): AC-0362 (US-0060: AI codes in control-s
 Assigned 2026-11-04 (slice 2b-3b, after PR 2): BUG-0020 (the bot socket overlap test flake, fixed), BUG-0021 (a lobby's AI roles can come back as human after a control-service restart, open), BUG-0022 (keyboard focus falls to the body after End session, a connection drop under a dialog or a 409 on Remove, open) and BUG-0023 (a whisper has no "private" label and is lost on reload, open). BUG-0022 and BUG-0023 record the two owner decisions of 2026-11-03.
 
 Assigned 2026-11-04 (slice 2b-3b, PR 3): AC-0363 (US-0060: the facilitator can prompt an AI player with an optional private hint; reserve, logged command, run; the hint only to the model and the intent log); TC-0110 (AC-0317), TC-0111 (AC-0318), TC-0112 (AC-0363) and TC-0113 (AC-0316: Axe on the toggle, the confirmations and the AI players panel). No new TASK: the work closes TASK-0099 (next free stays TASK-0100). Slice 2b-3b is complete; the next AC is AC-0364 and the next TC is TC-0114.
+
+Assigned 2026-11-04 (bug fixes after slice 2b-3b): BUG-0024 (the stream hubs drop a reconnecting client whose replay follows a large opening frame; found in the review of the BUG-0017 fix and fixed with it).
