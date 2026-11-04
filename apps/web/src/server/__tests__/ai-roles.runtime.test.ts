@@ -1,14 +1,19 @@
 import { FacilitatorBudget } from "../facilitator-budget";
 import { FacilitatorHub } from "../facilitator-hub";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import type { Config } from "../config";
-import { AI_FILLED_MESSAGE, COOKIE_NAME, handleConsent, handleJoin, handleStream, type Deps } from "../handlers";
+import { handleConsoleAiRoles } from "../console-ai";
+import { CONSOLE_COOKIE, secretEpoch } from "../console-session";
+import { handleConsoleReadiness, handleConsoleSessionsCreate, handleConsoleStart } from "../console-sessions";
+import { AI_FILLED_MESSAGE, COOKIE_NAME, handleConsent, handleJoin, handleSay, handleStream, type Deps } from "../handlers";
+import { LauncherError, type LauncherReason } from "../launcher-client";
+import { seal } from "../seal";
 import { RuntimeConnection, realTimer } from "../runtime-connection";
 import { StreamHub } from "../stream-hub";
 import { JoinThrottle } from "../throttle";
@@ -257,5 +262,220 @@ describe("AI seats against the real runtime (US-0060)", () => {
     expect(next.r.frames().at(-1)!.event).toBe("signed_out");
     expect(next.res.headers.get("Set-Cookie")).toMatch(new RegExp(`^${COOKIE_NAME}=;.*Max-Age=0`, "i"));
     expect(runtime!.host.assignments.account_manager).toBeUndefined();
+  });
+});
+
+
+// ---- the same BFF handlers in front of the REAL control stack (Task 18) ----
+// A real Supervisor with forkSpawn (real runtime child processes), a real BotHost, and a fake launcher that only forwards to that
+// supervisor. The bot's model is scripted (its lines are BOT-LINE-<n>). Loaded by computed paths like MAIN above, for the same reason.
+const CONTROL_SRC = (rel: string) => fileURLToPath(new URL(`../../../../../services/control/src/${rel}`, import.meta.url));
+const SCRIPT_SRC = fileURLToPath(new URL("../../../../../packages/script/src/index.ts", import.meta.url));
+const FAC_SECRET = "correct horse battery staple";
+const FAC_NAME = "Mx Zorbulon";
+const TECH = "tech_lead";
+
+type RealStack = {
+  sup: any; host: any; pids: number[]; parentEnv: Record<string, string | undefined>; releaseBot(): void; config: any; says: string[];
+  launcher: Record<string, (...a: any[]) => Promise<unknown>>;
+};
+let stacks: RealStack[] = [];
+let ctlRoots: string[] = [];
+
+async function realStack(parentEnv: Record<string, string | undefined>, o: { gateBot?: boolean } = {}): Promise<RealStack> {
+  const [{ Supervisor }, { BotHost }, { IntentLog }, { loadControlConfig }, { listScenarios, scenarioDir }, { SessionList }, { forkSpawn }, { loadScenario }, { BotSocket }] = await Promise.all([
+    import(CONTROL_SRC("supervisor.ts")), import(CONTROL_SRC("bots/bot-host.ts")), import(CONTROL_SRC("bots/intent-log.ts")), import(CONTROL_SRC("config.ts")),
+    import(CONTROL_SRC("scenarios.ts")), import(CONTROL_SRC("session-list.ts")), import(CONTROL_SRC("spawn.ts")), import(SCRIPT_SRC), import(CONTROL_SRC("bots/bot-socket.ts")),
+  ]) as any[];
+  const dir = await mkdtemp(path.join(os.tmpdir(), "acr-web-ctl-"));
+  ctlRoots.push(dir);
+  const config = loadControlConfig({
+    CONTROL_DATA_DIR: dir, LAUNCHER_TOKEN: "t".repeat(40), CONTROL_GRACE_MS: "10000", CONTROL_READY_TIMEOUT_MS: "40000", MAX_SESSIONS: "3",
+    AI_PLAYER_SETTLE_MS: "0", AI_PLAYER_MIN_GAP_MS: "0", AI_PLAYER_NUDGE_MS: "3600000",
+  });
+  const list = new SessionList(config.listFile);
+  const pids: number[] = [];
+  const says: string[] = [];
+  let n = 0;
+  const provider = { name: "scripted", async *stream() { yield `BOT-LINE-${++n}`; } };
+  let release: () => void = () => undefined;
+  const gate = o.gateBot ? new Promise<void>((r) => { release = r; }) : Promise.resolve();
+  const open = async (opts: any) => {
+    await gate;
+    const sock = await BotSocket.open(opts);
+    const say = sock.say.bind(sock);
+    sock.say = (text: string, scene: string) => { says.push(text); say(text, scene); };
+    return sock;
+  };
+  let host: any;
+  const sup = new Supervisor({
+    config, list, scenarios: () => listScenarios(config.scenariosDir), parentEnv,
+    spawn: (so: any) => { const h = forkSpawn()(so); pids.push(h.pid); return h; },
+    bots: (deps: any) => {
+      host = new BotHost({
+        provider, settings: config.aiPlayer, intents: new IntentLog(config.intentsDir), open, reissue: deps.reissue, alert: deps.alert,
+        scenarioFor: async (id: string) => {
+          const entry = list.read().find((e: any) => e.sessionId === id);
+          if (!entry) throw new Error("unknown session");
+          return loadScenario(scenarioDir(config.scenariosDir, entry.scenarioId));
+        },
+      });
+      return host;
+    },
+  });
+  const MAP: Record<string, LauncherReason> = { not_found: "not_found", conflict: "conflict", capacity: "capacity", bad_request: "bad_request", timeout: "timeout", ai_notice: "ai_notice", ai_started: "ai_started", ai_no_human: "ai_no_human", ai_too_many: "ai_too_many", ai_invalid: "ai_invalid", ai_role: "ai_role" };
+  const wrap = <T>(fn: () => Promise<T>): Promise<T> => fn().catch((err: any) => { throw new LauncherError(MAP[err?.code] ?? "failed"); });
+  const need = <T>(v: T | undefined): T => { if (v === undefined) throw new LauncherError("not_found"); return v; };
+  const launcher = {
+    createSession: (scenarioId: string) => wrap(() => sup.create(scenarioId)),
+    session: async (id: string) => need(sup.get(id)),
+    facilitator: async (id: string) => need(sup.facilitator(id)),
+    setAiRoles: (id: string, roles: string[]) => wrap(() => sup.setAiRoles(id, roles)),
+    intents: (id: string, role: string) => wrap(async () => sup.intents(id, role)),
+  };
+  const st: RealStack = { sup, host, pids, parentEnv, releaseBot: release, config, says, launcher };
+  stacks.push(st);
+  return st;
+}
+afterEach(async () => {
+  const all = stacks.splice(0);
+  for (const st of all) await st.sup.shutdown().catch(() => undefined);
+  // No child process may outlive its test.
+  const gone = (pid: number) => { try { process.kill(pid, 0); return false; } catch { return true; } };
+  await until(() => all.every((st) => st.pids.every(gone)), { what: "every runtime child to exit" });
+  for (const dir of ctlRoots.splice(0)) await rm(dir, { recursive: true, force: true });
+});
+
+const consoleCookie = () => `${CONSOLE_COOKIE}=${seal({ name: FAC_NAME, epoch: secretEpoch(FAC_SECRET), expiresAt: Date.now() + 3_600_000 }, KEYS, Date.now(), "fac")}`;
+function bffDeps(st: RealStack) {
+  const config: Config = { runtimeUrl: "ws://127.0.0.1:1", publicOrigin: ORIGIN, cookieKeys: KEYS, cookieMaxAgeHours: 12, maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10, facilitatorSecret: FAC_SECRET, launcherUrl: "http://127.0.0.1:47123", launcherToken: "launcher-token-" + "t".repeat(20) };
+  const hub = new StreamHub({ maxStreams: 10, maxStreamsPerSession: 10, maxStreamsPerAddress: 10, setTimer: realTimer, now: Date.now });
+  return {
+    config, now: Date.now, launcher: st.launcher, connect: ((url: string, address: string) => RuntimeConnection.connect(url, address)) as unknown as Deps["connect"],
+    joinThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: Date.now }), consoleThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: Date.now }),
+    consoleGlobalThrottle: new JoinThrottle({ max: 20, windowMs: 600_000, blockMs: 300_000, now: Date.now }), hub, facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }),
+  } as unknown as Deps;
+}
+/** Every BFF response body of a test, as text, for the leak scan. */
+let bodies: string[] = [];
+async function consoleCall(deps: Deps, handler: (r: Request, d: Deps) => Promise<Response>, method: "GET" | "POST", url: string, body?: unknown) {
+  const res = await handler(new Request(`${ORIGIN}${url}`, {
+    method, headers: { Origin: ORIGIN, "X-Requested-With": "scenecoach", "Sec-Fetch-Site": "same-origin", Cookie: consoleCookie(), ...(method === "POST" ? { "Content-Type": "application/json" } : {}) },
+    ...(method === "POST" ? { body: JSON.stringify(body ?? {}) } : {}),
+  }), deps);
+  const text = await res.text();
+  bodies.push(text);
+  return { status: res.status, json: JSON.parse(text) as any, text };
+}
+const hookState = (st: RealStack, id: string) => st.host.sessions.get(id) as { codes: Map<string, string>; bots: Map<string, { participantId: string }> };
+
+describe("AI seats through the BFF handlers over the real control stack (US-0060, Task 18)", () => {
+  beforeEach(() => { bodies = []; });
+
+  it("roles set through the console return no AI code; readiness waits for the bot (aiWaiting) and then counts it; people join and consent; start succeeds; no BFF byte reveals the bot", async () => {
+    const st = await realStack({ PATH: process.env.PATH, MODEL_PROVIDER: "mock" }, { gateBot: true });
+    const deps = bffDeps(st);
+    const created = await consoleCall(deps, handleConsoleSessionsCreate, "POST", "/api/v1/console/sessions", { scenarioId: "friday-escalation" });
+    expect(created.status).toBe(200);
+    const id = created.json.data.sessionId as string;
+    const humanCodes = Object.fromEntries((created.json.data.codes as { roleId: string; code: string }[]).map((c) => [c.roleId, c.code]));
+
+    const set = await consoleCall(deps, handleConsoleAiRoles, "POST", `/api/v1/console/sessions/${id}/ai-roles`, { roles: [TECH] });
+    expect(set.status).toBe(200);
+    expect(set.json.data.roles).toEqual([TECH]);
+    expect(set.json.data.codes.map((c: { roleId: string }) => c.roleId)).not.toContain(TECH);
+    const botCode = hookState(st, id).codes.get(TECH)!;
+    expect(botCode.length).toBeGreaterThan(3);
+    expect(set.text).not.toContain(botCode);
+
+    // The bot is held at the gate: the seat is AI and not yet in, so readiness names it in aiWaiting and the humans in missing.
+    const waiting = await consoleCall(deps, handleConsoleReadiness, "GET", `/api/v1/console/sessions/${id}/readiness`);
+    expect(waiting.json.data.aiWaiting).toEqual([TECH]);
+    expect(waiting.json.data.missing.slice().sort()).toEqual([...HUMANS].sort());
+    expect(waiting.json.data.canStart).toBe(false);
+    expect(waiting.json.data.roster.find((e: any) => e.roleId === TECH).ai).toBe(true);
+
+    st.releaseBot();
+    await vi.waitFor(async () => {
+      const r = await consoleCall(deps, handleConsoleReadiness, "GET", `/api/v1/console/sessions/${id}/readiness`);
+      if (r.json.data.aiWaiting.length > 0) throw new Error("the bot has not joined yet");
+    }, { timeout: 45_000, interval: 50 });
+
+    const guardedPlayer = (role: string) => ({ ...guarded, "X-Forwarded-For": ADDRESS[role]! });
+    const humans: Record<string, { cookie: string; r: ReturnType<typeof sseReader> }> = {};
+    for (const role of HUMANS) {
+      const res = await handleJoin(new Request(`${ORIGIN}/api/v1/join`, { method: "POST", headers: guardedPlayer(role), body: JSON.stringify({ sessionId: id, role, joinCode: humanCodes[role], displayName: `Name ${role}` }) }), deps);
+      bodies.push(await res.clone().text());
+      expect(res.status).toBe(200);
+      const cookie = cookieOf(res)!;
+      const sres = await handleStream(new Request(`${ORIGIN}/api/v1/stream?session=${id}`, { headers: { Accept: "text/event-stream", Cookie: `${COOKIE_NAME}=${cookie}`, "Sec-Fetch-Site": "same-origin", "X-Forwarded-For": ADDRESS[role]! } }), deps);
+      const r = sseReader(sres);
+      closers.push(() => r.cancel());
+      await until(() => r.frames().some((f) => f.event === "joined"));
+      const notice = r.frames().find((f) => f.event === "joined")!.data.consent.noticeVersion as string;
+      const c = await handleConsent(new Request(`${ORIGIN}/api/v1/consent`, { method: "POST", headers: { ...guardedPlayer(role), Cookie: `${COOKIE_NAME}=${cookie}` }, body: JSON.stringify({ noticeVersion: notice }) }), deps);
+      expect(c.status).toBe(200);
+      humans[role] = { cookie, r };
+    }
+    await vi.waitFor(async () => {
+      const r = await consoleCall(deps, handleConsoleReadiness, "GET", `/api/v1/console/sessions/${id}/readiness`);
+      if (!r.json.data.canStart) throw new Error("not ready yet");
+      expect(r.json.data.missing).toEqual([]);
+      expect(r.json.data.aiWaiting).toEqual([]);
+    }, { timeout: 45_000, interval: 50 });
+
+    const started = await consoleCall(deps, handleConsoleStart, "POST", `/api/v1/console/sessions/${id}/start`);
+    expect(started.status).toBe(200);
+    expect(started.json.data).toEqual({ started: true });
+    for (const role of HUMANS) {
+      await until(() => humans[role]!.r.events().some((e) => e.type === "session.started"));
+      expect(humans[role]!.r.events().find((e) => e.type === "session.started").aiRoles).toEqual([TECH]);
+    }
+
+    // A human speaks through the BFF; the bot answers; the line arrives labelled tech_lead.
+    await until(() => humans.account_manager!.r.events().some((e) => e.type === "scene.entered"));
+    const said = await handleSay(new Request(`${ORIGIN}/api/v1/say`, { method: "POST", headers: { ...guardedPlayer("account_manager"), Cookie: `${COOKIE_NAME}=${humans.account_manager!.cookie}` }, body: JSON.stringify({ text: "Morning everyone, a quick status before we start." }) }), deps);
+    bodies.push(await said.text());
+    expect(said.status).toBe(200);
+    await until(() => humans.delivery_lead!.r.events().some((e) => e.type === "utterance" && /^BOT-LINE-\d+$/.test(e.text)));
+    expect(humans.delivery_lead!.r.events().find((e) => e.type === "utterance" && /^BOT-LINE-\d+$/.test(e.text)).roleId).toBe(TECH);
+
+    // The leak scan. Markers proven where they belong: the code in the host's memory, the participant id in the host's memory (and the
+    // runtime's facilitator-only data), the intent line in the intent file.
+    const pid = hookState(st, id).bots.get(TECH)!.participantId;
+    await vi.waitFor(() => { if (readdirSync(st.config.intentsDir).length === 0) throw new Error("no intent file yet"); }, { timeout: 30_000, interval: 50 });
+    const intentFile = path.join(st.config.intentsDir, readdirSync(st.config.intentsDir)[0]!);
+    await vi.waitFor(() => { if (readFileSync(intentFile, "utf8").trim() === "") throw new Error("empty"); }, { timeout: 30_000, interval: 50 });
+    const intentLines = readFileSync(intentFile, "utf8").split("\n").filter(Boolean);
+    expect(st.says.length).toBeGreaterThan(0);
+    const markers = [botCode, "scenecoach-bot", pid, ...intentLines];
+    const found = (t: string) => markers.filter((m) => t.includes(m));
+    expect(found(`${botCode} scenecoach-bot ${pid} ${intentLines[0]}`)).toHaveLength(markers.length);
+    for (const role of HUMANS) expect(found(humans[role]!.r.text())).toEqual([]);
+    expect(bodies.length).toBeGreaterThan(5);
+    for (const b of bodies) expect(found(b)).toEqual([]);
+  });
+
+  it("a start refused by the runtime for notice v1 with AI seats answers 409 ai_notice through the real refusal path", async () => {
+    const parentEnv: Record<string, string | undefined> = { PATH: process.env.PATH, MODEL_PROVIDER: "mock" };
+    const st = await realStack(parentEnv);
+    const deps = bffDeps(st);
+    const created = await consoleCall(deps, handleConsoleSessionsCreate, "POST", "/api/v1/console/sessions", { scenarioId: "friday-escalation" });
+    const id = created.json.data.sessionId as string;
+    const set = await consoleCall(deps, handleConsoleAiRoles, "POST", `/api/v1/console/sessions/${id}/ai-roles`, { roles: [TECH] });
+    expect(set.status).toBe(200); // notice v2 names AI players, so the roles can be set
+    await vi.waitFor(() => { if (!st.host.isAiConnected(id, TECH)) throw new Error("the bot has not joined"); }, { timeout: 45_000, interval: 50 });
+
+    // The runtime comes back on the older notice (its own environment is read at each start), with the AI seat still set.
+    process.kill(st.pids.at(-1)!, "SIGKILL");
+    await vi.waitFor(() => { if (st.sup.get(id)?.status !== "stopped") throw new Error("not stopped"); }, { timeout: 45_000, interval: 50 });
+    parentEnv.CONSENT_NOTICE_VERSION = "v1";
+    await st.sup.restart(id);
+    expect(st.sup.aiRolesOf(id)).toEqual([TECH]);
+
+    const refused = await consoleCall(deps, handleConsoleStart, "POST", `/api/v1/console/sessions/${id}/start`);
+    expect(refused.status).toBe(409);
+    expect(refused.json.error.code).toBe("ai_notice");
+    expect(refused.json.data).toEqual({ started: false, reason: "ai_notice" });
   });
 });
