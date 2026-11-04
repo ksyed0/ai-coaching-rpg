@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 import { isValidSessionId } from "@acr/events";
+import type { BotHost } from "./bots/bot-host.js";
 import { buildChildEnv } from "./child-env.js";
 import type { ControlConfig } from "./config.js";
 import { readLogStatus } from "./log-tail.js";
@@ -34,7 +35,7 @@ export type SessionInfo = { sessionId: string; scenarioId: string; status: Sessi
 export type CreateResult = { sessionId: string; status: "running"; port: number; modelLabel: string; codes: { roleId: string; code: string }[] };
 
 type Codes = { roleId: string; code: string }[];
-type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: string[] };
+type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: string[]; aiCalls?: number };
 type ExitState = { done: boolean; promise?: Promise<void> };
 type Proc = { child: ChildHandle; exit: ExitState };
 type Live = {
@@ -81,6 +82,8 @@ export class Supervisor {
     reissueTimeoutMs?: number; now?: () => number;
     /** What the allowlist copies from (default: this process's environment; the entry point passes it with `.env` merged under). */
     parentEnv?: NodeJS.ProcessEnv;
+    /** US-0060: the live AI players. Optional: without it no bot is ever started. */
+    bots?: BotHost;
   }) {
     this.parentEnv = o.parentEnv ?? process.env;
     this.now = o.now ?? Date.now;
@@ -180,7 +183,7 @@ export class Supervisor {
           if (requireCodes && got === undefined) { fail(new ControlError("start_failed", START_FAILED)); return; }
           settled = true;
           codes = undefined;
-          resolve({ port: m.port, modelLabel: m.modelLabel, ...(got ? { codes: got } : {}), ...(m.aiRoles ? { aiRoles: m.aiRoles } : {}) });
+          resolve({ port: m.port, modelLabel: m.modelLabel, ...(got ? { codes: got } : {}), ...(m.aiRoles ? { aiRoles: m.aiRoles } : {}), ...(m.aiCalls !== undefined ? { aiCalls: m.aiCalls } : {}) });
         }
       });
     });
@@ -301,6 +304,38 @@ export class Supervisor {
     child.onExit(() => this.onChildExit(id, child));
     if (exit.done) this.onChildExit(id, child);
     else if (endedEarly) this.onEnded(id, child, exit);
+    this.attachBots(id, ready);
+  }
+
+  /**
+   * Hands the new child's port and AI roles to the BotHost (also with [], which stops stale bots). Never awaited: the host runs its
+   * own per-session chain, and a lock is held here. A throw (or a rejection) is logged by name only and never reaches the caller.
+   */
+  private attachBots(id: string, ready: ReadyInfo): void {
+    const bots = this.o.bots;
+    if (!bots) return;
+    const failed = (err: unknown): void => this.logFn(`session ${id} bots attach failed (${err instanceof Error ? err.name : "error"})`);
+    try { bots.attach(id, { port: ready.port, aiRoles: ready.aiRoles ?? [], aiCalls: ready.aiCalls }).catch(failed); }
+    catch (err) { failed(err); }
+  }
+
+  /** Fire-and-forget calls into the BotHost for the session's end and the child's exit; never throws, never awaited. */
+  private botsCall(id: string, what: "end" | "detach"): void {
+    const bots = this.o.bots;
+    if (!bots) return;
+    const failed = (err: unknown): void => this.logFn(`session ${id} bots ${what} failed (${err instanceof Error ? err.name : "error"})`);
+    try { bots[what](id).catch(failed); } catch (err) { failed(err); }
+  }
+
+  /** A live AI player's alert for the facilitator, sent to the running child. Dropped when it is not running; never throws. */
+  botAlert(id: string, roleId: string, message: string): void {
+    try {
+      const l = this.live.get(id);
+      if (!l || l.status !== "running" || !l.child) return;
+      const msg = ParentMessageSchema.safeParse({ type: "bot_alert", roleId, message });
+      if (!msg.success) return;
+      l.child.send(msg.data);
+    } catch { this.logFn(`session ${id} bot alert could not be sent`); }
   }
 
   private onEnded(id: string, child: ChildHandle, exit: ExitState): void {
@@ -310,6 +345,7 @@ export class Supervisor {
     delete l.token; delete l.port; delete l.modelLabel;
     this.persist(id, l.scenarioId, "ended");
     this.logFn(`session ${id} ended`);
+    this.botsCall(id, "end");
     l.graceCancel = this.setTimer(() => { l.graceCancel = undefined; void this.stopChild(child, exit); }, this.o.config.graceMs);
   }
 
@@ -328,6 +364,7 @@ export class Supervisor {
     }
     const l = this.live.get(id);
     if (!l || l.child !== child) return;
+    this.botsCall(id, "detach"); // not end: codes and budget stay, so a restart rejoins with the same codes on the new port
     l.graceCancel?.(); l.graceCancel = undefined;
     delete l.child; delete l.token; delete l.port; delete l.modelLabel;
     if (l.status !== "ended") {
@@ -462,31 +499,56 @@ export class Supervisor {
   reissue(id: string, roleId: string, by?: string, reason?: "removed"): Promise<string> {
     const e = this.entryOf(id);
     if (!e) return Promise.reject(new ControlError("not_found", "that session does not exist"));
-    const requestId = randomBytes(8).toString("hex");
-    const msg = ParentMessageSchema.safeParse({ type: "reissue", requestId, roleId, ...(by !== undefined ? { by } : {}), ...(reason !== undefined ? { reason } : {}) });
-    if (!msg.success) return Promise.reject(new ControlError("bad_request", "that reissue request is not valid"));
+    const msg = this.reissueMessage(roleId, by, reason);
+    if (!msg) return Promise.reject(new ControlError("bad_request", "that reissue request is not valid"));
     const key = `${id}:${roleId}`;
     if (this.reissuing.has(key)) return Promise.reject(new ControlError("conflict", "a reissue for that role is already in progress"));
     this.reissuing.add(key);
-    return this.withLock(id, async () => {
-      const l = this.live.get(id);
-      if (!l || l.status !== "running" || !l.child) throw new ControlError("conflict", "the session is not running");
-      const child = l.child;
-      return await new Promise<string>((resolve, reject) => {
-        const cancel = this.setTimer(() => {
-          this.pendingReissues.delete(requestId);
-          reject(new ControlError("timeout", "the reissue may or may not have happened; reissue again"));
-        }, this.reissueTimeoutMs);
-        this.pendingReissues.set(requestId, { sessionId: id, child, resolve, reject, cancel });
-        let sent = false;
-        try { sent = child.send(msg.data); } catch { sent = false; }
-        if (!sent) {
-          this.pendingReissues.delete(requestId);
-          cancel();
-          reject(new ControlError("unavailable", "the session could not be reached"));
-        }
-      });
-    }).finally(() => { this.reissuing.delete(key); });
+    return this.withLock(id, () => this.reissueLocked(id, msg)).finally(() => { this.reissuing.delete(key); });
+  }
+
+  /**
+   * The BotHost's `reissue` dep: takes the session lock itself (it is called, not awaited, from the host's chain, so it queues behind
+   * whatever holds the lock). It must never be awaited while a lock is held. The code it resolves with belongs to the host and is never logged.
+   */
+  private reissueAiRole(id: string, roleId: string): Promise<string> {
+    if (!this.entryOf(id)) return Promise.reject(new ControlError("not_found", "that session does not exist"));
+    const msg = this.reissueMessage(roleId);
+    if (!msg) return Promise.reject(new ControlError("bad_request", "that reissue request is not valid"));
+    return this.withLock(id, () => this.reissueLocked(id, msg));
+  }
+
+  /** What the entry point hands the BotHost: its `reissue` and `alert` deps. */
+  botDeps(): { reissue: (id: string, roleId: string) => Promise<string>; alert: (id: string, roleId: string, message: string) => void } {
+    return { reissue: (id, roleId) => this.reissueAiRole(id, roleId), alert: (id, roleId, message) => this.botAlert(id, roleId, message) };
+  }
+
+  private reissueMessage(roleId: string, by?: string, reason?: "removed"): Extract<ParentMessage, { type: "reissue" }> | undefined {
+    const requestId = randomBytes(8).toString("hex");
+    const msg = ParentMessageSchema.safeParse({ type: "reissue", requestId, roleId, ...(by !== undefined ? { by } : {}), ...(reason !== undefined ? { reason } : {}) });
+    return msg.success && msg.data.type === "reissue" ? msg.data : undefined;
+  }
+
+  /** The reissue exchange with the live child. Runs INSIDE `withLock`; it never takes the lock. */
+  private reissueLocked(id: string, msg: Extract<ParentMessage, { type: "reissue" }>): Promise<string> {
+    const l = this.live.get(id);
+    if (!l || l.status !== "running" || !l.child) return Promise.reject(new ControlError("conflict", "the session is not running"));
+    const child = l.child;
+    const requestId = msg.requestId;
+    return new Promise<string>((resolve, reject) => {
+      const cancel = this.setTimer(() => {
+        this.pendingReissues.delete(requestId);
+        reject(new ControlError("timeout", "the reissue may or may not have happened; reissue again"));
+      }, this.reissueTimeoutMs);
+      this.pendingReissues.set(requestId, { sessionId: id, child, resolve, reject, cancel });
+      let sent = false;
+      try { sent = child.send(msg); } catch { sent = false; }
+      if (!sent) {
+        this.pendingReissues.delete(requestId);
+        cancel();
+        reject(new ControlError("unavailable", "the session could not be reached"));
+      }
+    });
   }
 
   reissueAll(id: string, _by?: string): Promise<Codes> {
@@ -559,6 +621,7 @@ export class Supervisor {
 
   async shutdown(): Promise<void> {
     this.closed = true;
+    try { await this.o.bots?.close(); } catch { this.logFn("bots did not close cleanly"); }
     for (const l of this.live.values()) { l.graceCancel?.(); l.graceCancel = undefined; }
     for (const [rid, p] of this.pendingReissues) {
       this.pendingReissues.delete(rid);

@@ -1,9 +1,13 @@
 import http from "node:http";
 import { mkdirSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { startLivePlayerProvider } from "@acr/runtime/players";
+import { loadScenario, type Scenario } from "@acr/script";
+import { BotHost } from "./bots/bot-host.js";
+import { IntentLog } from "./bots/intent-log.js";
 import { createApi } from "./api.js";
 import { loadControlConfig, loadControlEnv } from "./config.js";
-import { listScenarios } from "./scenarios.js";
+import { listScenarios, scenarioDir } from "./scenarios.js";
 import { SessionList } from "./session-list.js";
 import { forkSpawn } from "./spawn.js";
 import { Supervisor, type SpawnFn } from "./supervisor.js";
@@ -42,9 +46,31 @@ export async function startControl(
     log(`warning: CONTROL_READY_TIMEOUT_MS + 2 * CONTROL_GRACE_MS is ${longest} ms; the web server gives up on a create or restart after 120000 ms, so keep the sum under ${BFF_SAFE_OPERATION_MS} ms`);
   mkdirSync(config.dataDir, { recursive: true, mode: 0o700 });
   const scenarios = () => listScenarios(config.scenariosDir, (folder) => log(`scenario folder skipped: ${folder}`));
-  const supervisor = new Supervisor({
-    config, list: new SessionList(config.listFile), scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env,
+  const list = new SessionList(config.listFile);
+  // The BotHost's reissue and alert deps are the supervisor's, which is built after it; the host is only called once the supervisor runs.
+  let supervisor: Supervisor | undefined;
+  const sup = (): Supervisor => supervisor ?? (() => { throw new Error("the supervisor is not ready"); })();
+  const scenarioCache = new Map<string, Promise<Scenario>>();
+  const scenarioFor = (sessionId: string): Promise<Scenario> => {
+    let p = scenarioCache.get(sessionId);
+    if (!p) {
+      p = (async () => {
+        const entry = list.read().find((e) => e.sessionId === sessionId);
+        if (!entry) throw new Error("unknown session");
+        return loadScenario(scenarioDir(config.scenariosDir, entry.scenarioId));
+      })();
+      scenarioCache.set(sessionId, p);
+      p.catch(() => { if (scenarioCache.get(sessionId) === p) scenarioCache.delete(sessionId); });
+    }
+    return p;
+  };
+  const bots = new BotHost({
+    provider: startLivePlayerProvider(env, config.aiPlayer), settings: config.aiPlayer, intents: new IntentLog(config.intentsDir, log),
+    scenarioFor, log,
+    reissue: (id, roleId) => sup().botDeps().reissue(id, roleId),
+    alert: (id, roleId, message) => sup().botDeps().alert(id, roleId, message),
   });
+  supervisor = new Supervisor({ config, list, scenarios, spawn: opts.spawn ?? forkSpawn(), log, parentEnv: env, bots });
   await supervisor.resumeAll();
 
   const server = http.createServer(createApi({ config, supervisor, scenarios, log }));
@@ -65,7 +91,7 @@ export async function startControl(
       server.listen(port, CONTROL_HOST, () => { server.off("error", reject); resolve(); });
     });
   } catch (err) {
-    await supervisor.shutdown(); // resumed children must not outlive a service that never started
+    await supervisor.shutdown(); // resumed children (and bots) must not outlive a service that never started
     throw new Error(`cannot listen on ${CONTROL_HOST}:${port} (${(err as NodeJS.ErrnoException).code ?? "error"})`);
   }
   server.on("error", () => log("server error"));

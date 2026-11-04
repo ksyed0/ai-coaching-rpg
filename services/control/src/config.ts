@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
+import { parseAiPlayerSettings, type AiPlayerSettings } from "@acr/runtime/players";
 
 /** services/control/src/config.ts: the repo root is three levels up from this file's directory. */
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -22,6 +23,10 @@ export type ControlConfig = {
   logDir: string;
   graceMs: number;
   readyTimeoutMs: number;
+  /** US-0060: `<dataDir>/intents`, the AI players' intent files. */
+  intentsDir: string;
+  /** US-0060: the live AI players' settings (PLAYER_MODEL, AI_PLAYER_*, NPC_* timeouts); parsed once, refused with the rest. */
+  aiPlayer: AiPlayerSettings;
 };
 
 const TOKEN_MIN_CHARS = 32;
@@ -84,10 +89,13 @@ export function loadControlConfig(env: NodeJS.ProcessEnv): ControlConfig {
   const graceMs = whole("CONTROL_GRACE_MS", 30_000, 0, 3_600_000);
   const readyTimeoutMs = whole("CONTROL_READY_TIMEOUT_MS", 30_000, 1000, 600_000);
 
-  if (problems.length > 0) throw new Error(`invalid control service settings: ${problems.join("; ")}`);
+  const ai = parseAiPlayerSettings(env);
+  if (!ai.ok) problems.push(...ai.errors);
+
+  if (problems.length > 0 || !ai.ok) throw new Error(`invalid control service settings: ${problems.join("; ")}`);
   return {
     port, serviceToken: token as string, maxSessions, dataDir,
     sessionsDir: path.join(dataDir, "sessions"), listFile: path.join(dataDir, "sessions.json"),
-    scenariosDir, logDir, graceMs, readyTimeoutMs,
+    scenariosDir, logDir, graceMs, readyTimeoutMs, intentsDir: path.join(dataDir, "intents"), aiPlayer: ai.settings,
   };
 }
