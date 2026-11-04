@@ -2593,13 +2593,13 @@
       "acs": [
         {
           "id": "AC-0317",
-          "text": "any player role can be switched to an AI player or back to human from the New session and readiness screens until the start, and roles are fixed after the start (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b; PR 2 built the routes (PUT /sessions/:id/ai-roles on the control service, POST /api/v1/console/sessions/:id/ai-roles on the BFF) but no screen calls them, so the toggle UI is PR 3)",
-          "done": false
+          "text": "any player role can be switched to an AI player or back to human from the New session and readiness screens until the start, and roles are fixed after the start (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b; PR 2 built the routes (PUT /sessions/:id/ai-roles on the control service, POST /api/v1/console/sessions/:id/ai-roles on the BFF) and PR 3 built the toggle: on the readiness screen (idle sessions only) and on the created-session panel after Create (owner decision B10: not a pre-create choice), with the whole wanted set posted each time; TC-0110: unit tests Readiness, NewSessionForm, console-confirm; end to end ai-players.spec.ts)",
+          "done": true
         },
         {
           "id": "AC-0318",
-          "text": "switching a joined human to AI asks for confirmation and revokes their credential and consent; switching back stops the bot and issues a new code once (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b; PR 2 built the routes and the bot stop on switching back, the confirmation for a joined human is PR 3)",
-          "done": false
+          "text": "switching a joined human to AI asks for confirmation and revokes their credential and consent; switching back stops the bot and issues a new code once (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b; PR 2 built the routes and the bot stop on switching back, PR 3 built the confirmation for a joined human (danger tone, naming the person), the new code shown once on switching back and the removal of an AI role's code from the one-time panels; TC-0111: unit tests supervisor.ai-roles, Readiness, NewSessionForm, console-confirm; end to end ai-players.spec.ts)",
+          "done": true
         },
         {
           "id": "AC-0319",
@@ -2638,12 +2638,17 @@
         },
         {
           "id": "AC-0361",
-          "text": "a live AI player speaks only when a human or AI character has finished, after a quiet-time nudge while a human is connected, or when prompted; never reacts to another AI player; keeps a minimum gap and a per-scene cap; skips a failed, late or unusable turn with a facilitator alert and never a canned line; drops a reply produced for an earlier scene, a pause, the end or an old connection; and all bots of a session share one model-call budget (turn-policy, live, bot and bot-host tests; the bot engine is built in slice 2b-3b PR 1; TC-0106) Engine built in 2b-3b PR 1; since PR 2 bots run in real sessions and the replies dropped by a pause or a runtime kill and the shared budget after a restart are verified against a real runtime (TC-0107). Stays open: \"when prompted\" is Prompt AI player in PR 3.",
-          "done": false
+          "text": "a live AI player speaks only when a human or AI character has finished, after a quiet-time nudge while a human is connected, or when prompted; never reacts to another AI player; keeps a minimum gap and a per-scene cap; skips a failed, late or unusable turn with a facilitator alert and never a canned line; drops a reply produced for an earlier scene, a pause, the end or an old connection; and all bots of a session share one model-call budget (turn-policy, live, bot and bot-host tests; the bot engine is built in slice 2b-3b PR 1; TC-0106) Engine built in 2b-3b PR 1; since PR 2 bots run in real sessions and the replies dropped by a pause or a runtime kill and the shared budget after a restart are verified against a real runtime (TC-0107). \"When prompted\" is Prompt AI player, built in 2b-3b PR 3 and verified end to end through the BFF (ai-players.spec.ts) and in the control tests (bot-host.prompt, bot); the facilitator alert on a skipped, late or unusable turn is one code path for every trigger (bot.test.ts alerts, and the budget alert on a prompted turn in bot-host.prompt). TC-0112.",
+          "done": true
         },
         {
           "id": "AC-0362",
           "text": "the control service keeps every AI player's join code in memory only: create, restart, reissue-all and a timed-out AI-role change never return an AI role's code to the web server, a single-role reissue or remove of an AI role is refused, AI roles are refused under a consent notice that does not mention AI players, the bots rejoin after a runtime restart with their codes and after a control-service restart with one reissue each, and the shared budget survives both (supervisor.bots, supervisor.bots.integration, supervisor.ai-roles, api, bots.real, main.ai-notice, ai-roles.runtime and console-ai tests; TC-0107. The budget survives only approximately: it is rebuilt from the AI utterances in the log and can only under-count. Known gaps: M-1, no headroom of 8 bots against 8 sockets per key, the generic start_failed for more than 12 player roles, docs/THREAT_MODEL.md \"Reachable AI seats\")",
+          "done": true
+        },
+        {
+          "id": "AC-0363",
+          "text": "the facilitator can prompt an AI player with an optional private hint of at most 300 characters; the turn is reserved first, the prompt is logged without the hint, the turn runs only after the log succeeded, it skips the gap, nudge and scene cap but counts against the session's budget, and the hint reaches only the model and the facilitator-only intent log (session-engine, ws-server.ai-roles, bot-host.prompt, bot, api, console-ai-prompt, AiPlayersPanel tests and ai-players.spec.ts; TC-0112. A reservation lasts 15 s by ruling (the hub waits 10 s for the ack); aiCalls counts +1 per prompt_ai, so a prompted line counts twice after a restart and a skipped policy turn leaves no trace. Residual risk: a participant can talk an AI player into revealing its role's private facts, docs/THREAT_MODEL.md \"Prompt AI player and the toggle\")",
           "done": true
         }
       ],
@@ -3679,7 +3684,7 @@
       "assignee": "Agent",
       "status": "Done",
       "branch": "feature/EPIC-0002-US-0060-ai-role-record (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels)",
-      "notes": "PR 1 (merged as #78) is the record: aiRoles in session.started, the state and the player copies, log format 3 for a session with AI roles, and the lobby's <id>.ai-roles.json beside the seat files (AC-0358, TC-0100). PR 2 (feature/EPIC-0002-US-0060-ai-role-gate) is the gate, marking and the set_ai_roles IPC: the start gate counts human seats and AI bots apart, AI seats skip consent and are marked, and the control service can set AI roles over the private channel (AC-0359, TC-0101; TC-0102 for the gate and the marking); PR 3 (feature/EPIC-0002-US-0060-ai-role-labels) is consent notice v2 as the default (AC-0360, TC-0103) and the labels on the player page: the roster and transcript mark AI seats from aiRoles, the web server reserves the name \"AI player\", and a switched human's stream ends ai_filled (player part of AC-0321, TC-0104). Done means the three PRs; US-0060 stays In Progress for slice 2b-3b. Nothing over HTTP sets AI roles before slice 2b-3b (ruling A1). Plan docs/superpowers/plans/2026-11-02-slice-2b-3a-ai-role-state.md."
+      "notes": "PR 1 (merged as #78) is the record: aiRoles in session.started, the state and the player copies, log format 3 for a session with AI roles, and the lobby's <id>.ai-roles.json beside the seat files (AC-0358, TC-0100). PR 2 (merged as #79) is the gate, marking and the set_ai_roles IPC: the start gate counts human seats and AI bots apart, AI seats skip consent and are marked, and the control service can set AI roles over the private channel (AC-0359, TC-0101; TC-0102 for the gate and the marking); PR 3 (merged as #80) is consent notice v2 as the default (AC-0360, TC-0103) and the labels on the player page: the roster and transcript mark AI seats from aiRoles, the web server reserves the name \"AI player\", and a switched human's stream ends ai_filled (player part of AC-0321, TC-0104). Done means the three PRs; US-0060 stays In Progress for slice 2b-3b. Nothing over HTTP sets AI roles before slice 2b-3b (ruling A1). Plan docs/superpowers/plans/2026-11-02-slice-2b-3a-ai-role-state.md."
     },
     {
       "id": "TASK-0099",
@@ -3687,9 +3692,9 @@
       "title": "live AI players, toggle and Prompt AI player (slice 2b-3b)",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0060-bot-engine (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-seats-reachable and feature/EPIC-0002-US-0060-ai-toggle-prompt)",
-      "notes": "PR 1 (bot engine, no route) is the shared players/ module (the demo's player bot moved there, plus the live prompt with its fenced steer, the hint cleaner, the settings parser, a hard-timeout line generator that never returns a canned line, and the reactive TurnPolicy), the runtime limits (at most 8 AI roles, at most 12 player roles in a managed session, AI roles only under consent notice v2 or later, the AI reissue without the consent rebind), bot_alert and ready.aiCalls over IPC, and in the control service the bot socket, frame parser, session budget, intent log, AiPlayerBot and BotHost (AC-0319, AC-0361; TC-0105, TC-0106). Nothing creates a bot, no route sets AI roles and no client shows one yet. PR 2 (feature/EPIC-0002-US-0060-ai-seats-reachable; AC-0320, AC-0321 progress, AC-0362; TC-0107 to TC-0109) wires the bots into the supervisor (attach after the start, rejoin after a runtime or control-service restart, the codes only in control-service memory), labels AI seats in the terminal client, console and player page, and only then adds the routes (PUT /sessions/:id/ai-roles and GET .../intents on the control service; POST /api/v1/console/sessions/:id/ai-roles and .../ai-roles/:roleId/intents on the BFF); no screen calls the routes yet. PR 3 adds the toggle, Prompt AI player and the AI players panel. No release before slice 2b-3c. Plan docs/superpowers/plans/2026-11-03-slice-2b-3b-ai-players.md."
+      "notes": "PR 1 (merged as #82; bot engine, no route) is the shared players/ module (the demo's player bot moved there, plus the live prompt with its fenced steer, the hint cleaner, the settings parser, a hard-timeout line generator that never returns a canned line, and the reactive TurnPolicy), the runtime limits (at most 8 AI roles, at most 12 player roles in a managed session, AI roles only under consent notice v2 or later, the AI reissue without the consent rebind), bot_alert and ready.aiCalls over IPC, and in the control service the bot socket, frame parser, session budget, intent log, AiPlayerBot and BotHost (AC-0319, AC-0361; TC-0105, TC-0106). PR 2 (merged as #83; AC-0320, AC-0321 progress, AC-0362; TC-0107 to TC-0109) wires the bots into the supervisor (attach after the start, rejoin after a runtime or control-service restart, the codes only in control-service memory), labels AI seats in the terminal client, console and player page, and only then adds the routes (PUT /sessions/:id/ai-roles and GET .../intents on the control service; POST /api/v1/console/sessions/:id/ai-roles and .../ai-roles/:roleId/intents on the BFF). PR 3 (feature/EPIC-0002-US-0060-ai-toggle-prompt; AC-0317, AC-0318, AC-0363; TC-0110 to TC-0113) adds the AI toggle with its confirmations, Prompt AI player (reserve, logged command, run; hint to the control service only; reservation 15 s) and the AI players panel, with end-to-end specs and Axe states (35 e2e specs pass). Known gap BUG-0021 (a lobby's AI roles can come back as human after a control-service restart) is open. No release before slice 2b-3c. Plan docs/superpowers/plans/2026-11-03-slice-2b-3b-ai-players.md."
     },
     {
       "id": "TASK-0089",
@@ -3697,9 +3702,9 @@
       "title": "Toggle, bot lifecycle, shared bot module, labels",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0060-ai-player-roles",
-      "notes": "Spec section 5.9. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Superseded by TASK-0098 and TASK-0099."
+      "notes": "Spec section 5.9. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Superseded by TASK-0098 and TASK-0099 (both done); nothing is built under this id."
     },
     {
       "id": "TASK-0090",
@@ -4822,6 +4827,46 @@
       "type": "Regression",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0110",
+      "title": "A role is switched to an AI player and back from the readiness screen and the created-session panel, and only before the start",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0099",
+      "relatedAC": "AC-0317",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0111",
+      "title": "Switching a joined human to an AI player asks first, revokes their seat and credential, and switching back stops the bot and shows a new code once",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0099",
+      "relatedAC": "AC-0318",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0112",
+      "title": "Prompt AI player: reserve, logged command, run; the hint reaches only the model and the facilitator-only intent log",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0099",
+      "relatedAC": "AC-0363",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0113",
+      "title": "The AI toggle, its confirmations and the AI players panel pass Axe at laptop and phone width, light and dark",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0099",
+      "relatedAC": "AC-0316",
+      "type": "Accessibility",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -5049,6 +5094,54 @@
       "relatedTask": "TASK-0097",
       "status": "Fixed (feature/EPIC-0002-US-0059-console-controls)",
       "fixBranch": "feature/EPIC-0002-US-0059-console-controls",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0020",
+      "title": "The bot socket test \"a second open after close() never overlaps\" failed once under full-suite load",
+      "severity": "Low",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0099",
+      "status": "Fixed (4551682 on feature/EPIC-0002-US-0060-ai-seats-reachable, squashed into #83)",
+      "fixBranch": "feature/EPIC-0002-US-0060-ai-seats-reachable",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0021",
+      "title": "After a control-service restart a lobby's AI roles can come back as human with no notice",
+      "severity": "Medium",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0099",
+      "status": "Open",
+      "fixBranch": "None",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0022",
+      "title": "Keyboard focus falls to the page body after End session, a connection drop under a dialog or a 409 on Remove",
+      "severity": "Medium",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0097",
+      "status": "Open",
+      "fixBranch": "None",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0023",
+      "title": "A facilitator whisper has no \"private\" label and is lost on a page reload",
+      "severity": "Medium",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0097",
+      "status": "Open",
+      "fixBranch": "None",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5596,6 +5689,38 @@
         "projectedUsd": 400
       },
       "BUG-0019": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0020": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0021": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0022": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0023": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -6357,10 +6482,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-04T16:02:24.362Z",
-  "commitSha": "2c6b403",
-  "buildNumber": "517",
-  "branch": "feature/EPIC-0002-US-0060-ai-seats-reachable",
+  "generatedAt": "2026-11-04T18:53:35.450Z",
+  "commitSha": "5a77a25",
+  "buildNumber": "514",
+  "branch": "feature/EPIC-0002-US-0060-ai-toggle-prompt",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6506,9 +6631,9 @@
     "totalSpent": 799.4862,
     "totalProjected": 70400,
     "percentUsed": 5,
-    "burnRate": 20.35051155555556,
-    "daysRemaining": 766,
-    "projectedExhaustion": 766,
+    "burnRate": 19.69404344086022,
+    "daysRemaining": 792,
+    "projectedExhaustion": 792,
     "thresholds": [
       50,
       75,
@@ -6637,9 +6762,13 @@
       "2026-11-03T17:54:55.879Z",
       "2026-11-03T19:10:34.810Z",
       "2026-11-03T22:30:32.438Z",
-      "2026-11-04T16:02:24.447Z"
+      "2026-11-04T16:02:24.447Z",
+      "2026-11-04T17:07:23.775Z",
+      "2026-11-04T18:53:35.566Z"
     ],
     "doneCounts": [
+      0,
+      0,
       0,
       0,
       0,
@@ -6743,6 +6872,8 @@
       65,
       65,
       65,
+      65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6776,6 +6907,8 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -6849,9 +6982,13 @@
       null,
       null,
       null,
+      null,
+      null,
       null
     ],
     "velocity": [
+      0,
+      0,
       0,
       0,
       0,
@@ -6955,9 +7092,13 @@
       2,
       2,
       2,
-      2
+      2,
+      5,
+      5
     ],
     "atRisk": [
+      0,
+      0,
       0,
       0,
       0,
@@ -7061,6 +7202,8 @@
       33019880,
       33019880,
       33019880,
+      33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -7094,6 +7237,8 @@
       0,
       0,
       0,
+      5997518,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -7167,7 +7312,9 @@
       1.146153846153846,
       1.146153846153846,
       1.146153846153846,
-      1.146153846153846
+      1.146153846153846,
+      1.16,
+      1.16
     ],
     "velocityByWeek": {
       "labels": [

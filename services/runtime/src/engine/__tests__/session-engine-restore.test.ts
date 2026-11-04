@@ -534,6 +534,17 @@ describe("log format 3 and the AI roles (US-0060)", () => {
     const out = await fresh(log).restore();
     expect(out).toMatchObject({ kind: "running", info: { aiCalls: 3 } });
   });
+  it("a resumed log with 2 AI lines and 1 prompt_ai sends aiCalls 3 (B6) (the prompt counts as a call)", async () => {
+    const say = (roleId: string) => ({ type: "utterance", roleId, text: `line from ${roleId}`, channel: "text" });
+    const prompt = (roleId: string) => ({ type: "facilitator.command", command: "prompt_ai", roleId, by: "Sam" });
+    const log = await logOf([body({ aiRoles: ["tech_lead"] }), enterFri(), say("tech_lead"), prompt("tech_lead"), say("tech_lead")]);
+    const engine = fresh(log);
+    const out = await engine.restore();
+    expect(out).toMatchObject({ kind: "running", info: { aiCalls: 3 } });
+    // the reducer ignored the command: only lastSeq and the transcript moved
+    expect(engine.state.lastSeq).toBe(5);
+    expect(engine.state.transcript).toHaveLength(2);
+  });
   it("info.aiCalls is 0 without AI roles, however many lines the log holds", async () => {
     const say = (roleId: string) => ({ type: "utterance", roleId, text: "hello", channel: "text" });
     const out = await fresh(await logOf([body(), enterFri(), say("tech_lead"), say("client_sponsor")])).restore();

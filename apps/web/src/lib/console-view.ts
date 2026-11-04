@@ -53,6 +53,7 @@ export function timelineText(e: SessionEvent, before: SessionState, ctx: Ctx): O
         case "fire_inject": return fac(`Inject ${e.injectId} fired by ${by}`);
         case "whisper": return fac(`Whisper to ${label(e.roleId)} by ${by}: ${isolate(e.text)}`);
         case "release_hidden": return fac(`Fact ${e.fact} of ${label(e.roleId)} released by ${by}`);
+        case "prompt_ai": return fac(`AI player for ${label(e.roleId)} prompted by ${by}`);
         case "set_npc_stance": return fac(`Stance of ${label(e.roleId)} changed by ${by}`);
         default: return null;
       }

@@ -18,7 +18,11 @@ export type LauncherReason =
   | "ai_started"
   | "ai_no_human"
   | "ai_too_many"
-  | "ai_invalid";
+  | "ai_invalid"
+  | "ai_busy"
+  | "ai_budget"
+  | "ai_absent"
+  | "ai_expired";
 
 /** A failed call to the control service. The message repeats only the reason word. */
 export class LauncherError extends Error {
@@ -83,6 +87,10 @@ const BY_CODE: Record<string, LauncherReason> = {
   ai_no_human: "ai_no_human",
   ai_too_many: "ai_too_many",
   ai_invalid: "ai_invalid",
+  ai_busy: "ai_busy",
+  ai_budget: "ai_budget",
+  ai_absent: "ai_absent",
+  ai_expired: "ai_expired",
 };
 /** Used only when the answer has no readable error envelope. */
 const BY_STATUS: Record<number, LauncherReason> = {
@@ -326,6 +334,32 @@ export class LauncherClient {
       .map(toIntent)
       .filter((e): e is IntentEntry => e !== null)
       .slice(-MAX_INTENT_ENTRIES);
+  }
+
+  /** Reserves the next turn of an AI player; the reservation (32 hex) is a secret between the BFF and the control service. */
+  async reserveTurn(id: string, roleId: string): Promise<string> {
+    const d = await this.call("POST", this.turnPath(id, roleId, "reserve"), {}, this.timeoutMs);
+    if (!isObject(d) || typeof d.reservation !== "string" || !/^[0-9a-f]{32}$/.test(d.reservation)) return bad();
+    return d.reservation;
+  }
+
+  /** Starts the reserved turn. The hint goes only here. */
+  async runTurn(id: string, roleId: string, reservation: string, hint?: string): Promise<void> {
+    await this.call(
+      "POST",
+      this.turnPath(id, roleId, "run"),
+      hint === undefined ? { reservation } : { reservation, hint },
+      this.timeoutMs,
+    );
+  }
+
+  async releaseTurn(id: string, roleId: string, reservation: string): Promise<void> {
+    await this.call("POST", this.turnPath(id, roleId, "release"), { reservation }, this.timeoutMs);
+  }
+
+  private turnPath(id: string, roleId: string, leaf: "reserve" | "run" | "release"): string {
+    if (!isId(roleId)) throw new LauncherError("not_found");
+    return `/sessions/${this.id(id)}/ai-roles/${encodeURIComponent(roleId)}/${leaf}`;
   }
 
   /** A session id is checked before it goes into a path, so nothing can change the route. */

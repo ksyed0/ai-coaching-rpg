@@ -229,6 +229,13 @@ describe("the command route", () => {
     expect(send.mock.calls.every((c) => c[0].sessionId === SID)).toBe(true);
   });
 
+  it("prompt_ai is not a command kind of this route: it is 400 and the hub is not called", async () => {
+    expect((COMMAND_KINDS as readonly string[]).includes("prompt_ai")).toBe(false);
+    const res = await command({ channel: CH, kind: "prompt_ai", roleId: "tech_lead" });
+    expect(res.status).toBe(400);
+    expect(send).not.toHaveBeenCalled();
+  });
+
   const rows: [string, CommandOutcome, number, string, string][] = [
     ["stale_scene", { kind: "refused", code: "stale_scene" }, 409, "stale_scene", "The scene changed. Review the live view and try again."],
     ["not_started", { kind: "refused", code: "not_started" }, 409, "not_started", "The session has not started yet."],
@@ -239,6 +246,9 @@ describe("the command route", () => {
     ["unknown_role", { kind: "refused", code: "unknown_role" }, 409, "conflict", "That action is not possible in the session's current state."],
     ["npc_role", { kind: "refused", code: "npc_role" }, 409, "conflict", "That action is not possible in the session's current state."],
     ["unknown_fact", { kind: "refused", code: "unknown_fact" }, 409, "conflict", "That action is not possible in the session's current state."],
+    ["not_ai_role", { kind: "refused", code: "not_ai_role" }, 409, "conflict", "That action is not possible in the session's current state."],
+    ["paused", { kind: "refused", code: "paused" }, 409, "paused", "The session is paused. Resume it before you prompt an AI player."],
+    ["not_in_scene", { kind: "refused", code: "not_in_scene" }, 409, "not_in_scene", "That AI player is not in the current scene."],
     ["rate_limited", { kind: "refused", code: "rate_limited" }, 429, "rate_limited", "Too many actions at once. Wait a moment and try again."],
     ["log_failed (any other code)", { kind: "refused", code: "log_failed" }, 502, "command_failed", "The session could not take that action. Check the live view, then try again."],
     ["a code that is a table key but not a runtime code", { kind: "refused", code: "constructor" }, 502, "command_failed", "The session could not take that action. Check the live view, then try again."],

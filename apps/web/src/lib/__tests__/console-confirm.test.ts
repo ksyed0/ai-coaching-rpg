@@ -59,6 +59,43 @@ describe("confirmCopy", () => {
   });
 });
 
+describe("confirmCopy: switching a role between human and AI player", () => {
+  const KEEP = "You can switch the role back to human until the start.";
+  it("to_ai for a joined seat is a danger confirmation that names the person", () => {
+    expect(confirmCopy({ kind: "to_ai", role: "Account manager", name: "Pat", joined: true })).toEqual({
+      title: "Replace Pat with an AI player in Account manager?",
+      description: `They are signed out of the Account manager seat, their consent is withdrawn and their code stops working. An AI player takes the seat and its lines are marked AI. ${KEEP}`,
+      confirmLabel: "Use AI player",
+      tone: "danger",
+    });
+  });
+  it("to_ai for a joined seat with no name reads 'Fill <role> with an AI player?' with the joined description", () => {
+    const c = confirmCopy({ kind: "to_ai", role: "Tech lead", joined: true });
+    expect(c.title).toBe("Fill Tech lead with an AI player?");
+    expect(c.description.startsWith("They are signed out of the Tech lead seat")).toBe(true);
+    expect(c.tone).toBe("danger");
+  });
+  it("to_ai for a seat nobody has joined is a primary confirmation", () => {
+    expect(confirmCopy({ kind: "to_ai", role: "Tech lead", joined: false })).toEqual({
+      title: "Fill Tech lead with an AI player?",
+      description: `The code for Tech lead stops working. An AI player takes the seat and its lines are marked AI. ${KEEP}`,
+      confirmLabel: "Use AI player",
+      tone: "primary",
+    });
+  });
+  it("to_human is a primary confirmation", () => {
+    expect(confirmCopy({ kind: "to_human", role: "Tech lead" })).toEqual({
+      title: "Switch Tech lead back to a human?",
+      description: "The AI player leaves the Tech lead seat. A new code for the seat is shown once: give it to the person who will play the role.",
+      confirmLabel: "Switch to human",
+      tone: "primary",
+    });
+  });
+  it("isolates a name with a bidi control", () => {
+    expect(confirmCopy({ kind: "to_ai", role: "Cfo", name: "x\u202Ey", joined: true }).title).toBe("Replace \u2068x\u202Ey\u2069 with an AI player in Cfo?");
+  });
+});
+
 describe("audienceText", () => {
   it("of one, two and three labels", () => {
     expect(audienceText(["A"])).toBe("A");

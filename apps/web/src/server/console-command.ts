@@ -120,6 +120,10 @@ export const COMMAND_ANSWERS = {
   unknown_inject: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
   unknown_role: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
   npc_role: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
+  not_ai_role: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
+  // Today only prompt_ai can be refused as paused (the engine allows the other commands while paused); if another command ever is, answer paused locally.
+  paused: { status: 409, code: "paused", message: "The session is paused. Resume it before you prompt an AI player." },
+  not_in_scene: { status: 409, code: "not_in_scene", message: "That AI player is not in the current scene." },
   unknown_fact: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
   rate_limited: { status: 429, code: "rate_limited", message: "Too many actions at once. Wait a moment and try again." },
   other: { status: 502, code: "command_failed", message: "The session could not take that action. Check the live view, then try again." },
@@ -133,7 +137,8 @@ const badRequest = () => fail(400, "bad_request", "The request could not be read
 const notFound = () => fail(404, "not_found", "That session was not found.");
 const unreachable = () => fail(502, "launcher_unavailable", "The session service is not reachable. Try again.");
 
-function answerFor(o: CommandOutcome): Response {
+/** The answer for a command that did not succeed (or did): our own copy only. */
+export function answerFor(o: CommandOutcome): Response {
   switch (o.kind) {
     case "ok": return ok({ done: true });
     case "unconfirmed": return answer(COMMAND_ANSWERS.unconfirmed);

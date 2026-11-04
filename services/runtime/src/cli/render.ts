@@ -81,6 +81,7 @@ export function renderEvent(e: SessionEvent, me: string, ai: ReadonlySet<string>
     case "facilitator.command":
       // A release names the role and the fact NUMBER only: the event carries no fact text (it goes in the facilitator-only npc.updated).
       if (e.command === "release_hidden") return isFacilitator ? `[facilitator] released hidden fact #${s(String(e.fact))} of ${s(e.roleId)}` : null;
+      if (e.command === "prompt_ai") return isFacilitator ? `[facilitator] prompted the AI player for ${s(e.roleId)}` : null;
       return e.command === "whisper" ? `[whisper] ${s(e.text)}` : `[facilitator] ${s(e.command)}`;
     case "session.started": return `session started: ${s(e.scenarioId)} v${s(e.version)}`;
     case "session.ended": {

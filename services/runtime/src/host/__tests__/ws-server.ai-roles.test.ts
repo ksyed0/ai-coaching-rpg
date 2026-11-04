@@ -352,3 +352,59 @@ describe("the roster and player frames with AI seats (US-0060)", () => {
     expect(Object.keys(started.consents).sort()).toEqual(["account_manager", "delivery_lead"]);
   });
 });
+
+describe("the prompt_ai command over the socket (US-0060, slice 2b-3b)", () => {
+  const promptsIn = (c: Client) => c.inbox.filter((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.command === "prompt_ai");
+
+  async function started() {
+    const env = await setup();
+    const { a, d } = await humans(env.port, env.seats, env.plain);
+    const bot = await seat(env.port, "tech_lead", env.plain.tech_lead!, "bot1");
+    const f = await facilitator(env.port);
+    f.send({ type: "start" });
+    await f.next((m) => m.type === "event" && m.event.type === "scene.entered");
+    return { ...env, a, d, bot, f };
+  }
+
+  it("a prompt_ai with an extra key \"hint\" is bad_message and nothing is appended", async () => {
+    const { f, engine, bot } = await started();
+    const before = engine.state.lastSeq;
+    f.send({ type: "command", command: { command: "prompt_ai", roleId: "tech_lead", hint: "say no" } });
+    // either answer ends the wait, so a regression (the hint stripped, the command accepted) fails here rather than hanging
+    expect(await f.next((m) => m.type === "error" || (m.type === "event" && m.event.type === "facilitator.command"))).toMatchObject({ type: "error", code: "bad_message" });
+    expect(engine.state.lastSeq).toBe(before);
+    expect(JSON.stringify(bot.c.inbox)).not.toContain("say no");
+  });
+
+  it("a prompt_ai from the console (with a ref) before the start is not_started and starts nothing", async () => {
+    const { port, engine } = await setup();
+    const f = await facilitator(port);
+    f.send({ type: "command", command: { command: "prompt_ai", roleId: "tech_lead" }, ref: "r1" });
+    expect(await f.next((m) => m.type === "error")).toMatchObject({ code: "not_started", ref: "r1" });
+    expect(engine.state.status).toBe("idle");
+  });
+
+  it("a prompt_ai for a human role is not_ai_role on the socket and appends nothing", async () => {
+    const { f, engine } = await started();
+    const before = engine.state.lastSeq;
+    f.send({ type: "command", command: { command: "prompt_ai", roleId: "account_manager" } });
+    expect(await f.next((m) => m.type === "error")).toMatchObject({ code: "not_ai_role" });
+    expect(engine.state.lastSeq).toBe(before);
+  });
+
+  it("the facilitator gets the prompt_ai event (roleId and by) and no player socket, the AI seat included, ever receives it", async () => {
+    const { f, a, d, bot, engine } = await started();
+    f.send({ type: "command", command: { command: "prompt_ai", roleId: "tech_lead" }, by: "Sam" });
+    const got = await f.next((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.command === "prompt_ai");
+    expect(got.event).toMatchObject({ roleId: "tech_lead", by: "Sam" });
+    expect(Object.keys(got.event).sort()).toEqual(["by", "command", "roleId", "seq", "sessionId", "ts", "type"]);
+    // a later event proves the earlier frames had time to arrive at every socket
+    f.send({ type: "command", command: { command: "pause" } });
+    for (const c of [a.c, d.c, bot.c]) {
+      await c.next((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.command === "pause");
+      expect(promptsIn(c)).toHaveLength(0);
+      expect(JSON.stringify(c.inbox)).not.toContain("prompt_ai");
+    }
+    expect(engine.state.lastSeq).toBeGreaterThan(got.event.seq);
+  });
+});

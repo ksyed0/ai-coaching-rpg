@@ -1,7 +1,9 @@
 import type { ModelProvider } from "@acr/adapters";
 import type { Scenario } from "@acr/script";
 import type { AiPlayerSettings } from "@acr/runtime/players";
-import type { SetTimer } from "../supervisor.js";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { cleanHint } from "@acr/runtime/players";
+import { ControlError, type SetTimer } from "../supervisor.js";
 import { AiPlayerBot } from "./bot.js";
 import { BOT_ALERTS } from "./bot-alerts.js";
 import type { BotSocket } from "./bot-socket.js";
@@ -13,6 +15,11 @@ export const REATTACH_BASE_MS = 2_000;
 export const REATTACH_MAX_MS = 30_000;
 /** After this many consecutive failed re-attaches the host raises `rejoinFailed` once and stops retrying. */
 export const REATTACH_MAX_FAILS = 5;
+
+/** A reservation holds the policy for at most this long (B17). */
+export const RESERVATION_TTL_MS = 15_000; // by ruling (spec: 10 s): the hub waits 10 s for a command ack, so the reservation must outlive it
+/** A new prompt is refused (ai_busy) this soon after the last one started. */
+export const PROMPT_DEBOUNCE_MS = 5_000;
 
 const defaultSetTimer: SetTimer = (fn, ms) => { const t = setTimeout(fn, ms); t.unref(); return () => clearTimeout(t); };
 const noop = (): void => undefined;
@@ -45,6 +52,9 @@ type Sess = {
   removed: Set<string>;
   /** The port and code each bot was last attached with (to skip a no-op re-attach). */
   bound: Map<string, { port: number; code: string }>;
+  /** Prompt reservations by role: the token lives here only (memory), with the timer that expires it. */
+  reservations: Map<string, { token: string; cancel: () => void }>;
+  lastPrompt: Map<string, number>;
 };
 
 /**
@@ -123,6 +133,62 @@ export class BotHost {
     });
   }
 
+  // --- prompted turns (B5, B16, B17). Synchronous and outside the chain: they only read bot state and the reservation map. ---
+
+  reserve(sessionId: string, roleId: string): string {
+    const st = this.sessions.get(sessionId);
+    const bot = st?.bots.get(roleId);
+    if (!st || !bot || !st.aiRoles.has(roleId) || !bot.joinedOk) throw new ControlError("ai_absent", "that AI player is not available");
+    const last = st.lastPrompt.get(roleId);
+    if (bot.speaking || !bot.canPrompt || st.reservations.has(roleId) || (last !== undefined && this.now() - last < PROMPT_DEBOUNCE_MS)) throw new ControlError("ai_busy", "that AI player is busy");
+    if (st.budget?.exhausted) throw new ControlError("ai_budget", "the AI player budget for this session is used up");
+    const token = randomBytes(16).toString("hex");
+    const cancel = this.setTimer(() => { if (st.reservations.get(roleId)?.token === token) { st.reservations.delete(roleId); bot.setHeld(false); } }, RESERVATION_TTL_MS);
+    st.reservations.set(roleId, { token, cancel });
+    bot.setHeld(true);
+    return token;
+  }
+
+  /** The reservation of this (session, role) when `token` matches it (constant time); undefined otherwise. */
+  private reservationFor(st: Sess, roleId: string, token: string): { token: string; cancel: () => void } | undefined {
+    const r = st.reservations.get(roleId);
+    // Shape first: timingSafeEqual throws on different byte lengths, which a non-ASCII token of the right length would have.
+    if (!r || typeof token !== "string" || !/^[0-9a-f]{32}$/.test(token)) return undefined;
+    return timingSafeEqual(Buffer.from(token), Buffer.from(r.token)) ? r : undefined;
+  }
+
+  run(sessionId: string, roleId: string, reservation: string, hint: unknown): void {
+    const st = this.sessions.get(sessionId);
+    const r = st ? this.reservationFor(st, roleId, reservation) : undefined;
+    if (!st || !r) throw new ControlError("ai_expired", "that reservation is not valid any more");
+    r.cancel();
+    st.reservations.delete(roleId); // consumed once
+    const bot = st.bots.get(roleId);
+    bot?.setHeld(false);
+    if (!bot || !bot.joinedOk) throw new ControlError("ai_absent", "that AI player is not available");
+    // The hint is cleaned here and goes to the bot only: it is never logged, alerted or put in an error.
+    if (!bot.runPrompt(cleanHint(hint))) throw new ControlError("ai_busy", "that AI player is busy");
+    st.lastPrompt.set(roleId, this.now());
+  }
+
+  release(sessionId: string, roleId: string, reservation: string): void {
+    const st = this.sessions.get(sessionId);
+    const r = st ? this.reservationFor(st, roleId, reservation) : undefined;
+    if (!st || !r) return;
+    r.cancel();
+    st.reservations.delete(roleId);
+    st.bots.get(roleId)?.setHeld(false);
+  }
+
+  private clearReservations(st: Sess, roles?: string[]): void {
+    for (const [r, v] of [...st.reservations]) {
+      if (roles && !roles.includes(r)) continue;
+      v.cancel();
+      st.reservations.delete(r);
+      st.bots.get(r)?.setHeld(false); // the hold belongs to the reservation
+    }
+  }
+
   /**
    * Closes the sockets; codes and budget stay. The port is forgotten (a later `attach` supplies it), so a reissue result or a late
    * `setCodes` that arrives after a detach cannot reconnect to a possibly dead port.
@@ -132,6 +198,7 @@ export class BotHost {
       const st = this.sessions.get(sessionId);
       if (!st) return;
       for (const r of [...st.retries.keys()]) this.cancelRetry(st, r);
+      this.clearReservations(st);
       st.port = undefined;
       st.bound.clear();
       await Promise.allSettled([...st.bots.values()].map((b) => b.detach()));
@@ -175,7 +242,7 @@ export class BotHost {
   private state(sessionId: string): Sess {
     let st = this.sessions.get(sessionId);
     if (!st) {
-      st = { aiRoles: new Set(), codes: new Map(), bots: new Map(), retries: new Map(), reissuing: new Set(), reissueAlerted: new Set(), attached: false, removed: new Set(), bound: new Map() };
+      st = { aiRoles: new Set(), codes: new Map(), bots: new Map(), retries: new Map(), reissuing: new Set(), reissueAlerted: new Set(), attached: false, removed: new Set(), bound: new Map(), reservations: new Map(), lastPrompt: new Map() };
       this.sessions.set(sessionId, st);
     }
     return st;
@@ -186,6 +253,7 @@ export class BotHost {
     if (!st) return;
     this.sessions.delete(sessionId);
     for (const r of [...st.retries.keys()]) this.cancelRetry(st, r);
+    this.clearReservations(st);
     st.codes.clear();
     await Promise.allSettled([...st.bots.values()].map((b) => b.stop()));
     st.bots.clear();
@@ -193,6 +261,7 @@ export class BotHost {
 
   private async stopBots(st: Sess, roles: string[]): Promise<void> {
     const stopping: Promise<void>[] = [];
+    this.clearReservations(st, roles);
     for (const r of roles) {
       this.cancelRetry(st, r);
       const b = st.bots.get(r);

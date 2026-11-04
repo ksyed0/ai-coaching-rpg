@@ -12,6 +12,13 @@ const state = (): SessionState => ({
 });
 
 describe("console copies", () => {
+  it("consoleEvent copies prompt_ai with roleId and by only (US-0060)", () => {
+    const e = { type: "facilitator.command", seq: 4, ts: 5, sessionId: "x", command: "prompt_ai", roleId: "tech_lead", by: "Sam", hint: "LEAK-HINT", extra: "LEAK-X" } as unknown as SessionEvent;
+    expect(consoleEvent(e)).toEqual({ type: "facilitator.command", seq: 4, ts: 5, sessionId: "x", command: "prompt_ai", roleId: "tech_lead", by: "Sam" });
+    expect(JSON.stringify(consoleEvent(e))).not.toMatch(/LEAK/);
+    const bare = { type: "facilitator.command", seq: 4, ts: 5, sessionId: "x", command: "prompt_ai", roleId: "tech_lead" } as unknown as SessionEvent;
+    expect(Object.hasOwn(consoleEvent(bare), "by")).toBe(false);
+  });
   it("the console state has no participantId, npcs is empty and every other key equals the input", () => {
     const s = state();
     const c = consoleState(s);

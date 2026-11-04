@@ -608,3 +608,70 @@ describe("facilitator.command by (US-0059, AC-0312)", () => {
     expect(fresh.state.paused).toBe(false);
   });
 });
+
+describe("the prompt_ai command (US-0060, slice 2b-3b)", () => {
+  const friday = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../../../../scenarios/friday-escalation");
+  let fEngine: SessionEngine;
+  let fLog: MemoryEventLog;
+  beforeEach(async () => {
+    const fri = await loadScenario(friday);
+    fLog = new MemoryEventLog("sess-fri");
+    fEngine = new SessionEngine({ scenario: fri, log: fLog, clock: new FakeClock(1_000_000) });
+    await fEngine.start({ delivery_lead: "p1", tech_lead: "p2", account_manager: "p3" }, { aiRoles: ["tech_lead"] });
+  });
+
+  it("prompt_ai tech_lead while running appends one facilitator.command with by and no other key", async () => {
+    const before = (await fLog.all()).length;
+    await fEngine.command({ command: "prompt_ai", roleId: "tech_lead" }, { by: "Sam" });
+    const added = (await fLog.all()).slice(before);
+    expect(added).toHaveLength(1);
+    const { seq, ts, sessionId, ...rest } = added[0] as unknown as Record<string, unknown>;
+    expect([typeof seq, typeof ts, typeof sessionId]).toEqual(["number", "number", "string"]);
+    expect(rest).toEqual({ type: "facilitator.command", command: "prompt_ai", roleId: "tech_lead", by: "Sam" });
+  });
+
+  it("without a by the event has no by key", async () => {
+    await fEngine.command({ command: "prompt_ai", roleId: "tech_lead" });
+    const ev = (await fLog.all()).at(-1) as unknown as Record<string, unknown>;
+    expect(Object.hasOwn(ev, "by")).toBe(false);
+  });
+
+  it("prompt_ai account_manager (a human role) is not_ai_role and nothing is appended; an unknown role is not_ai_role too", async () => {
+    const before = (await fLog.all()).length;
+    await expect(fEngine.command({ command: "prompt_ai", roleId: "account_manager" })).rejects.toMatchObject({ code: "not_ai_role" });
+    await expect(fEngine.command({ command: "prompt_ai", roleId: "ghost" })).rejects.toMatchObject({ code: "not_ai_role" });
+    await expect(fEngine.command({ command: "prompt_ai", roleId: "__proto__" })).rejects.toMatchObject({ code: "not_ai_role" });
+    expect((await fLog.all()).length).toBe(before);
+  });
+
+  it("a session without AI roles refuses every prompt_ai as not_ai_role", async () => {
+    await expect(engine.command({ command: "prompt_ai", roleId: "host" })).rejects.toMatchObject({ code: "not_ai_role" });
+  });
+
+  it("prompt_ai while paused is paused, after the end is ended, and nothing is appended", async () => {
+    await fEngine.command({ command: "pause" });
+    let n = (await fLog.all()).length;
+    await expect(fEngine.command({ command: "prompt_ai", roleId: "tech_lead" })).rejects.toMatchObject({ code: "paused" });
+    expect((await fLog.all()).length).toBe(n);
+    await fEngine.command({ command: "resume" });
+    await fEngine.endNow({ actor: "Sam" });
+    n = (await fLog.all()).length;
+    await expect(fEngine.command({ command: "prompt_ai", roleId: "tech_lead" })).rejects.toMatchObject({ code: "ended" });
+    expect((await fLog.all()).length).toBe(n);
+  });
+
+  it("prompt_ai for an AI role that is not in the current scene is not_in_scene and nothing is appended", async () => {
+    await fEngine.command({ command: "advance" });
+    await fEngine.tick();
+    expect(fEngine.state.currentScene?.id).toBe("s2_client_call");
+    const n = (await fLog.all()).length;
+    await expect(fEngine.command({ command: "prompt_ai", roleId: "tech_lead" })).rejects.toMatchObject({ code: "not_in_scene" });
+    expect((await fLog.all()).length).toBe(n);
+  });
+
+  it("the reducer ignores prompt_ai: the state is the same as before it except lastSeq", async () => {
+    const before = fEngine.state;
+    await fEngine.command({ command: "prompt_ai", roleId: "tech_lead" }, { by: "Sam" });
+    expect(fEngine.state).toEqual({ ...before, lastSeq: before.lastSeq + 1 });
+  });
+});

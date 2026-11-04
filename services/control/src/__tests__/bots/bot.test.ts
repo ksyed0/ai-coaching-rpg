@@ -284,6 +284,30 @@ describe("AiPlayerBot late replies", () => {
   });
 });
 
+describe("AiPlayerBot setHeld (B17)", () => {
+  it("while held a human line starts no reply; setHeld(false) re-arms the timer so the due reply starts at once", async () => {
+    const m = make();
+    const s = await up(m);
+    roster(s, true);
+    m.bot.setHeld(true);
+    human(s, 6);
+    await adv(7_000);
+    expect(s.said).toHaveLength(0);
+    m.bot.setHeld(false);
+    await flush();
+    expect(s.said).toHaveLength(1);
+  });
+
+  it("runPrompt works while held (B17: only replies and nudges wait)", async () => {
+    const m = make();
+    const s = await up(m);
+    m.bot.setHeld(true);
+    expect(m.bot.runPrompt("go")).toBe(true);
+    await flush();
+    expect(s.said).toHaveLength(1);
+  });
+});
+
 describe("AiPlayerBot skips, nudges and budget", () => {
   it("three model failures in a row raise one alert", async () => {
     const m = make({ provider: new MockModelProvider([new Error("boom"), new Error("boom"), new Error("boom")]) });

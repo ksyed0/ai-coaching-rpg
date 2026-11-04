@@ -16,7 +16,9 @@ export type ConfirmSubject =
     }
   | { kind: "whisper"; recipient: string }
   | { kind: "release_hidden"; fact: number; character: string }
-  | { kind: "remove"; name?: string; role: string };
+  | { kind: "remove"; name?: string; role: string }
+  | { kind: "to_ai"; role: string; name?: string; joined: boolean }
+  | { kind: "to_human"; role: string };
 
 export type ConfirmCopy = {
   title: string;
@@ -95,6 +97,29 @@ export function confirmCopy(s: ConfirmSubject): ConfirmCopy {
         description: `They are signed out of the ${s.role} seat and their code stops working. A new code for the seat is shown once. This affects the ${s.role} role only.`,
         confirmLabel: "Remove",
         tone: "danger",
+      };
+    case "to_ai": {
+      const keep = "An AI player takes the seat and its lines are marked AI. You can switch the role back to human until the start.";
+      if (!s.joined)
+        return {
+          title: `Fill ${s.role} with an AI player?`,
+          description: `The code for ${s.role} stops working. ${keep}`,
+          confirmLabel: "Use AI player",
+          tone: "primary",
+        };
+      return {
+        title: s.name ? `Replace ${isolate(s.name)} with an AI player in ${s.role}?` : `Fill ${s.role} with an AI player?`,
+        description: `They are signed out of the ${s.role} seat, their consent is withdrawn and their code stops working. ${keep}`,
+        confirmLabel: "Use AI player",
+        tone: "danger",
+      };
+    }
+    case "to_human":
+      return {
+        title: `Switch ${s.role} back to a human?`,
+        description: `The AI player leaves the ${s.role} seat. A new code for the seat is shown once: give it to the person who will play the role.`,
+        confirmLabel: "Switch to human",
+        tone: "primary",
       };
   }
 }

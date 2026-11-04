@@ -1103,6 +1103,10 @@ describe("console session API", () => {
       ai_no_human: [409, "ai_no_human", "At least one role must stay human."],
       ai_too_many: [409, "ai_too_many", "At most 8 roles can be AI players."],
       ai_invalid: [400, "bad_request", "The request could not be read."],
+      ai_busy: [409, "ai_busy", "The AI player is already answering. Wait a moment, then try again."],
+      ai_budget: [409, "ai_budget", "The AI players have used this session's model budget. They stay silent."],
+      ai_absent: [409, "ai_absent", "The AI player is not connected right now."],
+      ai_expired: [409, "ai_expired", "The prompt took too long to confirm. Try again."],
     };
     for (const [reason, [status, code, message]] of Object.entries(
       expected,

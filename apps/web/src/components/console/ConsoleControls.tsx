@@ -13,6 +13,7 @@ import { fetchFacts, useConsoleCommands } from "../../lib/console-commands";
 import type { ConsoleCommand } from "../../lib/console-commands";
 import { confirmCopy } from "../../lib/console-confirm";
 import { aiPlayerRoles, type ConsoleStreamUi } from "../../lib/use-console-stream";
+import { AiPlayersPanel } from "./AiPlayersPanel";
 import { CharactersPanel } from "./CharactersPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { InjectsPanel } from "./InjectsPanel";
@@ -192,6 +193,15 @@ export function ConsoleControls({
           })
         }
         loadFacts={loadFacts}
+      />
+      <AiPlayersPanel
+        sessionId={sessionId}
+        channel={ui.channel}
+        aiRoles={[...aiPlayerRoles(state?.aiRoles, ui.roster)]}
+        running={state?.status === "running" && ui.conn === "live"}
+        paused={state?.paused === true}
+        sceneRoles={state?.currentScene?.participants ?? null}
+        {...(fetchImpl ? { fetch: fetchImpl } : {})}
       />
       <div role="status">
         {shown.status ? <p className="banner ok">{shown.status}</p> : null}

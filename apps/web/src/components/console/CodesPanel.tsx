@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { CodeEntry } from "../../lib/console-api";
 import { roleLabel } from "../../lib/names";
 
@@ -21,6 +21,7 @@ export function CodesPanel({
   onDismiss,
   heading = "Join codes",
 }: CodesPanelProps) {
+  const headingId = useId();
   const [codes, setCodes] = useState<CodeEntry[]>(initial);
   const [copy, setCopy] = useState<Record<string, CopyState>>({});
 
@@ -48,8 +49,8 @@ export function CodesPanel({
   }
 
   return (
-    <section className="card stack" aria-labelledby="codes-h">
-      <h2 className="s" id="codes-h">
+    <section className="card stack" aria-labelledby={headingId}>
+      <h2 className="s" id={headingId}>
         {heading}
       </h2>
       <p className="banner warn" role="alert">

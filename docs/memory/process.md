@@ -3,7 +3,7 @@
 ## Git
 - `feature/*` (or `chore/*`) -> `develop` (PR) -> `main` (PR). Commit format `[type] ID: imperative description` (CLAUDE.md). Merge with merge commits. Do not rewrite pushed history: bring `develop` in with `git merge origin/develop`.
 - Work in a worktree per story under `~/Projects/ai-coaching-rpg.worktrees/` (a `.env` must be copied in for live runs; it is git-ignored). Stacked PRs work: merge the base first, then bring `develop` into the next branch. Remove worktrees and merged branches afterwards.
-- Merge a PR ONLY when the owner says so ("merge it", "merge when green"). Opening a PR, pushing a branch and watching CI do not need permission.
+- Merge each PR as soon as CI is green and `mergeStateStatus` is CLEAN (standing owner instruction, 2026-11-04; earlier: only when told). Squash-merge, delete the remote and local branch, `git fetch`, cut the next branch from `origin/develop`. If the PR is BEHIND `develop`, branch protection refuses the merge: update it with `gh api -X PUT repos/ksyed0/ai-coaching-rpg/pulls/N/update-branch` and wait for CI again. Never merge with a failing or pending check. Auto-fix reports only failures, so check CI at the start of a turn and after finishing a PR; do not poll in a loop.
 - Commit attribution trailer: the one the session's attribution reminder specifies (`Co-Authored-By: Claude <model> <noreply@anthropic.com>`); PR bodies end with the Claude Code line.
 
 ## The build-and-review loop that worked
