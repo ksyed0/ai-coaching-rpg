@@ -14,10 +14,14 @@ export type AiPlayersPanelProps = {
   channel: string | null;
   aiRoles: string[];
   running: boolean;
+  /** The session is paused: the engine refuses a prompt, so the button is off with a reason. */
+  paused?: boolean;
+  /** The current scene's participants (`null`: no scene). Left out: not restricted. A role outside it cannot be prompted. */
+  sceneRoles?: string[] | null;
   fetch?: typeof fetch;
 };
 
-export function AiPlayersPanel({ sessionId, channel, aiRoles, running, fetch: fetchImpl }: AiPlayersPanelProps) {
+export function AiPlayersPanel({ sessionId, channel, aiRoles, running, paused = false, sceneRoles, fetch: fetchImpl }: AiPlayersPanelProps) {
   const headingId = useId();
   if (aiRoles.length === 0) return null;
   return (
@@ -27,7 +31,16 @@ export function AiPlayersPanel({ sessionId, channel, aiRoles, running, fetch: fe
       </h2>
       <ul className="stack">
         {aiRoles.map((roleId) => (
-          <Row key={roleId} sessionId={sessionId} roleId={roleId} channel={channel} running={running} {...(fetchImpl ? { fetchImpl } : {})} />
+          <Row
+            key={roleId}
+            sessionId={sessionId}
+            roleId={roleId}
+            channel={channel}
+            running={running}
+            paused={paused}
+            inScene={sceneRoles === undefined || (sceneRoles !== null && sceneRoles.includes(roleId))}
+            {...(fetchImpl ? { fetchImpl } : {})}
+          />
         ))}
       </ul>
     </section>
@@ -36,7 +49,9 @@ export function AiPlayersPanel({ sessionId, channel, aiRoles, running, fetch: fe
 
 const WHEN: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", second: "2-digit" };
 
-function Row({ sessionId, roleId, channel, running, fetchImpl }: { sessionId: string; roleId: string; channel: string | null; running: boolean; fetchImpl?: typeof fetch }) {
+function Row({ sessionId, roleId, channel, running, paused, inScene, fetchImpl }: { sessionId: string; roleId: string; channel: string | null; running: boolean; paused: boolean; inScene: boolean; fetchImpl?: typeof fetch }) {
+  // Why Prompt is off while the session is running (the engine would refuse it); a pause is named first.
+  const blocked = !running ? null : paused ? "Resume the session before you prompt an AI player." : !inScene ? "This AI player is not in the current scene." : null;
   const label = roleLabel(roleId);
   const id = useId();
   const [hint, setHint] = useState("");
@@ -48,8 +63,8 @@ function Row({ sessionId, roleId, channel, running, fetchImpl }: { sessionId: st
   const btn = useRef<HTMLButtonElement>(null);
   const busy = useRef(false);
   const wasPending = useRef(false);
-  // Counted as it is sent (trimmed).
-  const count = Array.from(hint.trim()).length;
+  // Counted as the control side will see it (NFKC, trimmed): expanding characters such as "ﬁ", "½" or U+FDFA count for what they become.
+  const count = Array.from(hint.normalize("NFKC").trim()).length;
   const asked = useRef(0);
 
   // A button that was focused becomes disabled while the request is in flight, and focus would fall to the page: put it back.
@@ -61,7 +76,7 @@ function Row({ sessionId, roleId, channel, running, fetchImpl }: { sessionId: st
   }, [pending]);
 
   async function prompt() {
-    if (busy.current || !running || channel === null) return;
+    if (busy.current || !running || channel === null || blocked !== null) return;
     setStatus("");
     setError("");
     if (count > HINT_MAX) {
@@ -119,7 +134,8 @@ function Row({ sessionId, roleId, channel, running, fetchImpl }: { sessionId: st
           className="btn pri"
           type="button"
           ref={btn}
-          disabled={!running || channel === null || pending}
+          disabled={!running || channel === null || blocked !== null || pending}
+          aria-describedby={blocked !== null ? `${id}-r` : undefined}
           aria-label={`Prompt the AI player for ${label}`}
           onClick={() => void prompt()}
         >
@@ -136,6 +152,11 @@ function Row({ sessionId, roleId, channel, running, fetchImpl }: { sessionId: st
           {open ? "Hide recent turns" : "Show recent turns"}
         </button>
       </div>
+      {blocked !== null ? (
+        <p className="muted small" id={`${id}-r`}>
+          {blocked}
+        </p>
+      ) : null}
       <div aria-live="polite">{status ? <p className="banner ok">{status}</p> : null}</div>
       <div role="alert">{error ? <p className="err">{error}</p> : null}</div>
       <div id={`${id}-t`}>

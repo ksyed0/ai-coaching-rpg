@@ -110,7 +110,9 @@ export async function handleConsoleAiPrompt(req: Request, deps: Deps): Promise<R
   if (body === null) return badRequest();
   const { channel, hint } = body;
   if (typeof channel !== "string" || !CHANNEL.test(channel)) return badRequest();
-  if (hint !== undefined && (typeof hint !== "string" || Array.from(hint).length > MAX_HINT_CODE_POINTS)) return badRequest();
+  // Counted as the control side will see it (NFKC, trimmed), so a hint it would drop as too long is refused here; expanding characters
+  // ("ﬁ", "½", U+FDFA) can make a hint of 300 raw code points longer than 300.
+  if (hint !== undefined && (typeof hint !== "string" || Array.from(hint.normalize("NFKC").trim()).length > MAX_HINT_CODE_POINTS)) return badRequest();
   if (!deps.launcher) return unreachable();
   const launcher = deps.launcher;
   let reservation: string;

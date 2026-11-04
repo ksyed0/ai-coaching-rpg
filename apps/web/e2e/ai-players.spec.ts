@@ -189,7 +189,7 @@ test("switching back to human shows New code for Tech lead once and the code joi
   await expect(heading).toHaveCount(1);
 });
 
-type Seen = { sse: string[]; other: string[] };
+type Seen = { sse: string[]; other: string[]; reads: Promise<void>[] };
 
 /** A joined and consenting player whose page the test watches below the page: every stream message and every other answer. */
 async function watchedSeat(
@@ -208,7 +208,7 @@ async function watchedSeat(
   cdp.on("Network.eventSourceMessageReceived", (e) => { sink.sse.push(e.data); });
   page.on("response", (r) => {
     if ((r.headers()["content-type"] ?? "").startsWith("text/event-stream")) return; // read as messages, above
-    void r.text().then((t) => { sink.other.push(t); }, () => undefined);
+    sink.reads.push(r.text().then((t) => { sink.other.push(t); }, () => undefined));
   });
   await joinAsLauncher(page, baseUrl, sessionId, role, code, name);
   await consent(page);
@@ -220,7 +220,7 @@ test("Prompt AI player with the hint HINT-MARKER-77 makes the AI player speak; n
 }) => {
   test.setTimeout(300_000);
   const { stack: s, fac, sessionId, codes } = await sessionWithAi(browser);
-  const seen: Seen = { sse: [], other: [] };
+  const seen: Seen = { sse: [], other: [], reads: [] };
   // Only the Delivery lead's page is captured below the page; the other player is a plain seat.
   const players = await startWithAi(browser, s, fac, sessionId, codes, (b, base, id, role, code, name) =>
     role === "delivery_lead"
@@ -234,12 +234,22 @@ test("Prompt AI player with the hint HINT-MARKER-77 makes the AI player speak; n
   await panel.getByLabel(/^Hint for the AI player for Tech lead/).fill(HINT);
   const prompt = panel.getByRole("button", { name: "Prompt the AI player for Tech lead" });
   await expect(prompt).toBeEnabled();
-  const [answer] = await Promise.all([
-    fac.waitForResponse((r) => /\/ai-roles\/tech_lead\/prompt$/.test(new URL(r.url()).pathname) && r.request().method() === "POST"),
-    prompt.click(),
-  ]);
-  expect(answer.status(), `the prompt route answered ${answer.status()}: ${await answer.text()}`).toBe(200);
-  await expect(panel.getByText("Prompt sent. The AI player will answer shortly.")).toBeVisible();
+  // The bot may not have processed the scene's entry yet, which the route answers with the busy copy: click again only then.
+  let refused: string | null = null;
+  await expect(async () => {
+    const [answer] = await Promise.all([
+      fac.waitForResponse((r) => /\/ai-roles\/tech_lead\/prompt$/.test(new URL(r.url()).pathname) && r.request().method() === "POST"),
+      prompt.click(),
+    ]);
+    const text = await answer.text();
+    if (answer.status() !== 200 && !text.includes("The AI player is already answering")) {
+      refused = `the prompt route answered ${answer.status()}: ${text}`; // any other refusal ends the retries
+      return;
+    }
+    expect(answer.status(), "busy: the bot has not seen the scene yet").toBe(200);
+    await expect(panel.getByText("Prompt sent. The AI player will answer shortly.")).toBeVisible();
+  }).toPass({ timeout: 30_000 });
+  expect(refused).toBeNull();
 
   // The AI player speaks, and the player sees it.
   await expect(
@@ -277,6 +287,7 @@ test("Prompt AI player with the hint HINT-MARKER-77 makes the AI player speak; n
   expect(seen.sse.some((m) => m.includes(MOCK_REPLY)), "the captured stream carried the AI player's line").toBe(true);
   expect(seen.sse.length).toBeGreaterThan(0);
   expect(seen.sse.filter((m) => m.includes(HINT))).toEqual([]);
+  await Promise.all(seen.reads); // every answer body has been read before the assertion
   expect(seen.other.filter((m) => m.includes(HINT))).toEqual([]);
 });
 

@@ -80,6 +80,17 @@ describe("prompt an AI player: guards", () => {
     untouched();
   });
 
+  it("a hint that is 300 raw code points or fewer but longer than 300 after NFKC is 400 (the control side would drop it)", async () => {
+    // "\uFB01" folds to "fi", "\u00BD" to "1\u20442", U+FDFA to 18 characters.
+    for (const hint of ["\uFB01".repeat(151), "\u00BD".repeat(101), "\uFDFA".repeat(17), `${"a".repeat(299)}\uFB01`]) {
+      expect(Array.from(hint).length, "raw").toBeLessThanOrEqual(300);
+      expect((await prompt({ ...good, hint })).status, hint.slice(0, 5)).toBe(400);
+    }
+    untouched();
+    expect((await prompt({ ...good, hint: "\uFB01".repeat(150) })).status).toBe(200);
+    expect((await prompt({ ...good, hint: `${"a".repeat(300)} ` })).status).toBe(200);
+  });
+
   it("a roleId that is not an id is 404 with no launcher call", async () => {
     for (const path of ["..%2F", "Tech%20Lead", "%E0%A4%A", "x".repeat(129)]) expect((await prompt(good, { path })).status, path).toBe(404);
     untouched();

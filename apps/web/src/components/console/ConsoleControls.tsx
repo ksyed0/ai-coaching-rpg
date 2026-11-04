@@ -199,6 +199,8 @@ export function ConsoleControls({
         channel={ui.channel}
         aiRoles={[...aiPlayerRoles(state?.aiRoles, ui.roster)]}
         running={state?.status === "running" && ui.conn === "live"}
+        paused={state?.paused === true}
+        sceneRoles={state?.currentScene?.participants ?? null}
         {...(fetchImpl ? { fetch: fetchImpl } : {})}
       />
       <div role="status">

@@ -239,6 +239,41 @@ describe("AiPlayersPanel", () => {
     expect(document.activeElement).toBe(hintBox());
   });
 
+  it("a paused session disables Prompt with the reason attached; the click sends nothing", async () => {
+    const m = mount({ paused: true, sceneRoles: ["tech_lead"] });
+    expect(promptBtn().disabled).toBe(true);
+    const reason = screen.getByText("Resume the session before you prompt an AI player.");
+    expect(promptBtn().getAttribute("aria-describedby")).toBe(reason.id);
+    fireEvent.click(promptBtn());
+    expect(m.f.calls).toHaveLength(0);
+  });
+
+  it("an AI role outside the current scene (or with no scene) is disabled with its reason; one in the scene is enabled", () => {
+    mount({ aiRoles: ["tech_lead", "cfo"], sceneRoles: ["tech_lead"] });
+    expect(promptBtn().disabled).toBe(false);
+    const cfo = screen.getByRole("button", { name: "Prompt the AI player for Cfo" }) as HTMLButtonElement;
+    expect(cfo.disabled).toBe(true);
+    expect(within(cfo.closest("li")!).getByText("This AI player is not in the current scene.").id).toBe(cfo.getAttribute("aria-describedby"));
+    cleanup();
+    mount({ sceneRoles: null });
+    expect(promptBtn().disabled).toBe(true);
+  });
+
+  it("no reason is shown before the start", () => {
+    mount({ running: false, paused: true });
+    expect(screen.queryByText(/Resume the session/)).toBeNull();
+  });
+
+  it("the counter and the limit use the NFKC length: 151 \"\uFB01\" is 302 characters and is refused without a request", async () => {
+    const m = mount();
+    fireEvent.change(hintBox(), { target: { value: "\uFB01".repeat(151) } });
+    expect(screen.getByText("302 of 300")).toBeTruthy();
+    await send();
+    expect(m.f.calls).toHaveLength(0);
+    fireEvent.change(hintBox(), { target: { value: "\u00BD".repeat(100) } });
+    expect(screen.getByText("300 of 300")).toBeTruthy();
+  });
+
   it("each AI role has its own labelled controls", () => {
     mount({ aiRoles: ["tech_lead", "cfo"] });
     expect(screen.getByRole("button", { name: "Prompt the AI player for Cfo" })).toBeTruthy();

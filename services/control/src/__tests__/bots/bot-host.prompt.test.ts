@@ -332,6 +332,8 @@ describe("BotHost prompted turns", () => {
     const all = [...strings, ...logs, ...alerts, ...errs].join("\n");
     expect(all).not.toContain(HINT);
     expect(all.length).toBeGreaterThan(0);
+    expect(alerts).toEqual([BOT_ALERTS.skippedModel]);
+    expect(intents.entries).toEqual([expect.objectContaining({ trigger: "prompt", outcome: "skipped", reason: "model_failed", hint: HINT })]);
   });
 
   it("an invalid hint object is run as no hint", async () => {

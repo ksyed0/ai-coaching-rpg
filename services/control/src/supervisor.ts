@@ -574,7 +574,7 @@ export class Supervisor {
     return this.bots;
   }
 
-  /** Holds the AI player's policy for up to 10 s and returns the reservation token. */
+  /** Holds the AI player's policy for up to 15 s (RESERVATION_TTL_MS) and returns the reservation token. */
   reserveTurn(id: string, roleId: string): string { return this.promptHost(id).reserve(id, roleId); }
 
   /** Starts the prompted turn; the hint goes to the bot only (never logged). */

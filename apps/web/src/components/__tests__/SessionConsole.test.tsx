@@ -197,9 +197,33 @@ describe("SessionConsole", () => {
     await screen.findByText(/Model:/);
     await flush();
     await joined(FakeEventSource.last());
-    await act(async () => FakeEventSource.last().emit("reset", { state: { ...initialState(), status: "running", lastSeq: 1, aiRoles: ["tech_lead"] } }));
+    await act(async () => FakeEventSource.last().emit("reset", { state: { ...initialState(), status: "running", lastSeq: 1, aiRoles: ["tech_lead"], currentScene: { id: "s1", enteredAt: 1, participants: ["tech_lead"], pausedMs: 0 } } }));
     expect(screen.getByRole("heading", { name: "AI players" })).toBeTruthy();
     expect((screen.getByRole("button", { name: "Prompt the AI player for Tech lead" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  const aiState = (over: Record<string, unknown>) => ({ ...initialState(), status: "running", lastSeq: 1, aiRoles: ["tech_lead"], currentScene: { id: "s1", enteredAt: 1, participants: ["tech_lead"], pausedMs: 0 }, ...over });
+  const prompt = () => screen.getByRole("button", { name: "Prompt the AI player for Tech lead" }) as HTMLButtonElement;
+  const liveWith = async (state: unknown) => {
+    mount(readiness({ status: "running" }));
+    await screen.findByText(/Model:/);
+    await flush();
+    await joined(FakeEventSource.last());
+    await act(async () => FakeEventSource.last().emit("reset", { state }));
+  };
+
+  it("Prompt is off while the session is paused and comes back on resume", async () => {
+    await liveWith(aiState({ paused: true, pausedSince: 5 }));
+    expect(prompt().disabled).toBe(true);
+    expect(screen.getByText("Resume the session before you prompt an AI player.")).toBeTruthy();
+    await act(async () => FakeEventSource.last().emit("reset", { state: aiState({}) }));
+    expect(prompt().disabled).toBe(false);
+  });
+
+  it("Prompt is off for an AI role that is not in the current scene", async () => {
+    await liveWith(aiState({ currentScene: { id: "s1", enteredAt: 1, participants: ["account_manager"], pausedMs: 0 } }));
+    expect(prompt().disabled).toBe(true);
+    expect(screen.getByText("This AI player is not in the current scene.")).toBeTruthy();
   });
 
   it("no AI players panel when the session has no AI roles", async () => {
