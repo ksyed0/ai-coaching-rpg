@@ -393,3 +393,53 @@ describe("AI player labels in the terminal client (US-0060)", () => {
     expect(t.out.at(-1)).toBe("cannot start: this server's consent notice does not mention AI players; switch the AI roles back to human or restart on notice v2");
   });
 });
+
+describe("seats_not_ready and AI seats; event and joined edge cases (US-0060 review)", () => {
+  const joinedFac = JSON.stringify({ type: "joined", roleId: "facilitator", state: {} });
+  const facOpts = { facilitator: true, name: "n", url: "ws://x", session: "s" };
+  const facSetup = () => {
+    const out: string[] = [];
+    const sock: Sock = { send: () => {}, close: () => {}, terminate: () => {} };
+    const io: Io = { print: (l) => out.push(l), err: () => {}, closeInput: () => {}, exit: () => {} };
+    return { c: createClient({ opts: facOpts as never, sock, io, idleMs: 30 }), out };
+  };
+  const roster = (entries: unknown[]) => JSON.stringify({ type: "roster", audience: "facilitator", entries });
+  const notReady = (roles: string) => JSON.stringify({ type: "error", code: "seats_not_ready", message: `seats_not_ready: ${roles}` });
+  const entries = [{ roleId: "account_manager", joined: false, consented: false, connected: false }, { roleId: "tech_lead", joined: false, consented: false, connected: false, ai: true }];
+  it("an AI seat in seats_not_ready is labelled and never told to type /consent", () => {
+    const t = facSetup(); t.c.onOpen(); t.c.onMessage(joinedFac); t.c.onMessage(roster(entries)); t.c.onMessage(notReady("account_manager,tech_lead"));
+    const l = t.out.at(-1)!;
+    expect(l).toBe("cannot start yet: waiting for account_manager to join and type /consent; waiting for the bot of AI player (tech_lead)");
+    expect(l).not.toContain("tech_lead to join and type /consent");
+  });
+  it("only the AI seat missing, only a human missing, and a role not in the last roster", () => {
+    const t = facSetup(); t.c.onOpen(); t.c.onMessage(joinedFac); t.c.onMessage(roster(entries));
+    t.c.onMessage(notReady("tech_lead")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for the bot of AI player (tech_lead)");
+    t.c.onMessage(notReady("account_manager")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for account_manager to join and type /consent");
+    t.c.onMessage(notReady("stranger")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for stranger to join and type /consent");
+  });
+  it("the AI roster set is replaced per frame and cleared by joined", () => {
+    const t = facSetup(); t.c.onOpen(); t.c.onMessage(joinedFac); t.c.onMessage(roster(entries));
+    t.c.onMessage(roster([{ roleId: "tech_lead", joined: false, consented: false, connected: false }]));
+    t.c.onMessage(notReady("tech_lead")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for tech_lead to join and type /consent");
+    t.c.onMessage(roster(entries)); t.c.onMessage(joinedFac);
+    t.c.onMessage(notReady("tech_lead")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for tech_lead to join and type /consent");
+  });
+  it("an event frame before joined is dropped", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(ev("early"));
+    expect(t.out).toEqual([]);
+  });
+  it("a second joined replaces the AI set", () => {
+    const j = (aiRoles: string[]) => JSON.stringify({ type: "joined", roleId: "host", state: { aiRoles } });
+    const t = setup(); t.c.onOpen(); t.c.onMessage(j(["guest"])); t.c.onMessage(ev("one"));
+    expect(t.out.at(-1)).toBe("AI player (guest) [AI]: one");
+    t.c.onMessage(j([])); t.c.onMessage(JSON.stringify({ type: "event", event: { seq: 2, ts: 0, sessionId: "s", type: "utterance", roleId: "guest", text: "two", channel: "text" } }));
+    expect(t.out.at(-1)).toBe("guest: two");
+  });
+  it("a replayed utterance after joined with aiRoles is labelled", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(JSON.stringify({ type: "joined", roleId: "host", state: { aiRoles: ["guest"], lastSeq: 5 }, replay: { afterSeq: 0, toSeq: 5, events: 1, complete: true } }));
+    t.c.onMessage(ev("replayed"));
+    expect(t.out.at(-1)).toBe("AI player (guest) [AI]: replayed");
+  });
+});

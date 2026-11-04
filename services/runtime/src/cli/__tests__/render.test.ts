@@ -10,53 +10,53 @@ const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
 describe("renderEvent", () => {
   it("US-0034: a Game Master suggestion is a facilitator-only alert naming the role, the number and the command; an auto-release says the Game Master released it", () => {
     const e = { ...env, type: "gm.fact_earned" as const, sceneId: "s", roleId: "cfo", fact: 2, reasoning: "a fixed fee was offered" };
-    expect(renderEvent(e, "facilitator")).toBe("[alert] Game Master suggests releasing hidden fact #2 of cfo (a fixed fee was offered): type /release cfo 2 to release it");
-    expect(renderEvent(e, "delivery_lead")).toBeNull();
-    expect(renderEvent({ ...e, autoRelease: true }, "facilitator")).toBe("[gm] the Game Master released hidden fact #2 of cfo itself (GM_AUTO_RELEASE is on): a fixed fee was offered");
-    expect(renderEvent({ ...e, autoRelease: true }, "cfo")).toBeNull();
-    const evil = renderEvent({ ...e, roleId: "\u001b[31mcfo\n[x]", fact: "\u001b[2J" as never, reasoning: "a\nb\u202e" }, "facilitator")!;
+    expect(renderEvent(e, "facilitator", new Set())).toBe("[alert] Game Master suggests releasing hidden fact #2 of cfo (a fixed fee was offered): type /release cfo 2 to release it");
+    expect(renderEvent(e, "delivery_lead", new Set())).toBeNull();
+    expect(renderEvent({ ...e, autoRelease: true }, "facilitator", new Set())).toBe("[gm] the Game Master released hidden fact #2 of cfo itself (GM_AUTO_RELEASE is on): a fixed fee was offered");
+    expect(renderEvent({ ...e, autoRelease: true }, "cfo", new Set())).toBeNull();
+    const evil = renderEvent({ ...e, roleId: "\u001b[31mcfo\n[x]", fact: "\u001b[2J" as never, reasoning: "a\nb\u202e" }, "facilitator", new Set())!;
     expect(evil).not.toMatch(CONTROL);
     expect(evil).not.toMatch(INVISIBLE);
   });
 
   it("renders utterances with the speaker, marking mine", () => {
-    expect(renderEvent({ ...env, type: "utterance", roleId: "guest", text: "Hi", channel: "text" }, "host")).toBe("guest: Hi");
-    expect(renderEvent({ ...env, type: "utterance", roleId: "host", text: "Yo", channel: "text" }, "host")).toBe("you: Yo");
+    expect(renderEvent({ ...env, type: "utterance", roleId: "guest", text: "Hi", channel: "text" }, "host", new Set())).toBe("guest: Hi");
+    expect(renderEvent({ ...env, type: "utterance", roleId: "host", text: "Yo", channel: "text" }, "host", new Set())).toBe("you: Yo");
   });
   it("renders scene changes and injects", () => {
-    expect(renderEvent({ ...env, type: "scene.entered", sceneId: "s2", participants: ["host"] }, "host")).toBe("--- scene s2 ---");
-    expect(renderEvent({ ...env, type: "scene.exited", sceneId: "s2", reason: "time_box_elapsed" }, "host")).toBe("--- scene s2 ended (time_box_elapsed) ---");
-    expect(renderEvent({ ...env, type: "inject.fired", injectId: "i", sceneId: "s", to: ["host"], content: "An email arrives." }, "host")).toBe("[inject] An email arrives.");
+    expect(renderEvent({ ...env, type: "scene.entered", sceneId: "s2", participants: ["host"] }, "host", new Set())).toBe("--- scene s2 ---");
+    expect(renderEvent({ ...env, type: "scene.exited", sceneId: "s2", reason: "time_box_elapsed" }, "host", new Set())).toBe("--- scene s2 ended (time_box_elapsed) ---");
+    expect(renderEvent({ ...env, type: "inject.fired", injectId: "i", sceneId: "s", to: ["host"], content: "An email arrives." }, "host", new Set())).toBe("[inject] An email arrives.");
   });
   it("renders nothing for GM decisions to players and the decision for the facilitator", () => {
     const d = { ...env, type: "gm.decision" as const, sceneId: "s", condition: "c", verdict: true, reasoning: "r" };
-    expect(renderEvent(d, "host")).toBeNull();
-    expect(renderEvent(d, "facilitator")).toBe("[gm] c => true (r)");
+    expect(renderEvent(d, "host", new Set())).toBeNull();
+    expect(renderEvent(d, "facilitator", new Set())).toBe("[gm] c => true (r)");
   });
   it("renders a no-verdict event for the facilitator only, with its reason and the re-ask", () => {
     const e = { ...env, type: "gm.no_verdict" as const, sceneId: "s", condition: "c", reason: "no_json" as const, attempts: 2 };
-    expect(renderEvent(e, "host")).toBeNull();
-    expect(renderEvent(e, "facilitator")).toBe('[gm] no verdict for "c" (no_json after re-ask)');
-    expect(renderEvent({ ...e, attempts: 1 }, "facilitator")).toBe('[gm] no verdict for "c" (no_json)');
+    expect(renderEvent(e, "host", new Set())).toBeNull();
+    expect(renderEvent(e, "facilitator", new Set())).toBe('[gm] no verdict for "c" (no_json after re-ask)');
+    expect(renderEvent({ ...e, attempts: 1 }, "facilitator", new Set())).toBe('[gm] no verdict for "c" (no_json)');
   });
   it("renders alerts, npc updates, whispers and session lifecycle", () => {
-    expect(renderEvent({ ...env, type: "facilitator.alert", level: "warning", message: "slow" }, "facilitator")).toBe("[alert] slow");
-    expect(renderEvent({ ...env, type: "facilitator.alert", level: "warning", message: "slow" }, "host")).toBeNull();
-    expect(renderEvent({ ...env, type: "npc.updated", roleId: "cto", goals: ["a", "b"], knowledge: [] }, "facilitator")).toBe("[npc cto] goals: a; b");
-    expect(renderEvent({ ...env, type: "npc.updated", roleId: "cto", goals: ["a"], knowledge: [] }, "host")).toBeNull();
-    expect(renderEvent({ ...env, type: "facilitator.command", command: "whisper", roleId: "host", text: "psst" }, "host")).toBe("[whisper] psst");
-    expect(renderEvent({ ...env, type: "facilitator.command", command: "pause" }, "host")).toBe("[facilitator] pause");
-    expect(renderEvent({ ...env, type: "session.started", scenarioId: "sc", version: "1", roles: {} }, "host")).toBe("session started: sc v1");
-    expect(renderEvent({ ...env, type: "session.ended", reason: "script_complete" }, "host")).toBe("=== session ended (script_complete) ===");
+    expect(renderEvent({ ...env, type: "facilitator.alert", level: "warning", message: "slow" }, "facilitator", new Set())).toBe("[alert] slow");
+    expect(renderEvent({ ...env, type: "facilitator.alert", level: "warning", message: "slow" }, "host", new Set())).toBeNull();
+    expect(renderEvent({ ...env, type: "npc.updated", roleId: "cto", goals: ["a", "b"], knowledge: [] }, "facilitator", new Set())).toBe("[npc cto] goals: a; b");
+    expect(renderEvent({ ...env, type: "npc.updated", roleId: "cto", goals: ["a"], knowledge: [] }, "host", new Set())).toBeNull();
+    expect(renderEvent({ ...env, type: "facilitator.command", command: "whisper", roleId: "host", text: "psst" }, "host", new Set())).toBe("[whisper] psst");
+    expect(renderEvent({ ...env, type: "facilitator.command", command: "pause" }, "host", new Set())).toBe("[facilitator] pause");
+    expect(renderEvent({ ...env, type: "session.started", scenarioId: "sc", version: "1", roles: {} }, "host", new Set())).toBe("session started: sc v1");
+    expect(renderEvent({ ...env, type: "session.ended", reason: "script_complete" }, "host", new Set())).toBe("=== session ended (script_complete) ===");
   });
   it("a session.ended with a message prints the cleaned message on its own line", () => {
-    const line = renderEvent({ ...env, type: "session.ended", reason: "facilitator_end", message: "Well done.\x1b[2J\u202e team" }, "host");
+    const line = renderEvent({ ...env, type: "session.ended", reason: "facilitator_end", message: "Well done.\x1b[2J\u202e team" }, "host", new Set());
     expect(line).toBe("=== session ended (facilitator_end) ===\nmessage from the facilitator: Well done.·[2J team");
     expect(CONTROL.test(line!.split("\n")[1]!)).toBe(false);
-    expect(renderEvent({ ...env, type: "session.ended", reason: "facilitator_end", message: 5 as never }, "host")).toBe("=== session ended (facilitator_end) ===");
+    expect(renderEvent({ ...env, type: "session.ended", reason: "facilitator_end", message: 5 as never }, "host", new Set())).toBe("=== session ended (facilitator_end) ===");
   });
   it("renders nothing for unknown event types instead of crashing", () => {
-    expect(renderEvent({ ...env, type: "something.new" } as unknown as SessionEvent, "host")).toBeNull();
+    expect(renderEvent({ ...env, type: "something.new" } as unknown as SessionEvent, "host", new Set())).toBeNull();
   });
 });
 
@@ -112,7 +112,7 @@ describe("renderEvent never emits control characters for hostile input", () => {
         { ...env, type: "session.ended", reason: h as never },
       ];
       for (const e of evs) {
-        const line = renderEvent(e, "facilitator");
+        const line = renderEvent(e, "facilitator", new Set());
         expect(line).not.toBeNull();
         expect(CONTROL.test(line!)).toBe(false);
         expect(line).not.toMatch(/[\u202a-\u202e\u2066-\u2069\u200b-\u200f\u2028\u2029\ufeff]/);
@@ -197,8 +197,8 @@ describe("renderJoined notice (US-0017)", () => {
 describe("session.resumed (US-0018)", () => {
   const e = { seq: 9, ts: 1, sessionId: "s", type: "session.resumed", downFromTs: 0 } as const;
   it("tells the facilitator to /resume and a player that the facilitator will", () => {
-    expect(renderEvent(e, "facilitator")).toBe("=== session paused (server restarted): /resume to continue ===");
-    expect(renderEvent(e, "delivery_lead")).toBe("=== session paused (server restarted); the facilitator will resume it ===");
+    expect(renderEvent(e, "facilitator", new Set())).toBe("=== session paused (server restarted): /resume to continue ===");
+    expect(renderEvent(e, "delivery_lead", new Set())).toBe("=== session paused (server restarted); the facilitator will resume it ===");
   });
 });
 
@@ -206,12 +206,12 @@ describe("hidden facts in the terminal client (US-0016)", () => {
   const env = { seq: 1, ts: 0, sessionId: "s" };
   it("renders the release command to the facilitator by number, never to a player, and never with text", () => {
     const e = { ...env, type: "facilitator.command", command: "release_hidden", roleId: "cfo", fact: 1 } as const;
-    expect(renderEvent(e, "facilitator")).toBe("[facilitator] released hidden fact #1 of cfo");
-    expect(renderEvent(e, "host")).toBeNull();
+    expect(renderEvent(e, "facilitator", new Set())).toBe("[facilitator] released hidden fact #1 of cfo");
+    expect(renderEvent(e, "host", new Set())).toBeNull();
   });
   it("sanitises a hostile role id and number in the command line", () => {
     const e = { ...env, type: "facilitator.command", command: "release_hidden", roleId: "\u001b[31mcfo\n[x]", fact: "\u001b[2J" } as never;
-    const out = renderEvent(e, "facilitator")!;
+    const out = renderEvent(e, "facilitator", new Set())!;
     expect(out).not.toMatch(/[\u0000-\u001f]/);
   });
   it("lists facts numbered, marks released ones and sanitises the text", () => {
@@ -325,7 +325,7 @@ describe("AI player labels (US-0060, hard rule: labels come from aiRoles, never 
     expect(renderEvent(say("delivery_lead"), "account_manager", ai)).toBe("delivery_lead: hello");
     expect(renderEvent(say("client_sponsor"), "account_manager", ai)).toBe("client_sponsor: hello");
     expect(renderEvent(say("tech_lead"), "tech_lead", ai)).toBe("you: hello");
-    expect(renderEvent(say("tech_lead"), "account_manager")).toBe("tech_lead: hello");
+    expect(renderEvent(say("tech_lead"), "account_manager", new Set())).toBe("tech_lead: hello");
   });
   it("the AI line sanitises the role id and the text", () => {
     const evil = "x\u001b[2J\n[alert]";

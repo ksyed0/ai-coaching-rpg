@@ -1,6 +1,10 @@
 import type { SessionEvent } from "@acr/events";
 import { isSafeId } from "@acr/events";
 import type { ServerMessage } from "../host/protocol.js";
+import type { FacilitatorRosterEntry, PeerRosterEntry } from "../host/roster.js";
+
+/** The roster entry key that marks an AI seat; anchored to both server types so renaming the field there fails compilation here. */
+const AI_KEY = "ai" satisfies keyof FacilitatorRosterEntry & keyof PeerRosterEntry;
 
 /** Longest server-supplied string we will display (R26). */
 export const MAX_DISPLAY_CHARS = 4_000;
@@ -58,7 +62,7 @@ function speaker(roleId: string, me: string, ai: ReadonlySet<string>): string {
 }
 
 /** One printable line for an event, or null when this viewer should see nothing. Unknown event types render nothing. */
-export function renderEvent(e: SessionEvent, me: string, ai: ReadonlySet<string> = new Set()): string | null {
+export function renderEvent(e: SessionEvent, me: string, ai: ReadonlySet<string>): string | null {
   const isFacilitator = me === "facilitator";
   switch (e.type) {
     case "utterance": return `${speaker(e.roleId, me, ai)}: ${s(e.text)}`;
@@ -146,7 +150,7 @@ export function renderNewReleases(e: Extract<SessionEvent, { type: "npc.updated"
   });
 }
 
-export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>, ai: ReadonlySet<string> = parseAiRoles((m.state as { aiRoles?: unknown } | undefined)?.aiRoles)): string[] {
+export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>, ai: ReadonlySet<string> = parseAiRoles(m.state?.aiRoles)): string[] {
   const lines = [`joined as ${s(m.roleId)}`]; // never the reconnect token
   if (m.notice) lines.push(`warning: ${s(m.notice)}`);
   if (m.roleId === "facilitator") {
@@ -218,7 +222,7 @@ export function renderRoster(m: unknown): string[] {
     const e = raw as Record<string, unknown>;
     if (typeof e.roleId !== "string") continue;
     // US-0060: the server's `ai` flag (from aiRoles) marks an AI seat; it says nothing about consent, which a bot never gives.
-    const state = e.ai === true
+    const state = e[AI_KEY] === true
       ? `AI player, ${o.audience === "peers" ? (e.ready === true ? "ready" : "not ready") : (e.connected === true ? "connected" : "not connected")}`
       : o.audience === "peers"
         ? (e.ready === true ? "ready" : "not ready")
@@ -230,14 +234,23 @@ export function renderRoster(m: unknown): string[] {
   return lines;
 }
 
-export function renderError(code: string, message: string, asPlayer = false): string {
+export function renderError(code: string, message: string, asPlayer = false, aiSeats: ReadonlySet<string> = new Set()): string {
   if (code === "not_started") return "waiting for the facilitator to /start the session before anyone can speak";
   if (code === "unauthorized" && asPlayer) return "error: unauthorized: check the role and its join code from the facilitator (set JOIN_CODE, use --code-file <path>, or type it at the prompt)";
   if (code === "unauthorized") return "error: unauthorized: this server needs the facilitator token (set FACILITATOR_TOKEN, use --token-file <path>, or type it at the prompt)";
   if (code === "seats_not_ready") {
     // The message is `seats_not_ready: role1,role2`: the roles that have not joined or have not agreed to the notice.
     const roles = message.includes(":") ? message.slice(message.indexOf(":") + 1).trim() : "";
-    return `cannot start yet: ${roles ? `waiting for ${s(roles)} to join and type /consent` : "every player must join and type /consent"}`;
+    if (!roles) return "cannot start yet: every player must join and type /consent";
+    // US-0060: an AI seat in the list has no bot yet; it cannot join or consent, so it is never told to. `aiSeats` is the last roster's `ai` roles.
+    const ids = roles.split(",").map((r) => r.trim()).filter((r) => r !== "");
+    const humans = ids.filter((r) => !aiSeats.has(r));
+    const bots = ids.filter((r) => aiSeats.has(r));
+    const parts = [
+      ...(humans.length ? [`waiting for ${s(humans.join(","))} to join and type /consent`] : []),
+      ...(bots.length ? [`waiting for the bot of ${bots.map((r) => `AI player (${s(r)})`).join(", ")}`] : []),
+    ];
+    return `cannot start yet: ${parts.join("; ")}`;
   }
   if (code === "consent_required") return "you have not agreed to the notice for this seat: type /consent";
   if (code === "ai_notice") return "cannot start: this server's consent notice does not mention AI players; switch the AI roles back to human or restart on notice v2";

@@ -46,6 +46,8 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
   let lastRoster: string | null = null;
   // US-0060: the player roles an AI plays. Replaced (never accumulated) by every joined snapshot and session.started; the only source of AI labels.
   let ai: ReadonlySet<string> = new Set();
+  // US-0060: the roles flagged `ai: true` in the last roster frame (replaced per frame, cleared at join): a lobby has no aiRoles in state yet, but seats_not_ready may name them.
+  let rosterAi: ReadonlySet<string> = new Set();
 
   function finish(code: number, message?: string, polite = false): void {
     if (done) return;
@@ -96,7 +98,8 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
             if (Array.isArray(r)) released.set(role, r.filter((t): t is string => typeof t === "string"));
           }
         }
-        ai = parseAiRoles((m.state as { aiRoles?: unknown } | undefined)?.aiRoles);
+        rosterAi = new Set();
+        ai = parseAiRoles(m.state?.aiRoles);
         for (const l of renderJoined(m, ai)) io.print(l);
         if (!opts.facilitator) {
           const c = m.consent as { noticeVersion?: unknown } | undefined;
@@ -106,6 +109,7 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
         for (const queued of pending.splice(0)) send(queued);
         if (eof) armIdle();
       } else if (m.type === "event") {
+        if (!joined) return; // the server sends no event before joined; nothing is labelled or shown until the AI set is known
         const seq = (m.event as { seq?: unknown }).seq;
         if (typeof seq === "number" && Number.isSafeInteger(seq)) {
           if (dedupeUpTo !== null) { if (seq <= dedupeUpTo) return; dedupeUpTo = seq; }
@@ -130,6 +134,7 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
         }
       } else if (m.type === "roster") {
         // Printed only when it changed: the server repeats the frame to everyone after each change, most of which do not alter this view.
+        rosterAi = new Set(m.entries.filter((e) => e.ai === true).map((e) => e.roleId));
         const lines = renderRoster(m);
         const key = lines.join("\n");
         if (key !== lastRoster) { lastRoster = key; for (const l of lines) io.print(l); }
@@ -138,9 +143,9 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
         // drops it; this branch only narrows the type for the checker.
         return;
       } else if (isFatalError(m.code, joined)) {
-        finish(1, renderError(m.code, m.message, !opts.facilitator));
+        finish(1, renderError(m.code, m.message, !opts.facilitator, rosterAi));
       } else {
-        io.print(renderError(m.code, m.message, !opts.facilitator));
+        io.print(renderError(m.code, m.message, !opts.facilitator, rosterAi));
       }
     },
     onLine(line: string): void {
