@@ -331,6 +331,21 @@ describe("FacilitatorHub", () => {
     clean(timers, conn, h);
   });
 
+  it("a replay flushed right after the opening is part of the opening; a stall after it still ends the stream (BUG-0024)", () => {
+    const timers = manualTimers();
+    const h = new FacilitatorHub({ setTimer: timers.setTimer, now: () => 0, maxPendingBytes: 1_200 });
+    const chunks: string[] = []; let ends = 0;
+    const conn = new FakeConn();
+    for (let i = 6; i <= 15; i++) conn.queued.push({ type: "event", event: { ...ev(i), text: "x".repeat(400) } } as ServerMessage); // ~5 KB of replay
+    h.open({ sessionId: "s1", expiresAt: 10 ** 13, conn: asConn(conn), joined: join({ replay: { afterSeq: 5, toSeq: 15, events: 10, complete: true } }), out: { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } } });
+    expect(chunks.filter((c) => c.includes("event: event"))).toHaveLength(10); // the whole replay is delivered, in order
+    expect(ends).toBe(0);
+    for (let i = 16; i <= 18; i++) conn.emit({ type: "event", event: { ...ev(i), text: "x".repeat(400) } } as ServerMessage);
+    expect(ends).toBe(1);
+    expect(chunks.at(-1)).toContain("event: reconnecting");
+    clean(timers, conn, h);
+  });
+
   it("a reset over 256 KiB through the real sseBody keeps the stream open", async () => {
     const big = { ...state(), transcript: Array.from({ length: 3000 }, (_, i) => ({ seq: i, ts: i, sceneId: null, roleId: "lead", text: "x".repeat(100), channel: "text" as const })) };
     const timers = manualTimers();

@@ -15,7 +15,7 @@ import { confirmCopy } from "../../lib/console-confirm";
 import { aiPlayerRoles, type ConsoleStreamUi } from "../../lib/use-console-stream";
 import { AiPlayersPanel } from "./AiPlayersPanel";
 import { CharactersPanel } from "./CharactersPanel";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { ConfirmDialog, focusFallback } from "./ConfirmDialog";
 import { InjectsPanel } from "./InjectsPanel";
 import type { Labeler } from "./Person";
 import { WhisperForm } from "./WhisperForm";
@@ -217,6 +217,7 @@ export function ConsoleControls({
           tone={copy.tone}
           pending={cmds.pending}
           opener={request.opener}
+          fallbackFocus={focusFallback("final", "connection")}
           describeBody={request.preview !== undefined}
           onCancel={() => setRequest(null)}
           onConfirm={() => void confirm()}

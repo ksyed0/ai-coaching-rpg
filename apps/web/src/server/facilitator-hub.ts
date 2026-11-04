@@ -96,13 +96,14 @@ export class FacilitatorHub {
       // A copy that throws must not leak the slot or the connection.
       this.finish(s, "reconnecting");
     }
-    s.writer.endOpening();
     if (s.ended) return { channel, close: () => {} };
     s.cancelHeartbeat = heartbeat(this.o.setTimer, () => {
       if (s.expiresAt <= this.o.now()) { this.finish(s, "expired"); return false; }
       return this.write(s, ": hb\n\n");
     });
     const offFrame = conn.onFrame((m) => this.onFrame(s, m));
+    // The first onFrame flushed the queued replay synchronously, still undrained: it is part of the opening (BUG-0024).
+    s.writer.endOpening();
     const offClose = conn.onClose(() => this.finish(s, "reconnecting"));
     s.detach = () => { offFrame(); offClose(); };
     if (s.ended) s.detach();
