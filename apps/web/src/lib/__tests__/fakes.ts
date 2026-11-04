@@ -1,4 +1,4 @@
-import type { SessionEvent, SessionState } from "@acr/events";
+import type { PlayerSnapshot, SessionEvent, SessionState } from "@acr/events";
 import { initialState } from "@acr/events";
 import type { Clock } from "../clock";
 
@@ -95,6 +95,11 @@ export const refused = (code: string, message: string) => ({ success: false, dat
 /** A redacted join snapshot as a player gets it. */
 export function snapshot(over: Partial<SessionState> = {}): SessionState {
   return { ...initialState(), ...over };
+}
+
+/** BUG-0023: a join snapshot as the runtime sends it to a PLAYER: the player's own whispers as a list (BUG-0023), no `talk`. */
+export function playerSnapshot(over: Partial<PlayerSnapshot> = {}): PlayerSnapshot {
+  return { ...initialState(), whispers: [], ...over };
 }
 
 export function joinedFrame(over: Record<string, unknown> = {}) {

@@ -158,3 +158,30 @@ Rollback trigger: AI players misbehave or exhaust the model budget, a session wi
 
 ### Rolling forward again
 Redeploy slice 2b-3b. The `intents/` directory, if it was kept, is read again; stale files of sessions that no longer exist are harmless.
+
+## BUG-0023: whispers kept in the player snapshot and labelled Private
+
+```
+Release: unreleased (fix/bug-0023-whisper-private-label-and-reload, merged by its pull request).
+Date: not deployed
+Rollback trigger: a player or the console shows a whisper that is not theirs, or a join snapshot is rejected or breaks a client.
+```
+
+### What changes on disk and in the log
+
+- **Nothing.** The log format and every event are unchanged: the per-role whisper lists are folded from the `facilitator.command` events already in the log, so a restore rebuilds the same lists (tested). No file, setting or environment variable is added.
+- **New additive wire content.** A player's `joined.state` carries `whispers` (a list of `{ seq, sceneId, text }`, the player's own, at most 50), the facilitator's `joined.state` carries `whispers` as a record keyed by role (the BFF replaces it with `{}` before the console page), and a `reset` frame's injects entries may carry `private: true`.
+
+### Rolling back
+
+- **An older web app against a newer runtime** ignores the extra snapshot key (`initPlayerView` reads named keys; the console state is copied key by key from its own list), so it behaves as before the fix: a whisper is an unlabelled update and a reload loses it. That is from reading the older code, not from running an older build.
+- **A newer web app against an older runtime** gets no `whispers` in the snapshot (the seed treats a missing or malformed list as none): a live whisper is still labelled Private, a reload loses it again.
+- **Nothing is lost on disk either way,** and there is no migration to reverse.
+
+### Steps
+
+1. Redeploy the previous runtime and web app (no data migration).
+2. **Smoke test:** `pnpm demo --fast` passes its checks; `pnpm demo --web` passes W-01 to W-08; send a whisper from the console and confirm only the addressed player's page shows it.
+
+### Rolling forward again
+Redeploy this fix. Nothing to restore.

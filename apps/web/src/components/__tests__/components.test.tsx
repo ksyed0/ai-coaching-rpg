@@ -56,6 +56,29 @@ describe("text from the runtime is rendered as text", () => {
   });
 });
 
+describe("BriefPanel updates (BUG-0023)", () => {
+  it("a whisper is labelled Private as text, with a screen-reader colon, in order with the other updates; an inject is not", () => {
+    const { container } = render(<BriefPanel roleId="am" injects={[
+      { seq: 3, content: "Email from the CFO.", sceneId: "s1" },
+      { seq: 4, content: "Keep the price out", sceneId: "s1", private: true },
+    ]} />);
+    const items = container.querySelectorAll("ul.plain li.gm");
+    expect(items).toHaveLength(2);
+    expect(items[0]!.textContent).toBe("Email from the CFO.");
+    expect(items[0]!.querySelector(".pill")).toBeNull();
+    expect(items[1]!.querySelector(".pill")!.textContent).toBe("Private");
+    expect(items[1]!.textContent).toBe("Private: Keep the price out"); // the colon is screen-reader text
+    expect(items[1]!.querySelector(".sr-only")!.textContent).toBe(": ");
+    noInlineStyles(container);
+  });
+  it("a whisper's text is rendered as text, never as markup", () => {
+    const { container } = render(<BriefPanel roleId="am" injects={[{ seq: 4, content: XSS, sceneId: "", private: true }]} />);
+    expect(screen.getByText(XSS)).toBeTruthy();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("script")).toBeNull();
+  });
+});
+
 describe("Transcript", () => {
   it("names the speaker: you, a peer's display name, or the role; marks AI characters", () => {
     render(

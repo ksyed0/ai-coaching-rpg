@@ -86,6 +86,7 @@ export async function reissueRole(d: ReissueDeps, roleId: string, by?: string, r
   finally { d.setCodes(codes); }
   // Before the start the log must stay EMPTY (engine.start refuses a log that has events, and a managed restart relies on an empty
   // lobby log), so there is no event to append: the console shows the reissue from the control service's own state instead.
+  if (afterStart && !isAi) d.host.noteSeatReplaced(roleId); // BUG-0023: before the alert below, so no snapshot can slip between them
   if (afterStart && !isAi) await d.host.noteFacilitator(`consent for ${roleId} will be rebound after a code reissue by ${actorLabel(by)}`);
   return plain;
 }

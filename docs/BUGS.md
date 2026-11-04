@@ -259,7 +259,7 @@ Found by the first end-to-end run of the console controls. The runtime delivers 
 
 **Fix.** A whisper is added to the player's updates (`view.injects`, shown under "Updates") as plain text, with the scene it arrived in; the player sees the text only (no sender name, `by`, ref or ack). Tests: `packages/events/src/__tests__/player-view.test.ts` (a whisper is shown with the updates and changes nothing else) and the e2e `apps/web/e2e/console-controls.spec.ts` "pause, whisper and resume" (the addressed player sees it once, the other two never do, and no player page contains the facilitator's name).
 
-**Limits (not fixed).** A full page reload loses the whisper: it is not in the join snapshot, as with injects. It also appears as an ordinary update with no "private" label. Owner decision (2026-11-03): a whisper gets a "private" label and survives a reload; tracked as BUG-0023.
+**Limits (fixed by BUG-0023).** A full page reload used to lose the whisper (it was not in the join snapshot, as with injects) and it appeared as an ordinary update with no "private" label. Owner decision (2026-11-03): a whisper gets a "private" label and survives a reload. Both are fixed by BUG-0023; injects are still not in the join snapshot.
 
 ```
 BUG-0020: The bot socket test "a second open after close() never overlaps" failed once under full-suite load
@@ -306,12 +306,16 @@ BUG-0023: A facilitator whisper has no "private" label and is lost on a page rel
 Severity: Medium
 Related Story: US-0059
 Related Task: TASK-0097
-Status: Open
-Fix Branch: None
+Status: Fixed (fix/bug-0023-whisper-private-label-and-reload)
+Fix Branch: fix/bug-0023-whisper-private-label-and-reload
 Lesson Encoded: No
 ```
 
 The remaining limits of BUG-0019. The player reducer now shows a whisper under "Updates", but it is not in the join snapshot (as with injects), so a full page reload loses it, and it reads like an ordinary update with no "private" label. Owner decision (2026-11-03): a whisper gets a "private" label and survives a reload. Fix: carry the addressed role's whispers in the player snapshot (allowlisted copy, the addressed role only; the leak scan must still show no other role, no `by` and no ref receives one), keep the scene it arrived in, label it "Private" in `Transcript`/`Updates` as text, and cover it in `packages/events` player-view tests, the player-copies allowlist test and the `console-controls.spec.ts` e2e (reload keeps it for the addressed player only).
+
+**Fixed:** the state fold (`packages/events/src/state.ts`) keeps the last 50 whispers per addressed role as `{ seq, sceneId, text }` (`sceneId` only when the addressee takes part in the current scene, else null); nothing else of the command is kept, so there is no `by`, ref, ack or addressee list. `PLAYER_SNAPSHOT` (`services/runtime/src/host/player-copies.ts`) copies a role's own list into its join snapshot, so the snapshot of every other role, the AI seat's, a late joiner's and every roster frame carry nothing of it; a missing entry is still a compile error, and the console state (`CONSOLE_STATE`) lists the key as empty because the console has the whispers as events. `initPlayerView` turns the snapshot's whispers into private updates (`injects[].private`), so a reload shows each once (the replay's copy has the same seq and is dropped). The player page labels a whisper with a "Private" pill (`BriefPanel`; text, with a screen-reader colon), and the terminal prints past whispers as `[whisper] ...` in the joined history. The log format is unchanged (the fold is derived from the log; a restore rebuilds the same lists). Tests: `state.test.ts` (fold, cap, `__proto__` role, `reduceReplay`), `player-view.test.ts` (seed, order, dedupe, malformed), `player-copies.test.ts` (own list only, three keys, no `by`), `ws-server.whispers.test.ts` (real sockets: the addressee's rejoin holds it, no other inbox or roster frame does, control and bidi characters unchanged), `session-engine-restore.test.ts`, `render.test.ts`, the web unit tests for the label and the reload, and the e2e `console-controls.spec.ts` "pause, whisper and resume" (Private label, reload keeps it once, the other two never see it, also after their own reload).
+
+**Who holds a whisper.** The same participant rejoining or reloading (same reconnect token or credential) keeps their whispers. A replacement participant (the seat reissued after the start) does not inherit the old holder's: the state fold sets a per-role floor (`whisperFloor`) from the fixed-prefix alert a post-start reissue appends ("consent for <role> will be rebound after a code reissue by ..."), and the host also records the log's last seq in memory at the reissue itself; the player snapshot keeps only whispers above the floor, so a restart (state rebuilt from the log) gives the same answer. A whisper sent after the replacement joined is delivered live and kept. Players of OTHER roles never get a role's whispers, late joiners included. The floor is read from the alert text: if that alert's append fails (reported) only the in-memory floor protects the replacement until a restart. Tests: `ws-server.whispers.test.ts` (whisper, reissue, new participant: none, also after a restart; own rejoin keeps; a later whisper kept), `state.test.ts`. The demo restore audit (`demo/resume.ts`) now compares `whispers` and `whisperFloor`.
 
 ```
 BUG-0024: The stream hubs drop a reconnecting client whose replay follows a large opening frame

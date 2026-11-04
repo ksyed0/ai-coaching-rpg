@@ -142,6 +142,34 @@ test("pause, whisper and resume: the player sees the pause and the whisper, anot
   }
   expect(await lead.content()).toContain(whisper); // the target did get it, so the checks above look at a page that had something to hide
   await expect(players.tech_lead.page.locator("body")).not.toContainText(whisper);
+
+  // BUG-0023: the whisper is labelled Private, and a full page reload (the join snapshot, not the live event) still shows it, exactly once.
+  const mine = updates(lead).filter({ hasText: whisper });
+  await expect(mine).toHaveCount(1);
+  await expect(mine.getByText("Private", { exact: true })).toBeVisible();
+  await expect(mine).toHaveText(`Private: ${whisper}`);
+  await expect(updates(lead).filter({ hasText: INJECT_TEXT }).getByText("Private")).toHaveCount(0); // an ordinary inject is not labelled
+  await lead.reload();
+  await expect(lead.getByLabel("Say something")).toBeEnabled();
+  await expect(updates(lead).filter({ hasText: whisper })).toHaveCount(1);
+  await expect(updates(lead).filter({ hasText: whisper }).getByText("Private", { exact: true })).toBeVisible();
+  await expect(lead.getByText(whisper)).toHaveCount(1);
+  // The others never see it, also after their own reload; nor does the reloaded page carry the facilitator's name.
+  for (const r of ["tech_lead", "account_manager"] as const) {
+    const page = players[r].page;
+    await page.reload();
+    await expect(page.getByLabel("Say something")).toBeEnabled();
+    await expect(page.locator("body")).not.toContainText(whisper);
+    await expect(page.getByText("Private", { exact: true })).toHaveCount(0);
+    expect(await page.content(), `${r} page markup after reload`).not.toContain(whisper);
+  }
+  await expect(lead.locator("body")).not.toContainText(FAC_NAME);
+  // The Private pill passes Axe (contrast) in both colour schemes, at desktop and phone width.
+  for (const width of [1280, 400] as const) {
+    await lead.setViewportSize({ width, height: 860 });
+    await checkBothSchemes(lead, `the player page with a Private whisper at ${width} px`);
+    await noHorizontalScroll(lead, width);
+  }
 });
 
 test("fire the scene's inject again: the dialog names the three players; each sees it twice", async ({ browser }) => {

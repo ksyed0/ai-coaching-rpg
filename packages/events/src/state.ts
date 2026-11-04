@@ -11,6 +11,11 @@ export function countWords(text: string): number {
   return typeof text === "string" ? text.split(/\s+/u).filter((w) => w.length > 0).length : 0;
 }
 
+/** BUG-0023: a facilitator whisper as the addressed player may hold it. Only these three fields: never `by`, a ref, an ack or the addressee list. `sceneId` is null when the role takes part in no current scene. */
+export type Whisper = { seq: number; sceneId: string | null; text: string };
+/** BUG-0023: most whispers kept per role (the latest ones), so neither the state nor a join snapshot can grow without bound. */
+export const MAX_WHISPERS_PER_ROLE = 50;
+
 export type SessionState = {
   status: "idle" | "running" | "ended";
   lastSeq: number;
@@ -36,10 +41,14 @@ export type SessionState = {
   talk: Record<string, TalkCount>;
   /** US-0060: player roles an AI plays (from session.started.aiRoles; distinct, each a player role of the event). Always present, [] without AI roles. Not facilitator-only: players label AI lines with it. */
   aiRoles: string[];
+  /** BUG-0023: per addressed player role, the whispers the facilitator sent it (latest MAX_WHISPERS_PER_ROLE, oldest first). A player snapshot carries ONLY the player's own list (`PlayerSnapshot.whispers`), never this record. */
+  whispers: Record<string, Whisper[]>;
+  /** BUG-0023: per player role, the seq of the last "consent ... will be rebound after a code reissue" alert: a replacement participant gets only whispers with a higher seq. Facilitator-side only: never in a player snapshot. */
+  whisperFloor: Record<string, number>;
 };
 
-/** A snapshot a player may hold: everything but the facilitator-only fields. */
-export type PlayerSnapshot = Omit<SessionState, "talk">;
+/** A snapshot a player may hold: everything but the facilitator-only fields; `whispers` is the player's own list. */
+export type PlayerSnapshot = Omit<SessionState, "talk" | "whispers" | "whisperFloor"> & { whispers: Whisper[] };
 
 /** Reads with Object.hasOwn and returns a new record, so a role id such as "__proto__" or "constructor" is an ordinary own key (a computed key defines, it never sets the prototype). */
 function withTalk(talk: SessionState["talk"], roleId: string, text: string): SessionState["talk"] {
@@ -57,11 +66,21 @@ function foldAiRoles(e: Extract<SessionEvent, { type: "session.started" }>): str
   return out;
 }
 
+/** Appends a whisper to `roleId`'s list (a role id such as "__proto__" is an ordinary own key) and keeps the latest MAX_WHISPERS_PER_ROLE. The scene id is kept only when the addressee takes part in the current scene. */
+function withWhisper(s: SessionState, e: { seq: number; roleId: string; text: string }): SessionState["whispers"] {
+  const prev = Object.hasOwn(s.whispers, e.roleId) ? s.whispers[e.roleId]! : [];
+  const sceneId = s.currentScene && s.currentScene.participants.includes(e.roleId) ? s.currentScene.id : null;
+  return { ...s.whispers, [e.roleId]: [...prev, { seq: e.seq, sceneId, text: e.text }].slice(-MAX_WHISPERS_PER_ROLE) };
+}
+
+/** The start of the alert a post-start reissue appends (the role id has no whitespace; what follows is the facilitator's label and never read). */
+const REBIND_ALERT = /^consent for (\S+) will be rebound after a code reissue by /u;
+
 export function initialState(): SessionState {
   return {
     status: "idle", lastSeq: 0, scenarioId: null, version: null, roles: {},
     currentScene: null, sceneHistory: [], paused: false, pausedSince: null, transcript: [], injectsFired: [], npcs: {},
-    advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [],
+    advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [], whispers: {}, whisperFloor: {},
   };
 }
 
@@ -93,6 +112,7 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
         return { ...s, paused: false, pausedSince: null, currentScene: sc };
       }
       if (e.command === "advance") return { ...s, advanceRequested: true };
+      if (e.command === "whisper") return typeof e.roleId === "string" && typeof e.text === "string" ? { ...s, whispers: withWhisper(s, e) } : s;
       return s;
     case "gm.decision":
       if (s.currentScene?.id !== e.sceneId) return s;
@@ -103,7 +123,11 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
       if (had.includes(e.fact)) return s;
       return { ...s, factsEarned: { ...s.factsEarned, [e.roleId]: [...had, e.fact].sort((a, b) => a - b) } };
     }
-    case "facilitator.alert":
+    case "facilitator.alert": {
+      // BUG-0023: a post-start reissue (reissue.ts) appends this fixed-prefix alert; the seat then goes to a NEW person, who must not inherit the old holder's whispers.
+      const m = typeof e.message === "string" ? REBIND_ALERT.exec(e.message) : null;
+      return m && Object.hasOwn(s.roles, m[1]!) ? { ...s, whisperFloor: { ...s.whisperFloor, [m[1]!]: e.seq } } : s;
+    }
     case "gm.no_verdict":
       return s;
     case "session.ended":

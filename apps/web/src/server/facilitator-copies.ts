@@ -31,6 +31,8 @@ export const CONSOLE_STATE: { [K in keyof SessionState]: (s: SessionState) => Se
   factsEarned: (s) => s.factsEarned,
   talk: (s) => s.talk,
   aiRoles: (s) => strings(s.aiRoles),
+  whisperFloor: () => ({}),
+  whispers: () => ({}), // BUG-0023: the console has every whisper as an event; the per-role lists are for the addressed player's snapshot only
 };
 
 export function consoleState(s: SessionState): SessionState {
