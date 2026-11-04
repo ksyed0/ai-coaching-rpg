@@ -518,8 +518,16 @@ export class SessionHost {
   snapshotFor(who: "facilitator"): SessionState;
   snapshotFor(who: string): PlayerSnapshot;
   snapshotFor(who: string): SessionState | PlayerSnapshot {
-    return who === "facilitator" ? this.engine.state : snapshotForPlayer(this.engine.state, who);
+    if (who === "facilitator") return this.engine.state;
+    const snap = snapshotForPlayer(this.engine.state, who);
+    // BUG-0023: also the floor set at the moment of the reissue itself (the log's alert, which the state fold turns into the same floor after a restart, is appended just after).
+    const floor = Object.hasOwn(this.seatReplacedAt, who) ? this.seatReplacedAt[who]! : 0;
+    return floor > 0 ? { ...snap, whispers: snap.whispers.filter((w) => w.seq > floor) } : snap;
   }
+
+  /** BUG-0023: the seat of `roleId` goes to a new participant (a post-start reissue): whispers sent so far stay with the old holder. */
+  noteSeatReplaced(roleId: string): void { this.seatReplacedAt[roleId] = this.engine.state.lastSeq; }
+  private readonly seatReplacedAt: Record<string, number> = Object.create(null) as Record<string, number>;
 
   /**
    * US-0013: the events after `afterSeq` that `who` may see, through the SAME viewFor as live delivery (default-deny), from the engine's

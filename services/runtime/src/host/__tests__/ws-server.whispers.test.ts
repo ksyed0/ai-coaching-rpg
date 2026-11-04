@@ -14,6 +14,8 @@ import { AiRoleSet } from "../../engine/ai-roles.js";
 import type { Seats } from "../../engine/seats.js";
 import { SessionHost } from "../session-host.js";
 import { startServer } from "../ws-server.js";
+import { reissueRole } from "../reissue.js";
+import { snapshotForPlayer } from "../player-copies.js";
 // BUG-0023: a whisper is kept in the ADDRESSED player's join snapshot. Real sockets; the heart of the fix is that nobody else ever holds it.
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
@@ -45,13 +47,17 @@ async function open(port: number): Promise<Client> {
 async function setup() {
   const scenario = await loadScenario(friday);
   const clock = new FakeClock(7_000);
-  const engine = new SessionEngine({ scenario, log: new MemoryEventLog("local"), clock });
+  const log = new MemoryEventLog("local");
+  const engine = new SessionEngine({ scenario, log, clock });
   const aiRoles = AiRoleSet.fromRecord({ v: 1, ...BIND, roles: ["tech_lead"] }, { ...BIND, roleIds: PLAYERS });
   const seats: Seats = { credentials: PlayerCredentials.create(BIND), consent: new ConsentStore(NOTICE), aiRoles, persist: vi.fn() };
   const host = new SessionHost({ scenario, engine, npcProvider: new MockModelProvider(["Hi!"]), gmProvider: new MockModelProvider(), clock, seats });
   const { codes, plain } = JoinCodes.issue(PLAYERS, BIND);
   server = await startServer({ port: 0, hosts: new Map([["local", host]]), joinCodes: new Map([["local", codes]]) });
-  return { port: server.port, host, engine, seats, plain };
+  const srv = server;
+  let current = codes;
+  const deps = { host, seats, codes: () => current, setCodes: (c: typeof codes) => { current = c; srv.replaceCodes("local", c); }, writeCodes: () => {}, server: srv, sessionId: "local" };
+  return { port: server.port, host, engine, seats, plain, log, scenario, clock, reissue: (role: string) => reissueRole(deps, role, "Kim") };
 }
 
 async function seat(port: number, roleId: string, code: string, participantId: string, displayName?: string) {
@@ -93,7 +99,7 @@ async function started() {
 }
 
 describe("a whisper in the join snapshot (BUG-0023)", () => {
-  it("the addressed player's rejoin snapshot holds it (seq, sceneId, text only); no other player, the AI seat, a late joiner, the roster frames or the console copy of another role does", async () => {
+  it("the addressed player's rejoin snapshot holds it (seq, sceneId, text only); no other player's rejoin, the AI seat's rejoin or any roster frame carries it", async () => {
     const { port, a, d, bot, f } = await started();
     f.send({ type: "command", command: { command: "whisper", roleId: "delivery_lead", text: NASTY }, by: "FAC-NAME-LEAK", ref: "REF-LEAK-1" });
     f.send({ type: "command", command: { command: "whisper", roleId: "account_manager", text: "FOR-ALICE-ONLY" }, by: "FAC-NAME-LEAK", ref: "REF-LEAK-2" });
@@ -151,6 +157,37 @@ describe("a whisper in the join snapshot (BUG-0023)", () => {
     // the replayed event frame carries the same seq as the snapshot entry, so a seq-based client (applyPlayerEvent) shows it once
     const replayed = d2.c.inbox.filter((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.command === "whisper");
     for (const r of replayed) expect(r.event.seq).toBe(live.event.seq);
+  });
+
+  it("a replacement participant (post-start reissue) does not inherit the old holder's whispers; the same person rejoining keeps them; a whisper after the replacement joined is delivered live and kept", async () => {
+    const { port, d, f, reissue, log, scenario, clock, engine, seats } = await started();
+    f.send({ type: "command", command: { command: "whisper", roleId: "delivery_lead", text: "OLD-HOLDER-ONLY" } });
+    const live = await d.c.next((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.command === "whisper");
+    // the same participant reloading (reconnect token, no reissue) keeps it
+    const same = await rejoin(port, "delivery_lead", "dana", d.j.reconnectToken);
+    expect(same.j.state.whispers.map((w: any) => w.text)).toEqual(["OLD-HOLDER-ONLY"]);
+    // the facilitator reissues the seat to a new person
+    const code = await reissue("delivery_lead");
+    const fresh = await seat(port, "delivery_lead", code, "erin", "Erin");
+    expect(fresh.j.type).toBe("joined");
+    expect(fresh.j.state.whispers).toEqual([]);
+    expect(JSON.stringify(fresh.c.inbox)).not.toContain("OLD-HOLDER-ONLY");
+    // a restart (the state rebuilt from the log alone) gives the same answer
+    const again = new SessionEngine({ scenario, log, clock: new FakeClock(7_000) });
+    await again.restore();
+    expect(snapshotForPlayer(again.state, "delivery_lead").whispers).toEqual([]);
+    expect(engine.state.whispers.delivery_lead).toHaveLength(1); // the facilitator's record keeps it
+    void seats;
+    // a whisper to the replacement: live, and in a later snapshot, with the old one still absent
+    f.send({ type: "command", command: { command: "whisper", roleId: "delivery_lead", text: "FOR-ERIN" } });
+    const got = await fresh.c.next((m) => m.type === "event" && m.event.type === "facilitator.command" && m.event.text === "FOR-ERIN");
+    expect(got.event.seq).toBeGreaterThan(live.event.seq);
+    const reload = await rejoin(port, "delivery_lead", "erin", fresh.j.reconnectToken);
+    expect(reload.j.state.whispers.map((w: any) => w.text)).toEqual(["FOR-ERIN"]);
+    expect(snapshotForPlayer(engine.state, "delivery_lead").whispers.map((w) => w.text)).toEqual(["FOR-ERIN"]);
+    const again2 = new SessionEngine({ scenario, log, clock: new FakeClock(7_000) });
+    await again2.restore();
+    expect(snapshotForPlayer(again2.state, "delivery_lead").whispers.map((w) => w.text)).toEqual(["FOR-ERIN"]);
   });
 
   it("a player who comes back late, after whispers to others were sent, holds none of them", async () => {

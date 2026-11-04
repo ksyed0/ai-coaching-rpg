@@ -330,6 +330,15 @@ describe("whispers (BUG-0023)", () => {
     expect(Object.getPrototypeOf(s.whispers)).toBe(Object.prototype);
   });
 
+  it("a reissue alert sets the role's whisper floor to its seq; other alerts and unknown roles do not", () => {
+    let s = base();
+    const alert = (seq: number, message: string): SessionEvent => ({ ...env(seq), type: "facilitator.alert", level: "info", message });
+    s = reduce(s, alert(3, "consent for host will be rebound after a code reissue by Kim Lee"));
+    s = reduce(s, alert(4, "consent for ghost will be rebound after a code reissue by Kim"));
+    s = reduce(s, alert(5, "something else about host"));
+    expect(s.whisperFloor).toEqual({ host: 3 });
+  });
+
   it("reduceReplay agrees with reduce", async () => {
     const { reduceReplay } = await import("../index.js");
     const evs: SessionEvent[] = [

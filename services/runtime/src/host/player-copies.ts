@@ -36,7 +36,8 @@ export const PLAYER_SNAPSHOT: { [K in keyof SessionState]: PlayerField<K> } = {
   factsEarned: () => ({}),
   aiRoles: (s) => [...s.aiRoles], // US-0060: public, so players can label AI lines
   // BUG-0023: ONLY the whispers addressed to this player, three fields each (seq, scene, text). Never the record of all roles, `by`, a ref or an ack.
-  whispers: (s, who) => (Object.hasOwn(s.whispers, who) ? s.whispers[who]!.map((w) => ({ seq: w.seq, sceneId: w.sceneId, text: w.text })) : []),
+  whispers: (s, who) => (Object.hasOwn(s.whispers, who) ? s.whispers[who]!.filter((w) => w.seq > (Object.hasOwn(s.whisperFloor, who) ? s.whisperFloor[who]! : 0)).map((w) => ({ seq: w.seq, sceneId: w.sceneId, text: w.text })) : []),
+  whisperFloor: "omit", // BUG-0023: bookkeeping for the whispers filter above
   talk: "omit", // US-0059: words spoken are for the facilitator console only
 };
 

@@ -43,10 +43,12 @@ export type SessionState = {
   aiRoles: string[];
   /** BUG-0023: per addressed player role, the whispers the facilitator sent it (latest MAX_WHISPERS_PER_ROLE, oldest first). A player snapshot carries ONLY the player's own list (`PlayerSnapshot.whispers`), never this record. */
   whispers: Record<string, Whisper[]>;
+  /** BUG-0023: per player role, the seq of the last "consent ... will be rebound after a code reissue" alert: a replacement participant gets only whispers with a higher seq. Facilitator-side only: never in a player snapshot. */
+  whisperFloor: Record<string, number>;
 };
 
 /** A snapshot a player may hold: everything but the facilitator-only fields; `whispers` is the player's own list. */
-export type PlayerSnapshot = Omit<SessionState, "talk" | "whispers"> & { whispers: Whisper[] };
+export type PlayerSnapshot = Omit<SessionState, "talk" | "whispers" | "whisperFloor"> & { whispers: Whisper[] };
 
 /** Reads with Object.hasOwn and returns a new record, so a role id such as "__proto__" or "constructor" is an ordinary own key (a computed key defines, it never sets the prototype). */
 function withTalk(talk: SessionState["talk"], roleId: string, text: string): SessionState["talk"] {
@@ -71,11 +73,14 @@ function withWhisper(s: SessionState, e: { seq: number; roleId: string; text: st
   return { ...s.whispers, [e.roleId]: [...prev, { seq: e.seq, sceneId, text: e.text }].slice(-MAX_WHISPERS_PER_ROLE) };
 }
 
+/** The start of the alert a post-start reissue appends (the role id has no whitespace; what follows is the facilitator's label and never read). */
+const REBIND_ALERT = /^consent for (\S+) will be rebound after a code reissue by /u;
+
 export function initialState(): SessionState {
   return {
     status: "idle", lastSeq: 0, scenarioId: null, version: null, roles: {},
     currentScene: null, sceneHistory: [], paused: false, pausedSince: null, transcript: [], injectsFired: [], npcs: {},
-    advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [], whispers: {},
+    advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [], whispers: {}, whisperFloor: {},
   };
 }
 
@@ -118,7 +123,11 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
       if (had.includes(e.fact)) return s;
       return { ...s, factsEarned: { ...s.factsEarned, [e.roleId]: [...had, e.fact].sort((a, b) => a - b) } };
     }
-    case "facilitator.alert":
+    case "facilitator.alert": {
+      // BUG-0023: a post-start reissue (reissue.ts) appends this fixed-prefix alert; the seat then goes to a NEW person, who must not inherit the old holder's whispers.
+      const m = typeof e.message === "string" ? REBIND_ALERT.exec(e.message) : null;
+      return m && Object.hasOwn(s.roles, m[1]!) ? { ...s, whisperFloor: { ...s.whisperFloor, [m[1]!]: e.seq } } : s;
+    }
     case "gm.no_verdict":
       return s;
     case "session.ended":

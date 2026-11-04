@@ -8,7 +8,7 @@ const state = (): SessionState => ({
   currentScene: { id: "a", enteredAt: 1, participants: ["lead"], pausedMs: 0 }, sceneHistory: [{ id: "a", participants: ["lead"] }],
   paused: false, pausedSince: null, transcript: [{ seq: 2, ts: 2, sceneId: "a", roleId: "lead", text: "hi", channel: "text" }],
   injectsFired: ["i1"], npcs: { npc: { goals: ["GOAL-SECRET"], knowledge: ["KNOW-SECRET"], released: ["REL-SECRET"] } },
-  advanceRequested: true, gmVerdicts: { c: true }, factsEarned: { npc: [1] }, talk: { lead: { words: 1, lines: 1 } }, aiRoles: [], whispers: {},
+  advanceRequested: true, gmVerdicts: { c: true }, factsEarned: { npc: [1] }, talk: { lead: { words: 1, lines: 1 } }, aiRoles: [], whispers: {}, whisperFloor: {},
 });
 
 describe("console copies", () => {
