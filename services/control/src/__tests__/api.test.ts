@@ -172,6 +172,80 @@ describe("authentication", () => {
       for (const t of texts) { expect(t).toContain(CODE); expect(t).not.toContain(AI_CODE); }
     });
 
+    describe("prompted turns", () => {
+      const RES = "a1".repeat(16);
+      const turnStub = (over: Partial<Record<string, (...a: any[]) => unknown>> = {}) => aiStub({
+        reserveTurn: () => RES, runTurn: () => undefined, releaseTurn: () => undefined, ...over,
+      });
+      const post = (port: number, role: string, verb: string, body: unknown = {}, token?: string | null) =>
+        call(port, "POST", `/sessions/${ID}/ai-roles/${role}/${verb}`, { body: typeof body === "string" ? body : JSON.stringify(body), ...(token !== undefined ? { token } : {}) });
+
+      it("reserve, run and release answer their shapes and pass the hint on", async () => {
+        const { sup, calls } = turnStub();
+        const port = await boot(sup);
+        expect((await post(port, "tech_lead", "reserve")).json.data).toEqual({ reservation: RES });
+        expect((await post(port, "tech_lead", "run", { reservation: RES, hint: "steer" })).json.data).toEqual({ started: true });
+        expect((await post(port, "tech_lead", "run", { reservation: RES })).json.data).toEqual({ started: true });
+        expect((await post(port, "tech_lead", "release", { reservation: RES })).json.data).toEqual({});
+        expect(calls.map((c) => c.name)).toEqual(["reserveTurn", "runTurn", "runTurn", "releaseTurn"]);
+        expect(calls[1]!.args).toEqual([ID, "tech_lead", RES, "steer"]);
+      });
+
+      it("they need the service token (401, nothing called)", async () => {
+        const { sup, calls } = turnStub();
+        const port = await boot(sup);
+        for (const v of ["reserve", "run", "release"]) expect((await post(port, "tech_lead", v, { reservation: RES }, null)).status).toBe(401);
+        expect(calls).toEqual([]);
+      });
+
+      it("a bad roleId or path trick is 404 before anything is called", async () => {
+        const { sup, calls } = turnStub();
+        const port = await boot(sup);
+        for (const v of ["reserve", "run", "release"]) {
+          for (const r of ["..%2Fx", "Tech_Lead", "a%00b", "%zz", "%2e%2e", "a".repeat(300), "facilitator"]) {
+            const res = await call(port, "POST", `/sessions/${ID}/ai-roles/${r}/${v}`, { body: JSON.stringify({ reservation: RES }) });
+            expect(res.status, `${v} ${r}`).toBe(404);
+          }
+          for (const p of [`/sessions/${ID}/ai-roles//${v}`, `/sessions/${ID}/ai-roles/./${v}`, `/sessions/${ID}/ai-roles/../${v}`, `/sessions/${ID}//ai-roles/tech_lead/${v}`]) {
+            expect((await call(port, "POST", p, { body: JSON.stringify({ reservation: RES }) })).status, p).toBe(404);
+          }
+        }
+        expect(calls).toEqual([]);
+      });
+
+      it("strict bodies: extra keys, a bad reservation, a 1201-unit hint and a non-string hint are 400", async () => {
+        const { sup, calls } = turnStub();
+        const port = await boot(sup);
+        expect((await post(port, "tech_lead", "reserve", { x: 1 })).status).toBe(400);
+        for (const body of [{ reservation: RES, x: 1 }, { reservation: "short" }, { reservation: RES.toUpperCase() }, { reservation: RES, hint: "a".repeat(1201) }, { reservation: RES, hint: 5 }, {}]) {
+          expect((await post(port, "tech_lead", "run", body)).status, JSON.stringify(body).slice(0, 40)).toBe(400);
+        }
+        expect((await post(port, "tech_lead", "release", { reservation: RES, y: 1 })).status).toBe(400);
+        expect((await post(port, "tech_lead", "run", { reservation: RES, hint: "a".repeat(1200) })).status).toBe(200);
+        expect(calls.map((c) => c.name)).toEqual(["runTurn"]);
+      });
+
+      it("the four prompt codes answer 409 with their code", async () => {
+        for (const code of ["ai_busy", "ai_budget", "ai_absent", "ai_expired"] as const) {
+          const { sup } = turnStub({ reserveTurn: () => { throw new ControlError(code, "fixed"); }, runTurn: () => { throw new ControlError(code, "fixed"); } });
+          const port = await boot(sup);
+          for (const r of [await post(port, "tech_lead", "reserve"), await post(port, "tech_lead", "run", { reservation: RES, hint: "HINT-SECRET-91" })]) {
+            expect([r.status, r.json.error.code, r.json.error.message]).toEqual([409, code, "fixed"]);
+            expect(r.text).not.toContain("HINT-SECRET-91");
+          }
+        }
+      });
+
+      it("the hint is not logged when a run fails unexpectedly", async () => {
+        const logs: string[] = [];
+        const { sup } = turnStub({ runTurn: () => { throw new Error("boom HINT-SECRET-91"); } });
+        const port = await boot(sup, { log: (m) => logs.push(m) });
+        const r = await post(port, "tech_lead", "run", { reservation: RES, hint: "HINT-SECRET-91" });
+        expect(r.status).toBe(500);
+        expect(r.text + logs.join("\n")).not.toContain("HINT-SECRET-91");
+      });
+    });
+
     it("GET intents returns the host's entries", async () => {
       const { sup, calls } = aiStub();
       const port = await boot(sup);

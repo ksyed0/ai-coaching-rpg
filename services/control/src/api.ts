@@ -14,6 +14,7 @@ type Envelope<T> = { success: boolean; data: T | null; error: { code: string; me
 const STATUS: Record<ControlErrorCode, number> = {
   bad_request: 400, unknown_scenario: 400, not_found: 404, conflict: 409, capacity: 429, timeout: 504, start_failed: 502, unavailable: 503,
   ai_role: 409, ai_notice: 409, ai_started: 409, ai_no_human: 409, ai_too_many: 409, ai_invalid: 400,
+  ai_busy: 409, ai_budget: 409, ai_absent: 409, ai_expired: 409,
 };
 const BAD_REQUEST = "That request is not valid.";
 const UNAUTHORIZED = "Unauthorized.";
@@ -26,6 +27,9 @@ const ReissueBody = z.strictObject({ roleId: z.string().min(1).max(MAX_FIELD).op
   .refine((b) => (b.roleId === undefined) !== (b.all === undefined))
   .refine((b) => b.reason === undefined || b.roleId !== undefined); // a remove names its role
 const AiRolesBody = z.strictObject({ roles: z.array(z.string().min(1).max(MAX_FIELD)).max(12) });
+const ReservationId = z.string().regex(/^[0-9a-f]{32}$/);
+const RunBody = z.strictObject({ reservation: ReservationId, hint: z.string().max(1200).optional() });
+const ReleaseBody = z.strictObject({ reservation: ReservationId });
 const NoBody = z.strictObject({});
 
 class HttpError extends Error {
@@ -152,6 +156,19 @@ export function createApi(deps: {
       try { roleId = decodeURIComponent(seg[3]!); } catch { return notFound(); }
       if (!RoleIdSchema.safeParse(roleId).success) return notFound(); // before anything reads a file
       return ok(res, { entries: supervisor.intents(id, roleId) });
+    }
+    if (seg.length === 5 && seg[2] === "ai-roles" && method === "POST" && (seg[4] === "reserve" || seg[4] === "run" || seg[4] === "release")) {
+      let roleId: string;
+      try { roleId = decodeURIComponent(seg[3]!); } catch { return notFound(); }
+      if (!RoleIdSchema.safeParse(roleId).success) return notFound(); // before the body is read or anything is called
+      if (seg[4] === "reserve") { parse(NoBody, (await jsonBody(req)) ?? {}); return ok(res, { reservation: supervisor.reserveTurn(id, roleId) }); }
+      if (seg[4] === "run") {
+        const b = parse(RunBody, await jsonBody(req));
+        supervisor.runTurn(id, roleId, b.reservation, b.hint);
+        return ok(res, { started: true });
+      }
+      supervisor.releaseTurn(id, roleId, parse(ReleaseBody, await jsonBody(req)).reservation);
+      return ok(res, {});
     }
     if (seg.length === 4 && seg[2] === "codes" && seg[3] === "reissue" && method === "POST") {
       const body = parse(ReissueBody, (await jsonBody(req)) ?? {});

@@ -201,4 +201,18 @@ describe("Supervisor with a real BotHost", () => {
       expect(opened.map((o) => [o.roleId, o.code])).toEqual([["tech_lead", "ai-2"]]);
     });
   });
+
+  it("the prompt methods take no lock (they answer while a set holds it), 404 an unknown session and refuse a role without a joined bot", async () => {
+    const sup = make();
+    const { id, c } = await boot(sup);
+    await set(sup, id, c, ["tech_lead"], [{ roleId: "tech_lead", code: "ai-1" }]);
+    const pendingSet = sup.setAiRoles(id, []); await settle(); // holds the session lock until the child answers
+    const code = (fn: () => unknown): string | undefined => { try { fn(); return undefined; } catch (e) { return (e as { code?: string }).code; } };
+    expect(code(() => sup.reserveTurn(id, "tech_lead"))).toBe("ai_absent"); // answered synchronously, not queued behind the lock (the fake socket never joins)
+    expect(code(() => sup.runTurn(id, "tech_lead", "0".repeat(32), "go"))).toBe("ai_expired");
+    expect(() => sup.releaseTurn(id, "tech_lead", "0".repeat(32))).not.toThrow();
+    expect(code(() => sup.reserveTurn("f".repeat(32), "tech_lead"))).toBe("not_found");
+    c.emit({ type: "ai_roles_set", requestId: c.sent[c.sent.length - 1]!.requestId, codes: [{ roleId: "tech_lead", code: "human-1" }] });
+    await pendingSet;
+  });
 });

@@ -14,7 +14,8 @@ import type { SessionList } from "./session-list.js";
 
 export type ControlErrorCode =
   | "capacity" | "unknown_scenario" | "start_failed" | "timeout" | "bad_request" | "not_found" | "conflict" | "unavailable"
-  | "ai_role" | "ai_notice" | "ai_started" | "ai_no_human" | "ai_too_many" | "ai_invalid";
+  | "ai_role" | "ai_notice" | "ai_started" | "ai_no_human" | "ai_too_many" | "ai_invalid"
+  | "ai_busy" | "ai_budget" | "ai_absent" | "ai_expired";
 
 /** A plain, safe-to-show failure: the message never carries a path, port, token or code. */
 export class ControlError extends Error {
@@ -563,6 +564,23 @@ export class Supervisor {
     if (!this.entryOf(id)) throw new ControlError("not_found", "that session does not exist");
     return this.bots?.intents(id, roleId) ?? [];
   }
+
+  // --- prompted turns (US-0060, PR 3): no lock; the bot host is single-threaded and a reservation must not wait on a restart ---
+
+  private promptHost(id: string): BotHost {
+    if (!this.entryOf(id)) throw new ControlError("not_found", "that session does not exist");
+    const l = this.live.get(id);
+    if (!this.bots || !l || l.status !== "running") throw new ControlError("ai_absent", "that AI player is not available");
+    return this.bots;
+  }
+
+  /** Holds the AI player's policy for up to 10 s and returns the reservation token. */
+  reserveTurn(id: string, roleId: string): string { return this.promptHost(id).reserve(id, roleId); }
+
+  /** Starts the prompted turn; the hint goes to the bot only (never logged). */
+  runTurn(id: string, roleId: string, reservation: string, hint: unknown): void { this.promptHost(id).run(id, roleId, reservation, hint); }
+
+  releaseTurn(id: string, roleId: string, reservation: string): void { this.promptHost(id).release(id, roleId, reservation); }
 
   /** Stops the session's bots and deletes its intent files; never awaited. */
   private botForget(id: string): void {

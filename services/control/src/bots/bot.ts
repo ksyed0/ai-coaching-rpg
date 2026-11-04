@@ -131,6 +131,12 @@ export class AiPlayerBot {
     return this.beginTurn("prompt", hint);
   }
 
+  /** B17: while held, the policy begins no reply or nudge. Re-asks the wake time, since a release can make a pending reply due. */
+  setHeld(held: boolean): void {
+    this.policy.setHeld(held);
+    this.arm();
+  }
+
   // --- connection ---
 
   private async connect(port: number, code: string, gen: number): Promise<void> {

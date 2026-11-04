@@ -468,6 +468,30 @@ describe("AI players against the real runtime (US-0060)", () => {
     expect(s.cap.reissues).toEqual([]);
   });
 
+  it("prompt: reserve then run with a hint through the control API makes the bot speak at once, labelled; the hint reaches the model and the facilitator's intent file only, never a human frame", async () => {
+    const HINT = "HINT-SECRET-91";
+    const s = makeStack(configFor(), newCap());
+    const port = await serve(s);
+    const lobby = await startedLobby(s);
+    const am = lobby.humans.account_manager!;
+    await until("the scene", () => am.events("scene.entered").length > 0);
+    const r = await api(s, port, "POST", `/sessions/${lobby.id}/ai-roles/${TECH}/reserve`, {});
+    expect(r.status).toBe(200);
+    const reservation = r.json.data.reservation as string;
+    expect(reservation).toMatch(/^[0-9a-f]{32}$/);
+    const run = await api(s, port, "POST", `/sessions/${lobby.id}/ai-roles/${TECH}/run`, { reservation, hint: HINT });
+    expect(run.json.data).toEqual({ started: true });
+    const line = await until("the bot's prompted line", () => am.utterances("BOT-LINE-1")[0]);
+    expect(line.roleId).toBe(TECH);
+    await until("the spoken prompt intent", () => intentsOf(s, lobby.id).some((e) => e.trigger === "prompt" && e.outcome === "spoken"));
+    expect(intentsOf(s, lobby.id).find((e) => e.trigger === "prompt")!.hint).toBe(HINT);
+    expect(JSON.stringify(s.provider.calls)).toContain(HINT);
+    for (const c of s.cap.humanClients.filter((c) => c !== lobby.fac)) expect(c.text()).not.toContain(HINT);
+    expect(s.cap.logs.join("\n")).not.toContain(HINT);
+    expect(sessionLog(s, lobby.id).some((e) => JSON.stringify(e).includes(HINT))).toBe(false); // the control-only flow writes no prompt_ai; Task 22's BFF does, without the hint
+    expect((await api(s, port, "POST", `/sessions/${lobby.id}/ai-roles/${TECH}/run`, { reservation, hint: HINT })).json.error.code).toBe("ai_expired");
+  });
+
   it("leak scan: no byte of any human player frame, control API response or control log has the bot's code, scenecoach-bot, the bot's participant id or an intent-log line", async () => {
     const s = makeStack(configFor(), newCap());
     const port = await serve(s);

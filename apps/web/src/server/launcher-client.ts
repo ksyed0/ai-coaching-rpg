@@ -18,7 +18,11 @@ export type LauncherReason =
   | "ai_started"
   | "ai_no_human"
   | "ai_too_many"
-  | "ai_invalid";
+  | "ai_invalid"
+  | "ai_busy"
+  | "ai_budget"
+  | "ai_absent"
+  | "ai_expired";
 
 /** A failed call to the control service. The message repeats only the reason word. */
 export class LauncherError extends Error {
@@ -83,6 +87,10 @@ const BY_CODE: Record<string, LauncherReason> = {
   ai_no_human: "ai_no_human",
   ai_too_many: "ai_too_many",
   ai_invalid: "ai_invalid",
+  ai_busy: "ai_busy",
+  ai_budget: "ai_budget",
+  ai_absent: "ai_absent",
+  ai_expired: "ai_expired",
 };
 /** Used only when the answer has no readable error envelope. */
 const BY_STATUS: Record<number, LauncherReason> = {
