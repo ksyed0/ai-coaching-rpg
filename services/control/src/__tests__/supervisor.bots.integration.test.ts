@@ -262,6 +262,32 @@ describe("BUG-0021: a lobby's AI roles after a control-service restart (the runt
     expect(opened.map((o) => [o.roleId, o.code, o.port])).toEqual([["tech_lead", "ai-tl-r", 7102]]);
   });
 
+  it("a ready with NO codes but aiRolesReset (codes kept, seats replaced) restores the roles on resumeAll", async () => {
+    const { id } = await boot(make());
+    const sup2 = restarted();
+    const p = sup2.resumeAll(); await settle();
+    const c2 = lastChild();
+    c2.emit({ ...READY, port: 7108, aiRolesReset: ["tech_lead"] }); await settle();
+    expect(c2.sent.map((m) => (m as { roles?: string[] }).roles)).toEqual([["tech_lead"]]);
+    c2.emit({ type: "ai_roles_set", requestId: c2.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "ai-nc" }] });
+    await p; await settle();
+    expect(opened.map((o) => [o.roleId, o.code, o.port])).toEqual([["tech_lead", "ai-nc", 7108]]);
+    expect(sup2.aiRolesOf(id)).toEqual(["tech_lead"]);
+  });
+
+  it("a ready with NO codes but aiRolesReset restores the roles on restart and returns the human codes of the re-send", async () => {
+    const { id, c } = await boot(make());
+    c.exit(1); await settle();
+    const sup2 = restarted();
+    const p = sup2.restart(id); await settle();
+    const c2 = lastChild();
+    c2.emit({ ...READY, port: 7109, aiRolesReset: ["tech_lead"] }); await settle();
+    c2.emit({ type: "ai_roles_set", requestId: c2.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "ai-nc2" }] });
+    const r = await p; await settle();
+    expect(JSON.stringify(r)).not.toContain("ai-nc2");
+    expect(opened.map((o) => [o.roleId, o.code, o.port])).toEqual([["tech_lead", "ai-nc2", 7109]]);
+  });
+
   it("a ready without aiRolesReset (codes kept, or no AI roles) re-sends nothing", async () => {
     await boot(make());
     const sup2 = restarted();

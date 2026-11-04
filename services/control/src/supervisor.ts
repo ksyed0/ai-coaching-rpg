@@ -669,7 +669,7 @@ export class Supervisor {
       await this.waitPrevious(id);
       const captured = this.aiRolesOf(id);
       const ready = await this.launch(id, e.scenarioId, false);
-      const codes = ready.codes ? await this.afterCodedLaunch(id, ready, captured) : undefined;
+      const codes = ready.codes || ready.aiRolesReset ? await this.afterCodedLaunch(id, ready, captured) : undefined;
       const info = this.get(id)!;
       return codes ? { ...info, codes } : info;
     });
@@ -800,7 +800,7 @@ export class Supervisor {
         const captured = this.aiRolesOf(e.sessionId);
         const ready = await this.launch(e.sessionId, e.scenarioId, false);
         // Codes issued here are not returned (nobody asked); the AI roles' codes still reach the bots, the human ones are discarded: the facilitator reissues.
-        if (ready.codes) await this.afterCodedLaunch(e.sessionId, ready, captured).catch(() => this.logFn(`session ${e.sessionId} AI roles could not be set again`));
+        if (ready.codes || ready.aiRolesReset) await this.afterCodedLaunch(e.sessionId, ready, captured).catch(() => this.logFn(`session ${e.sessionId} AI roles could not be set again`));
       } catch {
         this.markStopped(e.sessionId, e.scenarioId); // launch() already logged the reason
       }

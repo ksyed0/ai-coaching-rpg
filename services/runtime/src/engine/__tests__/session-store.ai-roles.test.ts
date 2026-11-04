@@ -125,12 +125,12 @@ describe("the AI-role seat file (US-0060)", () => {
   });
 
   describe("BUG-0021: an unusable AI-role file reports nothing and never crashes the start", () => {
-    const fresh = async (damage: () => Promise<void>) => {
+    const fresh = async (damage: (valid: string) => Promise<void>) => {
       const a = await lobby();
       await crash(a);
       await rm(path.join(dir, "s.codes.json"));
       await rm(path.join(dir, "s.credentials.json")); // not matching: the AI-role file is not read by the seat read, so the start does not refuse
-      await damage();
+      await damage(await readFile(aiFile(), "utf8"));
       return openIt();
     };
     it("corrupt JSON", async () => {
@@ -142,12 +142,16 @@ describe("the AI-role seat file (US-0060)", () => {
       const b = await fresh(() => writeFile(aiFile(), JSON.stringify({ v: 1, sessionId: "s", scenarioSha256: "0".repeat(64), roles: ["tech_lead"] }), { mode: 0o600 }));
       expect(b.aiRolesReset).toBeUndefined();
     });
-    it("an oversized file", async () => {
-      const b = await fresh(() => writeFile(aiFile(), " ".repeat(64 * 1024), { mode: 0o600 }));
+    it("a valid record padded past 16 KiB", async () => {
+      const b = await fresh((valid) => writeFile(aiFile(), valid.trimEnd() + " ".repeat(17 * 1024), { mode: 0o600 }));
       expect(b.aiRolesReset).toBeUndefined();
     });
-    it("a symbolic link", async () => {
-      const b = await fresh(async () => { const target = path.join(dir, "elsewhere.json"); await writeFile(target, "{}"); await rm(aiFile()); await symlink(target, aiFile()); });
+    it("a symbolic link to a valid record", async () => {
+      const b = await fresh(async (valid) => { const target = path.join(dir, "elsewhere.json"); await writeFile(target, valid); await rm(aiFile()); await symlink(target, aiFile()); });
+      expect(b.aiRolesReset).toBeUndefined();
+    });
+    it("a valid record for another session id", async () => {
+      const b = await fresh((valid) => writeFile(aiFile(), JSON.stringify({ ...JSON.parse(valid), sessionId: "other" }), { mode: 0o600 }));
       expect(b.aiRolesReset).toBeUndefined();
     });
   });
