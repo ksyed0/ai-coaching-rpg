@@ -33,6 +33,8 @@ describe("protocol copy", () => {
     { type: "ready", port: 4000, status: "new", modelLabel: "local", aiRoles: Array.from({ length: 256 }, (_, i) => `r${i}`) },
     { type: "ready", port: 4000, status: "resumed", modelLabel: "local", aiRoles: ["tech_lead"], aiCalls: 3 },
     { type: "ready", port: 4000, status: "resumed", modelLabel: "local", aiCalls: 1_000_000 },
+    { type: "ready", port: 4000, status: "new", modelLabel: "local", aiRolesReset: ["tech_lead"] },
+    { type: "ready", port: 4000, status: "new", modelLabel: "local", aiRolesReset: Array.from({ length: 256 }, (_, i) => `r${i}`) },
   ];
   const invalid: unknown[] = [
     null, "x", [], {}, { type: "codes" }, { type: "codes", codes: [{ roleId: "cfo", code: "" }] }, { type: "codes", codes: [{ roleId: "Bad Id", code: "c" }] },
@@ -47,6 +49,8 @@ describe("protocol copy", () => {
     { type: "ready", port: 4000, status: "new", modelLabel: "m", aiRoles: ["facilitator"] }, { type: "ready", port: 4000, status: "new", modelLabel: "m", aiRoles: "tech_lead" },
     { type: "ready", port: 4000, status: "new", modelLabel: "m", aiCalls: 0 }, { type: "ready", port: 4000, status: "new", modelLabel: "m", aiCalls: 1_000_001 },
     { type: "ready", port: 4000, status: "new", modelLabel: "m", aiCalls: 1.5 },
+    { type: "ready", port: 4000, status: "new", modelLabel: "m", aiRolesReset: ["facilitator"] }, { type: "ready", port: 4000, status: "new", modelLabel: "m", aiRolesReset: "tech_lead" },
+    { type: "ready", port: 4000, status: "new", modelLabel: "m", aiRolesReset: Array.from({ length: 257 }, (_, i) => `r${i}`) },
   ];
   it("accepts and rejects the same child messages as the runtime", () => {
     for (const m of valid) { expect(RuntimeChild.safeParse(m).success).toBe(true); expect(ChildMessageSchema.safeParse(m).success).toBe(true); }
