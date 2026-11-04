@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MockModelProvider } from "@acr/adapters";
 import { loadScenario, type Scenario } from "@acr/script";
 import { BotHost } from "../bots/bot-host.js";
@@ -268,6 +268,8 @@ describe("BUG-0021: a lobby's AI roles after a control-service restart (the runt
     const p = sup2.resumeAll(); await settle();
     const c2 = lastChild();
     c2.emit({ ...READY, port: 7108, aiRolesReset: ["tech_lead"] }); await settle();
+    // no codes in the ready, so the role order is read from the scenario file (real I/O): wait for the send instead of counting flushes
+    await vi.waitFor(() => expect(c2.sent).toHaveLength(1));
     expect(c2.sent.map((m) => (m as { roles?: string[] }).roles)).toEqual([["tech_lead"]]);
     c2.emit({ type: "ai_roles_set", requestId: c2.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "ai-nc" }] });
     await p; await settle();
@@ -282,6 +284,8 @@ describe("BUG-0021: a lobby's AI roles after a control-service restart (the runt
     const p = sup2.restart(id); await settle();
     const c2 = lastChild();
     c2.emit({ ...READY, port: 7109, aiRolesReset: ["tech_lead"] }); await settle();
+    // no codes in the ready, so the role order is read from the scenario file (real I/O): wait for the send instead of counting flushes
+    await vi.waitFor(() => expect(c2.sent).toHaveLength(1));
     c2.emit({ type: "ai_roles_set", requestId: c2.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "ai-nc2" }] });
     const r = await p; await settle();
     expect(JSON.stringify(r)).not.toContain("ai-nc2");
