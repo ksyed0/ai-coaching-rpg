@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialState, reduce, visibleTranscript, activeElapsedMs, type SessionEvent } from "../index.js";
+import { initialState, reduce, visibleTranscript, activeElapsedMs, MAX_WHISPERS_PER_ROLE, type SessionEvent } from "../index.js";
 
 const env = (seq: number) => ({ seq, ts: 1_000 + seq, sessionId: "s1" });
 
@@ -281,5 +281,62 @@ describe("aiRoles (US-0060)", () => {
     const fast = evs.reduce((st, e) => reduceReplay(st, e), initialState());
     expect(fast.aiRoles).toEqual(["delivery_lead", "tech_lead"]);
     expect(fast).toEqual(pure);
+  });
+});
+
+// BUG-0023: the per-role whisper fold.
+describe("whispers (BUG-0023)", () => {
+  const roles = { host: { kind: "player" }, analyst: { kind: "player" }, guest: { kind: "npc" } } as const;
+  const base = () => {
+    let s = reduce(initialState(), { ...env(1), type: "session.started", scenarioId: "sc", version: "1", roles });
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1", participants: ["host", "guest"] });
+    return s;
+  };
+  const whisper = (seq: number, roleId: string, text: string, by?: string): SessionEvent => ({ ...env(seq), type: "facilitator.command", command: "whisper", roleId, text, ...(by ? { by } : {}) });
+
+  it("starts empty", () => { expect(initialState().whispers).toEqual({}); });
+
+  it("keeps a whisper under the addressed role with its seq and text, and the scene only when that role takes part in it", () => {
+    let s = base();
+    s = reduce(s, whisper(3, "host", "Keep the price out", "Dana"));
+    s = reduce(s, whisper(4, "analyst", "Numbers are shaky"));
+    expect(s.whispers).toEqual({
+      host: [{ seq: 3, sceneId: "s1", text: "Keep the price out" }],
+      analyst: [{ seq: 4, sceneId: null, text: "Numbers are shaky" }], // the analyst is not in s1: its id is not hers to learn
+    });
+    expect(JSON.stringify(s.whispers)).not.toMatch(/Dana|"by"/);
+  });
+
+  it("keeps whispers in order, bounded to the last MAX_WHISPERS_PER_ROLE per role", () => {
+    let s = base();
+    for (let i = 0; i < MAX_WHISPERS_PER_ROLE + 5; i++) s = reduce(s, whisper(3 + i, "host", `w${i}`));
+    const mine = s.whispers.host!;
+    expect(mine).toHaveLength(MAX_WHISPERS_PER_ROLE);
+    expect(mine[0]!.text).toBe("w5");
+    expect(mine.at(-1)!.text).toBe(`w${MAX_WHISPERS_PER_ROLE + 4}`);
+  });
+
+  it("ignores a malformed whisper and other commands", () => {
+    let s = base();
+    const before = s.whispers;
+    s = reduce(s, { ...env(3), type: "facilitator.command", command: "whisper", roleId: "host", text: 5 } as unknown as SessionEvent);
+    s = reduce(s, { ...env(4), type: "facilitator.command", command: "advance" });
+    expect(s.whispers).toBe(before);
+  });
+
+  it("a role id such as __proto__ is an ordinary own key", () => {
+    const s = reduce(base(), whisper(3, "__proto__", "x"));
+    expect(Object.hasOwn(s.whispers, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(s.whispers)).toBe(Object.prototype);
+  });
+
+  it("reduceReplay agrees with reduce", async () => {
+    const { reduceReplay } = await import("../index.js");
+    const evs: SessionEvent[] = [
+      { ...env(1), type: "session.started", scenarioId: "sc", version: "1", roles },
+      { ...env(2), type: "scene.entered", sceneId: "s1", participants: ["host"] },
+      whisper(3, "host", "a"), whisper(4, "analyst", "b"), { ...env(5), type: "utterance", roleId: "host", text: "hi", channel: "text" },
+    ];
+    expect(evs.reduce((st, e) => reduceReplay(st, e), initialState())).toEqual(evs.reduce((st, e) => reduce(st, e), initialState()));
   });
 });

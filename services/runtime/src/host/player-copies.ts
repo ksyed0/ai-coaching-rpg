@@ -15,7 +15,7 @@ export function redactRoles(roles: SessionState["roles"]): SessionState["roles"]
 }
 
 /** How one state field is copied for the player `who`; "omit" leaves it out. */
-type PlayerField<K extends keyof SessionState> = ((s: SessionState, who: string) => SessionState[K]) | "omit";
+type PlayerField<K extends keyof SessionState> = ((s: SessionState, who: string) => K extends keyof PlayerSnapshot ? PlayerSnapshot[K] : never) | "omit";
 
 /** Every SessionState key must be listed. The rules are those of the old snapshotFor: only scenes the player takes part in, no NPC internals, verdicts, participant ids or other scenes' lines. */
 export const PLAYER_SNAPSHOT: { [K in keyof SessionState]: PlayerField<K> } = {
@@ -35,6 +35,8 @@ export const PLAYER_SNAPSHOT: { [K in keyof SessionState]: PlayerField<K> } = {
   gmVerdicts: () => ({}),
   factsEarned: () => ({}),
   aiRoles: (s) => [...s.aiRoles], // US-0060: public, so players can label AI lines
+  // BUG-0023: ONLY the whispers addressed to this player, three fields each (seq, scene, text). Never the record of all roles, `by`, a ref or an ack.
+  whispers: (s, who) => (Object.hasOwn(s.whispers, who) ? s.whispers[who]!.map((w) => ({ seq: w.seq, sceneId: w.sceneId, text: w.text })) : []),
   talk: "omit", // US-0059: words spoken are for the facilitator console only
 };
 

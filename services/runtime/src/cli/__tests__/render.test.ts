@@ -280,6 +280,22 @@ describe("renderJoined with a replay (US-0013)", () => {
     expect(lines).toContain("guest: missed");
     expect(lines.at(-1)).toBe("(too much was missed to replay it: the history above is what you may see; earlier injects and whispers are not shown)");
   });
+  it("test_render_joined_prints_past_whispers_in_seq_order_with_the_whisper_label_and_cleaned (BUG-0023)", () => {
+    const state = { transcript: [u(1, "seen before"), u(5, "missed")], whispers: [{ seq: 3, sceneId: "s1", text: "psst \u001b[31m‮fake" }] };
+    const lines = renderJoined({ type: "joined", roleId: "host", state: state as never });
+    const i = lines.findIndex((l) => l.startsWith("[whisper]"));
+    expect(i).toBeGreaterThan(lines.indexOf("guest: seen before"));
+    expect(i).toBeLessThan(lines.indexOf("guest: missed"));
+    expect(lines[i]).not.toMatch(/[\u001b‮]/u);
+    expect(lines[i]).toContain("psst");
+  });
+  it("test_render_joined_skips_whispers_the_replay_will_deliver_and_ignores_malformed_ones (BUG-0023)", () => {
+    const state = { transcript: [u(1, "seen before")], whispers: [{ seq: 2, text: "old" }, { seq: 6, text: "replayed" }, null, { seq: "x", text: "bad" }, { seq: 7, text: 9 }] };
+    const lines = renderJoined({ type: "joined", roleId: "host", state: state as never, replay: { afterSeq: 3, toSeq: 6, events: 1, complete: true } });
+    expect(lines).toContain("[whisper] old");
+    expect(lines.join("\n")).not.toMatch(/replayed|bad/);
+    expect(renderJoined({ type: "joined", roleId: "host", state: { transcript: [], whispers: "no" } as never })).toEqual(["joined as host"]);
+  });
   it("test_render_joined_ignores_a_malformed_replay_summary", () => {
     expect(joined({ afterSeq: "x", complete: true })).toContain("guest: missed");
     expect(joined(null)).toContain("guest: missed");

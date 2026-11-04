@@ -19,7 +19,8 @@ export type PlayerView = {
   pausedSince: number | null;
   scene: { id: string; enteredAt: number; pausedMs: number } | null;
   transcript: PlayerLine[];
-  injects: { seq: number; content: string; sceneId: string }[];
+  /** Updates in seq order. `private: true` marks a facilitator whisper to this player (BUG-0023); an inject has no such key. */
+  injects: { seq: number; content: string; sceneId: string; private?: true }[];
   ended: { reason: string; message?: string } | null;
   /** US-0060: player roles an AI plays; [] when none. Labels come from this, never from a name. */
   aiRoles: string[];
@@ -27,14 +28,28 @@ export type PlayerView = {
 
 const stringsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
-/** Seeds the view from the redacted join snapshot. The snapshot carries no inject content, so `injects` starts empty. */
-export function initPlayerView(snapshot: PlayerSnapshot): PlayerView {
+/** BUG-0023: the player's own whispers from a snapshot, as private updates. Total: a missing or malformed list gives [], a bad entry is dropped, order is by seq and a repeated seq is kept once. */
+function whisperUpdates(v: unknown): PlayerView["injects"] {
+  if (!Array.isArray(v)) return [];
+  const out: PlayerView["injects"] = [];
+  for (const w of v as unknown[]) {
+    const x = w as { seq?: unknown; text?: unknown; sceneId?: unknown } | null;
+    if (typeof x !== "object" || x === null || !Number.isSafeInteger(x.seq) || typeof x.text !== "string") continue;
+    const seq = x.seq as number;
+    if (out.some((o) => o.seq === seq)) continue;
+    out.push({ seq, content: x.text, sceneId: typeof x.sceneId === "string" ? x.sceneId : "", private: true });
+  }
+  return out.sort((a, b) => a.seq - b.seq);
+}
+
+/** Seeds the view from the redacted join snapshot. The snapshot carries no inject content, so `injects` starts with the player's own whispers only (BUG-0023). */
+export function initPlayerView(snapshot: PlayerSnapshot | SessionState): PlayerView {
   const sc = snapshot.currentScene;
   return {
     lastSeq: snapshot.lastSeq, status: snapshot.status, paused: snapshot.paused, pausedSince: snapshot.pausedSince,
     scene: sc ? { id: sc.id, enteredAt: sc.enteredAt, pausedMs: sc.pausedMs } : null,
     transcript: snapshot.transcript.map((u) => ({ seq: u.seq, ts: u.ts, roleId: u.roleId, text: u.text, sceneId: u.sceneId })),
-    injects: [], ended: null, aiRoles: stringsOf(snapshot.aiRoles),
+    injects: whisperUpdates(snapshot.whispers) /* a SessionState's record (never sent to a player) is not a list: none */, ended: null, aiRoles: stringsOf(snapshot.aiRoles),
   };
 }
 
@@ -64,7 +79,7 @@ export function applyPlayerEvent(view: PlayerView, e: SessionEvent): PlayerView 
     case "facilitator.command":
       if (!tsOk) return v;
       // A whisper the runtime sent to this player (a player's stream carries only its own): shown with the updates, as text.
-      if (e.command === "whisper") return typeof e.text === "string" ? { ...v, injects: [...v.injects, { seq: e.seq, content: e.text, sceneId: v.scene?.id ?? "" }] } : v;
+      if (e.command === "whisper") return typeof e.text === "string" ? { ...v, injects: [...v.injects, { seq: e.seq, content: e.text, sceneId: v.scene?.id ?? "", private: true }] } : v;
       if (e.command === "pause") return v.paused ? v : { ...v, paused: true, pausedSince: e.ts };
       if (e.command === "resume") {
         if (!v.paused) return v;

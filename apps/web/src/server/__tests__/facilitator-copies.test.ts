@@ -8,7 +8,7 @@ const state = (): SessionState => ({
   currentScene: { id: "a", enteredAt: 1, participants: ["lead"], pausedMs: 0 }, sceneHistory: [{ id: "a", participants: ["lead"] }],
   paused: false, pausedSince: null, transcript: [{ seq: 2, ts: 2, sceneId: "a", roleId: "lead", text: "hi", channel: "text" }],
   injectsFired: ["i1"], npcs: { npc: { goals: ["GOAL-SECRET"], knowledge: ["KNOW-SECRET"], released: ["REL-SECRET"] } },
-  advanceRequested: true, gmVerdicts: { c: true }, factsEarned: { npc: [1] }, talk: { lead: { words: 1, lines: 1 } }, aiRoles: [],
+  advanceRequested: true, gmVerdicts: { c: true }, factsEarned: { npc: [1] }, talk: { lead: { words: 1, lines: 1 } }, aiRoles: [], whispers: {},
 });
 
 describe("console copies", () => {
@@ -44,6 +44,11 @@ describe("console copies", () => {
     expect(consoleEvent(utt)).toEqual(utt);
   });
 
+  it("BUG-0023: consoleState does not carry the per-role whisper lists (the console has them as events)", () => {
+    const c = consoleState({ ...state(), whispers: { lead: [{ seq: 5, sceneId: "a", text: "WHISPER-SECRET" }] } });
+    expect(c.whispers).toEqual({});
+    expect(JSON.stringify(c)).not.toContain("WHISPER-SECRET");
+  });
   it("consoleState carries aiRoles and consoleEvent copies them only when non-empty, dropping non-strings", () => {
     const s = { ...state(), aiRoles: ["lead", 3] } as unknown as SessionState;
     expect(consoleState(s).aiRoles).toEqual(["lead"]);
