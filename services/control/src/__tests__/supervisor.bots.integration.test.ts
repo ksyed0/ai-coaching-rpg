@@ -94,4 +94,25 @@ describe("Supervisor with a real BotHost", () => {
     expect(opened[1]!.closed).toBe(false);
     expect(reissues).toEqual([]);
   });
+
+  it("reissueAll with tech_lead AI: the bot ends attached with the NEW code on the new child, and the result holds human roles only", async () => {
+    const sup = make();
+    const { id, c } = await boot(sup);
+    await set(sup, id, c, ["tech_lead"], [{ roleId: "tech_lead", code: "ai-old" }]);
+    expect(opened.map((o) => o.code)).toEqual(["ai-old"]);
+    c.onKill = () => setImmediate(() => c.exit(null));
+    const p = sup.reissueAll(id); await settle();
+    const c2 = children[children.length - 1]!;
+    const fresh = ROLES.map((roleId) => ({ roleId, code: `fresh-${roleId}` }));
+    c2.emit({ type: "codes", codes: fresh }); c2.emit({ ...READY, port: 7001 }); await settle();
+    c2.emit({ type: "ai_roles_set", requestId: c2.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "ai-new" }] });
+    const r = await Promise.race([p, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("hung")), 1500))]);
+    await settle();
+    expect(r).toEqual(fresh.filter((x) => x.roleId !== "tech_lead"));
+    expect(c2.sent.map((m) => m.type)).toEqual(["set_ai_roles"]);
+    const last = opened[opened.length - 1]!;
+    expect([last.roleId, last.code, last.port, last.closed]).toEqual(["tech_lead", "ai-new", 7001, false]);
+    expect(opened.filter((o) => !o.closed)).toHaveLength(1);
+    expect(reissues).toEqual([]);
+  });
 });

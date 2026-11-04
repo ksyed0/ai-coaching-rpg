@@ -95,6 +95,8 @@ export class Supervisor {
   private readonly settingAiRoles = new Set<string>();
   /** The player roles in scenario order, from the create result's codes; orders the AI set setAiRoles returns. */
   private readonly roleOrder = new Map<string, string[]>();
+  /** B14: roles a timed-out set_ai_roles may have switched; cleared by the next set or a launch that issues codes. */
+  private readonly uncertain = new Map<string, string[]>();
   private closed = false;
   private readonly bots?: BotHost;
 
@@ -256,6 +258,8 @@ export class Supervisor {
 
   private cleanup(sessionId: string, listed: boolean): void {
     this.roleOrder.delete(sessionId);
+    this.uncertain.delete(sessionId);
+    this.botForget(sessionId);
     if (listed) { try { this.o.list.remove(sessionId); } catch { /* the entry was never written */ } }
     if (!isValidSessionId(sessionId)) return; // never build a path to delete from an id that is not one
     try {
@@ -341,7 +345,10 @@ export class Supervisor {
     const bots = this.bots;
     if (!bots || this.closed) return;
     const failed = (err: unknown): void => this.logFn(`session ${id} bots attach failed (${err instanceof Error ? err.name : "error"})`);
-    try { bots.attach(id, { port: ready.port, aiRoles: ready.aiRoles ?? [], aiCalls: ready.aiCalls }).catch(failed); }
+    const aiRoles = ready.aiRoles ?? [];
+    // A launch that issued fresh codes hands the AI roles' codes over now, so the host never asks to reissue them.
+    const codes = (ready.codes ?? []).filter((c) => aiRoles.includes(c.roleId));
+    try { bots.attach(id, { port: ready.port, aiRoles, aiCalls: ready.aiCalls, ...(codes.length > 0 ? { codes } : {}) }).catch(failed); }
     catch (err) { failed(err); }
   }
 
@@ -439,41 +446,65 @@ export class Supervisor {
    */
   setAiRoles(id: string, roles: string[]): Promise<AiRolesResult> {
     if (!this.entryOf(id)) return Promise.reject(new ControlError("not_found", "that session does not exist"));
-    const requestId = randomBytes(8).toString("hex");
-    const msg = ParentMessageSchema.safeParse({ type: "set_ai_roles", requestId, roles });
-    if (!msg.success) return Promise.reject(new ControlError("bad_request", "that AI roles request is not valid"));
+    if (!ParentMessageSchema.safeParse({ type: "set_ai_roles", requestId: "0".repeat(16), roles }).success) return Promise.reject(new ControlError("bad_request", "that AI roles request is not valid"));
     if (this.settingAiRoles.has(id)) return Promise.reject(new ControlError("conflict", "the AI roles are already being changed"));
     this.settingAiRoles.add(id);
-    return this.withLock(id, () => this.sendAiRolesLocked(id, requestId, msg.data)).finally(() => { this.settingAiRoles.delete(id); });
+    return this.withLock(id, () => this.sendAiRolesLocked(id, roles, this.uncertain.get(id) ?? [])).finally(() => { this.settingAiRoles.delete(id); });
   }
 
-  /** The set_ai_roles exchange and the split of its reply. Runs INSIDE `withLock`; it never takes the lock and never awaits the bots. */
-  private async sendAiRolesLocked(id: string, requestId: string, msg: ParentMessage): Promise<AiRolesResult> {
+  /**
+   * The set_ai_roles exchange and the split of its reply. Runs INSIDE `withLock`; it never takes the lock and never awaits the bots.
+   * `uncertain` (B14) are roles a timed-out earlier set may have switched: after this set, each one the reply did not cover gets its own
+   * reissue (a retry of a set that applied returns no codes), BEFORE the bots are told, so a code is never issued twice.
+   */
+  private async sendAiRolesLocked(id: string, wanted: string[], uncertain: string[] = []): Promise<AiRolesResult> {
     const l = this.live.get(id);
     if (!l || l.status !== "running" || !l.child) throw new ControlError("conflict", "the session is not running");
     const child = l.child;
-    const wanted = (msg as Extract<ParentMessage, { type: "set_ai_roles" }>).roles;
+    const requestId = randomBytes(8).toString("hex");
+    const parsed = ParentMessageSchema.safeParse({ type: "set_ai_roles", requestId, roles: wanted });
+    if (!parsed.success) throw new ControlError("bad_request", "that AI roles request is not valid");
+    const msg = parsed.data;
     const order = await this.playerOrder(id, l.scenarioId);
     const rank = (r: string): number => { const i = order.indexOf(r); return i < 0 ? order.length : i; };
     const aiNow = [...wanted].sort((a, b) => rank(a) - rank(b));
     const before = l.aiRoles ?? [];
-    const reply = await new Promise<Codes>((resolve, reject) => {
-      const cancel = this.setTimer(() => {
-        this.pendingAiRoles.delete(requestId);
-        reject(new ControlError("timeout", "the AI roles may or may not have changed; reissue the changed roles"));
-      }, this.reissueTimeoutMs);
-      this.pendingAiRoles.set(requestId, { sessionId: id, child, resolve, reject, cancel, roles: aiNow });
-      let sent = false;
-      try { sent = child.send(msg); } catch { sent = false; }
-      if (!sent) {
-        this.pendingAiRoles.delete(requestId);
-        cancel();
-        reject(new ControlError("unavailable", "the session could not be reached"));
+    let reply: Codes;
+    try {
+      reply = await new Promise<Codes>((resolve, reject) => {
+        const cancel = this.setTimer(() => {
+          this.pendingAiRoles.delete(requestId);
+          reject(new ControlError("timeout", "the AI roles may or may not have changed; reissue the changed roles"));
+        }, this.reissueTimeoutMs);
+        this.pendingAiRoles.set(requestId, { sessionId: id, child, resolve, reject, cancel, roles: aiNow });
+        let sent = false;
+        try { sent = child.send(msg); } catch { sent = false; }
+        if (!sent) {
+          this.pendingAiRoles.delete(requestId);
+          cancel();
+          reject(new ControlError("unavailable", "the session could not be reached"));
+        }
+      });
+    } catch (err) {
+      if (err instanceof ControlError && err.code === "timeout") {
+        // B14: the roles this request would have switched may or may not have been; no code of them leaves until the next set.
+        const changed = [...new Set([...before.filter((r) => !wanted.includes(r)), ...wanted.filter((r) => !before.includes(r)), ...uncertain])];
+        this.uncertain.set(id, changed);
       }
-    });
+      throw err;
+    }
+    const covered = new Set(reply.map((c) => c.roleId));
+    const all: Codes = [...reply];
+    for (const r of uncertain) {
+      if (covered.has(r)) continue;
+      const msg2 = this.reissueMessage(r);
+      if (!msg2) continue;
+      all.push({ roleId: r, code: await this.reissueLocked(id, msg2) });
+    }
+    this.uncertain.delete(id);
     const aiSet = new Set(aiNow);
-    const toBots = reply.filter((c) => aiSet.has(c.roleId));
-    const codes = reply.filter((c) => !aiSet.has(c.roleId));
+    const toBots = all.filter((c) => aiSet.has(c.roleId));
+    const codes = all.filter((c) => !aiSet.has(c.roleId));
     const bots = this.bots;
     const now = this.live.get(id);
     // The bots are told only while the same child still runs on a known port (nothing is awaited here: the host has its own chain).
@@ -485,6 +516,33 @@ export class Supervisor {
       try { void bots.attach(id, { port: now.port, aiRoles: [...aiNow], codes: toBots }).catch(failed("attach")); } catch (err) { failed("attach")(err); }
     }
     return { roles: [...aiNow], codes };
+  }
+
+  /**
+   * After a launch that issued codes (reissueAll, restart, resumeAll). The runtime drops the AI-role file when it issues fresh codes, so
+   * with an empty log the captured set is sent again; with a started log it is not (the runtime would refuse `started`) and the roles the
+   * child restored (`ready.aiRoles`) stand. Codes of AI roles go to the bots only; the result holds the human roles' codes.
+   * Runs INSIDE `withLock` and calls only unlocked helpers.
+   */
+  private async afterCodedLaunch(id: string, ready: ReadyInfo, captured: string[]): Promise<Codes> {
+    this.uncertain.delete(id);
+    const issued = ready.codes ?? [];
+    let ai = ready.aiRoles ?? [];
+    let status: "empty" | "running" | "ended";
+    try { status = readLogStatus(path.join(this.o.config.sessionsDir, `${id}.jsonl`)); } catch { status = "running"; }
+    if (status === "empty" && captured.length > 0 && !(captured.length === ai.length && captured.every((r) => ai.includes(r)))) {
+      try { ai = (await this.sendAiRolesLocked(id, captured)).roles; }
+      catch { throw new ControlError("conflict", "the codes were reissued but the AI roles could not be set again; set them again"); }
+    }
+    return issued.filter((c) => !ai.includes(c.roleId));
+  }
+
+  /** Stops the session's bots and deletes its intent files; never awaited. */
+  private botForget(id: string): void {
+    const bots = this.bots;
+    if (!bots) return;
+    const failed = (err: unknown): void => this.logFn(`session ${id} bots forget failed (${err instanceof Error ? err.name : "error"})`);
+    try { bots.forget(id).catch(failed); } catch (err) { failed(err); }
   }
 
   /** The session's player roles in scenario order: the create codes if known, else the scenario file; [] if neither is readable. */
@@ -558,9 +616,11 @@ export class Supervisor {
       if (e.status === "ended") throw new ControlError("conflict", "the session has ended");
       if (e.status === "running") throw new ControlError("conflict", "already running");
       await this.waitPrevious(id);
+      const captured = this.aiRolesOf(id);
       const ready = await this.launch(id, e.scenarioId, false);
+      const codes = ready.codes ? await this.afterCodedLaunch(id, ready, captured) : undefined;
       const info = this.get(id)!;
-      return ready.codes ? { ...info, codes: ready.codes } : info;
+      return codes ? { ...info, codes } : info;
     });
   }
 
@@ -574,7 +634,7 @@ export class Supervisor {
     this.reissuing.add(key);
     return this.withLock(id, () => {
       // Inside the lock: a set_ai_roles queued ahead may just have made the role AI. Nothing is sent for an AI role.
-      if (this.aiRolesOf(id).includes(roleId)) return Promise.reject(new ControlError("ai_role", AI_ROLE_REFUSED));
+      if (this.aiRolesOf(id).includes(roleId) || this.uncertain.get(id)?.includes(roleId)) return Promise.reject(new ControlError("ai_role", AI_ROLE_REFUSED));
       return this.reissueLocked(id, msg);
     }).finally(() => { this.reissuing.delete(key); });
   }
@@ -653,9 +713,11 @@ export class Supervisor {
           throw new ControlError("start_failed", START_FAILED);
         }
       }
+      const captured = this.aiRolesOf(id);
+      this.botForget(id); // the old bots and their intent files go with the old codes (B12)
       const ready = await this.launch(id, e.scenarioId, true);
       this.logFn(`session ${id} codes reissued`);
-      return ready.codes!;
+      return await this.afterCodedLaunch(id, ready, captured);
     });
   }
 
@@ -679,7 +741,10 @@ export class Supervisor {
       }
       try {
         await this.waitPrevious(e.sessionId);
-        await this.launch(e.sessionId, e.scenarioId, false); // any codes are discarded: the facilitator reissues
+        const captured = this.aiRolesOf(e.sessionId);
+        const ready = await this.launch(e.sessionId, e.scenarioId, false);
+        // Codes issued here are not returned (nobody asked); the AI roles' codes still reach the bots, the human ones are discarded: the facilitator reissues.
+        if (ready.codes) await this.afterCodedLaunch(e.sessionId, ready, captured).catch(() => this.logFn(`session ${e.sessionId} AI roles could not be set again`));
       } catch {
         this.markStopped(e.sessionId, e.scenarioId); // launch() already logged the reason
       }

@@ -111,7 +111,11 @@ describe("Supervisor.setAiRoles", () => {
     await settle();
     expect(c.sent).toHaveLength(2);
     c.emit({ type: "ai_roles_set", requestId: c.sent[1]!.requestId, codes: [] });
-    await expect(again).resolves.toEqual({ roles: [], codes: [] });
+    await settle();
+    // B14: cfo was uncertain after the timeout and the reply did not cover it, so it is reissued now
+    expect(c.sent.map((m) => m.type)).toEqual(["set_ai_roles", "set_ai_roles", "reissue"]);
+    c.emit({ type: "reissued", requestId: c.sent[2]!.requestId, code: "HUMAN-CFO" });
+    await expect(again).resolves.toEqual({ roles: [], codes: [{ roleId: "cfo", code: "HUMAN-CFO" }] });
   });
 
   it("a child exit rejects with unavailable", async () => {
@@ -172,9 +176,10 @@ describe("Supervisor.setAiRoles", () => {
   });
 });
 
-type BotCall = { op: "attach" | "setCodes" | "removeRoles"; id: string; arg: unknown };
+type BotCall = { op: "attach" | "setCodes" | "removeRoles" | "forget"; id: string; arg: unknown };
 let botCalls: BotCall[], logs: string[], setCodesImpl: () => Promise<void>, removeImpl: () => Promise<void>;
 const fakeBots = (): BotHost => ({
+  forget: (id: string) => { botCalls.push({ op: "forget", id, arg: undefined }); return Promise.resolve(); },
   attach: (id: string, arg: unknown) => { botCalls.push({ op: "attach", id, arg }); return setCodesImpl(); }, end: async () => {}, detach: async () => {}, close: async () => {},
   setCodes: (id: string, arg: unknown) => { botCalls.push({ op: "setCodes", id, arg }); return setCodesImpl(); },
   removeRoles: (id: string, arg: unknown) => { botCalls.push({ op: "removeRoles", id, arg }); return removeImpl(); },
@@ -372,5 +377,133 @@ describe("the supervisor's AI refusal map matches the runtime's", () => {
     expect(AI_ROLES_FAILED).toBe(failed);
     expect(AI_REFUSALS.get(AI_ROLES_REFUSED.tooMany)).toBe("ai_too_many");
     expect(AI_ROLES_REFUSED.tooMany).toContain(`at most ${MAX_AI_ROLES} `);
+  });
+});
+
+/** A promise that must settle soon: a self-wait (deadlock) fails in a second, not after the 60 s test timeout. */
+const bounded = <T,>(p: Promise<T>, ms = 1500): Promise<T> =>
+  Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error("hung: did not settle")), ms))]);
+const FRESH = [{ roleId: "tech_lead", code: "fresh-tl" }, { roleId: "account_manager", code: "fresh-am" }, { roleId: "delivery_lead", code: "fresh-dl" }];
+const HUMAN = [{ roleId: "account_manager", code: "fresh-am" }, { roleId: "delivery_lead", code: "fresh-dl" }];
+const READY3 = { ...READY, aiRoles: ["tech_lead"] };
+const bootT = async (sup: Supervisor, ready: Record<string, unknown> = READY3): Promise<{ id: string; c: FakeChild }> => {
+  const p = sup.create("other"); await settle();
+  const c = children[children.length - 1]!;
+  c.emit({ type: "codes", codes: FRESH }); c.emit(ready);
+  const r = await p; await settle(); botCalls.length = 0;
+  return { id: r.sessionId, c };
+};
+const dies = (c: FakeChild): void => { c.onKill = () => setImmediate(() => c.exit(null)); };
+const lastAttach = (): { port: number; aiRoles: string[]; codes?: { roleId: string; code: string }[] } =>
+  [...botCalls].reverse().find((x) => x.op === "attach")!.arg as { port: number; aiRoles: string[]; codes?: { roleId: string; code: string }[] };
+
+describe("whole-session reissue, restart, resume and timeout recovery (Task 12)", () => {
+  beforeEach(() => { botCalls = []; logs = []; setCodesImpl = async () => {}; removeImpl = async () => {}; });
+
+  it("reissueAll with tech_lead AI resolves (no self-wait): the child gets set_ai_roles [tech_lead] after ready, the reply has the human codes only, and the bots get tech_lead's code", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup);
+    dies(c);
+    const p = sup.reissueAll(id); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7001 }); await settle();
+    expect(c2.sent.map((m) => [m.type, (m as { roles?: string[] }).roles])).toEqual([["set_ai_roles", ["tech_lead"]]]);
+    await reply(c2, 0, [{ roleId: "tech_lead", code: "ai-tl" }]);
+    const r = await bounded(p);
+    expect(r).toEqual(HUMAN);
+    expect(JSON.stringify(r)).not.toContain("ai-tl");
+    expect(botCalls.some((x) => x.op === "forget" && x.id === id)).toBe(true);
+    expect(lastAttach()).toEqual({ port: 7001, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: "ai-tl" }] });
+    expect(sup.aiRolesOf(id)).toEqual(["tech_lead"]);
+    expect(logs.join("\n")).not.toMatch(/ai-tl|fresh-/);
+  });
+
+  it("reissueAll when the re-send fails returns no code and rejects conflict", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup);
+    dies(c);
+    const p = errOf(sup.reissueAll(id)); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7001 }); await settle();
+    c2.emit({ type: "ai_roles_failed", requestId: c2.sent[0]!.requestId, reason: "AI roles can only be changed before the start" });
+    const e = await bounded(p);
+    expect(e).toMatchObject({ code: "conflict", message: "the codes were reissued but the AI roles could not be set again; set them again" });
+    expect(e.message).not.toMatch(/fresh-/);
+  });
+
+  it("a restart of an empty lobby that issued codes re-sends set_ai_roles and returns no AI code", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup);
+    c.exit(1); await settle();
+    const p = sup.restart(id); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7002 }); await settle();
+    expect(c2.sent.map((m) => m.type)).toEqual(["set_ai_roles"]);
+    await reply(c2, 0, [{ roleId: "tech_lead", code: "ai-tl" }]);
+    const r = await bounded(p);
+    expect(r.codes).toEqual(HUMAN);
+    expect(lastAttach().codes).toEqual([{ roleId: "tech_lead", code: "ai-tl" }]);
+  });
+
+  it("a restart of a started session that issued codes sends no set_ai_roles and returns only human codes (AI codes by ready.aiRoles go to the bots)", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup);
+    c.exit(1); await settle();
+    writeFileSync(path.join(config.sessionsDir, `${id}.jsonl`), '{"type":"session.started"}\n');
+    const p = sup.restart(id); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7003, aiRoles: ["tech_lead"] });
+    const r = await bounded(p);
+    expect(c2.sent).toEqual([]);
+    expect(r.codes).toEqual(HUMAN);
+    expect(lastAttach()).toMatchObject({ port: 7003, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: "fresh-tl" }] });
+  });
+
+  it("resumeAll with an AI role resolves and returns nothing", async () => {
+    const sup = makeB();
+    await bootT(sup);
+    const sup2 = makeB();
+    const p = sup2.resumeAll(); await settle();
+    const c2 = children[1]!;
+    c2.emit({ ...READY, port: 7004, aiRoles: ["tech_lead"] });
+    await expect(bounded(p)).resolves.toBeUndefined();
+    expect(sup2.aiRolesOf([...list.read()][0]!.sessionId)).toEqual(["tech_lead"]);
+  });
+
+  it("after a set timeout, reissue of an uncertain role is ai_role; the next setAiRoles sends the wanted set, then reissues each uncertain role the reply did not carry, and returns only human codes", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup, READY);
+    const first = errOf(sup.setAiRoles(id, ["tech_lead"])); await settle();
+    const t = timers.find((x) => !x.cancelled && !x.fired && x.ms === 60_000) ?? timers.filter((x) => !x.cancelled && !x.fired)[0]!;
+    fire(t);
+    expect(await first).toMatchObject({ code: "timeout" });
+    const before = c.sent.length;
+    for (const reason of [undefined, "removed" as const]) {
+      const r = errOf(sup.reissue(id, "tech_lead", "fac", reason)); await settle();
+      expect(c.sent.length).toBe(before);
+      expect(await r).toMatchObject({ code: "ai_role" });
+    }
+    const p = sup.setAiRoles(id, ["account_manager"]); await settle();
+    expect(c.sent[before]).toMatchObject({ type: "set_ai_roles", roles: ["account_manager"] });
+    c.emit({ type: "ai_roles_set", requestId: c.sent[before]!.requestId, codes: [{ roleId: "account_manager", code: "ai-am" }] }); await settle();
+    expect(c.sent[before + 1]).toMatchObject({ type: "reissue", roleId: "tech_lead" });
+    c.emit({ type: "reissued", requestId: c.sent[before + 1]!.requestId, code: "human-tl" });
+    const r = await bounded(p);
+    expect(r).toEqual({ roles: ["account_manager"], codes: [{ roleId: "tech_lead", code: "human-tl" }] });
+    expect(lastAttach().codes).toEqual([{ roleId: "account_manager", code: "ai-am" }]);
+    // no longer uncertain: a single reissue goes through again
+    const again = sup.reissue(id, "tech_lead"); await settle();
+    expect(c.sent[before + 2]).toMatchObject({ type: "reissue", roleId: "tech_lead" });
+    c.emit({ type: "reissued", requestId: c.sent[before + 2]!.requestId, code: "x" });
+    await expect(again).resolves.toBe("x");
+  });
+
+  it("a create rollback deletes the session's intent files (bots.forget)", async () => {
+    const sup = makeB();
+    const p = errOf(sup.create("other")); await settle();
+    children[children.length - 1]!.exit(1);
+    await bounded(p);
+    await settle();
+    expect(botCalls.filter((x) => x.op === "forget")).toHaveLength(1);
   });
 });
