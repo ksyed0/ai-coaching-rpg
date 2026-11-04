@@ -121,6 +121,7 @@ export const COMMAND_ANSWERS = {
   unknown_role: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
   npc_role: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
   not_ai_role: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
+  // Today only prompt_ai can be refused as paused (the engine allows the other commands while paused); if another command ever is, answer paused locally.
   paused: { status: 409, code: "paused", message: "The session is paused. Resume it before you prompt an AI player." },
   not_in_scene: { status: 409, code: "not_in_scene", message: "That AI player is not in the current scene." },
   unknown_fact: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },

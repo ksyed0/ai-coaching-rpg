@@ -2,6 +2,7 @@ import { fail, ok } from "./envelope";
 import { failure, guard, isId, readBody, sessionIdOf } from "./console-sessions";
 import type { Deps } from "./handlers";
 import { answerFor } from "./console-command";
+import type { CommandOutcome } from "./facilitator-hub";
 import { UNCONFIRMED } from "./console-ai-copy";
 import { LauncherError } from "./launcher-client";
 
@@ -118,22 +119,34 @@ export async function handleConsoleAiPrompt(req: Request, deps: Deps): Promise<R
   } catch (err) {
     return failure(err);
   }
-  const outcome = await deps.facilitatorHub.send({
-    sessionId: id,
-    channel,
-    message: { type: "command", command: { command: "prompt_ai", roleId }, by: g.who.name },
-  });
-  if (outcome.kind !== "ok") {
+  // Best effort, errors ignored: the control service also expires a reservation by itself, and release is idempotent there.
+  const release = async () => {
     try {
       await launcher.releaseTurn(id, roleId, reservation);
     } catch {
-      // The reservation expires by itself; the command's answer is what the facilitator needs.
+      // ignored
     }
+  };
+  let outcome: CommandOutcome;
+  try {
+    outcome = await deps.facilitatorHub.send({
+      sessionId: id,
+      channel,
+      message: { type: "command", command: { command: "prompt_ai", roleId }, by: g.who.name },
+    });
+  } catch {
+    await release();
+    return answerFor({ kind: "refused", code: "other" });
+  }
+  if (outcome.kind !== "ok") {
+    await release();
     return answerFor(outcome);
   }
   try {
     await launcher.runTurn(id, roleId, reservation, hint);
   } catch {
+    // The command is already logged, so this is not the launcher's refusal to show. Ending the hold sooner lets the policy go on.
+    await release();
     return fail(502, "ai_run_failed", "The prompt was recorded, but the AI player could not start. Try again.");
   }
   return ok({ done: true });

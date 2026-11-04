@@ -137,7 +137,7 @@ describe("BotHost prompted turns", () => {
     h.release(SID, "tech_lead", t2);
   });
 
-  it("a reservation unused for 10 s is ai_expired at run and the policy is released", async () => {
+  it("a reservation unused for RESERVATION_TTL_MS is ai_expired at run and the policy is released", async () => {
     const h = await up();
     const s = sockFor("tech_lead");
     humansReady(s);

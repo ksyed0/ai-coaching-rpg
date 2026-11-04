@@ -92,9 +92,11 @@ describe("prompt an AI player: guards", () => {
     expect(launcher.runTurn).toHaveBeenCalledWith(SID, "tech_lead", RES, hint);
   });
 
-  it("a body over 4 KiB is 400", async () => {
-    expect((await prompt(null, { raw: JSON.stringify({ ...good, hint: "a".repeat(5000) }) })).status).toBe(400);
-    untouched();
+  it("a valid body is accepted up to 4 KiB and is 400 only because of the byte cap beyond it", async () => {
+    const valid = JSON.stringify(good);
+    expect((await prompt(null, { raw: valid + " ".repeat(4096 - valid.length) })).status).toBe(200);
+    expect((await prompt(null, { raw: valid + " ".repeat(4097 - valid.length) })).status).toBe(400);
+    expect(launcher.reserveTurn).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -111,6 +113,27 @@ describe("prompt an AI player: the steps", () => {
     });
     expect(launcher.runTurn).toHaveBeenCalledWith(SID, "tech_lead", RES, "say hello");
     expect(launcher.releaseTurn).not.toHaveBeenCalled();
+  });
+
+  it("run is not started before the command's answer arrives, and is started after an ok one", async () => {
+    let resolve!: (o: CommandOutcome) => void;
+    send.mockImplementationOnce(() => new Promise<CommandOutcome>((r) => { order.push("command"); resolve = r; }));
+    const pending = prompt(good);
+    await vi.waitFor(() => expect(send).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(launcher.runTurn).not.toHaveBeenCalled();
+    resolve({ kind: "ok" });
+    expect((await pending).status).toBe(200);
+    expect(order).toEqual(["reserve", "command", "run"]);
+  });
+
+  it("a throwing send releases the reservation and answers the neutral command failure", async () => {
+    send.mockRejectedValueOnce(new Error("boom RES"));
+    const res = await prompt(good);
+    expect(res.status).toBe(502);
+    expect((await json(res)).error?.code).toBe("command_failed");
+    expect(launcher.releaseTurn).toHaveBeenCalledWith(SID, "tech_lead", RES);
+    expect(launcher.runTurn).not.toHaveBeenCalled();
   });
 
   it("without a hint, runTurn gets no hint", async () => {
@@ -169,7 +192,13 @@ describe("prompt an AI player: the steps", () => {
     const res = await prompt(good);
     expect(res.status).toBe(502);
     expect((await json(res)).error).toEqual({ code: "ai_run_failed", message: "The prompt was recorded, but the AI player could not start. Try again." });
-    expect(launcher.releaseTurn).not.toHaveBeenCalled();
+    expect(launcher.releaseTurn).toHaveBeenCalledWith(SID, "tech_lead", RES);
+  });
+
+  it("a failing release after a failed run still answers ai_run_failed", async () => {
+    launcher.runTurn.mockRejectedValueOnce(new LauncherError("unavailable"));
+    launcher.releaseTurn.mockRejectedValueOnce(new LauncherError("unavailable"));
+    expect((await json(await prompt(good))).error?.code).toBe("ai_run_failed");
   });
 
   it("a refusal of run by the control service still means the command was logged: ai_run_failed", async () => {

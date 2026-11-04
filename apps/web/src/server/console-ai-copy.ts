@@ -14,6 +14,7 @@ export const AI_COPY = {
   ai_busy: { status: 409, text: "The AI player is already answering. Wait a moment, then try again." },
   ai_budget: { status: 409, text: "The AI players have used this session's model budget. They stay silent." },
   ai_absent: { status: 409, text: "The AI player is not connected right now." },
+  // Only reachable through the shared failure() fallback: a refused run collapses into ai_run_failed (the command is already logged).
   ai_expired: { status: 409, text: "The prompt took too long to confirm. Try again." },
 } as const;
 export const UNCONFIRMED = "The change may or may not have been made. Check the roster, then switch the role again.";

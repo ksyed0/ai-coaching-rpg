@@ -17,7 +17,7 @@ export const REATTACH_MAX_MS = 30_000;
 export const REATTACH_MAX_FAILS = 5;
 
 /** A reservation holds the policy for at most this long (B17). */
-export const RESERVATION_TTL_MS = 10_000;
+export const RESERVATION_TTL_MS = 15_000; // by ruling (spec: 10 s): the hub waits 10 s for a command ack, so the reservation must outlive it
 /** A new prompt is refused (ai_busy) this soon after the last one started. */
 export const PROMPT_DEBOUNCE_MS = 5_000;
 
