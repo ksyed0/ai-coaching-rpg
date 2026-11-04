@@ -45,14 +45,14 @@ type Confirm =
 type Shown = { seq: number; heading: string; codes: CodeEntry[] };
 
 const yesNo = (v: boolean) => (v ? "Yes" : "No");
-/** "<lead> Waiting for: a, b. AI player not connected yet: Tech lead" (each part only when it has roles). */
-const waitingText = (lead: string, humans: string[], ai: string[]) =>
-  [
-    humans.length > 0 ? `${lead} Waiting for: ${humans.join(", ")}` : lead,
-    ...(ai.length > 0 ? [`${CONSOLE_COPY.aiNotConnected} ${ai.map(roleLabel).join(", ")}`] : []),
-  ].join(". ");
 const url = (id: string, tail: string) =>
   `/api/v1/console/sessions/${encodeURIComponent(id)}/${tail}`;
+/** The waiting sentences ("Waiting for: a, b" and "AI player not connected yet: Tech lead"), each only when it has roles; no final period. */
+const waitingSentences = (humans: string[], ai: string[]): string =>
+  [
+    ...(humans.length > 0 ? [`Waiting for: ${humans.join(", ")}`] : []),
+    ...(ai.length > 0 ? [`${CONSOLE_COPY.aiNotConnected} ${ai.map(roleLabel).join(", ")}`] : []),
+  ].join(". ");
 
 export function Readiness({
   sessionId,
@@ -209,7 +209,8 @@ export function Readiness({
           strs((d as { missing?: unknown }).missing),
           strs((d as { aiWaiting?: unknown }).aiWaiting),
         );
-        setError(waitingText(CONSOLE_COPY.notReady, w.humans, w.ai));
+        const ws = waitingSentences(w.humans, w.ai);
+        setError(ws === "" ? CONSOLE_COPY.notReady : `${CONSOLE_COPY.notReady} ${ws}`);
       } else if (d?.reason === "ai_notice") {
         // The BFF's own sentence (the server's notice does not mention AI players).
         setError(r.message !== "" ? r.message : failureText(r));
@@ -323,10 +324,7 @@ function View(p: ViewProps) {
       : data.canStart
         ? null
         : waiting.humans.length > 0 || waiting.ai.length > 0
-          ? [
-              ...(waiting.humans.length > 0 ? [`Waiting for: ${waiting.humans.join(", ")}`] : []),
-              ...(waiting.ai.length > 0 ? [`${CONSOLE_COPY.aiNotConnected} ${waiting.ai.map(roleLabel).join(", ")}`] : []),
-            ].join(". ")
+          ? waitingSentences(waiting.humans, waiting.ai)
           : "Waiting for everyone to join and consent";
 
   return (

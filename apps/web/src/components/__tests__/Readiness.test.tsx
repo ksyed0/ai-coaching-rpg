@@ -765,7 +765,7 @@ describe("ConfirmDialog", () => {
   it("the start reason says \"AI player not connected yet: Tech lead\" while aiWaiting holds tech_lead", async () => {
     mount(readiness({ roster: AI_ROSTER.slice(0, 1).concat([{ ...AI_ROSTER[2]! }]), aiWaiting: ["tech_lead"], missing: [] }));
     await ready();
-    expect(screen.getByText("AI player not connected yet: Tech lead")).toBeTruthy();
+    expect(document.getElementById("start-reason")!.textContent).toBe("AI player not connected yet: Tech lead");
     expect((screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -774,9 +774,7 @@ describe("ConfirmDialog", () => {
     mount(readiness({ roster: AI_ROSTER, missing: ["delivery_lead", "tech_lead"] }));
     await ready();
     const reason = document.getElementById("start-reason")!.textContent!;
-    expect(reason).toContain("Waiting for: delivery_lead");
-    expect(reason).not.toContain("Waiting for: delivery_lead, tech_lead");
-    expect(reason).toContain("AI player not connected yet: Tech lead");
+    expect(reason).toBe("Waiting for: delivery_lead. AI player not connected yet: Tech lead");
   });
 
   it("a refused start lists the human and the AI player separately", async () => {
@@ -784,9 +782,7 @@ describe("ConfirmDialog", () => {
     mount(readiness({ roster: AI_ROSTER, canStart: true, missing: [] }), { "/start": gate });
     await ready();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start" })); });
-    await waitFor(() => expect(document.body.textContent).toContain("Not everyone has joined and consented yet. Waiting for: delivery_lead"));
-    expect(document.body.textContent).toContain("AI player not connected yet: Tech lead");
-    expect(document.body.textContent).not.toContain("delivery_lead, tech_lead");
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Not everyone has joined and consented yet. Waiting for: delivery_lead. AI player not connected yet: Tech lead"));
   });
 
   it("a refusal listing an AI role in missing (older server) moves it to its own sentence", async () => {
@@ -794,8 +790,7 @@ describe("ConfirmDialog", () => {
     mount(readiness({ roster: AI_ROSTER, canStart: true }), { "/start": gate });
     await ready();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start" })); });
-    await waitFor(() => expect(document.body.textContent).toContain("AI player not connected yet: Tech lead"));
-    expect(document.body.textContent).not.toContain("Waiting for: tech_lead");
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Not everyone has joined and consented yet. AI player not connected yet: Tech lead"));
   });
 
   it("a refusal with reason ai_notice shows the BFF's message", async () => {
@@ -812,5 +807,19 @@ describe("ConfirmDialog", () => {
     mount(readiness({ roster: AI_ROSTER, canStart: false }));
     await ready();
     expect(document.body.textContent).not.toMatch(/notice v\d|agreed/i);
+  });
+
+  it("a refusal naming only a human reads exactly the human sentence", async () => {
+    const gate = { status: 409, body: { success: false, data: { started: false, reason: "seats_not_ready", missing: ["delivery_lead"], aiWaiting: [] }, error: { code: "conflict", message: "x" } } };
+    mount(readiness({ roster: AI_ROSTER, canStart: true }), { "/start": gate });
+    await ready();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start" })); });
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Not everyone has joined and consented yet. Waiting for: delivery_lead"));
+  });
+
+  it("only humans waiting: the start reason is exactly the human sentence", async () => {
+    mount(readiness({ roster: AI_ROSTER, missing: ["delivery_lead"] }));
+    await ready();
+    expect(document.getElementById("start-reason")!.textContent).toBe("Waiting for: delivery_lead");
   });
 });

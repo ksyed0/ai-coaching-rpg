@@ -232,4 +232,14 @@ describe("LiveView", () => {
     expect(text).toContain("AI player");
     expect(text).not.toContain("Pat");
   });
+
+  it("no console screen renders a notice version as agreed (live view and controls with a consent-bearing roster)", async () => {
+    const { ConsoleControls } = await import("../console/ConsoleControls");
+    const { fakeFetch } = await import("../../lib/__tests__/fakes");
+    const u = aiUi([{ seq: 1, ts: 1, kind: "line", text: "hi", roleId: "a" }]);
+    const st = { ...u.view!.state, consents: { a: { noticeVersion: "v2", at: 1 } } } as SessionState;
+    const withConsent = { ...u, view: { ...u.view!, state: st } };
+    const { container } = render(<><LiveView ui={withConsent} clock={new FakeClock(T)} /><ConsoleControls sessionId="abcd1234" ui={withConsent} fetch={fakeFetch().fetch} /></>);
+    expect(container.textContent).not.toMatch(/agreed|notice v\d/i);
+  });
 });

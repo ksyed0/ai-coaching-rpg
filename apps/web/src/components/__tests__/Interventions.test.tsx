@@ -407,4 +407,26 @@ describe("Interventions", () => {
       f.release();
     });
   });
+
+  it("an AI player's seat reads \"(AI player)\" and never its name in the whisper option, the inject audience and both confirm texts", () => {
+    const st = stateOf({
+      aiRoles: ["tech_lead"],
+      roles: { tech_lead: { kind: "player" }, client_sponsor: { kind: "npc" } },
+      currentScene: { id: "s1", enteredAt: 1, participants: ["tech_lead", "client_sponsor"], pausedMs: 0 },
+    });
+    const scenes = [{ ...SCENES[0]!, injects: [{ id: "i1", to: ["tech_lead"], content: "Heads up." }] }];
+    mount(uiOf({ scenes, roster: [{ roleId: "tech_lead", name: "Pat", joined: true, consented: false, connected: true, ai: true }] }, st));
+    const to = screen.getByLabelText("To") as HTMLSelectElement;
+    expect([...to.options].map((o) => o.textContent)).toEqual(["Tech lead (AI player)"]);
+    expect(document.body.textContent).not.toContain("Pat");
+    fireEvent.click(screen.getByRole("button", { name: "Fire inject i1" }));
+    let dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain("Tech lead (AI player)");
+    expect(dialog.textContent).not.toContain("Pat");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    fireEvent.change(screen.getByLabelText("Message"), { target: { value: "Hello" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send whisper" }));
+    dialog = screen.getByRole("dialog", { name: "Whisper to Tech lead (AI player)?" });
+    expect(dialog.textContent).not.toContain("Pat");
+  });
 });
