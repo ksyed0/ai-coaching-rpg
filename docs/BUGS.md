@@ -236,12 +236,14 @@ BUG-0018: npc-agent.silence.test.ts fails under heavy load
 Severity: Low
 Related Story: US-0032
 Related Task: None
-Status: Open
-Fix Branch: None
+Status: Fixed
+Fix Branch: fix/bug-0017-0018-hub-reset-and-silence-test
 Lesson Encoded: No
 ```
 
 `services/runtime/src/agents/__tests__/npc-agent.silence.test.ts` ("is linear on abusive input") has an absolute elapsed-time bound that a loaded machine can exceed; it was seen once in the slice 2b-2b1 work and passed in both close-out coverage runs. It is the same pattern as the 2026-10 coverage-check failures recorded in `docs/LESSONS.md`. Fix: assert the scaling between two input sizes (or count operations) and keep only a generous absolute cap.
+
+Fixed: the test already asserted scaling, not elapsed time: BUG-0006's fix (a2fd11f) moved it to `expectLinear` (8x the input must cost under 30x, best of runs, 60 s hang cap only), so the absolute bound described above was gone before this bug was filed and no product code is involved. The remaining exposure is noise in the best-of-3 samples, so the test now takes the best of 7 runs per size. Verified: 20 runs under 8 CPU burners passed (ratio 6.0 to 15.5 before the change, 6.7 to 11.6 after, limit 30), one run under `--coverage` passed (ratio 8.4), and a deliberately quadratic workload still fails `expectLinear` (ratio 85).
 
 ```
 BUG-0019: A facilitator whisper never reached a web player's screen
