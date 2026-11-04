@@ -10,7 +10,9 @@ import { ChildMessageSchema, ParentMessageSchema, type ChildMessage, type Parent
 import { isAllowedScenario, scenarioDir } from "./scenarios.js";
 import type { SessionList } from "./session-list.js";
 
-export type ControlErrorCode = "capacity" | "unknown_scenario" | "start_failed" | "timeout" | "bad_request" | "not_found" | "conflict" | "unavailable";
+export type ControlErrorCode =
+  | "capacity" | "unknown_scenario" | "start_failed" | "timeout" | "bad_request" | "not_found" | "conflict" | "unavailable"
+  | "ai_role" | "ai_notice" | "ai_started" | "ai_no_human" | "ai_too_many" | "ai_invalid";
 
 /** A plain, safe-to-show failure: the message never carries a path, port, token or code. */
 export class ControlError extends Error {
@@ -43,6 +45,18 @@ type Live = {
   /** The AI roles of the latest ready or successful set_ai_roles; a ready without aiRoles resets it. */
   aiRoles?: string[];
 };
+/** The runtime's fixed refusal reasons (services/runtime/src/host/set-ai-roles.ts, AI_ROLES_REFUSED) and the control code each becomes. */
+const AI_REFUSALS = new Map<string, ControlErrorCode>([
+  ["the consent notice in use does not mention AI players", "ai_notice"],
+  ["AI roles can only be changed before the start", "ai_started"],
+  ["not a player role of this session", "ai_invalid"],
+  ["at least one player role must stay human", "ai_no_human"],
+  ["at most 8 player roles can be AI players", "ai_too_many"],
+]);
+const AI_ROLES_FAILED = "the AI roles could not be changed";
+const AI_ROLE_REFUSED = "switch the role back to human first";
+export type AiRolesResult = { roles: string[]; codes: Codes };
+
 type PendingAiRoles = { sessionId: string; child: ChildHandle; resolve: (codes: Codes) => void; reject: (e: ControlError) => void; cancel: () => void; roles: string[] };
 type PendingReissue = { sessionId: string; child: ChildHandle; resolve: (code: string) => void; reject: (e: ControlError) => void; cancel: () => void };
 
@@ -78,6 +92,8 @@ export class Supervisor {
   private readonly pendingReissues = new Map<string, PendingReissue>();
   private readonly pendingAiRoles = new Map<string, PendingAiRoles>();
   private readonly settingAiRoles = new Set<string>();
+  /** The player roles in scenario order, from the create result's codes; orders the AI set setAiRoles returns. */
+  private readonly roleOrder = new Map<string, string[]>();
   private closed = false;
   private readonly bots?: BotHost;
 
@@ -133,6 +149,7 @@ export class Supervisor {
       timer.cancel?.();
       this.o.list.upsert({ sessionId, scenarioId, status: "running" });
       listed = true;
+      if (ready.codes) this.roleOrder.set(sessionId, ready.codes.map((c) => c.roleId));
       this.goLive(sessionId, scenarioId, spawned, exit, token, ready, endedSeen.v);
       this.logFn(`session ${sessionId} created`);
       return { sessionId, status: "running", port: ready.port, modelLabel: ready.modelLabel, codes: ready.codes! };
@@ -398,7 +415,11 @@ export class Supervisor {
     if (!p || p.child !== child) return;
     this.pendingAiRoles.delete(m.requestId);
     p.cancel();
-    if (m.type === "ai_roles_failed") { p.reject(new ControlError("conflict", m.reason)); return; }
+    if (m.type === "ai_roles_failed") {
+      const code = AI_REFUSALS.get(m.reason);
+      p.reject(code ? new ControlError(code, m.reason) : new ControlError("conflict", AI_ROLES_FAILED)); // an unknown reason is never echoed
+      return;
+    }
     const l = this.live.get(id);
     if (l && l.child === child) l.aiRoles = p.roles;
     p.resolve(m.codes);
@@ -409,33 +430,55 @@ export class Supervisor {
     return [...(this.live.get(id)?.aiRoles ?? [])];
   }
 
-  /** Switches the session's AI roles over IPC (no HTTP route, Ruling A1). Resolves with the new codes of the changed roles. */
-  setAiRoles(id: string, roles: string[]): Promise<Codes> {
+  /**
+   * Switches the session's AI roles over IPC (no HTTP route yet). Codes of roles now AI go only to the bots and are never returned;
+   * codes of roles now human are returned. `roles` is the new AI set in scenario order.
+   */
+  setAiRoles(id: string, roles: string[]): Promise<AiRolesResult> {
     if (!this.entryOf(id)) return Promise.reject(new ControlError("not_found", "that session does not exist"));
     const requestId = randomBytes(8).toString("hex");
     const msg = ParentMessageSchema.safeParse({ type: "set_ai_roles", requestId, roles });
     if (!msg.success) return Promise.reject(new ControlError("bad_request", "that AI roles request is not valid"));
     if (this.settingAiRoles.has(id)) return Promise.reject(new ControlError("conflict", "the AI roles are already being changed"));
     this.settingAiRoles.add(id);
-    return this.withLock(id, async () => {
-      const l = this.live.get(id);
-      if (!l || l.status !== "running" || !l.child) throw new ControlError("conflict", "the session is not running");
-      const child = l.child;
-      return await new Promise<Codes>((resolve, reject) => {
-        const cancel = this.setTimer(() => {
-          this.pendingAiRoles.delete(requestId);
-          reject(new ControlError("timeout", "the AI roles may or may not have changed; reissue the changed roles"));
-        }, this.reissueTimeoutMs);
-        this.pendingAiRoles.set(requestId, { sessionId: id, child, resolve, reject, cancel, roles: [...roles] });
-        let sent = false;
-        try { sent = child.send(msg.data); } catch { sent = false; }
-        if (!sent) {
-          this.pendingAiRoles.delete(requestId);
-          cancel();
-          reject(new ControlError("unavailable", "the session could not be reached"));
-        }
-      });
-    }).finally(() => { this.settingAiRoles.delete(id); });
+    return this.withLock(id, () => this.sendAiRolesLocked(id, requestId, msg.data)).finally(() => { this.settingAiRoles.delete(id); });
+  }
+
+  /** The set_ai_roles exchange and the split of its reply. Runs INSIDE `withLock`; it never takes the lock and never awaits the bots. */
+  private async sendAiRolesLocked(id: string, requestId: string, msg: ParentMessage): Promise<AiRolesResult> {
+    const l = this.live.get(id);
+    if (!l || l.status !== "running" || !l.child) throw new ControlError("conflict", "the session is not running");
+    const child = l.child;
+    const wanted = (msg as Extract<ParentMessage, { type: "set_ai_roles" }>).roles;
+    const order = this.roleOrder.get(id) ?? [];
+    const rank = (r: string): number => { const i = order.indexOf(r); return i < 0 ? order.length : i; };
+    const aiNow = [...wanted].sort((a, b) => rank(a) - rank(b));
+    const before = l.aiRoles ?? [];
+    const reply = await new Promise<Codes>((resolve, reject) => {
+      const cancel = this.setTimer(() => {
+        this.pendingAiRoles.delete(requestId);
+        reject(new ControlError("timeout", "the AI roles may or may not have changed; reissue the changed roles"));
+      }, this.reissueTimeoutMs);
+      this.pendingAiRoles.set(requestId, { sessionId: id, child, resolve, reject, cancel, roles: aiNow });
+      let sent = false;
+      try { sent = child.send(msg); } catch { sent = false; }
+      if (!sent) {
+        this.pendingAiRoles.delete(requestId);
+        cancel();
+        reject(new ControlError("unavailable", "the session could not be reached"));
+      }
+    });
+    const aiSet = new Set(aiNow);
+    const toBots = reply.filter((c) => aiSet.has(c.roleId));
+    const codes = reply.filter((c) => !aiSet.has(c.roleId));
+    const bots = this.bots;
+    if (bots) {
+      const failed = (what: string) => (err: unknown): void => this.logFn(`session ${id} bots ${what} failed (${err instanceof Error ? err.name : "error"})`);
+      const left = before.filter((r) => !aiSet.has(r));
+      if (toBots.length > 0) { try { void bots.setCodes(id, toBots).catch(failed("setCodes")); } catch (err) { failed("setCodes")(err); } }
+      if (left.length > 0) { try { void bots.removeRoles(id, left).catch(failed("removeRoles")); } catch (err) { failed("removeRoles")(err); } }
+    }
+    return { roles: [...aiNow], codes };
   }
 
   private markStopped(id: string, scenarioId: string): void {
@@ -511,7 +554,11 @@ export class Supervisor {
     const key = `${id}:${roleId}`;
     if (this.reissuing.has(key)) return Promise.reject(new ControlError("conflict", "a reissue for that role is already in progress"));
     this.reissuing.add(key);
-    return this.withLock(id, () => this.reissueLocked(id, msg)).finally(() => { this.reissuing.delete(key); });
+    return this.withLock(id, () => {
+      // Inside the lock: a set_ai_roles queued ahead may just have made the role AI. Nothing is sent for an AI role.
+      if (this.aiRolesOf(id).includes(roleId)) return Promise.reject(new ControlError("ai_role", AI_ROLE_REFUSED));
+      return this.reissueLocked(id, msg);
+    }).finally(() => { this.reissuing.delete(key); });
   }
 
   /**

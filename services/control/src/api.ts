@@ -12,6 +12,7 @@ type Envelope<T> = { success: boolean; data: T | null; error: { code: string; me
 
 const STATUS: Record<ControlErrorCode, number> = {
   bad_request: 400, unknown_scenario: 400, not_found: 404, conflict: 409, capacity: 429, timeout: 504, start_failed: 502, unavailable: 503,
+  ai_role: 409, ai_notice: 409, ai_started: 409, ai_no_human: 409, ai_too_many: 409, ai_invalid: 400,
 };
 const BAD_REQUEST = "That request is not valid.";
 const UNAUTHORIZED = "Unauthorized.";
