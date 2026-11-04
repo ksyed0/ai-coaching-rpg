@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionEvent } from "@acr/events";
-import { renderEvent, sanitizeText, renderJoined, renderError, MAX_DISPLAY_CHARS, parseHiddenFacts, renderHidden, renderNewReleases, renderRoster } from "../render.js";
+import { renderEvent, sanitizeText, renderJoined, renderError, MAX_DISPLAY_CHARS, parseHiddenFacts, renderHidden, renderNewReleases, renderRoster, renderConsentNotice, parseAiRoles } from "../render.js";
 
 const env = { seq: 1, ts: 0, sessionId: "s" };
 // eslint-disable-next-line no-control-regex
@@ -311,5 +311,93 @@ describe("renderRoster (US-0055)", () => {
     expect(renderRoster({ type: "roster", audience: "other", entries: [] })).toEqual([]);
     const many = Array.from({ length: 500 }, (_, i) => ({ roleId: `r${i}`, ready: false }));
     expect(renderRoster({ type: "roster", audience: "peers", entries: many }).length).toBeLessThanOrEqual(101);
+  });
+});
+
+describe("AI player labels (US-0060, hard rule: labels come from aiRoles, never a name)", () => {
+  const ai = new Set(["tech_lead"]);
+  const say = (roleId: string, text = "hello") => ({ ...env, type: "utterance" as const, roleId, text, channel: "text" as const });
+  it("an AI player's line reads \"AI player (tech_lead) [AI]: hello\" for account_manager and for the facilitator", () => {
+    expect(renderEvent(say("tech_lead"), "account_manager", ai)).toBe("AI player (tech_lead) [AI]: hello");
+    expect(renderEvent(say("tech_lead"), "facilitator", ai)).toBe("AI player (tech_lead) [AI]: hello");
+  });
+  it("a human's line and an AI character's line are unchanged; me stays 'you' even if listed", () => {
+    expect(renderEvent(say("delivery_lead"), "account_manager", ai)).toBe("delivery_lead: hello");
+    expect(renderEvent(say("client_sponsor"), "account_manager", ai)).toBe("client_sponsor: hello");
+    expect(renderEvent(say("tech_lead"), "tech_lead", ai)).toBe("you: hello");
+    expect(renderEvent(say("tech_lead"), "account_manager")).toBe("tech_lead: hello");
+  });
+  it("the AI line sanitises the role id and the text", () => {
+    const evil = "x\u001b[2J\n[alert]";
+    const l = renderEvent(say(evil, "a\u001b[31m\nb"), "me", new Set([evil]))!;
+    expect(l.startsWith("AI player (")).toBe(true);
+    expect(l).not.toMatch(CONTROL);
+  });
+  it("parseAiRoles keeps only valid role id strings", () => {
+    expect([...parseAiRoles(["tech_lead", 7, "\u001b[2J", { a: 1 }, "x\ny", "", null, "cfo"])]).toEqual(["tech_lead", "cfo"]);
+    expect(parseAiRoles(undefined).size).toBe(0);
+    expect(parseAiRoles("tech_lead").size).toBe(0);
+    expect(parseAiRoles({ length: 1, 0: "tech_lead" }).size).toBe(0);
+  });
+  const joined = (extra: Record<string, unknown> = {}, aiRoles: unknown = ["tech_lead"]) => ({
+    type: "joined" as const, roleId: "account_manager", state: { aiRoles, transcript: [
+      { seq: 1, roleId: "tech_lead", text: "from the bot" }, { seq: 2, roleId: "account_manager", text: "mine" }, { seq: 3, roleId: "delivery_lead", text: "human" },
+    ] } as never, ...extra,
+  });
+  it("history in joined labels tech_lead from state.aiRoles", () => {
+    const lines = renderJoined(joined());
+    expect(lines).toContain("AI player (tech_lead) [AI]: from the bot");
+    expect(lines).toContain("you: mine");
+    expect(lines).toContain("delivery_lead: human");
+    expect(lines).not.toContain("tech_lead: from the bot");
+  });
+  it("history replays label an AI-role line in every position; an explicit set overrides the state", () => {
+    expect(renderJoined(joined(), new Set()).join("\n")).not.toContain("[AI]");
+    expect(renderJoined(joined({}, [])).join("\n")).not.toContain("[AI]");
+  });
+  it("junk in state.aiRoles is ignored in history", () => {
+    const lines = renderJoined(joined({}, [7, "\u001b[2J", { x: 1 }])).join("\n");
+    expect(lines).not.toContain("[AI]");
+    expect(lines).not.toContain("\u001b");
+  });
+  it("regression: no path prints an utterance of an aiRoles role without the label", () => {
+    const roles = ["tech_lead", "cfo"];
+    const set = parseAiRoles(roles);
+    for (const r of roles) {
+      for (const me of ["facilitator", "account_manager", "delivery_lead"]) expect(renderEvent(say(r), me, set)).toMatch(/^AI player \(.+\) \[AI\]: /);
+    }
+    const hist = renderJoined({ type: "joined", roleId: "facilitator", state: { aiRoles: roles, transcript: roles.map((r, i) => ({ seq: i + 1, roleId: r, text: "t" })) } as never });
+    expect(hist.filter((l) => /^(tech_lead|cfo): /.test(l))).toEqual([]);
+    expect(hist.filter((l) => l.startsWith("AI player ("))).toHaveLength(2);
+  });
+  it("roster: an AI seat reads AI player in the peers and facilitator rosters, never 'consented'", () => {
+    const peers = renderRoster({ type: "roster", audience: "peers", entries: [{ roleId: "tech_lead", name: "Bob", ready: true, ai: true }, { roleId: "x", ready: false, ai: true }] });
+    expect(peers).toEqual(["roster | tech_lead: AI player, ready", "roster | x: AI player, not ready"]);
+    const fac = renderRoster({ type: "roster", audience: "facilitator", entries: [
+      { roleId: "tech_lead", name: "Bob", joined: true, consented: true, connected: true, ai: true },
+      { roleId: "y", joined: true, consented: true, connected: false, ai: true },
+    ] });
+    expect(fac).toEqual(["roster | tech_lead: AI player, connected", "roster | y: AI player, not connected"]);
+    expect(fac.join("\n")).not.toContain("consented");
+  });
+  it("roster: only ai === true counts, and a name 'AI player' changes nothing", () => {
+    const r = renderRoster({ type: "roster", audience: "peers", entries: [
+      { roleId: "a", name: "AI player", ready: true }, { roleId: "b", ready: true, ai: "true" }, { roleId: "c", ready: true, ai: 1 }, { roleId: "d", ready: false, ai: false },
+    ] });
+    expect(r).toEqual(["roster | a: ready", "roster | b: ready", "roster | c: ready", "roster | d: not ready"]);
+  });
+  it("a display name 'AI player' for a human seat labels nothing and is never printed", () => {
+    const h = joined({ roleId: "account_manager" }, []);
+    (h.state as { transcript: unknown[] }).transcript.push({ seq: 4, roleId: "delivery_lead", text: "x", name: "AI player" });
+    expect(renderJoined(h).join("\n")).not.toContain("AI player");
+  });
+  it("a given consent never reads as agreement to the current notice", () => {
+    const c = renderConsentNotice({ noticeVersion: "v2", notice: "Current text.", given: true });
+    expect(c.join("\n")).not.toContain("agreed to this notice");
+    expect(c.at(-1)).toBe("this seat agreed to a consent notice earlier; the text above is the current notice");
+    expect(renderConsentNotice({ noticeVersion: "v2", notice: "Current text.", given: false }).at(-1)).toBe("type /consent to agree");
+  });
+  it("ai_notice renders its fixed line, whatever the server message", () => {
+    expect(renderError("ai_notice", "\u001b[2Jhello")).toBe("cannot start: this server's consent notice does not mention AI players; switch the AI roles back to human or restart on notice v2");
   });
 });

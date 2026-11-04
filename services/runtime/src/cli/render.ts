@@ -1,4 +1,5 @@
 import type { SessionEvent } from "@acr/events";
+import { isSafeId } from "@acr/events";
 import type { ServerMessage } from "../host/protocol.js";
 
 /** Longest server-supplied string we will display (R26). */
@@ -35,11 +36,32 @@ const s = sanitizeText;
 /** Most history lines shown when joining (or rejoining). */
 export const MAX_HISTORY_LINES = 50;
 
+/** Most AI role ids the client keeps: a broken server cannot make it grow a set without bound. */
+const MAX_AI_ROLES = 100;
+
+/**
+ * US-0060: the player roles an AI plays, from a `joined` snapshot's `state.aiRoles` or a `session.started` event's `aiRoles`. Only strings that
+ * are valid role ids are kept (a number, an object or a string with control characters is dropped, never printed). This set, and only this
+ * set, decides every "AI player" label: a display name never does.
+ */
+export function parseAiRoles(v: unknown): Set<string> {
+  const out = new Set<string>();
+  if (!Array.isArray(v)) return out;
+  for (const r of v.slice(0, MAX_AI_ROLES)) if (typeof r === "string" && isSafeId(r)) out.add(r);
+  return out;
+}
+
+/** One chat line: `you` for the viewer's own role, `AI player (<role>) [AI]` for a role in `ai`, the sanitised role id otherwise. */
+function speaker(roleId: string, me: string, ai: ReadonlySet<string>): string {
+  if (roleId === me) return "you";
+  return ai.has(roleId) ? `AI player (${s(roleId)}) [AI]` : s(roleId);
+}
+
 /** One printable line for an event, or null when this viewer should see nothing. Unknown event types render nothing. */
-export function renderEvent(e: SessionEvent, me: string): string | null {
+export function renderEvent(e: SessionEvent, me: string, ai: ReadonlySet<string> = new Set()): string | null {
   const isFacilitator = me === "facilitator";
   switch (e.type) {
-    case "utterance": return `${e.roleId === me ? "you" : s(e.roleId)}: ${s(e.text)}`;
+    case "utterance": return `${speaker(e.roleId, me, ai)}: ${s(e.text)}`;
     case "scene.entered": return `--- scene ${s(e.sceneId)} ---`;
     case "scene.exited": return `--- scene ${s(e.sceneId)} ended (${s(e.reason)}) ---`;
     case "inject.fired": return `[inject] ${s(e.content)}`;
@@ -124,7 +146,7 @@ export function renderNewReleases(e: Extract<SessionEvent, { type: "npc.updated"
   });
 }
 
-export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>): string[] {
+export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>, ai: ReadonlySet<string> = parseAiRoles((m.state as { aiRoles?: unknown } | undefined)?.aiRoles)): string[] {
   const lines = [`joined as ${s(m.roleId)}`]; // never the reconnect token
   if (m.notice) lines.push(`warning: ${s(m.notice)}`);
   if (m.roleId === "facilitator") {
@@ -145,7 +167,7 @@ export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>): str
     const shown = transcript.slice(-MAX_HISTORY_LINES);
     lines.push("--- history ---");
     if (transcript.length > shown.length) lines.push(`(+${transcript.length - shown.length} earlier lines)`);
-    for (const u of shown) lines.push(`${u.roleId === m.roleId ? "you" : s(u.roleId)}: ${s(u.text)}`);
+    for (const u of shown) lines.push(`${speaker(u.roleId, m.roleId, ai)}: ${s(u.text)}`);
   }
   if (replay?.complete) lines.push(`(catching up: ${replay.events} missed event${replay.events === 1 ? "" : "s"} follow)`);
   else if (replay) lines.push("(too much was missed to replay it: the history above is what you may see; earlier injects and whispers are not shown)");
@@ -175,7 +197,7 @@ export function renderConsentNotice(c: unknown): string[] {
   // Every notice line (and the cap marker) carries the prefix, so nothing the server wrote can pass for a chat line, an event, an alert or the client's own hint.
   const shown = all.slice(0, MAX_NOTICE_LINES).map((l) => `notice | ${s(l)}`);
   const more = all.length - shown.length;
-  return ["", ...shown, ...(more > 0 ? [`notice | (${more} more lines not shown)`] : []), o.given === true ? "you have agreed to this notice" : "type /consent to agree"];
+  return ["", ...shown, ...(more > 0 ? [`notice | (${more} more lines not shown)`] : []), o.given === true ? "this seat agreed to a consent notice earlier; the text above is the current notice" : "type /consent to agree"];
 }
 
 /** Most roster lines printed: a broken server cannot make the client print without bound. */
@@ -195,11 +217,14 @@ export function renderRoster(m: unknown): string[] {
     if (typeof raw !== "object" || raw === null) continue;
     const e = raw as Record<string, unknown>;
     if (typeof e.roleId !== "string") continue;
-    const state = o.audience === "peers"
-      ? (e.ready === true ? "ready" : "not ready")
-      : e.joined === true
-        ? `joined, ${e.consented === true ? "consented" : "not consented"}, ${e.connected === true ? "connected" : "not connected"}`
-        : "not joined";
+    // US-0060: the server's `ai` flag (from aiRoles) marks an AI seat; it says nothing about consent, which a bot never gives.
+    const state = e.ai === true
+      ? `AI player, ${o.audience === "peers" ? (e.ready === true ? "ready" : "not ready") : (e.connected === true ? "connected" : "not connected")}`
+      : o.audience === "peers"
+        ? (e.ready === true ? "ready" : "not ready")
+        : e.joined === true
+          ? `joined, ${e.consented === true ? "consented" : "not consented"}, ${e.connected === true ? "connected" : "not connected"}`
+          : "not joined";
     lines.push(`roster | ${s(e.roleId)}: ${state}`);
   }
   return lines;
@@ -215,6 +240,7 @@ export function renderError(code: string, message: string, asPlayer = false): st
     return `cannot start yet: ${roles ? `waiting for ${s(roles)} to join and type /consent` : "every player must join and type /consent"}`;
   }
   if (code === "consent_required") return "you have not agreed to the notice for this seat: type /consent";
+  if (code === "ai_notice") return "cannot start: this server's consent notice does not mention AI players; switch the AI roles back to human or restart on notice v2";
   if (code === "rate_limited") return "slow down: too many messages, some were dropped";
   if (code === "log_failed") return "the server can no longer record this session and is stopping; when it is back, rejoin: the session resumes, paused, from its log";
   return `error: ${s(code)}: ${s(message)}`;

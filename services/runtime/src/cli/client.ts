@@ -1,6 +1,6 @@
 import type { Options } from "./commands.js";
 import { isFatalError, joinMessage, parseInput, parseServerMessage } from "./commands.js";
-import { parseFactsEarned, parseHiddenFacts, renderConsentNotice, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, renderRoster, sanitizeText, validReplay } from "./render.js";
+import { parseAiRoles, parseFactsEarned, parseHiddenFacts, renderConsentNotice, renderError, renderEvent, renderHidden, renderJoined, renderNewReleases, renderRoster, sanitizeText, validReplay } from "./render.js";
 
 export const MAX_PREJOIN_LINES = 100;
 export const DEFAULT_IDLE_MS = 1_500;
@@ -44,6 +44,8 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
   // US-0054: the notice version the server announced at join; /consent sends exactly this one. Null: no consent is asked for.
   let noticeVersion: string | null = null;
   let lastRoster: string | null = null;
+  // US-0060: the player roles an AI plays. Replaced (never accumulated) by every joined snapshot and session.started; the only source of AI labels.
+  let ai: ReadonlySet<string> = new Set();
 
   function finish(code: number, message?: string, polite = false): void {
     if (done) return;
@@ -94,7 +96,8 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
             if (Array.isArray(r)) released.set(role, r.filter((t): t is string => typeof t === "string"));
           }
         }
-        for (const l of renderJoined(m)) io.print(l);
+        ai = parseAiRoles((m.state as { aiRoles?: unknown } | undefined)?.aiRoles);
+        for (const l of renderJoined(m, ai)) io.print(l);
         if (!opts.facilitator) {
           const c = m.consent as { noticeVersion?: unknown } | undefined;
           noticeVersion = typeof c?.noticeVersion === "string" ? c.noticeVersion : null;
@@ -108,7 +111,8 @@ export function createClient(deps: { opts: Options; sock: Sock; io: Io; idleMs?:
           if (dedupeUpTo !== null) { if (seq <= dedupeUpTo) return; dedupeUpTo = seq; }
           if (seen === null || seq > seen) seen = seq;
         }
-        const line = renderEvent(m.event, opts.facilitator ? "facilitator" : opts.role!);
+        if (m.event.type === "session.started") ai = parseAiRoles(m.event.aiRoles);
+        const line = renderEvent(m.event, opts.facilitator ? "facilitator" : opts.role!, ai);
         if (line) io.print(line);
         // US-0013 M1: a release that happened while away arrives as its replayed command; its npc.updated adds nothing new to the
         // snapshot's released list, so name the fact here (the facilitator's own hidden-fact list holds the text).
