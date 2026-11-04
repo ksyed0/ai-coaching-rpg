@@ -259,6 +259,9 @@ test("end now with a closing message: players see the message, the console keeps
   await expect(controls(fac)).toHaveCount(0);
   await expect(fac.getByRole("heading", { name: "Facilitator controls" })).toHaveCount(0);
   await expect(fac.getByText("The session has ended.", { exact: true })).toHaveCount(1);
+  // BUG-0022: the End session button and its dialog are gone, so keyboard focus is on the final banner (not the page body).
+  await expect(fac.getByText("The session has ended.", { exact: true })).toBeFocused();
+  expect(await fac.evaluate(() => document.activeElement?.textContent)).toBe("The session has ended.");
 
   await fac.goto(`${s.baseUrl}/console/${sessionId}`);
   await expect(fac.getByText("This session has ended.", { exact: true })).toBeVisible();
