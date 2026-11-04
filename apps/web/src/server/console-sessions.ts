@@ -3,7 +3,7 @@ import {
   isScenarioId,
   isValidSessionId,
 } from "@acr/events";
-import { aiAnswer } from "./console-ai";
+import { aiAnswer } from "./console-ai-copy";
 import { requireConsole } from "./console-handlers";
 import type { ConsoleSession } from "./console-session";
 import { fail, ok } from "./envelope";
@@ -77,7 +77,7 @@ export function sessionIdOf(req: Request): string | null {
 export const isId = (v: unknown): v is string =>
   typeof v === "string" && v.length <= CLIENT_ID_MAX_CHARS && isScenarioId(v);
 
-/** A JSON object of at most 1 KiB whose keys are all in `allowed`; an empty body is `{}`. Null for anything else. */
+/** A JSON object of at most `maxBytes` (default 1 KiB) whose keys are all in `allowed`; an empty body is `{}`. Null for anything else. */
 export async function readBody(
   req: Request,
   allowed: readonly string[],

@@ -107,6 +107,9 @@ const isPort = (v: unknown): v is number =>
 const isStatus = (v: unknown): v is SessionInfo["status"] =>
   v === "running" || v === "stopped" || v === "ended";
 
+const isId = (v: unknown): v is string =>
+  typeof v === "string" && v.length <= CLIENT_ID_MAX_CHARS && isScenarioId(v);
+
 const bad = (): never => {
   throw new LauncherError("failed");
 };
@@ -143,7 +146,7 @@ function toInfo(v: unknown): SessionInfo {
 function toIntent(v: unknown): IntentEntry | null {
   if (!isObject(v)) return null;
   if (typeof v.ts !== "number" || !Number.isFinite(v.ts)) return null;
-  if (v.sceneId !== null && typeof v.sceneId !== "string") return null;
+  if (v.sceneId !== null && !isId(v.sceneId)) return null;
   if (typeof v.trigger !== "string" || !TRIGGERS.includes(v.trigger)) return null;
   if (typeof v.outcome !== "string" || !OUTCOMES.includes(v.outcome)) return null;
   if (v.reason !== undefined && (typeof v.reason !== "string" || !REASONS.includes(v.reason))) return null;
@@ -300,7 +303,7 @@ export class LauncherClient {
     );
     if (!isObject(d) || !Array.isArray(d.roles)) return bad();
     return {
-      roles: d.roles.map((r) => (isText(r) ? r : bad())),
+      roles: d.roles.map((r) => (isId(r) ? r : bad())),
       codes: toRoleCodes(d.codes),
     };
   }
@@ -309,8 +312,7 @@ export class LauncherClient {
   async intents(id: string, roleId: string): Promise<IntentEntry[]> {
     if (
       typeof roleId !== "string" ||
-      roleId.length > CLIENT_ID_MAX_CHARS ||
-      !isScenarioId(roleId)
+      !isId(roleId)
     )
       throw new LauncherError("not_found");
     const d = await this.call(

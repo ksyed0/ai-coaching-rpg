@@ -1,7 +1,8 @@
 import { fail, ok } from "./envelope";
 import { failure, guard, isId, readBody, sessionIdOf } from "./console-sessions";
 import type { Deps } from "./handlers";
-import { LauncherError, type LauncherReason } from "./launcher-client";
+import { UNCONFIRMED } from "./console-ai-copy";
+import { LauncherError } from "./launcher-client";
 
 // US-0060: the facilitator console's AI-role routes. Same pipeline as the other console state changes: cookie, Origin + custom header +
 // Fetch-Metadata, a small body limit, strict validation, and only then the launcher. Every answer is built field by field here; the
@@ -9,24 +10,6 @@ import { LauncherError, type LauncherReason } from "./launcher-client";
 
 export const AI_BODY_MAX_BYTES = 4 * 1024;
 const MAX_AI_ROLE_REQUEST = 12;
-
-/** The BFF's own words for each refusal of the control service (the launcher's text is never used). */
-export const AI_COPY = {
-  ai_role: { status: 409, text: "This role is played by an AI player. Switch it back to human first." },
-  ai_notice: { status: 409, text: "This server's consent notice does not mention AI players. AI players need notice v2 or later." },
-  ai_started: { status: 409, text: "Roles can no longer be changed: the session has started." },
-  ai_no_human: { status: 409, text: "At least one role must stay human." },
-  ai_too_many: { status: 409, text: "At most 8 roles can be AI players." },
-} as const;
-const UNCONFIRMED = "The change may or may not have been made. Check the roster, then switch the role again.";
-
-/** The answer for an `ai_*` launcher reason that has its own copy; null for every other reason (`ai_invalid` is a plain bad request). */
-export function aiAnswer(reason: LauncherReason): Response | null {
-  if (reason === "ai_invalid") return fail(400, "bad_request", "The request could not be read.");
-  if (!Object.hasOwn(AI_COPY, reason)) return null;
-  const c = AI_COPY[reason as keyof typeof AI_COPY];
-  return fail(c.status, reason, c.text);
-}
 
 const badRequest = () => fail(400, "bad_request", "The request could not be read.");
 const notFound = () => fail(404, "not_found", "That session was not found.");

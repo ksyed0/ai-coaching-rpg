@@ -563,6 +563,19 @@ describe("LauncherClient AI roles", () => {
     expect(await client(g.fetch).intents(SID, "tech_lead")).toHaveLength(50);
   });
 
+  it("intents: an entry whose sceneId is not an id (or too long) is dropped", async () => {
+    const good = { ts: 5, trigger: "reply", outcome: "spoken" };
+    const f = fakeFetch(() =>
+      reply(envelope({ entries: [{ ...good, sceneId: "Not An Id" }, { ...good, sceneId: "x".repeat(129) }, { ...good, sceneId: "scene_1" }] })),
+    );
+    expect(await client(f.fetch).intents(SID, "tech_lead")).toEqual([{ ...good, sceneId: "scene_1" }]);
+  });
+
+  it("setAiRoles: a returned role that is not an id is a failure", async () => {
+    const f = fakeFetch(() => reply(envelope({ roles: ["Tech Lead"], codes: [] })));
+    expect((await reasonOf(client(f.fetch).setAiRoles(SID, []))).reason).toBe("failed");
+  });
+
   it("intents: a role id that is not an id never reaches the network", async () => {
     const f = fakeFetch(() => reply(envelope({ entries: [] })));
     for (const bad of ["../x", "a/b", "Tech Lead", "", "x".repeat(129)])
