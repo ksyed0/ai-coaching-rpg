@@ -102,6 +102,40 @@ describe("BotHost", () => {
     expect(h.isAiConnected(SID, "tech_lead")).toBe(true);
   });
 
+  it("attach with codes stores the code first: no reissue, and one socket opens with that code", async () => {
+    const h = mk();
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: SECRET }] });
+    await flush();
+    expect(reissue).not.toHaveBeenCalled();
+    expect(socks).toHaveLength(1);
+    expect(socks[0]!.opts.code).toBe(SECRET);
+    expect(strings.filter((x) => x === SECRET)).toEqual([]); // never logged or alerted
+  });
+
+  it("a code for a role that was removed is taken when the role is in aiRoles of the same attach; a code for a role not in aiRoles is dropped", async () => {
+    const h = mk();
+    await h.attach(SID, { port: 4000, aiRoles: [] });
+    await h.removeRoles(SID, ["tech_lead"]);
+    await h.setCodes(SID, [{ roleId: "tech_lead", code: "IGNORED" }]);
+    await flush();
+    expect(socks).toHaveLength(0);
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: "NEW-1" }, { roleId: "account_manager", code: "NOPE" }] });
+    await flush();
+    expect(reissue).not.toHaveBeenCalled();
+    expect(socks.map((x) => [x.opts.roleId, x.opts.code])).toEqual([["tech_lead", "NEW-1"]]);
+  });
+
+  it("attach with the same port and code of a connected bot does not bounce it", async () => {
+    const h = mk();
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: "C1" }] });
+    await flush();
+    joined(socks[0]!);
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: "C1" }] });
+    await flush();
+    expect(socks).toHaveLength(1);
+    expect(socks[0]!.closeCalls).toBe(0);
+  });
+
   it("a failing reissue logs 'could not get a code' and nothing else", async () => {
     reissue.mockRejectedValue(new Error("boom " + SECRET));
     const h = mk();

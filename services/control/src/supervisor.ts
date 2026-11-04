@@ -7,6 +7,7 @@ import { buildChildEnv } from "./child-env.js";
 import type { ControlConfig } from "./config.js";
 import { readLogStatus } from "./log-tail.js";
 import { ChildMessageSchema, ParentMessageSchema, type ChildMessage, type ParentMessage } from "./protocol.js";
+import { loadScenario } from "@acr/script";
 import { isAllowedScenario, scenarioDir } from "./scenarios.js";
 import type { SessionList } from "./session-list.js";
 
@@ -46,14 +47,14 @@ type Live = {
   aiRoles?: string[];
 };
 /** The runtime's fixed refusal reasons (services/runtime/src/host/set-ai-roles.ts, AI_ROLES_REFUSED) and the control code each becomes. */
-const AI_REFUSALS = new Map<string, ControlErrorCode>([
+export const AI_REFUSALS = new Map<string, ControlErrorCode>([
   ["the consent notice in use does not mention AI players", "ai_notice"],
   ["AI roles can only be changed before the start", "ai_started"],
   ["not a player role of this session", "ai_invalid"],
   ["at least one player role must stay human", "ai_no_human"],
   ["at most 8 player roles can be AI players", "ai_too_many"],
 ]);
-const AI_ROLES_FAILED = "the AI roles could not be changed";
+export const AI_ROLES_FAILED = "the AI roles could not be changed";
 const AI_ROLE_REFUSED = "switch the role back to human first";
 export type AiRolesResult = { roles: string[]; codes: Codes };
 
@@ -149,7 +150,6 @@ export class Supervisor {
       timer.cancel?.();
       this.o.list.upsert({ sessionId, scenarioId, status: "running" });
       listed = true;
-      if (ready.codes) this.roleOrder.set(sessionId, ready.codes.map((c) => c.roleId));
       this.goLive(sessionId, scenarioId, spawned, exit, token, ready, endedSeen.v);
       this.logFn(`session ${sessionId} created`);
       return { sessionId, status: "running", port: ready.port, modelLabel: ready.modelLabel, codes: ready.codes! };
@@ -255,6 +255,7 @@ export class Supervisor {
   }
 
   private cleanup(sessionId: string, listed: boolean): void {
+    this.roleOrder.delete(sessionId);
     if (listed) { try { this.o.list.remove(sessionId); } catch { /* the entry was never written */ } }
     if (!isValidSessionId(sessionId)) return; // never build a path to delete from an id that is not one
     try {
@@ -315,6 +316,7 @@ export class Supervisor {
   /** Registers a started child as the session's live process and installs its handlers. */
   private goLive(id: string, scenarioId: string, child: ChildHandle, exit: ExitState, token: string, ready: ReadyInfo, endedEarly = false): void {
     this.live.get(id)?.graceCancel?.();
+    if (ready.codes) this.roleOrder.set(id, ready.codes.map((c) => c.roleId));
     this.live.set(id, { scenarioId, status: "running", port: ready.port, modelLabel: ready.modelLabel, child, token, aiRoles: ready.aiRoles ?? [] });
     child.onMessage((raw) => {
       const parsed = ChildMessageSchema.safeParse(raw);
@@ -366,6 +368,7 @@ export class Supervisor {
     const l = this.live.get(id);
     if (!l || l.child !== child || l.status === "ended" || this.closed) return;
     l.status = "ended";
+    this.roleOrder.delete(id);
     delete l.token; delete l.port; delete l.modelLabel;
     this.persist(id, l.scenarioId, "ended");
     this.logFn(`session ${id} ended`);
@@ -450,7 +453,7 @@ export class Supervisor {
     if (!l || l.status !== "running" || !l.child) throw new ControlError("conflict", "the session is not running");
     const child = l.child;
     const wanted = (msg as Extract<ParentMessage, { type: "set_ai_roles" }>).roles;
-    const order = this.roleOrder.get(id) ?? [];
+    const order = await this.playerOrder(id, l.scenarioId);
     const rank = (r: string): number => { const i = order.indexOf(r); return i < 0 ? order.length : i; };
     const aiNow = [...wanted].sort((a, b) => rank(a) - rank(b));
     const before = l.aiRoles ?? [];
@@ -472,13 +475,28 @@ export class Supervisor {
     const toBots = reply.filter((c) => aiSet.has(c.roleId));
     const codes = reply.filter((c) => !aiSet.has(c.roleId));
     const bots = this.bots;
-    if (bots) {
+    const now = this.live.get(id);
+    // The bots are told only while the same child still runs on a known port (nothing is awaited here: the host has its own chain).
+    if (bots && now && now.child === child && now.status === "running" && now.port !== undefined) {
       const failed = (what: string) => (err: unknown): void => this.logFn(`session ${id} bots ${what} failed (${err instanceof Error ? err.name : "error"})`);
       const left = before.filter((r) => !aiSet.has(r));
-      if (toBots.length > 0) { try { void bots.setCodes(id, toBots).catch(failed("setCodes")); } catch (err) { failed("setCodes")(err); } }
+      // Order matters: removeRoles first, then ONE attach that takes the new AI roles in with their codes (setCodes would drop them).
       if (left.length > 0) { try { void bots.removeRoles(id, left).catch(failed("removeRoles")); } catch (err) { failed("removeRoles")(err); } }
+      try { void bots.attach(id, { port: now.port, aiRoles: [...aiNow], codes: toBots }).catch(failed("attach")); } catch (err) { failed("attach")(err); }
     }
     return { roles: [...aiNow], codes };
+  }
+
+  /** The session's player roles in scenario order: the create codes if known, else the scenario file; [] if neither is readable. */
+  private async playerOrder(id: string, scenarioId: string): Promise<string[]> {
+    const known = this.roleOrder.get(id);
+    if (known) return known;
+    try {
+      const sc = await loadScenario(scenarioDir(this.o.config.scenariosDir, scenarioId));
+      const order = Object.values(sc.roles).filter((r) => r.type === "player").map((r) => r.id);
+      this.roleOrder.set(id, order);
+      return order;
+    } catch { return []; }
   }
 
   private markStopped(id: string, scenarioId: string): void {

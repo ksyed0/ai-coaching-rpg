@@ -71,7 +71,11 @@ export class BotHost {
 
   // --- public API ---
 
-  attach(sessionId: string, o: { port: number; aiRoles: string[]; aiCalls?: number }): Promise<void> {
+  /**
+   * `codes` (optional) are the join codes of roles that just became AI: stored before the reissue decision, so a role taken in with its
+   * code never asks for a reissue. A code for a role not in `aiRoles` is dropped.
+   */
+  attach(sessionId: string, o: { port: number; aiRoles: string[]; aiCalls?: number; codes?: { roleId: string; code: string }[] }): Promise<void> {
     return this.enqueue(sessionId, async () => {
       const st = this.state(sessionId);
       st.port = o.port;
@@ -82,6 +86,7 @@ export class BotHost {
       for (const r of [...st.aiRoles]) if (!wanted.has(r)) { st.aiRoles.delete(r); st.codes.delete(r); this.cancelRetry(st, r); }
       st.aiRoles = wanted;
       for (const r of wanted) st.removed.delete(r);
+      for (const c of o.codes ?? []) if (wanted.has(c.roleId)) st.codes.set(c.roleId, c.code);
       const work: Promise<void>[] = [];
       for (const r of wanted) {
         this.cancelRetry(st, r);
