@@ -1653,3 +1653,50 @@ Actual Result: As expected, 2026-11-03: step 1 1 file, 35 tests; step 2 6 files,
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-3b, PR 1 (Tasks 3 to 8). Nothing creates a BotHost or a bot in the control service yet, no route sets AI roles and no client shows one (PR 2); this case proves the parts. The node:22 container run of the new filesystem, socket and process tests (AGENTS.md section 8) is recorded in progress.md, not here. Nothing here covers the supervisor's use of the bots: PR 2 files its own test case.
+
+TC-0107: AI codes stay in the control service, the notice gate, the B14 recovery and the restarts of the bots
+Related Story: US-0060
+Related Task: TASK-0099
+Related AC: AC-0362
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/__tests__/main.ai-notice.test.ts` (Task 4: the runtime refuses AI roles and the start under a notice that does not name AI players).
+  2. Run `pnpm --filter @acr/control exec vitest run src/__tests__/supervisor.bots.test.ts src/__tests__/supervisor.bots.integration.test.ts src/__tests__/supervisor.ai-roles.test.ts src/__tests__/api.test.ts src/__tests__/bots.real.test.ts` (Tasks 10, 11, 12, 15 and 18: the supervisor wiring, the codes filter, the reissue refusal, the B14 recovery, the control routes, and real runtimes with real bots).
+  3. Run, from `apps/web`: `pnpm exec vitest run src/server/__tests__/ai-roles.runtime.test.ts src/server/__tests__/console-ai.test.ts src/server/__tests__/console-sessions.test.ts src/server/__tests__/launcher-client.test.ts` (Tasks 16 to 18: the BFF routes, the `ai_notice` refusal through the real runtime, and the BFF-wide leak scan).
+Expected Result: create, restart, resume, reissue-all and the set route never return an AI role's code (only the human roles' codes); a single-role reissue or remove of an AI role is refused `ai_role`, also while the role is uncertain after a timed-out set and also when it was queued behind a set that made the role AI; AI roles are refused (`ai_notice`) under a notice that does not name AI players, at the set and at the start, with the BFF's own copy; after a timed-out set the next set reissues each uncertain role and routes the codes by its wanted set; the bots rejoin after a runtime restart with the same code and after a control-service restart with one reissue each; the budget used after a control-service restart equals the AI lines in the log (an under-count, by design); no byte of a player frame, control response, log line or BFF body holds a bot's code, `scenecoach-bot`, its participant id or an intent line, and the scanner is shown to find each marker.
+Actual Result: As expected, 2026-11-04: step 1 1 file, 1 test; step 2 5 files, 99 tests; step 3 4 files, 129 tests (all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3b, PR 2 (Tasks 4 and 10 to 18). Known gaps are in docs/THREAT_MODEL.md, "Reachable AI seats": M-1 (a control-service restart that issues fresh codes drops a lobby's AI roles because no AI set is captured), the budget under-count, no headroom of the 8 AI roles against 8 sockets per key, the generic `start_failed` for more than 12 player roles, and empty injects in the bot's view. The AI toggle, Prompt AI player and the AI players panel are PR 3.
+
+TC-0108: the start gate counts bots apart and the console shows the counts
+Related Story: US-0060
+Related Task: TASK-0099
+Related AC: AC-0320
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run, from `apps/web`: `pnpm exec vitest run src/components/__tests__/Readiness.test.tsx src/components/__tests__/LiveView.test.tsx src/server/__tests__/facilitator-copies.test.ts src/server/__tests__/console-sessions.test.ts` (Tasks 14, 16 and 17: the roster `ai` flag, the readiness split `missing` / `aiWaiting`, the start reason and refusal text).
+  2. Run `pnpm --filter @acr/control exec vitest run src/__tests__/bots.real.test.ts` and, from `apps/web`, `pnpm exec vitest run src/server/__tests__/ai-roles.runtime.test.ts` (Task 18: a real runtime and a real bot: set roles, join, roster, consent, start; and through the BFF: readiness waits for the bot, then counts it).
+Expected Result: an AI seat's row reads "AI player" with a pill, consent "Not needed", no Reissue or Remove; `missing` holds only humans who have not joined and consented, `aiWaiting` the AI seats whose bot has not joined, and Start stays disabled until both are empty, with the reason "Waiting for: <humans>. AI player not connected yet: <roles>"; against the real runtime `session.started` records `aiRoles` and the bot's seat needed no consent.
+Actual Result: As expected, 2026-11-04: step 1 4 files, 107 tests; step 2 control 1 file, 8 tests, and `ai-roles.runtime.test.ts` (in the 129-test web run of TC-0107) (all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3b, PR 2 (Tasks 14, 16 to 18). The runtime part is TC-0102. No screen creates an AI role yet (the toggle is PR 3), so AC-0317 and AC-0318 stay open.
+
+TC-0109: AI seats and lines are labelled in the terminal, the console and the player page, and the intent log is facilitator-only
+Related Story: US-0060
+Related Task: TASK-0099
+Related AC: AC-0321
+Type: Regression
+Preconditions: A checkout of the branch.
+Steps:
+  1. Run `pnpm --filter @acr/runtime exec vitest run src/cli` (Task 13: the terminal client).
+  2. Run, from `apps/web`: `pnpm exec vitest run src/components/__tests__/LiveView.test.tsx src/components/__tests__/Readiness.test.tsx src/components/__tests__/Interventions.test.tsx src/components/__tests__/ConsentPanel.test.tsx src/components/__tests__/session-screen.test.tsx src/server/__tests__/console-ai.test.ts src/server/__tests__/launcher-client.test.ts` (Tasks 14, 16 and 17: the console, the consent wording, the intent log route and client).
+  3. Run `pnpm --filter @acr/control exec vitest run src/__tests__/bots.real.test.ts` (Task 18: the intent log and the leak scan against the real runtime).
+Expected Result: a line by an AI role reads `AI player (<role>) [AI]` in the terminal and "AI player" with an AI pill in the console, from `aiRoles` and never from a name (a human named like an AI gets no mark); the facilitator's `seats_not_ready` is split into humans and AI seats; whispers, injects, the "Words spoken" table and the notice labels name an AI seat as such; an adopted consent is never shown as agreement to the current notice text (terminal, console and player page); the intent log is read only through a facilitator-only POST, field by field (the hint cut to 300 code points, the last 50 entries, an unknown trigger, outcome or reason dropped), and no player frame carries an intent line.
+Actual Result: As expected, 2026-11-04: step 1 5 files, 198 tests; step 2 7 files, 185 tests; step 3 1 file, 8 tests (all passed).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3b, PR 2 (Tasks 13 to 18). AC-0321 stays open: reports and exports in 2b-3c and 2c. The terminal client labels AI seats and lines and does not refuse a terminal player's join (owner decision of 2026-11-03).
