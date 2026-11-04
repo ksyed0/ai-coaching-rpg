@@ -274,14 +274,16 @@ BUG-0021: After a control-service restart a lobby's AI roles can come back as hu
 Severity: Medium
 Related Story: US-0060
 Related Task: TASK-0099
-Status: Open
-Fix Branch: None
+Status: Fixed (fix/bug-0021-ai-roles-after-control-restart)
+Fix Branch: fix/bug-0021-ai-roles-after-control-restart
 Lesson Encoded: No
 ```
 
 Found by the whole-branch reviews of slice 2b-3b PR 2 (known gap M-1). `reissueAll`, `restart` and `resumeAll` capture the session's AI roles in memory (`aiRolesOf`) before a launch that issues fresh codes, and re-send them with `set_ai_roles` when the log is empty, because fresh codes remove `<id>.ai-roles.json`. After a control-service restart nothing is in memory, so `resumeAll` and `restart` capture an empty set: if the launch issued fresh codes (the codes file is missing or does not match), the runtime drops the lobby's AI-role file and the roles come back as human, silently. Needs a lost or mismatched codes file in an empty lobby plus a control restart; the facilitator has to reissue the codes anyway and the console shows the roles as human, so no human can end up in an AI seat and no AI line is unlabelled. Fix (proposed): before a launch, note whether `<id>.ai-roles.json` exists while `<id>.codes.json` is missing, and log a fixed line or flag it on the session info so the console tells the facilitator the AI roles were reset; or have the runtime's `ready` report the dropped set. Test: a new Supervisor over a data dir with an AI-role file and no codes file.
 
 **Slice 2b-3b PR 3 note:** the AI toggle is now on screen, so a facilitator can reach this gap without the API (set AI roles on a lobby, restart the control service so that fresh codes are issued). PR 3 changes nothing here and the bug stays open.
+
+Fixed: the runtime now reports what it dropped. In a managed empty-log start, `openSession` reads `<id>.ai-roles.json` before `settleCodes`/`settleSeats` can remove it (validated like every AI-role read; a corrupt, wrongly bound, oversized, symlinked or unreadable file means nothing to report, never an error), and when the seats were replaced it returns the roles as `aiRolesReset`; `bootstrap` sends them as the optional `aiRolesReset` field of `ready` (absent when empty, `.max(MAX_CODES)`, in both schema copies, pinned in `protocol.drift.test.ts`). In the control supervisor `afterCodedLaunch` uses `ready.aiRolesReset` as the set to restore when no set is captured in memory (the in-memory set wins); it re-sends `set_ai_roles` for an empty log only, hands AI codes to the bots through the existing attach and returns human codes only. A refused or failed re-send follows the existing rule (`conflict`, no codes, nothing opened, `resumeAll` logs a fixed line), so an `ai_notice` refusal leaves the roles human and the bot host unconfigured. A started log never re-sends. Verified: new tests in `session-store.ai-roles.test.ts`, `main.ai-roles.test.ts`, `supervisor.bots.integration.test.ts` (new Supervisor over the data dir with the real BotHost), `protocol.drift.test.ts`; reverting either half makes them fail; runtime 4005 and control 399 tests pass, and the new filesystem/process tests pass in the node:22 container as root and as `node`.
 
 ```
 BUG-0022: Keyboard focus falls to the page body after End session, a connection drop under a dialog or a 409 on Remove
