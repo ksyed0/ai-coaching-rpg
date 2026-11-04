@@ -3694,7 +3694,7 @@
       "assignee": "Agent",
       "status": "Done",
       "branch": "feature/EPIC-0002-US-0060-bot-engine (PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-seats-reachable and feature/EPIC-0002-US-0060-ai-toggle-prompt)",
-      "notes": "PR 1 (merged as #82; bot engine, no route) is the shared players/ module (the demo's player bot moved there, plus the live prompt with its fenced steer, the hint cleaner, the settings parser, a hard-timeout line generator that never returns a canned line, and the reactive TurnPolicy), the runtime limits (at most 8 AI roles, at most 12 player roles in a managed session, AI roles only under consent notice v2 or later, the AI reissue without the consent rebind), bot_alert and ready.aiCalls over IPC, and in the control service the bot socket, frame parser, session budget, intent log, AiPlayerBot and BotHost (AC-0319, AC-0361; TC-0105, TC-0106). PR 2 (merged as #83; AC-0320, AC-0321 progress, AC-0362; TC-0107 to TC-0109) wires the bots into the supervisor (attach after the start, rejoin after a runtime or control-service restart, the codes only in control-service memory), labels AI seats in the terminal client, console and player page, and only then adds the routes (PUT /sessions/:id/ai-roles and GET .../intents on the control service; POST /api/v1/console/sessions/:id/ai-roles and .../ai-roles/:roleId/intents on the BFF). PR 3 (feature/EPIC-0002-US-0060-ai-toggle-prompt; AC-0317, AC-0318, AC-0363; TC-0110 to TC-0113) adds the AI toggle with its confirmations, Prompt AI player (reserve, logged command, run; hint to the control service only; reservation 15 s) and the AI players panel, with end-to-end specs and Axe states (35 e2e specs pass). Known gap BUG-0021 (a lobby's AI roles can come back as human after a control-service restart) is open. No release before slice 2b-3c. Plan docs/superpowers/plans/2026-11-03-slice-2b-3b-ai-players.md."
+      "notes": "PR 1 (merged as #82; bot engine, no route) is the shared players/ module (the demo's player bot moved there, plus the live prompt with its fenced steer, the hint cleaner, the settings parser, a hard-timeout line generator that never returns a canned line, and the reactive TurnPolicy), the runtime limits (at most 8 AI roles, at most 12 player roles in a managed session, AI roles only under consent notice v2 or later, the AI reissue without the consent rebind), bot_alert and ready.aiCalls over IPC, and in the control service the bot socket, frame parser, session budget, intent log, AiPlayerBot and BotHost (AC-0319, AC-0361; TC-0105, TC-0106). PR 2 (merged as #83; AC-0320, AC-0321 progress, AC-0362; TC-0107 to TC-0109) wires the bots into the supervisor (attach after the start, rejoin after a runtime or control-service restart, the codes only in control-service memory), labels AI seats in the terminal client, console and player page, and only then adds the routes (PUT /sessions/:id/ai-roles and GET .../intents on the control service; POST /api/v1/console/sessions/:id/ai-roles and .../ai-roles/:roleId/intents on the BFF). PR 3 (feature/EPIC-0002-US-0060-ai-toggle-prompt; AC-0317, AC-0318, AC-0363; TC-0110 to TC-0113) adds the AI toggle with its confirmations, Prompt AI player (reserve, logged command, run; hint to the control service only; reservation 15 s) and the AI players panel, with end-to-end specs and Axe states (35 e2e specs pass). BUG-0021 (a lobby's AI roles could come back as human after a control-service restart) was fixed after PR 3; BUG-0022 (focus) and BUG-0023 (whisper label and reload) were fixed too. No release before slice 2b-3c. Plan docs/superpowers/plans/2026-11-03-slice-2b-3b-ai-players.md."
     },
     {
       "id": "TASK-0089",
@@ -5068,8 +5068,8 @@
       "severity": "Low",
       "relatedStory": "US-0059",
       "relatedTask": "TASK-0096",
-      "status": "Open",
-      "fixBranch": "None",
+      "status": "Fixed",
+      "fixBranch": "fix/bug-0017-0018-hub-reset-and-silence-test",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5080,8 +5080,8 @@
       "severity": "Low",
       "relatedStory": "US-0032",
       "relatedTask": "None",
-      "status": "Open",
-      "fixBranch": "None",
+      "status": "Fixed (hardening; original failure not reproduced)",
+      "fixBranch": "fix/bug-0017-0018-hub-reset-and-silence-test",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5128,8 +5128,8 @@
       "severity": "Medium",
       "relatedStory": "US-0059",
       "relatedTask": "TASK-0097",
-      "status": "Open",
-      "fixBranch": "None",
+      "status": "Fixed",
+      "fixBranch": "fix/bug-0022-console-focus-fallback",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5140,8 +5140,20 @@
       "severity": "Medium",
       "relatedStory": "US-0059",
       "relatedTask": "TASK-0097",
-      "status": "Open",
-      "fixBranch": "None",
+      "status": "Fixed (fix/bug-0023-whisper-private-label-and-reload)",
+      "fixBranch": "fix/bug-0023-whisper-private-label-and-reload",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0024",
+      "title": "The stream hubs drop a reconnecting client whose replay follows a large opening frame",
+      "severity": "Low",
+      "relatedStory": "US-0059",
+      "relatedTask": "TASK-0096",
+      "status": "Fixed",
+      "fixBranch": "fix/bug-0017-0018-hub-reset-and-silence-test",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5721,6 +5733,14 @@
         "projectedUsd": 400
       },
       "BUG-0023": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0024": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -6482,10 +6502,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-04T18:53:35.450Z",
-  "commitSha": "5a77a25",
-  "buildNumber": "514",
-  "branch": "feature/EPIC-0002-US-0060-ai-toggle-prompt",
+  "generatedAt": "2026-11-04T19:59:30.445Z",
+  "commitSha": "0c21e1b",
+  "buildNumber": "505",
+  "branch": "docs/bugfixes-session-close",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6631,9 +6651,9 @@
     "totalSpent": 799.4862,
     "totalProjected": 70400,
     "percentUsed": 5,
-    "burnRate": 19.69404344086022,
-    "daysRemaining": 792,
-    "projectedExhaustion": 792,
+    "burnRate": 19.563133,
+    "daysRemaining": 797,
+    "projectedExhaustion": 797,
     "thresholds": [
       50,
       75,
@@ -6764,9 +6784,11 @@
       "2026-11-03T22:30:32.438Z",
       "2026-11-04T16:02:24.447Z",
       "2026-11-04T17:07:23.775Z",
-      "2026-11-04T18:53:35.566Z"
+      "2026-11-04T18:53:35.566Z",
+      "2026-11-04T19:59:30.549Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6874,6 +6896,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6907,6 +6930,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -6984,9 +7008,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -7094,9 +7120,11 @@
       2,
       2,
       5,
-      5
+      5,
+      1
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -7204,6 +7232,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -7237,6 +7266,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -7314,7 +7344,8 @@
       1.146153846153846,
       1.146153846153846,
       1.16,
-      1.16
+      1.16,
+      1.146153846153846
     ],
     "velocityByWeek": {
       "labels": [
