@@ -21,7 +21,15 @@ export function BriefPanel({ roleId, brief, privateFacts, injects }: BriefPanelP
         {injects.length > 0 ? (
           <>
             <h3 className="s">Updates</h3>
-            <ul className="plain">{injects.map((x) => <li className="gm" key={x.seq}>{x.content}</li>)}</ul>
+            <ul className="plain">
+              {injects.map((x) => (
+                <li className="gm" key={x.seq}>
+                  {/* BUG-0023: a facilitator whisper to this player. The label is text (colour is not the signal); the colon is for screen readers. */}
+                  {x.private ? <><span className="pill mut">Private</span><span className="sr-only">: </span></> : null}
+                  {x.content}
+                </li>
+              ))}
+            </ul>
           </>
         ) : null}
       </div>

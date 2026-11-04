@@ -104,6 +104,7 @@ input.t:disabled { background: var(--panel2); color: var(--muted); }
 .msg .h { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 2px; font-size: 13px; }
 .msg .line { white-space: pre-wrap; }
 .gm { background: var(--ai-soft); border: 1px solid var(--ai); border-radius: 6px; padding: 8px 10px; margin: 6px 0; list-style: none; }
+.gm .pill { margin-right: 8px; }
 ul.plain { padding-left: 18px; }
 
 /* Say box: stays at the bottom of the column; on a phone it sticks to the bottom of the screen. */
