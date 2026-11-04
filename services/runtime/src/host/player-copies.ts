@@ -66,7 +66,7 @@ export function startedForPlayer(e: StartedEvent, who: string): StartedEvent {
 }
 
 /**
- * Players learn of pause and resume, and of a whisper addressed to them. Everything else (advance, inject, NPC stance, release) stays
+ * Players learn of pause and resume, and of a whisper addressed to them. Everything else (advance, inject, NPC stance, release, prompt_ai) stays
  * private. Only the listed keys are copied, so `by` and any later field never reach a player.
  */
 export function commandForPlayer(e: CommandEvent, who: string): CommandEvent | null {

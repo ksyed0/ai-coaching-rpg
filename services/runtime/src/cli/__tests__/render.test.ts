@@ -209,6 +209,19 @@ describe("hidden facts in the terminal client (US-0016)", () => {
     expect(renderEvent(e, "facilitator", new Set())).toBe("[facilitator] released hidden fact #1 of cfo");
     expect(renderEvent(e, "host", new Set())).toBeNull();
   });
+  it("the facilitator sees \"[facilitator] prompted the AI player for tech_lead\"; a player sees nothing (US-0060)", () => {
+    const e = { ...env, type: "facilitator.command", command: "prompt_ai", roleId: "tech_lead", by: "Sam" } as const;
+    expect(renderEvent(e, "facilitator", new Set())).toBe("[facilitator] prompted the AI player for tech_lead");
+    expect(renderEvent(e, "tech_lead", new Set())).toBeNull();
+    expect(renderEvent(e, "host", new Set())).toBeNull();
+  });
+  it("sanitises a hostile role id in the prompt_ai line", () => {
+    const e = { ...env, type: "facilitator.command", command: "prompt_ai", roleId: "\u001b[31mtech\n[x]\u202e" } as never;
+    const out = renderEvent(e, "facilitator", new Set())!;
+    expect(out).not.toMatch(CONTROL);
+    expect(out).not.toMatch(INVISIBLE);
+    expect(out.startsWith("[facilitator] prompted the AI player for ")).toBe(true);
+  });
   it("sanitises a hostile role id and number in the command line", () => {
     const e = { ...env, type: "facilitator.command", command: "release_hidden", roleId: "\u001b[31mcfo\n[x]", fact: "\u001b[2J" } as never;
     const out = renderEvent(e, "facilitator", new Set())!;

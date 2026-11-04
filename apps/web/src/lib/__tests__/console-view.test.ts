@@ -82,6 +82,14 @@ describe("timelineText", () => {
     expect(c("Ann", { command: "whisper", roleId: "a", text: "psst" })).toBe("Whisper to <a> by Ann: psst");
     expect(c("Ann", { command: "release_hidden", roleId: "n", fact: 3 })).toBe("Fact 3 of <n> released by Ann");
     expect(c(undefined, { command: "set_npc_stance", roleId: "n", goals: [] })).toBe("Stance of <n> changed by the facilitator");
+    expect(c("Ann", { command: "prompt_ai", roleId: "a" })).toBe("AI player for <a> prompted by Ann");
+    expect(c(undefined, { command: "prompt_ai", roleId: "a" })).toBe("AI player for <a> prompted by the facilitator");
+  });
+
+  it("the timeline reads \"AI player for Tech lead prompted by Sam\", from the role label and never a participant name", () => {
+    const labelled = { scenes, label: (r: string) => (r === "tech_lead" ? "Tech lead" : r) };
+    const e = { ...base(1), type: "facilitator.command", command: "prompt_ai", roleId: "tech_lead", by: "Sam" } as SessionEvent;
+    expect(timelineText(e, initialState(), labelled)?.text).toBe("AI player for Tech lead prompted by Sam");
   });
 });
 

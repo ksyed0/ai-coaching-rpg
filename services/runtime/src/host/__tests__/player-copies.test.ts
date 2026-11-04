@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { initialState, reduce, type SessionEvent } from "@acr/events";
-import { snapshotForPlayer, startedForPlayer, type StartedEvent } from "../player-copies.js";
+import { commandForPlayer, snapshotForPlayer, startedForPlayer, type StartedEvent } from "../player-copies.js";
 import { loadScenario } from "@acr/script";
 import { MockModelProvider } from "@acr/adapters";
 import { SessionEngine } from "../../engine/session-engine.js";
@@ -110,6 +110,16 @@ describe("player copies (a new field is denied until it is listed)", () => {
     for (const c of [{ command: "advance" }, { command: "fire_inject", injectId: "x" }, { command: "release_hidden", roleId: "guest", fact: 1 }, { command: "set_npc_stance", roleId: "guest", goals: ["g"] }]) {
       expect(host.viewFor("host", { ...base, ...c } as unknown as SessionEvent)).toBeNull();
     }
+  });
+
+  it("a prompt_ai command is null for every role, the addressed AI role included (US-0060)", async () => {
+    const { host, engine } = await running();
+    const base = find(engine, "facilitator.command");
+    const prompt = { ...base, command: "prompt_ai", roleId: "host", by: "LEAK-BY" } as unknown as SessionEvent;
+    expect(commandForPlayer(prompt as never, "host")).toBeNull();
+    expect(commandForPlayer(prompt as never, "guest")).toBeNull();
+    expect(host.viewFor("host", prompt)).toBeNull();
+    expect(host.viewFor("guest", prompt)).toBeNull();
   });
 
   it("session.ended reaches a player as type, seq, ts, sessionId and reason only", async () => {

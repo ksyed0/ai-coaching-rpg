@@ -79,7 +79,7 @@ export type RestoreOutcome = { kind: "empty" } | { kind: "ended"; events: number
 /** Own-property lookup: a client-supplied role id such as `__proto__` or `constructor` must never resolve to an inherited member. */
 const own = <T>(map: Record<string, T>, key: string): T | undefined => (Object.hasOwn(map, key) ? map[key] : undefined);
 
-export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released" | "log_failed" | "bad_identity" | "bad_ai_roles" | "not_started" | "starting";
+export type EngineErrorCode = "paused" | "not_in_scene" | "stale_scene" | "ended" | "unknown_role" | "unknown_inject" | "log_not_empty" | "npc_role" | "unknown_fact" | "already_released" | "log_failed" | "bad_identity" | "bad_ai_roles" | "not_started" | "starting" | "not_ai_role";
 export class EngineError extends Error {
   constructor(readonly code: EngineErrorCode, message: string = code) { super(message); this.name = "EngineError"; }
 }
@@ -290,6 +290,13 @@ export class SessionEngine {
       if (!target) throw new EngineError("unknown_role", `unknown role ${cmd.roleId}`);
       if (target.kind !== "player") throw new EngineError("npc_role", `${cmd.roleId} is an NPC; whispers go to player roles only`);
     }
+    if (cmd.command === "prompt_ai") {
+      // US-0060: nothing but the command is appended; the AI player's own turn is the host's business. `ended` was checked above.
+      if (this.state.paused) throw new EngineError("paused");
+      if (!this.state.aiRoles.includes(cmd.roleId)) throw new EngineError("not_ai_role", `${cmd.roleId} is not an AI player`);
+      const cur = this.currentScene();
+      if (!cur || !cur.participants.includes(cmd.roleId)) throw new EngineError("not_in_scene", `${cmd.roleId} is not in the current scene`);
+    }
     if (cmd.command === "set_npc_stance" && !own(this.state.npcs, cmd.roleId)) throw new EngineError("unknown_role", `${cmd.roleId} is not an NPC`);
     let release: { roleId: string; npc: SessionState["npcs"][string]; text: string } | null = null;
     if (cmd.command === "release_hidden") {
@@ -412,7 +419,7 @@ export class SessionEngine {
     let logIdentity: string | undefined; let identityInvalid = false;
     let startedConsents: ResumeInfo["startedConsents"];
     let startedAiRoles: string[] = [];
-    let aiCalls = 0; // utterances of the started AI roles (startedAiRoles is final after the first event)
+    let aiCalls = 0; // utterances of the started AI roles, and prompt_ai commands for them (startedAiRoles is final after the first event)
     // US-0059: why the latest scene ended (null while a scene is current); a facilitator_end with no session.ended after it is repaired.
     let lastExit: ExitReason | null = null;
     // An inject's AI character updates follow its inject.fired directly; this tracks the ones still due if the log ends here.
@@ -464,6 +471,7 @@ export class SessionEngine {
       // resume's completion short; live code never puts anything else there, so only those two keep the pending updates due.
       else if (e.type !== "session.resumed" && e.type !== "facilitator.alert") injectDue = null;
       if (e.type === "utterance" && startedAiRoles.includes(e.roleId)) aiCalls++;
+      else if (e.type === "facilitator.command" && e.command === "prompt_ai") aiCalls++; // B6: every prompt costs a model call, answered or not (an over-count is the safe side)
       if (e.type === "scene.exited") lastExit = e.reason;
       else if (e.type === "scene.entered") lastExit = null;
       if (e.type === "scene.entered") lastGmSeq = null;

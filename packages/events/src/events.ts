@@ -16,7 +16,12 @@ export type FacilitatorCommand =
   | { command: "whisper"; roleId: string; text: string }
   | { command: "set_npc_stance"; roleId: string; goals: string[] }
   /** Facilitator only. `fact` is the 1-based number of the NPC's hidden fact. The event carries no fact text: the text goes only in the facilitator-only `npc.updated` that follows it. */
-  | { command: "release_hidden"; roleId: string; fact: number };
+  | { command: "release_hidden"; roleId: string; fact: number }
+  /**
+   * US-0060, facilitator only: the facilitator asks the AI player of `roleId` to speak now. Carries NO hint or free text anywhere: what the
+   * facilitator might want to say is never written to the session log. Players never receive it. Counts as one AI call (ResumeInfo.aiCalls).
+   */
+  | { command: "prompt_ai"; roleId: string };
 
 export type EventEnvelope = { seq: number; ts: number; sessionId: string };
 

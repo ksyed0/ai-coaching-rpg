@@ -120,6 +120,7 @@ export const COMMAND_ANSWERS = {
   unknown_inject: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
   unknown_role: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
   npc_role: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
+  not_ai_role: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
   unknown_fact: { status: 409, code: "conflict", message: CONFLICT_MESSAGE },
   rate_limited: { status: 429, code: "rate_limited", message: "Too many actions at once. Wait a moment and try again." },
   other: { status: 502, code: "command_failed", message: "The session could not take that action. Check the live view, then try again." },

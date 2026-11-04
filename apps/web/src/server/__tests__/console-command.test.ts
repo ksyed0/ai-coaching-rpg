@@ -239,6 +239,7 @@ describe("the command route", () => {
     ["unknown_role", { kind: "refused", code: "unknown_role" }, 409, "conflict", "That action is not possible in the session's current state."],
     ["npc_role", { kind: "refused", code: "npc_role" }, 409, "conflict", "That action is not possible in the session's current state."],
     ["unknown_fact", { kind: "refused", code: "unknown_fact" }, 409, "conflict", "That action is not possible in the session's current state."],
+    ["not_ai_role", { kind: "refused", code: "not_ai_role" }, 409, "conflict", "That action is not possible in the session's current state."],
     ["rate_limited", { kind: "refused", code: "rate_limited" }, 429, "rate_limited", "Too many actions at once. Wait a moment and try again."],
     ["log_failed (any other code)", { kind: "refused", code: "log_failed" }, 502, "command_failed", "The session could not take that action. Check the live view, then try again."],
     ["a code that is a table key but not a runtime code", { kind: "refused", code: "constructor" }, 502, "command_failed", "The session could not take that action. Check the live view, then try again."],

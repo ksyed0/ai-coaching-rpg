@@ -75,6 +75,7 @@ const EVENT_COPY: { [T in EventType]: (e: Ev<T>) => SessionEvent } = {
       // The NPC's goal text is a secret of the character; the command stays so the log reads whole.
       case "set_npc_stance": return { ...base, command: e.command, roleId: e.roleId, goals: [] };
       case "release_hidden": return { ...base, command: e.command, roleId: e.roleId, fact: e.fact };
+      case "prompt_ai": return { ...base, command: e.command, roleId: e.roleId };
     }
   },
   "facilitator.alert": (e) => ({ type: e.type, ...env(e), level: e.level === "info" ? "info" : "warning", message: e.level === "info" ? ALERT_MESSAGES.info : ALERT_MESSAGES.warning }),
