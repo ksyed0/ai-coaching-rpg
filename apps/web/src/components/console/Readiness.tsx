@@ -19,7 +19,7 @@ import { CodesPanel } from "./CodesPanel";
 import { confirmCopy } from "../../lib/console-confirm";
 import { aiErrorText, parseAiAnswer, setAiRoles } from "../../lib/console-ai";
 import { AiRoleSwitch } from "./AiRoleSwitch";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { ConfirmDialog, focusFallback } from "./ConfirmDialog";
 
 // The facilitator's view of one session before and after the start: the model, who has joined, consented and connected (in words,
 // never colour alone), a code reissue per role, and Start. Names come from the network and are rendered only as text nodes.
@@ -428,7 +428,7 @@ function View(p: ViewProps) {
           {CONSOLE_COPY.started}
         </p>
       ) : null}
-      <p className="err" role="alert">
+      <p className="err" role="alert" tabIndex={-1} data-focus-fallback="error">
         {p.error}
       </p>
 
@@ -602,6 +602,7 @@ function View(p: ViewProps) {
           confirmLabel="Reissue code"
           pending={p.working}
           opener={p.confirm.opener}
+          fallbackFocus={focusFallback("error")}
           onCancel={p.onCancel}
           onConfirm={() =>
             p.onReissue((p.confirm as { roleId: string }).roleId)
@@ -636,6 +637,7 @@ function View(p: ViewProps) {
           confirmLabel="Reissue all codes"
           pending={p.working}
           opener={p.confirm.opener}
+          fallbackFocus={focusFallback("error")}
           onCancel={p.onCancel}
           onConfirm={p.onReissueAll}
         />
@@ -665,6 +667,7 @@ function RemoveDialog(p: {
       tone={copy.tone}
       pending={p.pending}
       opener={p.opener}
+      fallbackFocus={focusFallback("error")}
       onCancel={p.onCancel}
       onConfirm={p.onConfirm}
     />
@@ -694,6 +697,7 @@ function SwitchDialog(p: {
       tone={copy.tone}
       pending={p.pending}
       opener={p.opener}
+      fallbackFocus={focusFallback("error")}
       onCancel={p.onCancel}
       onConfirm={p.onConfirm}
     />

@@ -222,24 +222,28 @@ BUG-0017: The player stream hub stalls on a reset larger than 256 KiB
 Severity: Low
 Related Story: US-0059
 Related Task: TASK-0096
-Status: Open
-Fix Branch: None
+Status: Fixed
+Fix Branch: fix/bug-0017-0018-hub-reset-and-silence-test
 Lesson Encoded: No
 ```
 
 Found in the final review of slice 2b-2b1. The console hub (`facilitator-hub.ts`) was fixed so that a reset frame over 256 KiB no longer stalls the stream; the player `StreamHub` shares the older behaviour and still stalls (the browser is dropped as slow) on a reset that large. No scenario today produces a player reset that big. Fix: apply the console hub's handling to the player hub and add the same test.
+
+Fixed: `StreamHub.open` now wraps its opening writes (retry, joined, reset) in `SseWriter.beginOpening()` / `endOpening()`, as `FacilitatorHub` does, so the opening frames are not counted towards `maxPendingBytes` (nothing drains `out` until `open` returns). The cap still applies in full from the first frame after the opening, so a reader that genuinely stalls is still dropped with `reconnecting` and per-client memory stays bounded. Tests in `stream-hub.test.ts`: a reset over 256 KiB through the real `sseBody` is delivered in order with the stream open, and a stall after the opening still ends the stream. Both failed before the change. The web suite and the two stream-hub files pass on the host and in the node:22 container as root and as `node`.
 
 ```
 BUG-0018: npc-agent.silence.test.ts fails under heavy load
 Severity: Low
 Related Story: US-0032
 Related Task: None
-Status: Open
-Fix Branch: None
+Status: Fixed (hardening; original failure not reproduced)
+Fix Branch: fix/bug-0017-0018-hub-reset-and-silence-test
 Lesson Encoded: No
 ```
 
 `services/runtime/src/agents/__tests__/npc-agent.silence.test.ts` ("is linear on abusive input") has an absolute elapsed-time bound that a loaded machine can exceed; it was seen once in the slice 2b-2b1 work and passed in both close-out coverage runs. It is the same pattern as the 2026-10 coverage-check failures recorded in `docs/LESSONS.md`. Fix: assert the scaling between two input sizes (or count operations) and keep only a generous absolute cap.
+
+Fixed: the test already asserted scaling, not elapsed time: BUG-0006's fix (a2fd11f) moved it to `expectLinear` (8x the input must cost under 30x, best of runs, 60 s hang cap only), so the absolute bound described above was gone before this bug was filed and no product code is involved. The failing assertion was never captured, so the cause is unconfirmed; the likeliest exposure is timing noise in the best-of-3 samples, and the test now takes the best of 7 runs per size. This is hardening for a suspected hazard, not a verified cure: reopen if it recurs, and capture the ratio and message. Verified: 20 runs under 8 CPU burners passed (ratio 6.0 to 15.5 before the change, 6.7 to 11.6 after, limit 30), one run under `--coverage` passed (ratio 8.4), and a deliberately quadratic workload still fails `expectLinear` (ratio 85).
 
 ```
 BUG-0019: A facilitator whisper never reached a web player's screen
@@ -290,12 +294,14 @@ BUG-0022: Keyboard focus falls to the page body after End session, a connection 
 Severity: Medium
 Related Story: US-0059
 Related Task: TASK-0097
-Status: Open
-Fix Branch: None
+Status: Fixed
+Fix Branch: fix/bug-0022-console-focus-fallback
 Lesson Encoded: No
 ```
 
-Found in slice 2b-2b2 (listed among its open items in `progress.md` Session 16). A confirmation dialog returns focus to the control that opened it. After a successful End session the `ended` final unmounts the controls and the button that opened the dialog, and when the connection drops while a dialog is open or a Remove answers 409 the opener is detached or disabled, so focus falls to the body: a keyboard or screen-reader user loses their place and nothing announces the new state. Owner decision (2026-11-03): move focus to the final banner (made focusable with `tabIndex={-1}`) after End session, and to the connection or error message that appears in the other two cases. Fix: a small console change with unit tests for each case and an Axe/keyboard check in `apps/web/e2e/console-controls.spec.ts`. **Slice 2b-3b PR 3 note (not a fix):** the AI toggle's switch confirmations use the same dialog; `Readiness` puts focus back on the switch by a data attribute after a switch, and the AI players panel puts it back on Prompt AI player only when focus is on the page or the button. None of the three cases above is changed, and the bug stays open.
+Found in slice 2b-2b2 (listed among its open items in `progress.md` Session 16). A confirmation dialog returns focus to the control that opened it. After a successful End session the `ended` final unmounts the controls and the button that opened the dialog, and when the connection drops while a dialog is open or a Remove answers 409 the opener is detached or disabled, so focus falls to the body: a keyboard or screen-reader user loses their place and nothing announces the new state. Owner decision (2026-11-03): move focus to the final banner (made focusable with `tabIndex={-1}`) after End session, and to the connection or error message that appears in the other two cases. Fix: a small console change with unit tests for each case and an Axe/keyboard check in `apps/web/e2e/console-controls.spec.ts`. **Slice 2b-3b PR 3 note (not a fix):** the AI toggle's switch confirmations use the same dialog; `Readiness` puts focus back on the switch by a data attribute after a switch, and the AI players panel puts it back on Prompt AI player only when focus is on the page or the button. None of the three cases above is changed, and the bug stays open (superseded by the fix below).
+
+Fixed: `ConfirmDialog` now gives focus back to its opener only while the opener is in the document, shown and not disabled (`aria-disabled` still counts as focusable), and only when focus is on the page or was inside the closed dialog (a user who moved focus elsewhere keeps it). Otherwise it calls the new optional `fallbackFocus` prop; `focusFallback(...names)` finds the first `data-focus-fallback="<name>"` element that has text. The targets are `tabIndex={-1}` text elements already in their live regions, so no new landmark, heading or announcement: the ended final banner in `SessionConsole` (`final`), the reconnecting message in `LiveView` (`connection`) and the always-mounted `role="alert"` error line in `Readiness` (`error`). The console controls' dialog tries `final` then `connection`; `Readiness`' dialogs try `error`. `SessionConsole` also moves focus that fell to the page to the banner when the `ended` final arrives after the dialog has already closed. Verified by `ConfirmDialogFocus.test.tsx`, `SessionConsoleFocus.test.tsx` and two new `Readiness` 409 tests (removing the fallback fails five of them), the whole `@acr/web` suite, `pnpm -r --if-present typecheck`, and `console-controls.spec.ts` (End session leaves the final banner focused), `console-flow.spec.ts` and `axe.spec.ts` in Chromium. Coverage limits: only the End session case is covered by e2e; the connection-drop and 409-on-Remove cases are unit-tested only. Of the original Axe/keyboard plan, the keyboard check (focus on the banner after End session) was done; no new Axe check was added, the existing Axe specs (with each dialog open) still pass and the targets add no landmark or heading.
 
 ```
 BUG-0023: A facilitator whisper has no "private" label and is lost on a page reload
@@ -308,3 +314,17 @@ Lesson Encoded: No
 ```
 
 The remaining limits of BUG-0019. The player reducer now shows a whisper under "Updates", but it is not in the join snapshot (as with injects), so a full page reload loses it, and it reads like an ordinary update with no "private" label. Owner decision (2026-11-03): a whisper gets a "private" label and survives a reload. Fix: carry the addressed role's whispers in the player snapshot (allowlisted copy, the addressed role only; the leak scan must still show no other role, no `by` and no ref receives one), keep the scene it arrived in, label it "Private" in `Transcript`/`Updates` as text, and cover it in `packages/events` player-view tests, the player-copies allowlist test and the `console-controls.spec.ts` e2e (reload keeps it for the addressed player only).
+
+```
+BUG-0024: The stream hubs drop a reconnecting client whose replay follows a large opening frame
+Severity: Low
+Related Story: US-0059
+Related Task: TASK-0096
+Status: Fixed
+Fix Branch: fix/bug-0017-0018-hub-reset-and-silence-test
+Lesson Encoded: No
+```
+
+Found in the review of the BUG-0017 fix. Both hubs ended the opening window (`SseWriter.endOpening`) before registering `conn.onFrame`, but the first `onFrame` flushes the replay queued in the connection synchronously, before anything can drain `out`. A complete replay can be up to 256 KiB of event JSON (`MAX_REPLAY_BYTES`, services/runtime/src/host/session-host.ts) plus about 30 bytes of SSE framing for each of up to 1,000 events, so after a joined frame already over the 64 KiB high-water mark the total passed the 256 KiB stall cap and the browser was dropped as slow on reconnect, and again on every retry. Affects `StreamHub` and `FacilitatorHub`.
+
+Fixed: both hubs now call `endOpening` right after the first `onFrame` registration, so the replay flush belongs to the opening; the cap applies from the first frame after it. Memory stays bounded: the exempt part is the joined frame (and reset) plus a replay the runtime caps at 256 KiB, written once per stream, and a reader that stalls afterwards is still dropped at the 256 KiB cap. A test per hub (a queued replay past the cap is delivered in order, then a stall ends the stream with `reconnecting`) fails without the change; `FakeConn` now flushes queued frames on the first `onFrame`, like `RuntimeConnection`.
