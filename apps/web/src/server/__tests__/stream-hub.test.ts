@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WebSocket } from "ws";
 import { initPlayerView } from "@acr/events";
 import { RuntimeConnection } from "../runtime-connection";
+import { sseBody } from "../sse";
 import { AI_FILLED_MESSAGE, NoStreamError, REMOVED_MESSAGE, StreamHub, type SessionCookie } from "../stream-hub";
 import type { ClientMessage, JoinedFrame, ServerMessage } from "../wire";
-import { asConn, FakeConn, fakeRuntime, manualTimers, sseRecorder, until } from "./fakes";
+import { asConn, FakeConn, fakeRuntime, manualTimers, parseSse, sseRecorder, until } from "./fakes";
 
 vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
 
@@ -386,6 +387,33 @@ describe("StreamHub backpressure and expiry", () => {
     expect(ends).toBe(1);
     expect(chunks.at(-1)).toContain("event: reconnecting");
     expect(conn.closed).toBe(1);
+  });
+
+  it("the opening frames do not count towards the cap; a stall after the opening still ends with reconnecting (BUG-0017)", () => {
+    const { h } = hub({ maxPendingBytes: 10 });
+    const conn = new FakeConn();
+    const chunks: string[] = []; let ends = 0;
+    h.open(cookieFor(), "x", asConn(conn), joinedFrame(), { write: (c) => { chunks.push(c); return false; }, end: () => { ends++; } });
+    expect(ends).toBe(0); // retry, joined (and a reset) are over the cap and the stream is still open
+    conn.emit({ type: "event", event: ev(6) });
+    expect(ends).toBe(1);
+    expect(conn.closed).toBe(1);
+    expect(chunks.at(-1)).toContain("event: reconnecting");
+  });
+
+  it("a reset over 256 KiB through the real sseBody is delivered in order and keeps the stream open (BUG-0017)", async () => {
+    const big = { ...state(5), transcript: Array.from({ length: 3000 }, (_, i) => ({ seq: i, ts: i, sceneId: null, roleId: "lead", text: "x".repeat(100), channel: "text" as const })) } as unknown as JoinedFrame["state"];
+    const { h } = hub();
+    const body = sseBody(); const conn = new FakeConn();
+    h.open(cookieFor(), "x", asConn(conn), joinedFrame({ replay: undefined, state: big }), body.out);
+    expect(conn.closed).toBe(0);
+    const reader = body.stream.getReader(); const dec = new TextDecoder(); let text = "";
+    while (!/event: reset/.test(text) || !/\n\n$/.test(text)) text += dec.decode((await reader.read()).value);
+    expect(text.length).toBeGreaterThan(256 * 1024);
+    expect(parseSse(text).map((f) => f.event)).toEqual(["retry:3000", "joined", "reset"]);
+    conn.emit({ type: "event", event: ev(6) });
+    expect(conn.closed).toBe(0);
+    await reader.cancel();
   });
 
   it("the stream ends with expired at the first heartbeat after the cookie's expiry (injected clock)", () => {

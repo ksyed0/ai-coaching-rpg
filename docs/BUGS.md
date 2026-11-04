@@ -222,12 +222,14 @@ BUG-0017: The player stream hub stalls on a reset larger than 256 KiB
 Severity: Low
 Related Story: US-0059
 Related Task: TASK-0096
-Status: Open
-Fix Branch: None
+Status: Fixed
+Fix Branch: fix/bug-0017-0018-hub-reset-and-silence-test
 Lesson Encoded: No
 ```
 
 Found in the final review of slice 2b-2b1. The console hub (`facilitator-hub.ts`) was fixed so that a reset frame over 256 KiB no longer stalls the stream; the player `StreamHub` shares the older behaviour and still stalls (the browser is dropped as slow) on a reset that large. No scenario today produces a player reset that big. Fix: apply the console hub's handling to the player hub and add the same test.
+
+Fixed: `StreamHub.open` now wraps its opening writes (retry, joined, reset) in `SseWriter.beginOpening()` / `endOpening()`, as `FacilitatorHub` does, so the opening frames are not counted towards `maxPendingBytes` (nothing drains `out` until `open` returns). The cap still applies in full from the first frame after the opening, so a reader that genuinely stalls is still dropped with `reconnecting` and per-client memory stays bounded. Tests in `stream-hub.test.ts`: a reset over 256 KiB through the real `sseBody` is delivered in order with the stream open, and a stall after the opening still ends the stream. Both failed before the change. The web suite and the two stream-hub files pass on the host and in the node:22 container as root and as `node`.
 
 ```
 BUG-0018: npc-agent.silence.test.ts fails under heavy load

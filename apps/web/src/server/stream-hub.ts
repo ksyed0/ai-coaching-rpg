@@ -140,14 +140,21 @@ export class StreamHub {
     if (prev) this.finish(prev, "superseded");
 
     this.streams.set(key, s);
-    this.write(s, `retry: ${RETRY_MS}\n\n`);
-    this.write(s, sse("joined", playerJoined(joined)));
-    // The browser's projection cannot be continued: an incomplete or missing replay (lastSeq too old or past the head), or another log.
-    const reset = replayIncomplete(joined.replay) || joined.logIdentity !== cookie.logIdentity;
-    if (reset) {
-      // The id moves Last-Event-ID to the snapshot, so the next reconnect resumes from there. Replayed events are already in the snapshot.
-      this.write(s, sse("reset", initPlayerView(joined.state), joined.state.lastSeq));
-      s.skip = joined.replay?.events ?? 0;
+    // The opening frames are not counted towards the stall cap: nothing drains `out` until this call returns, and the reset can be a whole
+    // state snapshot over the cap on its own. The cap (and so the per-client memory bound) applies from the first frame after the opening.
+    s.writer.beginOpening();
+    try {
+      this.write(s, `retry: ${RETRY_MS}\n\n`);
+      this.write(s, sse("joined", playerJoined(joined)));
+      // The browser's projection cannot be continued: an incomplete or missing replay (lastSeq too old or past the head), or another log.
+      const reset = replayIncomplete(joined.replay) || joined.logIdentity !== cookie.logIdentity;
+      if (reset) {
+        // The id moves Last-Event-ID to the snapshot, so the next reconnect resumes from there. Replayed events are already in the snapshot.
+        this.write(s, sse("reset", initPlayerView(joined.state), joined.state.lastSeq));
+        s.skip = joined.replay?.events ?? 0;
+      }
+    } finally {
+      s.writer.endOpening();
     }
     if (s.ended) return noop;
     s.cancelHeartbeat = heartbeat(this.o.setTimer, () => {
