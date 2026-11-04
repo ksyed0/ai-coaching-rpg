@@ -4,7 +4,7 @@ import { useId, useMemo, type ReactNode } from "react";
 import type { Clock } from "../../lib/clock";
 import { talkRows } from "../../lib/console-view";
 import { MESSAGES } from "../../lib/messages";
-import type { ConsoleStreamUi } from "../../lib/use-console-stream";
+import { aiPlayerRoles, type ConsoleStreamUi } from "../../lib/use-console-stream";
 import { SceneStatus } from "../SceneStatus";
 import { ConsoleTimeline } from "./ConsoleTimeline";
 import { WordsSpoken } from "./WordsSpoken";
@@ -18,11 +18,13 @@ export function LiveView({ ui, clock, controls }: LiveViewProps) {
   const id = useId();
   const { view } = ui;
   const state = view?.state ?? null;
+  // US-0060: the AI players come from the state's `aiRoles` (and the roster's `ai` flag), never from a name; their seat's name is not used.
+  const aiPlayers = useMemo(() => aiPlayerRoles(state?.aiRoles, ui.roster), [state?.aiRoles, ui.roster]);
   const names = useMemo(() => {
     const out: Record<string, string> = {};
-    for (const r of ui.roster) if (r.name !== undefined && r.name !== "") out[r.roleId] = r.name;
+    for (const r of ui.roster) if (r.name !== undefined && r.name !== "" && !aiPlayers.has(r.roleId)) out[r.roleId] = r.name;
     return out;
-  }, [ui.roster]);
+  }, [ui.roster, aiPlayers]);
   const playerRoles = useMemo(
     () => new Set(Object.entries(state?.roles ?? {}).filter(([, r]) => r.kind === "player").map(([k]) => k)),
     [state?.roles],
@@ -55,9 +57,9 @@ export function LiveView({ ui, clock, controls }: LiveViewProps) {
       {controls}
       <div>
         <h2 className="s">Transcript and notices</h2>
-        <ConsoleTimeline entries={view?.timeline ?? []} names={names} playerRoles={playerRoles} />
+        <ConsoleTimeline entries={view?.timeline ?? []} names={names} playerRoles={playerRoles} aiPlayers={aiPlayers} />
       </div>
-      <WordsSpoken rows={rows} names={names} />
+      <WordsSpoken rows={rows} names={names} aiPlayers={aiPlayers} />
     </div>
   );
 }

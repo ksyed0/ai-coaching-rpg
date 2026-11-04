@@ -11,6 +11,8 @@ export type RosterEntry = {
   joined: boolean;
   consented: boolean;
   connected: boolean;
+  /** US-0060: an AI player holds this seat (only ever the literal true). */
+  ai?: true;
 };
 export type Readiness = {
   launcherStatus: "running" | "stopped" | "ended";
@@ -19,6 +21,8 @@ export type Readiness = {
   roster: RosterEntry[];
   canStart: boolean;
   missing: string[];
+  /** US-0060: AI roles whose bot has not connected yet. Empty when the server does not send it (an older server). */
+  aiWaiting: string[];
 };
 export type ListedSession = {
   sessionId: string;
@@ -96,6 +100,7 @@ export function parseReadiness(v: unknown): Readiness | null {
       joined: r.joined === true,
       consented: r.consented === true,
       connected: r.connected === true,
+      ...(r.ai === true ? { ai: true as const } : {}),
     });
   }
   return {
@@ -107,6 +112,18 @@ export function parseReadiness(v: unknown): Readiness | null {
     missing: Array.isArray(o.missing)
       ? o.missing.filter((m): m is string => typeof m === "string")
       : [],
+    aiWaiting: Array.isArray(o.aiWaiting)
+      ? o.aiWaiting.filter((m): m is string => typeof m === "string")
+      : [],
+  };
+}
+
+/** Splits the roles a start still waits for into humans and AI players, by the roster's `ai` flag (never by a name); AI roles keep their order, once each. */
+export function splitWaiting(roster: readonly RosterEntry[], missing: readonly string[], aiWaiting: readonly string[]): { humans: string[]; ai: string[] } {
+  const aiSeats = new Set(roster.filter((e) => e.ai === true).map((e) => e.roleId));
+  return {
+    humans: missing.filter((m) => !aiSeats.has(m)),
+    ai: [...new Set([...aiWaiting, ...missing.filter((m) => aiSeats.has(m))])],
   };
 }
 
@@ -123,6 +140,7 @@ export const CONSOLE_COPY = {
   startTimeout:
     "The session did not confirm the start. Check the lobby, then try again.",
   notReady: "Not everyone has joined and consented yet.",
+  aiNotConnected: "AI player not connected yet:",
   started: "The session has started.",
 } as const;
 

@@ -6,6 +6,9 @@ import { viewFromReset } from "../../lib/console-view";
 import type { ConsoleStreamUi } from "../../lib/use-console-stream";
 import { FakeClock } from "../../lib/__tests__/fakes";
 import { LiveView } from "../console/LiveView";
+import { ConsoleTimeline } from "../console/ConsoleTimeline";
+import { WordsSpoken } from "../console/WordsSpoken";
+import { consoleStreamReducer, initialConsoleState } from "../../lib/use-console-stream";
 
 afterEach(cleanup);
 
@@ -150,5 +153,83 @@ describe("LiveView", () => {
     const row = within(screen.getByRole("table", { name: "Players" })).getAllByRole("row")[1]!;
     expect(row.querySelectorAll("bdi")).toHaveLength(2);
     expect(row.querySelector(".muted")!.textContent).toContain("A");
+  });
+
+  // ---- US-0060: AI players are labelled from state.aiRoles, never from a name ----
+  const AI_ROLES = { a: { kind: "player" as const }, tech_lead: { kind: "player" as const }, n: { kind: "npc" as const } };
+  const aiUi = (timeline: Parameters<typeof ui>[2], over: Partial<ConsoleStreamUi> = {}) =>
+    ui({ roster: [
+      { roleId: "a", name: "Sam", joined: true, consented: true, connected: true },
+      { roleId: "tech_lead", name: "Pat", joined: true, consented: true, connected: true, ai: true },
+    ], ...over }, { roles: AI_ROLES, aiRoles: ["tech_lead"], talk: { tech_lead: { words: 4, lines: 2 } } }, timeline);
+  const items = () => within(screen.getByRole("list", { name: "Transcript and notices" })).getAllByRole("listitem");
+
+  it("the timeline labels tech_lead's line \"AI player\" with the AI pill and \"Tech lead\" even when names maps tech_lead to \"Pat\"", () => {
+    render(<LiveView ui={aiUi([{ seq: 1, ts: 1, kind: "line", text: "I will own it", roleId: "tech_lead" }])} clock={new FakeClock(T)} />);
+    const li = items()[0]!;
+    expect(within(li).getByText("AI player")).toBeTruthy();
+    expect(within(li).getByText("AI")).toBeTruthy();
+    expect(within(li).getByText("Tech lead")).toBeTruthy();
+    expect(li.textContent).not.toContain("Pat");
+  });
+
+  it("the timeline shows AI player even if the console roster holds no ai flag or name for the seat (state.aiRoles alone decides)", () => {
+    render(<LiveView ui={aiUi([{ seq: 1, ts: 1, kind: "line", text: "x", roleId: "tech_lead" }], { roster: [] })} clock={new FakeClock(T)} />);
+    expect(within(items()[0]!).getByText("AI player")).toBeTruthy();
+  });
+
+  it("account_manager's line has no AI pill", () => {
+    render(<ConsoleTimeline entries={[{ seq: 1, ts: 1, kind: "line", text: "hi", roleId: "account_manager" }]} names={{ account_manager: "Sam" }} playerRoles={new Set(["account_manager", "tech_lead"])} aiPlayers={new Set(["tech_lead"])} />);
+    const li = items()[0]!;
+    expect(within(li).queryByText("AI")).toBeNull();
+    expect(within(li).getByText("Sam")).toBeTruthy();
+  });
+
+  it("an AI character's line keeps its pill and name", () => {
+    render(<ConsoleTimeline entries={[{ seq: 1, ts: 1, kind: "line", text: "hm", roleId: "n" }]} names={{ n: "Nia" }} playerRoles={new Set(["a"])} aiPlayers={new Set()} />);
+    const li = items()[0]!;
+    expect(within(li).getByText("AI")).toBeTruthy();
+    expect(within(li).getByText("Nia")).toBeTruthy();
+    expect(within(li).queryByText("AI player")).toBeNull();
+  });
+
+  it("regression: every timeline line of a role in aiPlayers carries the label, live lines and the reset (history) view alike", () => {
+    const names = { tech_lead: "Pat", a: "Sam" };
+    const state: SessionState = { ...initialState(), status: "running", lastSeq: 3, roles: AI_ROLES, aiRoles: ["tech_lead"],
+      transcript: [
+        { seq: 1, ts: 1, roleId: "tech_lead", text: "old line", channel: "text", sceneId: null },
+        { seq: 2, ts: 2, roleId: "a", text: "human line", channel: "text", sceneId: null },
+      ] };
+    // The reset (history) view, then one more live line through the reducer.
+    let s = consoleStreamReducer(initialConsoleState, { type: "reset", state });
+    s = consoleStreamReducer(s, { type: "event", event: { type: "utterance", seq: 4, ts: 4, roleId: "tech_lead", text: "new line", channel: "text" } as never });
+    const entries = s.view!.timeline;
+    expect(entries.filter((e) => e.kind === "line" && e.roleId === "tech_lead")).toHaveLength(2);
+    render(<ConsoleTimeline entries={entries} names={names} playerRoles={new Set(["a", "tech_lead"])} aiPlayers={new Set(["tech_lead"])} />);
+    for (const li of items()) {
+      const isAi = /old line|new line/.test(li.textContent ?? "");
+      if (isAi) {
+        expect(within(li).getByText("AI")).toBeTruthy();
+        expect(within(li).getByText("AI player")).toBeTruthy();
+        expect(li.textContent).not.toContain("Pat");
+      } else if (li.textContent!.includes("human line")) expect(within(li).queryByText("AI")).toBeNull();
+    }
+  });
+
+  it("the Words spoken row of an AI player reads AI player with the AI pill, not the name", () => {
+    render(<WordsSpoken rows={[{ roleId: "tech_lead", kind: "player", words: 4, lines: 2 }]} names={{ tech_lead: "Pat" }} aiPlayers={new Set(["tech_lead"])} />);
+    const row = screen.getByRole("row", { name: /Tech lead/ });
+    expect(within(row).getByText("AI player")).toBeTruthy();
+    expect(within(row).getByText("AI")).toBeTruthy();
+    expect(row.textContent).not.toContain("Pat");
+  });
+
+  it("the reducer names an AI player's seat in notices by its role, never by its name", () => {
+    const state: SessionState = { ...initialState(), status: "running", lastSeq: 1, roles: AI_ROLES, aiRoles: ["tech_lead"] };
+    let s = consoleStreamReducer({ ...initialConsoleState, roster: [{ roleId: "tech_lead", name: "Pat", joined: true, consented: true, connected: true, ai: true }] }, { type: "reset", state });
+    s = consoleStreamReducer(s, { type: "event", event: { type: "facilitator.command", seq: 2, ts: 2, by: "Sam", command: "whisper", roleId: "tech_lead", text: "hi" } as never });
+    const text = s.view!.timeline.map((e) => e.text).join("|");
+    expect(text).toContain("AI player");
+    expect(text).not.toContain("Pat");
   });
 });

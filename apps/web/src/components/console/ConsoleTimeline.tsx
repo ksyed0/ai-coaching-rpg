@@ -9,13 +9,27 @@ import { roleLabel } from "../../lib/names";
 // text; a name sits in <bdi> so a right-to-left override cannot reorder what follows. Like the player transcript it follows the newest
 // entry unless the reader has scrolled up. Only additions are announced (aria-relevant), and entries keep their key so none is re-rendered.
 
-export type ConsoleTimelineProps = { entries: TimelineEntry[]; names: Record<string, string>; playerRoles: ReadonlySet<string> };
+// US-0060: a line of a role in `aiPlayers` (the session state's `aiRoles`) reads "AI player" with the AI pill and its role label, whatever
+// `names` holds for the seat. That set, never a name, decides.
+export type ConsoleTimelineProps = { entries: TimelineEntry[]; names: Record<string, string>; playerRoles: ReadonlySet<string>; aiPlayers: ReadonlySet<string> };
 
 const FOLLOW_SLACK_PX = 40;
 
-function Entry({ e, names, playerRoles }: { e: TimelineEntry; names: Record<string, string>; playerRoles: ReadonlySet<string> }) {
+function Entry({ e, names, playerRoles, aiPlayers }: { e: TimelineEntry; names: Record<string, string>; playerRoles: ReadonlySet<string>; aiPlayers: ReadonlySet<string> }) {
   if (e.kind === "line") {
     const roleId = e.roleId ?? "";
+    if (aiPlayers.has(roleId)) {
+      return (
+        <li className="msg">
+          <div className="h">
+            <b>AI player</b>
+            <span className="pill ai">AI</span>
+            <span className="muted"><bdi>{roleLabel(roleId)}</bdi></span>
+          </div>
+          <p className="line">{e.text}</p>
+        </li>
+      );
+    }
     const named = Object.hasOwn(names, roleId);
     const ai = !playerRoles.has(roleId);
     return (
@@ -48,7 +62,7 @@ function Entry({ e, names, playerRoles }: { e: TimelineEntry; names: Record<stri
   );
 }
 
-export function ConsoleTimeline({ entries, names, playerRoles }: ConsoleTimelineProps) {
+export function ConsoleTimeline({ entries, names, playerRoles, aiPlayers }: ConsoleTimelineProps) {
   const list = useRef<HTMLOListElement>(null);
   const follow = useRef(true);
   const last = entries.at(-1)?.seq;
@@ -63,7 +77,7 @@ export function ConsoleTimeline({ entries, names, playerRoles }: ConsoleTimeline
   return (
     <>
       <ol ref={list} className="card tstream" tabIndex={0} aria-label="Transcript and notices" aria-live="polite" aria-relevant="additions" onScroll={onScroll}>
-        {entries.map((e) => <Entry key={e.seq} e={e} names={names} playerRoles={playerRoles} />)}
+        {entries.map((e) => <Entry key={e.seq} e={e} names={names} playerRoles={playerRoles} aiPlayers={aiPlayers} />)}
       </ol>
       {entries.length === 0 ? <p className="muted">{MESSAGES.consoleNothingYet}</p> : null}
     </>

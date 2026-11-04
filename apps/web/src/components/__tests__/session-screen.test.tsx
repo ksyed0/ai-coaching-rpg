@@ -228,4 +228,20 @@ describe("SessionScreen", () => {
     expect(notice.querySelector("input, button, textarea")).toBeNull(); // read-only
     expect(screen.queryByRole("button", { name: /withdraw|I agree/i })).toBeNull();
   });
+
+  it("a joined with consent {noticeVersion:\"v2\", given:true} shows \"This seat agreed to a consent notice earlier.\" and no text saying v2 was agreed to", () => {
+    const m = mount();
+    const state = snapshot({ status: "running", lastSeq: 5, currentScene: { id: "s1", enteredAt: m.clock.t, participants: [], pausedMs: 0 } });
+    emit(m.es(), "joined", joinedFrame({ state, consent: { noticeVersion: "v2", notice: "AI players may take part.", given: true } }));
+    const notice = screen.getByText("Consent notice").closest("details")!;
+    expect(notice.textContent).toContain("This seat agreed to a consent notice earlier. The text above is the current notice.");
+    expect(m.container.textContent).not.toMatch(/agreed to (it|notice)|Notice v2|notice v2/);
+  });
+
+  it("a lobby seat that consented before this visit does not read \"You agreed to notice\"; one that agrees here still does", async () => {
+    const m = mount();
+    emit(m.es(), "joined", joinedFrame({ consent: { noticeVersion: "v2", notice: "n", given: true } }));
+    expect(screen.queryByText(/You agreed to notice/)).toBeNull();
+    expect(screen.getByText(/agreed to a consent notice earlier/)).toBeTruthy();
+  });
 });

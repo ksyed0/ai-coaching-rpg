@@ -12,6 +12,9 @@ export type ConsentPanelProps = {
 
 export function ConsentPanel({ noticeVersion, notice, given, onConsent, onWithdraw }: ConsentPanelProps) {
   const [agreed, setAgreed] = useState(false);
+  // True only when this person agreed to the text shown here, in this panel. A seat whose consent was adopted earlier (a rebind) never
+  // saw this text, so it is not told it agreed to this notice version.
+  const [agreedHere, setAgreedHere] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busy = useRef(false);
@@ -24,6 +27,8 @@ export function ConsentPanel({ noticeVersion, notice, given, onConsent, onWithdr
     try {
       const r = await action();
       if (!r.ok) setError(r.message);
+      else if (action === onConsent) setAgreedHere(true);
+      else setAgreedHere(false);
     } finally {
       busy.current = false;
       setPending(false);
@@ -36,7 +41,9 @@ export function ConsentPanel({ noticeVersion, notice, given, onConsent, onWithdr
       <p className="prose">{notice}</p>
       {given ? (
         <>
-          <p className="ok-text">You agreed to notice {noticeVersion}. You can withdraw before the start; your seat is then freed.</p>
+          <p className="ok-text">
+            {agreedHere ? `You agreed to notice ${noticeVersion}.` : "This seat agreed to a consent notice earlier. The text above is the current notice."} You can withdraw before the start; your seat is then freed.
+          </p>
           <button className="btn" type="button" disabled={pending} onClick={() => run(onWithdraw)}>Leave and withdraw consent</button>
         </>
       ) : (

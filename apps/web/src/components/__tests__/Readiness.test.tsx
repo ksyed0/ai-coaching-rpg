@@ -739,4 +739,78 @@ describe("ConfirmDialog", () => {
     expect(screen.getByText(/Model: mock-model/)).toBeTruthy();
     expect(screen.getAllByText(/started/i).length).toBeGreaterThan(0);
   });
+
+  // ---- US-0060: AI seats ----
+  const AI_ROSTER = [
+    { roleId: "account_manager", name: "Sam", joined: true, consented: true, connected: true },
+    { roleId: "delivery_lead", joined: false, consented: false, connected: false },
+    { roleId: "tech_lead", name: "Pat", joined: false, consented: false, connected: false, ai: true },
+  ];
+
+  it("the readiness row of an AI seat reads \"AI player\", \"Not needed\" and has no Reissue or Remove button", async () => {
+    mount(readiness({ roster: [{ ...AI_ROSTER[2]!, joined: true, connected: true }, AI_ROSTER[0]!], canStart: true }));
+    await ready();
+    const row = screen.getByRole("row", { name: /Tech lead/ });
+    expect(within(row).getByText("AI player")).toBeTruthy();
+    expect(within(row).getByText("AI")).toBeTruthy();
+    expect(within(row).getByText("Not needed")).toBeTruthy();
+    expect(row.textContent).not.toContain("Pat");
+    expect(within(row).queryByRole("button")).toBeNull();
+    // A human row keeps its buttons and its Consented cell.
+    const human = screen.getByRole("row", { name: /Account manager/ });
+    expect(within(human).getByRole("button", { name: "Reissue code for Account manager" })).toBeTruthy();
+    expect(within(human).queryByText("Not needed")).toBeNull();
+  });
+
+  it("the start reason says \"AI player not connected yet: Tech lead\" while aiWaiting holds tech_lead", async () => {
+    mount(readiness({ roster: AI_ROSTER.slice(0, 1).concat([{ ...AI_ROSTER[2]! }]), aiWaiting: ["tech_lead"], missing: [] }));
+    await ready();
+    expect(screen.getByText("AI player not connected yet: Tech lead")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Start" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("with both a missing human and a missing AI role the reason lists them separately, split by the roster ai flag", async () => {
+    // An older server puts every role in `missing`; the console splits it by the roster flag.
+    mount(readiness({ roster: AI_ROSTER, missing: ["delivery_lead", "tech_lead"] }));
+    await ready();
+    const reason = document.getElementById("start-reason")!.textContent!;
+    expect(reason).toContain("Waiting for: delivery_lead");
+    expect(reason).not.toContain("Waiting for: delivery_lead, tech_lead");
+    expect(reason).toContain("AI player not connected yet: Tech lead");
+  });
+
+  it("a refused start lists the human and the AI player separately", async () => {
+    const gate = { status: 409, body: { success: false, data: { started: false, reason: "seats_not_ready", missing: ["delivery_lead"], aiWaiting: ["tech_lead"] }, error: { code: "conflict", message: "x" } } };
+    mount(readiness({ roster: AI_ROSTER, canStart: true, missing: [] }), { "/start": gate });
+    await ready();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start" })); });
+    await waitFor(() => expect(document.body.textContent).toContain("Not everyone has joined and consented yet. Waiting for: delivery_lead"));
+    expect(document.body.textContent).toContain("AI player not connected yet: Tech lead");
+    expect(document.body.textContent).not.toContain("delivery_lead, tech_lead");
+  });
+
+  it("a refusal listing an AI role in missing (older server) moves it to its own sentence", async () => {
+    const gate = { status: 409, body: { success: false, data: { started: false, reason: "seats_not_ready", missing: ["tech_lead"] }, error: { code: "conflict", message: "x" } } };
+    mount(readiness({ roster: AI_ROSTER, canStart: true }), { "/start": gate });
+    await ready();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start" })); });
+    await waitFor(() => expect(document.body.textContent).toContain("AI player not connected yet: Tech lead"));
+    expect(document.body.textContent).not.toContain("Waiting for: tech_lead");
+  });
+
+  it("a refusal with reason ai_notice shows the BFF's message", async () => {
+    const msg = "This server's consent notice does not mention AI players. AI players need notice v2 or later.";
+    const gate = { status: 409, body: { success: false, data: { started: false, reason: "ai_notice" }, error: { code: "ai_notice", message: msg } } };
+    mount(READY, { "/start": gate });
+    await ready();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Start" })); });
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(msg));
+    expect(screen.queryByText("The session has started.")).toBeNull();
+  });
+
+  it("no console screen renders a notice version as agreed", async () => {
+    mount(readiness({ roster: AI_ROSTER, canStart: false }));
+    await ready();
+    expect(document.body.textContent).not.toMatch(/notice v\d|agreed/i);
+  });
 });

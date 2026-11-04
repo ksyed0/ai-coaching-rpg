@@ -78,7 +78,7 @@ export function InjectsPanel({
                           kind: "fire_inject",
                           injectId: inj.id,
                           audience: inj.to.map((r) =>
-                            who(r, { names: label.names, ai: label.ai(r) }),
+                            who(r, { names: label.names, ai: label.ai(r), aiPlayer: label.aiPlayer?.(r) === true }),
                           ),
                           again,
                         },

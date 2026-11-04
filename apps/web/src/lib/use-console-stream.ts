@@ -16,7 +16,7 @@ import type { EventSourceLike, SessionDeps } from "./use-session";
 export const MAX_GAP_RESYNCS = 3;
 
 /** Mirrors FacilitatorRosterEntry in src/server/wire.ts (client modules import no server module). */
-export type FacilitatorRosterEntry = { roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean };
+export type FacilitatorRosterEntry = { roleId: string; name?: string; joined: boolean; consented: boolean; connected: boolean; /** US-0060: an AI player holds this seat. */ ai?: true };
 /** Mirrors ConsoleScene/ConsoleCharacter in src/server/facilitator-copies.ts. A character's facts carry only their number and whether they are released: never text. */
 export type ConsoleInject = { id: string; to: string[]; content: string; atMinute?: number };
 export type ConsoleScene = PlayerScene & { injects: ConsoleInject[] };
@@ -58,6 +58,10 @@ type Action =
   | { type: "dropped" }
   | { type: "final"; kind: ConsoleFinal };
 
+/** The roles an AI player holds: the session state's `aiRoles` and the roster's `ai` flag. Never decided by a name. */
+export const aiPlayerRoles = (aiRoles: readonly string[] | undefined, roster: readonly FacilitatorRosterEntry[]): Set<string> =>
+  new Set([...(aiRoles ?? []), ...roster.filter((r) => r.ai === true).map((r) => r.roleId)]);
+
 export const initialConsoleState: ConsoleStreamState = { conn: "connecting", final: null, channel: null, scenes: [], characters: [], view: null, roster: [], notice: null, gaps: 0, pendingGap: false, epoch: 0 };
 
 export function consoleStreamReducer(s: ConsoleStreamState, a: Action): ConsoleStreamState {
@@ -75,7 +79,9 @@ export function consoleStreamReducer(s: ConsoleStreamState, a: Action): ConsoleS
       return { ...s, conn: "live", view: viewFromReset(a.state), pendingGap: false, notice: null };
     case "event": {
       if (s.final) return s;
-      const label = (roleId: string) => s.roster.find((r) => r.roleId === roleId)?.name ?? roleLabel(roleId);
+      const aiSeats = aiPlayerRoles(s.view?.state.aiRoles, s.roster);
+      // An AI player is named by its role, never by a name the roster may hold for the seat.
+      const label = (roleId: string) => aiSeats.has(roleId) ? `AI player (${roleLabel(roleId)})` : (s.roster.find((r) => r.roleId === roleId)?.name ?? roleLabel(roleId));
       const view = applyConsoleEvent(s.view, a.event, { scenes: s.scenes, label });
       if (view === s.view) return s;
       if (view !== null && view.gap) {
@@ -183,7 +189,7 @@ export function useConsoleStream(sessionId: string, deps: SessionDeps, o: { enab
       if (isObj(d) && Array.isArray(d.roles)) dispatch({ type: "characters", characters: d.roles.flatMap((c) => { const v = toCharacter(c); return v ? [v] : []; }) });
     });
     on("roster", (d) => {
-      if (isObj(d) && Array.isArray(d.entries) && d.entries.every(isEntry)) dispatch({ type: "roster", entries: d.entries });
+      if (isObj(d) && Array.isArray(d.entries) && d.entries.every(isEntry)) dispatch({ type: "roster", entries: d.entries.map(({ ai, ...rest }) => (ai === true ? { ...rest, ai } : rest)) });
     });
     // A server-sent `event: error` carries JSON; the browser's own connection error (also named "error") carries no data.
     on("error", (d) => { if (isObj(d)) dispatch({ type: "notice", text: MESSAGES.consoleServerError }); });

@@ -7,10 +7,13 @@ import { roleLabel } from "../../lib/names";
 export type Labeler = {
   names: Record<string, string>;
   ai: (roleId: string) => boolean;
+  /** US-0060: whether an AI player holds the seat (its name is then never shown). */
+  aiPlayer?: (roleId: string) => boolean;
 };
 
 export function Person({ roleId, label }: { roleId: string; label: Labeler }) {
-  const name = label.names[roleId];
+  const aiPlayer = label.aiPlayer?.(roleId) === true;
+  const name = aiPlayer ? undefined : label.names[roleId];
   const role = <bdi>{roleLabel(roleId)}</bdi>;
   return (
     <>
@@ -21,6 +24,7 @@ export function Person({ roleId, label }: { roleId: string; label: Labeler }) {
       ) : (
         role
       )}
+      {aiPlayer ? " (AI player)" : null}
       {label.ai(roleId) ? " (AI character)" : null}
     </>
   );
