@@ -49,7 +49,11 @@ export function LiveView({ ui, clock, controls }: LiveViewProps) {
           {status ? <span className="pill mut">{status}</span> : null}
         </div>
         <div role="status">
-          {ui.conn === "reconnecting" ? <p className="banner warn">{MESSAGES.consoleReconnecting}</p> : null}
+          {ui.conn === "reconnecting" ? (
+            <p className="banner warn" tabIndex={-1} data-focus-fallback="connection">
+              {MESSAGES.consoleReconnecting}
+            </p>
+          ) : null}
           {ui.notice ? <p className="banner warn">{ui.notice}</p> : null}
         </div>
         <SceneStatus scene={index >= 0 ? ui.scenes[index] : undefined} index={index} count={ui.scenes.length} view={sceneView} clock={clock} />

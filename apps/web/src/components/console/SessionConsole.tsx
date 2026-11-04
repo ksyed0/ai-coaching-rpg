@@ -5,6 +5,7 @@ import { realClock, type Clock } from "../../lib/clock";
 import { useConsoleStream } from "../../lib/use-console-stream";
 import type { SetTimer } from "../../lib/use-readiness";
 import type { EventSourceCtor, SessionDeps } from "../../lib/use-session";
+import { focusFallback } from "./ConfirmDialog";
 import { ConsoleControls } from "./ConsoleControls";
 import { LiveView } from "./LiveView";
 import { Readiness, type SessionStatus } from "./Readiness";
@@ -35,6 +36,15 @@ export function SessionConsole({ sessionId, deps = {} }: SessionConsoleProps) {
     if (final?.kind === "stopped") setMode("lobby");
   }, [final]);
 
+  // The ended final removes the controls, and with them the End session button that may still hold focus (the command's answer can
+  // come before the final): focus that fell to the page goes to the banner. Focus anywhere else is left alone.
+  const endedFinal = final?.kind === "ended";
+  useEffect(() => {
+    if (!endedFinal) return;
+    const at = document.activeElement;
+    if (at === null || at === document.body) focusFallback("final")()?.focus();
+  }, [endedFinal]);
+
   const onState = (s: { launcherStatus: string; status: SessionStatus | null }) => {
     if (s.status === "running") setMode("live");
     else if (s.launcherStatus === "running" && final?.kind === "stopped") setDismissed(final);
@@ -44,7 +54,12 @@ export function SessionConsole({ sessionId, deps = {} }: SessionConsoleProps) {
   return (
     <div className="stack">
       <div role="status">
-        {final && final !== dismissed ? <p className="banner warn">{final.message}</p> : null}
+        {final && final !== dismissed ? (
+          // tabIndex -1: focus can be moved here (BUG-0022) when the control that was focused goes away with the session.
+          <p className="banner warn" tabIndex={-1} data-focus-fallback="final">
+            {final.message}
+          </p>
+        ) : null}
       </div>
       <Readiness
         sessionId={sessionId}

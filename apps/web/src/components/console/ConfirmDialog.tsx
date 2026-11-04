@@ -9,7 +9,9 @@ import {
 } from "react";
 
 // A modal confirmation. The first action (Cancel, the safe one) gets focus on open; Tab stays inside; Escape cancels; closing hands
-// focus back to the control that opened it. While it is open the rest of the page is inert (not focusable, not read by assistive
+// focus back to the control that opened it, while that control can take it (in the document, shown, not disabled); otherwise (BUG-0022)
+// to `fallbackFocus`, the message that now tells the user what happened. Focus is only moved when it is on the page or inside the
+// closed dialog, never when the user has put it somewhere else. While it is open the rest of the page is inert (not focusable, not read by assistive
 // technology, not clickable), which `aria-modal` alone does not guarantee. Text is rendered as text.
 
 export type ConfirmDialogProps = {
@@ -27,7 +29,30 @@ export type ConfirmDialogProps = {
   describeBody?: boolean;
   /** `danger` (default) or `primary`: the look of the confirm button only. */
   tone?: "danger" | "primary";
+  /** Where focus goes on close when the opener is gone, hidden or disabled: a message element (`tabIndex={-1}`), see `focusFallback`. */
+  fallbackFocus?: () => HTMLElement | null;
 };
+
+/** Marks a message element that can take focus when a dialog's opener cannot: `data-focus-fallback="<name>"` plus `tabIndex={-1}`. */
+export const FOCUS_FALLBACK_ATTR = "data-focus-fallback";
+
+/** A `fallbackFocus` that finds, at close time, the first of the named marked elements that has text (an empty live region is skipped). */
+export function focusFallback(...names: string[]): () => HTMLElement | null {
+  return () => {
+    for (const name of names) {
+      for (const el of document.querySelectorAll<HTMLElement>(`[${FOCUS_FALLBACK_ATTR}="${CSS.escape(name)}"]`))
+        if ((el.textContent ?? "").trim() !== "") return el;
+    }
+    return null;
+  };
+}
+
+/** True when `el` is in the document, shown and not disabled. (`aria-disabled` stays focusable on purpose.) */
+function canTakeFocus(el: HTMLElement | null): el is HTMLElement {
+  if (!el || !el.isConnected || (el as HTMLButtonElement).disabled || el.closest("[hidden], [inert]")) return false;
+  const style = getComputedStyle(el);
+  return style.display !== "none" && style.visibility !== "hidden";
+}
 
 /** Sets `inert` on every sibling of `node` and of each of its ancestors (so the chain holding the dialog stays live); returns the undo. */
 function inertOutside(node: HTMLElement): () => void {
@@ -68,6 +93,7 @@ export function ConfirmDialog({
   children,
   describeBody = false,
   tone = "danger",
+  fallbackFocus,
 }: ConfirmDialogProps) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -83,11 +109,19 @@ export function ConfirmDialog({
   // Declared before the focus effect: on close the page is live again before focus goes back to the opener.
   useEffect(() => (root.current ? inertOutside(root.current) : undefined), []);
 
+  // The latest callback, read at close time (the caller's message may only exist by then).
+  const fallback = useRef(fallbackFocus);
+  fallback.current = fallbackFocus;
+
   useEffect(() => {
     cancelBtn.current?.focus();
     const target = returnTo.current;
+    const dialog = root.current;
     return () => {
-      if (target && target.isConnected) target.focus();
+      const at = document.activeElement;
+      // Only when focus is on the page or was inside this dialog (which is gone now): a user who moved on keeps their place.
+      if (at !== null && at !== document.body && !dialog?.contains(at)) return;
+      (canTakeFocus(target) ? target : fallback.current?.())?.focus();
     };
   }, []);
 
