@@ -164,6 +164,12 @@ test("pause, whisper and resume: the player sees the pause and the whisper, anot
     expect(await page.content(), `${r} page markup after reload`).not.toContain(whisper);
   }
   await expect(lead.locator("body")).not.toContainText(FAC_NAME);
+  // The Private pill passes Axe (contrast) in both colour schemes, at desktop and phone width.
+  for (const width of [1280, 400] as const) {
+    await lead.setViewportSize({ width, height: 860 });
+    await checkBothSchemes(lead, `the player page with a Private whisper at ${width} px`);
+    await noHorizontalScroll(lead, width);
+  }
 });
 
 test("fire the scene's inject again: the dialog names the three players; each sees it twice", async ({ browser }) => {
