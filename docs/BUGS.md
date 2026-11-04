@@ -288,12 +288,14 @@ BUG-0022: Keyboard focus falls to the page body after End session, a connection 
 Severity: Medium
 Related Story: US-0059
 Related Task: TASK-0097
-Status: Open
-Fix Branch: None
+Status: Fixed
+Fix Branch: fix/bug-0022-console-focus-fallback
 Lesson Encoded: No
 ```
 
 Found in slice 2b-2b2 (listed among its open items in `progress.md` Session 16). A confirmation dialog returns focus to the control that opened it. After a successful End session the `ended` final unmounts the controls and the button that opened the dialog, and when the connection drops while a dialog is open or a Remove answers 409 the opener is detached or disabled, so focus falls to the body: a keyboard or screen-reader user loses their place and nothing announces the new state. Owner decision (2026-11-03): move focus to the final banner (made focusable with `tabIndex={-1}`) after End session, and to the connection or error message that appears in the other two cases. Fix: a small console change with unit tests for each case and an Axe/keyboard check in `apps/web/e2e/console-controls.spec.ts`. **Slice 2b-3b PR 3 note (not a fix):** the AI toggle's switch confirmations use the same dialog; `Readiness` puts focus back on the switch by a data attribute after a switch, and the AI players panel puts it back on Prompt AI player only when focus is on the page or the button. None of the three cases above is changed, and the bug stays open.
+
+Fixed: `ConfirmDialog` now gives focus back to its opener only while the opener is in the document, shown and not disabled (`aria-disabled` still counts as focusable), and only when focus is on the page or was inside the closed dialog (a user who moved focus elsewhere keeps it). Otherwise it calls the new optional `fallbackFocus` prop; `focusFallback(...names)` finds the first `data-focus-fallback="<name>"` element that has text. The targets are `tabIndex={-1}` text elements already in their live regions, so no new landmark, heading or announcement: the ended final banner in `SessionConsole` (`final`), the reconnecting message in `LiveView` (`connection`) and the always-mounted `role="alert"` error line in `Readiness` (`error`). The console controls' dialog tries `final` then `connection`; `Readiness`' dialogs try `error`. `SessionConsole` also moves focus that fell to the page to the banner when the `ended` final arrives after the dialog has already closed. Verified by `ConfirmDialogFocus.test.tsx`, `SessionConsoleFocus.test.tsx` and two new `Readiness` 409 tests (removing the fallback fails five of them), the whole `@acr/web` suite, `pnpm -r --if-present typecheck`, and `console-controls.spec.ts` (End session leaves the final banner focused), `console-flow.spec.ts` and `axe.spec.ts` in Chromium.
 
 ```
 BUG-0023: A facilitator whisper has no "private" label and is lost on a page reload
