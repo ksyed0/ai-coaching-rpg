@@ -5116,8 +5116,8 @@
       "severity": "Medium",
       "relatedStory": "US-0060",
       "relatedTask": "TASK-0099",
-      "status": "Open",
-      "fixBranch": "None",
+      "status": "Fixed (bb00195, de2f3b1 and 915472e on fix/bug-0021-ai-roles-after-control-restart)",
+      "fixBranch": "fix/bug-0021-ai-roles-after-control-restart",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -6502,9 +6502,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-04T19:59:30.445Z",
-  "commitSha": "0c21e1b",
-  "buildNumber": "505",
+  "generatedAt": "2026-11-04T21:12:37.161Z",
+  "commitSha": "12eb659",
+  "buildNumber": "508",
   "branch": "docs/bugfixes-session-close",
   "sessionTimeline": [
     {
@@ -6785,9 +6785,11 @@
       "2026-11-04T16:02:24.447Z",
       "2026-11-04T17:07:23.775Z",
       "2026-11-04T18:53:35.566Z",
-      "2026-11-04T19:59:30.549Z"
+      "2026-11-04T19:59:30.549Z",
+      "2026-11-04T21:12:37.282Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6897,6 +6899,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6930,6 +6933,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -7009,9 +7013,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -7121,9 +7127,11 @@
       2,
       5,
       5,
-      1
+      1,
+      0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -7233,6 +7241,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -7266,6 +7275,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -7345,7 +7355,8 @@
       1.146153846153846,
       1.16,
       1.16,
-      1.146153846153846
+      1.146153846153846,
+      1.136923076923077
     ],
     "velocityByWeek": {
       "labels": [
