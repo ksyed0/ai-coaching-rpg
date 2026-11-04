@@ -20,7 +20,10 @@ const CODES = ROLES.map((roleId) => ({ roleId, code: `human-${roleId}` }));
 
 let root: string, config: ControlConfig, list: SessionList, children: FakeChild[], spawn: SpawnFn, scenario: Scenario;
 let opened: { roleId: string; code: string; port: number; closed: boolean }[], reissues: string[], logs: string[], host: BotHost | undefined;
-const setTimer: SetTimer = () => () => undefined;
+type Tm = { ms: number; fn: () => void; cancelled: boolean; fired: boolean };
+let timers: Tm[];
+const setTimer: SetTimer = (fn, ms) => { const t: Tm = { ms, fn, cancelled: false, fired: false }; timers.push(t); return () => { t.cancelled = true; }; };
+const fireSet = (): void => { const t = timers.filter((x) => x.ms === 4242 && !x.cancelled && !x.fired).pop()!; t.fired = true; t.fn(); };
 const settle = async (): Promise<void> => { for (let i = 0; i < 12; i++) await flush(); };
 const open = async (o: BotSocketOptions): Promise<BotSocket> => {
   const rec = { roleId: o.roleId, code: o.code, port: o.port, closed: false };
@@ -29,7 +32,7 @@ const open = async (o: BotSocketOptions): Promise<BotSocket> => {
 };
 
 const make = () => new Supervisor({
-  config, list, scenarios: async () => [{ id: "other", title: "Other" }], spawn, setTimer, now: () => 1234, log: (m) => logs.push(m),
+  config, list, scenarios: async () => [{ id: "other", title: "Other" }], spawn, setTimer, now: () => 1234, reissueTimeoutMs: 4242, log: (m) => logs.push(m),
   bots: (d: BotDeps) => {
     host = new BotHost({
       provider: new MockModelProvider(), settings: AI_CONFIG.aiPlayer, intents: new IntentLog(path.join(root, "intents")),
@@ -64,7 +67,7 @@ beforeEach(async () => {
   };
   mkdirSync(config.sessionsDir, { recursive: true });
   list = new SessionList(config.listFile);
-  children = []; opened = []; reissues = []; logs = []; host = undefined;
+  children = []; timers = []; opened = []; reissues = []; logs = []; host = undefined;
   spawn = ({ env, logFile }) => { const c = new FakeChild(env, logFile); writeFileSync(logFile, "log"); children.push(c); return c; };
 });
 afterEach(async () => { await host?.close(); rmSync(root, { recursive: true, force: true }); });
@@ -114,5 +117,35 @@ describe("Supervisor with a real BotHost", () => {
     expect([last.roleId, last.code, last.port, last.closed]).toEqual(["tech_lead", "ai-new", 7001, false]);
     expect(opened.filter((o) => !o.closed)).toHaveLength(1);
     expect(reissues).toEqual([]);
+  });
+
+  it("a recovery reissue that times out after the set applied keeps every role uncertain; the third set gives the bots their codes", async () => {
+    const sup = make();
+    const { id, c } = await boot(sup);
+    const last = (): { type: string; requestId: string } => c.sent[c.sent.length - 1]! as { type: string; requestId: string };
+    // 1: the set times out (it may have applied)
+    const s1 = sup.setAiRoles(id, ["tech_lead"]).catch((e: Error & { code?: string }) => e); await settle();
+    fireSet();
+    expect(await s1).toMatchObject({ code: "timeout" });
+    // 2: this set applies (account_manager's code arrives) but the recovery reissue of tech_lead times out
+    const s2 = sup.setAiRoles(id, ["tech_lead", "account_manager"]).catch((e: Error & { code?: string; message: string }) => e); await settle();
+    c.emit({ type: "ai_roles_set", requestId: last().requestId, codes: [{ roleId: "account_manager", code: "ai-am-lost" }] }); await settle();
+    expect(last().type).toBe("reissue");
+    fireSet();
+    const e2 = await s2 as { code: string; message: string };
+    expect(e2).toMatchObject({ code: "timeout", message: "the AI roles may or may not have changed; reissue the changed roles" });
+    expect(opened).toEqual([]);
+    expect(await sup.reissue(id, "account_manager").catch((e: Error & { code?: string }) => e)).toMatchObject({ code: "ai_role" });
+    // 3: a retry recovers both: the reply covers nothing, each uncertain role is reissued and routed to the bots by the wanted set
+    const s3 = sup.setAiRoles(id, ["tech_lead", "account_manager"]); await settle();
+    c.emit({ type: "ai_roles_set", requestId: last().requestId, codes: [] }); await settle();
+    expect(last()).toMatchObject({ type: "reissue" });
+    c.emit({ type: "reissued", requestId: last().requestId, code: "ai-tl-3" }); await settle();
+    c.emit({ type: "reissued", requestId: last().requestId, code: "ai-am-3" });
+    expect(await s3).toEqual({ roles: ["tech_lead", "account_manager"].sort((a, b) => ROLES.indexOf(a) - ROLES.indexOf(b)), codes: [] });
+    await settle();
+    expect(opened.map((o) => [o.roleId, o.code]).sort()).toEqual([["account_manager", "ai-am-3"], ["tech_lead", "ai-tl-3"]]);
+    expect(reissues).toEqual([]);
+    expect(logs.join("\n")).not.toMatch(/ai-(tl|am)/);
   });
 });

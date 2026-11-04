@@ -459,15 +459,118 @@ describe("whole-session reissue, restart, resume and timeout recovery (Task 12)"
     expect(lastAttach()).toMatchObject({ port: 7003, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: "fresh-tl" }] });
   });
 
-  it("resumeAll with an AI role resolves and returns nothing", async () => {
+  it("resumeAll, started log: issued codes send no set_ai_roles, the AI role's fresh code goes to the bots and nothing is returned", async () => {
+    const sup = makeB();
+    const { id } = await bootT(sup);
+    writeFileSync(path.join(config.sessionsDir, `${id}.jsonl`), '{"type":"session.started"}\n');
+    const sup2 = makeB();
+    const p = sup2.resumeAll(); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7004, aiRoles: ["tech_lead"] });
+    await expect(bounded(p)).resolves.toBeUndefined();
+    await settle();
+    expect(c2.sent).toEqual([]);
+    expect(lastAttach()).toMatchObject({ port: 7004, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: "fresh-tl" }] });
+    expect(sup2.aiRolesOf(id)).toEqual(["tech_lead"]);
+  });
+
+  it("resumeAll, empty log, after a control restart the captured AI set is empty (known gap M-1): no set_ai_roles is re-sent, and it resolves", async () => {
     const sup = makeB();
     await bootT(sup);
     const sup2 = makeB();
     const p = sup2.resumeAll(); await settle();
     const c2 = children[1]!;
-    c2.emit({ ...READY, port: 7004, aiRoles: ["tech_lead"] });
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7005 });
     await expect(bounded(p)).resolves.toBeUndefined();
-    expect(sup2.aiRolesOf([...list.read()][0]!.sessionId)).toEqual(["tech_lead"]);
+    expect(c2.sent).toEqual([]);
+  });
+
+  it("resumeAll, empty log, in one process (captured set non-empty): set_ai_roles is re-sent after the launch", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup);
+    c.exit(1); await settle();
+    const p = sup.resumeAll(); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7006 }); await settle();
+    expect(c2.sent.map((m) => [m.type, (m as { roles?: string[] }).roles])).toEqual([["set_ai_roles", ["tech_lead"]]]);
+    await reply(c2, 0, [{ roleId: "tech_lead", code: "ai-tl" }]);
+    await bounded(p);
+    expect(lastAttach().codes).toEqual([{ roleId: "tech_lead", code: "ai-tl" }]);
+    expect(sup.aiRolesOf(id)).toEqual(["tech_lead"]);
+  });
+
+  it("a re-send's human codes win over the launch's: a role that flipped to human gets its NEW code", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup);
+    c.exit(1); await settle();
+    const p = sup.restart(id); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7007, aiRoles: ["account_manager"] }); await settle();
+    await reply(c2, 0, [{ roleId: "tech_lead", code: "ai-tl" }, { roleId: "account_manager", code: "newer-am" }]);
+    const r = await bounded(p);
+    expect(r.codes).toEqual([{ roleId: "account_manager", code: "newer-am" }, { roleId: "delivery_lead", code: "fresh-dl" }]);
+  });
+
+  it("create returns no code of a role the ready lists as AI, and that code reaches the bots through goLive's attach", async () => {
+    const sup = makeB();
+    const p = sup.create("other"); await settle();
+    const c = children[children.length - 1]!;
+    c.emit({ type: "codes", codes: FRESH }); c.emit(READY3);
+    const created = await p; await settle();
+    expect(created.codes).toEqual(HUMAN);
+    expect(lastAttach().codes).toEqual([{ roleId: "tech_lead", code: "fresh-tl" }]);
+  });
+
+  it("reissueAll enqueues bots.forget before the new child's attach", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup);
+    dies(c);
+    const p = sup.reissueAll(id); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7001 }); await settle();
+    await reply(c2, 0, [{ roleId: "tech_lead", code: "ai-tl" }]);
+    await bounded(p);
+    const ops = botCalls.map((x) => x.op);
+    expect(ops.indexOf("forget")).toBeGreaterThanOrEqual(0);
+    expect(ops.indexOf("forget")).toBeLessThan(ops.indexOf("attach"));
+  });
+
+  it("a second set timeout unions with the earlier uncertain roles; both stay refused until a ready or a recovering set", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup, READY);
+    for (const role of ["tech_lead", "account_manager"]) {
+      const f = errOf(sup.setAiRoles(id, [role])); await settle();
+      fire(timers.filter((x) => !x.cancelled && !x.fired).pop()!);
+      expect(await f).toMatchObject({ code: "timeout" });
+    }
+    const n = c.sent.length;
+    for (const role of ["tech_lead", "account_manager"]) {
+      const r = errOf(sup.reissue(id, role)); await settle();
+      expect(await r).toMatchObject({ code: "ai_role" });
+    }
+    expect(c.sent.length).toBe(n);
+  });
+
+  it("a ready clears the uncertain roles (restart), and so does an end", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup, READY);
+    const f = errOf(sup.setAiRoles(id, ["tech_lead"])); await settle();
+    fire(timers.filter((x) => !x.cancelled && !x.fired).pop()!);
+    await f;
+    c.exit(1); await settle();
+    const rp = sup.restart(id); await settle();
+    children[1]!.emit(READY); await rp; await settle();
+    const c2 = children[1]!;
+    const re = sup.reissue(id, "tech_lead"); await settle();
+    expect(c2.sent.map((m) => m.type)).toEqual(["reissue"]);
+    c2.emit({ type: "reissued", requestId: c2.sent[0]!.requestId, code: "x" });
+    await re;
+    const f2 = errOf(sup.setAiRoles(id, ["tech_lead"])); await settle();
+    fire(timers.filter((x) => !x.cancelled && !x.fired).pop()!);
+    await f2;
+    expect((sup as unknown as { uncertain: Map<string, string[]> }).uncertain.has(id)).toBe(true);
+    c2.emit({ type: "ended" }); await settle();
+    expect((sup as unknown as { uncertain: Map<string, string[]> }).uncertain.has(id)).toBe(false);
   });
 
   it("after a set timeout, reissue of an uncertain role is ai_role; the next setAiRoles sends the wanted set, then reissues each uncertain role the reply did not carry, and returns only human codes", async () => {
