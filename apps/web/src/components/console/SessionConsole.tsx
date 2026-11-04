@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { realClock, type Clock } from "../../lib/clock";
 import { useConsoleStream } from "../../lib/use-console-stream";
 import type { SetTimer } from "../../lib/use-readiness";
@@ -39,8 +39,12 @@ export function SessionConsole({ sessionId, deps = {} }: SessionConsoleProps) {
   // The ended final removes the controls, and with them the End session button that may still hold focus (the command's answer can
   // come before the final): focus that fell to the page goes to the banner. Focus anywhere else is left alone.
   const endedFinal = final?.kind === "ended";
+  // Only on the change to ended: a mount that starts ended (or any other re-render) never moves focus.
+  const wasEnded = useRef(endedFinal);
   useEffect(() => {
-    if (!endedFinal) return;
+    const became = endedFinal && !wasEnded.current;
+    wasEnded.current = endedFinal;
+    if (!became) return;
     const at = document.activeElement;
     if (at === null || at === document.body) focusFallback("final")()?.focus();
   }, [endedFinal]);

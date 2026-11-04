@@ -13,11 +13,13 @@ type Host = { open: boolean; openerGone?: boolean; openerDisabled?: boolean; wit
 function host(o: Host) {
   return (
     <div>
-      {o.openerGone ? null : (
-        <button type="button" id="op" disabled={o.openerDisabled === true}>
-          Opener
-        </button>
-      )}
+      <div id="wrap">
+        {o.openerGone ? null : (
+          <button type="button" id="op" disabled={o.openerDisabled === true}>
+            Opener
+          </button>
+        )}
+      </div>
       <button type="button" id="elsewhere">
         Elsewhere
       </button>
@@ -68,6 +70,14 @@ describe("ConfirmDialog focus fallback", () => {
     const { rerender } = render(host({ open: false }));
     rerender(host({ open: true }));
     byId("op").style.display = "none";
+    rerender(host({ open: false }));
+    expect(document.activeElement).toBe(byId("msg"));
+  });
+
+  it.each(["hidden", "inert"])("moves focus to the fallback when the opener sits inside a [%s] ancestor", (attr) => {
+    const { rerender } = render(host({ open: false }));
+    byId("wrap").setAttribute(attr, ""); // set before opening, so the dialog does not own (and undo) an inert
+    rerender(host({ open: true }));
     rerender(host({ open: false }));
     expect(document.activeElement).toBe(byId("msg"));
   });

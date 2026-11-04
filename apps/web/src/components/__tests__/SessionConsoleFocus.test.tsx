@@ -76,6 +76,21 @@ describe("focus after a confirmation when its opener is gone", () => {
     other.remove();
   });
 
+  it("a page that starts with the session already ended leaves focus alone", async () => {
+    const f = fakeFetch((url) =>
+      url.endsWith("/readiness") ? { status: 200, body: ok(readiness({ status: "ended" })) } : { status: 200, body: ok({}) },
+    );
+    render(
+      <SessionConsole
+        sessionId={SID}
+        deps={{ EventSource: FakeEventSource as unknown as EventSourceCtor, fetch: f.fetch, setTimer: fakeTimer().setTimer, clock: new FakeClock(1_000_000) }}
+      />,
+    );
+    await screen.findByText(/Model:/);
+    await flush();
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it("a connection drop under an open dialog: closing it puts focus on the reconnecting message", async () => {
     const es = await live();
     const opener = endButton();
