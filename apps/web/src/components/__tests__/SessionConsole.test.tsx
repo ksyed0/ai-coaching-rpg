@@ -191,4 +191,19 @@ describe("SessionConsole", () => {
     expect(screen.getByText("Streamed")).toBeTruthy();
     expect(screen.queryByText("Sam")).toBeNull();
   });
+
+  it("the live view shows the AI players panel for state.aiRoles, with Prompt enabled once live and running", async () => {
+    mount(readiness({ status: "running" }));
+    await screen.findByText(/Model:/);
+    await flush();
+    await joined(FakeEventSource.last());
+    await act(async () => FakeEventSource.last().emit("reset", { state: { ...initialState(), status: "running", lastSeq: 1, aiRoles: ["tech_lead"] } }));
+    expect(screen.getByRole("heading", { name: "AI players" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Prompt the AI player for Tech lead" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("no AI players panel when the session has no AI roles", async () => {
+    await goLive(mount(readiness({ status: "running" })));
+    expect(screen.queryByRole("heading", { name: "AI players" })).toBeNull();
+  });
 });
