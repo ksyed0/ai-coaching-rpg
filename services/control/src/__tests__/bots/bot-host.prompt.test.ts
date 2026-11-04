@@ -7,6 +7,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { MockModelProvider, type ChatRequest, type ModelProvider } from "@acr/adapters";
 import { loadScenario, type Scenario } from "@acr/script";
 import { parseAiPlayerSettings, type AiPlayerSettings } from "@acr/runtime/players";
+import { BOT_ALERTS } from "../../bots/bot-alerts.js";
 import { BotHost, PROMPT_DEBOUNCE_MS, RESERVATION_TTL_MS } from "../../bots/bot-host.js";
 import type { BotSocket, BotSocketOptions } from "../../bots/bot-socket.js";
 import { parseBotFrame } from "../../bots/bot-frames.js";
@@ -223,6 +224,100 @@ describe("BotHost prompted turns", () => {
     ownLine(s, 6);
     await adv(PROMPT_DEBOUNCE_MS);
     expect(code(() => h.reserve(SID, "tech_lead"))).toBe("ai_budget");
+  });
+
+  describe("reservations end with the bot's session state", () => {
+    it("detach: run is ai_expired, and after a re-attach a human line is answered (the hold is gone)", async () => {
+      const h = await up();
+      const t = h.reserve(SID, "tech_lead");
+      await h.detach(SID);
+      expect(code(() => h.run(SID, "tech_lead", t, "go"))).toBe("ai_expired");
+      await h.attach(SID, { port: 4001, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: CODE("tech_lead") }] });
+      await flush();
+      const s = sockFor("tech_lead");
+      feed(s, joinedFrame("tech_lead")); humansReady(s);
+      humanLine(s, 6);
+      await adv(baseSettings.turn.settleMs + 1_000);
+      expect(s.said).toHaveLength(1);
+    });
+
+    it("removeRoles: that role's run is ai_expired, the other role's reservation survives", async () => {
+      const h = await up(["tech_lead", "account_manager"]);
+      const t1 = h.reserve(SID, "tech_lead");
+      const t2 = h.reserve(SID, "account_manager");
+      await h.removeRoles(SID, ["tech_lead"]);
+      expect(code(() => h.run(SID, "tech_lead", t1, "go"))).toBe("ai_expired");
+      h.run(SID, "account_manager", t2, "go");
+      await flush();
+      expect(sockFor("account_manager").said).toHaveLength(1);
+    });
+
+    it("end: run is ai_expired", async () => {
+      const h = await up();
+      const t = h.reserve(SID, "tech_lead");
+      await h.end(SID);
+      expect(code(() => h.run(SID, "tech_lead", t, "go"))).toBe("ai_expired");
+    });
+
+    it("a reservation left outstanding at close() leaves no timer behind (the afterEach checks the timer count)", async () => {
+      const h = await up();
+      h.reserve(SID, "tech_lead");
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      void h;
+    });
+  });
+
+  it("release with the wrong token does not clear the hold: the real token still runs", async () => {
+    const h = await up();
+    const s = sockFor("tech_lead");
+    humansReady(s);
+    const t = h.reserve(SID, "tech_lead");
+    humanLine(s, 6);
+    h.release(SID, "tech_lead", "f".repeat(32));
+    await adv(baseSettings.turn.settleMs + 1_000);
+    expect(s.said).toHaveLength(0);
+    h.run(SID, "tech_lead", t, "go");
+    await flush();
+    expect(s.said).toHaveLength(1);
+  });
+
+  it("a non-ASCII token of the right length is ai_expired, never a RangeError", async () => {
+    const h = await up();
+    const t = h.reserve(SID, "tech_lead");
+    expect(code(() => h.run(SID, "tech_lead", "é".repeat(32), "go"))).toBe("ai_expired");
+    expect(() => h.release(SID, "tech_lead", "é".repeat(32))).not.toThrow();
+    h.release(SID, "tech_lead", t);
+  });
+
+  it("reserve before the start or outside the scene is ai_busy (the policy could not begin a prompt)", async () => {
+    const h = mk();
+    await h.attach(SID, { port: 4000, aiRoles: ["tech_lead"], codes: [{ roleId: "tech_lead", code: CODE("tech_lead") }] });
+    await flush();
+    const s = sockFor("tech_lead");
+    const j = joinedFrame("tech_lead") as any;
+    j.state.status = "idle";
+    feed(s, j);
+    await flush();
+    expect(code(() => h.reserve(SID, "tech_lead"))).toBe("ai_busy");
+    feed(s, { type: "event", event: { seq: 6, type: "session.started", aiRoles: ["tech_lead"] } });
+    feed(s, { type: "event", event: { seq: 7, type: "scene.entered", sceneId: SCENE1, participants: PARTICIPANTS } });
+    await flush();
+    h.release(SID, "tech_lead", h.reserve(SID, "tech_lead"));
+    feed(s, { type: "event", event: { seq: 8, type: "facilitator.command", command: "pause" } });
+    expect(code(() => h.reserve(SID, "tech_lead"))).toBe("ai_busy");
+  });
+
+  it("the budget used up between reserve and run: run still starts, the bot records skipped/budget and raises the budget alert once", async () => {
+    const h = await up(["tech_lead", "account_manager"], {}, baseSettings.callsPerSession - 1);
+    const t1 = h.reserve(SID, "tech_lead");
+    const t2 = h.reserve(SID, "account_manager");
+    h.run(SID, "account_manager", t2, "go"); // takes the last unit
+    await flush();
+    expect(() => h.run(SID, "tech_lead", t1, "go")).not.toThrow();
+    await flush();
+    expect(intents.entries.filter((e) => e.outcome === "skipped")).toEqual([expect.objectContaining({ trigger: "prompt", reason: "budget" })]);
+    expect(alerts.filter((m) => m === BOT_ALERTS.budget)).toHaveLength(1);
+    expect(sockFor("tech_lead").said).toHaveLength(0);
   });
 
   it("the hint never appears in a log line, an alert, a bot_alert message or an error", async () => {

@@ -215,4 +215,12 @@ describe("Supervisor with a real BotHost", () => {
     c.emit({ type: "ai_roles_set", requestId: c.sent[c.sent.length - 1]!.requestId, codes: [{ roleId: "tech_lead", code: "human-1" }] });
     await pendingSet;
   });
+
+  it("releaseTurn is a no-op for an unknown or stopped session", async () => {
+    const sup = make();
+    const { id, c } = await boot(sup);
+    expect(() => sup.releaseTurn("f".repeat(32), "tech_lead", "0".repeat(32))).not.toThrow();
+    c.exit(1); await settle();
+    expect(() => sup.releaseTurn(id, "tech_lead", "0".repeat(32))).not.toThrow();
+  });
 });

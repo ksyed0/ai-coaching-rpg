@@ -580,7 +580,12 @@ export class Supervisor {
   /** Starts the prompted turn; the hint goes to the bot only (never logged). */
   runTurn(id: string, roleId: string, reservation: string, hint: unknown): void { this.promptHost(id).run(id, roleId, reservation, hint); }
 
-  releaseTurn(id: string, roleId: string, reservation: string): void { this.promptHost(id).release(id, roleId, reservation); }
+  /** A no-op (never an error) for an unknown, stopped or ended session: the BFF may release on cancel after the end. */
+  releaseTurn(id: string, roleId: string, reservation: string): void {
+    const l = this.live.get(id);
+    if (!this.bots || !this.entryOf(id) || !l || l.status !== "running") return;
+    this.bots.release(id, roleId, reservation);
+  }
 
   /** Stops the session's bots and deletes its intent files; never awaited. */
   private botForget(id: string): void {

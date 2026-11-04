@@ -140,7 +140,7 @@ export class BotHost {
     const bot = st?.bots.get(roleId);
     if (!st || !bot || !st.aiRoles.has(roleId) || !bot.joinedOk) throw new ControlError("ai_absent", "that AI player is not available");
     const last = st.lastPrompt.get(roleId);
-    if (bot.speaking || st.reservations.has(roleId) || (last !== undefined && this.now() - last < PROMPT_DEBOUNCE_MS)) throw new ControlError("ai_busy", "that AI player is busy");
+    if (bot.speaking || !bot.canPrompt || st.reservations.has(roleId) || (last !== undefined && this.now() - last < PROMPT_DEBOUNCE_MS)) throw new ControlError("ai_busy", "that AI player is busy");
     if (st.budget?.exhausted) throw new ControlError("ai_budget", "the AI player budget for this session is used up");
     const token = randomBytes(16).toString("hex");
     const cancel = this.setTimer(() => { if (st.reservations.get(roleId)?.token === token) { st.reservations.delete(roleId); bot.setHeld(false); } }, RESERVATION_TTL_MS);
@@ -152,7 +152,8 @@ export class BotHost {
   /** The reservation of this (session, role) when `token` matches it (constant time); undefined otherwise. */
   private reservationFor(st: Sess, roleId: string, token: string): { token: string; cancel: () => void } | undefined {
     const r = st.reservations.get(roleId);
-    if (!r || typeof token !== "string" || token.length !== r.token.length) return undefined;
+    // Shape first: timingSafeEqual throws on different byte lengths, which a non-ASCII token of the right length would have.
+    if (!r || typeof token !== "string" || !/^[0-9a-f]{32}$/.test(token)) return undefined;
     return timingSafeEqual(Buffer.from(token), Buffer.from(r.token)) ? r : undefined;
   }
 

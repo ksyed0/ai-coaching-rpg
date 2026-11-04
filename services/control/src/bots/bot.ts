@@ -131,6 +131,28 @@ export class AiPlayerBot {
     return this.beginTurn("prompt", hint);
   }
 
+  /** True when `begin("prompt")` could start now (started, not ended, not paused, seated in the scene); mirrors the policy, no side effects. */
+  get canPrompt(): boolean { return this.mirror.started && !this.mirror.ended && !this.mirror.paused && this.mirror.inScene; }
+
+  private mirror = { started: false, ended: false, paused: false, inScene: false };
+
+  private observe(e: PolicyEvent): void {
+    const m = this.mirror;
+    switch (e.kind) {
+      case "started": m.started = true; break;
+      case "scene": m.inScene = e.participants.includes(this.d.roleId); break;
+      case "paused": m.paused = true; break;
+      case "resumed": m.paused = false; break;
+      case "ended": m.ended = true; break;
+    }
+    this.policy.observe(e);
+  }
+
+  private resetPolicy(): void {
+    this.mirror = { started: false, ended: false, paused: false, inScene: false };
+    this.policy.reset();
+  }
+
   /** B17: while held, the policy begins no reply or nudge. Re-asks the wake time, since a release can make a pending reply due. */
   setHeld(held: boolean): void {
     this.policy.setHeld(held);
@@ -180,7 +202,7 @@ export class AiPlayerBot {
     if (a) { a.cancel(); this.record(a.turn, "dropped"); }
     this.current?.ac.abort();
     this.current = null;
-    this.policy.reset();
+    this.resetPolicy();
     this.humans = false;
     const pending = this.opening;
     this.opening = null;
@@ -202,7 +224,7 @@ export class AiPlayerBot {
       case "event": this.onEvent(f.event); return;
       case "roster":
         this.humans = f.entries.some((e) => !e.ai && e.ready);
-        this.policy.observe({ kind: "humans", connected: this.humans });
+        this.observe({ kind: "humans", connected: this.humans });
         this.arm();
         return;
       case "error":
@@ -214,7 +236,7 @@ export class AiPlayerBot {
   }
 
   private seed(j: Joined): void {
-    this.policy.reset();
+    this.resetPolicy();
     this.joinedSeen = true;
     this.joinWait?.(); this.joinWait = null;
     this.authRefusals = 0;
@@ -230,12 +252,12 @@ export class AiPlayerBot {
     const cs = j.state.currentScene;
     this.sceneId = cs?.id ?? null;
     // Host contract: `scene` first, then the current scene's lines as replayed history.
-    if (j.state.status === "running") this.policy.observe({ kind: "started" });
-    if (j.state.status === "ended") this.policy.observe({ kind: "ended" });
-    if (cs) this.policy.observe({ kind: "scene", sceneId: cs.id, participants: cs.participants });
-    if (j.state.paused) this.policy.observe({ kind: "paused" });
-    if (cs) for (const t of j.state.transcript) if (t.sceneId === cs.id) this.policy.observe({ kind: "line", roleId: t.roleId, ai: this.isAi(t.roleId), replayed: true });
-    this.policy.observe({ kind: "humans", connected: this.humans });
+    if (j.state.status === "running") this.observe({ kind: "started" });
+    if (j.state.status === "ended") this.observe({ kind: "ended" });
+    if (cs) this.observe({ kind: "scene", sceneId: cs.id, participants: cs.participants });
+    if (j.state.paused) this.observe({ kind: "paused" });
+    if (cs) for (const t of j.state.transcript) if (t.sceneId === cs.id) this.observe({ kind: "line", roleId: t.roleId, ai: this.isAi(t.roleId), replayed: true });
+    this.observe({ kind: "humans", connected: this.humans });
     this.arm();
   }
 
@@ -248,17 +270,17 @@ export class AiPlayerBot {
     switch (e.type) {
       case "session.started":
         this.aiRoles = new Set(e.aiRoles);
-        this.policy.observe({ kind: "started" });
+        this.observe({ kind: "started" });
         break;
       case "scene.entered":
         if (e.sceneId === this.sceneId) return;
         this.sceneId = e.sceneId;
-        this.policy.observe({ kind: "scene", sceneId: e.sceneId, participants: e.participants });
+        this.observe({ kind: "scene", sceneId: e.sceneId, participants: e.participants });
         break;
       case "scene.exited": return;
-      case "session.ended": this.policy.observe({ kind: "ended" }); break;
-      case "session.resumed": this.policy.observe({ kind: "resumed" }); break;
-      case "facilitator.command": this.policy.observe({ kind: e.command === "pause" ? "paused" : "resumed" }); break;
+      case "session.ended": this.observe({ kind: "ended" }); break;
+      case "session.resumed": this.observe({ kind: "resumed" }); break;
+      case "facilitator.command": this.observe({ kind: e.command === "pause" ? "paused" : "resumed" }); break;
     }
     this.arm();
   }
@@ -268,7 +290,7 @@ export class AiPlayerBot {
     this.lines.push({ roleId: e.roleId, text: e.text });
     if (this.lines.length > BOT_MAX_VIEW_LINES) this.lines.shift();
     const ev: PolicyEvent = { kind: "line", roleId: e.roleId, ai: this.isAi(e.roleId), ...(replayed ? { replayed: true as const } : {}) };
-    this.policy.observe(ev);
+    this.observe(ev);
     if (!replayed) {
       if (e.roleId === this.d.roleId) { if (this.awaiting) { this.settleSay("spoken"); return; } }
       else if (!ev.ai && this.d.scenario.roles[e.roleId]?.type === "player") this.nudgeFails = 0;
