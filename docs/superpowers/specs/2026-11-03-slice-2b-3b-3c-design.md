@@ -44,7 +44,7 @@ Precondition: 3a PR 3 merged.
 ### PR 3: toggle and Prompt AI player
 
 - **Toggle** on the New session and readiness screens until the start, with confirmation (AC-0317, AC-0318) and the new code shown once when a role goes back to human.
-- **Prompt AI player** with optional hint: (1) the BFF asks the control service to reserve the turn (refused when a turn is in flight or inside a debounce; in-memory, 10 s expiry); (2) the BFF sends the runtime `prompt_ai { roleId }` (refused unless AI-filled and running); (3) on success the BFF asks the control service to run the reserved turn with the hint. A failed log means nothing runs; a failed run after logging shows an alert and may be retried. A prompt skips the nudge, gap and scene cap but counts against the budget.
+- **Prompt AI player** with optional hint: (1) the BFF asks the control service to reserve the turn (refused when a turn is in flight or inside a debounce; in-memory; by ruling the expiry is 15 s, since the hub waits 10 s for a command ack); (2) the BFF sends the runtime `prompt_ai { roleId }` (refused unless AI-filled and running); (3) on success the BFF asks the control service to run the reserved turn with the hint. A failed log means nothing runs; a failed run after logging gives the facilitator a 502 "The prompt was recorded, but the AI player could not start. Try again." (not an alert) and may be retried. A prompt skips the nudge, gap and scene cap but counts against the budget.
 - Axe at laptop width; end-to-end tests; threat model and documents.
 
 ## 4. Stack 2b-3c (US-0061, own independent review, AC-0326)

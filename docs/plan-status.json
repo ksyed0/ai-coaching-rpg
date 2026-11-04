@@ -3704,7 +3704,7 @@
       "assignee": "Agent",
       "status": "Done",
       "branch": "feature/EPIC-0002-US-0060-ai-player-roles",
-      "notes": "Spec section 5.9. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Superseded by TASK-0098 (done) and TASK-0099 (in progress); nothing is built under this id."
+      "notes": "Spec section 5.9. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Superseded by TASK-0098 and TASK-0099 (both done); nothing is built under this id."
     },
     {
       "id": "TASK-0090",
@@ -6482,9 +6482,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-04T18:42:38.922Z",
-  "commitSha": "761cca3",
-  "buildNumber": "513",
+  "generatedAt": "2026-11-04T18:53:35.450Z",
+  "commitSha": "5a77a25",
+  "buildNumber": "514",
   "branch": "feature/EPIC-0002-US-0060-ai-toggle-prompt",
   "sessionTimeline": [
     {
@@ -6764,7 +6764,7 @@
       "2026-11-03T22:30:32.438Z",
       "2026-11-04T16:02:24.447Z",
       "2026-11-04T17:07:23.775Z",
-      "2026-11-04T18:42:39.015Z"
+      "2026-11-04T18:53:35.566Z"
     ],
     "doneCounts": [
       0,

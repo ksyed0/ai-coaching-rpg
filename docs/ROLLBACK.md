@@ -145,6 +145,7 @@ Rollback trigger: AI players misbehave or exhaust the model budget, a session wi
 
 - **Format-3 logs stay readable.** A 3a runtime reads and resumes them.
 - **A 3a control service has no bot host.** The AI seats of a running session stay empty (no bot joins), so a lobby with AI roles cannot start (the start gate waits for the bots) until the roles are switched back to human; a started session with AI roles resumes but its AI players say nothing. Switch the roles back to human (or end the sessions) before the rollback if you can. A 3a web app has no AI routes, labels or readiness split; a 3a runtime's `ready` has no `aiCalls`, so the budget starts again.
+- **A web app rolled back to PR 2 or 3a** facing a log that contains `prompt_ai`: its console copy `switch` returns undefined for the unknown command, so the console stream drops that event (harmless; from reading the code, not from running it). Roll the web app back with the control service.
 - **A 3b PR 2 web app** has no toggle, panel or prompt route: AI roles set through the API stay set and keep their bots; a control service of PR 2 has no reserve, run or release routes, so the prompt of a PR 3 web app could not work against it (roll the web app back with the control service).
 - **3b and 3c roll back together** (they are released together; before 3c the evaluator could score an AI seat individually).
 - Rolling back past 3a is as described for slice 2b-3a.

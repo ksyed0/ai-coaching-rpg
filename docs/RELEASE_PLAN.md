@@ -1826,7 +1826,7 @@ Type: Dev
 Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0002-US-0060-ai-player-roles
-Notes: Spec section 5.9. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Superseded by TASK-0098 (done) and TASK-0099 (in progress); nothing is built under this id.
+Notes: Spec section 5.9. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Superseded by TASK-0098 and TASK-0099 (both done); nothing is built under this id.
 ```
 
 ```
