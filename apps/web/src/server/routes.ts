@@ -4,6 +4,7 @@ import {
   handleConsoleReadiness, handleConsoleReissue, handleConsoleReissueAll, handleConsoleRemove, handleConsoleRestart, handleConsoleScenarios,
   handleConsoleSessionGet, handleConsoleSessionsCreate, handleConsoleSessionsList, handleConsoleStart,
 } from "./console-sessions";
+import { handleConsoleAiIntents, handleConsoleAiRoles } from "./console-ai";
 import { handleConsoleCommand, handleConsoleFacts } from "./console-command";
 import { handleConsoleStream } from "./console-stream";
 import { consoleSessionFromToken } from "./console-session";
@@ -118,3 +119,5 @@ export const consoleRestartPOST = route(handleConsoleRestart);
 export const consoleStreamGET = route(handleConsoleStream);
 export const consoleCommandPOST = route(handleConsoleCommand);
 export const consoleFactsPOST = route(handleConsoleFacts);
+export const consoleAiRolesPOST = route(handleConsoleAiRoles);
+export const consoleAiIntentsPOST = route(handleConsoleAiIntents);

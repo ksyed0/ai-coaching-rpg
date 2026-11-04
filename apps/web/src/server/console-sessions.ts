@@ -3,6 +3,7 @@ import {
   isScenarioId,
   isValidSessionId,
 } from "@acr/events";
+import { aiAnswer } from "./console-ai";
 import { requireConsole } from "./console-handlers";
 import type { ConsoleSession } from "./console-session";
 import { fail, ok } from "./envelope";
@@ -124,8 +125,10 @@ export async function readBody(
 // ---- failures ----
 
 /** The one place a launcher or socket failure becomes an answer: our own text, never the launcher's. */
-function failure(err: unknown): Response {
+export function failure(err: unknown): Response {
   if (err instanceof LauncherError) {
+    const ai = aiAnswer(err.reason);
+    if (ai) return ai;
     switch (err.reason) {
       case "not_found":
         return notFound();

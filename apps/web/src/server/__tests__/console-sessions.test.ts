@@ -1000,6 +1000,24 @@ describe("console session API", () => {
       ],
       capacity: [429, "capacity", "The maximum number of sessions is running."],
       bad_request: [400, "bad_request", "The request could not be read."],
+      ai_role: [
+        409,
+        "ai_role",
+        "This role is played by an AI player. Switch it back to human first.",
+      ],
+      ai_notice: [
+        409,
+        "ai_notice",
+        "This server's consent notice does not mention AI players. AI players need notice v2 or later.",
+      ],
+      ai_started: [
+        409,
+        "ai_started",
+        "Roles can no longer be changed: the session has started.",
+      ],
+      ai_no_human: [409, "ai_no_human", "At least one role must stay human."],
+      ai_too_many: [409, "ai_too_many", "At most 8 roles can be AI players."],
+      ai_invalid: [400, "bad_request", "The request could not be read."],
     };
     for (const [reason, [status, code, message]] of Object.entries(
       expected,
