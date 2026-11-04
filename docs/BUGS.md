@@ -255,4 +255,52 @@ Found by the first end-to-end run of the console controls. The runtime delivers 
 
 **Fix.** A whisper is added to the player's updates (`view.injects`, shown under "Updates") as plain text, with the scene it arrived in; the player sees the text only (no sender name, `by`, ref or ack). Tests: `packages/events/src/__tests__/player-view.test.ts` (a whisper is shown with the updates and changes nothing else) and the e2e `apps/web/e2e/console-controls.spec.ts` "pause, whisper and resume" (the addressed player sees it once, the other two never do, and no player page contains the facilitator's name).
 
-**Limits (not fixed).** A full page reload loses the whisper: it is not in the join snapshot, as with injects. It also appears as an ordinary update with no "private" label; whether it needs one is an owner decision (`progress.md`).
+**Limits (not fixed).** A full page reload loses the whisper: it is not in the join snapshot, as with injects. It also appears as an ordinary update with no "private" label. Owner decision (2026-11-03): a whisper gets a "private" label and survives a reload; tracked as BUG-0023.
+
+```
+BUG-0020: The bot socket test "a second open after close() never overlaps" failed once under full-suite load
+Severity: Low
+Related Story: US-0060
+Related Task: TASK-0099
+Status: Fixed (4551682 on feature/EPIC-0002-US-0060-ai-seats-reachable, squashed into #83)
+Fix Branch: feature/EPIC-0002-US-0060-ai-seats-reachable
+Lesson Encoded: No
+```
+
+`services/control/src/__tests__/bots/bot-socket.test.ts` (added in slice 2b-3b PR 1) failed once in a full control-suite run with `maxLive` 0 where 1 was expected, and passed three times alone. Root cause, confirmed by logging under load: a race in the test's measurement, not in `BotSocket`. The server-side live-socket counters `live` and `maxLive` were module-level and reset in `beforeEach`, and the previous test ("peer never answers the close") terminates its sockets in `afterEach`, so that socket's server-side `close` event could arrive after the next test's reset, run `live--` on the new counter (live -1) and leave `maxLive` at 0 when the next connection brought it back to 0. Fixed: each test gets its own counters that its handlers capture, so a stale event only touches its own test's counters. Verified: with a 1 ms delay on the stale close bookkeeping the old version failed 5 of 5 runs and the fixed one passed 10 of 10; 70 of 70 runs passed under 8 CPU burners (plain, shuffled and threaded) and 19 of 19 in the node:22 container as root and as `node`. The other bot tests count sockets on in-process fakes and do not have the pattern.
+
+```
+BUG-0021: After a control-service restart a lobby's AI roles can come back as human with no notice
+Severity: Medium
+Related Story: US-0060
+Related Task: TASK-0099
+Status: Open
+Fix Branch: None
+Lesson Encoded: No
+```
+
+Found by the whole-branch reviews of slice 2b-3b PR 2 (known gap M-1). `reissueAll`, `restart` and `resumeAll` capture the session's AI roles in memory (`aiRolesOf`) before a launch that issues fresh codes, and re-send them with `set_ai_roles` when the log is empty, because fresh codes remove `<id>.ai-roles.json`. After a control-service restart nothing is in memory, so `resumeAll` and `restart` capture an empty set: if the launch issued fresh codes (the codes file is missing or does not match), the runtime drops the lobby's AI-role file and the roles come back as human, silently. Needs a lost or mismatched codes file in an empty lobby plus a control restart; the facilitator has to reissue the codes anyway and the console shows the roles as human, so no human can end up in an AI seat and no AI line is unlabelled. Fix (proposed): before a launch, note whether `<id>.ai-roles.json` exists while `<id>.codes.json` is missing, and log a fixed line or flag it on the session info so the console tells the facilitator the AI roles were reset; or have the runtime's `ready` report the dropped set. Test: a new Supervisor over a data dir with an AI-role file and no codes file.
+
+```
+BUG-0022: Keyboard focus falls to the page body after End session, a connection drop under a dialog or a 409 on Remove
+Severity: Medium
+Related Story: US-0059
+Related Task: TASK-0097
+Status: Open
+Fix Branch: None
+Lesson Encoded: No
+```
+
+Found in slice 2b-2b2 (listed among its open items in `progress.md` Session 16). A confirmation dialog returns focus to the control that opened it. After a successful End session the `ended` final unmounts the controls and the button that opened the dialog, and when the connection drops while a dialog is open or a Remove answers 409 the opener is detached or disabled, so focus falls to the body: a keyboard or screen-reader user loses their place and nothing announces the new state. Owner decision (2026-11-03): move focus to the final banner (made focusable with `tabIndex={-1}`) after End session, and to the connection or error message that appears in the other two cases. Fix: a small console change with unit tests for each case and an Axe/keyboard check in `apps/web/e2e/console-controls.spec.ts`.
+
+```
+BUG-0023: A facilitator whisper has no "private" label and is lost on a page reload
+Severity: Medium
+Related Story: US-0059
+Related Task: TASK-0097
+Status: Open
+Fix Branch: None
+Lesson Encoded: No
+```
+
+The remaining limits of BUG-0019. The player reducer now shows a whisper under "Updates", but it is not in the join snapshot (as with injects), so a full page reload loses it, and it reads like an ordinary update with no "private" label. Owner decision (2026-11-03): a whisper gets a "private" label and survives a reload. Fix: carry the addressed role's whispers in the player snapshot (allowlisted copy, the addressed role only; the leak scan must still show no other role, no `by` and no ref receives one), keep the scene it arrived in, label it "Private" in `Transcript`/`Updates` as text, and cover it in `packages/events` player-view tests, the player-copies allowlist test and the `console-controls.spec.ts` e2e (reload keeps it for the addressed player only).
