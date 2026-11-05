@@ -27,6 +27,12 @@ export type ControlConfig = {
   intentsDir: string;
   /** US-0060: the live AI players' settings (PLAYER_MODEL, AI_PLAYER_*, NPC_* timeouts); parsed once, refused with the rest. */
   aiPlayer: AiPlayerSettings;
+  /** EPIC-0002: `<dataDir>/reports`, where the moderate CLI writes review folders (read-only to this service). */
+  reportsDir: string;
+  /** EPIC-0002: `<dataDir>/report-access.json`, the hashed report-link credentials (outside every review folder). */
+  reportAccessFile: string;
+  /** EPIC-0002: how long a report link lives, in days (1 to 365). */
+  reportAccessDays: number;
 };
 
 const TOKEN_MIN_CHARS = 32;
@@ -89,6 +95,8 @@ export function loadControlConfig(env: NodeJS.ProcessEnv): ControlConfig {
   const graceMs = whole("CONTROL_GRACE_MS", 30_000, 0, 3_600_000);
   const readyTimeoutMs = whole("CONTROL_READY_TIMEOUT_MS", 30_000, 1000, 600_000);
 
+  const reportAccessDays = whole("REPORT_ACCESS_DAYS", 90, 1, 365);
+
   const ai = parseAiPlayerSettings(env);
   if (!ai.ok) problems.push(...ai.errors);
 
@@ -97,5 +105,6 @@ export function loadControlConfig(env: NodeJS.ProcessEnv): ControlConfig {
     port, serviceToken: token as string, maxSessions, dataDir,
     sessionsDir: path.join(dataDir, "sessions"), listFile: path.join(dataDir, "sessions.json"),
     scenariosDir, logDir, graceMs, readyTimeoutMs, intentsDir: path.join(dataDir, "intents"), aiPlayer: ai.settings,
+    reportsDir: path.join(dataDir, "reports"), reportAccessFile: path.join(dataDir, "report-access.json"), reportAccessDays,
   };
 }

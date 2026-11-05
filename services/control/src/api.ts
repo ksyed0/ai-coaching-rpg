@@ -4,6 +4,7 @@ import { isSafeId, isValidSessionId } from "@acr/events";
 import { z } from "zod";
 import { RoleIdSchema } from "./protocol.js";
 import type { ControlConfig } from "./config.js";
+import type { ReportService } from "./reports.js";
 import { ControlError, type ControlErrorCode, type Supervisor } from "./supervisor.js";
 
 /** Largest request body read, in bytes. */
@@ -31,6 +32,11 @@ const ReservationId = z.string().regex(/^[0-9a-f]{32}$/);
 const RunBody = z.strictObject({ reservation: ReservationId, hint: z.string().max(1200).optional() });
 const ReleaseBody = z.strictObject({ reservation: ReservationId });
 const NoBody = z.strictObject({});
+const LinkBody = z.strictObject({ role: z.string().min(1).max(MAX_FIELD) });
+const ExchangeBody = z.strictObject({ token: z.string().max(64) });
+/** The 11-character base64url id of a report credential: matched before any lookup. */
+const CREDENTIAL_ID = /^[A-Za-z0-9_-]{11}$/;
+const REPORT_UNAVAILABLE = "The report is unavailable. Try again.";
 
 class HttpError extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly closeConnection = false) { super(message); }
@@ -107,8 +113,10 @@ const errorName = (err: unknown): string => {
  */
 export function createApi(deps: {
   config: ControlConfig; supervisor: Supervisor; scenarios: () => Promise<{ id: string; title: string }[]>; log?: (m: string) => void;
+  /** Report links (EPIC-0002). Optional: the routes answer 404 when it is absent. */
+  reports?: ReportService;
 }): RequestListener {
-  const { config, supervisor, scenarios } = deps;
+  const { config, supervisor, scenarios, reports } = deps;
   const log = deps.log ?? (() => {});
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -126,6 +134,16 @@ export function createApi(deps: {
     };
 
     if (seg[0] === "scenarios" && seg.length === 1 && method === "GET") return ok(res, await scenarios());
+    // One neutral refusal for every unknown, expired, revoked, wrong-session or malformed token or credential id: the same
+    // constant status, body and headers on every path, so nothing tells the cases apart.
+    const neutral = (): never => notFound();
+    if (seg[0] === "report-access" && seg.length === 2 && seg[1] === "exchange" && method === "POST") {
+      if (!reports) return notFound();
+      const parsed = ExchangeBody.safeParse(await jsonBody(req));
+      if (!parsed.success) return neutral();
+      const found = await reports.exchange(parsed.data.token);
+      return found === null ? neutral() : ok(res, found);
+    }
     if (seg[0] !== "sessions") return notFound();
     if (seg.length === 1) {
       if (method === "GET") return ok(res, supervisor.list());
@@ -169,6 +187,43 @@ export function createApi(deps: {
       }
       supervisor.releaseTurn(id, roleId, parse(ReleaseBody, await jsonBody(req)).reservation);
       return ok(res, {});
+    }
+    if (seg.length === 4 && seg[2] === "reports" && method === "GET") {
+      if (!reports) return notFound();
+      let credentialId: string;
+      try { credentialId = decodeURIComponent(seg[3]!); } catch { return neutral(); }
+      if (!CREDENTIAL_ID.test(credentialId)) return neutral(); // before any lookup
+      const r = await reports.read(id, credentialId);
+      if (r.status === 200) return ok(res, r.body);
+      if (r.status === 503) return fail(res, 503, "unavailable", REPORT_UNAVAILABLE);
+      return neutral();
+    }
+    if (seg[2] === "report-links" && seg.length <= 5) {
+      if (!reports) return notFound();
+      let role: string | undefined;
+      if (seg.length >= 4) {
+        try { role = decodeURIComponent(seg[3]!); } catch { return notFound(); }
+        if (!RoleIdSchema.safeParse(role).success) return notFound(); // before the body is read or anything is called
+      }
+      const exists = (): void => { if (!supervisor.get(id)) throw new HttpError(404, "not_found", "That session does not exist."); };
+      if (seg.length === 3 && method === "GET") { exists(); return ok(res, await reports.links(id)); }
+      if (seg.length === 3 && method === "POST") {
+        const body = parse(LinkBody, await jsonBody(req));
+        if (!RoleIdSchema.safeParse(body.role).success) throw new HttpError(400, "bad_request", BAD_REQUEST);
+        exists();
+        return ok(res, await reports.issue(id, body.role));
+      }
+      if (seg.length === 5 && seg[4] === "reissue" && method === "POST") {
+        parse(NoBody, (await jsonBody(req)) ?? {});
+        exists();
+        return ok(res, await reports.reissue(id, role!));
+      }
+      if (seg.length === 4 && method === "DELETE") {
+        parse(NoBody, (await jsonBody(req)) ?? {});
+        exists();
+        return ok(res, { revoked: await reports.revoke(id, role!) });
+      }
+      return notFound();
     }
     if (seg.length === 4 && seg[2] === "codes" && seg[3] === "reissue" && method === "POST") {
       const body = parse(ReissueBody, (await jsonBody(req)) ?? {});
