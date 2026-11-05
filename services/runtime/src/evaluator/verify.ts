@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { SessionEvent } from "@acr/events";
 import { readTextCapped, type Scenario } from "@acr/script";
+import { aiOptionOf } from "./ai-players.js";
 import { VISIBILITY_LINE } from "./method.js";
 import { buildTranscript } from "./transcript.js";
 
@@ -17,7 +18,8 @@ export async function verifyReportFiles(dir: string, events: SessionEvent[], sce
   const t = buildTranscript(events, scenario);
   const problems: string[] = [];
   let reports = 0; let quotes = 0; let scores = 0;
-  const players = Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => r.id);
+  const players = Object.values(scenario.roles).filter((r) => r.type === "player" && !t.aiRoles.includes(r.id)).map((r) => r.id);
+  const aiCounts = t.aiRoles.length > 0 && aiOptionOf(events) === true;
   const read = async (name: string): Promise<string | null> => { try { return await readTextCapped(path.join(dir, name), 8 * 1024 * 1024); } catch { problems.push(`${name} is missing`); return null; } };
   for (const name of [...players, "group"]) {
     const md = await read(`${name}.md`);
@@ -40,7 +42,7 @@ export async function verifyReportFiles(dir: string, events: SessionEvent[], sce
         if (!u) problems.push(`${name}: ${c.id} quotes line #${e.seq}, which is not an utterance in the session`);
         else if (!u.norm.includes(e.quote)) problems.push(`${name}: ${c.id} quote is not verbatim in line #${e.seq}`);
         else if (name !== "group" && u.roleId !== name) problems.push(`${name}: ${c.id} quotes line #${e.seq}, spoken by ${u.roleId}`);
-        else if (name === "group" && u.speaker !== "player") problems.push(`group: ${c.id} quotes line #${e.seq}, which is not a player's`);
+        else if (name === "group" && (u.speaker !== "player" && !(aiCounts && u.speaker === "ai_player"))) problems.push(`group: ${c.id} quotes line #${e.seq}, which is not a player's`);
       }
       if (c.score !== null && c.evidence.length === 0 && c.score >= 3) problems.push(`${name}: criterion ${c.id} has a score of ${c.score} and no evidence`);
     }
