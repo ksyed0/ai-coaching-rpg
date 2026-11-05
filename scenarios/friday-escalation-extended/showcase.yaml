@@ -1,0 +1,152 @@
+# Showcase script for `pnpm demo --showcase`: what the bot players say, scene by scene.
+# `lines` are spoken in order by player bots (live and mock runs). `mock` is used ONLY by the offline mock run:
+# the scripted replies of each AI character (one per player line, in order) and the Game Master's verdicts
+# for the scene (JSON, in the order the Game Master is asked). A live run ignores `mock` entirely.
+scenes:
+  - scene: s1_huddle
+    lines:
+      - { role: delivery_lead, text: "Okay, Priya's email is in. She wants a reconciliation module before go-live and an answer by end of day Friday. First reactions?" }
+      - { role: tech_lead, text: "My worry is the ingestion layer. We are still hardening it, and anything we add now competes with go-live." }
+      - { role: account_manager, text: "I would rather not say no outright. The renewal is in play, and a flat refusal will land badly." }
+      - { role: delivery_lead, text: "So not a flat yes and not a flat no. What if we offer it as a phase two after go-live, scoped and priced?" }
+      - { role: tech_lead, text: "I can live with that. A phased version is roughly half the work and keeps the go-live date safe." }
+      - { role: account_manager, text: "Agreed. Position for the call: phase two after go-live, priced as a change request, with the risk to the date spelled out for her." }
+    # The mock Game Master replies are in the order of its model CALLS (not of its evaluations). `kind` declares what a reply is: `tolerant` is valid only
+    # through the tolerant parser (here a code fence); `malformed` has no verdict, so the Game Master asks once more and the next reply answers that re-ask.
+    # Scripted replies carry no nonce: the mock stamps the evaluation's id into every verdict object it serves, like a model that follows the prompt.
+    mock:
+      gm:
+        - kind: tolerant
+          reply: "Here is my judgement:\n```json\n{\"reasoning\": \"The team has aired concerns but has not settled on one position yet.\", \"verdict\": false}\n```"
+        - kind: malformed
+          reply: 'The team seems to be getting close to a position, though I would need to think about it.'
+        - '{"reasoning": "All three converged on a phased, priced module after go-live and the account manager restated it as the position.", "verdict": true}'
+
+  - scene: s2_priya_call
+    lines:
+      - { role: delivery_lead, text: "Hi Priya, thanks for making time. We read your email and we want to help Finance tie out the daily loads." }
+      - { role: account_manager, text: "We can deliver it, but not safely before go-live. The ingestion layer is still being hardened, so we would propose a phased module right after launch." }
+      - { role: delivery_lead, text: "Adding new code to ingestion now puts the launch date at risk, and a late launch costs you far more than a short wait for the module. We would price the phased module separately so you can see exactly what it costs." }
+      - { role: account_manager, text: "Within three weeks of go-live. In the meantime we give Finance a manual tie-out report so nothing is blind." }
+    mock:
+      npc:
+        client_sponsor:
+          - "Thanks for jumping on. I will be direct: Finance needs that reconciliation module before go-live. Can you confirm it today?"
+          - "I hear the ingestion risk, but right after launch is not what I asked for, and I have to explain this upstairs."
+          - "Okay, that is a clear argument. If it goes after launch, how soon, and what happens to Finance in the meantime?"
+          - "Fine, I can work with three weeks if the numbers hold. Put it in writing and I will take it to my CFO, who will want to talk to you."
+      gm:
+        - '{"verdict": false, "reasoning": "Priya is still probing the risk and no next step has been agreed yet."}'
+        - '{"verdict": true, "reasoning": "Priya agreed to take a written phased plan to her CFO, which is a concrete next step."}'
+      # US-0040: Priya's hidden fact 1 has an earned_when condition. After line 2 the account manager has named the risk and offered a phased module after launch, so the
+      # facilitator (only) is told "/release client_sponsor 1". Nothing is released by that. In the round after line 3 the exit verdict is true, so no earned check is made.
+      gm_earned:
+        - role: client_sponsor
+          fact: 1
+          replies:
+            - '{"verdict": true, "reasoning": "The account manager named the risk of changing ingestion before go-live and offered a phased module after launch."}'
+
+  - scene: s3_internal_huddle
+    lines:
+      - { role: delivery_lead, text: "Priya was reasonable, but she is taking this to her CFO, so we need numbers that stand up. Tech lead, what is the honest effort for a phased module?" }
+      - { role: tech_lead, text: "The phased version is about three person-weeks of build, so two engineers for a week and a half after go-live. The full module would be about six. I also want a risk review before we touch ingestion, so call it ready three weeks after launch." }
+      - { role: account_manager, text: "Then I propose a fixed fee of 48 thousand for the phased module, delivered three weeks after go-live. I will present it to the CFO and the delivery lead owns the timeline. Are we all happy with that plan?" }
+      - { role: delivery_lead, text: "Yes, I am happy with that. I will own the timeline, so three weeks after go-live is a commitment from me." }
+      - { role: tech_lead, text: "I agree. Three weeks after go-live leaves room for the risk review, and 48 thousand fixed covers the build." }
+      - { role: account_manager, text: "Good, then it is agreed: the phased module, 48 thousand fixed, three weeks after go-live, and I present it to the CFO." }
+    # Judged after line 3 (a proposal that nobody has answered yet: false) and after line 6 (everyone has agreed: true).
+    mock:
+      gm:
+        - '{"reasoning": "The account manager proposed a plan with a date and a price, but nobody has agreed to it yet.", "verdict": false}'
+        - '{"reasoning": "The delivery lead and the tech lead agreed and the account manager confirmed: phased module, 48 thousand, three weeks after go-live.", "verdict": true}'
+
+  - scene: s4_escalation_call
+    lines:
+      - { role: delivery_lead, text: "Thanks both. To recap: we propose a phased reconciliation module, delivered three weeks after go-live, so the launch date stays safe." }
+      - { role: account_manager, text: "It is a fixed fee of 48 thousand, separate from the programme fee, delivered three weeks after go-live." }
+      - { role: tech_lead, text: "It was removed to protect the launch date. Building the full module now would take about six person-weeks, and doing that inside the launch window could put go-live at risk, which would cost you far more." }
+      - { role: delivery_lead, text: "Scope is daily tie-out of every load against the source, an exceptions report and a sign-off test with Finance. If we miss three weeks after go-live, we credit the fee proportionally." }
+    mock:
+      npc:
+        client_sponsor:
+          - "Helena, this is the phased option I mentioned. It gets Finance the module, just not on day one."
+          - "That is higher than I hoped, but it is at least a number. Helena?"
+          - "Helena, that matches what I was told: the ingestion work is the bottleneck."
+          - "A credit for lateness is useful. I can defend that upstairs."
+        cfo:
+          - "I have one question before adjectives: what does it cost in total, and is that a fixed price or an estimate?"
+          - "48 thousand for a module that was in an early draft and removed before signature. Why should we pay for work that was once scoped?"
+          - "Risk I understand. Show me what I get for the money: scope, acceptance criteria, and what happens if you miss the date."
+          - "A credit clause helps, but 48 thousand is still above what I expected. I need a number I can defend before the end of this call, so let us talk terms."
+      gm:
+        - '{"verdict": false, "reasoning": "The CFO asked about cost but has not said what she needs in order to accept."}'
+        - '{"verdict": false, "reasoning": "The CFO challenged the price but has stated no acceptance conditions."}'
+        - '{"verdict": false, "reasoning": "The CFO is still asking questions about scope and consequences."}'
+        - '{"verdict": true, "reasoning": "The CFO said the price is above her expectation and asked for terms she can defend, which states what she needs."}'
+      # US-0034: the Game Master also judges the CFO's earned_when condition (hidden fact 1) after the exit condition, once per round until it is
+      # true (and not in a round whose exit verdict is true). After line 1 there is no price yet (no suggestion); line 2 offers the fixed fee and the
+      # date, so the facilitator (only) is told "/release cfo 1". Nothing is released by that: the facilitator's scripted step in scene 5 does it.
+      gm_earned:
+        - role: cfo
+          fact: 1
+          replies:
+            - '{"verdict": false, "reasoning": "A phased module was proposed, but no price has been offered yet."}'
+            - '{"verdict": true, "reasoning": "A fixed fee of 48 thousand, delivered three weeks after go-live, was offered."}'
+        # US-0040: used only when a --max-lines cap of 1 stops scene 2 before its first Game Master round: Priya's condition is then still pending in scene 4 and is judged
+        # after line 1 (in a full run it was suggested in scene 2 and is never judged again).
+        - role: client_sponsor
+          fact: 1
+          replies:
+            - '{"verdict": true, "reasoning": "The team named the risk of the module before go-live and offered a phased delivery after it."}'
+
+  - scene: s5_final_terms
+    lines:
+      - { role: account_manager, text: "Helena, we heard you on price. We can bring the fixed fee to 45 thousand, with delivery three weeks after go-live." }
+      - { role: delivery_lead, text: "It is firm. No time and materials. The change request is signed by me and by the account lead, and the credit applies if we miss the date." }
+      - { role: tech_lead, text: "Agreed. Acceptance is Finance's sign-off on three consecutive daily tie-outs, so you decide when it is done." }
+      - { role: account_manager, text: "Our norm would be half on signature, but we can agree half on acceptance and the balance 30 days after." }
+    # A scripted facilitator step: right after line 1 (the quantified fixed fee and firm date) has been answered, the facilitator releases the CFO's hidden fact number 1
+    # (the number `/hidden` shows; the fact itself lives only in cfo.yaml). It reaches only the CFO's next prompts,
+    # in the "What you may now share" section, so she can settle. The demo's narration and transcript say "facilitator released hidden fact number 1 of cfo", never the text (the character may of course say it in her own later lines).
+    facilitator:
+      - { after_line: 1, release_hidden: { role: cfo, fact: 1 } }
+    mock:
+      npc:
+        client_sponsor:
+          - "That helps me. Helena, is 45 workable?"
+          - "Good. That is the clarity I needed for my own approval."
+          - "Three consecutive days is reasonable and easy for my team to run."
+          - "That works for me. Helena?"
+        cfo:
+          - "Closer. Before I agree: is 45 firm, with no extras, and who signs the change request on your side?"
+          # This reply uses the released fact, so the loader requires the release step above to come first (remove the step and the file is refused).
+          - requires_release: 1
+            reply: "A firm fee and a credit clause I can accept in principle, and because it is fixed and tied to a date I can approve this change request myself without escalating it. I also want acceptance tied to Finance signing off the daily tie-out, not to your own test."
+          - "Then the open point is payment. I want half on acceptance, not on signature."
+          - "Then we have terms: 45 thousand fixed, three weeks after go-live, Finance sign-off, a credit if late, half on acceptance. Send the change request on Monday and I will sign it."
+      gm:
+        - '{"verdict": false, "reasoning": "A price was offered but acceptance and payment terms are still open."}'
+        - '{"verdict": false, "reasoning": "Firm price and credit were accepted in principle but acceptance and payment are not settled."}'
+        - '{"verdict": false, "reasoning": "Acceptance is agreed but the payment term is still open."}'
+        - '{"verdict": true, "reasoning": "The CFO restated scope, 45 thousand, three weeks after go-live, acceptance and payment, and committed to sign."}'
+      # US-0034: used only when a --max-lines cap of 1 stops scene 4 before the suggestion: the CFO's condition is then still pending here and is
+      # judged after line 1 (before the facilitator's release step). In a full run the fact was suggested in scene 4 and is never judged again.
+      gm_earned:
+        - role: cfo
+          fact: 1
+          replies:
+            - '{"verdict": true, "reasoning": "A fixed fee of 45 thousand, delivered three weeks after go-live, was offered."}'
+
+  - scene: s6_wrap_up
+    lines:
+      - { role: delivery_lead, text: "That went better than I feared. Let us capture it: the change request goes out Monday, with the terms Helena repeated back to us." }
+      - { role: account_manager, text: "I will draft and send the change request on Monday morning and call Priya to confirm. I will also tell our account lead the conversation ended in a good place." }
+      - { role: tech_lead, text: "There is also the ingestion risk review and the build plan. Someone needs to book the review and send the plan to the delivery lead." }
+      - { role: delivery_lead, text: "Tech lead, please own both: book the risk review and send me the build plan." }
+      - { role: tech_lead, text: "I will book the risk review for ingestion and plan the build, and I will send the plan to the delivery lead by Wednesday." }
+      - { role: delivery_lead, text: "Then we are set: the account manager owns the change request and the call to Priya, the tech lead owns the review and the plan, and I will check both on Thursday." }
+    # Judged after line 3 (the build plan and the risk review still have no owner: false) and after line 6 (every follow-up has an owner: true).
+    mock:
+      gm:
+        - '{"verdict": false, "reasoning": "The change request has an owner but the risk review and the build plan do not yet."}'
+        - '{"verdict": true, "reasoning": "Owners and next actions were named for the change request, the risk review and the build plan."}'

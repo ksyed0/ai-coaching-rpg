@@ -1,0 +1,176 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { LauncherClient } from "../launcher-client";
+import { consoleCommandPOST, consoleFactsPOST, consoleView, createDeps, route } from "../routes";
+import { RuntimeConnection } from "../runtime-connection";
+import { StreamHub } from "../stream-hub";
+import { JoinThrottle } from "../throttle";
+
+const KEY = Buffer.alloc(32, 3).toString("base64");
+const ENV = { RUNTIME_URL: "ws://127.0.0.1:4100", PUBLIC_ORIGIN: "https://play.example.org", COOKIE_KEYS: `k1:${KEY}` };
+
+afterEach(() => { vi.restoreAllMocks(); });
+
+describe("createDeps", () => {
+  it("builds the handlers' dependencies from the environment", () => {
+    const d = createDeps(ENV);
+    expect(d.config.publicOrigin).toBe(ENV.PUBLIC_ORIGIN);
+    expect(d.hub).toBeInstanceOf(StreamHub);
+    expect(d.joinThrottle).toBeInstanceOf(JoinThrottle);
+    expect(d.connect).toBe(RuntimeConnection.connect);
+    expect(typeof d.now()).toBe("number");
+  });
+
+  it("a disabled console is logged once with the unset variable names, never a value", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const full = { FACILITATOR_SECRET: "s".repeat(20), LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) };
+    for (const name of Object.keys(full) as (keyof typeof full)[]) {
+      warn.mockClear();
+      const { [name]: _gone, ...rest } = full;
+      // LAUNCHER_URL without its token is not a disabled console but a configuration error: the player routes need the token too.
+      if (name === "LAUNCHER_TOKEN") { expect(() => createDeps({ ...ENV, ...rest })).toThrow(/LAUNCHER_TOKEN/); continue; }
+      createDeps({ ...ENV, ...rest });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const line = String(warn.mock.calls[0]![0]);
+      expect(line).toContain(name);
+      for (const v of Object.values(full)) expect(line).not.toContain(v);
+    }
+  });
+
+  it("builds the launcher client only when LAUNCHER_URL is set (single mode has none)", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(createDeps(ENV).launcher).toBeUndefined();
+    const d = createDeps({ ...ENV, RUNTIME_URL: "", LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) });
+    expect(d.launcher).toBeInstanceOf(LauncherClient);
+    expect(createDeps({ ...ENV, LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) }).launcher).toBeInstanceOf(LauncherClient);
+  });
+
+  it("the BFF join throttle blocks after more than five failures for one (address, role), like the runtime's", () => {
+    const d = createDeps(ENV);
+    for (let i = 0; i < 5; i++) d.joinThrottle.fail("198.51.100.1", "r");
+    expect(d.joinThrottle.blockedForMs("198.51.100.1", "r")).toBe(0);
+    d.joinThrottle.fail("198.51.100.1", "r");
+    expect(d.joinThrottle.blockedForMs("198.51.100.1", "r")).toBeGreaterThan(0);
+  });
+});
+
+describe("route", () => {
+  it("answers a configuration error with a 500 envelope that quotes no value, and logs only the rule", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const h = route(async () => new Response("never"), () => createDeps({ ...ENV, COOKIE_KEYS: "k1:c2VjcmV0LWtleQ==" }));
+    const res = await h(new Request("https://play.example.org/api/v1/join", { method: "POST" }));
+    expect(res.status).toBe(500);
+    const body = await res.text();
+    expect(JSON.parse(body)).toMatchObject({ success: false, error: { code: "internal" } });
+    expect(body).not.toContain("c2VjcmV0");
+    expect(body).not.toContain("COOKIE_KEYS");
+    expect(log).toHaveBeenCalled();
+    expect(String(log.mock.calls[0]![0])).not.toContain("c2VjcmV0");
+  });
+
+  it("answers a handler that throws with a 500 envelope, never the error text", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const h = route(async () => { throw new Error("SECRET-DETAIL"); }, () => createDeps(ENV));
+    const res = await h(new Request("https://play.example.org/api/v1/say", { method: "POST" }));
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toContain("SECRET-DETAIL");
+    expect(JSON.stringify(log.mock.calls)).not.toContain("SECRET-DETAIL");
+  });
+
+  it("by default every route shares one set of dependencies built from process.env (say must reach the stream's hub)", async () => {
+    const SHARED = Symbol.for("scenecoach.web.deps");
+    const g = globalThis as Record<symbol, unknown>;
+    delete g[SHARED];
+    for (const [k, v] of Object.entries(ENV)) vi.stubEnv(k, v);
+    try {
+      const seen: unknown[] = [];
+      const a = route(async (_req, d) => { seen.push(d); return new Response("a"); });
+      const b = route(async (_req, d) => { seen.push(d); return new Response("b"); });
+      await a(new Request("https://x/"));
+      await b(new Request("https://x/"));
+      expect(seen[0]).toBe(seen[1]);
+      expect((seen[0] as ReturnType<typeof createDeps>).hub).toBeInstanceOf(StreamHub);
+      expect(g[SHARED]).toBe(seen[0]);
+    } finally {
+      vi.unstubAllEnvs();
+      delete g[SHARED];
+    }
+  });
+
+  it("passes the request and the dependencies through", async () => {
+    const d = createDeps(ENV);
+    const h = route(async (req, deps) => new Response(`${req.method} ${deps === d}`), () => d);
+    expect(await (await h(new Request("https://x/", { method: "POST" }))).text()).toBe("POST true");
+  });
+});
+
+describe("route files", () => {
+  const FILES = { join: "POST", stream: "GET", say: "POST", consent: "POST", leave: "POST" } as const;
+  // Console routes: [path under api/v1, exported handler, method, depth of ../ up to src/server/routes].
+  const CONSOLE: [string, string, string][] = [
+    ["console/login", "consoleLogin", "POST"],
+    ["console/logout", "consoleLogout", "POST"],
+    ["console/scenarios", "consoleScenarios", "GET"],
+    ["console/sessions", "consoleSessions", "GET"],
+    ["console/sessions", "consoleSessions", "POST"],
+    ["console/sessions/[id]", "consoleSession", "GET"],
+    ["console/sessions/[id]/readiness", "consoleReadiness", "GET"],
+    ["console/sessions/[id]/start", "consoleStart", "POST"],
+    ["console/sessions/[id]/reissue", "consoleReissue", "POST"],
+    ["console/sessions/[id]/reissue-all", "consoleReissueAll", "POST"],
+    ["console/sessions/[id]/remove", "consoleRemove", "POST"],
+    ["console/sessions/[id]/restart", "consoleRestart", "POST"],
+    ["console/sessions/[id]/stream", "consoleStream", "GET"],
+  ];
+  const codeOf = (path: string) =>
+    readFileSync(fileURLToPath(new URL(`../../app/api/v1/${path}/route.ts`, import.meta.url)), "utf8")
+      .split("\n")
+      .filter((l) => l.trim() !== "" && !l.trim().startsWith("//"));
+  it("only re-export a handler and declare the Node runtime and dynamic rendering", () => {
+    for (const [name, method] of Object.entries(FILES)) {
+      expect(codeOf(name), name).toEqual([
+        `export { ${name}${method} as ${method} } from "../../../../server/routes";`,
+        `export const runtime = "nodejs";`,
+        `export const dynamic = "force-dynamic";`,
+      ]);
+    }
+  });
+
+  it("the console routes do the same, with the exact re-export for their depth", () => {
+    for (const [path, handler, method] of CONSOLE) {
+      const up = "../".repeat(path.split("/").length + 3);
+      const exports = codeOf(path).filter((l) => l.includes(` as ${method} }`));
+      expect(codeOf(path), path + method).toContain(`export { ${handler}${method} as ${method} } from "${up}server/routes";`);
+      expect(exports.length, path).toBeGreaterThan(0);
+      expect(codeOf(path), path).toContain(`export const runtime = "nodejs";`);
+      expect(codeOf(path), path).toContain(`export const dynamic = "force-dynamic";`);
+      // Nothing but re-exports and the two declarations.
+      expect(codeOf(path).every((l) => l.startsWith("export ")), path).toBe(true);
+    }
+  });
+
+  it("the re-exported handlers exist", async () => {
+    const routes = await import("../routes");
+    for (const [name, method] of Object.entries(FILES)) expect(typeof (routes as Record<string, unknown>)[`${name}${method}`], name).toBe("function");
+    for (const [, handler, method] of CONSOLE) expect(typeof (routes as Record<string, unknown>)[`${handler}${method}`], handler).toBe("function");
+  });
+});
+
+describe("consoleView", () => {
+  const FULL = { ...ENV, FACILITATOR_SECRET: "s".repeat(20), LAUNCHER_URL: "http://127.0.0.1:4200", LAUNCHER_TOKEN: "t".repeat(32) };
+  it("is disabled when a console variable is unset or the configuration is broken, signed out without a cookie", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(consoleView(undefined, () => createDeps(ENV))).toEqual({ kind: "disabled" });
+    expect(consoleView("x", () => { throw new Error("config"); })).toEqual({ kind: "disabled" });
+    expect(consoleView(undefined, () => createDeps(FULL))).toEqual({ kind: "signed_out" });
+    expect(consoleView("not-a-cookie", () => createDeps(FULL))).toEqual({ kind: "signed_out" });
+  });
+});
+
+describe("console command routes", () => {
+  it("consoleCommandPOST and consoleFactsPOST exist", () => {
+    expect(typeof consoleCommandPOST).toBe("function");
+    expect(typeof consoleFactsPOST).toBe("function");
+  });
+});

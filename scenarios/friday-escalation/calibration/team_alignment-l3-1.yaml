@@ -1,0 +1,33 @@
+kind: single
+id: team_alignment-l3-1
+criterion: team_alignment
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:27.782Z
+split: holdout
+subject: account_manager
+expected: 3
+transcript:
+  - scene: s1_huddle
+    role: account_manager
+    text: "Let me ask each of you: where are you on the module?"
+  - scene: s1_huddle
+    role: tech_lead
+    text: Not before launch, the data layer isn't stable.
+  - scene: s1_huddle
+    role: delivery_lead
+    text: I could accept it as a change after go-live.
+  - scene: s1_huddle
+    role: account_manager
+    text: "So I propose this: we don't promise it before launch, and we offer it as
+      a change after go-live. Tech lead, are you okay with that? Delivery lead?"
+  - scene: s1_huddle
+    role: tech_lead
+    text: Yes.
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Yes.
+  - scene: s1_huddle
+    role: account_manager
+    text: "Good. So our position for Priya is: after go-live, as a change request."

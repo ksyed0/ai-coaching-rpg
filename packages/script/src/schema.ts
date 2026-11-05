@@ -1,0 +1,97 @@
+import { z } from "zod";
+import { LEARNING_OBJECTIVE_ID_MESSAGE, SAFE_ID_PATTERN, SCENARIO_ID_MESSAGE, SCENARIO_ID_PATTERN } from "@acr/events";
+
+const Id = z.string().regex(SCENARIO_ID_PATTERN, SCENARIO_ID_MESSAGE);
+
+/** Learning-objective ids appear in report text and file content, so they follow a safe pattern (upper case allowed: LO1). */
+const LoId = z.string().regex(SAFE_ID_PATTERN, LEARNING_OBJECTIVE_ID_MESSAGE);
+
+export const LearningObjectiveSchema = z.object({
+  id: LoId, statement: z.string(), rubric_criteria: z.array(z.string()),
+});
+
+export const ScenarioMetaSchema = z.object({
+  id: Id, title: z.string(), version: z.string(), audience: z.string().default(""),
+  duration_minutes: z.number().int().positive(),
+  players: z.object({ min: z.number().int().min(1), max: z.number().int().min(1) }),
+  context: z.string(),
+  learning_objectives: z.array(LearningObjectiveSchema).default([]),
+  rubrics: z.array(z.string()).default([]),
+  facilitator_notes: z.string().default(""),
+});
+
+export const PlayerRoleSchema = z.object({
+  id: Id, type: z.literal("player"), brief: z.string(), private_facts: z.array(z.string()).default([]),
+});
+
+/** Limits for the voice lists of an AI character: they go into every model prompt, so they stay small. */
+export const VOICE_LIST_MAX = 5;
+export const VOICE_ITEM_MAX_CHARS = 160;
+const VoiceList = z.array(z.string().trim().min(1).max(VOICE_ITEM_MAX_CHARS)).max(VOICE_LIST_MAX).default([]);
+
+/** A hidden fact is shown to the facilitator and, once released, goes into one prompt: keep both the count and the length bounded. The release command numbers facts 1..MAX_HIDDEN_FACTS. */
+export const MAX_HIDDEN_FACTS = 50;
+export const MAX_HIDDEN_FACT_CHARS = 1_000;
+/** US-0034: an `earned_when` condition goes into a Game Master prompt, like a scene's `gm_detects` condition: plain text, bounded. */
+export const MAX_EARNED_WHEN_CHARS = 500;
+const EarnedWhenCondition = z.string().trim().min(1, "must not be empty").max(MAX_EARNED_WHEN_CHARS, `is longer than ${MAX_EARNED_WHEN_CHARS} characters`);
+/** A hidden fact's 1-based number, as `release_hidden` and `/hidden` number them (no leading zero, so "01" and "1" cannot both name fact 1). */
+const FactNumberKey = z.string().regex(/^[1-9][0-9]?$/, "keys are hidden fact numbers (1 to 50)");
+
+export const NpcRoleSchema = z.object({
+  id: Id, type: z.literal("npc"), name: z.string(), title: z.string().default(""),
+  persona: z.string(), goals: z.array(z.string()), knowledge: z.array(z.string()).default([]),
+  hidden: z.array(z.string().trim().min(1, "must not be empty").max(MAX_HIDDEN_FACT_CHARS, `is longer than ${MAX_HIDDEN_FACT_CHARS} characters`)).max(MAX_HIDDEN_FACTS, `has more than ${MAX_HIDDEN_FACTS} facts`).default([]), guardrails: z.array(z.string()).default([]),
+  fallback_line: z.string().default("Sorry, give me a moment."),
+  voice: z.object({ style: z.string().default("neutral"), pace: z.string().default("medium") }).default({ style: "neutral", pace: "medium" }),
+  /** 1 to 5, higher is more senior. Decides the order of replies when several AI characters are in a scene (junior first) and how the characters see each other. */
+  seniority: z.number().int().min(1).max(5).default(3),
+  /** The KIND of contribution this character makes (a ruling, a condition, a consequence...). */
+  responds_with: VoiceList,
+  /** Topics and statements that only this role would make. */
+  only_you_say: VoiceList,
+  /** Role ids of AI characters this one normally lets have the final say when both are in the scene (prompt wording only; the reply order follows seniority). */
+  defer_to: z.array(Id).max(VOICE_LIST_MAX).default([]),
+  /** Optional replacement for the generic sentence that tells this character to leave a decision to the characters in `defer_to`. Own-prompt text only (at most 200 characters). */
+  defers_text: z.string().trim().min(1).max(200).optional(),
+  /**
+   * US-0034: optional, by hidden fact number: a condition the Game Master judges on the dialogue; when it holds for a fact that is not yet
+   * released, the facilitator gets ONE suggestion to release it (`/release <role> <n>`). The condition is shown to the Game Master, never the fact.
+   * No default on purpose: a role without it loads exactly as before (the same object, so the same scenario hash).
+   */
+  earned_when: z.record(FactNumberKey, EarnedWhenCondition).optional(),
+});
+
+export const RoleSchema = z.discriminatedUnion("type", [PlayerRoleSchema, NpcRoleSchema]);
+
+export const InjectSchema = z.object({
+  id: Id, at_minute: z.number().min(0).optional(), to: z.array(Id).min(1), content: z.string(),
+  effect: z.object({ goals_add: z.array(z.string()).optional(), knowledge_add: z.array(z.string()).optional() }).optional(),
+});
+
+export const ExitConditionSchema = z.union([
+  z.literal("time_box_elapsed"), z.literal("facilitator_advance"), z.object({ gm_detects: z.string() }),
+]);
+
+export const SceneSchema = z.object({
+  id: Id, title: z.string(), goal: z.string(), participants: z.array(Id).min(1),
+  time_box_minutes: z.number().positive(), opening_inject: Id.optional(),
+  injects: z.array(InjectSchema).optional(),
+  exit_when: z.object({ any_of: z.array(ExitConditionSchema).min(1) }),
+});
+
+export const ScriptSchema = z.object({ scenes: z.array(SceneSchema).min(1) });
+
+export const ScenarioSchema = z.object({
+  meta: ScenarioMetaSchema, roles: z.record(z.string(), RoleSchema), script: ScriptSchema,
+});
+
+export type ScenarioMeta = z.infer<typeof ScenarioMetaSchema>;
+export type PlayerRole = z.infer<typeof PlayerRoleSchema>;
+export type NpcRole = z.infer<typeof NpcRoleSchema>;
+export type Role = z.infer<typeof RoleSchema>;
+export type Inject = z.infer<typeof InjectSchema>;
+export type ExitCondition = z.infer<typeof ExitConditionSchema>;
+export type Scene = z.infer<typeof SceneSchema>;
+export type Script = z.infer<typeof ScriptSchema>;
+export type Scenario = z.infer<typeof ScenarioSchema>;

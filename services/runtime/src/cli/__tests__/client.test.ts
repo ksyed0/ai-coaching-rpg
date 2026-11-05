@@ -1,0 +1,445 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { createClient, type Io, type Sock } from "../client.js";
+
+const opts = { facilitator: false, role: "host", name: "n", url: "ws://x", session: "s" };
+const joinedMsg = JSON.stringify({ type: "joined", roleId: "host", reconnectToken: "TOK", state: {} });
+const ev = (text: string) => JSON.stringify({ type: "event", event: { seq: 1, ts: 0, sessionId: "s", type: "utterance", roleId: "guest", text, channel: "text" } });
+const err = (code: string) => JSON.stringify({ type: "error", code, message: code });
+
+function setup(idleMs = 30, joinWaitMs?: number) {
+  const sent: unknown[] = []; const out: string[] = []; const errs: string[] = []; const exits: number[] = [];
+  const state = { closed: 0, terminated: 0, inputClosed: 0 };
+  const sock: Sock = { send: (s) => sent.push(JSON.parse(s)), close: () => { state.closed++; }, terminate: () => { state.terminated++; } };
+  const io: Io = { print: (l) => out.push(l), err: (l) => errs.push(l), closeInput: () => { state.inputClosed++; }, exit: (c) => { exits.push(c); } };
+  const c = createClient({ opts, sock, io, idleMs, joinWaitMs });
+  return { c, sent, out, errs, exits, state };
+}
+// The idle and join-wait windows are driven by fake timers: the tests advance the clock themselves, so a loaded machine cannot reorder them.
+afterEach(() => { vi.useRealTimers(); });
+const fake = () => { vi.useFakeTimers(); };
+const sleep = async (ms: number) => { await vi.advanceTimersByTimeAsync(ms); };
+
+describe("client core: join and pre-join input", () => {
+  it("sends the join on open", () => {
+    const t = setup(); t.c.onOpen();
+    expect(t.sent).toEqual([{ type: "join", sessionId: "s", roleId: "host", participantId: "n" }]);
+  });
+  it("buffers lines typed before joined and flushes them in order after joined, losing none", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onLine("one"); t.c.onLine("two"); t.c.onLine("three");
+    expect(t.sent).toHaveLength(1); // only the join
+    t.c.onMessage(joinedMsg);
+    expect(t.sent.slice(1)).toEqual([{ type: "say", text: "one" }, { type: "say", text: "two" }, { type: "say", text: "three" }]);
+    t.c.onLine("four");
+    expect(t.sent[4]).toEqual({ type: "say", text: "four" });
+    expect(t.exits).toEqual([]);
+  });
+  it("caps the pre-join buffer and says so", () => {
+    const t = setup(); t.c.onOpen();
+    for (let i = 0; i < 105; i++) t.c.onLine(`m${i}`);
+    expect(t.out.filter((l) => l.includes("not joined yet")).length).toBe(5);
+    t.c.onMessage(joinedMsg);
+    expect(t.sent).toHaveLength(101);
+    expect(t.sent[100]).toEqual({ type: "say", text: "m99" });
+  });
+  it("help/none lines pre-join are handled locally", () => {
+    const t = setup(); t.c.onLine(""); t.c.onLine("/oops");
+    expect(t.sent).toEqual([]); expect(t.out.join("\n")).toContain("unknown command");
+  });
+  it("an error before joined is fatal with a non-zero code", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(err("role_taken"));
+    expect(t.exits).toEqual([1]); expect(t.errs[0]).toBe("error: role_taken: role_taken");
+    expect(t.state.terminated).toBe(1);
+  });
+  it("an error after joined is printed and not fatal", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onMessage(err("not_started")); t.c.onMessage(err("forbidden"));
+    expect(t.exits).toEqual([]);
+    expect(t.out.join("\n")).toContain("waiting for the facilitator");
+    expect(t.out.join("\n")).toContain("error: forbidden: forbidden");
+  });
+  it("never prints the token; ignores junk frames", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onMessage("garbage"); t.c.onMessage(ev("hi"));
+    expect(t.out.join("\n")).not.toContain("TOK");
+    expect(t.out).toContain("guest: hi");
+  });
+  it("connection errors and early closes exit 1", () => {
+    const a = setup(); a.c.onError(Object.assign(new Error(""), { code: "ECONNREFUSED" }));
+    expect(a.exits).toEqual([1]); expect(a.errs[0]).toContain("ECONNREFUSED");
+    const b = setup(); b.c.onOpen(); b.c.onMessage(joinedMsg); b.c.onClose();
+    expect(b.exits).toEqual([1]); expect(b.errs[0]).toContain("disconnected");
+  });
+});
+
+describe("client core: EOF", () => {
+  it("EOF before join with nothing queued exits non-zero immediately", () => {
+    const t = setup(); t.c.onOpen(); t.c.onEof();
+    expect(t.exits).toEqual([1]); expect(t.errs[0]).toContain("before joining");
+  });
+  it("EOF before join with queued lines waits for the join, flushes in order, then idles out with 0", async () => {
+    fake(); const t = setup(30); t.c.onOpen(); t.c.onLine("/start-not-valid-for-player"); t.c.onLine("a"); t.c.onLine("b"); t.c.onEof();
+    expect(t.exits).toEqual([]);
+    t.c.onMessage(joinedMsg);
+    expect(t.sent.slice(1)).toEqual([{ type: "say", text: "a" }, { type: "say", text: "b" }]);
+    await sleep(70); expect(t.exits).toEqual([0]);
+  });
+  it("EOF before join with queued lines is fatal if the join never arrives or errors", async () => {
+    fake(); const a = setup(30, 10); a.c.onOpen(); a.c.onLine("a"); a.c.onEof(); await sleep(40);
+    expect(a.exits).toEqual([1]);
+    const b = setup(); b.c.onOpen(); b.c.onLine("a"); b.c.onEof(); b.c.onMessage(err("unknown_role"));
+    expect(b.exits).toEqual([1]);
+  });
+  it("EOF after join prints a late reply that arrives inside the idle window, then exits 0", async () => {
+    fake(); const t = setup(60); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onEof();
+    expect(t.exits).toEqual([]);
+    await sleep(30); t.c.onMessage(ev("late"));
+    expect(t.out).toContain("guest: late");
+    await sleep(40); expect(t.exits).toEqual([]); // window reset by the message
+    await sleep(60); expect(t.exits).toEqual([0]);
+  });
+  it("EOF then server close exits 0 without waiting", () => {
+    const t = setup(10_000); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onEof(); t.c.onClose();
+    expect(t.exits).toEqual([0]);
+  });
+  it("sends nothing on EOF and exits once only", async () => {
+    fake(); const t = setup(10); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onEof(); await sleep(40); t.c.onClose();
+    expect(t.sent).toHaveLength(1); expect(t.exits).toEqual([0]);
+  });
+});
+
+describe("client core: quit and SIGINT", () => {
+  it("/quit and SIGINT close the socket and input and exit 0 immediately", () => {
+    for (const trigger of [(c: ReturnType<typeof setup>["c"]) => c.onLine("/quit"), (c: ReturnType<typeof setup>["c"]) => c.onSigint()]) {
+      const t = setup(); t.c.onOpen(); t.c.onMessage(joinedMsg); trigger(t.c);
+      expect(t.exits).toEqual([0]); expect(t.state.closed).toBe(1); expect(t.state.inputClosed).toBe(1);
+      t.c.onClose(); expect(t.exits).toEqual([0]);
+    }
+  });
+});
+
+describe("client core: facilitator /hidden and /release (US-0016)", () => {
+  const fopts = { facilitator: true, url: "ws://x", session: "s" };
+  const fjoined = JSON.stringify({ type: "joined", roleId: "facilitator", state: { npcs: { cfo: { goals: [], knowledge: [], released: ["second"] } } }, hiddenFacts: { cfo: ["first", "second"] } });
+  function fsetup() {
+    const sent: unknown[] = []; const out: string[] = [];
+    const sock: Sock = { send: (s) => sent.push(JSON.parse(s)), close: () => {}, terminate: () => {} };
+    const io: Io = { print: (l) => out.push(l), err: () => {}, closeInput: () => {}, exit: () => {} };
+    const c = createClient({ opts: fopts, sock, io, idleMs: 30 });
+    return { c, sent, out };
+  }
+  const upd = (released: string[]) => JSON.stringify({ type: "event", event: { seq: 5, ts: 0, sessionId: "s", type: "npc.updated", roleId: "cfo", goals: [], knowledge: [], released } });
+  it("lists the facts after join, marking the one already released", () => {
+    const t = fsetup(); t.c.onOpen(); t.c.onMessage(fjoined);
+    expect(t.out.join("\n")).toContain("hidden facts: cfo 2");
+    expect(t.out.join("\n")).not.toContain("first");
+    t.out.length = 0;
+    t.c.onLine("/hidden");
+    expect(t.out.slice(1)).toEqual(["cfo #1 first", "cfo #2 [released] second"]);
+    expect(t.sent).toHaveLength(1); // only the join: /hidden is local
+  });
+  it("sends /release, then shows the new release once and marks it in /hidden", () => {
+    const t = fsetup(); t.c.onOpen(); t.c.onMessage(fjoined);
+    t.out.length = 0;
+    t.c.onLine("/release cfo 1");
+    expect(t.sent[1]).toEqual({ type: "command", command: { command: "release_hidden", roleId: "cfo", fact: 1 } });
+    t.c.onMessage(JSON.stringify({ type: "event", event: { seq: 4, ts: 0, sessionId: "s", type: "facilitator.command", command: "release_hidden", roleId: "cfo", fact: 1 } }));
+    t.c.onMessage(upd(["second", "first"]));
+    expect(t.out).toEqual(["[facilitator] released hidden fact #1 of cfo", "[npc cfo] goals: ", "[npc cfo] released #1: first"]);
+    t.out.length = 0;
+    t.c.onMessage(upd(["second", "first"]));
+    expect(t.out).toEqual(["[npc cfo] goals: "]);
+    t.c.onLine("/hidden");
+    expect(t.out.slice(-2)).toEqual(["cfo #1 [released] first", "cfo #2 [released] second"]);
+  });
+  it("US-0034: shows a Game Master suggestion as an alert with the command, and marks the fact [suggested] in /hidden (also from the joined snapshot)", () => {
+    const t = fsetup(); t.c.onOpen(); t.c.onMessage(fjoined);
+    t.out.length = 0;
+    t.c.onMessage(JSON.stringify({ type: "event", event: { seq: 6, ts: 0, sessionId: "s", type: "gm.fact_earned", sceneId: "a", roleId: "cfo", fact: 1, reasoning: "fixed fee agreed" } }));
+    expect(t.out).toEqual(["[alert] Game Master suggests releasing hidden fact #1 of cfo (fixed fee agreed): type /release cfo 1 to release it"]);
+    t.c.onLine("/hidden");
+    expect(t.out.slice(-2)).toEqual(["cfo #1 [suggested by the Game Master] first", "cfo #2 [released] second"]);
+    const u = fsetup(); u.c.onOpen();
+    u.c.onMessage(JSON.stringify({ type: "joined", roleId: "facilitator", state: { npcs: {}, factsEarned: { cfo: [2, "x", 1.5] } }, hiddenFacts: { cfo: ["first", "second"] } }));
+    u.c.onLine("/hidden");
+    expect(u.out.slice(-2)).toEqual(["cfo #1 first", "cfo #2 [suggested by the Game Master] second"]);
+  });
+  it("shows a server error such as already_released and a player never gets the commands", () => {
+    const t = fsetup(); t.c.onOpen(); t.c.onMessage(fjoined);
+    t.c.onMessage(err("already_released"));
+    expect(t.out.at(-1)).toContain("already_released");
+    const p = setup(); p.c.onOpen(); p.c.onMessage(joinedMsg);
+    p.c.onLine("/release cfo 1"); p.c.onLine("/hidden");
+    expect(p.sent).toHaveLength(1);
+  });
+  it("/hidden before the join is not sent and says so", () => {
+    const t = fsetup(); t.c.onOpen();
+    t.c.onLine("/hidden");
+    expect(t.out).toEqual(["not joined yet"]);
+  });
+});
+
+describe("client core: join codes (US-0033)", () => {
+  it("test_client_a_refused_player_join_is_fatal_and_points_at_the_join_code_never_the_token", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(err("unauthorized"));
+    expect(t.exits).toEqual([1]);
+    expect(t.errs.join("\n")).toMatch(/join code/);
+    expect(t.errs.join("\n")).not.toMatch(/FACILITATOR_TOKEN/);
+  });
+});
+
+describe("client: replay-from-seq (US-0013)", () => {
+  const evAt = (seq: number, text: string) => JSON.stringify({ type: "event", event: { seq, ts: 0, sessionId: "s", type: "utterance", roleId: "guest", text, channel: "text" } });
+  const joinedReplay = (replay: unknown, lastSeq = 10) => JSON.stringify({ type: "joined", roleId: "host", reconnectToken: "TOK", state: { lastSeq, transcript: [] }, replay });
+  it("test_client_drops_an_event_it_has_already_received_during_a_replay", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedReplay({ afterSeq: 7, toSeq: 10, events: 2, complete: true }));
+    t.c.onMessage(evAt(8, "eight")); t.c.onMessage(evAt(10, "ten")); t.c.onMessage(evAt(10, "ten again")); t.c.onMessage(evAt(7, "old")); t.c.onMessage(evAt(11, "eleven"));
+    expect(t.out.filter((l) => l.startsWith("guest:"))).toEqual(["guest: eight", "guest: ten", "guest: eleven"]);
+  });
+  it("test_client_without_a_replay_prints_every_event_as_before", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedMsg);
+    t.c.onMessage(ev("a")); t.c.onMessage(ev("b"));
+    expect(t.out.filter((l) => l.startsWith("guest:"))).toEqual(["guest: a", "guest: b"]);
+  });
+  it("test_client_on_disconnect_says_which_last_seq_to_rejoin_with", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedReplay(undefined, 10));
+    t.c.onMessage(evAt(12, "twelve"));
+    t.c.onClose();
+    expect(t.exits).toEqual([1]);
+    expect(t.errs.join("\n")).toContain("run pnpm play again with --last-seq 12");
+  });
+  it("test_client_on_disconnect_before_any_event_uses_the_join_snapshot", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedReplay(undefined, 9)); t.c.onClose();
+    expect(t.errs.join("\n")).toContain("--last-seq 9");
+    const u = setup(); u.c.onOpen(); u.c.onClose(); // never joined: nothing to resume from
+    expect(u.errs.join("\n")).not.toContain("--last-seq");
+  });
+});
+
+describe("client: replay review fixes (US-0013 I1, M1)", () => {
+  const inject = (seq: number) => JSON.stringify({ type: "event", event: { seq, ts: 0, sessionId: "s", type: "inject.fired", injectId: "i", sceneId: "s1", to: ["host"], content: "missed inject" } });
+  const joinedAt = (replay: unknown) => JSON.stringify({ type: "joined", roleId: "host", reconnectToken: "TOK", state: { lastSeq: 10, transcript: [] }, replay });
+  it("test_client_dropped_mid_replay_hints_the_last_replayed_seq_not_the_snapshot_head", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedAt({ afterSeq: 5, toSeq: 10, events: 3, complete: true }));
+    t.c.onMessage(inject(6));
+    t.c.onClose();
+    expect(t.errs.join("\n")).toContain("--last-seq 6");
+  });
+  it("test_client_dropped_before_any_replayed_frame_hints_after_seq", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedAt({ afterSeq: 5, toSeq: 10, events: 3, complete: true }));
+    t.c.onClose();
+    expect(t.errs.join("\n")).toContain("--last-seq 5");
+  });
+  it("test_client_incomplete_replay_hints_the_snapshot_head", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(joinedAt({ afterSeq: 0, toSeq: 10, events: 0, complete: false }));
+    t.c.onClose();
+    expect(t.errs.join("\n")).toContain("--last-seq 10");
+  });
+  it("test_facilitator_is_told_the_text_of_a_hidden_fact_released_in_the_replayed_range", () => {
+    const out: string[] = [];
+    const io: Io = { print: (l) => out.push(l), err: () => {}, closeInput: () => {}, exit: () => {} };
+    const c = createClient({ opts: { facilitator: true, url: "ws://x", session: "s" }, sock: { send: () => {}, close: () => {}, terminate: () => {} }, io, idleMs: 30 });
+    c.onOpen();
+    // The snapshot already shows the fact released (it happened while the facilitator was away).
+    c.onMessage(JSON.stringify({ type: "joined", roleId: "facilitator", state: { lastSeq: 9, npcs: { cfo: { goals: [], knowledge: [], released: ["first"] } } }, hiddenFacts: { cfo: ["first", "second"] }, replay: { afterSeq: 7, toSeq: 9, events: 2, complete: true } }));
+    c.onMessage(JSON.stringify({ type: "event", event: { seq: 8, ts: 0, sessionId: "s", type: "facilitator.command", command: "release_hidden", roleId: "cfo", fact: 1 } }));
+    c.onMessage(JSON.stringify({ type: "event", event: { seq: 9, ts: 0, sessionId: "s", type: "npc.updated", roleId: "cfo", goals: [], knowledge: [], released: ["first"] } }));
+    expect(out.filter((l) => l.includes("released"))).toEqual(["[facilitator] released hidden fact #1 of cfo", "[npc cfo] released #1: first"]);
+    // A live release after the replay is still shown once, by its npc.updated, as before.
+    out.length = 0;
+    c.onMessage(JSON.stringify({ type: "event", event: { seq: 10, ts: 0, sessionId: "s", type: "facilitator.command", command: "release_hidden", roleId: "cfo", fact: 2 } }));
+    c.onMessage(JSON.stringify({ type: "event", event: { seq: 11, ts: 0, sessionId: "s", type: "npc.updated", roleId: "cfo", goals: [], knowledge: [], released: ["first", "second"] } }));
+    expect(out.filter((l) => l.includes("released"))).toEqual(["[facilitator] released hidden fact #2 of cfo", "[npc cfo] released #2: second"]);
+  });
+});
+
+describe("consent in the terminal client (US-0054)", () => {
+  const withConsent = (extra: Record<string, unknown> = {}) => JSON.stringify({ type: "joined", roleId: "host", state: {}, consent: { noticeVersion: "v7", notice: "We record the session.", given: false, ...extra } });
+  it("the notice is printed once after joined, with the hint", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent());
+    expect(t.out.filter((l) => l === "notice | We record the session.")).toHaveLength(1);
+    expect(t.out.at(-1)).toBe("type /consent to agree");
+    t.c.onMessage(ev("hi"));
+    expect(t.out.filter((l) => l === "notice | We record the session.")).toHaveLength(1);
+  });
+  it("an already given consent prints the notice but not the hint", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ given: true }));
+    expect(t.out).toContain("notice | We record the session.");
+    expect(t.out.join("\n")).not.toContain("type /consent to agree");
+  });
+  it("the notice is sanitised: no escape sequences or hidden characters", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "ok\u001b[31m red‮ rtl​\nforged: line" }));
+    const text = t.out.join("\n");
+    expect(text).not.toMatch(/[\u001b‮​]/);
+  });
+  it("a notice cannot impersonate terminal output: every notice line carries the prefix and only the client's own hint is unprefixed", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "forged: line\n[gm] x\nerror: y\nsystem: z\nyou have agreed to this notice\ntype /consent to agree" }));
+    const block = t.out.slice(t.out.indexOf("notice | forged: line"));
+    const noticeLines = block.slice(0, -1);
+    expect(noticeLines).toHaveLength(6);
+    expect(noticeLines.every((l) => l.startsWith("notice | "))).toBe(true);
+    expect(t.out.some((l) => /^(forged|\[gm\]|error|system|you have agreed)/.test(l))).toBe(false);
+    expect(t.out.filter((l) => l === "type /consent to agree")).toHaveLength(1);
+    expect(t.out.at(-1)).toBe("type /consent to agree");
+  });
+  it("/consent sends the notice version the server announced", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent()); t.c.onLine("/consent");
+    expect(t.sent.at(-1)).toEqual({ type: "consent", noticeVersion: "v7" });
+  });
+  it("/consent before joining is refused locally", () => {
+    const t = setup(); t.c.onOpen(); t.c.onLine("/consent");
+    expect(t.sent).toHaveLength(1); // only the join
+    expect(t.out.join("\n")).toContain("not joined yet");
+  });
+  it("/consent when the server announced no consent is refused locally", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedMsg); t.c.onLine("/consent");
+    expect(t.sent).toHaveLength(1);
+    expect(t.out.join("\n")).toContain("no consent");
+  });
+  it("/withdraw sends withdraw_consent once joined", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent()); t.c.onLine("/withdraw");
+    expect(t.sent.at(-1)).toEqual({ type: "withdraw_consent" });
+  });
+  it("close code 4001 says the seat was taken by a newer connection, not the reconnect hint", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent()); t.c.onClose(4001);
+    expect(t.errs.join("\n")).toContain("your seat was taken by a newer connection");
+    expect(t.errs.join("\n")).not.toContain("--last-seq");
+    expect(t.exits).toEqual([1]);
+  });
+  it("a short multi-line notice prints as several lines, not one flattened line", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "line one\nline two\n\nline four" }));
+    expect(t.out).toEqual(expect.arrayContaining(["notice | line one", "notice | line two", "notice | ", "notice | line four"]));
+    expect(t.out.join("\n")).not.toContain("\u23ce");
+  });
+  it("a 4,000 character many-line notice shows nothing cut and no truncation marker", () => {
+    const notice = Array.from({ length: 160 }, (_, i) => `l${String(i).padStart(3, "0")} ${"x".repeat(20)}`).join("\n").slice(0, 4_000);
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice }));
+    const shown = t.out.filter((l) => /^notice \| l\d{3}/.test(l));
+    expect(shown).toHaveLength(notice.split("\n").length);
+    expect(shown.at(-1)).toBe(`notice | ${notice.split("\n").at(-1)}`);
+    expect(t.out.join("\n")).not.toContain("truncated");
+    expect(t.out.at(-1)).toBe("type /consent to agree");
+  });
+  it("a notice over the line cap says so visibly", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: Array.from({ length: 3_000 }, () => "x").join("\n") }));
+    expect(t.out.join("\n")).toContain("more lines not shown");
+  });
+  it("escape and control characters in a notice line never reach the output", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(withConsent({ notice: "a\u001b]0;title\u0007b\nc\u202ed" }));
+    expect(t.out.join("\n")).not.toMatch(/[\u001b\u0007\u202e]/);
+  });
+});
+
+describe("client core: roster frames (US-0055)", () => {
+  it("prints a roster once per change as role and state, and never treats it as an error", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedMsg);
+    const roster = (ready: boolean) => JSON.stringify({ type: "roster", audience: "peers", entries: [{ roleId: "host", name: "QZXNAME1", ready }] });
+    t.c.onMessage(roster(false)); t.c.onMessage(roster(false)); t.c.onMessage(roster(true));
+    expect(t.out.filter((l) => l.startsWith("roster | "))).toEqual(["roster | host: not ready", "roster | host: ready"]);
+    expect(t.out.join("\n")).not.toContain("QZXNAME");
+    expect(t.out.some((l) => l.includes("error"))).toBe(false);
+    expect(t.exits).toEqual([]);
+  });
+});
+
+describe("AI player labels in the terminal client (US-0060)", () => {
+  const joinedAi = (aiRoles: unknown, extra: Record<string, unknown> = {}) => JSON.stringify({ type: "joined", roleId: "host", state: { aiRoles, transcript: [{ seq: 1, roleId: "tech_lead", text: "old" }] }, ...extra });
+  const say = (roleId: string, seq: number, text = "hello") => JSON.stringify({ type: "event", event: { seq, ts: 0, sessionId: "s", type: "utterance", roleId, text, channel: "text" } });
+  const started = (aiRoles: unknown, seq: number) => JSON.stringify({ type: "event", event: { seq, ts: 0, sessionId: "s", type: "session.started", scenarioId: "sc", version: "1", roles: {}, aiRoles } });
+  it("labels history and live lines from joined.state.aiRoles", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi(["tech_lead"])); t.c.onMessage(say("tech_lead", 2)); t.c.onMessage(say("guest", 3));
+    expect(t.out).toContain("AI player (tech_lead) [AI]: old");
+    expect(t.out).toContain("AI player (tech_lead) [AI]: hello");
+    expect(t.out).toContain("guest: hello");
+  });
+  it("labels a line after session.started carried aiRoles [\"tech_lead\"]", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi([])); t.c.onMessage(say("tech_lead", 2));
+    expect(t.out.at(-1)).toBe("tech_lead: hello");
+    t.c.onMessage(started(["tech_lead"], 3)); t.c.onMessage(say("tech_lead", 4));
+    expect(t.out.at(-1)).toBe("AI player (tech_lead) [AI]: hello");
+  });
+  it("a later session.started replaces the set rather than accumulating", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi(["tech_lead"])); t.c.onMessage(started([], 2)); t.c.onMessage(say("tech_lead", 3));
+    expect(t.out.at(-1)).toBe("tech_lead: hello");
+    t.c.onMessage(started(["cfo"], 4)); t.c.onMessage(say("tech_lead", 5)); t.c.onMessage(say("cfo", 6));
+    expect(t.out.slice(-2)).toEqual(["tech_lead: hello", "AI player (cfo) [AI]: hello"]);
+  });
+  it("aiRoles holding 7 or an escape string are ignored: never printed, never labelled", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi([7, "\u001b[2J", { a: 1 }]));
+    t.c.onMessage(started([7, "\u001b[2J"], 2)); t.c.onMessage(say("\u001b[2J", 3));
+    expect(t.out.join("\n")).not.toContain("[AI]");
+    expect(t.out.join("\n")).not.toContain("\u001b");
+  });
+  it("my own role is never labelled AI", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi(["host"])); t.c.onMessage(say("host", 2));
+    expect(t.out.at(-1)).toBe("you: hello");
+  });
+  it("the roster labels an AI seat", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi(["tech_lead"]));
+    t.c.onMessage(JSON.stringify({ type: "roster", audience: "peers", entries: [{ roleId: "tech_lead", name: "AI player", ready: true, ai: true }] }));
+    expect(t.out.at(-1)).toBe("roster | tech_lead: AI player, ready");
+  });
+  it("a joined with an adopted consent never says the player agreed to this notice", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi([], { consent: { noticeVersion: "v2", notice: "Current.", given: true } }));
+    expect(t.out.join("\n")).not.toContain("agreed to this notice");
+    expect(t.out.at(-1)).toBe("this seat agreed to a consent notice earlier; the text above is the current notice");
+  });
+  it("ai_notice from the server prints the fixed line", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(joinedAi([])); t.c.onMessage(err("ai_notice"));
+    expect(t.out.at(-1)).toBe("cannot start: this server's consent notice does not mention AI players; switch the AI roles back to human or restart on notice v2");
+  });
+});
+
+describe("seats_not_ready and AI seats; event and joined edge cases (US-0060 review)", () => {
+  const joinedFac = JSON.stringify({ type: "joined", roleId: "facilitator", state: {} });
+  const facOpts = { facilitator: true, name: "n", url: "ws://x", session: "s" };
+  const facSetup = () => {
+    const out: string[] = [];
+    const sock: Sock = { send: () => {}, close: () => {}, terminate: () => {} };
+    const io: Io = { print: (l) => out.push(l), err: () => {}, closeInput: () => {}, exit: () => {} };
+    return { c: createClient({ opts: facOpts as never, sock, io, idleMs: 30 }), out };
+  };
+  const roster = (entries: unknown[]) => JSON.stringify({ type: "roster", audience: "facilitator", entries });
+  const notReady = (roles: string) => JSON.stringify({ type: "error", code: "seats_not_ready", message: `seats_not_ready: ${roles}` });
+  const entries = [{ roleId: "account_manager", joined: false, consented: false, connected: false }, { roleId: "tech_lead", joined: false, consented: false, connected: false, ai: true }];
+  it("an AI seat in seats_not_ready is labelled and never told to type /consent", () => {
+    const t = facSetup(); t.c.onOpen(); t.c.onMessage(joinedFac); t.c.onMessage(roster(entries)); t.c.onMessage(notReady("account_manager,tech_lead"));
+    const l = t.out.at(-1)!;
+    expect(l).toBe("cannot start yet: waiting for account_manager to join and type /consent; waiting for the bot of AI player (tech_lead)");
+    expect(l).not.toContain("tech_lead to join and type /consent");
+  });
+  it("only the AI seat missing, only a human missing, and a role not in the last roster", () => {
+    const t = facSetup(); t.c.onOpen(); t.c.onMessage(joinedFac); t.c.onMessage(roster(entries));
+    t.c.onMessage(notReady("tech_lead")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for the bot of AI player (tech_lead)");
+    t.c.onMessage(notReady("account_manager")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for account_manager to join and type /consent");
+    t.c.onMessage(notReady("stranger")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for stranger to join and type /consent");
+  });
+  it("the AI roster set is replaced per frame and cleared by joined", () => {
+    const t = facSetup(); t.c.onOpen(); t.c.onMessage(joinedFac); t.c.onMessage(roster(entries));
+    t.c.onMessage(roster([{ roleId: "tech_lead", joined: false, consented: false, connected: false }]));
+    t.c.onMessage(notReady("tech_lead")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for tech_lead to join and type /consent");
+    t.c.onMessage(roster(entries)); t.c.onMessage(joinedFac);
+    t.c.onMessage(notReady("tech_lead")); expect(t.out.at(-1)).toBe("cannot start yet: waiting for tech_lead to join and type /consent");
+  });
+  it("an event frame before joined is dropped", () => {
+    const t = setup(); t.c.onOpen(); t.c.onMessage(ev("early"));
+    expect(t.out).toEqual([]);
+  });
+  it("a second joined replaces the AI set", () => {
+    const j = (aiRoles: string[]) => JSON.stringify({ type: "joined", roleId: "host", state: { aiRoles } });
+    const t = setup(); t.c.onOpen(); t.c.onMessage(j(["guest"])); t.c.onMessage(ev("one"));
+    expect(t.out.at(-1)).toBe("AI player (guest) [AI]: one");
+    t.c.onMessage(j([])); t.c.onMessage(JSON.stringify({ type: "event", event: { seq: 2, ts: 0, sessionId: "s", type: "utterance", roleId: "guest", text: "two", channel: "text" } }));
+    expect(t.out.at(-1)).toBe("guest: two");
+  });
+  it("a replayed utterance after joined with aiRoles is labelled", () => {
+    const t = setup(); t.c.onOpen();
+    t.c.onMessage(JSON.stringify({ type: "joined", roleId: "host", state: { aiRoles: ["guest"], lastSeq: 5 }, replay: { afterSeq: 0, toSeq: 5, events: 1, complete: true } }));
+    t.c.onMessage(ev("replayed"));
+    expect(t.out.at(-1)).toBe("AI player (guest) [AI]: replayed");
+  });
+});

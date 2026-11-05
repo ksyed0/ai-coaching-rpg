@@ -5,7 +5,6 @@ const path = require('path');
 const os = require('os');
 
 const { parseArgs, dispatch } = require('../../tools/agent-task-review');
-const { Repository } = require('../../tools/lib/repository');
 
 function mkProjectWithTask(opts = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-task-review-cli-'));
@@ -33,10 +32,6 @@ function mkProjectWithTask(opts = {}) {
   );
   return { root, sdlcPath };
 }
-
-afterEach(() => {
-  Repository._reset();
-});
 
 describe('parseArgs', () => {
   test('parses start command with all flags', () => {
@@ -91,10 +86,10 @@ describe('parseArgs', () => {
 });
 
 describe('dispatch — start', () => {
-  test('happy path: emits READY_FOR_SPEC on stdout, exit 0', async () => {
+  test('happy path: emits READY_FOR_SPEC on stdout, exit 0', () => {
     const { root, sdlcPath } = mkProjectWithTask();
     const out = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'start', taskId: 'task-abc', baseSha: '0000000', headSha: 'abc1234' },
       { root, sdlcPath, stdout: (s) => out.push(s), stderr: () => {} },
     );
@@ -102,10 +97,10 @@ describe('dispatch — start', () => {
     expect(out.join('').trim()).toBe('READY_FOR_SPEC');
   });
 
-  test('headSha === "none" emits SKIP_REVIEW', async () => {
+  test('headSha === "none" emits SKIP_REVIEW', () => {
     const { root, sdlcPath } = mkProjectWithTask({ taskOverrides: { headSha: 'none' } });
     const out = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'start', taskId: 'task-abc', baseSha: '0000000', headSha: 'none' },
       { root, sdlcPath, stdout: (s) => out.push(s), stderr: () => {} },
     );
@@ -113,10 +108,10 @@ describe('dispatch — start', () => {
     expect(out.join('').trim()).toBe('SKIP_REVIEW');
   });
 
-  test('missing --task-id exits 1 with stderr', async () => {
+  test('missing --task-id exits 1 with stderr', () => {
     const { root, sdlcPath } = mkProjectWithTask();
     const errs = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'start', baseSha: '0000000', headSha: 'abc1234' },
       { root, sdlcPath, stdout: () => {}, stderr: (s) => errs.push(s) },
     );
@@ -124,10 +119,10 @@ describe('dispatch — start', () => {
     expect(errs.join(' ')).toMatch(/--task-id required/);
   });
 
-  test('missing --base-sha exits 1', async () => {
+  test('missing --base-sha exits 1', () => {
     const { root, sdlcPath } = mkProjectWithTask();
     const errs = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'start', taskId: 'task-abc', headSha: 'abc1234' },
       { root, sdlcPath, stdout: () => {}, stderr: (s) => errs.push(s) },
     );
@@ -137,14 +132,14 @@ describe('dispatch — start', () => {
 });
 
 describe('dispatch — status', () => {
-  test('prints taskReview JSON to stdout, exit 0', async () => {
+  test('prints taskReview JSON to stdout, exit 0', () => {
     const { root, sdlcPath } = mkProjectWithTask();
-    await dispatch(
+    dispatch(
       { cmd: 'start', taskId: 'task-abc', baseSha: '0000000', headSha: 'abc1234' },
       { root, sdlcPath, stdout: () => {}, stderr: () => {} },
     );
     const out = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'status', taskId: 'task-abc' },
       { root, sdlcPath, stdout: (s) => out.push(s), stderr: () => {} },
     );
@@ -154,10 +149,10 @@ describe('dispatch — status', () => {
     expect(parsed.baseSha).toBe('0000000');
   });
 
-  test('status on task without taskReview exits 1', async () => {
+  test('status on task without taskReview exits 1', () => {
     const { root, sdlcPath } = mkProjectWithTask();
     const errs = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'status', taskId: 'task-abc' },
       { root, sdlcPath, stdout: () => {}, stderr: (s) => errs.push(s) },
     );
@@ -166,19 +161,19 @@ describe('dispatch — status', () => {
 });
 
 describe('dispatch — spec-verdict', () => {
-  async function startedProject() {
+  function startedProject() {
     const { root, sdlcPath } = mkProjectWithTask();
-    await dispatch(
+    dispatch(
       { cmd: 'start', taskId: 'task-abc', baseSha: '0000000', headSha: 'abc1234' },
       { root, sdlcPath, stdout: () => {}, stderr: () => {} },
     );
     return { root, sdlcPath };
   }
 
-  test('APPROVED emits PROCEED_TO_QUALITY', async () => {
-    const { root, sdlcPath } = await startedProject();
+  test('APPROVED emits PROCEED_TO_QUALITY', () => {
+    const { root, sdlcPath } = startedProject();
     const out = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'spec-verdict', taskId: 'task-abc', verdict: 'APPROVED' },
       { root, sdlcPath, stdout: (s) => out.push(s), stderr: () => {} },
     );
@@ -186,10 +181,10 @@ describe('dispatch — spec-verdict', () => {
     expect(out.join('').trim()).toBe('PROCEED_TO_QUALITY');
   });
 
-  test('REQUEST_CHANGES with retries < cap emits RETRY_FORGE', async () => {
-    const { root, sdlcPath } = await startedProject();
+  test('REQUEST_CHANGES with retries < cap emits RETRY_FORGE', () => {
+    const { root, sdlcPath } = startedProject();
     const out = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'spec-verdict', taskId: 'task-abc', verdict: 'REQUEST_CHANGES', findings: 'AC-x missing' },
       { root, sdlcPath, stdout: (s) => out.push(s), stderr: () => {} },
     );
@@ -197,13 +192,13 @@ describe('dispatch — spec-verdict', () => {
     expect(out.join('').trim()).toBe('RETRY_FORGE');
   });
 
-  test('REQUEST_CHANGES at cap emits ESCALATE', async () => {
-    const { root, sdlcPath } = await startedProject();
+  test('REQUEST_CHANGES at cap emits ESCALATE', () => {
+    const { root, sdlcPath } = startedProject();
     const data = JSON.parse(fs.readFileSync(sdlcPath, 'utf8'));
     data.tasks['task-abc'].taskReview.forgeRetries = 2;
     fs.writeFileSync(sdlcPath, JSON.stringify(data, null, 2));
     const out = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'spec-verdict', taskId: 'task-abc', verdict: 'REQUEST_CHANGES', findings: 'still bad' },
       { root, sdlcPath, stdout: (s) => out.push(s), stderr: () => {} },
     );
@@ -211,10 +206,10 @@ describe('dispatch — spec-verdict', () => {
     expect(out.join('').trim()).toBe('ESCALATE');
   });
 
-  test('REQUEST_CHANGES without --findings exits 1', async () => {
-    const { root, sdlcPath } = await startedProject();
+  test('REQUEST_CHANGES without --findings exits 1', () => {
+    const { root, sdlcPath } = startedProject();
     const errs = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'spec-verdict', taskId: 'task-abc', verdict: 'REQUEST_CHANGES' },
       { root, sdlcPath, stdout: () => {}, stderr: (s) => errs.push(s) },
     );
@@ -224,23 +219,23 @@ describe('dispatch — spec-verdict', () => {
 });
 
 describe('dispatch — quality-verdict', () => {
-  async function readyForQuality() {
+  function readyForQuality() {
     const { root, sdlcPath } = mkProjectWithTask();
-    await dispatch(
+    dispatch(
       { cmd: 'start', taskId: 'task-abc', baseSha: '0000000', headSha: 'abc1234' },
       { root, sdlcPath, stdout: () => {}, stderr: () => {} },
     );
-    await dispatch(
+    dispatch(
       { cmd: 'spec-verdict', taskId: 'task-abc', verdict: 'APPROVED' },
       { root, sdlcPath, stdout: () => {}, stderr: () => {} },
     );
     return { root, sdlcPath };
   }
 
-  test('APPROVED emits TASK_CLEARED', async () => {
-    const { root, sdlcPath } = await readyForQuality();
+  test('APPROVED emits TASK_CLEARED', () => {
+    const { root, sdlcPath } = readyForQuality();
     const out = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'quality-verdict', taskId: 'task-abc', verdict: 'APPROVED' },
       { root, sdlcPath, stdout: (s) => out.push(s), stderr: () => {} },
     );
@@ -248,10 +243,10 @@ describe('dispatch — quality-verdict', () => {
     expect(out.join('').trim()).toBe('TASK_CLEARED');
   });
 
-  test('REQUEST_CHANGES with retries < cap emits RETRY_FORGE', async () => {
-    const { root, sdlcPath } = await readyForQuality();
+  test('REQUEST_CHANGES with retries < cap emits RETRY_FORGE', () => {
+    const { root, sdlcPath } = readyForQuality();
     const out = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'quality-verdict', taskId: 'task-abc', verdict: 'REQUEST_CHANGES', findings: 'magic number' },
       { root, sdlcPath, stdout: (s) => out.push(s), stderr: () => {} },
     );
@@ -261,23 +256,23 @@ describe('dispatch — quality-verdict', () => {
 });
 
 describe('dispatch — forge-retry', () => {
-  async function inForgeRetry(reason) {
+  function inForgeRetry(reason) {
     const { root, sdlcPath } = mkProjectWithTask();
-    await dispatch(
+    dispatch(
       { cmd: 'start', taskId: 'task-abc', baseSha: '0000000', headSha: 'abc1234' },
       { root, sdlcPath, stdout: () => {}, stderr: () => {} },
     );
     if (reason === 'spec') {
-      await dispatch(
+      dispatch(
         { cmd: 'spec-verdict', taskId: 'task-abc', verdict: 'REQUEST_CHANGES', findings: 'spec fail' },
         { root, sdlcPath, stdout: () => {}, stderr: () => {} },
       );
     } else {
-      await dispatch(
+      dispatch(
         { cmd: 'spec-verdict', taskId: 'task-abc', verdict: 'APPROVED' },
         { root, sdlcPath, stdout: () => {}, stderr: () => {} },
       );
-      await dispatch(
+      dispatch(
         { cmd: 'quality-verdict', taskId: 'task-abc', verdict: 'REQUEST_CHANGES', findings: 'quality fail' },
         { root, sdlcPath, stdout: () => {}, stderr: () => {} },
       );
@@ -285,10 +280,10 @@ describe('dispatch — forge-retry', () => {
     return { root, sdlcPath };
   }
 
-  test('spec retry emits READY_FOR_SPEC, increments forgeRetries', async () => {
-    const { root, sdlcPath } = await inForgeRetry('spec');
+  test('spec retry emits READY_FOR_SPEC, increments forgeRetries', () => {
+    const { root, sdlcPath } = inForgeRetry('spec');
     const out = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'forge-retry', taskId: 'task-abc', triggeredBy: 'spec', newHeadSha: 'def5678' },
       { root, sdlcPath, stdout: (s) => out.push(s), stderr: () => {} },
     );
@@ -299,10 +294,10 @@ describe('dispatch — forge-retry', () => {
     expect(data.tasks['task-abc'].taskReview.headSha).toBe('def5678');
   });
 
-  test('quality retry emits READY_FOR_QUALITY, preserves spec verdict', async () => {
-    const { root, sdlcPath } = await inForgeRetry('quality');
+  test('quality retry emits READY_FOR_QUALITY, preserves spec verdict', () => {
+    const { root, sdlcPath } = inForgeRetry('quality');
     const out = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'forge-retry', taskId: 'task-abc', triggeredBy: 'quality', newHeadSha: 'def5678' },
       { root, sdlcPath, stdout: (s) => out.push(s), stderr: () => {} },
     );
@@ -312,10 +307,10 @@ describe('dispatch — forge-retry', () => {
     expect(data.tasks['task-abc'].taskReview.specVerdict).toBe('APPROVED');
   });
 
-  test('missing --triggered-by exits 1', async () => {
-    const { root, sdlcPath } = await inForgeRetry('spec');
+  test('missing --triggered-by exits 1', () => {
+    const { root, sdlcPath } = inForgeRetry('spec');
     const errs = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'forge-retry', taskId: 'task-abc', newHeadSha: 'def5678' },
       { root, sdlcPath, stdout: () => {}, stderr: (s) => errs.push(s) },
     );
@@ -323,10 +318,10 @@ describe('dispatch — forge-retry', () => {
     expect(errs.join(' ')).toMatch(/--triggered-by/);
   });
 
-  test('missing --new-head-sha exits 1', async () => {
-    const { root, sdlcPath } = await inForgeRetry('spec');
+  test('missing --new-head-sha exits 1', () => {
+    const { root, sdlcPath } = inForgeRetry('spec');
     const errs = [];
-    const rc = await dispatch(
+    const rc = dispatch(
       { cmd: 'forge-retry', taskId: 'task-abc', triggeredBy: 'spec' },
       { root, sdlcPath, stdout: () => {}, stderr: (s) => errs.push(s) },
     );

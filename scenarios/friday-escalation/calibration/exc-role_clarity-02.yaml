@@ -1,0 +1,32 @@
+kind: single
+id: exc-role_clarity-02
+criterion: role_clarity
+source: excerpt
+drafter: null
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:51.458Z
+split: holdout
+subject: tech_lead
+expected: 2
+acceptable:
+  - 2
+  - 3
+transcript:
+  - scene: s3_internal_wrap
+    role: tech_lead
+    text: I'll size the phased version and sync with the ingestion team to confirm
+      the effort. In the meantime, someone needs to notify the wider team that
+      the go-live scope remains unchanged.
+  - scene: s3_internal_wrap
+    role: delivery_lead
+    text: I'll send that note to the wider team today. The go-live scope is
+      unchanged and the module is a phase two proposal.
+  - scene: s3_internal_wrap
+    role: tech_lead
+    text: I'll send you the effort estimate by Thursday so the proposal has a
+      defensible price.
+  - scene: s3_internal_wrap
+    role: account_manager
+    text: That sounds like a plan. I'll take ownership of the proposal and the call
+      to Priya, while the tech lead handles the estimate and the delivery lead
+      manages the internal communication.

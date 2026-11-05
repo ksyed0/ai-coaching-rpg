@@ -1,0 +1,142 @@
+# Group rubric (BARS) for the Friday Escalation scenarios: scored once for the whole team from the whole session.
+# Scale: 1 Not yet demonstrated, 2 Developing, 3 Proficient, 4 Advanced.
+#   Level 1 means there was a clear opportunity to show the behaviour and it is absent from the players' own lines, or the team worked against
+#   the aim. "Not observed" (no score) means there was no opportunity, or there is no usable evidence either way.
+# Anchors describe what the players say or do in THEIR OWN words, so they can be evidenced with quotes from the players.
+# AI character lines are context, never evidence. Where an anchor says "at least two of", two of the listed behaviours are enough.
+# If the team sits between two anchors, choose the lower only when the higher anchor's key behaviour is clearly missing.
+id: group_collaboration_v1
+name: Team collaboration across the escalation
+scope: group
+version: "1"
+description: >-
+  Team-level criteria (ASM-02). Scored once from the whole transcript; the evidence is quotes from any player. These criteria describe the
+  team as a whole; what one person does individually (team_alignment, role_clarity) is scored in the individual rubric.
+criteria:
+  - id: shared_understanding
+    name: Shared understanding
+    description: >-
+      The team as a whole holds the same picture of the request, the underlying need, the risks and the numbers. The key behaviour is facts
+      shared out loud and stated consistently by different people. (What one person does to get the team to one position is team_alignment
+      in the individual rubric.)
+    what_to_look_for:
+      - Team members restate the request and the need in the same terms
+      - Facts (effort, budget state, risks) are shared out loud before the client call
+      - Misunderstandings are caught and corrected within the conversation
+      - Later statements to the client use what the team agreed earlier
+    levels:
+      1:
+        anchor: >-
+          Different players state different facts (effort, date or scope) in their own lines and nobody notices or reconciles the difference.
+      2:
+        anchor: >-
+          Most facts are shared out loud, but at least one key fact stays with one person, or a gap is noticed only when the client points to it.
+        examples:
+          - "Oh, I did not know the contingency was that low."
+          - "I thought we were saying six weeks."
+      3:
+        anchor: >-
+          At least two of the following: the key facts (effort, risk, budget state) are shared before the client is engaged; different
+          players describe the request and the risk in consistent terms; a difference is caught and corrected within the conversation.
+      4:
+        anchor: >-
+          Players check each other's figures and restate them, correct differences quickly, and different players give the client the same
+          story with the same numbers.
+        examples:
+          - "Let me check we all have the same numbers: the phased version is half the work of the full module."
+          - "Good catch, that is the figure we agreed in the huddle."
+  - id: decision_quality
+    name: Decision quality
+    description: >-
+      The team weighs options with the information it has and commits to a decision it can justify, with a price and a date. The key behaviour
+      is an explicit, justified decision made before the client has to ask for it.
+    what_to_look_for:
+      - More than one option is considered and compared before choosing
+      - The decision is explicit (what, price, date, conditions) and someone owns it
+      - The team prices the phased module before the finance executive asks for a number
+      - The decision is revised when new information arrives (an inject, a challenge) rather than ignored
+    levels:
+      1:
+        anchor: >-
+          The scene asked for a decision and the players' own lines contain no statement of what, price or date, or a choice is made without
+          comparing options.
+      2:
+        anchor: >-
+          A decision is stated, but on one option only, or without a price or a date, or without anyone owning it.
+        examples:
+          - "OK, let's just do it after go-live."
+          - "We will work out the price later."
+      3:
+        anchor: >-
+          At least two of the following: options are compared; the team commits to a specific plan with a date and a price; the price is
+          stated before the client or the finance executive asks for it.
+      4:
+        anchor: >-
+          Commits to a justified plan with price, date, conditions and a fallback, names its owner, and adjusts it sensibly when challenged
+          (for example adding a credit clause) without abandoning the core position.
+        examples:
+          - "We priced the phased module before finance asked for a number, and we offered a proportional credit when they pushed on the date."
+          - "If finance insists on a lower price, the fallback is to reduce scope, not the fee."
+  - id: role_clarity_group
+    name: Role clarity (team)
+    description: >-
+      The team uses its members' roles well: questions go to the person with the expertise and the load is shared. The key behaviour is hand-offs
+      between players. (What one person says about ownership is role_clarity in the individual rubric.)
+    what_to_look_for:
+      - Technical questions go to the tech lead, commercial and relationship questions to the account manager, the plan to the delivery lead
+      - Every player takes part in a client conversation
+      - Hand-offs between players are explicit
+      - Talk time and interruptions are context only and not a criterion on their own
+    levels:
+      1:
+        anchor: >-
+          In a client conversation one player answers everything, or a player has no turn at all, and no one hands a question over.
+      2:
+        anchor: >-
+          Roles are partly used: a question is sometimes answered by the wrong player and hand-offs are implicit.
+        examples:
+          - "I will cover it, it is easier."
+          - "Let me take that one as well."
+      3:
+        anchor: >-
+          At least two of the following: questions are generally answered by the player who owns the area; each player contributes in
+          their own area; at least one hand-off is made out loud.
+      4:
+        anchor: >-
+          Players deliberately assign who speaks to what, hand off explicitly, and each member's expertise visibly strengthens what is said
+          to the client.
+        examples:
+          - "That is a question for our tech lead, over to you."
+          - "I will take the price, and the delivery lead will cover the timeline."
+  - id: escalation_discipline
+    name: Escalation discipline
+    description: >-
+      The team keeps its commitments within what it can support, flags risks early and says what needs approval beyond the call. The key
+      behaviour is separating what the team can commit to from what it cannot.
+    what_to_look_for:
+      - Separates what it can commit to (a phased fixed-fee change request) from what needs approval (discounts, credits, contractual terms)
+      - Names risks to go-live to the client early rather than leaving them unsaid
+      - Puts commitments in writing (a change request) rather than agreeing them verbally only
+      - Does not promise under pressure what the evidence does not support
+    levels:
+      1:
+        anchor: >-
+          Under pressure the players commit to a date, price or credit in their own lines with no stated basis and no mention of approval,
+          or they never mention a known risk to the date to the client despite several opportunities.
+      2:
+        anchor: >-
+          Names a risk but commits to something without saying what it rests on or whether it needs approval, or leaves the commitment verbal.
+        examples:
+          - "We can probably do that."
+          - "Don't worry, we will make it work."
+      3:
+        anchor: >-
+          At least two of the following: states the risk to the client; commits only to what its stated evidence supports; puts the
+          commitment in writing or in a change request.
+      4:
+        anchor: >-
+          Separates what it can commit to from what needs approval, flags the risk early, names the route for anything beyond its authority,
+          and confirms the written follow-up with dates.
+        examples:
+          - "That discount is beyond what I can agree on this call; I will take it to our leadership and come back by Monday."
+          - "We will send the change request on Monday for both sides to sign before work starts."

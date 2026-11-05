@@ -1,0 +1,38 @@
+kind: single
+id: exc-listening-02
+criterion: listening
+source: excerpt
+drafter: null
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:50.803Z
+split: tune
+subject: account_manager
+expected: 2
+acceptable:
+  - 2
+  - 3
+transcript:
+  - scene: s1_huddle
+    role: account_manager
+    text: I’ll send a brief rundown of the reconciliation requirements right now and
+      get the full specification to you by tomorrow, so we can evaluate the
+      impact on the go‑live schedule without compromising the timeline.
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Got it—could you share the high‑level scope today so I can start sizing
+      the effort, and then we can lock down the detailed document and acceptance
+      criteria by tomorrow?
+  - scene: s1_huddle
+    role: tech_lead
+    text: Sure, the high‑level scope covers ingesting the daily feed, matching
+      records against the reference set, flagging mismatches, and generating a
+      summary report; I can send a concise outline in this chat now. I’ll also
+      include the main modules and a rough effort estimate so you can start
+      sizing the work today.
+  - scene: s1_huddle
+    role: account_manager
+    text: I’ll send the high‑level scope now, covering ingesting the daily feed,
+      matching records, flagging mismatches and generating a summary report with
+      a rough effort estimate so you can start sizing today. Let me know if
+      anything needs clarification before we lock down the detailed document and
+      acceptance criteria tomorrow.

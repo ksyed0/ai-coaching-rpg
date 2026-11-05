@@ -1,0 +1,29 @@
+/* Minimal design tokens until EPIC-0007 ships the design system: the mockups' palette, light and dark. System fonts only (no
+   third-party resource). A page can force a theme with data-theme on <html>. */
+:root {
+  --bg: #eef0f2; --panel: #ffffff; --panel2: #f5f6f8; --ink: #16202b; --muted: #5a6672; --line: #d5dae0;
+  --accent: #1f5f7a; --accent-ink: #ffffff; --accent-soft: #dbeaf0;
+  --ok: #1d7a4d; --ok-soft: #dcf1e6; --warn: #8a5100; --warn-soft: #fbecd0; --crit: #b3261e; --crit-soft: #f9dedb;
+  --ai: #5b4aa0; --ai-soft: #e8e4f5;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, Menlo, Consolas, monospace;
+  --gutter: 16px;
+  --radius: 8px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12171c; --panel: #1b222a; --panel2: #222b35; --ink: #e6ebf0; --muted: #97a3af; --line: #33404c;
+    --accent: #6bb6d3; --accent-ink: #0c1a22; --accent-soft: #1d3440;
+    --ok: #5fcf93; --ok-soft: #173528; --warn: #e8b25a; --warn-soft: #3a2d12; --crit: #f08a82; --crit-soft: #3d1c19;
+    --ai: #b3a6ee; --ai-soft: #2a2547;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12171c; --panel: #1b222a; --panel2: #222b35; --ink: #e6ebf0; --muted: #97a3af; --line: #33404c;
+  --accent: #6bb6d3; --accent-ink: #0c1a22; --accent-soft: #1d3440;
+  --ok: #5fcf93; --ok-soft: #173528; --warn: #e8b25a; --warn-soft: #3a2d12; --crit: #f08a82; --crit-soft: #3d1c19;
+  --ai: #b3a6ee; --ai-soft: #2a2547;
+  color-scheme: dark;
+}

@@ -1,0 +1,168 @@
+{
+  "project": {
+    "name": "AI Coaching RPG",
+    "description": "Script-driven multiplayer role-play training with AI counterparts.",
+    "repoUrl": "https://github.com/ksyed0/ai-coaching-rpg",
+    "startDate": "2026-10-01"
+  },
+  "phases": [
+    {
+      "name": "Blueprint",
+      "agents": [
+        "Compass"
+      ],
+      "deliverables": [
+        "refined ACs",
+        "priority list"
+      ]
+    },
+    {
+      "name": "Architect",
+      "agents": [
+        "Keystone"
+      ],
+      "deliverables": [
+        "scaffold",
+        "types",
+        "service stubs"
+      ]
+    },
+    {
+      "name": "Build",
+      "agents": [
+        "Pixel",
+        "Forge",
+        "Palette"
+      ],
+      "deliverables": [
+        "implementation",
+        "unit tests"
+      ]
+    },
+    {
+      "name": "Integration",
+      "agents": [
+        "Pixel"
+      ],
+      "deliverables": [
+        "wired services",
+        "e2e flows"
+      ]
+    },
+    {
+      "name": "Test",
+      "agents": [
+        "Sentinel",
+        "Circuit"
+      ],
+      "deliverables": [
+        "test report",
+        "coverage"
+      ]
+    },
+    {
+      "name": "Polish",
+      "agents": [
+        "Pixel",
+        "Forge"
+      ],
+      "deliverables": [
+        "bug fixes",
+        "demo prep"
+      ]
+    }
+  ],
+  "agents": {
+    "Conductor": {
+      "role": "Delivery Manager",
+      "icon": "🎯",
+      "color": "oklch(52% 0.22 25)",
+      "avatar": "conductor",
+      "instructionFile": "docs/agents/DM_AGENT.md"
+    },
+    "Compass": {
+      "role": "Product Owner",
+      "icon": "🧭",
+      "color": "oklch(50% 0.20 264)",
+      "avatar": "compass",
+      "instructionFile": "docs/agents/PO_AGENT.md"
+    },
+    "Keystone": {
+      "role": "Architect",
+      "icon": "🏗️",
+      "color": "oklch(44% 0.22 310)",
+      "avatar": "keystone",
+      "instructionFile": "docs/agents/ARCHITECT_AGENT.md"
+    },
+    "Lens": {
+      "role": "Code Reviewer",
+      "icon": "🔍",
+      "color": "oklch(72% 0.19 46)",
+      "avatar": "lens",
+      "instructionFile": "docs/agents/CODE_REVIEWER_AGENT.md"
+    },
+    "Palette": {
+      "role": "UI Designer",
+      "icon": "🎨",
+      "color": "oklch(60% 0.14 185)",
+      "avatar": "palette",
+      "instructionFile": "docs/agents/UI_DESIGNER_AGENT.md"
+    },
+    "Forge": {
+      "role": "Backend Developer",
+      "icon": "⚒️",
+      "color": "oklch(44% 0.22 25)",
+      "avatar": "forge",
+      "instructionFile": "docs/agents/BE_DEV_AGENT.md"
+    },
+    "Pixel": {
+      "role": "Frontend Developer",
+      "icon": "📱",
+      "color": "oklch(38% 0.20 270)",
+      "avatar": "pixel",
+      "instructionFile": "docs/agents/FE_DEV_AGENT.md"
+    },
+    "Sentinel": {
+      "role": "Functional Tester",
+      "icon": "🛡️",
+      "color": "oklch(50% 0.17 145)",
+      "avatar": "sentinel",
+      "instructionFile": "docs/agents/FUNCTIONAL_TESTER_AGENT.md"
+    },
+    "Circuit": {
+      "role": "Automation Tester",
+      "icon": "⚡",
+      "color": "oklch(40% 0.22 285)",
+      "avatar": "circuit",
+      "instructionFile": "docs/agents/AUTOMATION_TESTER_AGENT.md"
+    }
+  },
+  "dashboard": {
+    "title": "My Project",
+    "subtitle": "Agentic AI SDLC",
+    "footer": "Claude Code Agentic AI SDLC",
+    "repoUrl": "https://github.com/yourorg/your-project",
+    "primaryColor": "oklch(50% 0.20 264)",
+    "platform": "Claude Code",
+    "author": "Kamal Syed"
+  },
+  "orchestrator": {
+    "dmAgent": "Conductor",
+    "reviewer": "Lens",
+    "avatarGrid": {
+      "topRow": [
+        "Conductor",
+        "Compass",
+        "Keystone",
+        "Lens",
+        "Palette"
+      ],
+      "bottomRow": [
+        "Forge",
+        "Pixel",
+        "Sentinel",
+        "Circuit"
+      ]
+    }
+  }
+}

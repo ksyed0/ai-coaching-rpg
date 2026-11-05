@@ -1,0 +1,27 @@
+kind: single
+id: negotiation-l3-1
+criterion: negotiation
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:23.199Z
+split: tune
+subject: account_manager
+expected: 3
+transcript:
+  - scene: s2_client_call
+    role: client_sponsor
+    text: I need a way forward from you, not a refusal.
+  - scene: s2_client_call
+    role: account_manager
+    text: "I see two options. One: we add a reduced version before launch, which
+      means we squeeze the final regression test and raise the risk to the
+      launch date. Two: we deliver the full module four weeks after go-live, and
+      the launch date is untouched. Either way it goes through a change request
+      that you sign off."
+  - scene: s2_client_call
+    role: client_sponsor
+    text: I need to think about it. Which one is better?
+  - scene: s2_client_call
+    role: account_manager
+    text: That's your call, both are possible.

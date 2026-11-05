@@ -1,0 +1,95 @@
+import { z } from "zod";
+import { CLIENT_ID_MAX_CHARS, isReservedRoleId, isSafeId, isScenarioId } from "@acr/events";
+
+/**
+ * US-0058: the runtime's typed side of the fork() IPC channel to the control service. Both directions are strict zod schemas
+ * (unknown keys refused) and the types are inferred from them so they cannot drift.
+ */
+
+/** A request id the control service makes up: 1 to 64 letters, digits, `_` or `-`. */
+const RequestId = z.string().refine(isSafeId, { message: "invalid request id" });
+/** A role id: the repo's scenario-id rule (lowercase letters, digits, `_`, `-`), at most CLIENT_ID_MAX_CHARS, never a reserved word. */
+const RoleId = z.string().min(1).max(CLIENT_ID_MAX_CHARS).refine((v) => isScenarioId(v) && !isReservedRoleId(v), { message: "invalid role id" });
+const MAX_CODE_CHARS = 64;
+const MAX_REASON_CHARS = 200;
+const MAX_LABEL_CHARS = 200;
+const MAX_CODES = 256;
+/** Raw bound only; the runtime cleans the name later. */
+const MAX_BY_CHARS = 200;
+const MAX_BOT_ALERT_CHARS = 200;
+const MAX_AI_CALLS = 1_000_000;
+
+const ReissueSchema = z.strictObject({
+  type: z.literal("reissue"),
+  requestId: RequestId,
+  roleId: RoleId,
+  by: z.string().max(MAX_BY_CHARS).optional(),
+  /** US-0059: a remove (before the start only) instead of a plain reissue. */
+  reason: z.literal("removed").optional(),
+});
+/** US-0060: which player roles an AI plays (before the start). No `by`. `includeInGroup` absent keeps the current option (US-0061). */
+const SetAiRolesSchema = z.strictObject({ type: z.literal("set_ai_roles"), requestId: RequestId, roles: z.array(RoleId).max(MAX_CODES), includeInGroup: z.boolean().optional() });
+/** US-0060: a live AI player's alert for the facilitator. Fire-and-forget: the runtime never answers it. */
+const BotAlertSchema = z.strictObject({ type: z.literal("bot_alert"), roleId: RoleId, message: z.string().min(1).max(MAX_BOT_ALERT_CHARS) });
+export const ParentMessageSchema = z.discriminatedUnion("type", [ReissueSchema, SetAiRolesSchema, BotAlertSchema]);
+export type ParentMessage = z.infer<typeof ParentMessageSchema>;
+
+export const ChildMessageSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("codes"), codes: z.array(z.strictObject({ roleId: RoleId, code: z.string().min(1).max(MAX_CODE_CHARS) })).max(MAX_CODES) }),
+  z.strictObject({
+    type: z.literal("ready"), port: z.number().int().min(1).max(65535), logIdentity: z.string().max(MAX_LABEL_CHARS).optional(),
+    status: z.enum(["new", "resumed"]), modelLabel: z.string().min(1).max(MAX_LABEL_CHARS),
+    /** US-0060: the AI roles, present only when there are any. */
+    aiRoles: z.array(RoleId).max(MAX_CODES).optional(),
+    /** BUG-0021: the lobby's AI roles this start dropped with the old seats (fresh codes); present only when there were any. The parent restores them. */
+    aiRolesReset: z.array(RoleId).max(MAX_CODES).optional(),
+    /** US-0061: the group-score option; present only when it is off (`false`). */
+    includeInGroup: z.literal(false).optional(),
+    /** US-0061: the option the dropped lobby seats had; present only as `false`, with aiRolesReset. */
+    includeInGroupReset: z.literal(false).optional(),
+    /** US-0060: the AI-player model calls already recorded in the log (utterances of AI roles); present only when above 0. */
+    aiCalls: z.number().int().min(1).max(MAX_AI_CALLS).optional(),
+  }),
+  z.strictObject({ type: z.literal("ended") }),
+  z.strictObject({ type: z.literal("reissued"), requestId: RequestId, code: z.string().min(1).max(MAX_CODE_CHARS) }),
+  z.strictObject({ type: z.literal("reissue_failed"), requestId: RequestId, reason: z.string().max(MAX_REASON_CHARS) }),
+  z.strictObject({ type: z.literal("ai_roles_set"), requestId: RequestId, codes: z.array(z.strictObject({ roleId: RoleId, code: z.string().min(1).max(MAX_CODE_CHARS) })).max(MAX_CODES) }),
+  z.strictObject({ type: z.literal("ai_roles_failed"), requestId: RequestId, reason: z.string().max(MAX_REASON_CHARS) }),
+]);
+export type ChildMessage = z.infer<typeof ChildMessageSchema>;
+
+export interface ParentChannel {
+  /** True when the message was handed to the channel; false when it threw, returned false or the channel is disconnected. Never throws. */
+  send(msg: ChildMessage): boolean;
+  /** Valid ParentMessages only; anything else is dropped without a throw or a log. */
+  onMessage(fn: (m: ParentMessage) => void): void;
+  /** Fires once when the parent goes away. */
+  onDisconnect(fn: () => void): void;
+}
+
+/** The channel to the parent, or null when this process was not forked with IPC (the terminal). */
+export function openParentChannel(proc: Pick<NodeJS.Process, "send" | "on" | "connected"> = process): ParentChannel | null {
+  if (typeof proc.send !== "function") return null;
+  const send = proc.send.bind(proc);
+  return {
+    send(msg) {
+      if (!proc.connected) return false;
+      try {
+        // The callback swallows an asynchronous failure (EPIPE after the parent left): it must not become an unhandled error.
+        return send(msg, () => {}) !== false;
+      } catch {
+        return false;
+      }
+    },
+    onMessage(fn) {
+      proc.on("message", (raw: unknown) => {
+        const parsed = ParentMessageSchema.safeParse(raw);
+        if (parsed.success) fn(parsed.data);
+      });
+    },
+    onDisconnect(fn) {
+      let fired = false;
+      proc.on("disconnect", () => { if (fired) return; fired = true; fn(); });
+    },
+  };
+}

@@ -1,0 +1,25 @@
+kind: single
+id: role_clarity-l1-1
+criterion: role_clarity
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:29.098Z
+split: holdout
+subject: account_manager
+expected: 1
+transcript:
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Who is going to answer Priya's technical questions, and who owns the
+      follow-up email?
+  - scene: s1_huddle
+    role: account_manager
+    text: I can answer that. The sizing will take about ten days, I looked at the
+      data model last week.
+  - scene: s1_huddle
+    role: tech_lead
+    text: That's for me to say, and I haven't confirmed that number.
+  - scene: s1_huddle
+    role: account_manager
+    text: Whatever, we'll sort it out later.

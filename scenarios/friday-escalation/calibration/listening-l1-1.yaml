@@ -1,0 +1,25 @@
+kind: single
+id: listening-l1-1
+criterion: listening
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:19.931Z
+split: tune
+subject: account_manager
+expected: 1
+transcript:
+  - scene: s1_huddle
+    role: delivery_lead
+    text: I'm worried the test environment isn't stable enough to take another
+      module. How do you see that?
+  - scene: s1_huddle
+    role: account_manager
+    text: The client wants an answer by Friday, so we need to decide quickly.
+  - scene: s1_huddle
+    role: tech_lead
+    text: I think the delivery lead was asking about the environment. Two of the
+      test servers are unreliable this week.
+  - scene: s1_huddle
+    role: account_manager
+    text: I think we just say yes and sort it out later. Friday is the deadline.

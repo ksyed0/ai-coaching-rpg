@@ -1,0 +1,243 @@
+name: CI
+
+# Required checks for every PR into main/develop (see AGENTS.md "CI Pipeline").
+# The npm-based jobs above the "pnpm workspace" divider guard the PlanVisualizer tooling and are
+# required branch-protection checks: never rename them. The jobs below the divider cover the
+# TypeScript workspace (US-0012) and the demo run (US-0021); they are intentionally NOT required checks yet.
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx eslint .
+
+  test:
+    name: Test & Coverage Gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # jest.config.js enforces the 80% coverage threshold
+      - run: npm run plan:test:coverage
+        env:
+          CI: true
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: node tools/memory.js validate
+      - run: node tools/generate-plan.js
+      - run: node tools/init-sdlc-status.js
+      - run: node tools/generate-dashboard.js
+
+  orchestrator:
+    name: Orchestrator Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+      - run: node orchestrator/spawn.js --list-platforms
+
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+      - run: npm audit --audit-level=high
+
+  secrets:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+      - uses: trufflesecurity/trufflehog@4dd8831c5f12599465d4d45c3c447b4018a34c85 # v3.97.9
+        with:
+          extra_args: --only-verified
+
+  codeql:
+    name: Analyze JavaScript
+    runs-on: ubuntu-latest
+    # Code scanning on a private repo needs GitHub Advanced Security. Skipped until
+    # then; set repo variable ENABLE_CODEQL=true once Advanced Security is enabled.
+    if: ${{ !github.event.repository.private || vars.ENABLE_CODEQL == 'true' }}
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+      - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+
+  # ---- pnpm workspace (TypeScript monorepo) ----
+
+  ws-typecheck:
+    name: Workspace Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+
+  ws-test:
+    name: Workspace Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Per-package vitest runs: the 80% line thresholds in each package's vitest config fail the job.
+      - run: pnpm test:coverage
+
+  sdk-guard:
+    name: SDK Import Guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint:sdk
+      - run: bash scripts/check-sdk-imports.test.sh
+      - run: bash scripts/run-sh-uid.test.sh
+      - run: bash scripts/run-sh-token.test.sh
+      - run: bash scripts/run-sh-fresh.test.sh
+
+  ws-audit:
+    name: Workspace Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --audit-level=high
+
+  web-e2e:
+    name: Web E2E
+    runs-on: ubuntu-latest
+    # Two production builds of apps/web (about 1 min each), the Playwright suite, launcher-mode console specs included (each test starts its own stack: a runtime or a control service, and next start) and
+    # the web demo: a few minutes on a normal runner. The limit only stops a hang from holding a runner for the default 6 hours.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: apps/web
+      # US-0065: builds apps/web, then the participant flow and the Axe checks against the runtime in mock mode and `next start`.
+      - run: pnpm --filter @acr/web e2e
+      # A failed spec leaves its trace and page snapshot here (playwright.config.ts: trace retain-on-failure).
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: web-e2e-test-results
+          path: apps/web/test-results/
+          if-no-files-found: ignore
+      # US-0065: the web demo (checks W-01 to W-08) through the demo runner's --web flag (offline, no secrets).
+      - run: pnpm demo --web
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      # Build only (no push): proves the runtime image builds from a clean checkout.
+      - run: docker build -f deploy/compose/Dockerfile.runtime -t acr-runtime:ci .
+
+  demo-run:
+    name: Demo Run
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # US-0021: plays the whole scenario with scripted bots and the mock model (offline, no secrets) and checks every feature.
+      - run: pnpm demo --fast --json demo-report.json
+      - run: pnpm demo --fast --security
+      # US-0018: the resume room (F-34 to F-43): a crash mid-scene and a restart on the log, the refusals and the rotations (offline, no secrets).
+      - run: pnpm demo --fast --resume
+      # US-0024: the longer scenario with scripted AI characters and Game Master (mock mode: offline, no secrets); also writes the Markdown transcript.
+      - run: pnpm demo --showcase --fast --json demo-showcase-report.json --transcript demo-transcript.md
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: demo-report
+          path: |
+            demo-report.json
+            demo-showcase-report.json
+            demo-transcript.md
+          if-no-files-found: warn

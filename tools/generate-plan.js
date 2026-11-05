@@ -18,12 +18,7 @@ const { parseCostLog, deduplicateSessions, aggregateCostByBranch } = require('./
 const { parseCoverage } = require('./lib/parse-coverage');
 const { parseRecentActivity } = require('./lib/parse-progress');
 const { parseLessons } = require('./lib/parse-lessons');
-const {
-  computeProjectedCost,
-  attributeAICosts,
-  attributeBugCosts,
-  computeCacheHitSeries,
-} = require('./lib/compute-costs');
+const { computeProjectedCost, attributeAICosts, attributeBugCosts } = require('./lib/compute-costs');
 const { detectAtRisk } = require('./lib/detect-at-risk');
 const { computeAllRisk } = require('./lib/compute-risk');
 const { saveSnapshot, loadSnapshots, dedupeSnapshots, extractTrends, velocityByWeek } = require('./lib/snapshot');
@@ -33,7 +28,6 @@ const { backfillHistory, calculateAvgTokensPerEstimate, estimateStoryCost } = re
 const { fetchGitHubStatus } = require('./lib/fetch-github-status');
 const { compactMemory } = require('./lib/memory-index');
 const { archiveStaleMemory } = require('./lib/memory-archiver');
-const reader = require('./lib/repository/sdlc-status-reader');
 
 function applyPendingApprovals() {
   try {
@@ -218,48 +212,7 @@ async function main() {
 
   console.log('[generate-plan] Reading source files...');
 
-  // Phase C.2 (US-0231, flag-guarded): when PV_DASHBOARD_VIA_REPO=1, populate
-  // the SQLite index BEFORE the legacy parse so the dashboard read path can
-  // pull structural fields from `repo.*`. Phase B's indexer is non-destructive
-  // and safe to run before HTML/JSON emission; the unconditional move from
-  // post-render (lines ~470) to pre-parse is fine. If it fails, we fall back
-  // to the legacy parse only — the flag path silently degrades.
-  let repoForDashboard = null;
-  if (process.env.PV_DASHBOARD_VIA_REPO !== '0') {
-    try {
-      const { Repository } = require('./lib/repository');
-      const { indexAll } = require('./lib/repository/indexers');
-      const repo = Repository.getInstance({ root: ROOT });
-      indexAll({ index: repo.index, markdown: repo.markdown, warningsChannel: repo.warningsChannel });
-      repoForDashboard = repo;
-    } catch (e) {
-      console.warn('[generate-plan] PV_DASHBOARD_VIA_REPO: index emit skipped (non-fatal):', e.message);
-    }
-  }
-
-  let { epics, stories, tasks } = parseReleasePlan(readFile(config.docs.releasePlan));
-
-  if (repoForDashboard) {
-    try {
-      const { mergeRepoData } = require('./lib/dashboard-repo-reader');
-      const repoData = {
-        epics: repoForDashboard.epics.list(),
-        stories: repoForDashboard.stories.list(),
-        acs: repoForDashboard.acs.list(),
-      };
-      console.log('[generate-plan] dashboard reads via repo:', {
-        epics: repoData.epics.length,
-        stories: repoData.stories.length,
-        acs: repoData.acs.length,
-      });
-      const merged = mergeRepoData({ epics, stories, tasks }, repoData);
-      epics = merged.epics;
-      stories = merged.stories;
-      tasks = merged.tasks;
-    } catch (e) {
-      console.warn('[generate-plan] PV_DASHBOARD_VIA_REPO: repo merge skipped (non-fatal):', e.message);
-    }
-  }
+  const { epics, stories, tasks } = parseReleasePlan(readFile(config.docs.releasePlan));
 
   // US-0181: merge orchestration state (specPhase/planPhase) from sdlc-status.json
   // into each story so the Pending Approvals widget can read it.
@@ -267,9 +220,7 @@ async function main() {
     const sdlcPath = path.join(ROOT, 'docs/sdlc-status.json');
     if (fs.existsSync(sdlcPath)) {
       const sdlc = JSON.parse(fs.readFileSync(sdlcPath, 'utf8'));
-      // US-0260: dual-read via accessor — reads programme.stories then falls
-      // back to legacy top-level stories. Fallback removed in US-0261.
-      const sdlcStories = reader.stories(sdlc);
+      const sdlcStories = sdlc.stories || {};
       for (const story of stories) {
         const o = sdlcStories[story.id];
         if (o && o.specPhase) story.specPhase = o.specPhase;
@@ -402,9 +353,6 @@ async function main() {
         )
       : null;
 
-  // ENH-0005: cache-hit-ratio trend for the Costs tab tile.
-  const cacheHit = computeCacheHitSeries(costRows);
-
   const data = {
     epics,
     stories,
@@ -424,7 +372,6 @@ async function main() {
     sessionTimeline,
     costHistory,
     deltaSpend,
-    cacheHit,
     projectName: config.project.name,
     tagline: config.project.tagline,
     version: pkg.version,
@@ -519,20 +466,6 @@ async function main() {
   console.log(
     `[generate-plan] Done. ${epics.length} epics, ${stories.length} stories, ${testCases.length} TCs, ${bugs.length} bugs, ${lessons.length} lessons.`,
   );
-
-  // Phase B: emit SQLite index alongside HTML/JSON (best-effort, never blocks the build)
-  // Skip when PV_DASHBOARD_VIA_REPO=0 — the flag-on path already ran indexAll above.
-  if (process.env.PV_DASHBOARD_VIA_REPO === '0') {
-    try {
-      const { Repository } = require('./lib/repository');
-      const { indexAll } = require('./lib/repository/indexers');
-      const repo = Repository.getInstance({ root: ROOT });
-      const result = indexAll({ index: repo.index, markdown: repo.markdown, warningsChannel: repo.warningsChannel });
-      console.log('[generate-plan] index emitted:', result.counts);
-    } catch (e) {
-      console.warn('[generate-plan] index emit skipped (non-fatal):', e.message);
-    }
-  }
 
   if (config.github && config.github.enabled) {
     try {

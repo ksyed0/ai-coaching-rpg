@@ -1,0 +1,246 @@
+# Individual rubric (BARS: Behaviourally Anchored Rating Scale) for the Friday Escalation scenarios.
+# The scale has four levels and no midpoint: 1 Not yet demonstrated, 2 Developing, 3 Proficient, 4 Advanced.
+#   Level 1 means there was a clear opportunity to show the behaviour and it is absent from the participant's own lines,
+#   or the participant worked against the aim. It is NOT the answer when there was no opportunity.
+#   "Not observed" (no score) means the participant had no opportunity to show the behaviour, or there is no usable evidence either way.
+# Every anchor describes what the participant says or does in THEIR OWN words, so it can be evidenced with a quote from them.
+# What other people said is context, never evidence. Where an anchor says "at least two of", two of the listed behaviours are enough.
+# If a participant sits between two anchors, choose the lower only when the higher anchor's key behaviour is clearly missing.
+# Written for a delivery lead or project manager facing scope creep.
+id: individual_delivery_v2
+name: Individual delivery performance under scope pressure
+scope: individual
+version: "2"
+description: >-
+  Scored once per player role from what that person said. Evidence is only what the person said themselves; what others
+  said to them, or what they were told in an inject, is context, not evidence. Roles with little opportunity for a criterion
+  (for example a tech lead on commercial terms) will show Not observed for it.
+criteria:
+  - id: discovery
+    name: Discovery
+    description: >-
+      Finds out what the client actually needs and why, instead of answering only the request as it was worded. The key behaviour is
+      asking about the need and using the answer.
+    what_to_look_for:
+      - Open questions about the purpose, the deadline or the consequence of not having the module before go-live
+      - Separates the stated request (a module before launch) from the underlying need (Finance can tie out the daily loads)
+      - Reflects the need back in their own words, or changes the proposal because of what was learned
+      - Asks about decision makers and constraints (who else must agree, what the finance executive is watching)
+    levels:
+      1:
+        anchor: >-
+          There was an opportunity to ask the client about the need, the reason for the deadline or the impact, and the participant's own
+          lines contain no such question: they answer the request as worded (accept it, refuse it or defer it).
+      2:
+        anchor: >-
+          Asks only closed or logistical questions (date, size, who), or asks one question about the purpose that is not reflected back
+          and not used in what they say next.
+        examples:
+          - "Is Friday a hard deadline for you?"
+          - "How big do you think the module needs to be?"
+      3:
+        anchor: >-
+          At least two of the following: asks about the purpose or the consequence (what Finance does today, what breaks without it);
+          reflects the underlying need back in their own words; changes or shapes the proposal to fit what was learned.
+      4:
+        anchor: >-
+          Reframes the conversation around the underlying need, checks that reframing with the client, and shapes an option that is different
+          from the one requested because of it.
+        examples:
+          - "So what you really need is for Finance to tie out the daily loads. If I have that right, there may be a faster way to give you that than the full module."
+          - "Before I answer, help me understand what happens in Finance on day one if the module is not there?"
+  - id: listening
+    name: Listening
+    description: >-
+      Takes in what others say, in the team and with the client, and builds on it rather than talking past it. The key behaviour is
+      visibly responding to another person's words. (Asking the client about the need is Discovery, not Listening.)
+    what_to_look_for:
+      - Paraphrases or summarises a teammate's or the client's point before responding to it
+      - Checks understanding ("have I got that right?") rather than assuming it
+      - Picks up a concern or a number someone else raised and uses it later
+      - Answers a direct question put to them instead of repeating an earlier position
+    levels:
+      1:
+        anchor: >-
+          There was a question or point addressed to the participant and their own next line does not respond to it: it repeats a position
+          already stated, or changes the subject.
+      2:
+        anchor: >-
+          Acknowledges what was said ("I hear you", "fair point") but the next statement does not use it or show what was understood.
+        examples:
+          - "I hear you, but we still need to talk about the date."
+          - "Yes, noted. Anyway, on the plan."
+      3:
+        anchor: >-
+          At least two of the following: paraphrases or summarises another person's point accurately; checks that they understood it;
+          makes the next statement visibly build on what was said.
+      4:
+        anchor: >-
+          Uses another person's own words, concern or figure to connect to the team's position or to move the conversation forward,
+          and brings an overlooked or quieter point back in.
+        examples:
+          - "You said the finance side is watching the budget. That is why I would rather show you the exact price of the phased module than a range."
+          - "Tech lead, you flagged the ingestion risk earlier. That is exactly what we should tell the client, in your words."
+  - id: negotiation
+    name: Negotiation
+    description: >-
+      Protects scope, margin and the relationship together by offering options with their trade-offs and by attaching conditions to concessions,
+      rather than conceding or refusing outright. The key behaviour is trade-offs and conditional concessions. (Naming prices, terms and
+      commercial mechanisms is Commercial judgement, scored separately.)
+    what_to_look_for:
+      - Offers more than one option (phase the module, trade scope, move the date) and says what each costs or risks
+      - Avoids a flat yes or a flat no and explains the reasoning
+      - Ties a concession to something in return (a written change request, a date, a sign-off)
+      - Checks that the other side accepts the terms and states the next steps back
+    levels:
+      1:
+        anchor: >-
+          There was an opportunity to propose a way forward and the participant's own lines either concede the request outright or refuse it
+          outright, with no alternative and no condition.
+      2:
+        anchor: >-
+          Offers one alternative without saying what it costs or risks, or without a condition attached.
+        examples:
+          - "We could do it after go-live."
+          - "We cannot do that before launch."
+      3:
+        anchor: >-
+          At least two of the following: offers more than one option; states what each option costs or risks (scope, date, risk to launch);
+          ties a concession to something in return, such as a change request, a sign-off or an agreed date.
+      4:
+        anchor: >-
+          Recommends one option with reasons, holds its conditions when challenged, and checks that the other side accepts the terms by
+          stating the agreed next steps back (who sends what by when).
+        examples:
+          - "Option A is the full module before launch, which puts the date at risk. Option B is a phased module after go-live, priced separately. I recommend B, and I can send the change request on Monday."
+          - "If you want the date to be firm, we need the sign-off on scope by Friday. So to confirm: you sign off Friday, we send the change request Monday. Is that right?"
+  - id: commercial_judgement
+    name: Commercial judgement
+    description: >-
+      Treats price, terms, margin and contract risk as part of the answer, and can state and defend them to a finance executive. The key
+      behaviour is stating concrete terms (numbers, mechanism, scope, remedy). (Offering options and conditional concessions is Negotiation,
+      scored separately.)
+    what_to_look_for:
+      - Mentions effort, cost, price or margin with concrete numbers (person-weeks, a fixed fee)
+      - Names the mechanism for the extra work (change request, separate fee, phasing) rather than absorbing it
+      - States what is in and out of scope and what happens if the date is missed (credit, proportional refund)
+      - Explains the price in terms of value or risk to the client, not only the team's cost
+    levels:
+      1:
+        anchor: >-
+          There was an opportunity to talk about price, cost, margin or the contract and the participant's own lines do not: the extra work
+          is treated as free or as a favour.
+      2:
+        anchor: >-
+          Mentions cost, effort or the contract in passing, without a number or a mechanism.
+        examples:
+          - "It would have a cost, we would need to look at that."
+          - "We would probably have to charge for it."
+      3:
+        anchor: >-
+          At least two of the following: gives a number (effort or price); names the mechanism (a separate fixed fee, a change request,
+          phasing); states what is in and out of scope; protects margin or contingency.
+      4:
+        anchor: >-
+          States the terms in one place (scope, price, date and what happens if the date is missed), explains the price in terms of value
+          or risk to the client, and holds the price under challenge without discounting for nothing in return.
+        examples:
+          - "The phased module is a fixed fee, separate from the programme fee, delivered after go-live. If we miss that date we credit the fee proportionally."
+          - "Doing the full module now puts the launch at risk, and a late launch costs you far more than this fee."
+  - id: stakeholder_management
+    name: Stakeholder management
+    description: >-
+      Handles the client sponsor and a cost-focused finance executive with respect, directness and an eye on what each of them needs. The key
+      behaviour is adapting what the participant says to the audience and answering challenges directly.
+    what_to_look_for:
+      - Adapts tone and content to the audience (outcome and risk for the finance executive, detail for the sponsor)
+      - Addresses a challenge or objection directly instead of deflecting it
+      - Gives the sponsor something she can use in her own next conversation
+      - Stays composed and constructive when the price or the date is pushed back on
+    levels:
+      1:
+        anchor: >-
+          A client or executive raised a concern or a challenge and the participant's own reply deflects it, dismisses it or turns defensive,
+          or the participant uses language that does not fit the audience (internal detail the audience did not ask for, no reasoning given).
+      2:
+        anchor: >-
+          Answers the question politely but in their own terms, without adapting it to what this stakeholder cares about.
+        examples:
+          - "Thanks for raising that. We think the plan is fine."
+          - "The ingestion layer is complicated, as I said."
+      3:
+        anchor: >-
+          At least two of the following: answers a challenge directly; puts the message in the stakeholder's terms (risk and cost for a finance
+          executive); says what the stakeholder can take away or what happens next for them.
+      4:
+        anchor: >-
+          Anticipates what the stakeholder needs before they ask (for example gives the number first), invites the objection and answers it
+          openly, and offers something the stakeholder can reuse with others (a short written summary they can forward).
+        examples:
+          - "You will want the number first: it is a fixed fee, and I will send you a one-page summary you can forward today."
+          - "That is a fair challenge on price. Here is what is in it and what you get back if we are late."
+  - id: team_alignment
+    name: Team alignment
+    description: >-
+      An individual behaviour: what THIS participant does to bring the team to one position before engaging the client, and to keep to it in
+      front of the client. (Whether the team as a whole ended up with the same picture of the facts is scored in the group rubric as
+      shared_understanding.)
+    what_to_look_for:
+      - Proposes or asks for a single team position and checks that everyone agrees to it
+      - Draws out the views of quieter teammates and resolves a disagreement before the client call
+      - Restates the agreed position at the end of the huddle
+      - In the client call, does not contradict or surprise a teammate
+    levels:
+      1:
+        anchor: >-
+          There was a team huddle or a decision point and the participant's own lines push a personal position without asking others, or
+          contradict a teammate in front of the client.
+      2:
+        anchor: >-
+          Shares a view and invites others' views, but does not propose one position or check that the team agrees to it.
+        examples:
+          - "That is my take, what do you think?"
+          - "Let's see how the call goes."
+      3:
+        anchor: >-
+          At least two of the following: asks the others for their views; proposes one position; checks that each teammate agrees to it
+          before the client is engaged; restates the agreed position.
+      4:
+        anchor: >-
+          Resolves a difference actively (asks the sceptic what would make it acceptable), restates the agreed position and its fallbacks,
+          and supports teammates when they speak in front of the client.
+        examples:
+          - "So we agree: phase two after go-live, priced as a change request, and the date risk spelled out. Anyone not comfortable with that?"
+          - "Before we call, tech lead, what would you need to be comfortable saying yes to the phased option?"
+  - id: role_clarity
+    name: Role clarity
+    description: >-
+      An individual behaviour: what THIS participant says about who owns what, and whether they stay within their own area and hand over
+      the rest. (How well the team as a whole used its members' roles is scored in the group rubric as role_clarity_group.)
+    what_to_look_for:
+      - Names who will present, who owns the timeline and who owns the price
+      - Takes ownership of own area and defers to a teammate on theirs
+      - Hands a question that belongs to a teammate to that teammate instead of answering it
+      - Confirms owners and next actions at the end of the conversation
+    levels:
+      1:
+        anchor: >-
+          There was a question or a follow-up that needed an owner and the participant's own lines name none, or the participant answers
+          a question that belongs to a teammate (a technical or commercial one) without handing it over.
+      2:
+        anchor: >-
+          Takes ownership of their own area when asked, but does not name owners for the other items.
+        examples:
+          - "I can look after the timeline."
+          - "Someone should send the change request."
+      3:
+        anchor: >-
+          At least two of the following: names clear owners for key items (presenter, timeline, price); hands a technical or commercial
+          question to the teammate who owns it; confirms the owners at the end.
+      4:
+        anchor: >-
+          Assigns and confirms ownership with names and dates, invites the owner to speak at the right moment, and puts ownership right
+          when it blurs.
+        examples:
+          - "I will present the price, the delivery lead owns the timeline, and the tech lead will answer any question on effort."
+          - "That is a technical question, tech lead, can you take it?"

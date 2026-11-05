@@ -1,0 +1,246 @@
+import { initPlayerView } from "@acr/events";
+import { CLOSE_AI_FILLED, CLOSE_REISSUED, CLOSE_REMOVED, CLOSE_SUPERSEDED, type RuntimeConnection, type SetTimer } from "./runtime-connection";
+import { DEFAULT_MAX_PENDING_BYTES, heartbeat, replayIncomplete, RETRY_MS, sseFrame as sse, SseWriter, type SseOut } from "./sse";
+import type { ClientMessage, JoinedFrame, PeerRosterEntry, ServerMessage } from "./wire";
+
+// Bridges one participant's runtime socket to one server-sent-events response. No Next imports: the route hands in an `out` writer.
+// The hub never reconnects: on a drop it tells the browser, whose native EventSource reconnects with Last-Event-ID, and the next request
+// rejoins by credential with that lastSeq. It holds only the open streams; identity comes from the sealed cookie on each request.
+
+export type SessionCookie = { sessionId: string; roleId: string; participantId: string; credential: string; logIdentity: string; expiresAt: number };
+export type { SseOut };
+
+/** No stream is open for this participant (the routes answer 409 `no_stream`). */
+export class NoStreamError extends Error {
+  readonly code = "no_stream";
+  constructor() { super("no stream is open for this participant"); this.name = "NoStreamError"; }
+}
+
+/** The messages a player sends through `send`, and the runtime error codes each one can produce (ws-server.ts, session-host.ts, session-engine.ts). */
+const SEND_ERRORS = {
+  // giveConsent: refuseOnceStarting, holds, ConsentError; a failed seat write is `internal`. Facilitator sockets get `forbidden`.
+  // `rate_limited` (all four): the runtime answers a message its per-connection bucket dropped, so that send was not delivered.
+  consent: ["consent_version", "already_started", "not_joined", "bad_message", "bad_json", "forbidden", "internal", "rate_limited"],
+  // withdrawConsent: refuseOnceStarting, holds.
+  withdraw_consent: ["already_started", "not_joined", "bad_message", "bad_json", "forbidden", "internal", "rate_limited"],
+  // leave: refuseOnceStarting; anything else is a seat write failure.
+  leave: ["already_started", "not_joined", "bad_message", "bad_json", "forbidden", "internal", "rate_limited"],
+  // onPlayerUtterance and engine.say. `log_failed` is left out: the runtime also sends it to everyone unasked, so it goes to the stream.
+  say: ["not_started", "paused", "ended", "not_in_scene", "stale_scene", "unknown_role", "not_joined", "bad_message", "bad_json", "forbidden", "internal", "rate_limited"],
+} as const satisfies Record<string, readonly string[]>;
+type SendType = keyof typeof SEND_ERRORS;
+const isSendType = (t: string): t is SendType => Object.hasOwn(SEND_ERRORS, t);
+
+const DEFAULT_SEND_WAIT_MS = 300;
+/** What a player whose credential is gone is told (the stream's `signed_out` event). */
+export const SIGNED_OUT_MESSAGE = "ask your facilitator for a new code";
+/** What a player the facilitator removed is told (the stream's `removed` event). Equal to MESSAGES.removed; the page shows its own copy. */
+export const REMOVED_MESSAGE = "The facilitator removed you from this session.";
+/** What a player whose role the facilitator filled with an AI player is told (the stream's `ai_filled` event). */
+export const AI_FILLED_MESSAGE = "The facilitator has filled this role.";
+/** Sent instead of the runtime's own text, so nothing the BFF did not choose reaches the page as a sentence. */
+const ERROR_MESSAGE = "the server reported an error";
+
+type Waiter = { accepts: readonly string[]; done: (m: ServerMessage | null) => void };
+type Stream = {
+  key: string; sessionId: string; address: string; expiresAt: number; conn: RuntimeConnection; out: SseOut; ended: boolean;
+  /** Replayed event frames still to drop because a reset already covers them. */
+  skip: number;
+  writer: SseWriter;
+  cancelHeartbeat: () => void; detach: () => void;
+  /** At most one `send` waits for its answer at a time; the next one is chained behind it. */
+  waiter: Waiter | null;
+  sendChain: Promise<unknown>;
+};
+type FinalEvent = "superseded" | "reconnecting" | "ended" | "expired" | "signed_out" | "removed" | "ai_filled";
+/** How a runtime close code ends a stream. 4001, 4002, 4003 and 4004 are terminal (a retry would kick the new holder, or fail with a revoked credential). */
+const endingFor = (code: number): FinalEvent => (code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "signed_out" : code === CLOSE_REMOVED ? "removed" : code === CLOSE_AI_FILLED ? "ai_filled" : "reconnecting");
+
+/** A peer seat as a player may see it: only these fields, whatever the runtime sent. */
+export const peerEntryOf = (e: PeerRosterEntry): PeerRosterEntry => {
+  const out: PeerRosterEntry = { roleId: e.roleId, ready: e.ready === true };
+  if (typeof e.name === "string") out.name = [...e.name].slice(0, 60).join("");
+  if (e.ai === true) out.ai = true;
+  return out;
+};
+
+const keyOf = (c: { sessionId: string; roleId: string; participantId: string }) => JSON.stringify([c.sessionId, c.roleId, c.participantId]);
+
+/**
+ * The joined fields a browser needs, picked one by one: the credential and the reconnect token never leave the BFF. The nested values
+ * (state, scenes, consent) are forwarded as the runtime sent them: the runtime already projects them for this player.
+ */
+function playerJoined(j: JoinedFrame) {
+  return { roleId: j.roleId, brief: j.brief, privateFacts: j.privateFacts, consent: j.consent, scenes: j.scenes, state: j.state, logIdentity: j.logIdentity, replay: j.replay };
+}
+
+export type StreamHubOptions = {
+  maxStreams: number; maxStreamsPerSession: number; maxStreamsPerAddress: number; setTimer: SetTimer; now: () => number;
+  /** How long `send` waits for an error frame before it reports success (the runtime acks nothing). */
+  sendWaitMs?: number;
+  /** A consumer this far behind is dropped with `reconnecting` (its EventSource comes back and resumes from Last-Event-ID). */
+  maxPendingBytes?: number;
+};
+
+export class StreamHub {
+  private readonly streams = new Map<string, Stream>();
+  private readonly sendWaitMs: number;
+  private readonly maxPendingBytes: number;
+
+  constructor(private readonly o: StreamHubOptions) {
+    this.sendWaitMs = o.sendWaitMs ?? DEFAULT_SEND_WAIT_MS;
+    this.maxPendingBytes = o.maxPendingBytes ?? DEFAULT_MAX_PENDING_BYTES;
+  }
+
+  /** Whether `open` would currently accept this stream. Reserves nothing: lets the route refuse before it connects and joins. */
+  hasCapacity(cookie: SessionCookie, address: string): boolean {
+    const prev = this.streams.get(keyOf(cookie));
+    // The participant's own older stream is about to be replaced, so it does not count against the caps.
+    let total = 0; let perSession = 0; let perAddress = 0;
+    for (const s of this.streams.values()) {
+      if (s === prev) continue;
+      total++;
+      if (s.sessionId === cookie.sessionId) perSession++;
+      if (s.address === address) perAddress++;
+    }
+    return total < this.o.maxStreams && perSession < this.o.maxStreamsPerSession && perAddress < this.o.maxStreamsPerAddress;
+  }
+
+  /**
+   * Starts the stream. Takes ownership of `conn` in every case: on "capacity" (the authoritative check) it is already closed and `out`
+   * ended with nothing written. `joined` must be the frame `conn`'s join resolved with; the replay frames after it are still queued in
+   * `conn` and come out in order. Of two streams for one participant, the one whose runtime join resolved last wins (the runtime has
+   * already kicked the other), whatever order the requests reach `open` in.
+   */
+  open(cookie: SessionCookie, address: string, conn: RuntimeConnection, joined: JoinedFrame, out: SseOut): { close(): void } | "capacity" {
+    const key = keyOf(cookie);
+    const prev = this.streams.get(key);
+    const s: Stream = {
+      key, sessionId: cookie.sessionId, address, expiresAt: cookie.expiresAt, conn, out, ended: false, skip: 0, writer: new SseWriter(out, this.maxPendingBytes),
+      cancelHeartbeat: () => {}, detach: () => {}, waiter: null, sendChain: Promise.resolve(),
+    };
+    const noop = { close: () => {} };
+    // An older join than the live stream's: the runtime has kicked it (its 4001 may still be on the way); the live stream stays.
+    if (prev && prev.conn.joinOrder > conn.joinOrder) { this.finish(s, "superseded"); return noop; }
+    // Already closed before it could start: never touch the live stream.
+    if (conn.closeCode !== null) { this.finish(s, endingFor(conn.closeCode)); return noop; }
+    // Still closing, code not known yet. joinOrder is when the BFF heard `joined`, not when the runtime took the join: a delayed socket
+    // can deliver its `joined` and its 4001 together and look newer than the runtime's real holder. So it never replaces `prev`; it waits
+    // outside the map for its own close, whose code decides (4001: superseded, so the browser does not retry and kick the holder).
+    if (!conn.isOpen) {
+      s.detach = conn.onClose((code) => this.finish(s, endingFor(code)));
+      if (s.ended) s.detach();
+      return { close: () => this.finish(s, null) };
+    }
+    if (!this.hasCapacity(cookie, address)) {
+      conn.close();
+      try { out.end(); } catch { /* the client is gone */ }
+      return "capacity";
+    }
+    if (prev) this.finish(prev, "superseded");
+
+    this.streams.set(key, s);
+    // The opening frames are not counted towards the stall cap: nothing drains `out` until this call returns, and the reset can be a whole
+    // state snapshot over the cap on its own. The opening lasts until the queued replay has been flushed by the first `onFrame` (below); the
+    // cap (and so the per-client memory bound) applies from the first frame after that.
+    s.writer.beginOpening();
+    try {
+      this.write(s, `retry: ${RETRY_MS}\n\n`);
+      this.write(s, sse("joined", playerJoined(joined)));
+      // The browser's projection cannot be continued: an incomplete or missing replay (lastSeq too old or past the head), or another log.
+      const reset = replayIncomplete(joined.replay) || joined.logIdentity !== cookie.logIdentity;
+      if (reset) {
+        // The id moves Last-Event-ID to the snapshot, so the next reconnect resumes from there. Replayed events are already in the snapshot.
+        this.write(s, sse("reset", initPlayerView(joined.state), joined.state.lastSeq));
+        s.skip = joined.replay?.events ?? 0;
+      }
+    } catch (e) {
+      s.writer.endOpening();
+      throw e;
+    }
+    if (s.ended) return noop;
+    s.cancelHeartbeat = heartbeat(this.o.setTimer, () => {
+      // The cookie's lifetime bounds the stream too: an expired one ends it (the browser treats it like signed out).
+      if (s.expiresAt <= this.o.now()) { this.finish(s, "expired"); return false; }
+      return this.write(s, ": hb\n\n");
+    });
+    // onFrame first: frames queued in the connection come out before a close that already happened.
+    const offFrame = conn.onFrame((m) => this.onFrame(s, m));
+    // The first onFrame flushed the queued replay synchronously, still undrained: it is part of the opening (BUG-0024).
+    s.writer.endOpening();
+    const offClose = conn.onClose((code) => this.finish(s, endingFor(code)));
+    s.detach = () => { offFrame(); offClose(); };
+    if (s.ended) s.detach(); // the close was reported during onClose, before detach existed
+    return { close: () => this.finish(s, null) };
+  }
+
+  /**
+   * Sends a player message (say, consent, withdraw_consent, leave; anything else is refused) over the participant's open stream
+   * connection: a new connection would supersede the stream. The runtime acks nothing, so this resolves with the first error frame
+   * this message type can produce within the bounded wait, else null. Sends on one stream run one at a time, so an answer is never
+   * taken by a send that was handed over later. (An error that arrives after its own wait cannot be told apart from the next send's;
+   * the runtime has no correlation ids.)
+   */
+  async send(cookie: SessionCookie, m: ClientMessage): Promise<ServerMessage | null> {
+    if (!isSendType(m.type)) throw new Error("this message type cannot be sent through the stream");
+    const s = this.streams.get(keyOf(cookie));
+    if (!s || s.ended || !s.conn.isOpen) throw new NoStreamError();
+    const accepts = SEND_ERRORS[m.type];
+    const run = s.sendChain.then(() => this.sendOne(s, m, accepts));
+    s.sendChain = run.catch(() => undefined);
+    return run;
+  }
+
+  private sendOne(s: Stream, m: ClientMessage, accepts: readonly string[]): Promise<ServerMessage | null> {
+    if (s.ended || !s.conn.isOpen) return Promise.reject(new NoStreamError());
+    try { s.conn.send(m); } catch { return Promise.reject(new NoStreamError()); }
+    return new Promise((resolve) => {
+      let cancel = () => {};
+      const w: Waiter = { accepts, done: (r) => { if (s.waiter === w) s.waiter = null; cancel(); resolve(r); } };
+      s.waiter = w;
+      cancel = this.o.setTimer(() => w.done(null), this.sendWaitMs);
+    });
+  }
+
+  private onFrame(s: Stream, m: ServerMessage): void {
+    if (s.ended) return;
+    if (m.type === "event") {
+      if (s.skip > 0) { s.skip--; return; }
+      const seq = m.event.seq;
+      if (!this.write(s, sse("event", m.event, Number.isSafeInteger(seq) ? seq : undefined))) return;
+      if (m.event.type === "session.ended") this.finish(s, "ended");
+    } else if (m.type === "roster") {
+      // Default-deny: a player's stream carries only the peers roster, picked field by field. Any other audience (a facilitator frame
+      // with consent and connection) is dropped, never forwarded as it came.
+      if (m.audience === "peers") this.write(s, sse("roster", { audience: "peers", entries: m.entries.map(peerEntryOf) }));
+    } else if (m.type === "error") {
+      // The answer to the waiting send, if its message can produce this code; anything else (log_failed, sent to everyone unasked) goes to the page.
+      const w = s.waiter;
+      if (w && w.accepts.includes(m.code)) { w.done(m); return; }
+      this.write(s, sse("error", { code: m.code, message: ERROR_MESSAGE }));
+    }
+    // Anything else (another joined, an unknown type) is not forwarded: the browser gets only frames it knows.
+  }
+
+  /** False when the stream is over (or the write failed or the consumer stalled, which ends it). */
+  private write(s: Stream, chunk: string): boolean {
+    if (s.ended) return false;
+    const r = s.writer.write(chunk);
+    if (r === "gone") { this.finish(s, null); return false; }
+    if (r === "stalled") { this.finish(s, "reconnecting"); return false; }
+    return true;
+  }
+
+  /** The one exit: writes the final event (if any), ends `out` once, cancels the heartbeat, frees the slot and closes the socket. */
+  private finish(s: Stream, event: FinalEvent | null): void {
+    if (s.ended) return;
+    s.ended = true;
+    if (this.streams.get(s.key) === s) this.streams.delete(s.key);
+    s.cancelHeartbeat();
+    s.detach();
+    s.waiter?.done(null);
+    if (event) { try { s.out.write(sse(event, event === "signed_out" ? { message: SIGNED_OUT_MESSAGE } : event === "removed" ? { message: REMOVED_MESSAGE } : event === "ai_filled" ? { message: AI_FILLED_MESSAGE } : {})); } catch { /* the client is gone */ } }
+    try { s.out.end(); } catch { /* already closed by the client */ }
+    s.conn.close();
+  }
+}

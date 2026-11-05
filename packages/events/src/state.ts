@@ -1,0 +1,176 @@
+import type { RoleKind, SessionEvent, Channel } from "./events.js";
+
+export type Utterance = { seq: number; ts: number; sceneId: string | null; roleId: string; text: string; channel: Channel };
+export type NpcState = { goals: string[]; knowledge: string[]; released: string[] };
+
+/** US-0059: words and lines one role has spoken. */
+export type TalkCount = { words: number; lines: number };
+
+/** Words in a line: whitespace-separated runs of characters (0 for a non-string). */
+export function countWords(text: string): number {
+  return typeof text === "string" ? text.split(/\s+/u).filter((w) => w.length > 0).length : 0;
+}
+
+/** BUG-0023: a facilitator whisper as the addressed player may hold it. Only these three fields: never `by`, a ref, an ack or the addressee list. `sceneId` is null when the role takes part in no current scene. */
+export type Whisper = { seq: number; sceneId: string | null; text: string };
+/** BUG-0023: most whispers kept per role (the latest ones), so neither the state nor a join snapshot can grow without bound. */
+export const MAX_WHISPERS_PER_ROLE = 50;
+
+export type SessionState = {
+  status: "idle" | "running" | "ended";
+  lastSeq: number;
+  scenarioId: string | null;
+  version: string | null;
+  roles: Record<string, { kind: RoleKind; participantId?: string }>;
+  /** `pausedMs`: total ms the CURRENT scene spent paused so far (closed pause intervals only). */
+  currentScene: { id: string; enteredAt: number; participants: string[]; pausedMs: number } | null;
+  sceneHistory: { id: string; participants: string[] }[];
+  paused: boolean;
+  /** ts of the pause event that began the current pause; null when not paused. A scene entered while paused is frozen from its entry ts. */
+  pausedSince: number | null;
+  transcript: Utterance[];
+  injectsFired: string[];
+  npcs: Record<string, NpcState>;
+  /** True once the facilitator asked to advance the current scene; reset on scene.entered. */
+  advanceRequested: boolean;
+  /** GM verdicts for the CURRENT scene, keyed by condition text. */
+  gmVerdicts: Record<string, boolean>;
+  /** US-0034: per AI character, the hidden fact numbers the Game Master has already judged earned (gm.fact_earned), ascending. For the whole session, so a suggestion is never repeated, also after a restart (it is rebuilt from the log). */
+  factsEarned: Record<string, number[]>;
+  /** US-0059: words and lines per role that has spoken (the kind comes from `roles`, so NPC lines count apart). Folded from `utterance` only. Facilitator snapshot only: never in a player snapshot. */
+  talk: Record<string, TalkCount>;
+  /** US-0060: player roles an AI plays (from session.started.aiRoles; distinct, each a player role of the event). Always present, [] without AI roles. Not facilitator-only: players label AI lines with it. */
+  aiRoles: string[];
+  /** BUG-0023: per addressed player role, the whispers the facilitator sent it (latest MAX_WHISPERS_PER_ROLE, oldest first). A player snapshot carries ONLY the player's own list (`PlayerSnapshot.whispers`), never this record. */
+  whispers: Record<string, Whisper[]>;
+  /** BUG-0023: per player role, the seq of the last "consent ... will be rebound after a code reissue" alert: a replacement participant gets only whispers with a higher seq. Facilitator-side only: never in a player snapshot. */
+  whisperFloor: Record<string, number>;
+};
+
+/** A snapshot a player may hold: everything but the facilitator-only fields; `whispers` is the player's own list. */
+export type PlayerSnapshot = Omit<SessionState, "talk" | "whispers" | "whisperFloor"> & { whispers: Whisper[] };
+
+/** Reads with Object.hasOwn and returns a new record, so a role id such as "__proto__" or "constructor" is an ordinary own key (a computed key defines, it never sets the prototype). */
+function withTalk(talk: SessionState["talk"], roleId: string, text: string): SessionState["talk"] {
+  const prev = Object.hasOwn(talk, roleId) ? talk[roleId]! : { words: 0, lines: 0 };
+  return { ...talk, [roleId]: { words: prev.words + countWords(text), lines: prev.lines + 1 } };
+}
+
+/** Distinct strings of `aiRoles` that name a player role of the event, first occurrence only; anything else (a non-string, an AI character, an unknown role) is dropped. */
+export function aiRolesOfStarted(e: Extract<SessionEvent, { type: "session.started" }>): string[] {
+  if (!Array.isArray(e.aiRoles)) return [];
+  const out: string[] = [];
+  for (const r of e.aiRoles as unknown[]) {
+    if (typeof r === "string" && !out.includes(r) && Object.hasOwn(e.roles, r) && e.roles[r]?.kind === "player") out.push(r);
+  }
+  return out;
+}
+
+/** US-0061: whether AI players count toward group scores. On unless the log says `false` (absent, or a 3b log, means on). */
+export const includeInGroupOf = (e: Extract<SessionEvent, { type: "session.started" }>): boolean => e.includeInGroup !== false;
+
+/** Appends a whisper to `roleId`'s list (a role id such as "__proto__" is an ordinary own key) and keeps the latest MAX_WHISPERS_PER_ROLE. The scene id is kept only when the addressee takes part in the current scene. */
+function withWhisper(s: SessionState, e: { seq: number; roleId: string; text: string }): SessionState["whispers"] {
+  const prev = Object.hasOwn(s.whispers, e.roleId) ? s.whispers[e.roleId]! : [];
+  const sceneId = s.currentScene && s.currentScene.participants.includes(e.roleId) ? s.currentScene.id : null;
+  return { ...s.whispers, [e.roleId]: [...prev, { seq: e.seq, sceneId, text: e.text }].slice(-MAX_WHISPERS_PER_ROLE) };
+}
+
+/** The start of the alert a post-start reissue appends (the role id has no whitespace; what follows is the facilitator's label and never read). */
+const REBIND_ALERT = /^consent for (\S+) will be rebound after a code reissue by /u;
+
+export function initialState(): SessionState {
+  return {
+    status: "idle", lastSeq: 0, scenarioId: null, version: null, roles: {},
+    currentScene: null, sceneHistory: [], paused: false, pausedSince: null, transcript: [], injectsFired: [], npcs: {},
+    advanceRequested: false, gmVerdicts: {}, factsEarned: {}, talk: {}, aiRoles: [], whispers: {}, whisperFloor: {},
+  };
+}
+
+export function reduce(state: SessionState, e: SessionEvent): SessionState {
+  if (e.seq !== state.lastSeq + 1) throw new Error(`event seq ${e.seq} out of order; expected ${state.lastSeq + 1}`);
+  const s: SessionState = { ...state, lastSeq: e.seq };
+  switch (e.type) {
+    case "session.started":
+      return { ...s, status: "running", scenarioId: e.scenarioId, version: e.version, roles: e.roles, aiRoles: aiRolesOfStarted(e) };
+    case "scene.entered":
+      return { ...s, advanceRequested: false, gmVerdicts: {}, currentScene: { id: e.sceneId, enteredAt: e.ts, participants: e.participants, pausedMs: 0 },
+        pausedSince: s.paused ? e.ts : null,
+        sceneHistory: [...s.sceneHistory, { id: e.sceneId, participants: e.participants }] };
+    case "scene.exited":
+      return { ...s, currentScene: null, gmVerdicts: {} };
+    case "utterance":
+      return { ...s, talk: withTalk(s.talk, e.roleId, e.text), transcript: [...s.transcript, { seq: e.seq, ts: e.ts, sceneId: s.currentScene?.id ?? null, roleId: e.roleId, text: e.text, channel: e.channel }] };
+    case "inject.fired":
+      return { ...s, injectsFired: [...s.injectsFired, e.injectId] };
+    case "npc.updated": {
+      const prev = s.npcs[e.roleId] ?? { goals: [], knowledge: [], released: [] };
+      return { ...s, npcs: { ...s.npcs, [e.roleId]: { goals: e.goals, knowledge: e.knowledge, released: e.released ?? prev.released } } };
+    }
+    case "facilitator.command":
+      if (e.command === "pause") return s.paused ? s : { ...s, paused: true, pausedSince: e.ts };
+      if (e.command === "resume") {
+        if (!s.paused) return s;
+        const sc = s.currentScene && s.pausedSince !== null ? { ...s.currentScene, pausedMs: s.currentScene.pausedMs + Math.max(0, e.ts - s.pausedSince) } : s.currentScene;
+        return { ...s, paused: false, pausedSince: null, currentScene: sc };
+      }
+      if (e.command === "advance") return { ...s, advanceRequested: true };
+      if (e.command === "whisper") return typeof e.roleId === "string" && typeof e.text === "string" ? { ...s, whispers: withWhisper(s, e) } : s;
+      return s;
+    case "gm.decision":
+      if (s.currentScene?.id !== e.sceneId) return s;
+      return { ...s, gmVerdicts: { ...s.gmVerdicts, [e.condition]: e.verdict } };
+    case "gm.fact_earned": {
+      // Never an exit verdict (gmVerdicts is untouched), so an earned_when text that equals a gm_detects condition cannot end a scene.
+      const had = Object.hasOwn(s.factsEarned, e.roleId) ? s.factsEarned[e.roleId]! : [];
+      if (had.includes(e.fact)) return s;
+      return { ...s, factsEarned: { ...s.factsEarned, [e.roleId]: [...had, e.fact].sort((a, b) => a - b) } };
+    }
+    case "facilitator.alert": {
+      // BUG-0023: a post-start reissue (reissue.ts) appends this fixed-prefix alert; the seat then goes to a NEW person, who must not inherit the old holder's whispers.
+      const m = typeof e.message === "string" ? REBIND_ALERT.exec(e.message) : null;
+      return m && Object.hasOwn(s.roles, m[1]!) ? { ...s, whisperFloor: { ...s.whisperFloor, [m[1]!]: e.seq } } : s;
+    }
+    case "gm.no_verdict":
+      return s;
+    case "session.ended":
+      return { ...s, status: "ended", currentScene: null };
+    case "session.resumed":
+      // Back paused after a restart. A session that was already paused keeps its pause start; otherwise the downtime counts as paused
+      // time from the last recorded event (never after this event's own ts, so the paused interval is never negative).
+      if (s.status !== "running") return s;
+      return s.paused ? s : { ...s, paused: true, pausedSince: Number.isFinite(e.downFromTs) ? Math.min(e.downFromTs, e.ts) : e.ts };
+  }
+}
+
+/**
+ * @internal Restore-only fold (US-0018), not for live use: the same result as `reduce`, but utterances and fired injects are appended to `state`'s OWN arrays in
+ * place instead of copied, so replaying n events is linear instead of quadratic. The caller must own those arrays (start from a fresh
+ * initialState() and never share an intermediate state). The live engine keeps the pure `reduce`; a property test proves both agree.
+ */
+export function reduceReplay(state: SessionState, e: SessionEvent): SessionState {
+  if (e.type !== "utterance" && e.type !== "inject.fired") return reduce(state, e);
+  if (e.seq !== state.lastSeq + 1) throw new Error(`event seq ${e.seq} out of order; expected ${state.lastSeq + 1}`);
+  if (e.type === "utterance") state.transcript.push({ seq: e.seq, ts: e.ts, sceneId: state.currentScene?.id ?? null, roleId: e.roleId, text: e.text, channel: e.channel });
+  else state.injectsFired.push(e.injectId);
+  // talk is copied per utterance (one small record per speaking role, not per line), so the fold stays linear in the log.
+  return { ...state, lastSeq: e.seq, ...(e.type === "utterance" ? { talk: withTalk(state.talk, e.roleId, e.text) } : {}) };
+}
+
+/**
+ * Active (unpaused) time in the current scene at `now`: now - enteredAt - pausedMs - the open pause, if any.
+ * Representation: paused_ms accumulated per scene from the recorded pause/resume events, so replaying the log
+ * (US-0018) gives the same value. 0 with no current scene; never negative.
+ */
+export function activeElapsedMs(state: SessionState, now: number): number {
+  const sc = state.currentScene;
+  if (!sc) return 0;
+  const open = state.paused && state.pausedSince !== null ? Math.max(0, now - state.pausedSince) : 0;
+  const v = now - sc.enteredAt - sc.pausedMs - open;
+  return Number.isFinite(v) ? Math.max(0, v) : 0; // a corrupt log (NaN/Infinity ts) must not poison the schedule
+}
+
+export function visibleTranscript(state: SessionState, roleId: string): Utterance[] {
+  const visibleScenes = new Set(state.sceneHistory.filter((sc) => sc.participants.includes(roleId)).map((sc) => sc.id));
+  return state.transcript.filter((u) => u.sceneId !== null && visibleScenes.has(u.sceneId));
+}

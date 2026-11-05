@@ -1,0 +1,24 @@
+kind: single
+id: commercial_judgement-l1-1
+criterion: commercial_judgement
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:23.862Z
+split: holdout
+subject: account_manager
+expected: 1
+transcript:
+  - scene: s2_client_call
+    role: client_sponsor
+    text: This is a small addition. I'd expect it to sit inside what we've already
+      agreed, right?
+  - scene: s2_client_call
+    role: account_manager
+    text: Of course. We want you to be happy, so we'll fit it in for you.
+  - scene: s2_client_call
+    role: client_sponsor
+    text: Good. And you'll have it for go-live?
+  - scene: s2_client_call
+    role: account_manager
+    text: Yes, no problem, we'll make sure it is there.

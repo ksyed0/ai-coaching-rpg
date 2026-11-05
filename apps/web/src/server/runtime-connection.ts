@@ -1,0 +1,247 @@
+import WebSocket from "ws";
+import { isFacilitatorRoster, type ClientMessage, type FacilitatorRosterEntry, type JoinedFrame, type ServerMessage, type SessionStatus } from "./wire";
+
+// One participant's WebSocket to the runtime, opened by the BFF. Plain `ws`, no Next imports. Never logs anything: the join code, the
+// credential and the client address must not reach a log or an error message, so errors carry a code word only.
+
+/** Runs `fn` once after `ms`; returns a cancel function. Injected so tests drive time by hand. */
+export type SetTimer = (fn: () => void, ms: number) => () => void;
+export const realTimer: SetTimer = (fn, ms) => {
+  const t = setTimeout(fn, ms);
+  t.unref(); // a pending deadline must not keep the process alive
+  return () => clearTimeout(t);
+};
+
+/** A refused or failed connect or join. `code` is a fixed word (or the runtime's own error code); the message repeats only that. */
+export class RuntimeError extends Error {
+  constructor(readonly code: string) { super(`runtime: ${code}`); this.name = "RuntimeError"; }
+}
+
+/** The runtime's close codes (services/runtime/src/host/ws-server.ts). */
+const CLOSE_POLICY = 1008;
+export const CLOSE_SUPERSEDED = 4001;
+/** A role's code was reissued: its credential is revoked and the socket closed. Terminal for the player, like 4001. */
+export const CLOSE_REISSUED = 4002;
+/** US-0059: the facilitator removed the player before the start: credential and consent are gone. Terminal, like 4002. */
+export const CLOSE_REMOVED = 4003;
+/** US-0060: the facilitator filled the player's role with an AI player before the start. Terminal, like 4003. */
+export const CLOSE_AI_FILLED = 4004;
+const DEFAULT_TIMEOUT_MS = 10_000;
+// The runtime's answer to a lastSeq past its last event starts with this (ws-server.ts BEYOND_HEAD); zod's lastSeq issues do too.
+const LAST_SEQ_REFUSAL = /^lastSeq\b/;
+
+/** Bounds on the frames held before anyone listens (a replay is at most 1,000 events and 256 KiB on the runtime side). */
+export const MAX_QUEUED_FRAMES = 2_000;
+export const MAX_QUEUED_CHARS = 1024 * 1024;
+
+// A 1008 means a refused login only with the reason "unauthorized" (which the runtime sends after an `unauthorized` error frame). A bare
+// 1008 comes from the runtime's join timeout or queue cap, under load: the credential is fine, so it must not be reported as unauthorized.
+const classifyClose = (code: number, reason: string): string =>
+  code === CLOSE_POLICY && reason === "unauthorized" ? "unauthorized" : code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "reissued" : code === CLOSE_REMOVED ? "removed" : code === CLOSE_AI_FILLED ? "ai_filled" : "unavailable";
+
+/** Order in which joins resolved, process-wide: the hub keeps the stream whose runtime join is newest (the runtime's current holder). */
+let joinCounter = 0;
+
+type PendingJoin = { resolve: (j: JoinedFrame) => void; reject: (e: RuntimeError) => void; cancel: () => void; retry: (() => void) | null };
+
+export class RuntimeConnection {
+  private readonly frameFns = new Set<(m: ServerMessage) => void>();
+  private readonly closeFns = new Set<(code: number) => void>();
+  /** Frames that arrived while nobody listened (the replay right after `joined`, before the hub subscribes): delivered in order later. */
+  private readonly queue: ServerMessage[] = [];
+  private queuedChars = 0;
+  private pending: PendingJoin | null = null;
+  private joinAttempted = false;
+  private closedCode: number | null = null;
+  private closedReason = "";
+  private joinedOrder = 0;
+  /** Set while joinFacilitator waits for the roster frame that follows `joined`; that one frame is taken here, not queued. */
+  private rosterWait: { resolve: (e: FacilitatorRosterEntry[]) => void; reject: (e: RuntimeError) => void; cancel: () => void } | null = null;
+
+  private constructor(private readonly ws: WebSocket, private readonly setTimer: SetTimer, private readonly timeoutMs: number) {
+    ws.on("message", (d) => this.onMessage(d.toString()));
+    ws.on("close", (code, reason) => this.onSocketClose(code, reason.toString()));
+  }
+
+  /**
+   * Opens the socket. `clientAddress` goes only into X-Forwarded-For (the runtime runs with TRUST_PROXY=1). `null` sends no such header.
+   * Facilitator sockets send the reserved FACILITATOR_FORWARD_KEY (facilitator-budget.ts), so the runtime charges them to one key
+   * that is neither a player's address nor the BFF's loopback.
+   */
+  static connect(url: string, clientAddress: string | null, o: { setTimer?: SetTimer; timeoutMs?: number } = {}): Promise<RuntimeConnection> {
+    const setTimer = o.setTimer ?? realTimer;
+    const timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    return new Promise((resolve, reject) => {
+      let ws: WebSocket;
+      try { ws = new WebSocket(url, clientAddress === null ? {} : { headers: { "X-Forwarded-For": clientAddress } }); }
+      catch { reject(new RuntimeError("unavailable")); return; }
+      // Always listened to: an 'error' without a listener would throw; a close follows every error anyway.
+      ws.on("error", () => {});
+      let settled = false;
+      const done = (err: RuntimeError | null) => {
+        if (settled) return;
+        settled = true;
+        cancel();
+        if (err) { ws.terminate(); reject(err); return; }
+        resolve(new RuntimeConnection(ws, setTimer, timeoutMs));
+      };
+      const cancel = setTimer(() => done(new RuntimeError("unavailable")), timeoutMs);
+      ws.once("open", () => done(null));
+      // The runtime refuses at the handshake with 429 (address blocked after failed logins) or 503 (connection caps).
+      ws.once("unexpected-response", (_req, res) => done(new RuntimeError(res.statusCode === 429 ? "rate_limited" : "unavailable")));
+      ws.once("close", () => done(new RuntimeError("unavailable")));
+      ws.on("error", () => done(new RuntimeError("unavailable")));
+    });
+  }
+
+  get isOpen(): boolean { return this.closedCode === null && this.ws.readyState === WebSocket.OPEN; }
+  /** The runtime's close code once the socket has closed, else null. */
+  get closeCode(): number | null { return this.closedCode; }
+  /** When this connection's join resolved, relative to every other connection in the process (0: not joined). Larger is newer. */
+  get joinOrder(): number { return this.joinedOrder; }
+
+  /** First join by code. The code goes through exactly as typed: the runtime normalises case, spaces and hyphens itself. */
+  joinWithCode(a: { sessionId: string; roleId: string; participantId: string; joinCode: string; displayName: string }): Promise<JoinedFrame> {
+    return this.join({ type: "join", sessionId: a.sessionId, roleId: a.roleId, participantId: a.participantId, joinCode: a.joinCode, displayName: a.displayName, issueCredential: true, lastSeq: 0 });
+  }
+
+  /**
+   * Rejoin with the durable credential. With `lastSeq` the runtime replays what the player missed. A lastSeq past the runtime's head
+   * (a restarted log, a stale tab) is retried once without it: the caller then gets a plain snapshot (no `replay`) and must reset.
+   */
+  joinWithCredential(a: { sessionId: string; roleId: string; participantId: string; credential: string; lastSeq?: number }): Promise<JoinedFrame> {
+    const base = { type: "join" as const, sessionId: a.sessionId, roleId: a.roleId, participantId: a.participantId, credential: a.credential };
+    return this.join(a.lastSeq === undefined ? base : { ...base, lastSeq: a.lastSeq }, a.lastSeq === undefined ? null : base);
+  }
+
+  /**
+   * The facilitator's login: `join_facilitator`, then the first facilitator roster frame, which the runtime sends right after `joined`.
+   * Resolves with the `joined` frame, that roster and the session status. Any failure closes the connection; a refused token is
+   * RuntimeError("unauthorized"). With `lastSeq` the runtime replays what the facilitator missed (the replayed events stay queued for
+   * `onFrame`, ahead of the roster); a lastSeq past its head is retried once without it, and `frame.replay` is then absent.
+   * Only the one roster frame is taken; every other frame stays queued for a later `onFrame`.
+   */
+  async joinFacilitator(sessionId: string, token: string, o: { lastSeq?: number } = {}): Promise<{ frame: JoinedFrame; roster: FacilitatorRosterEntry[]; status: SessionStatus }> {
+    try {
+      // Armed before the join is sent: the roster can arrive in the same read as `joined`, ahead of any continuation here.
+      const roster = new Promise<FacilitatorRosterEntry[]>((resolve, reject) => { this.rosterWait = { resolve, reject, cancel: () => {} }; });
+      roster.catch(() => {}); // a join that fails first rejects this one too; the join's own error is the one reported
+      const base = { type: "join_facilitator" as const, sessionId, token };
+      const joined = await this.join(o.lastSeq === undefined ? base : { ...base, lastSeq: o.lastSeq }, o.lastSeq === undefined ? null : base);
+      const w = this.rosterWait;
+      if (w) w.cancel = this.setTimer(() => this.failRoster(new RuntimeError("unavailable")), this.timeoutMs);
+      return { frame: joined, roster: await roster, status: joined.state.status };
+    } catch (err) {
+      this.rosterWait = null;
+      this.close();
+      throw err instanceof RuntimeError ? err : new RuntimeError("unavailable");
+    }
+  }
+
+  private failRoster(err: RuntimeError): void {
+    const w = this.rosterWait;
+    if (!w) return;
+    this.rosterWait = null;
+    w.cancel();
+    w.reject(err);
+  }
+
+  private join(msg: ClientMessage, fallback: ClientMessage | null = null): Promise<JoinedFrame> {
+    if (this.joinAttempted) return Promise.reject(new RuntimeError("already_joined"));
+    if (!this.isOpen) return Promise.reject(new RuntimeError(this.closedCode === null ? "unavailable" : classifyClose(this.closedCode, this.closedReason)));
+    this.joinAttempted = true;
+    return new Promise((resolve, reject) => {
+      const arm = () => this.setTimer(() => this.failJoin(new RuntimeError("unavailable")), this.timeoutMs);
+      const pending: PendingJoin = { resolve, reject, cancel: arm(), retry: null };
+      if (fallback) pending.retry = () => { pending.cancel(); pending.cancel = arm(); this.ws.send(JSON.stringify(fallback)); };
+      this.pending = pending;
+      this.ws.send(JSON.stringify(msg));
+    });
+  }
+
+  private failJoin(err: RuntimeError): void {
+    const p = this.pending;
+    if (!p) return;
+    this.pending = null;
+    p.cancel();
+    p.reject(err);
+    // A socket whose join failed is useless to the BFF; the runtime closes most of them itself.
+    this.ws.terminate();
+  }
+
+  private onMessage(text: string): void {
+    let m: unknown;
+    try { m = JSON.parse(text); } catch { return; }
+    if (typeof m !== "object" || m === null || typeof (m as { type?: unknown }).type !== "string") return;
+    const frame = m as ServerMessage;
+    const p = this.pending;
+    if (p) {
+      if (frame.type === "joined") { this.pending = null; p.cancel(); this.joinedOrder = ++joinCounter; p.resolve(frame); return; }
+      if (frame.type === "error") {
+        if (p.retry && frame.code === "bad_message" && LAST_SEQ_REFUSAL.test(frame.message)) { const retry = p.retry; p.retry = null; retry(); return; }
+        this.failJoin(new RuntimeError(frame.code));
+      }
+      return; // nothing else is sent before joined
+    }
+    if (this.rosterWait && isFacilitatorRoster(frame)) {
+      const w = this.rosterWait;
+      this.rosterWait = null;
+      w.cancel();
+      w.resolve(frame.entries);
+      return;
+    }
+    // Strict order: while older frames wait in the queue, a new one queues behind them.
+    if (this.frameFns.size === 0 || this.queue.length > 0) {
+      this.queue.push(frame);
+      this.queuedChars += text.length;
+      // Nobody is reading (the stream never opened): drop the socket rather than buffer without end. The hub then sees it closed.
+      if (this.queue.length > MAX_QUEUED_FRAMES || this.queuedChars > MAX_QUEUED_CHARS) { this.queue.length = 0; this.queuedChars = 0; this.ws.terminate(); return; }
+      this.flush();
+      return;
+    }
+    for (const fn of [...this.frameFns]) fn(frame);
+  }
+
+  private flush(): void {
+    while (this.queue.length > 0 && this.frameFns.size > 0) {
+      const frame = this.queue.shift()!;
+      if (this.queue.length === 0) this.queuedChars = 0;
+      for (const fn of [...this.frameFns]) fn(frame);
+    }
+  }
+
+  private onSocketClose(code: number, reason: string): void {
+    this.closedCode = code;
+    this.closedReason = reason;
+    this.failJoin(new RuntimeError(classifyClose(code, reason)));
+    this.failRoster(new RuntimeError(classifyClose(code, reason)));
+    for (const fn of [...this.closeFns]) fn(code);
+  }
+
+  /** Throws RuntimeError("closed") when the socket is not open, so a caller never believes a message was handed over when it was not. */
+  send(m: ClientMessage): void {
+    if (!this.isOpen) throw new RuntimeError("closed");
+    this.ws.send(JSON.stringify(m));
+  }
+
+  /** Frames after `joined`. The first listener also receives, at once and in order, the frames that arrived before it (the replay). */
+  onFrame(fn: (m: ServerMessage) => void): () => void {
+    this.frameFns.add(fn);
+    this.flush();
+    return () => { this.frameFns.delete(fn); };
+  }
+
+  /** The runtime's close code. A listener added after the close is called at once (register onFrame first, so queued frames come before). */
+  onClose(fn: (code: number) => void): () => void {
+    if (this.closedCode !== null) { fn(this.closedCode); return () => {}; }
+    this.closeFns.add(fn);
+    return () => { this.closeFns.delete(fn); };
+  }
+
+  close(): void {
+    this.queue.length = 0;
+    this.queuedChars = 0;
+    if (this.ws.readyState === WebSocket.OPEN) this.ws.close(1000, "closed");
+    else if (this.ws.readyState === WebSocket.CONNECTING) this.ws.terminate();
+  }
+}

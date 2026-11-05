@@ -1,0 +1,517 @@
+import { randomUUID } from "node:crypto";
+import http from "node:http";
+import type { Duplex } from "node:stream";
+import { WebSocketServer, type WebSocket } from "ws";
+import { AI_PLAYER_NAME, isReservedDisplayName, isReservedRoleId } from "@acr/events";
+import { ClientMessageSchema, type ReplaySummary, type ServerMessage } from "./protocol.js";
+import { HostError, MAX_REPLAY_BYTES, type Replay, type SessionHost } from "./session-host.js";
+import { EngineError } from "../engine/session-engine.js";
+import { JoinCodes } from "../engine/join-codes.js";
+import { normalizeDisplayName } from "./display-name.js";
+import { buildRoster } from "./roster.js";
+import { AuthThrottle, DEFAULT_LIMITS, OPEN_SERVER_NOTICE, TokenBucket, WindowCounter, clientIp, ipKey, isValidToken, normalizeOrigin, secretsMatch, type Limits } from "./security.js";
+
+/** A 2,000 character utterance is at most about 8 KiB of JSON, so 16 KiB leaves room and bounds what one frame can cost. */
+export const MAX_PAYLOAD_BYTES = 16 * 1024;
+const CLOSE_POLICY = 1008;
+/** US-0053: a later join with the role's credential (or reconnect token) took the seat. A client must not reconnect on it. */
+export const CLOSE_SUPERSEDED = 4001;
+/** US-0058: the control service reissued this role's join code; the connection that held the seat is closed and must not reconnect. */
+export const CLOSE_REISSUED = 4002;
+/** US-0059: the facilitator removed this participant before the start; the connection is closed and must not reconnect. */
+export const CLOSE_REMOVED = 4003;
+/** US-0060: the facilitator made this role an AI player before the start; the connection that held the seat is closed and must not reconnect. */
+export const CLOSE_AI_FILLED = 4004;
+/** US-0013: the answer to a `lastSeq` past the session's last event (sent only once the join is authorised, so it probes nothing). */
+const BEYOND_HEAD = "lastSeq: after the last event of this session";
+/** The failed-login scope of a wrong join code: the role if the session has it, else one shared bucket so made-up role ids cannot fill the map. */
+export const playerScope = (known: boolean, roleId: string): string => (known ? `player:${roleId}` : "player:*");
+/** US-0053: the failed-login scope of a refused credential, bounded the same way. */
+export const credentialScope = (known: boolean, roleId: string): string => (known ? `cred:${roleId}` : "cred:*");
+const beyondHead = (h: SessionHost, lastSeq: number | undefined): boolean => lastSeq !== undefined && lastSeq > h.engine.state.lastSeq;
+const summary = (r: Replay): { replay: ReplaySummary } => ({ replay: { afterSeq: r.afterSeq, toSeq: r.toSeq, events: r.events.length, complete: r.complete } });
+export const MAX_BUFFERED_BYTES = 1024 * 1024; // a client this far behind is dropped rather than buffered forever
+/** US-0013: room kept in the send buffer beyond the snapshot and the replayed events' JSON, for the event-frame wrappers and the summary. */
+const REPLAY_MARGIN_BYTES = 64 * 1024;
+
+const DEFAULT_HEARTBEAT_MS = 15_000;
+const MAX_TIMER_MS = 2_147_483_647; // the largest delay setInterval accepts
+
+/** heartbeatMs: ping interval; a socket that has not answered the previous ping is terminated (frees half-open players). */
+export type ServerOptions = {
+  port: number; hosts: Map<string, SessionHost>; log?: (m: string) => void; heartbeatMs?: number;
+  /** US-0017: when set, join_facilitator must present it. Unset keeps the server open (bootstrap prints a warning). Never logged. */
+  facilitatorToken?: string;
+  limits?: Partial<Limits>;
+  /** Interface to bind (default 0.0.0.0). */
+  host?: string;
+  /** Origins a browser may connect from; a handshake that carries any other Origin is refused. Clients that send none are unaffected. */
+  allowedOrigins?: string[];
+  /** Read the per-address limits from the last X-Forwarded-For entry (only behind a proxy you control). */
+  trustProxy?: boolean;
+  /** Clock for the limiters (tests). */
+  now?: () => number;
+  /** The failed-login throttle (tests inject one to observe its counters). */
+  authThrottle?: AuthThrottle;
+  /**
+   * US-0033: each session's player join codes. When set, a player `join` must present its role's code (or, to take over a role its
+   * own live connection still holds, that role's reconnect token); anything else, including an unknown session, role or AI character,
+   * gets one generic `unauthorized`, is closed like a refused facilitator token and counts against the address's failed-login budget.
+   * Unset: player roles are open, as before (tests and embedders only; the server always sets it).
+   */
+  joinCodes?: Map<string, JoinCodes>;
+};
+
+/**
+ * What `startServer` returns. `replaceCodes` and `kickRole` are the primitives the control service's code reissue is built on.
+ * `replaceCodes` needs `opts.joinCodes` (it swaps an entry in that map) and throws if the server was started without it.
+ */
+export type ServerHandle = {
+  port: number;
+  close(): Promise<void>;
+  /** Sets the session's join codes in the caller's `joinCodes` map (adds the entry if absent). Throws when the server has no join codes. */
+  replaceCodes(sessionId: string, codes: JoinCodes): void;
+  /**
+   * Frees one role's seat at once (not when the socket finishes closing), closes its socket with `closeCode` and tells the room.
+   * Only that role in that session is touched; an unknown session or role is a no-op.
+   */
+  kickRole(sessionId: string, roleId: string, closeCode: number): void;
+  /** US-0060: sends every live connection of the session its roster afresh (an AI flag changed). An unknown session is a no-op. */
+  broadcastRoster(sessionId: string): void;
+};
+
+export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
+  const log = opts.log ?? (() => {});
+  const heartbeatMs = opts.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
+  // BUG-0001: setInterval treats 0, negative, NaN and anything above 2^31-1 ms as 1 ms, which would terminate every socket almost at once.
+  if (!Number.isFinite(heartbeatMs) || heartbeatMs <= 0 || heartbeatMs > MAX_TIMER_MS) {
+    throw new Error(`heartbeatMs must be a finite number of milliseconds greater than 0 and at most ${MAX_TIMER_MS}`);
+  }
+  const limits: Limits = { ...DEFAULT_LIMITS, ...opts.limits };
+  const now = opts.now ?? Date.now;
+  const bindHost = opts.host ?? "0.0.0.0";
+  const token = opts.facilitatorToken;
+  if (token !== undefined && !isValidToken(token)) throw new Error("facilitatorToken is not a valid token (16 to 256 printable ASCII characters, no spaces)"); // the value is never shown
+  const allowedOrigins = new Set((opts.allowedOrigins ?? []).map((o) => normalizeOrigin(o)).filter((o): o is string => o !== null));
+  const trustProxy = opts.trustProxy === true;
+  const authThrottle = opts.authThrottle ?? new AuthThrottle({ max: limits.maxAuthFailures, windowMs: limits.authWindowMs, blockMs: limits.authBlockMs, now });
+  const perIp = new Map<string, number>(); // keyed by ipKey(ip)
+
+  // The HTTP server only exists to run the upgrade checks (limits, Origin) before a WebSocket is allocated.
+  const httpServer = http.createServer({ connectionsCheckingInterval: 1_000 }, (_req, res) => { res.writeHead(426, { "Content-Type": "text/plain", Connection: "close" }).end("Upgrade Required"); });
+  httpServer.maxConnections = limits.maxConnections * 2 + 16; // raw sockets that never finish the handshake are bounded too
+  httpServer.headersTimeout = Math.min(limits.joinTimeoutMs, 10_000); // an upgrade request is tiny: a client that has not finished it by now is dropped
+  httpServer.requestTimeout = Math.min(limits.joinTimeoutMs, 10_000);
+  // Raw sockets per address (idle or half-open ones included). Not applied behind a trusted proxy, where every client shares the proxy's address.
+  const rawPerIp = new Map<string, number>();
+  const rawCap = limits.maxConnectionsPerIp * 2;
+  httpServer.on("connection", (sock) => {
+    if (trustProxy) return;
+    const key = ipKey(sock.remoteAddress ?? "unknown");
+    const n = (rawPerIp.get(key) ?? 0) + 1;
+    if (n > rawCap) {
+      try { sock.end("HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\nContent-Length: 0\r\n\r\n", () => sock.destroy()); } catch { /* the peer is gone */ }
+      setTimeout(() => sock.destroy(), 200).unref(); // the guarantee when the peer never reads
+      return;
+    }
+    rawPerIp.set(key, n);
+    sock.once("close", () => { const left = (rawPerIp.get(key) ?? 1) - 1; if (left <= 0) rawPerIp.delete(key); else rawPerIp.set(key, left); });
+  });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
+  const refuse = (socket: Duplex, status: number, reason: string, extra: Record<string, string> = {}) => {
+    const lines = [`HTTP/1.1 ${status} ${reason}`, "Connection: close", "Content-Type: text/plain", "Content-Length: 0", ...Object.entries(extra).map(([k, v]) => `${k}: ${v}`)];
+    try { socket.end(lines.join("\r\n") + "\r\n\r\n"); } catch { /* the peer is gone */ } finally { socket.destroy(); }
+  };
+  httpServer.on("upgrade", (req, socket, head) => {
+    socket.on("error", () => {});
+    const ip = clientIp(req, trustProxy);
+    const ipk = ipKey(ip);
+    const blocked = authThrottle.blockedForMs(ip);
+    if (blocked > 0) return refuse(socket, 429, "Too Many Requests", { "Retry-After": String(Math.ceil(blocked / 1000)) });
+    const origin = req.headers.origin;
+    if (origin !== undefined && !allowedOrigins.has(normalizeOrigin(origin) ?? "\u0000")) return refuse(socket, 403, "Forbidden");
+    if (wss.clients.size >= limits.maxConnections || (perIp.get(ipk) ?? 0) >= limits.maxConnectionsPerIp) return refuse(socket, 503, "Service Unavailable");
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      perIp.set(ipk, (perIp.get(ipk) ?? 0) + 1);
+      ws.once("close", () => { const n = (perIp.get(ipk) ?? 1) - 1; if (n <= 0) perIp.delete(ipk); else perIp.set(ipk, n); });
+      wss.emit("connection", ws, req);
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    httpServer.once("listening", resolve);
+    httpServer.once("error", reject);
+    httpServer.listen(opts.port, bindHost);
+  });
+  httpServer.on("error", (err) => log(`server error: ${err.message}`));
+  const port = (httpServer.address() as { port: number }).port;
+  // Never log the configured host string (it comes from the environment): only the port and a word derived by comparison.
+  const reach = /^(127(\.\d{1,3}){3}|::1|localhost)$/i.test(bindHost) ? "loopback only" : /^(0\.0\.0\.0|::)$/.test(bindHost) ? "all interfaces" : "one specific address";
+  log(`runtime listening on port ${port} (bound to ${reach})`);
+
+  // Liveness: ping every connection each period; one that never answered the previous ping is terminated, which
+  // fires its close handler and frees its role (a laptop that slept would otherwise hold the role for minutes).
+  const alive = new WeakSet<WebSocket>();
+  const heartbeat = setInterval(() => {
+    for (const c of wss.clients) {
+      if (!alive.has(c)) { c.terminate(); continue; }
+      alive.delete(c);
+      try { c.ping(); } catch (err) { log(`ping failed: ${(err as Error).message}`); }
+    }
+  }, heartbeatMs);
+  heartbeat.unref();
+
+  // Fail-stop (US-0018): tell every connected client, in a frame that is NOT a session event (nothing more is logged), then the
+  // process owner (bootstrap's onFatal) drains and exits so a supervisor restarts it; the restart resumes from the log.
+  const fatalNotice = JSON.stringify({ type: "error", code: "log_failed", message: "the server can no longer record this session and is stopping; when it is restarted the session resumes, paused, from its log" });
+  const unsubscribeFatal = [...opts.hosts.values()].map((h) => (h as Partial<SessionHost>).onFatal?.(() => {
+    for (const c of wss.clients) { if (c.readyState === c.OPEN) { try { c.send(fatalNotice); } catch { /* the peer is gone */ } } }
+  }) ?? (() => undefined)); // (a stand-in host in a test may not offer onFatal)
+
+  /** Which connection currently holds each player role, so a stale socket closing cannot free a rejoined role. `kick` supersedes it. */
+  const holders = new Map<string, { ws: WebSocket; token: string; kick: () => void; kickWith: (code: number) => void }>();
+
+  /** US-0055: every joined connection that is still open, so a change can be told to the whole room. */
+  type Live = { sessionId: string; h: SessionHost; facilitator: boolean; ws: WebSocket; send: (m: ServerMessage) => void; closing: () => boolean };
+  const live = new Set<Live>();
+  /**
+   * Sends each live connection of the session the roster for its own audience (the facilitator's has consent and connection, a player's
+   * only who is ready), or just `only`. A closing socket gets nothing. The server log gets role ids and states, never a name.
+   */
+  const broadcastRoster = (sessionId: string, h: SessionHost, only?: Live) => {
+    if (typeof (h as Partial<SessionHost>).playerRoleIds !== "function") return; // (a stand-in host in a test)
+    const playerRoles = h.playerRoleIds();
+    const connected = new Set<string>();
+    for (const role of playerRoles) { const held = holders.get(`${sessionId}:${role}`); if (held && held.ws.readyState === held.ws.OPEN) connected.add(role); }
+    const roster = buildRoster({ playerRoles, assignments: h.assignments, connected, seats: h.seats, aiRoles: new Set(h.aiRoleIds()) });
+    for (const c of only ? [only] : live) {
+      if (c.h !== h || c.closing() || c.ws.readyState !== c.ws.OPEN) continue;
+      c.send(c.facilitator ? { type: "roster", audience: "facilitator", entries: roster.facilitator } : { type: "roster", audience: "peers", entries: roster.peers });
+    }
+  };
+  const rosterChanged = (role: string, state: "joined" | "consented" | "connected" | "left" | "withdrew") => log(`roster: ${role} ${state}`);
+  // The end of the session revokes every credential (and so every name) inside the host; the room is told once that has happened.
+  const unsubscribeEnd = [...opts.hosts].map(([sessionId, h]) => (h as Partial<SessionHost>).subscribe?.((e) => { if (e.type === "session.ended") broadcastRoster(sessionId, h); }) ?? (() => undefined));
+
+  wss.on("connection", (ws: WebSocket, req: http.IncomingMessage) => {
+    const ip = clientIp(req, trustProxy);
+    alive.add(ws);
+    ws.on("pong", () => alive.add(ws));
+    let host: SessionHost | null = null;
+    let who: string | "facilitator" | null = null;
+    let participantId: string | null = null;
+    let holderKey: string | null = null;
+    let unsubscribe: (() => void) | null = null;
+    let liveEntry: Live | null = null;
+    const bucket = new TokenBucket(limits.msgRate, limits.msgBurst, now);
+    const drops = new WindowCounter(limits.dropWindowMs, now);
+    let queued = 0;
+    let isFacilitator = false;
+    // Once a connection is being closed (refused token, rate limit, queue cap) nothing already queued or still arriving may run.
+    let closing = false;
+    let authFailed = false;
+    /** The throttle scope the refused login is charged to ("" for the facilitator token), kept for frames dropped after the refusal. */
+    let failScope = "";
+    let killTimer: NodeJS.Timeout | null = null;
+    const shut = (code: number, reason: string) => {
+      if (closing) return;
+      closing = true;
+      ws.close(code, reason);
+      killTimer = setTimeout(() => ws.terminate(), 250); // a CLOSING socket would otherwise keep emitting frames
+      killTimer.unref();
+    };
+    /** A frame that arrives (or was queued) after a refusal: dropped, but a refused-token connection still counts each one against its address. */
+    // At most ONE extra failure per connection, however many frames follow (so a flood costs O(1) here), and only for a real join_facilitator.
+    let dropCounted = false; let dropParses = 0;
+    const dropAfterClose = (raw?: string) => {
+      if (dropCounted) return;
+      if (authFailed) { dropCounted = true; authThrottle.fail(ip, failScope); return; }
+      if (raw === undefined || dropParses >= 3) return;
+      const facLogin = token !== undefined && raw.includes("join_facilitator");
+      const playerLogin = opts.joinCodes !== undefined && raw.includes('"join"');
+      if (!facLogin && !playerLogin) return;
+      dropParses++;
+      try {
+        const msg = JSON.parse(raw) as { type?: unknown; sessionId?: unknown; roleId?: unknown } | null;
+        if (msg?.type === "join_facilitator" && token !== undefined) { dropCounted = true; failScope = ""; authThrottle.fail(ip, failScope); }
+        else if (msg?.type === "join" && opts.joinCodes !== undefined) {
+          // A dropped player login is charged to its own role, like a refused one, never to the whole address.
+          const roleId = typeof msg.roleId === "string" ? msg.roleId : "";
+          failScope = playerScope(typeof msg.sessionId === "string" && (opts.hosts.get(msg.sessionId)?.hasPlayerRole(roleId) ?? false), roleId);
+          dropCounted = true; authThrottle.fail(ip, failScope);
+        }
+      } catch { /* not JSON: not a login attempt */ }
+    };
+    /**
+     * One generic answer for every refused login (token, join code or credential); the connection is closed and the address charged.
+     * A refusal because the (address, scope) is already blocked is NOT charged, nor are frames dropped after it: otherwise a neighbour
+     * on a shared address would keep the block alive for ever (R5).
+     */
+    const refuseLogin = (what: string, scope: string, charge = true) => {
+      authFailed = true; failScope = scope;
+      if (charge) authThrottle.fail(ip, scope); else dropCounted = true;
+      log(`${what} join refused: unauthorized`);
+      fail("unauthorized", "unauthorized");
+      shut(CLOSE_POLICY, "unauthorized");
+    };
+    // Slowloris and idle sockets: a connection that has not joined in time is closed.
+    const joinTimer = setTimeout(() => { if (!host) shut(CLOSE_POLICY, "join timeout"); }, limits.joinTimeoutMs);
+    joinTimer.unref();
+
+    const sendText = (text: string) => {
+      if (ws.readyState !== ws.OPEN) return;
+      try {
+        if (ws.bufferedAmount > MAX_BUFFERED_BYTES) { ws.terminate(); return; }
+        ws.send(text);
+      } catch (err) { log(`send failed: ${(err as Error).message}`); }
+    };
+    const send = (m: ServerMessage) => sendText(JSON.stringify(m));
+    const fail = (code: string, message: string, ref?: string) => send({ type: "error", code, message, ...(ref !== undefined ? { ref } : {}) });
+    /**
+     * US-0013: sends `joined` and, when the join carried lastSeq, the replay right after it, before the subscription can deliver anything
+     * newer. The snapshot is serialised first and the replay gets only the room left in the 1 MiB send buffer (MAX_BUFFERED_BYTES, minus
+     * what is already buffered, the snapshot and a margin; at most MAX_REPLAY_BYTES), so a rejoin with lastSeq is never cut off where the
+     * same join without it succeeds: a replay that does not fit is `complete: false` and the client relies on its snapshot. Synchronous.
+     */
+    const sendJoined = (h: SessionHost, viewer: string, lastSeq: number | undefined, joined: Extract<ServerMessage, { type: "joined" }>) => {
+      const base = JSON.stringify(joined);
+      if (lastSeq === undefined) return sendText(base);
+      const room = MAX_BUFFERED_BYTES - ws.bufferedAmount - Buffer.byteLength(base) - REPLAY_MARGIN_BYTES;
+      const replay: Replay = h.replayFor(viewer, lastSeq, { maxBytes: Math.max(0, Math.min(MAX_REPLAY_BYTES, room)) });
+      sendText(`${base.slice(0, -1)},"replay":${JSON.stringify(summary(replay).replay)}}`); // base is a JSON object: add one field
+      for (const event of replay.events) send({ type: "event", event });
+    };
+
+    async function handle(raw: string): Promise<void> {
+      if (closing || ws.readyState !== ws.OPEN) return dropAfterClose(raw);
+      let json: unknown;
+      try { json = JSON.parse(raw); } catch { return fail("bad_json", "message is not valid JSON"); }
+      const parsed = ClientMessageSchema.safeParse(json);
+      if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        return fail("bad_message", issue ? `${issue.path.join(".") || "message"}: ${issue.message}` : "invalid message");
+      }
+      const m = parsed.data;
+      // US-0059: the ref of a console command, so every refusal of that message carries it.
+      const ref = m.type === "command" || m.type === "end_now" ? m.ref : undefined;
+      try {
+        if (m.type === "join" || m.type === "join_facilitator") {
+          if (host) return fail("already_joined", "this connection has already joined");
+          if (m.type === "join_facilitator" && token !== undefined) {
+            // One attempt per connection. The answer is generic (it does not say whether the token or the session was wrong) and
+            // the token is compared as two SHA-256 digests in constant time. It is never logged or echoed.
+            if (!secretsMatch(m.token ?? "", token)) return refuseLogin("facilitator", "");
+          }
+          // US-0053: a name is checked before any authentication and a refused one is not charged (it proves nothing about a secret).
+          let name: string | null = null;
+          if (m.type === "join" && m.displayName !== undefined) {
+            name = normalizeDisplayName(m.displayName);
+            if (name === null) return fail("bad_message", "displayName: 1 to 60 visible characters on one line");
+            // US-0060: the prefix is kept for AI players. The cleaned name is checked (hidden characters are already stripped), before
+            // any authentication, and a refusal is not charged: like a bad name it proves nothing about a secret.
+            if (isReservedDisplayName(name)) return fail("bad_message", `displayName: names starting with "${AI_PLAYER_NAME}" are reserved`);
+          }
+          const h = opts.hosts.get(m.sessionId);
+          if (m.type === "join") {
+            const key = `${m.sessionId}:${m.roleId}`;
+            const prev = holders.get(key);
+            const prevLive = !!prev && prev.ws !== ws && prev.ws.readyState === prev.ws.OPEN;
+            const byReconnect = !!prev && prevLive && !!m.reconnectToken && secretsMatch(m.reconnectToken, prev.token);
+            // US-0053: durable credentials exist only with join codes on and a host that keeps seats.
+            const seats = opts.joinCodes !== undefined ? h?.seats : undefined;
+            let byCredential = false;
+            let byCode = false;
+            if (opts.joinCodes !== undefined) {
+              // US-0033: the role's code (constant-time, against a hash), or the reconnect token of the live connection that holds it.
+              // Every other case (no or a wrong code, an unknown session or role, an AI character, `facilitator`) gets the same answer,
+              // so a refusal never tells whether the role exists or is taken. Only someone with the right code can learn `role_taken`.
+              // An unknown session is checked against JoinCodes.none(): the same digest work, always refused.
+              // US-0053: a join that presents a credential is a credential attempt only (its code is not considered), charged to
+              // `cred:<role>`, so adding a junk credential cannot move code guesses into another budget. Once a role has a credential
+              // its code no longer opens it: the person who took the seat on the web keeps it until they leave or the session ends.
+              const known = h?.hasPlayerRole(m.roleId) ?? false;
+              const credAttempt = seats !== undefined && m.credential !== undefined;
+              const scope = credAttempt ? credentialScope(known, m.roleId) : playerScope(known, m.roleId);
+              // A blocked (address, scope) is refused alike, before any secret is looked at, so guessing past the limit learns nothing.
+              if (authThrottle.blockedForMs(ip, scope) > 0) return refuseLogin("player", scope, false);
+              const codeOk = (opts.joinCodes.get(m.sessionId) ?? JoinCodes.none()).verify(m.roleId, m.joinCode);
+              byCredential = credAttempt && seats.credentials.verify(m.roleId, m.credential);
+              byCode = !credAttempt && codeOk && !seats?.credentials.has(m.roleId);
+              if (!h || !(byCode || byCredential || byReconnect)) return refuseLogin("player", scope);
+              // Only an authenticated caller gets here, so it may learn that the session ended; a web seat is never given out after it.
+              if (seats && (m.issueCredential || m.credential !== undefined) && h.engine.state.status === "ended") return fail("session_ended", "the session has ended");
+            } else {
+              if (!h) return fail("unknown_session", "no such session");
+              if (isReservedRoleId(m.roleId)) return fail("unknown_role", "unknown_role"); // reserved: never a player role
+            }
+            // A role held by a live socket can only be taken over with that role's reconnect token (C1) or its credential (US-0053).
+            if (prevLive && !(byReconnect || byCredential)) return fail("role_taken", "role_taken");
+            if (beyondHead(h, m.lastSeq)) return fail("bad_message", BEYOND_HEAD); // authorised, but nothing is claimed or taken over
+            // US-0013: from here to the subscribe below there is no await, so no event can fall between the replay and the live stream.
+            // Computed before the seat is taken or a credential saved, so it can never leave a half-joined seat. Omitted when empty (a stand-in host may not offer it).
+            const scenes = (h as Partial<SessionHost>).scenesFor?.(m.roleId) ?? [];
+            const { brief, privateFacts, rebound } = h.join(m.roleId, m.participantId);
+            let credential: string | undefined;
+            if (seats && m.issueCredential && byCode) {
+              // US-0053: the credential is on disk before the browser learns it, so a restart can never lose a seat it was told about.
+              try {
+                credential = seats.credentials.issue(m.roleId, h.isAiRole(m.roleId) ? AI_PLAYER_NAME : name ?? m.roleId);
+                seats.persist(); // synchronous: the block stays free of awaits
+              } catch (err) {
+                // Undo everything: an unsaved credential left in memory would lock the role's code out until a restart.
+                seats.credentials.revoke(m.roleId);
+                if (rebound) h.undoRebind(m.roleId); // US-0058: the consent goes back to waiting for the next participant
+                if (!prevLive) h.release(m.roleId, m.participantId); // a superseded holder (same participant) keeps its seat
+                log(`credential not saved for ${m.roleId}: ${err instanceof Error ? err.message : String(err)}`);
+                return fail("internal", "internal error");
+              }
+            }
+            const token = randomUUID();
+            const kickWith = (code: number) => { dropCounted = true; shut(code, code === CLOSE_SUPERSEDED ? "superseded" : code === CLOSE_REISSUED ? "reissued" : code === CLOSE_REMOVED ? "removed" : code === CLOSE_AI_FILLED ? "ai_filled" : "closed"); };
+            holders.set(key, { ws, token, kick: () => kickWith(CLOSE_SUPERSEDED), kickWith });
+            holderKey = key; participantId = m.participantId; who = m.roleId;
+            // Its close handler leaves the seat alone: `holders` already points at this socket. A disconnect never revokes.
+            if (prevLive) prev.kick();
+            sendJoined(h, m.roleId, m.lastSeq, {
+              type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId), ...(scenes.length > 0 ? { scenes } : {}),
+              ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
+              ...(seats && !h.isAiRole(m.roleId) ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
+            });
+          } else {
+            if (!h) return fail("unknown_session", "no such session");
+            if (beyondHead(h, m.lastSeq)) return fail("bad_message", BEYOND_HEAD);
+            // With FACILITATOR_TOKEN set the token was checked above. Without it this branch is open to anyone who can reach
+            // the port (bootstrap prints a warning at startup); see docs/THREAT_MODEL.md. Player roles have their own join codes (US-0033).
+            who = "facilitator"; isFacilitator = true;
+            // Facilitator-only reminder when the server is open (never sent to players).
+            const allScenes = (h as Partial<SessionHost>).allScenes?.() ?? [];
+            sendJoined(h, "facilitator", m.lastSeq, { type: "joined", roleId: "facilitator", state: h.snapshotFor("facilitator"), hiddenFacts: h.hiddenFacts(), ...(allScenes.length > 0 ? { scenes: allScenes } : {}), ...(token === undefined ? { notice: OPEN_SERVER_NOTICE } : {}) });
+          }
+          host = h;
+          const viewer = who;
+          // Subscribed in the same synchronous step as the snapshot and the replay: every later event has a seq above replay.toSeq.
+          unsubscribe = h.subscribe((e) => { const view = h.viewFor(viewer, e); if (view) send({ type: "event", event: view }); });
+          // US-0055: only now, after `joined`, the replay and the subscription (all synchronous above), so the roster can never fall between
+          // `joined` and its replayed events. The newcomer gets the current roster; everyone else hears the change.
+          liveEntry = { sessionId: m.sessionId, h, facilitator: isFacilitator, ws, send, closing: () => closing };
+          live.add(liveEntry);
+          if (!isFacilitator) { rosterChanged(viewer, "joined"); rosterChanged(viewer, "connected"); broadcastRoster(m.sessionId, h); }
+          else broadcastRoster(m.sessionId, h, liveEntry);
+          return;
+        }
+        if (!host || !who) return fail("not_joined", "join first", ref);
+        // US-0060: an AI player gives no consent and has none to withdraw (a leave still frees its seat).
+        if ((m.type === "consent" || m.type === "withdraw_consent") && !isFacilitator && host.isAiRole(who)) return fail("forbidden", "an AI player gives no consent");
+        if (m.type === "leave" || m.type === "withdraw_consent") {
+          if (isFacilitator || !participantId) return fail("forbidden", m.type === "leave" ? "only a player may leave a role" : "only a player may give or withdraw consent");
+          // US-0054: withdrawing consent gives the seat up like a leave (credential revoked, role released), so it ends the same way.
+          if (m.type === "leave") host.leave(who, participantId); else host.withdrawConsent(who, participantId);
+          log(`${who} ${m.type === "leave" ? "left" : "withdrew consent"}`);
+          // The role is free now: a join for it must not meet this closing socket as a live holder (role_taken).
+          if (holderKey && holders.get(holderKey)?.ws === ws) holders.delete(holderKey);
+          holderKey = null;
+          dropCounted = true; // frames still queued on a socket that left are not login attempts
+          shut(1000, m.type === "leave" ? "left" : "withdrew");
+          rosterChanged(who, m.type === "leave" ? "left" : "withdrew");
+          broadcastRoster(liveEntry!.sessionId, host);
+          return;
+        }
+        if (m.type === "consent") {
+          if (isFacilitator || !participantId) return fail("forbidden", "only a player may give or withdraw consent");
+          // US-0054: refusals (consent_version, already_started, bad_message, not_joined) come back as HostError through the catch below.
+          const had = host.consentGiven(who, participantId);
+          host.giveConsent(who, participantId, m.noticeVersion);
+          // A repeat from a player who already agreed changes nothing, so it is neither logged nor broadcast.
+          if (!had) { rosterChanged(who, "consented"); broadcastRoster(liveEntry!.sessionId, host); }
+          return;
+        }
+        if (m.type === "start") {
+          if (!isFacilitator) return fail("forbidden", "only the facilitator may start the session");
+          await host.start();
+        } else if (m.type === "say") {
+          if (isFacilitator) return fail("forbidden", "the facilitator cannot speak as a role");
+          await host.onPlayerUtterance(who, m.text, { expectSceneId: m.expectSceneId });
+        } else if (m.type === "end_now") {
+          // US-0059: a separate facilitator message; it never starts the session (the host refuses before the start).
+          if (!isFacilitator) return fail("forbidden", "only the facilitator may end the session", ref);
+          await host.endNow({ by: m.by, message: m.message });
+          if (ref !== undefined) send({ type: "ack", ref });
+        } else if (m.type === "command") {
+          if (!isFacilitator) return fail("forbidden", "only the facilitator may send commands", ref);
+          // A command with a ref never starts the session (the console starts it explicitly); without one the terminal's auto-start stays.
+          if (!host.hasStarted) {
+            if (ref !== undefined) { const code = host.isStarting ? "starting" : "not_started"; return fail(code, code, ref); }
+            await host.start();
+          }
+          await host.command(m.command, { expectSceneId: m.expectSceneId, by: m.by });
+          if (ref !== undefined) send({ type: "ack", ref });
+        }
+      } catch (err) {
+        if (err instanceof HostError || err instanceof EngineError) return fail(err.code, err.message, ref);
+        log(`error: ${err instanceof Error ? err.stack : String(err)}`);
+        fail("internal", "internal error", ref);
+      }
+    }
+
+    // Messages from one connection are handled in order.
+    let chain: Promise<void> = Promise.resolve();
+    ws.on("message", (raw) => {
+      if (closing || ws.readyState !== ws.OPEN) return dropAfterClose(raw.toString());
+      if (!bucket.take()) {
+        // Over the rate: drop the message. A client that keeps doing it is closed; other connections have their own buckets.
+        if (drops.hit() >= limits.maxDrops) { fail("rate_limited", "too many messages: closing"); shut(CLOSE_POLICY, "rate limit"); return; }
+        return fail("rate_limited", "too many messages: slow down");
+      }
+      if (queued >= limits.maxQueue) { shut(CLOSE_POLICY, "too many queued messages"); return; }
+      queued++;
+      const text = raw.toString();
+      chain = chain.then(() => handle(text)).catch((err) => log(`handler failed: ${(err as Error).message}`)).finally(() => { queued--; });
+    });
+    ws.on("error", (err) => log(`socket error: ${err.message}`)); // e.g. oversize frame; the ws library then closes it
+    ws.on("close", () => {
+      clearTimeout(joinTimer);
+      if (killTimer) clearTimeout(killTimer);
+      closing = true;
+      unsubscribe?.();
+      if (liveEntry) live.delete(liveEntry);
+      if (holderKey && holders.get(holderKey)?.ws === ws) {
+        holders.delete(holderKey);
+        if (host && who && !isFacilitator && participantId) {
+          host.release(who, participantId); log(`released ${who}`);
+          rosterChanged(who, "left");
+          if (liveEntry) broadcastRoster(liveEntry.sessionId, host);
+        }
+      }
+    });
+  });
+
+  return {
+    port,
+    replaceCodes: (sessionId, codes) => {
+      if (opts.joinCodes === undefined) throw new Error("replaceCodes: this server was started without join codes");
+      opts.joinCodes.set(sessionId, codes);
+    },
+    kickRole: (sessionId, roleId, closeCode) => {
+      const h = opts.hosts.get(sessionId);
+      if (!h) return;
+      const key = `${sessionId}:${roleId}`;
+      const held = holders.get(key);
+      // The seat is freed here, synchronously: the socket closes later, and a join with the new code must not meet `role_taken`.
+      // Removing the holder first makes the old socket's close handler leave the seat (now possibly someone else's) alone.
+      holders.delete(key);
+      const occupant = Object.hasOwn(h.assignments, roleId) ? h.assignments[roleId] : undefined;
+      if (occupant !== undefined) h.release(roleId, occupant);
+      held?.kickWith(closeCode); // marks the socket closing, so the broadcast below does not reach it
+      if (held || occupant !== undefined) { log(`kicked ${roleId}`); rosterChanged(roleId, "left"); broadcastRoster(sessionId, h); }
+    },
+    broadcastRoster: (sessionId) => { const h = opts.hosts.get(sessionId); if (h) broadcastRoster(sessionId, h); },
+    close: () => new Promise<void>((resolve) => {
+      for (const u of unsubscribeFatal) u();
+      for (const u of unsubscribeEnd) u();
+      clearInterval(heartbeat);
+      for (const c of wss.clients) c.terminate();
+      wss.close();
+      httpServer.close(() => resolve());
+      httpServer.closeAllConnections();
+    }),
+  };
+}

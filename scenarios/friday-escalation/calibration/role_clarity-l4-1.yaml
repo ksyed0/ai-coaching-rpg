@@ -1,0 +1,34 @@
+kind: single
+id: role_clarity-l4-1
+criterion: role_clarity
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:31.087Z
+split: holdout
+subject: account_manager
+expected: 4
+transcript:
+  - scene: s3_internal_wrap
+    role: delivery_lead
+    text: I can do the sizing as well, and talk about the price on the call.
+  - scene: s3_internal_wrap
+    role: account_manager
+    text: "Let's keep it clean: the tech lead owns the sizing, I own the price and
+      the client message, and you own the plan."
+  - scene: s3_internal_wrap
+    role: tech_lead
+    text: I'll have the sizing to you by Thursday noon.
+  - scene: s3_internal_wrap
+    role: account_manager
+    text: Thanks. Delivery lead, you draft the plan by end of day Thursday, and I'll
+      send Priya the written summary on Friday morning. If Priya has a
+      data-layer follow-up, I'll bring the tech lead into the next call rather
+      than answer it myself.
+  - scene: s3_internal_wrap
+    role: delivery_lead
+    text: Fine. Wait, I thought I was sending the summary?
+  - scene: s3_internal_wrap
+    role: account_manager
+    text: "Let me correct that: I own the summary, you own the plan. I'll confirm
+      both in writing after this meeting."

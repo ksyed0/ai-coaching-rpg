@@ -1,0 +1,63 @@
+# Showcase script for `pnpm demo --showcase --scenario scenarios/friday-escalation`: what the bot players say, scene by scene (US-0040).
+# `lines` are spoken in order by player bots (live and mock runs). `mock` is used ONLY by the offline mock run:
+# the scripted replies of each AI character (one per player line, in order) and the Game Master's verdicts
+# for the scene (JSON, in the order the Game Master is asked). A live run ignores `mock` entirely.
+# This scenario has three scenes and one AI character (Priya, scene 2). The lines mix good and weak moves on purpose (an unpriced promise to Priya,
+# a loose end in the wrap-up) so that the evaluator and the Game Master have something to tell apart.
+scenes:
+  - scene: s1_huddle
+    lines:
+      - { role: delivery_lead, text: "Okay, Priya's email is in. She wants a reconciliation module before go-live and an answer by end of day Friday. First reactions?" }
+      - { role: tech_lead, text: "My worry is the ingestion layer. We are still hardening it, and anything we add now competes with go-live." }
+      - { role: account_manager, text: "I would rather not say no outright. The renewal is in play, and a flat refusal will land badly." }
+      - { role: delivery_lead, text: "So not a flat yes and not a flat no. What if we offer it as a phase two after go-live, scoped and priced?" }
+      - { role: tech_lead, text: "I can live with that. A phased version is roughly half the work and keeps the go-live date safe." }
+      - { role: account_manager, text: "Agreed. Position for the call: phase two after go-live, priced as a change request, with the risk to the date spelled out for her." }
+    # The mock Game Master replies are in the order of its model CALLS (not of its evaluations). `kind` declares what a reply is: `tolerant` is valid only
+    # through the tolerant parser (here a code fence); `malformed` has no verdict, so the Game Master asks once more and the next reply answers that re-ask.
+    # Scripted replies carry no nonce: the mock stamps the evaluation's id into every verdict object it serves, like a model that follows the prompt.
+    mock:
+      gm:
+        - kind: tolerant
+          reply: "Here is my judgement:\n```json\n{\"reasoning\": \"The team has aired concerns but has not settled on one position yet.\", \"verdict\": false}\n```"
+        - kind: malformed
+          reply: 'The team seems to be getting close to a position, though I would need to think about it.'
+        - '{"reasoning": "All three converged on a phased, priced module after go-live and the account manager restated it as the position.", "verdict": true}'
+
+  - scene: s2_client_call
+    lines:
+      - { role: delivery_lead, text: "Hi Priya, thanks for making time. We read your email and we want to help Finance tie out the daily loads." }
+      - { role: account_manager, text: "We can deliver it, but not safely before go-live. The ingestion layer is still being hardened, so we would propose a phased module right after launch." }
+      - { role: account_manager, text: "And on price, do not worry, we will find a way to make it work for you, whatever Finance needs." }
+      - { role: delivery_lead, text: "Let me be concrete. Adding new code to ingestion now puts the launch date at risk, and a late launch costs you far more than a short wait. We will send a written proposal on Monday with scope, a price and a date, and until then Finance gets a manual tie-out report." }
+    mock:
+      npc:
+        client_sponsor:
+          - "Thanks for jumping on. I will be direct: Finance needs that reconciliation module before go-live. Can you confirm it today?"
+          - "I hear the ingestion risk, but right after launch is not what I asked for, and I have to explain this upstairs."
+          - "That is generous, but I cannot take whatever Finance needs to my CFO. How soon after launch, and what do I tell Finance in the meantime?"
+          - "That I can work with. A written proposal with scope, a price and a date on Monday, and a manual report until then. I will tell my CFO to expect it."
+      gm:
+        - '{"verdict": false, "reasoning": "Priya is still asking about the risk and no next step has been agreed yet."}'
+        - '{"verdict": true, "reasoning": "Priya accepted a written proposal on Monday with scope, price and date, and told the team she would brief her CFO, which is a concrete next step."}'
+      # US-0040: Priya's hidden fact 1 has an earned_when condition. After line 2 the account manager has named the risk and offered a phased module after go-live,
+      # so the facilitator (only) is told "/release client_sponsor 1". Nothing is released by that. In the round after line 3 the exit verdict is true, so no earned check is made.
+      gm_earned:
+        - role: client_sponsor
+          fact: 1
+          replies:
+            - '{"verdict": true, "reasoning": "The account manager named the risk of changing ingestion before go-live and offered a phased module after launch."}'
+
+  - scene: s3_internal_wrap
+    lines:
+      - { role: delivery_lead, text: "Priya took it better than I feared. Let us capture what we agreed: a phased module after go-live, and a written proposal to her on Monday." }
+      - { role: account_manager, text: "I will draft and send the proposal on Monday morning and call Priya to confirm she has it. I will also tell our account lead the conversation ended in a good place." }
+      - { role: tech_lead, text: "I need to size the phased version and check the effort with the ingestion team. Someone should also tell the wider team that go-live scope has not changed." }
+      - { role: delivery_lead, text: "I will send that note to the wider team today: go-live scope is unchanged and the module is a phase two proposal." }
+      - { role: tech_lead, text: "Then I will send you the effort estimate by Thursday so the proposal has a defensible price." }
+      - { role: account_manager, text: "Good. So: I own the proposal and the call to Priya, the tech lead owns the estimate, and the delivery lead owns the message to the wider team." }
+    # Judged after line 3 (the wider-team message still has no owner: false) and after line 6 (every follow-up has an owner and a next action: true).
+    mock:
+      gm:
+        - '{"verdict": false, "reasoning": "The proposal and the call to Priya have an owner but the estimate and the message to the wider team do not yet."}'
+        - '{"verdict": true, "reasoning": "Owners and next actions were named for the proposal, the estimate and the message to the wider team."}'

@@ -1,0 +1,29 @@
+kind: single
+id: listening-l3-1
+criterion: listening
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:21.205Z
+split: tune
+subject: account_manager
+expected: 3
+transcript:
+  - scene: s1_huddle
+    role: delivery_lead
+    text: My concern is that the team is already stretched on the integration work.
+  - scene: s1_huddle
+    role: account_manager
+    text: So you're saying the team can't take more on unless something else moves.
+      Is that right?
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Yes, exactly. The integration work is behind.
+  - scene: s1_huddle
+    role: tech_lead
+    text: And the module sits on the same data layer, so it isn't a small change.
+  - scene: s1_huddle
+    role: account_manager
+    text: Building on that, if it touches the same data layer as integration, then
+      we can't promise a quick turnaround. I'd present it to Priya as something
+      we need to size first.

@@ -1,0 +1,372 @@
+import { describe, expect, it } from "vitest";
+import { initialState, reduce, includeInGroupOf, aiRolesOfStarted, visibleTranscript, activeElapsedMs, MAX_WHISPERS_PER_ROLE, type SessionEvent } from "../index.js";
+
+const env = (seq: number) => ({ seq, ts: 1_000 + seq, sessionId: "s1" });
+
+const started: SessionEvent = {
+  ...env(1),
+  type: "session.started",
+  scenarioId: "esc-scope-creep-01",
+  version: "1.2",
+  roles: {
+    delivery_lead: { kind: "player", participantId: "p1" },
+    client_sponsor: { kind: "npc" },
+  },
+};
+
+describe("reduce", () => {
+  it("starts a session and enters the first scene", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1_huddle", participants: ["delivery_lead"] });
+    expect(s.status).toBe("running");
+    expect(s.currentScene?.id).toBe("s1_huddle");
+    expect(s.currentScene?.enteredAt).toBe(1_002);
+  });
+
+  it("appends utterances to the transcript with scene and seq", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1_huddle", participants: ["delivery_lead"] });
+    s = reduce(s, { ...env(3), type: "utterance", roleId: "delivery_lead", text: "Hi all", channel: "text" });
+    expect(s.transcript).toEqual([{ seq: 3, ts: 1_003, sceneId: "s1_huddle", roleId: "delivery_lead", text: "Hi all", channel: "text" }]);
+  });
+
+  it("activeElapsedMs excludes closed and open pauses and is 0 without a scene", () => {
+    let s = reduce(initialState(), started);
+    expect(activeElapsedMs(s, 9_999)).toBe(0);
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1", participants: ["delivery_lead"] }); // ts 1002
+    s = reduce(s, { seq: 3, ts: 1_102, sessionId: "s1", type: "facilitator.command", command: "pause" });
+    expect(activeElapsedMs(s, 5_000)).toBe(100);
+    s = reduce(s, { seq: 4, ts: 2_102, sessionId: "s1", type: "facilitator.command", command: "resume" });
+    expect(s.currentScene?.pausedMs).toBe(1_000);
+    expect(activeElapsedMs(s, 2_202)).toBe(200);
+    expect(activeElapsedMs(s, 0)).toBe(0);
+  });
+
+  it("a scene entered while paused is frozen from its entry", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { seq: 2, ts: 1_100, sessionId: "s1", type: "facilitator.command", command: "pause" });
+    s = reduce(s, { seq: 3, ts: 1_200, sessionId: "s1", type: "scene.entered", sceneId: "s1", participants: [] });
+    expect(activeElapsedMs(s, 9_000)).toBe(0);
+    s = reduce(s, { seq: 4, ts: 9_000, sessionId: "s1", type: "facilitator.command", command: "resume" });
+    expect(activeElapsedMs(s, 9_050)).toBe(50);
+  });
+
+  it("a session that ends while paused has no active time and stays ended", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1", participants: [] });
+    s = reduce(s, { ...env(3), type: "facilitator.command", command: "pause" });
+    s = reduce(s, { ...env(4), type: "session.ended", reason: "facilitator_end" });
+    expect(s.status).toBe("ended");
+    expect(activeElapsedMs(s, 99_999)).toBe(0);
+  });
+
+  it("a resume stamped earlier than its pause never makes pausedMs negative", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1", participants: [] });
+    s = reduce(s, { seq: 3, ts: 5_000, sessionId: "s1", type: "facilitator.command", command: "pause" });
+    s = reduce(s, { seq: 4, ts: 4_000, sessionId: "s1", type: "facilitator.command", command: "resume" });
+    expect(s.currentScene?.pausedMs).toBe(0);
+    expect(s.paused).toBe(false);
+  });
+
+  it("activeElapsedMs is 0 for a non-finite result (corrupt timestamps)", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1", participants: [] });
+    expect(activeElapsedMs(s, Number.NaN)).toBe(0);
+    expect(activeElapsedMs(s, Number.POSITIVE_INFINITY)).toBe(0);
+    s = reduce(s, { seq: 3, ts: Number.NaN, sessionId: "s1", type: "facilitator.command", command: "pause" });
+    expect(activeElapsedMs(s, 9_000)).toBe(0);
+  });
+
+  it("tracks pause and resume", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "facilitator.command", command: "pause" });
+    expect(s.paused).toBe(true);
+    s = reduce(s, { ...env(3), type: "facilitator.command", command: "resume" });
+    expect(s.paused).toBe(false);
+  });
+
+  it("applies NPC goal updates", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "npc.updated", roleId: "client_sponsor", goals: ["Get a yes"], knowledge: ["CFO asked"] });
+    expect(s.npcs.client_sponsor).toEqual({ goals: ["Get a yes"], knowledge: ["CFO asked"], released: [] });
+  });
+
+  it("ends the session", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "session.ended", reason: "script_complete" });
+    expect(s.status).toBe("ended");
+  });
+
+  it("rejects an event whose seq is not the next one", () => {
+    const s = reduce(initialState(), started);
+    expect(() => reduce(s, { ...env(5), type: "facilitator.command", command: "pause" })).toThrow(/seq/);
+  });
+});
+
+describe("visibleTranscript", () => {
+  it("shows a role only the scenes it participated in", () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1_huddle", participants: ["delivery_lead"] });
+    s = reduce(s, { ...env(3), type: "utterance", roleId: "delivery_lead", text: "internal only", channel: "text" });
+    s = reduce(s, { ...env(4), type: "scene.exited", sceneId: "s1_huddle", reason: "facilitator_advance" });
+    s = reduce(s, { ...env(5), type: "scene.entered", sceneId: "s2_client_call", participants: ["delivery_lead", "client_sponsor"] });
+    s = reduce(s, { ...env(6), type: "utterance", roleId: "delivery_lead", text: "Hi Priya", channel: "text" });
+    expect(visibleTranscript(s, "client_sponsor").map((u) => u.text)).toEqual(["Hi Priya"]);
+    expect(visibleTranscript(s, "delivery_lead").map((u) => u.text)).toEqual(["internal only", "Hi Priya"]);
+  });
+});
+
+describe("reduce: advance request and GM verdicts", () => {
+  const enter = (seq: number, sceneId: string) => ({ ...env(seq), type: "scene.entered" as const, sceneId, participants: ["delivery_lead"] });
+  const inScene = () => reduce(reduce(initialState(), started), enter(2, "a"));
+
+  it("starts with no advance request and no verdicts", () => {
+    expect(initialState().advanceRequested).toBe(false);
+    expect(initialState().gmVerdicts).toEqual({});
+  });
+
+  it("advance command sets the flag and scene.entered resets it", () => {
+    let s = reduce(inScene(), { ...env(3), type: "facilitator.command", command: "advance" });
+    expect(s.advanceRequested).toBe(true);
+    s = reduce(s, enter(4, "b"));
+    expect(s.advanceRequested).toBe(false);
+  });
+
+  it("records gm.decision for the current scene keyed by condition", () => {
+    const before = inScene();
+    const s = reduce(before, { ...env(3), type: "gm.decision", sceneId: "a", condition: "said hello", verdict: true, reasoning: "r" });
+    expect(s.gmVerdicts).toEqual({ "said hello": true });
+    expect(before.gmVerdicts).toEqual({});
+  });
+
+  it("gm.no_verdict changes nothing in the state (it is a record for the facilitator)", () => {
+    const before = inScene();
+    const s = reduce(before, { ...env(3), type: "gm.no_verdict", sceneId: "a", condition: "c", reason: "empty", attempts: 2 });
+    expect(s).toEqual({ ...before, lastSeq: 3 });
+  });
+
+  it("ignores gm.decision for a different scene", () => {
+    const s = reduce(inScene(), { ...env(3), type: "gm.decision", sceneId: "zzz", condition: "c", verdict: true, reasoning: "r" });
+    expect(s.gmVerdicts).toEqual({});
+  });
+
+  it("resets verdicts on scene.entered and scene.exited", () => {
+    let s = reduce(inScene(), { ...env(3), type: "gm.decision", sceneId: "a", condition: "c", verdict: true, reasoning: "r" });
+    const exited = reduce(s, { ...env(4), type: "scene.exited", sceneId: "a", reason: "time_box_elapsed" });
+    expect(exited.gmVerdicts).toEqual({});
+    s = reduce(s, enter(4, "b"));
+    expect(s.gmVerdicts).toEqual({});
+  });
+
+  it("a release_hidden command changes nothing by itself; the following npc.updated carries the fact", () => {
+    let s = reduce(inScene(), { ...env(3), type: "npc.updated", roleId: "client_sponsor", goals: ["g"], knowledge: ["k"], released: [] });
+    const cmd = reduce(s, { ...env(4), type: "facilitator.command", command: "release_hidden", roleId: "client_sponsor", fact: 1 });
+    expect(cmd.npcs).toEqual(s.npcs);
+    expect(cmd.paused).toBe(false);
+    s = reduce(cmd, { ...env(5), type: "npc.updated", roleId: "client_sponsor", goals: ["g"], knowledge: ["k"], released: ["the fact"] });
+    expect(s.npcs.client_sponsor!.released).toEqual(["the fact"]);
+  });
+
+  it("an npc.updated without released (an inject effect) keeps what was released", () => {
+    let s = reduce(inScene(), { ...env(3), type: "npc.updated", roleId: "client_sponsor", goals: ["g"], knowledge: ["k"], released: ["the fact"] });
+    s = reduce(s, { ...env(4), type: "npc.updated", roleId: "client_sponsor", goals: ["g", "g2"], knowledge: ["k"] });
+    expect(s.npcs.client_sponsor!.released).toEqual(["the fact"]);
+  });
+});
+
+describe("session.resumed (US-0018)", () => {
+  const base = () => {
+    let s = reduce(initialState(), started);
+    s = reduce(s, { seq: 2, ts: 1_000, sessionId: "s1", type: "scene.entered", sceneId: "s1", participants: ["delivery_lead"] });
+    return s;
+  };
+
+  it("comes back paused; the downtime since the last event counts as paused time", () => {
+    let s = base();
+    s = reduce(s, { seq: 3, ts: 61_000, sessionId: "s1", type: "session.resumed", downFromTs: 31_000 });
+    expect(s.paused).toBe(true);
+    expect(s.pausedSince).toBe(31_000);
+    expect(activeElapsedMs(s, 999_999)).toBe(30_000);
+    s = reduce(s, { seq: 4, ts: 70_000, sessionId: "s1", type: "facilitator.command", command: "resume" });
+    expect(s.paused).toBe(false);
+    expect(s.currentScene?.pausedMs).toBe(39_000);
+    expect(activeElapsedMs(s, 70_000)).toBe(30_000);
+  });
+
+  it("keeps the pause start of a session that was already paused", () => {
+    let s = base();
+    s = reduce(s, { seq: 3, ts: 11_000, sessionId: "s1", type: "facilitator.command", command: "pause" });
+    s = reduce(s, { seq: 4, ts: 50_000, sessionId: "s1", type: "session.resumed", downFromTs: 20_000 });
+    expect(s.pausedSince).toBe(11_000);
+    expect(activeElapsedMs(s, 80_000)).toBe(10_000);
+  });
+
+  it("never starts the pause after its own ts and survives a non-finite downFromTs", () => {
+    const a = reduce(base(), { seq: 3, ts: 5_000, sessionId: "s1", type: "session.resumed", downFromTs: 9_000 });
+    expect(a.pausedSince).toBe(5_000);
+    const b = reduce(base(), { seq: 3, ts: 5_000, sessionId: "s1", type: "session.resumed", downFromTs: Number.NaN });
+    expect(b.pausedSince).toBe(5_000);
+  });
+
+  it("changes nothing on an ended session", () => {
+    let s = base();
+    s = reduce(s, { seq: 3, ts: 2_000, sessionId: "s1", type: "session.ended", reason: "script_complete" });
+    const after = reduce(s, { seq: 4, ts: 3_000, sessionId: "s1", type: "session.resumed", downFromTs: 2_000 });
+    expect(after).toEqual({ ...s, lastSeq: 4 });
+  });
+});
+
+describe("event types", () => {
+  it("lists every known type and rejects others", async () => {
+    const { EVENT_TYPES, isKnownEventType } = await import("../index.js");
+    expect(EVENT_TYPES).toContain("session.resumed");
+    expect(EVENT_TYPES).toHaveLength(13); // US-0034 added gm.fact_earned
+    expect(isKnownEventType("utterance")).toBe(true);
+    expect(isKnownEventType("toString")).toBe(false);
+    expect(isKnownEventType("session.future")).toBe(false);
+    expect(isKnownEventType(7)).toBe(false);
+  });
+
+  it("LOG_FORMAT is 3, logFormatFor([]) is 2 and logFormatFor([\"tech_lead\"]) is 3", async () => {
+    const { LOG_FORMAT, LOG_FORMAT_WITHOUT_AI_ROLES, logFormatFor } = await import("../index.js");
+    expect(LOG_FORMAT).toBe(3);
+    expect(LOG_FORMAT_WITHOUT_AI_ROLES).toBe(2);
+    expect(logFormatFor([])).toBe(2);
+    expect(logFormatFor(["tech_lead"])).toBe(3);
+  });
+});
+
+describe("reduceReplay (US-0018: linear restore)", () => {
+  it("gives the same state as reduce, appends in place, and checks the seq", async () => {
+    const { reduceReplay } = await import("../index.js");
+    const evs: SessionEvent[] = [
+      started,
+      { ...env(2), type: "scene.entered", sceneId: "s1", participants: ["delivery_lead"] },
+      { ...env(3), type: "utterance", roleId: "delivery_lead", text: "a", channel: "text" },
+      { ...env(4), type: "inject.fired", injectId: "i1", sceneId: "s1", to: ["delivery_lead"], content: "c" },
+      { ...env(5), type: "utterance", roleId: "delivery_lead", text: "b", channel: "voice" },
+      { ...env(6), type: "scene.exited", sceneId: "s1", reason: "facilitator_advance" },
+      { ...env(7), type: "utterance", roleId: "delivery_lead", text: "between scenes", channel: "text" },
+    ];
+    const pure = evs.reduce((s, e) => reduce(s, e), initialState());
+    const fresh = initialState();
+    const fast = evs.reduce((s, e) => reduceReplay(s, e), fresh);
+    expect(fast).toEqual(pure);
+    expect(fast.transcript).toBe(fresh.transcript);
+    expect(fast.injectsFired).toBe(fresh.injectsFired);
+    expect(() => reduceReplay(fast, { ...env(99), type: "utterance", roleId: "x", text: "x", channel: "text" })).toThrow(/out of order/);
+    expect(() => reduceReplay(fast, { ...env(99), type: "inject.fired", injectId: "x", sceneId: "s", to: [], content: "" })).toThrow(/out of order/);
+  });
+});
+
+describe("aiRoles (US-0060)", () => {
+  const startedAi = (aiRoles?: unknown): SessionEvent => ({
+    ...env(1), type: "session.started", scenarioId: "sc", version: "1",
+    roles: { tech_lead: { kind: "player" }, delivery_lead: { kind: "player" }, client_sponsor: { kind: "npc" } },
+    ...(aiRoles === undefined ? {} : { aiRoles }),
+  } as SessionEvent);
+
+  it('session.started with aiRoles ["tech_lead", 7, "client_sponsor", "tech_lead"] folds to ["tech_lead"] when client_sponsor is an npc; without the field aiRoles is []', () => {
+    expect(reduce(initialState(), startedAi(["tech_lead", 7, "client_sponsor", "tech_lead", "ghost"])).aiRoles).toEqual(["tech_lead"]);
+    expect(reduce(initialState(), startedAi()).aiRoles).toEqual([]);
+    expect(reduce(initialState(), startedAi("tech_lead")).aiRoles).toEqual([]);
+    expect(initialState().aiRoles).toEqual([]);
+  });
+
+  it("reduceReplay agrees with reduce on aiRoles", async () => {
+    const { reduceReplay } = await import("../index.js");
+    const evs = [startedAi(["delivery_lead", "tech_lead"]), { ...env(2), type: "utterance", roleId: "tech_lead", text: "a", channel: "text" } as SessionEvent];
+    const pure = evs.reduce((st, e) => reduce(st, e), initialState());
+    const fast = evs.reduce((st, e) => reduceReplay(st, e), initialState());
+    expect(fast.aiRoles).toEqual(["delivery_lead", "tech_lead"]);
+    expect(fast).toEqual(pure);
+  });
+});
+
+// BUG-0023: the per-role whisper fold.
+describe("whispers (BUG-0023)", () => {
+  const roles = { host: { kind: "player" }, analyst: { kind: "player" }, guest: { kind: "npc" } } as const;
+  const base = () => {
+    let s = reduce(initialState(), { ...env(1), type: "session.started", scenarioId: "sc", version: "1", roles });
+    s = reduce(s, { ...env(2), type: "scene.entered", sceneId: "s1", participants: ["host", "guest"] });
+    return s;
+  };
+  const whisper = (seq: number, roleId: string, text: string, by?: string): SessionEvent => ({ ...env(seq), type: "facilitator.command", command: "whisper", roleId, text, ...(by ? { by } : {}) });
+
+  it("starts empty", () => { expect(initialState().whispers).toEqual({}); });
+
+  it("keeps a whisper under the addressed role with its seq and text, and the scene only when that role takes part in it", () => {
+    let s = base();
+    s = reduce(s, whisper(3, "host", "Keep the price out", "Dana"));
+    s = reduce(s, whisper(4, "analyst", "Numbers are shaky"));
+    expect(s.whispers).toEqual({
+      host: [{ seq: 3, sceneId: "s1", text: "Keep the price out" }],
+      analyst: [{ seq: 4, sceneId: null, text: "Numbers are shaky" }], // the analyst is not in s1: its id is not hers to learn
+    });
+    expect(JSON.stringify(s.whispers)).not.toMatch(/Dana|"by"/);
+  });
+
+  it("keeps whispers in order, bounded to the last MAX_WHISPERS_PER_ROLE per role", () => {
+    let s = base();
+    for (let i = 0; i < MAX_WHISPERS_PER_ROLE + 5; i++) s = reduce(s, whisper(3 + i, "host", `w${i}`));
+    const mine = s.whispers.host!;
+    expect(mine).toHaveLength(MAX_WHISPERS_PER_ROLE);
+    expect(mine[0]!.text).toBe("w5");
+    expect(mine.at(-1)!.text).toBe(`w${MAX_WHISPERS_PER_ROLE + 4}`);
+  });
+
+  it("ignores a malformed whisper and other commands", () => {
+    let s = base();
+    const before = s.whispers;
+    s = reduce(s, { ...env(3), type: "facilitator.command", command: "whisper", roleId: "host", text: 5 } as unknown as SessionEvent);
+    s = reduce(s, { ...env(4), type: "facilitator.command", command: "advance" });
+    expect(s.whispers).toBe(before);
+  });
+
+  it("a role id such as __proto__ is an ordinary own key", () => {
+    const s = reduce(base(), whisper(3, "__proto__", "x"));
+    expect(Object.hasOwn(s.whispers, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(s.whispers)).toBe(Object.prototype);
+  });
+
+  it("a reissue alert sets the role's whisper floor to its seq; other alerts and unknown roles do not", () => {
+    let s = base();
+    const alert = (seq: number, message: string): SessionEvent => ({ ...env(seq), type: "facilitator.alert", level: "info", message });
+    s = reduce(s, alert(3, "consent for host will be rebound after a code reissue by Kim Lee"));
+    s = reduce(s, alert(4, "consent for ghost will be rebound after a code reissue by Kim"));
+    s = reduce(s, alert(5, "something else about host"));
+    expect(s.whisperFloor).toEqual({ host: 3 });
+  });
+
+  it("reduceReplay agrees with reduce", async () => {
+    const { reduceReplay } = await import("../index.js");
+    const evs: SessionEvent[] = [
+      { ...env(1), type: "session.started", scenarioId: "sc", version: "1", roles },
+      { ...env(2), type: "scene.entered", sceneId: "s1", participants: ["host"] },
+      whisper(3, "host", "a"), whisper(4, "analyst", "b"), { ...env(5), type: "utterance", roleId: "host", text: "hi", channel: "text" },
+    ];
+    expect(evs.reduce((st, e) => reduceReplay(st, e), initialState())).toEqual(evs.reduce((st, e) => reduce(st, e), initialState()));
+  });
+});
+
+describe("the group-score option (US-0061)", () => {
+  const st = (extra: Record<string, unknown> = {}) => ({
+    ...env(1), type: "session.started", scenarioId: "sc", version: "1",
+    roles: { tech_lead: { kind: "player" }, client_sponsor: { kind: "npc" } }, ...extra,
+  } as SessionEvent as Extract<SessionEvent, { type: "session.started" }>);
+
+  it("includeInGroupOf is true for an event without the field, true for true, false only for false", () => {
+    expect(includeInGroupOf(st())).toBe(true);
+    expect(includeInGroupOf(st({ aiRoles: ["tech_lead"], includeInGroup: true }))).toBe(true);
+    expect(includeInGroupOf(st({ aiRoles: ["tech_lead"], includeInGroup: false }))).toBe(false);
+  });
+
+  it("aiRolesOfStarted equals the folded state.aiRoles for the existing fold cases", () => {
+    for (const ai of [["tech_lead", 7, "client_sponsor", "tech_lead", "ghost"], undefined, "tech_lead", [], ["tech_lead"]]) {
+      const e = st(ai === undefined ? {} : { aiRoles: ai });
+      expect(aiRolesOfStarted(e)).toEqual(reduce(initialState(), e).aiRoles);
+    }
+    expect(aiRolesOfStarted(st({ aiRoles: ["tech_lead", 7, "client_sponsor", "tech_lead"] }))).toEqual(["tech_lead"]);
+  });
+});

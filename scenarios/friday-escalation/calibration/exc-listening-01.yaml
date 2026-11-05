@@ -1,0 +1,42 @@
+kind: single
+id: exc-listening-01
+criterion: listening
+source: excerpt
+drafter: null
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:50.139Z
+split: holdout
+subject: account_manager
+expected: 2
+acceptable:
+  - 2
+  - 3
+transcript:
+  - scene: s2_client_call
+    role: account_manager
+    text: Priya, we can definitely deliver the reconciliation module, but adding it
+      now would put your go-live date at significant risk because the ingestion
+      layer is still being hardened. I propose we launch the current scope on
+      time and move this module into a phased delivery immediately after. This
+      ensures a stable launch while still getting the functionality to your CFO
+      as quickly as possible.
+  - scene: s2_client_call
+    role: client_sponsor
+    text: My Finance team cannot perform a daily tie-out without this module, so a
+      phased approach after go-live is effectively a failure for them. I cannot
+      sell a "stable launch" to my CFO if the core financial controls are
+      missing. What is the absolute minimum we can build to make the first
+      month-end close possible without shifting the date?
+  - scene: s2_client_call
+    role: account_manager
+    text: I understand the pressure from your CFO, and we will find a way to make
+      this work regardless of what Finance requires. Let's have the tech lead
+      identify the absolute minimum viable version of the module that allows for
+      that tie-out without moving the date. I'll handle the commercial side so
+      this doesn't become a budget conflict for you.
+  - scene: s2_client_call
+    role: client_sponsor
+    text: I need a concrete answer today, not a promise that someone will look into
+      it. If you're handling the commercials, does that mean this is being
+      absorbed into the current cost? Give me a date for when the tech lead will
+      have that minimum viable version defined.

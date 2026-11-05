@@ -1,0 +1,281 @@
+import type { SessionEvent } from "@acr/events";
+import { isSafeId } from "@acr/events";
+import type { ServerMessage } from "../host/protocol.js";
+import type { FacilitatorRosterEntry, PeerRosterEntry } from "../host/roster.js";
+
+/** The roster entry key that marks an AI seat; anchored to both server types so renaming the field there fails compilation here. */
+const AI_KEY = "ai" satisfies keyof FacilitatorRosterEntry & keyof PeerRosterEntry;
+
+/** Longest server-supplied string we will display (R26). */
+export const MAX_DISPLAY_CHARS = 4_000;
+const TRUNCATED = "…[truncated]";
+
+// Written with double-escaped \\u sequences so no invisible character ever lives in this source file.
+const NEWLINE = new RegExp("\\r\\n|\\n|\\u2028|\\u2029", "g");
+// Bidi embedding/override/isolate, zero-width and directional marks, BOM: removed outright.
+const INVISIBLE = new RegExp("[\\u202a-\\u202e\\u2066-\\u2069\\u200b-\\u200f\\ufeff]", "g");
+// Remaining C0 (incl. ESC, NUL, bare CR), DEL and C1 (incl. 8-bit CSI/OSC introducers): visibly replaced.
+const CONTROL = new RegExp("[\\u0000-\\u001f\\u007f-\\u009f]", "g");
+
+/**
+ * R26: makes text written by other participants / NPCs / the GM safe to print on a terminal. It can never contain an
+ * escape sequence, a control character, a bidi override or an embedded line break (newlines become a visible marker
+ * so nobody can forge a fresh "[role]:" line). Output is capped at MAX_DISPLAY_CHARS. Pure; apply BEFORE any styling.
+ */
+export function sanitizeText(s: string): string {
+  const raw = typeof s === "string" ? s : s === undefined || s === null ? "" : String(s);
+  // Cap first so a huge payload costs O(cap); the multiplier leaves room for characters that are stripped.
+  const clipped = raw.length > MAX_DISPLAY_CHARS * 2 ? raw.slice(0, MAX_DISPLAY_CHARS * 2) : raw;
+  let out = clipped
+    .replace(NEWLINE, " ⏎ ")
+    .replace(INVISIBLE, "")
+    .replace(/\t/g, " ")
+    .replace(CONTROL, "·");
+  if (raw.length > clipped.length || out.length > MAX_DISPLAY_CHARS) out = out.slice(0, MAX_DISPLAY_CHARS) + TRUNCATED;
+  return out;
+}
+
+const s = sanitizeText;
+
+/** Most history lines shown when joining (or rejoining). */
+export const MAX_HISTORY_LINES = 50;
+
+/** Most AI role ids the client keeps: a broken server cannot make it grow a set without bound. */
+const MAX_AI_ROLES = 100;
+
+/**
+ * US-0060: the player roles an AI plays, from a `joined` snapshot's `state.aiRoles` or a `session.started` event's `aiRoles`. Only strings that
+ * are valid role ids are kept (a number, an object or a string with control characters is dropped, never printed). This set, and only this
+ * set, decides every "AI player" label: a display name never does.
+ */
+export function parseAiRoles(v: unknown): Set<string> {
+  const out = new Set<string>();
+  if (!Array.isArray(v)) return out;
+  for (const r of v.slice(0, MAX_AI_ROLES)) if (typeof r === "string" && isSafeId(r)) out.add(r);
+  return out;
+}
+
+/** One chat line: `you` for the viewer's own role, `AI player (<role>) [AI]` for a role in `ai`, the sanitised role id otherwise. */
+function speaker(roleId: string, me: string, ai: ReadonlySet<string>): string {
+  if (roleId === me) return "you";
+  return ai.has(roleId) ? `AI player (${s(roleId)}) [AI]` : s(roleId);
+}
+
+/** One printable line for an event, or null when this viewer should see nothing. Unknown event types render nothing. */
+export function renderEvent(e: SessionEvent, me: string, ai: ReadonlySet<string>): string | null {
+  const isFacilitator = me === "facilitator";
+  switch (e.type) {
+    case "utterance": return `${speaker(e.roleId, me, ai)}: ${s(e.text)}`;
+    case "scene.entered": return `--- scene ${s(e.sceneId)} ---`;
+    case "scene.exited": return `--- scene ${s(e.sceneId)} ended (${s(e.reason)}) ---`;
+    case "inject.fired": return `[inject] ${s(e.content)}`;
+    case "gm.decision": return isFacilitator ? `[gm] ${s(e.condition)} => ${s(String(e.verdict))} (${s(e.reasoning)})` : null;
+    case "gm.no_verdict": return isFacilitator ? `[gm] no verdict for ${JSON.stringify(s(e.condition))} (${s(e.reason)}${e.attempts > 1 ? " after re-ask" : ""})` : null;
+    case "facilitator.alert": return isFacilitator ? `[alert] ${s(e.message)}` : null;
+    // US-0034: by role and number only (the event carries no fact text). A suggestion is the facilitator's alert; an auto-release says who released it.
+    case "gm.fact_earned":
+      if (!isFacilitator) return null;
+      return e.autoRelease
+        ? `[gm] the Game Master released hidden fact #${s(String(e.fact))} of ${s(e.roleId)} itself (GM_AUTO_RELEASE is on): ${s(e.reasoning)}`
+        : `[alert] Game Master suggests releasing hidden fact #${s(String(e.fact))} of ${s(e.roleId)} (${s(e.reasoning)}): type /release ${s(e.roleId)} ${s(String(e.fact))} to release it`;
+    case "facilitator.command":
+      // A release names the role and the fact NUMBER only: the event carries no fact text (it goes in the facilitator-only npc.updated).
+      if (e.command === "release_hidden") return isFacilitator ? `[facilitator] released hidden fact #${s(String(e.fact))} of ${s(e.roleId)}` : null;
+      if (e.command === "prompt_ai") return isFacilitator ? `[facilitator] prompted the AI player for ${s(e.roleId)}` : null;
+      return e.command === "whisper" ? `[whisper] ${s(e.text)}` : `[facilitator] ${s(e.command)}`;
+    case "session.started": return `session started: ${s(e.scenarioId)} v${s(e.version)}`;
+    case "session.ended": {
+      // The facilitator's closing message (US-0059) goes on its own line behind a fixed prefix, so it can never pass for a chat line.
+      const end = `=== session ended (${s(e.reason)}) ===`;
+      return typeof e.message === "string" && e.message.trim() !== "" ? `${end}\nmessage from the facilitator: ${s(e.message)}` : end;
+    }
+    case "session.resumed": return isFacilitator ? "=== session paused (server restarted): /resume to continue ===" : "=== session paused (server restarted); the facilitator will resume it ===";
+    case "npc.updated": return isFacilitator ? `[npc ${s(e.roleId)}] goals: ${(e.goals ?? []).map(s).join("; ")}` : null;
+    default: return null;
+  }
+}
+
+/** Most roles and facts per role the client will list: a hostile or broken server cannot make it print without bound. */
+const MAX_LISTED_ROLES = 100;
+const MAX_LISTED_FACTS = 50;
+/** Most facts (all roles together) and most characters of one fact the client keeps and lists; 1000 is the scenario limit for a fact. */
+export const MAX_LISTED_TOTAL = 200;
+export const MAX_LISTED_FACT_CHARS = 1_000;
+
+/** The hidden facts a `joined` message carries, validated: role id -> up to 50 strings (anything else is dropped). Facilitator connections only. */
+export function parseHiddenFacts(v: unknown): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  let total = 0;
+  for (const [role, facts] of Object.entries(v as Record<string, unknown>).slice(0, MAX_LISTED_ROLES)) {
+    if (!Array.isArray(facts) || total >= MAX_LISTED_TOTAL) continue;
+    const kept = facts.filter((f): f is string => typeof f === "string").slice(0, Math.min(MAX_LISTED_FACTS, MAX_LISTED_TOTAL - total)).map((f) => f.slice(0, MAX_LISTED_FACT_CHARS));
+    total += kept.length;
+    out.set(role, kept);
+  }
+  return out;
+}
+
+/**
+ * The facilitator's `/hidden` listing: `cfo #1 [released] text`, numbered as `/release <role> <n>` expects. A fact the Game Master judged earned but
+ * that is not released yet is marked `[suggested by the Game Master]` (US-0034). Text goes through sanitizeText.
+ */
+export function renderHidden(facts: Map<string, string[]>, released: Map<string, string[]>, suggested: Map<string, number[]> = new Map()): string[] {
+  const lines: string[] = [];
+  for (const [role, list] of facts) {
+    const done = released.get(role) ?? [];
+    const hint = suggested.get(role) ?? [];
+    list.forEach((text, i) => lines.push(`${s(role)} #${i + 1}${done.includes(text) ? " [released]" : hint.includes(i + 1) ? " [suggested by the Game Master]" : ""} ${s(text)}`));
+  }
+  if (lines.length >= MAX_LISTED_TOTAL) lines.push(`(only the first ${MAX_LISTED_TOTAL} hidden facts are listed)`);
+  return lines.length ? lines : ["no AI character has hidden facts"];
+}
+
+/** US-0034: the facts the Game Master judged earned, from a facilitator's `joined` snapshot (`state.factsEarned`), validated: role id -> whole numbers 1..50. */
+export function parseFactsEarned(v: unknown): Map<string, number[]> {
+  const out = new Map<string, number[]>();
+  if (typeof v !== "object" || v === null || Array.isArray(v)) return out;
+  for (const [role, list] of Object.entries(v as Record<string, unknown>).slice(0, MAX_LISTED_ROLES)) {
+    if (Array.isArray(list)) out.set(role, list.filter((n): n is number => Number.isInteger(n) && n >= 1 && n <= MAX_LISTED_FACTS).slice(0, MAX_LISTED_FACTS));
+  }
+  return out;
+}
+
+/** For the facilitator: a line for each fact an `npc.updated` newly released (not in `known`), with its number when the fact list is known. */
+export function renderNewReleases(e: Extract<SessionEvent, { type: "npc.updated" }>, facts: Map<string, string[]>, known: Map<string, string[]>): string[] {
+  const before = known.get(e.roleId) ?? [];
+  const list = facts.get(e.roleId) ?? [];
+  return (Array.isArray(e.released) ? e.released : []).filter((t) => typeof t === "string" && !before.includes(t)).map((t) => {
+    const n = list.indexOf(t) + 1;
+    return `[npc ${s(e.roleId)}] released${n > 0 ? ` #${n}` : ""}: ${s(t)}`;
+  });
+}
+
+/** BUG-0023: the whispers of a `joined` snapshot, or [] for anything that is not a list of {seq, text}. Total: a bad entry is dropped. */
+function parseWhispers(v: unknown): { seq: number; text: string }[] {
+  if (!Array.isArray(v)) return [];
+  const out: { seq: number; text: string }[] = [];
+  for (const w of v as unknown[]) {
+    const x = w as { seq?: unknown; text?: unknown } | null;
+    if (typeof x === "object" && x !== null && typeof x.seq === "number" && Number.isSafeInteger(x.seq) && typeof x.text === "string") out.push({ seq: x.seq, text: x.text });
+  }
+  return out;
+}
+
+export function renderJoined(m: Extract<ServerMessage, { type: "joined" }>, ai: ReadonlySet<string> = parseAiRoles(m.state?.aiRoles)): string[] {
+  const lines = [`joined as ${s(m.roleId)}`]; // never the reconnect token
+  if (m.notice) lines.push(`warning: ${s(m.notice)}`);
+  if (m.roleId === "facilitator") {
+    const held = [...parseHiddenFacts(m.hiddenFacts)].filter(([, f]) => f.length > 0);
+    if (held.length) lines.push(`hidden facts: ${held.map(([r, f]) => `${s(r)} ${f.length}`).join(", ")} (/hidden lists them, /release <role> <n> releases one)`);
+  }
+  if (m.brief) {
+    lines.push("", `Your brief: ${s(m.brief)}`);
+    for (const f of m.privateFacts ?? []) lines.push(`  - ${s(f)}`);
+    lines.push("");
+  }
+  // US-0013: after a complete replay the lines after lastSeq arrive as replayed events right after this message; show the rest here.
+  const replay = validReplay(m.replay);
+  const all = m.state?.transcript ?? [];
+  // The server already filtered the transcript to what this viewer may see; it still goes through sanitizeText (R26).
+  const transcript = replay?.complete ? all.filter((u) => u.seq <= replay.afterSeq) : all;
+  // BUG-0023: the whispers sent to this player are in their snapshot (a player's only; the server never lists another role's). They print in seq order
+  // among the history lines, with the same [whisper] label a live one has, and the replay's range is skipped like the transcript's.
+  const whispers = parseWhispers(m.state?.whispers).filter((w) => !replay?.complete || w.seq <= replay.afterSeq).slice(-MAX_HISTORY_LINES);
+  if (transcript.length > 0 || whispers.length > 0) {
+    const shown = transcript.slice(-MAX_HISTORY_LINES);
+    lines.push("--- history ---");
+    if (transcript.length > shown.length) lines.push(`(+${transcript.length - shown.length} earlier lines)`);
+    const firstShown = shown[0]?.seq ?? 0;
+    const items = [
+      ...shown.map((u) => ({ seq: u.seq, line: `${speaker(u.roleId, m.roleId, ai)}: ${s(u.text)}` })),
+      // A whisper older than the oldest line shown would float to the top of a truncated history: keep it only when it falls inside the shown range.
+      ...whispers.filter((w) => transcript.length === shown.length || w.seq > firstShown).map((w) => ({ seq: w.seq, line: `[whisper] ${s(w.text)}` })),
+    ].sort((x, y) => x.seq - y.seq);
+    for (const it of items) lines.push(it.line);
+  }
+  if (replay?.complete) lines.push(`(catching up: ${replay.events} missed event${replay.events === 1 ? "" : "s"} follow)`);
+  else if (replay) lines.push("(too much was missed to replay it: the history above is what you may see; earlier injects and whispers are not shown)");
+  return lines;
+}
+
+/** The `joined` message's replay summary (US-0013), or null when absent or malformed (a broken server cannot make the client misbehave). */
+export function validReplay(v: unknown): { afterSeq: number; toSeq: number; events: number; complete: boolean } | null {
+  if (typeof v !== "object" || v === null) return null;
+  const r = v as Record<string, unknown>;
+  const n = (x: unknown): x is number => typeof x === "number" && Number.isSafeInteger(x) && x >= 0;
+  return n(r.afterSeq) && n(r.toSeq) && n(r.events) && typeof r.complete === "boolean" ? { afterSeq: r.afterSeq, toSeq: r.toSeq, events: r.events, complete: r.complete } : null;
+}
+
+/** Most notice lines printed; more is said so, never cut silently (the notice itself is at most 4,000 characters). */
+export const MAX_NOTICE_LINES = 200;
+
+/**
+ * US-0054: the notice a player is asked to agree to, one terminal line per notice line. Each line is sanitised on its own (the whole-text
+ * sanitiser would turn every newline into a marker and cap the total), so control, escape and bidi characters never reach the terminal.
+ */
+export function renderConsentNotice(c: unknown): string[] {
+  if (typeof c !== "object" || c === null) return [];
+  const o = c as Record<string, unknown>;
+  if (typeof o.notice !== "string" || typeof o.noticeVersion !== "string") return [];
+  const all = o.notice.slice(0, 8_000).split(/\r\n|\n|\u2028|\u2029/);
+  // Every notice line (and the cap marker) carries the prefix, so nothing the server wrote can pass for a chat line, an event, an alert or the client's own hint.
+  const shown = all.slice(0, MAX_NOTICE_LINES).map((l) => `notice | ${s(l)}`);
+  const more = all.length - shown.length;
+  return ["", ...shown, ...(more > 0 ? [`notice | (${more} more lines not shown)`] : []), o.given === true ? "this seat agreed to a consent notice earlier; the text above is the current notice" : "type /consent to agree"];
+}
+
+/** Most roster lines printed: a broken server cannot make the client print without bound. */
+export const MAX_ROSTER_LINES = 100;
+
+/**
+ * US-0055: the roster as one line per seat, role and state only. A display name is deliberately never printed here: it is typed by a
+ * person, so it is the one string a terminal must not trust. Every line carries the `roster | ` prefix (and the role id is sanitised), so
+ * nothing the server sent can pass for a chat line, an event, an alert or the client's own hint.
+ */
+export function renderRoster(m: unknown): string[] {
+  if (typeof m !== "object" || m === null) return [];
+  const o = m as Record<string, unknown>;
+  if ((o.audience !== "facilitator" && o.audience !== "peers") || !Array.isArray(o.entries)) return [];
+  const lines: string[] = [];
+  for (const raw of o.entries.slice(0, MAX_ROSTER_LINES)) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const e = raw as Record<string, unknown>;
+    if (typeof e.roleId !== "string") continue;
+    // US-0060: the server's `ai` flag (from aiRoles) marks an AI seat; it says nothing about consent, which a bot never gives.
+    const state = e[AI_KEY] === true
+      ? `AI player, ${o.audience === "peers" ? (e.ready === true ? "ready" : "not ready") : (e.connected === true ? "connected" : "not connected")}`
+      : o.audience === "peers"
+        ? (e.ready === true ? "ready" : "not ready")
+        : e.joined === true
+          ? `joined, ${e.consented === true ? "consented" : "not consented"}, ${e.connected === true ? "connected" : "not connected"}`
+          : "not joined";
+    lines.push(`roster | ${s(e.roleId)}: ${state}`);
+  }
+  return lines;
+}
+
+export function renderError(code: string, message: string, asPlayer = false, aiSeats: ReadonlySet<string> = new Set()): string {
+  if (code === "not_started") return "waiting for the facilitator to /start the session before anyone can speak";
+  if (code === "unauthorized" && asPlayer) return "error: unauthorized: check the role and its join code from the facilitator (set JOIN_CODE, use --code-file <path>, or type it at the prompt)";
+  if (code === "unauthorized") return "error: unauthorized: this server needs the facilitator token (set FACILITATOR_TOKEN, use --token-file <path>, or type it at the prompt)";
+  if (code === "seats_not_ready") {
+    // The message is `seats_not_ready: role1,role2`: the roles that have not joined or have not agreed to the notice.
+    const roles = message.includes(":") ? message.slice(message.indexOf(":") + 1).trim() : "";
+    if (!roles) return "cannot start yet: every player must join and type /consent";
+    // US-0060: an AI seat in the list has no bot yet; it cannot join or consent, so it is never told to. `aiSeats` is the last roster's `ai` roles.
+    const ids = roles.split(",").map((r) => r.trim()).filter((r) => r !== "");
+    const humans = ids.filter((r) => !aiSeats.has(r));
+    const bots = ids.filter((r) => aiSeats.has(r));
+    const parts = [
+      ...(humans.length ? [`waiting for ${s(humans.join(","))} to join and type /consent`] : []),
+      ...(bots.length ? [`waiting for the bot of ${bots.map((r) => `AI player (${s(r)})`).join(", ")}`] : []),
+    ];
+    return `cannot start yet: ${parts.join("; ")}`;
+  }
+  if (code === "consent_required") return "you have not agreed to the notice for this seat: type /consent";
+  if (code === "ai_notice") return "cannot start: this server's consent notice does not mention AI players; switch the AI roles back to human or restart on notice v2";
+  if (code === "rate_limited") return "slow down: too many messages, some were dropped";
+  if (code === "log_failed") return "the server can no longer record this session and is stopping; when it is back, rejoin: the session resumes, paused, from its log";
+  return `error: ${s(code)}: ${s(message)}`;
+}

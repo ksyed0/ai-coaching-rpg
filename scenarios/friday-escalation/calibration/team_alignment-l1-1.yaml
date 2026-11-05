@@ -1,0 +1,23 @@
+kind: single
+id: team_alignment-l1-1
+criterion: team_alignment
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:26.485Z
+split: holdout
+subject: account_manager
+expected: 1
+transcript:
+  - scene: s1_huddle
+    role: delivery_lead
+    text: Before we call Priya, do we have a view as a team on this?
+  - scene: s1_huddle
+    role: account_manager
+    text: "I've already decided: we say yes, and I'll tell her that."
+  - scene: s1_huddle
+    role: tech_lead
+    text: I'm not sure that's possible, the data layer is risky.
+  - scene: s1_huddle
+    role: account_manager
+    text: You're overthinking it. I'm the one speaking to the client, so we say yes.

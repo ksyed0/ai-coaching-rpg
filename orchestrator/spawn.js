@@ -120,12 +120,6 @@ function getAgent(name) {
  * Generate the spawn command for an agent on the active platform.
  */
 function spawnCommand(agentName, task) {
-  try {
-    const { Repository } = require('../tools/lib/repository');
-    Repository.getInstance().refresh();
-  } catch (err) {
-    console.warn(`[spawn] Repository refresh failed (non-fatal): ${err.message}`);
-  }
   const adapter = getAdapter();
   const agent = getAgent(agentName);
   if (task) agent.task = task;

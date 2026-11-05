@@ -1,0 +1,133 @@
+scenes:
+  - id: s1_huddle
+    title: Team huddle
+    goal: Agree the team's position before replying to the client
+    participants: [delivery_lead, tech_lead, account_manager]
+    time_box_minutes: 8
+    opening_inject: email_from_priya
+    injects:
+      - id: email_from_priya
+        to: [delivery_lead, tech_lead, account_manager]
+        content: >-
+          Email from Priya Raman: "Quick one. Before go-live we need a small
+          reconciliation module so Finance can tie out the daily loads. I know
+          it's late but it's a must-have. Can you confirm by end of day Friday?"
+      - id: burn_report
+        at_minute: 4
+        to: [delivery_lead]
+        content: >-
+          Your PMO sends the latest burn report: the programme has used 94
+          percent of its budget with six weeks to go.
+    exit_when:
+      any_of:
+        - time_box_elapsed
+        - facilitator_advance
+        - gm_detects: "the team has stated a single agreed position on the request"
+
+  - id: s2_priya_call
+    title: Call with Priya
+    goal: Respond to the request and agree next steps
+    participants: [delivery_lead, account_manager, client_sponsor]
+    time_box_minutes: 10
+    injects:
+      - id: cfo_ping
+        at_minute: 6
+        to: [client_sponsor]
+        content: Priya's CFO messages her during the call asking for an update.
+        effect: { goals_add: ["Get a firm commitment on a date before this call ends"] }
+    exit_when:
+      any_of:
+        - time_box_elapsed
+        - facilitator_advance
+        - gm_detects: "a concrete next step has been agreed between the team and Priya"
+
+  - id: s3_internal_huddle
+    title: Internal huddle
+    goal: Turn the phased idea into a plan with a date, a price and a presenter
+    participants: [delivery_lead, tech_lead, account_manager]
+    time_box_minutes: 6
+    exit_when:
+      any_of:
+        - time_box_elapsed
+        - facilitator_advance
+        - gm_detects: "the team has agreed a phased plan with a date and a price to propose"
+
+  - id: s4_escalation_call
+    title: Escalation call with Priya and the CFO
+    goal: Present the phased proposal and learn what the CFO needs in order to accept it
+    participants: [delivery_lead, tech_lead, account_manager, client_sponsor, cfo]
+    time_box_minutes: 12
+    opening_inject: cfo_joins
+    injects:
+      - id: cfo_joins
+        to: [delivery_lead, tech_lead, account_manager]
+        content: >-
+          Priya has pulled her CFO, Helena Brandt, into the call. Priya says:
+          "Helena wants to hear the numbers herself."
+      - id: ontrack_note
+        at_minute: 3
+        to: [tech_lead]
+        content: >-
+          Your on-call engineer messages: a prototype of the tie-out job passed
+          the sample loads in staging.
+      - id: cfo_budget_check
+        at_minute: 5
+        to: [cfo]
+        content: The CFO's finance controller sends a note that the programme budget is already tight.
+        effect:
+          goals_add: ["Push the price down and get a credit clause for a missed date"]
+          knowledge_add: ["The finance controller reports the programme budget is already tight"]
+    exit_when:
+      any_of:
+        - time_box_elapsed
+        - facilitator_advance
+        - gm_detects: "the CFO has heard the priced phased proposal and has said what she needs in order to accept it"
+
+  - id: s5_final_terms
+    title: Negotiating the final terms
+    goal: Agree scope, price, date and conditions with Priya and the CFO
+    participants: [delivery_lead, tech_lead, account_manager, client_sponsor, cfo]
+    time_box_minutes: 10
+    opening_inject: terms_request
+    injects:
+      - id: terms_request
+        to: [delivery_lead, tech_lead, account_manager]
+        content: >-
+          Helena asks for the final terms to be stated in one place: scope,
+          price, date and what happens if the date is missed.
+      - id: contract_note
+        at_minute: 4
+        to: [delivery_lead]
+        content: Your PMO reminds you that a change request needs signatures from both sides before work starts.
+      - id: sponsor_pressure
+        at_minute: 5
+        to: [client_sponsor]
+        content: Priya's calendar shows another meeting starting in five minutes.
+        effect: { goals_add: ["Close the call with written commitments on date and price"] }
+    exit_when:
+      any_of:
+        - time_box_elapsed
+        - facilitator_advance
+        - gm_detects: "the team, Priya and the CFO have agreed final terms covering scope, delivery date and price"
+
+  - id: s6_wrap_up
+    title: Internal wrap-up
+    goal: Capture decisions, owners and the message to the wider team
+    participants: [delivery_lead, tech_lead, account_manager]
+    time_box_minutes: 5
+    opening_inject: priya_followup
+    injects:
+      - id: priya_followup
+        to: [delivery_lead, tech_lead, account_manager]
+        content: >-
+          Email from Priya Raman: "Thanks, all. Helena is comfortable. Please
+          send the change request on Monday."
+      - id: lead_summary_request
+        at_minute: 3
+        to: [account_manager]
+        content: Your account lead asks for a two-line summary of the outcome for the renewal file.
+    exit_when:
+      any_of:
+        - time_box_elapsed
+        - facilitator_advance
+        - gm_detects: "the team has assigned an owner and a next action for each follow-up"

@@ -1,0 +1,24 @@
+kind: single
+id: listening-l2-1
+criterion: listening
+source: drafted
+drafter: claude-sonnet-5-5
+approved_by: Kamal
+approved_at: 2026-10-08T14:47:20.560Z
+split: tune
+subject: account_manager
+expected: 2
+transcript:
+  - scene: s1_huddle
+    role: delivery_lead
+    text: My concern is that the team is already stretched on the integration work.
+  - scene: s1_huddle
+    role: account_manager
+    text: I hear you, fair point.
+  - scene: s1_huddle
+    role: tech_lead
+    text: And the reconciliation module sits on the same data layer, so it isn't as
+      small as it sounds.
+  - scene: s1_huddle
+    role: account_manager
+    text: Right, got it. Anyway, I think we should tell Priya yes by Friday.
