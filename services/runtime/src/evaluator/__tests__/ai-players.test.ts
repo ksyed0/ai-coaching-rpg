@@ -35,6 +35,21 @@ describe("aiRolesOf", () => {
   });
 });
 
+describe("aiRolesOf when session.started is not events[0] (F1)", () => {
+  const alert = { type: "facilitator.alert", seq: 1, ts: T0, sessionId: "s", level: "info", message: "x" } as unknown as SessionEvent;
+  it("finds the AI roles of a session.started at seq 2", () => {
+    const [st] = started({ logFormat: 3, aiRoles: ["bob"], includeInGroup: false }, 2);
+    expect(aiRolesOf([alert, st!], sc)).toEqual(["bob"]);
+    expect(aiOptionOf([alert, st!])).toBe(false);
+  });
+  it('is "invalid" when a second session.started exists, for the roles and the option', () => {
+    const [a] = started({ logFormat: 3, aiRoles: ["bob"] }, 1);
+    const [b] = started({ logFormat: 3, aiRoles: [] }, 2);
+    expect(aiRolesOf([a!, b!], sc)).toBe("invalid");
+    expect(aiOptionOf([a!, b!])).toBe("invalid");
+  });
+});
+
 describe("aiOptionOf", () => {
   it('is true without the field, false for false, "invalid" for "false"', () => {
     expect(aiOptionOf(started({ logFormat: 3, aiRoles: ["bob"] }))).toBe(true);

@@ -165,3 +165,22 @@ describe("evaluateSession with AI players", () => {
     expect(aliceOf(b).system).toBe(aliceOf(a).system);
   });
 });
+
+describe("evaluateSession when session.started is not the first event (F1)", () => {
+  const body = (e: SessionEvent) => { const { seq: _s, ts: _t, sessionId: _i, ...b } = e as unknown as Record<string, unknown>; void _s; void _t; void _i; return [0, b] as const; };
+  it("scores alice only and honours the option when session.started (aiRoles bob, off) is at seq 2", async () => {
+    const base = withStarted(sampleEvents(), { logFormat: 3, aiRoles: ["bob"], includeInGroup: false });
+    const events = build([[0, { type: "facilitator.alert", level: "info", message: "x" }], ...base.map(body)] as never);
+    const p = recorder({ alice: aliceReply, group: bobQuoteGroup });
+    const r = await run(p, events);
+    expect(r.participants.map((x) => x.roleId)).toEqual(["alice"]);
+    expect(p.calls.some((c) => /role id "bob"/.test(c.system))).toBe(false);
+    expect(r.ai).toEqual({ roles: ["bob"], includeInGroup: false });
+  });
+  it("refuses a log with two session.started events", async () => {
+    const base = aiEvents();
+    const events = build([...base.map(body), body(base[0]!)] as never);
+    await expect(run(recorder({}), events)).rejects.toBeInstanceOf(EvaluatorInputError);
+  });
+});
+
