@@ -83,7 +83,14 @@ async function run() {
       const severityFromLabel = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
       const matchedLabel = (ghIssue.labels || []).map((l) => l.name).find((n) => severityFromLabel[n]);
       const severity = matchedLabel ? severityFromLabel[matchedLabel] : 'Medium';
-      const title = ghIssue.title.replace(/^\[BUG-\d+\]\s*/, '');
+      // The title comes from GitHub (untrusted) and goes into docs/BUGS.md: keep one line of plain
+      // characters, no Markdown structure, at most 200 characters.
+      const title = String(ghIssue.title)
+        .replace(/^\[BUG-\d+\]\s*/, '')
+        .replace(/[^A-Za-z0-9 .,:;!?()'"/&+_-]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 200);
 
       if (!dryRun) {
         const { reserveId, atomicAppend } = require('../orchestrator/atomic-write');
