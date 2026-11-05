@@ -265,7 +265,7 @@ describe("GET /api/v1/report", () => {
     const res = await handleReportGet(getReq(reportCookie()), deps);
     const p = await parts(res);
     expect(p.status).toBe(200);
-    expect(p.json.data).toEqual({ state: "released", view: { kind: "released", own: { title: "Hi" } } });
+    expect(p.json.data).toEqual({ state: "released", view: { kind: "released", own: { title: "Hi" } }, availableUntil: new Date(EXPIRES).toISOString() });
     expectPrivate(res);
     expect(launcher.readReport).toHaveBeenCalledWith(SID, CRED_ID);
   });
@@ -274,7 +274,7 @@ describe("GET /api/v1/report", () => {
     launcher.readReport.mockResolvedValue({ state: "not_released" });
     const p = await parts(await handleReportGet(getReq(reportCookie()), deps));
     expect(p.status).toBe(200);
-    expect(p.json.data).toEqual({ state: "not_released" });
+    expect(p.json.data).toEqual({ state: "not_released", availableUntil: new Date(EXPIRES).toISOString() });
   });
 
   it("no cookie, a tampered cookie, an expired cookie, a fac, player or garbage cookie is the neutral 404 without calling control", async () => {

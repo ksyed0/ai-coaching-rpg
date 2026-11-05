@@ -139,7 +139,9 @@ export function handleReportGet(req: Request, deps: Deps): Promise<Response> {
     if (!isReportCookie(c)) return neutral();
     if (!deps.launcher) return unavailable();
     try {
-      return priv(ok(await deps.launcher.readReport(c.sessionId, c.credentialId)));
+      const read = await deps.launcher.readReport(c.sessionId, c.credentialId);
+      // The expiry comes from the sealed cookie (the credential's own expiresAt), so the page can say how long the link works.
+      return priv(ok({ ...read, availableUntil: new Date(c.expiresAt).toISOString() }));
     } catch (err) {
       if (err instanceof LauncherError && err.reason === "not_found") return neutral({ "Set-Cookie": CLEAR_COOKIE });
       return unavailable();
