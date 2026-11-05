@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -13,11 +13,12 @@ const DAY = 86_400_000;
 const T0 = 1_800_000_000_000;
 const SID = "sess-1";
 
-function make(opts: { days?: number; beforeWrite?: () => Promise<void>; maxBytes?: number; syncDir?: (d: string) => void } = {}) {
+function make(opts: { days?: number; beforeWrite?: () => Promise<void>; onRead?: () => void; maxBytes?: number; syncDir?: (d: string) => void } = {}) {
   const file = path.join(tmp(), "report-access.json");
   const clock = { t: T0 };
   const store = new ReportAccessStore({ file, days: opts.days ?? 90, now: () => clock.t }, {
     ...(opts.beforeWrite ? { beforeWrite: opts.beforeWrite } : {}),
+    ...(opts.onRead ? { onRead: opts.onRead } : {}),
     ...(opts.maxBytes !== undefined ? { maxBytes: opts.maxBytes } : {}),
     ...(opts.syncDir ? { syncDir: opts.syncDir } : {}),
   });
@@ -176,15 +177,48 @@ describe("ReportAccessStore", () => {
     expect(writes).toBe(before);
   });
 
-  it("rejects malformed tokens before any file read", async () => {
-    const { store, file } = make();
+  it("rejects malformed tokens and ids without opening the file", async () => {
+    let reads = 0;
+    const { store, file } = make({ onRead: () => { reads++; } });
     writeFileSync(file, "this is not json at all");
     for (const t of ["", "nodot", "a.b", ".", `${"A".repeat(10_000)}.${"B".repeat(10_000)}`, "AAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAA!", "AAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAA.x", "AAAAAAAAAA+.AAAAAAAAAAAAAAAAAAAAAA"]) {
-      expect(await store.verify(t)).toBeNull(); // a corrupt file would throw/fail closed only if it were read
+      expect(await store.verify(t)).toBeNull();
     }
     expect(await store.verify(undefined as unknown as string)).toBeNull();
     expect(await store.check("not an id!")).toBeNull();
     expect(await store.check("")).toBeNull();
+    expect(reads).toBe(0);
+    expect(await store.verify("AAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAA")).toBeNull(); // well formed: now the file is read (and fails closed)
+    expect(reads).toBe(1);
+  });
+
+  it("verifyResult and checkResult tell a refusal from an unreadable store; a failed touch still answers live", async () => {
+    let failWrites = false;
+    const { store, file, clock } = make({ beforeWrite: async () => { if (failWrites) throw new Error("x"); } });
+    const { credential, token } = await store.issue(SID, "alice");
+    clock.t = T0 + 60 * 60_000;
+    failWrites = true;
+    expect(await store.checkResult(credential.id, SID)).toEqual({ kind: "live", credential });
+    failWrites = false;
+    expect((await store.verifyResult(`${credential.id}.${"A".repeat(22)}`)).kind).toBe("refused");
+    expect((await store.checkResult(credential.id, "sess-2")).kind).toBe("refused");
+    writeFileSync(file, "garbage");
+    expect((await store.verifyResult(token)).kind).toBe("unavailable");
+    expect((await store.checkResult(credential.id)).kind).toBe("unavailable");
+    expect(readFileSync(file, "utf8")).toBe("garbage");
+  });
+
+  it("removes leftover temp files of its own exact name when it is created, and nothing else", () => {
+    const dir = tmp();
+    const file = path.join(dir, "report-access.json");
+    const mine = [".report-access.json.tmp-123-0123456789ab", ".report-access.json.tmp-9-ffffffffffff"];
+    const others = [".report-access.json.tmp-123-0123456789a", ".report-access.json.tmp-x-0123456789ab", "report-access.json.tmp-1-0123456789ab", ".other.json.tmp-1-0123456789ab", ".report-access.json.tmp-1-0123456789ab.bak"];
+    for (const n of [...mine, ...others]) writeFileSync(path.join(dir, n), "x");
+    mkdirSync(path.join(dir, ".report-access.json.tmp-5-aaaaaaaaaaaa"));
+    new ReportAccessStore({ file, days: 90, now: () => T0 });
+    for (const n of mine) expect(existsSync(path.join(dir, n)), n).toBe(false);
+    for (const n of others) expect(existsSync(path.join(dir, n)), n).toBe(true);
+    expect(existsSync(path.join(dir, ".report-access.json.tmp-5-aaaaaaaaaaaa"))).toBe(true);
   });
 
   it("a corrupt file fails closed without echoing its content", async () => {

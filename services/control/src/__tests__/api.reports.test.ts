@@ -1,11 +1,13 @@
 import http from "node:http";
-import type { AddressInfo } from "node:net";
 import { readFileSync } from "node:fs";
+import type { AddressInfo } from "node:net";
+
+import { writeFile } from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { collectSecrets } from "@acr/runtime/reports";
 import { createApi } from "../api.js";
 import type { ControlConfig } from "../config.js";
-import { createReportService, NOT_READY, NO_REPORT, type ReportService } from "../reports.js";
+import { createReportService, NOT_READY, NO_REPORT, REPORTS_UNREADABLE, type ReportService } from "../reports.js";
 import type { Supervisor } from "../supervisor.js";
 import { makeReportWorld, type ReportWorld } from "./report-fixture.js";
 
@@ -82,7 +84,7 @@ describe("console routes", () => {
     const p = await boot(svc);
     let r = await call(p, "GET", links());
     expect(r.status).toBe(200);
-    expect(r.json.data).toEqual({ ready: true, roles: [{ role: "alice", credential: null }, { role: "bob", credential: null }] });
+    expect(r.json.data).toEqual({ state: "ready", roles: [{ role: "alice", credential: null }, { role: "bob", credential: null }] });
     r = await call(p, "POST", links(), { body: { role: "alice" } });
     expect(r.status).toBe(200);
     const first = r.json.data.token as string;
@@ -108,11 +110,30 @@ describe("console routes", () => {
     r = await call(p2, "POST", links(), { body: { role: "alice" } });
     expect([r.status, r.json.error.message]).toEqual([409, NOT_READY]);
     expect(r.text).not.toContain(w.root);
-    expect((await call(p2, "GET", links())).json.data).toEqual({ ready: false, roles: [] });
+    expect((await call(p2, "GET", links())).json.data).toEqual({ state: "not_ready", roles: [] });
   });
-  it("needs the session to exist", async () => {
+  it("says the reports cannot be read (503, not the evaluate hint) when the reader is unavailable", async () => {
+    await w.corrupt();
+    const p = await boot(svc);
+    let r = await call(p, "POST", links(), { body: { role: "alice" } });
+    expect([r.status, r.json.error.code, r.json.error.message]).toEqual([503, "unavailable", REPORTS_UNREADABLE]);
+    r = await call(p, "POST", links("/alice/reissue"), { body: {} });
+    expect([r.status, r.json.error.message]).toEqual([503, REPORTS_UNREADABLE]);
+    r = await call(p, "GET", links());
+    expect([r.status, r.json.data.state]).toEqual([200, "unavailable"]);
+    expect(r.text).not.toContain(w.root);
+  });
+  it("revoke works for a session that is no longer listed, because the credential exists", async () => {
+    const { credential } = await svc.issue(w.sessionId, "alice");
     const p = await boot(svc, "someone-else");
-    for (const [m, path, body] of [["GET", links()], ["POST", links(), { role: "alice" }], ["POST", links("/alice/reissue"), {}], ["DELETE", links("/alice")]] as [string, string, unknown?][]) {
+    const r = await call(p, "DELETE", links("/alice"));
+    expect([r.status, r.json.data]).toEqual([200, { revoked: true }]);
+    expect((await w.store.list(w.sessionId))[0]!.revokedAt).toBeDefined();
+    expect(credential.role).toBe("alice");
+  });
+  it("needs the session to exist (except revoke)", async () => {
+    const p = await boot(svc, "someone-else");
+    for (const [m, path, body] of [["GET", links()], ["POST", links(), { role: "alice" }], ["POST", links("/alice/reissue"), {}]] as [string, string, unknown?][]) {
       const r = await call(p, m, path, body === undefined ? {} : { body });
       expect([r.status, r.json.error.message], `${m} ${path}`).toEqual([404, "That session does not exist."]);
     }
@@ -200,6 +221,23 @@ describe("read", () => {
     expect(r.status).toBe(503);
     expect(r.json.error.code).toBe("unavailable");
     expect(r.text).not.toContain(w.root);
+  });
+});
+
+describe("an unreadable store", () => {
+  it("answers 503 on exchange and read (never the neutral 404), leaves the file alone, and keeps refusals neutral otherwise", async () => {
+    const p = await boot(svc);
+    const { token, credential } = await svc.issue(w.sessionId, "alice");
+    const neutralBad = await call(p, "POST", "/report-access/exchange", { body: { token: "nope" } });
+    await writeFile(w.file, "not json at all");
+    const before = readFileSync(w.file);
+    const ex = await call(p, "POST", "/report-access/exchange", { body: { token } });
+    expect([ex.status, ex.json.error.code, ex.json.error.message]).toEqual([503, "unavailable", "The report is unavailable. Try again."]);
+    const rd = await call(p, "GET", `/sessions/${w.sessionId}/reports/${credential.id}`);
+    expect([rd.status, rd.json.error.code]).toEqual([503, "unavailable"]);
+    // malformed input is refused before the store is touched, so it stays the neutral 404
+    expect((await call(p, "POST", "/report-access/exchange", { body: { token: "nope" } })).text).toBe(neutralBad.text);
+    expect(readFileSync(w.file).equals(before)).toBe(true);
   });
 });
 

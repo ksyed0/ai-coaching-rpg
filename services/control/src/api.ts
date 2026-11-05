@@ -4,6 +4,7 @@ import { isSafeId, isValidSessionId } from "@acr/events";
 import { z } from "zod";
 import { RoleIdSchema } from "./protocol.js";
 import type { ControlConfig } from "./config.js";
+import { isCredentialId } from "./report-access.js";
 import type { ReportService } from "./reports.js";
 import { ControlError, type ControlErrorCode, type Supervisor } from "./supervisor.js";
 
@@ -34,8 +35,6 @@ const ReleaseBody = z.strictObject({ reservation: ReservationId });
 const NoBody = z.strictObject({});
 const LinkBody = z.strictObject({ role: z.string().min(1).max(MAX_FIELD) });
 const ExchangeBody = z.strictObject({ token: z.string().max(64) });
-/** The 11-character base64url id of a report credential: matched before any lookup. */
-const CREDENTIAL_ID = /^[A-Za-z0-9_-]{11}$/;
 const REPORT_UNAVAILABLE = "The report is unavailable. Try again.";
 
 class HttpError extends Error {
@@ -192,7 +191,7 @@ export function createApi(deps: {
       if (!reports) return notFound();
       let credentialId: string;
       try { credentialId = decodeURIComponent(seg[3]!); } catch { return neutral(); }
-      if (!CREDENTIAL_ID.test(credentialId)) return neutral(); // before any lookup
+      if (!isCredentialId(credentialId)) return neutral(); // before any lookup
       const r = await reports.read(id, credentialId);
       if (r.status === 200) return ok(res, r.body);
       if (r.status === 503) return fail(res, 503, "unavailable", REPORT_UNAVAILABLE);
@@ -220,7 +219,7 @@ export function createApi(deps: {
       }
       if (seg.length === 4 && method === "DELETE") {
         parse(NoBody, (await jsonBody(req)) ?? {});
-        exists();
+        // No session check: a link must stay revocable after its session is gone from the list (the store validates both ids).
         return ok(res, { revoked: await reports.revoke(id, role!) });
       }
       return notFound();

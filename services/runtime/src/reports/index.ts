@@ -13,7 +13,7 @@ import type {
   GroupReport,
   ParticipantReport,
 } from "../evaluator/report-model.js";
-import { secretValues } from "../evaluator/cli.js";
+import { secretValues } from "../secrets.js";
 import { cleanLine } from "../review/cli-util.js";
 import { canView } from "../review/policy.js";
 import { readReview } from "../review/review-log.js";
@@ -94,13 +94,31 @@ async function locate(reportsDir: string, sessionId: string): Promise<Located> {
   }
 }
 
+export type ReviewStatus =
+  | { kind: "found"; dir: string }
+  | { kind: "none" }
+  | { kind: "unavailable" };
+
+/**
+ * Where the session's review stands: the one live review (`found`), nothing to find (`none`: no folder, or no review opened yet),
+ * or `unavailable` (two live siblings, a corrupt sibling or log, an unreadable reports folder). Never throws; carries no path.
+ */
+export async function reviewStatus(
+  reportsDir: string,
+  sessionId: string,
+): Promise<ReviewStatus> {
+  const r = await locate(reportsDir, sessionId);
+  if (r.k === "found") return { kind: "found", dir: r.dir };
+  return r.k === "unavailable" ? { kind: "unavailable" } : { kind: "none" };
+}
+
 /** The live, unsuperseded review of the session among `<id>` and `<id>-2`..`-99`; null when none, or when two are live. */
 export async function resolveReviewDir(
   reportsDir: string,
   sessionId: string,
 ): Promise<string | null> {
-  const r = await locate(reportsDir, sessionId);
-  return r.k === "found" ? r.dir : null;
+  const r = await reviewStatus(reportsDir, sessionId);
+  return r.kind === "found" ? r.dir : null;
 }
 
 const allowed = (l: Loaded, role: string, subject: string): boolean => {

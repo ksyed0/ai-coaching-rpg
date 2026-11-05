@@ -12,6 +12,7 @@ import path from "node:path";
 import {
   collectSecrets,
   listReleasedRoles,
+  reviewStatus,
   readReleasedView,
   resolveReviewDir,
 } from "../index.js";
@@ -274,5 +275,36 @@ describe("listReleasedRoles", () => {
     expect(await listReleasedRoles(root, sessionId)).toEqual(["alice", "bob"]);
     await run(["withdraw", rel, "bob", "--reason", "x", "--by", "kamal"]);
     expect(await listReleasedRoles(root, sessionId)).toEqual(["alice"]);
+  });
+});
+
+describe("reviewStatus", () => {
+  it("is found for a live review, none for nothing or an unopened draft, unavailable for the unreadable", async () => {
+    expect(await reviewStatus(root, sessionId)).toEqual({ kind: "found", dir });
+    expect(await reviewStatus(root, "no-such-session")).toEqual({ kind: "none" });
+    expect(await reviewStatus(path.join(root, "absent"), sessionId)).toEqual({ kind: "none" });
+    expect(await reviewStatus(root, "../x")).toEqual({ kind: "none" });
+    await writeFile(path.join(dir, "review.jsonl"), "not json\n");
+    expect(await reviewStatus(root, sessionId)).toEqual({ kind: "unavailable" });
+    expect(JSON.stringify(await reviewStatus(root, sessionId))).not.toContain(root);
+  });
+  it("two live siblings are unavailable", async () => {
+    const w = await writeReports(await sampleEvaluation(), {
+      outDir: root,
+      evaluator: { provider: "scripted mock", scripted: true, rubricHash: "h1", variant: "v1" },
+    });
+    await makeRunner(root)(["open", path.relative(root, w.dir), "--by", "kamal"]);
+    expect(await reviewStatus(root, sessionId)).toEqual({ kind: "unavailable" });
+  });
+  it("an unreadable reports folder is unavailable", async () => {
+    await writeFile(path.join(root, "file"), "x");
+    // a plain file where a folder is expected reads as missing (ENOTDIR); permission loss is unavailable
+    expect(await reviewStatus(path.join(root, "file"), sessionId)).toEqual({ kind: "none" });
+    await chmod(root, 0o000);
+    try {
+      expect(await reviewStatus(root, sessionId)).toEqual({ kind: "unavailable" });
+    } finally {
+      await chmod(root, 0o700);
+    }
   });
 });

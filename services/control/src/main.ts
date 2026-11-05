@@ -66,7 +66,7 @@ export async function startControl(
   // ONE store for the whole service: two instances on one file would lose each other's updates.
   const reports = createReportService({
     config, store: new ReportAccessStore({ file: config.reportAccessFile, days: config.reportAccessDays, now: Date.now }),
-    secrets: collectSecrets(env), now: Date.now,
+    secrets: collectSecrets(env), now: Date.now, log,
   });
 
   const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports }));

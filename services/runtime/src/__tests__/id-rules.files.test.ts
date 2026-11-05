@@ -100,9 +100,7 @@ describe("one definition of the identifier rules (US-0020)", () => {
   /** Text heuristics that are NOT id validation and keep their own character class, exempt by file:line (a code-fence language strip, the "[name]:" speaker labels a model may echo, and the two model-id patterns). */
   const EXEMPT = new Set(["services/runtime/src/agents/gm-parse.ts:109", "services/runtime/src/agents/npc-reply.ts:90",
     // the character class of a MODEL id (`gemma-4-31b-it-qat-mxfp4`, `vendor/model:tag`), not an identifier of this system
-    "services/runtime/src/demo/args.ts:12", "services/runtime/src/evaluator/config.ts:16",
-    // the fixed-length base64url shape of a report credential's id and secret (random bytes, not an identifier of this system)
-    "services/control/src/api.ts:38", "services/control/src/report-access.ts:17", "services/control/src/report-access.ts:18"]);
+    "services/runtime/src/demo/args.ts:12", "services/runtime/src/evaluator/config.ts:16"]);
 
   /** Comments are blanked (same line count) so a word in a comment is not a spelling. */
   const blankComments = (text: string): string => text.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " ")).replace(/(^|[^:"'`\\])\/\/[^\n]*/g, (m, p1: string) => p1 + " ".repeat(m.length - p1.length));

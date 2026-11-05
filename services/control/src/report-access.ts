@@ -1,4 +1,4 @@
-import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, mkdirSync, openSync, readSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import path from "node:path";
 import { isValidSessionId } from "@acr/events";
@@ -11,11 +11,20 @@ export type ReportCredential = {
 };
 type Record_ = ReportCredential & { salt: string; hash: string };
 
-/** Tests only: a hook run just before every file write (to make writes slow). */
-export type ReportAccessHooks = { beforeWrite?: () => Promise<void>; maxBytes?: number; syncDir?: (dir: string) => void };
+/** @internal Tests only: a hook run just before every file write (to make writes slow or fail), a read counter and size/sync overrides. */
+export type ReportAccessHooks = { beforeWrite?: () => Promise<void>; onRead?: () => void; maxBytes?: number; syncDir?: (dir: string) => void };
 
-const ID_RE = /^[A-Za-z0-9_-]{11}$/;       // 8 random bytes, base64url
-const SECRET_RE = /^[A-Za-z0-9_-]{22}$/;   // 16 random bytes, base64url
+/** What a lookup found: a live credential, a refusal (unknown, wrong, expired, revoked, other session), or a store that cannot be used. */
+export type CredentialLookup = { kind: "live"; credential: ReportCredential } | { kind: "refused" } | { kind: "unavailable" };
+
+const ID_LEN = 11;       // 8 random bytes, base64url
+const SECRET_LEN = 22;   // 16 random bytes, base64url
+/** True for exactly the canonical base64url text of `bytes` random bytes (a length check plus a round trip; no character class to keep in step). */
+const isB64Token = (s: unknown, len: number): s is string =>
+  typeof s === "string" && s.length === len && Buffer.from(s, "base64url").toString("base64url") === s;
+/** A report credential id: the 11-character base64url text of 8 random bytes. */
+export const isCredentialId = (s: unknown): s is string => isB64Token(s, ID_LEN);
+const isCredentialSecret = (s: unknown): s is string => isB64Token(s, SECRET_LEN);
 const TOUCH_MS = 10 * 60_000;
 const DAY_MS = 86_400_000;
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -42,7 +51,7 @@ function isRecord(v: unknown): v is Record_ {
   const o = v as Record<string, unknown>;
   const allowed = ["id", "sessionId", "role", "salt", "hash", "createdAt", "expiresAt", "revokedAt", "lastUsedAt"];
   return Object.keys(o).every((k) => allowed.includes(k))
-    && typeof o.id === "string" && ID_RE.test(o.id)
+    && isCredentialId(o.id)
     && typeof o.sessionId === "string" && isValidSessionId(o.sessionId)
     && typeof o.role === "string" && RoleIdSchema.safeParse(o.role).success
     && typeof o.salt === "string" && o.salt.length > 0 && typeof o.hash === "string" && o.hash.length > 0
@@ -60,6 +69,23 @@ export class ReportAccessStore {
   private chain: Promise<unknown> = Promise.resolve();
   constructor(private readonly o: { file: string; days: number; now: () => number }, private readonly hooks: ReportAccessHooks = {}) {
     if (!Number.isInteger(o.days) || o.days < 1 || o.days > 365) throw new Error("days must be an integer from 1 to 365");
+    this.sweepTmp();
+  }
+
+  /** Removes `.report-access.json.tmp-<pid>-<12 hex>` files (regular files only) that a crash between create and rename left behind. */
+  private sweepTmp(): void {
+    try {
+      const dir = path.dirname(this.o.file);
+      const prefix = `.${path.basename(this.o.file)}.tmp-`;
+      for (const name of readdirSync(dir)) {
+        if (!name.startsWith(prefix)) continue;
+        const rest = name.slice(prefix.length).split("-");
+        const [pid, hex] = rest;
+        if (rest.length !== 2 || !/^\d{1,10}$/.test(pid!) || hex!.length !== 12 || Buffer.from(hex!, "hex").toString("hex") !== hex) continue;
+        const full = path.join(dir, name);
+        try { if (lstatSync(full).isFile()) unlinkSync(full); } catch { /* best effort */ }
+      }
+    } catch { /* no directory yet, or unreadable: nothing to sweep */ }
   }
 
   private queue<T>(fn: () => Promise<T>): Promise<T> {
@@ -69,6 +95,7 @@ export class ReportAccessStore {
   }
 
   private readAll(): Record_[] {
+    this.hooks.onRead?.();
     let fd: number;
     try { fd = openSync(this.o.file, constants.O_RDONLY | constants.O_NOFOLLOW); }
     catch (err) {
@@ -201,42 +228,56 @@ export class ReportAccessStore {
 
   /** Parses `<id>.<secret>` and checks it. Anything malformed, unknown, wrong, expired or revoked (or an unreadable file) is null. */
   async verify(token: string): Promise<ReportCredential | null> {
-    if (typeof token !== "string" || token.length !== 34 || token[11] !== ".") return null;
-    const id = token.slice(0, 11);
-    const secret = token.slice(12);
-    if (!ID_RE.test(id) || !SECRET_RE.test(secret)) return null;
-    return this.lookup(id, secret);
+    const r = await this.verifyResult(token);
+    return r.kind === "live" ? r.credential : null;
+  }
+
+  /** Like `verify`, but tells a refusal from a store that cannot be read. */
+  async verifyResult(token: string): Promise<CredentialLookup> {
+    if (typeof token !== "string" || token.length !== ID_LEN + 1 + SECRET_LEN || token[ID_LEN] !== ".") return { kind: "refused" };
+    const id = token.slice(0, ID_LEN);
+    const secret = token.slice(ID_LEN + 1);
+    if (!isCredentialId(id) || !isCredentialSecret(secret)) return { kind: "refused" };
+    return this.lookup(id, secret, undefined);
+  }
+
+  /** The per-read re-check: the credential by id if it is live, else null. */
+  async check(credentialId: string, expectedSessionId?: string): Promise<ReportCredential | null> {
+    const r = await this.checkResult(credentialId, expectedSessionId);
+    return r.kind === "live" ? r.credential : null;
   }
 
   /**
-   * The per-read re-check: the credential by id if it is live, else null. With an expected session, a credential of another session is
-   * null too, decided before the lastUsedAt touch so a wrong-session read leaves the file alone.
+   * Like `check`, but tells a refusal from a store that cannot be read. With an expected session, a credential of another session is
+   * refused too, decided before the lastUsedAt touch so a wrong-session read leaves the file alone.
    */
-  async check(credentialId: string, expectedSessionId?: string): Promise<ReportCredential | null> {
-    if (typeof credentialId !== "string" || !ID_RE.test(credentialId)) return null;
+  async checkResult(credentialId: string, expectedSessionId?: string): Promise<CredentialLookup> {
+    if (!isCredentialId(credentialId)) return { kind: "refused" };
     return this.lookup(credentialId, undefined, expectedSessionId);
   }
 
-  private async lookup(id: string, secret: string | undefined, expectedSessionId?: string): Promise<ReportCredential | null> {
-    try {
-      return await this.mutate(async (list) => {
-        const now = this.o.now();
-        const rec = list.find((r) => r.id === id);
-        if (secret !== undefined) {
-          // Same work for an unknown id as for a wrong secret.
-          const salt = rec?.salt ?? "AAAAAAAAAAAAAAAAAAAAAA";
-          const want = rec ? Buffer.from(rec.hash, "base64url") : Buffer.alloc(32);
-          const got = hashOf(salt, secret);
-          if (!(want.length === got.length && timingSafeEqual(want, got)) || !rec) return { result: null };
-        }
-        if (!rec || !live(rec, now)) return { result: null };
-        if (expectedSessionId !== undefined && rec.sessionId !== expectedSessionId) return { result: null };
-        if (rec.lastUsedAt === undefined || now - rec.lastUsedAt >= TOUCH_MS) {
-          const touched: Record_ = { ...rec, lastUsedAt: now };
-          return { result: strip(touched), list: list.map((r) => (r.id === id ? touched : r)) };
-        }
-        return { result: strip(rec) };
-      });
-    } catch { return null; }
+  /** A read failure is `unavailable`, never `refused`; the lastUsedAt touch is best effort (a failed write still answers live). */
+  private lookup(id: string, secret: string | undefined, expectedSessionId: string | undefined): Promise<CredentialLookup> {
+    return this.queue(async (): Promise<CredentialLookup> => {
+      let list: Record_[];
+      try { list = this.readAll(); } catch { return { kind: "unavailable" }; }
+      const now = this.o.now();
+      const rec = list.find((r) => r.id === id);
+      if (secret !== undefined) {
+        // Same work for an unknown id as for a wrong secret.
+        const salt = rec?.salt ?? "AAAAAAAAAAAAAAAAAAAAAA";
+        const want = rec ? Buffer.from(rec.hash, "base64url") : Buffer.alloc(32);
+        const got = hashOf(salt, secret);
+        if (!(want.length === got.length && timingSafeEqual(want, got)) || !rec) return { kind: "refused" };
+      }
+      if (!rec || !live(rec, now)) return { kind: "refused" };
+      if (expectedSessionId !== undefined && rec.sessionId !== expectedSessionId) return { kind: "refused" };
+      if (rec.lastUsedAt === undefined || now - rec.lastUsedAt >= TOUCH_MS) {
+        const touched: Record_ = { ...rec, lastUsedAt: now };
+        try { await this.writeAll(list.map((r) => (r.id === id ? touched : r))); } catch { return { kind: "live", credential: strip(rec) }; }
+        return { kind: "live", credential: strip(touched) };
+      }
+      return { kind: "live", credential: strip(rec) };
+    });
   }
 }

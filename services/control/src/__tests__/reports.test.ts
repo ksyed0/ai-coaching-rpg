@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { collectSecrets } from "@acr/runtime/reports";
-import { NO_REPORT, NOT_READY, createReportService, type ReportService } from "../reports.js";
+import { writeFile } from "node:fs/promises";
+import { ReportAccessStore } from "../report-access.js";
+import { NO_REPORT, NOT_READY, REPORTS_UNREADABLE, REPORT_UNAVAILABLE, createReportService, type ReportService } from "../reports.js";
 import { ControlError } from "../supervisor.js";
 import { makeReportWorld, type ReportWorld } from "./report-fixture.js";
 
@@ -21,12 +23,12 @@ const store_list = (world: ReportWorld) => world.store.list(world.sessionId);
 
 describe("links", () => {
   it("is ready with the released roles and their live credential", async () => {
-    expect(await svc.links(w.sessionId)).toEqual({ ready: true, roles: [{ role: "alice", credential: null }, { role: "bob", credential: null }] });
+    expect(await svc.links(w.sessionId)).toEqual({ state: "ready", roles: [{ role: "alice", credential: null }, { role: "bob", credential: null }] });
     const { credential } = await svc.issue(w.sessionId, "alice");
     expect((await svc.links(w.sessionId)).roles[0]).toEqual({ role: "alice", credential });
   });
   it("is not ready when no review resolves", async () => {
-    expect(await svc.links("other-session")).toEqual({ ready: false, roles: [] });
+    expect(await svc.links("other-session")).toEqual({ state: "not_ready", roles: [] });
   });
   it("keeps a role with a live link listed after its report is withdrawn, so it can be revoked", async () => {
     await svc.issue(w.sessionId, "alice");
@@ -179,5 +181,66 @@ describe("read", () => {
     const text = readFileSync(w.file, "utf8");
     expect(text).not.toContain(token);
     expect(text).not.toContain(token.split(".")[1]!);
+  });
+});
+
+describe("storage and reader failures", () => {
+  it("a corrupt store file is unavailable on exchange and read (file untouched), logged once a minute with a fixed line", async () => {
+    const logs: string[] = [];
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, log: (m) => logs.push(m) });
+    const { token, credential } = await svc.issue(w.sessionId, "alice");
+    await writeFile(w.file, "garbage");
+    const before = readFileSync(w.file);
+    expect(await refusal(svc.exchange(token))).toEqual({ code: "unavailable", message: REPORT_UNAVAILABLE });
+    expect(await svc.read(w.sessionId, credential.id)).toEqual({ status: 503 });
+    expect(await refusal(svc.exchange(token))).not.toBeNull();
+    expect(readFileSync(w.file).equals(before)).toBe(true);
+    expect(logs).toEqual(["report-access store unreadable"]);
+    w.clock.t += 61_000;
+    await svc.read(w.sessionId, credential.id);
+    expect(logs).toEqual(["report-access store unreadable", "report-access store unreadable"]);
+  });
+  it("refusals for unknown, revoked and expired tokens stay null / 404 and log nothing", async () => {
+    const logs: string[] = [];
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, log: (m) => logs.push(m) });
+    const a = await svc.issue(w.sessionId, "alice");
+    const b = await svc.issue(w.sessionId, "bob");
+    expect(await svc.exchange(`${"B".repeat(11)}.${"C".repeat(22)}`)).toBeNull();
+    await svc.revoke(w.sessionId, "alice");
+    expect(await svc.exchange(a.token)).toBeNull();
+    expect(await svc.read(w.sessionId, a.credential.id)).toEqual({ status: 404 });
+    w.clock.t = b.credential.expiresAt;
+    expect(await svc.exchange(b.token)).toBeNull();
+    expect(await svc.read(w.sessionId, b.credential.id)).toEqual({ status: 404 });
+    expect(logs).toEqual([]);
+  });
+  it("a failed lastUsedAt write does not refuse the read or the exchange", async () => {
+    let fail = false;
+    const store = new ReportAccessStore({ file: w.file, days: 90, now: () => w.clock.t }, { beforeWrite: async () => { if (fail) throw new Error("disk full"); } });
+    svc = createReportService({ config: w.config, store, secrets: [], now: () => w.clock.t });
+    const { token, credential } = await svc.issue(w.sessionId, "alice");
+    fail = true;
+    w.clock.t += 60 * 60_000;
+    expect((await svc.read(w.sessionId, credential.id)).status).toBe(200);
+    expect((await svc.exchange(token))?.credentialId).toBe(credential.id);
+    expect((await store.list(w.sessionId))[0]!.lastUsedAt).toBeUndefined();
+  });
+  it("an unreadable reader says so (fixed sentence, logged) instead of the evaluate hint; none still says the hint", async () => {
+    const logs: string[] = [];
+    await w.corrupt();
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, log: (m) => logs.push(m) });
+    expect(await refusal(svc.issue(w.sessionId, "alice"))).toEqual({ code: "unavailable", message: REPORTS_UNREADABLE });
+    expect(await refusal(svc.reissue(w.sessionId, "alice"))).toEqual({ code: "unavailable", message: REPORTS_UNREADABLE });
+    expect(await svc.links(w.sessionId)).toEqual({ state: "unavailable", roles: [] });
+    expect(logs).toEqual(["report reader unavailable"]);
+    expect(await refusal(svc.issue("other-session", "alice"))).toEqual({ code: "conflict", message: NOT_READY });
+    expect(REPORTS_UNREADABLE).toBe("The reports for this session cannot be read. Check them with moderate status.");
+  });
+  it("links still lists a live link when the reader is unavailable, so it can be revoked", async () => {
+    await svc.issue(w.sessionId, "alice");
+    await w.corrupt();
+    const l = await svc.links(w.sessionId);
+    expect(l.state).toBe("unavailable");
+    expect(l.roles.map((r) => r.role)).toEqual(["alice"]);
   });
 });
