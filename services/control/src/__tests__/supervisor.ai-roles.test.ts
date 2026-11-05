@@ -59,7 +59,7 @@ describe("Supervisor.setAiRoles", () => {
     expect(m.requestId).toMatch(/^[0-9a-f]{16}$/);
     c.emit({ type: "ai_roles_set", requestId: "0".repeat(16), codes: [{ roleId: "cto", code: "WRONG" }] });
     c.emit({ type: "ai_roles_set", requestId: m.requestId, codes: [{ roleId: "cto", code: "HUMAN-CTO" }] });
-    await expect(p).resolves.toEqual({ roles: ["cfo"], codes: [{ roleId: "cto", code: "HUMAN-CTO" }] });
+    await expect(p).resolves.toEqual({ roles: ["cfo"], includeInGroup: true, codes: [{ roleId: "cto", code: "HUMAN-CTO" }] });
     expect(pending()).toEqual([]);
     await expect(sup.setAiRoles(sid(9), [])).rejects.toMatchObject({ code: "not_found" });
   });
@@ -91,7 +91,7 @@ describe("Supervisor.setAiRoles", () => {
     first.emit({ type: "ai_roles_set", requestId: rid, codes: [{ roleId: "cto", code: "STALE" }] });
     c.emit({ type: "ai_roles_failed", requestId: "1".repeat(16), reason: "other" });
     c.emit({ type: "ai_roles_set", requestId: rid, codes: [{ roleId: "cto", code: "HUMAN-CTO" }] });
-    await expect(s).resolves.toEqual({ roles: ["cfo"], codes: [{ roleId: "cto", code: "HUMAN-CTO" }] });
+    await expect(s).resolves.toEqual({ roles: ["cfo"], includeInGroup: true, codes: [{ roleId: "cto", code: "HUMAN-CTO" }] });
   });
 
   it("the timeout rejects with timeout and a late reply changes nothing", async () => {
@@ -115,7 +115,7 @@ describe("Supervisor.setAiRoles", () => {
     // B14: cfo was uncertain after the timeout and the reply did not cover it, so it is reissued now
     expect(c.sent.map((m) => m.type)).toEqual(["set_ai_roles", "set_ai_roles", "reissue"]);
     c.emit({ type: "reissued", requestId: c.sent[2]!.requestId, code: "HUMAN-CFO" });
-    await expect(again).resolves.toEqual({ roles: [], codes: [{ roleId: "cfo", code: "HUMAN-CFO" }] });
+    await expect(again).resolves.toEqual({ roles: [], includeInGroup: true, codes: [{ roleId: "cfo", code: "HUMAN-CFO" }] });
   });
 
   it("a child exit rejects with unavailable", async () => {
@@ -205,7 +205,7 @@ describe("Supervisor.setAiRoles with the bots (US-0060 Task 11)", () => {
     const p = sup.setAiRoles(id, ["cto"]); await settle();
     await reply(c, 0, [{ roleId: "cto", code: "SECRET-CTO" }]);
     const r = await p;
-    expect(r).toEqual({ roles: ["cto"], codes: [] });
+    expect(r).toEqual({ roles: ["cto"], includeInGroup: true, codes: [] });
     expect(JSON.stringify(r)).not.toContain("SECRET-CTO");
     expect(botCalls).toEqual([{ op: "attach", id, arg: { port: 4321, aiRoles: ["cto"], codes: [{ roleId: "cto", code: "SECRET-CTO" }] } }]);
     expect(sup.aiRolesOf(id)).toEqual(["cto"]);
@@ -217,7 +217,7 @@ describe("Supervisor.setAiRoles with the bots (US-0060 Task 11)", () => {
     const { id, c } = await bootB(sup, { ...READY, aiRoles: ["cto"] });
     const p = sup.setAiRoles(id, ["cfo"]); await settle();
     await reply(c, 0, [{ roleId: "cfo", code: "AI-CFO" }, { roleId: "cto", code: "HUMAN-CTO" }]);
-    expect(await p).toEqual({ roles: ["cfo"], codes: [{ roleId: "cto", code: "HUMAN-CTO" }] });
+    expect(await p).toEqual({ roles: ["cfo"], includeInGroup: true, codes: [{ roleId: "cto", code: "HUMAN-CTO" }] });
     expect(botCalls).toEqual([
       { op: "removeRoles", id, arg: ["cto"] },
       { op: "attach", id, arg: { port: 4321, aiRoles: ["cfo"], codes: [{ roleId: "cfo", code: "AI-CFO" }] } },
@@ -293,11 +293,11 @@ describe("Supervisor.setAiRoles with the bots (US-0060 Task 11)", () => {
     const { id, c } = await bootB(sup, { ...READY, aiRoles: ["cto"] });
     const p = sup.setAiRoles(id, ["cfo"]); await settle();
     await reply(c, 0, [{ roleId: "cfo", code: "A" }, { roleId: "cto", code: "H" }]);
-    await expect(p).resolves.toEqual({ roles: ["cfo"], codes: [{ roleId: "cto", code: "H" }] });
+    await expect(p).resolves.toEqual({ roles: ["cfo"], includeInGroup: true, codes: [{ roleId: "cto", code: "H" }] });
     // the lock is free again
     const q = sup.setAiRoles(id, ["cfo"]); await settle();
     await reply(c, 1, []);
-    await expect(q).resolves.toEqual({ roles: ["cfo"], codes: [] });
+    await expect(q).resolves.toEqual({ roles: ["cfo"], includeInGroup: true, codes: [] });
   });
 
   it("a rejecting attach or removeRoles is logged by error name only, never with a code", async () => {
@@ -592,7 +592,7 @@ describe("whole-session reissue, restart, resume and timeout recovery (Task 12)"
     expect(c.sent[before + 1]).toMatchObject({ type: "reissue", roleId: "tech_lead" });
     c.emit({ type: "reissued", requestId: c.sent[before + 1]!.requestId, code: "human-tl" });
     const r = await bounded(p);
-    expect(r).toEqual({ roles: ["account_manager"], codes: [{ roleId: "tech_lead", code: "human-tl" }] });
+    expect(r).toEqual({ roles: ["account_manager"], includeInGroup: true, codes: [{ roleId: "tech_lead", code: "human-tl" }] });
     expect(lastAttach().codes).toEqual([{ roleId: "account_manager", code: "ai-am" }]);
     // no longer uncertain: a single reissue goes through again
     const again = sup.reissue(id, "tech_lead"); await settle();
@@ -608,5 +608,147 @@ describe("whole-session reissue, restart, resume and timeout recovery (Task 12)"
     await bounded(p);
     await settle();
     expect(botCalls.filter((x) => x.op === "forget")).toHaveLength(1);
+  });
+});
+
+describe("the group-score option (US-0061 Task 5)", () => {
+  beforeEach(() => { botCalls = []; logs = []; setCodesImpl = async () => {}; removeImpl = async () => {}; });
+  const OFF = { ...READY3, includeInGroup: false };
+  const sentOf = (c: FakeChild, i = 0) => c.sent[i] as { type: string; roles?: string[]; includeInGroup?: boolean };
+
+  it("setAiRoles(id, [tech_lead], false) sends includeInGroup false and answers includeInGroup false; GET /sessions/:id shows includeInGroup false", async () => {
+    const sup = makeB();
+    const { id, c } = await bootB(sup);
+    const p = sup.setAiRoles(id, ["tech_lead"], false); await settle();
+    expect(sentOf(c)).toMatchObject({ type: "set_ai_roles", roles: ["tech_lead"], includeInGroup: false });
+    await reply(c, 0, [{ roleId: "tech_lead", code: "ai-tl" }]);
+    const r = await p;
+    expect(r).toEqual({ roles: ["tech_lead"], includeInGroup: false, codes: [] });
+    expect(JSON.stringify(r)).not.toContain("ai-tl");
+    expect(sup.get(id)).toMatchObject({ includeInGroup: false });
+    expect(sup.includeInGroupOf(id)).toBe(false);
+  });
+
+  it("setAiRoles(id, [tech_lead]) sends no includeInGroup key and answers the kept value", async () => {
+    const sup = makeB();
+    const { id, c } = await bootB(sup, OFF);
+    const p = sup.setAiRoles(id, ["tech_lead", "account_manager"]); await settle();
+    expect("includeInGroup" in sentOf(c)).toBe(false);
+    await reply(c, 0, [{ roleId: "account_manager", code: "ai-am" }]);
+    await expect(p).resolves.toEqual({ roles: ["tech_lead", "account_manager"], includeInGroup: false, codes: [] });
+    const sup2 = makeB();
+    const b = await bootB(sup2);
+    expect(sup2.includeInGroupOf(b.id)).toBe(true);
+    expect(sup2.get(b.id)!.includeInGroup).toBe(true);
+  });
+
+  it("a defined non-boolean option is bad_request before any state change or IPC", async () => {
+    const sup = makeB();
+    const { id, c } = await bootB(sup);
+    for (const bad of ["no", 0, null, {}]) expect(await errOf(sup.setAiRoles(id, ["tech_lead"], bad as unknown as boolean))).toMatchObject({ code: "bad_request" });
+    expect(c.sent).toEqual([]);
+    expect(sup.includeInGroupOf(id)).toBe(true);
+  });
+
+  it("reissueAll on a lobby with tech_lead AI and the option off re-sends roles and option false", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup, OFF);
+    dies(c);
+    const p = sup.reissueAll(id); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7101 }); await settle();
+    expect(c2.sent).toHaveLength(1);
+    expect(sentOf(c2)).toMatchObject({ type: "set_ai_roles", roles: ["tech_lead"], includeInGroup: false });
+    await reply(c2, 0, [{ roleId: "tech_lead", code: "ai-tl" }]);
+    expect(await bounded(p)).toEqual(HUMAN);
+    expect(sup.includeInGroupOf(id)).toBe(false);
+  });
+
+  it("the same with the option on re-sends roles only when they differ", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup);
+    dies(c);
+    const p = sup.reissueAll(id); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7102 }); await settle();
+    expect(c2.sent).toHaveLength(1);
+    expect(sentOf(c2).includeInGroup ?? true).toBe(true);
+    await reply(c2, 0, [{ roleId: "tech_lead", code: "ai-tl" }]);
+    await bounded(p);
+    // equal roles and an option that agrees (on): nothing is sent
+    c2.exit(1); await settle();
+    const r = sup.restart(id); await settle();
+    const c3 = children[2]!;
+    c3.emit({ type: "codes", codes: FRESH }); c3.emit({ ...READY, port: 7103, aiRoles: ["tech_lead"] });
+    await bounded(r);
+    expect(c3.sent).toEqual([]);
+  });
+
+  it("restart on an empty log keeps the option off", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup, OFF);
+    c.exit(1); await settle();
+    const p = sup.restart(id); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7104 }); await settle();
+    expect(sentOf(c2)).toMatchObject({ type: "set_ai_roles", roles: ["tech_lead"], includeInGroup: false });
+    await reply(c2, 0, [{ roleId: "tech_lead", code: "ai-tl" }]);
+    await bounded(p);
+    expect(sup.includeInGroupOf(id)).toBe(false);
+  });
+
+  it("after a control-service restart (empty memory), ready.aiRolesReset [tech_lead] with includeInGroupReset false is re-sent with includeInGroup false", async () => {
+    const sup = makeB();
+    const { id } = await bootT(sup, OFF);
+    const sup2 = makeB();
+    const p = sup2.resumeAll(); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7105, aiRolesReset: ["tech_lead"], includeInGroupReset: false }); await settle();
+    expect(c2.sent).toHaveLength(1);
+    expect(sentOf(c2)).toMatchObject({ type: "set_ai_roles", roles: ["tech_lead"], includeInGroup: false });
+    await reply(c2, 0, [{ roleId: "tech_lead", code: "ai-tl" }]);
+    await bounded(p);
+    expect(sup2.includeInGroupOf(id)).toBe(false);
+    expect(sup2.aiRolesOf(id)).toEqual(["tech_lead"]);
+  });
+
+  it("a ready with roles equal but includeInGroup absent while memory says off triggers a re-send", async () => {
+    const sup = makeB();
+    const { id, c } = await bootT(sup, OFF);
+    c.exit(1); await settle();
+    const p = sup.restart(id); await settle();
+    const c2 = children[1]!;
+    c2.emit({ type: "codes", codes: FRESH }); c2.emit({ ...READY, port: 7106, aiRoles: ["tech_lead"] }); await settle();
+    expect(c2.sent).toHaveLength(1);
+    expect(sentOf(c2)).toMatchObject({ type: "set_ai_roles", roles: ["tech_lead"], includeInGroup: false });
+    await reply(c2, 0, []);
+    await bounded(p);
+    expect(sup.includeInGroupOf(id)).toBe(false);
+  });
+
+  it("a timed-out set leaves the info's option unchanged", async () => {
+    const sup = make({ reissueTimeoutMs: 42 });
+    const { id } = await boot(sup, { ...READY, includeInGroup: false });
+    expect(sup.get(id)!.includeInGroup).toBe(false);
+    const p = errOf(sup.setAiRoles(id, ["cfo"], true)); await settle();
+    fire(pending(42)[0]!);
+    expect(await p).toMatchObject({ code: "timeout" });
+    expect(sup.get(id)!.includeInGroup).toBe(false);
+    expect(sup.includeInGroupOf(id)).toBe(false);
+  });
+
+  it("an option-only set reconnects no bot (attach with the same set is skipped)", async () => {
+    const sup = makeB();
+    const { id, c } = await bootB(sup, { ...READY, aiRoles: ["cto"] });
+    const p = sup.setAiRoles(id, ["cto"], false); await settle();
+    await reply(c, 0, []);
+    await expect(p).resolves.toEqual({ roles: ["cto"], includeInGroup: false, codes: [] });
+    expect(botCalls).toEqual([]);
+    expect(sup.includeInGroupOf(id)).toBe(false);
+    // a changed set still attaches
+    const q = sup.setAiRoles(id, ["cto", "cfo"]); await settle();
+    await reply(c, 1, [{ roleId: "cfo", code: "ai-cfo" }]);
+    await q;
+    expect(botCalls.map((x) => x.op)).toEqual(["attach"]);
   });
 });

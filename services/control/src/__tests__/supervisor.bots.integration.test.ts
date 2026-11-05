@@ -79,7 +79,7 @@ describe("Supervisor with a real BotHost", () => {
     const { id, c } = await boot(sup);
     expect(opened).toEqual([]);
     const r = await set(sup, id, c, ["tech_lead"], [{ roleId: "tech_lead", code: "ai-code-1" }]);
-    expect(r).toEqual({ roles: ["tech_lead"], codes: [] });
+    expect(r).toEqual({ roles: ["tech_lead"], includeInGroup: true, codes: [] });
     expect(opened.map((o) => [o.roleId, o.code, o.port])).toEqual([["tech_lead", "ai-code-1", 4321]]);
     expect(reissues).toEqual([]);
     expect(c.sent.map((m) => m.type)).toEqual(["set_ai_roles"]);
@@ -91,7 +91,7 @@ describe("Supervisor with a real BotHost", () => {
     const { id, c } = await boot(sup);
     await set(sup, id, c, ["tech_lead"], [{ roleId: "tech_lead", code: "ai-code-1" }]);
     const back = await set(sup, id, c, [], [{ roleId: "tech_lead", code: "human-again" }]);
-    expect(back).toEqual({ roles: [], codes: [{ roleId: "tech_lead", code: "human-again" }] });
+    expect(back).toEqual({ roles: [], includeInGroup: true, codes: [{ roleId: "tech_lead", code: "human-again" }] });
     expect(opened[0]!.closed).toBe(true);
     await set(sup, id, c, ["tech_lead"], [{ roleId: "tech_lead", code: "ai-code-2" }]);
     expect(opened.map((o) => [o.roleId, o.code])).toEqual([["tech_lead", "ai-code-1"], ["tech_lead", "ai-code-2"]]);
@@ -143,7 +143,7 @@ describe("Supervisor with a real BotHost", () => {
     expect(last()).toMatchObject({ type: "reissue" });
     c.emit({ type: "reissued", requestId: last().requestId, code: "ai-tl-3" }); await settle();
     c.emit({ type: "reissued", requestId: last().requestId, code: "ai-am-3" });
-    expect(await s3).toEqual({ roles: ["tech_lead", "account_manager"].sort((a, b) => ROLES.indexOf(a) - ROLES.indexOf(b)), codes: [] });
+    expect(await s3).toEqual({ roles: ["tech_lead", "account_manager"].sort((a, b) => ROLES.indexOf(a) - ROLES.indexOf(b)), includeInGroup: true, codes: [] });
     await settle();
     expect(opened.map((o) => [o.roleId, o.code]).sort()).toEqual([["account_manager", "ai-am-3"], ["tech_lead", "ai-tl-3"]]);
     expect(reissues).toEqual([]);
@@ -178,7 +178,7 @@ describe("Supervisor with a real BotHost", () => {
       const s = sup.setAiRoles(id, []); await settle();
       void host!.attach(id, { port: 4321, aiRoles: ["tech_lead"] }); await settle();
       c.emit({ type: "ai_roles_set", requestId: c.sent[0]!.requestId, codes: [{ roleId: "tech_lead", code: "human-new" }] });
-      expect(await s).toEqual({ roles: [], codes: [{ roleId: "tech_lead", code: "human-new" }] });
+      expect(await s).toEqual({ roles: [], includeInGroup: true, codes: [{ roleId: "tech_lead", code: "human-new" }] });
       await settle();
       expect(types(c)).toEqual(["set_ai_roles"]);
       expect(opened).toEqual([]);

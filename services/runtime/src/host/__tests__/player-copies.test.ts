@@ -74,6 +74,15 @@ describe("player copies (a new field is denied until it is listed)", () => {
     expect(Object.hasOwn(out, "aiSecret")).toBe(false);
   });
 
+  it("a player's copy of session.started has no includeInGroup key", () => {
+    const e = { type: "session.started", seq: 1, ts: 1, sessionId: "s", scenarioId: "sc", version: "1", roles: { a: { kind: "player" }, b: { kind: "player" } },
+      aiRoles: ["b"], includeInGroup: false } as StartedEvent;
+    const out = startedForPlayer(e, "a");
+    expect(out.aiRoles).toEqual(["b"]);
+    expect(Object.hasOwn(out, "includeInGroup")).toBe(false);
+    expect(JSON.stringify(out)).not.toContain("includeInGroup");
+  });
+
   it("a session.started without aiRoles reaches a player without the key", () => {
     const base = { type: "session.started", seq: 1, ts: 1, sessionId: "s", scenarioId: "sc", version: "1", roles: { a: { kind: "player" } } } as StartedEvent;
     expect(Object.hasOwn(startedForPlayer(base, "a"), "aiRoles")).toBe(false);

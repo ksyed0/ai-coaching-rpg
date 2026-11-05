@@ -6,7 +6,7 @@
 | US           | US-0066               | US-0065           |
 | TASK         | TASK-0100             | TASK-0099         |
 | AC           | AC-0364               | AC-0363           |
-| TC           | TC-0114               | TC-0113           |
+| TC           | TC-0115               | TC-0114           |
 | BUG          | BUG-0025              | BUG-0024          |
 | L            | L-0032                | L-0031            |
 
@@ -63,3 +63,5 @@ Assigned 2026-11-04 (slice 2b-3b, after PR 2): BUG-0020 (the bot socket overlap 
 Assigned 2026-11-04 (slice 2b-3b, PR 3): AC-0363 (US-0060: the facilitator can prompt an AI player with an optional private hint; reserve, logged command, run; the hint only to the model and the intent log); TC-0110 (AC-0317), TC-0111 (AC-0318), TC-0112 (AC-0363) and TC-0113 (AC-0316: Axe on the toggle, the confirmations and the AI players panel). No new TASK: the work closes TASK-0099 (next free stays TASK-0100). Slice 2b-3b is complete; the next AC is AC-0364 and the next TC is TC-0114.
 
 Assigned 2026-11-04 (bug fixes after slice 2b-3b): BUG-0024 (the stream hubs drop a reconnecting client whose replay follows a large opening frame; found in the review of the BUG-0017 fix and fixed with it).
+
+Assigned 2026-11-04 (slice 2b-3c, PR 1): TC-0114 (AC-0323). No new AC or TASK: the work is under TASK-0090 (next free AC stays AC-0364, next free TASK stays TASK-0100). PR 2 files its own (expected AC-0364 and TC-0115 onwards).

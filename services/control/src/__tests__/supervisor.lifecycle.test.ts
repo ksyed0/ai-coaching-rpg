@@ -143,7 +143,7 @@ describe("Supervisor lifecycle", () => {
     expect(sup.get(id)!.status).toBe("stopped"); // not running until ready
     expect(pending(5000)).toHaveLength(1);
     c2.emit({ type: "ready", port: 5555, status: "resumed", modelLabel: "m2" });
-    await expect(p).resolves.toEqual({ sessionId: id, scenarioId: "other", status: "running", port: 5555, modelLabel: "m2" });
+    await expect(p).resolves.toEqual({ sessionId: id, scenarioId: "other", status: "running", port: 5555, modelLabel: "m2", includeInGroup: true });
     expect(list.read()[0]!.status).toBe("running");
     expect(sup.facilitator(id)).toEqual({ port: 5555, token: c2.env.FACILITATOR_TOKEN });
     expect(pending()).toEqual([]);

@@ -133,6 +133,27 @@ test("facilitator creates a session, makes Tech lead an AI player on the created
   ).toHaveText("AI");
 });
 
+test("untick the option, reload readiness: still unticked; start succeeds", async ({ browser }) => {
+  test.setTimeout(300_000);
+  const { stack: s, fac, sessionId, codes } = await sessionWithAi(browser);
+  const box = fac.getByRole("checkbox", { name: "Include AI players in group scores" });
+  // The created panel shows the option (on by default); readiness shows it too and posts the same change.
+  await expect(box).toBeChecked();
+  await fac.goto(sessionUrl(s, sessionId));
+  await expect(box).toBeChecked();
+  await Promise.all([
+    fac.waitForResponse((r) => /\/ai-roles$/.test(new URL(r.url()).pathname) && r.request().method() === "POST" && r.ok()),
+    box.uncheck(),
+  ]);
+  await expect(box).not.toBeChecked();
+  await expect(box).toBeEnabled();
+  await fac.reload();
+  await expect(box).not.toBeChecked();
+  await startWithAi(browser, s, fac, sessionId, codes);
+  await expect(fac.getByText("AI players in group scores: off", { exact: true })).toBeVisible();
+  await expect(fac.getByRole("checkbox")).toHaveCount(0);
+});
+
 test("a joined player switched to AI sees Role filled by an AI player", async ({
   browser,
 }) => {

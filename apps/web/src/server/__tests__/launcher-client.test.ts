@@ -507,16 +507,40 @@ describe("LauncherClient error mapping", () => {
 describe("LauncherClient AI roles", () => {
   it("setAiRoles: PUT /sessions/:id/ai-roles { roles }, answers roles and the human codes only", async () => {
     const f = fakeFetch(() =>
-      reply(envelope({ roles: ["tech_lead"], codes: [{ roleId: "delivery_lead", code: "ABCD-EFGH", extra: 1 }], secret: "x" })),
+      reply(envelope({ roles: ["tech_lead"], includeInGroup: true, codes: [{ roleId: "delivery_lead", code: "ABCD-EFGH", extra: 1 }], secret: "x" })),
     );
     const r = await client(f.fetch).setAiRoles(SID, ["tech_lead"]);
-    expect(r).toEqual({ roles: ["tech_lead"], codes: [{ roleId: "delivery_lead", code: "ABCD-EFGH" }] });
+    expect(r).toEqual({ roles: ["tech_lead"], includeInGroup: true, codes: [{ roleId: "delivery_lead", code: "ABCD-EFGH" }] });
     expect(f.calls[0]).toMatchObject({ url: `${BASE}/sessions/${SID}/ai-roles`, method: "PUT" });
     expect(JSON.parse(f.calls[0]!.body!)).toEqual({ roles: ["tech_lead"] });
   });
 
+  it("setAiRoles: sends includeInGroup only when defined, and keeps false", async () => {
+    const f = fakeFetch(() => reply(envelope({ roles: [], includeInGroup: false, codes: [] })));
+    const r = await client(f.fetch).setAiRoles(SID, [], false);
+    expect(r.includeInGroup).toBe(false);
+    expect(JSON.parse(f.calls[0]!.body!)).toEqual({ roles: [], includeInGroup: false });
+    const g = fakeFetch(() => reply(envelope({ roles: [], includeInGroup: true, codes: [] })));
+    await client(g.fetch).setAiRoles(SID, []);
+    expect(Object.keys(JSON.parse(g.calls[0]!.body!))).toEqual(["roles"]);
+  });
+
+  it("a reply without includeInGroup is a launcher error", async () => {
+    for (const v of [undefined, "true", 1, null]) {
+      const f = fakeFetch(() => reply(envelope({ roles: [], codes: [], ...(v !== undefined && { includeInGroup: v }) })));
+      expect((await reasonOf(client(f.fetch).setAiRoles(SID, []))).reason).toBe("failed");
+    }
+  });
+
+  it("session info keeps includeInGroup only when it is a boolean", async () => {
+    const f = fakeFetch(() => reply(envelope({ sessionId: SID, scenarioId: "pitch", status: "running", includeInGroup: false })));
+    expect((await client(f.fetch).session(SID)).includeInGroup).toBe(false);
+    const g = fakeFetch(() => reply(envelope({ sessionId: SID, scenarioId: "pitch", status: "running", includeInGroup: "no" })));
+    expect("includeInGroup" in (await client(g.fetch).session(SID))).toBe(false);
+  });
+
   it("setAiRoles: a reply that is not roles plus codes is a failure", async () => {
-    for (const data of [{ roles: "x", codes: [] }, { roles: [1], codes: [] }, { roles: [], codes: [{ roleId: "a" }] }, { codes: [] }]) {
+    for (const data of [{ roles: "x", includeInGroup: true, codes: [] }, { roles: [1], includeInGroup: true, codes: [] }, { roles: [], includeInGroup: true, codes: [{ roleId: "a" }] }, { includeInGroup: true, codes: [] }]) {
       const f = fakeFetch(() => reply(envelope(data)));
       expect((await reasonOf(client(f.fetch).setAiRoles(SID, []))).reason).toBe("failed");
     }

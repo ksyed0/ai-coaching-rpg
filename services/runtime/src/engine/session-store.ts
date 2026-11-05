@@ -62,6 +62,8 @@ export type OpenedSession = {
    * service uses it to restore the roles after its own restart, when it holds no copy.
    */
   aiRolesReset?: string[];
+  /** US-0061: set beside `aiRolesReset` only when the dropped AI-role file had the group-score option OFF (the default, on, is not reported). */
+  includeInGroupReset?: false;
   /**
    * US-0033 (review I-1): withdraws codes that THIS start issued and nobody has seen yet (call it when the start fails before they were
    * shown, then close). Removes the codes file only while this process holds the lock; codes kept from an earlier start are never
@@ -191,8 +193,9 @@ export async function openSession(o: {
    * BUG-0021: the roles in a valid AI-role file, or [] when there is none or it is unusable (corrupt, wrong bind, oversized, a link, unreadable).
    * It never throws and quotes nothing: this is a report for the parent, not a gate, and the replace that follows is unchanged.
    */
-  const readDroppableAiRoles = (): string[] => {
-    try { return readAiRolesFile(o.dataDir, bind)?.list() ?? []; } catch { return []; }
+  const readDroppableAiRoles = (): { roles: string[]; includeInGroup: boolean } => {
+    try { const set = readAiRolesFile(o.dataDir, bind); return set ? { roles: set.list(), includeInGroup: set.includeInGroup } : { roles: [], includeInGroup: true }; }
+    catch { return { roles: [], includeInGroup: true }; }
   };
   /** Set when this start wrote new seat files (discardIssuedCodes removes those, never kept ones). */
   let seatsCreated = false;
@@ -202,14 +205,14 @@ export async function openSession(o: {
    * US-0053: keeps the seats read from disk when the codes were kept and the credentials fit this session, or writes new empty ones.
    * `logIdentity` (a resumed log's own) keeps the pseudonyms of a running session stable when its credentials file was lost.
    */
-  const settleSeats = (codesKept: boolean, found: ReturnType<typeof readSeats>, logIdentity?: string, startedAiRoles?: string[]): Seats | undefined => {
+  const settleSeats = (codesKept: boolean, found: ReturnType<typeof readSeats>, logIdentity?: string, startedAiRoles?: string[], startedIncludeInGroup?: false): Seats | undefined => {
     const notice = o.consentNotice;
     if (!notice) return undefined;
     let credentials: PlayerCredentials; let consent: ConsentStore;
     // US-0060: a resumed started session takes its AI roles from the log (`startedAiRoles`, never from the file); a lobby from the file.
     const fromLog = startedAiRoles !== undefined;
     const aiRoles = AiRoleSet.empty();
-    if (fromLog) aiRoles.replace(startedAiRoles, playerRoles);
+    if (fromLog) { aiRoles.replace(startedAiRoles, playerRoles); aiRoles.setIncludeInGroup(startedIncludeInGroup !== false); } // US-0061: the option too
     let aiFileNeeded = true; // false when the lobby's own file was read and stands
     // A log that records an identity the credentials do not carry belongs to other seats (a restored or swapped file): they are not used.
     const identityKept = !logIdentity || found?.credentials?.logIdentity === logIdentity;
@@ -220,7 +223,7 @@ export async function openSession(o: {
         try { writeConsentFile(o.dataDir, bind, consent, holdLockNow); }
         catch (err) { throw new SessionStoreError("io", `cannot write the consent file in ${o.dataDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`); }
       }
-      if (!fromLog && found.aiRoles) { aiRoles.replace(found.aiRoles.list(), playerRoles); aiFileNeeded = false; }
+      if (!fromLog && found.aiRoles) { aiRoles.replace(found.aiRoles.list(), playerRoles); aiRoles.setIncludeInGroup(found.aiRoles.includeInGroup); aiFileNeeded = false; }
     } else {
       if (codesKept && found) notes.push(found.credentials
         ? found.credentials.matches(bind)
@@ -290,8 +293,8 @@ export async function openSession(o: {
   };
   let opened: { log: JsonlEventLog; engine: SessionEngine } | null = null;
   try {
-    const done = (x: { log: JsonlEventLog; engine: SessionEngine }, rest: Pick<OpenedSession, "outcome" | "rotatedTo" | "rotatedBecause" | "resume" | "resumeNotes" | "joinCodes" | "seats">, aiRolesReset?: string[]): OpenedSession => ({
-      ...x, lock, notes, ...rest, ...(aiRolesReset ? { aiRolesReset } : {}),
+    const done = (x: { log: JsonlEventLog; engine: SessionEngine }, rest: Pick<OpenedSession, "outcome" | "rotatedTo" | "rotatedBecause" | "resume" | "resumeNotes" | "joinCodes" | "seats">, aiRolesReset?: string[], includeInGroupReset?: false): OpenedSession => ({
+      ...x, lock, notes, ...rest, ...(aiRolesReset ? { aiRolesReset } : {}), ...(aiRolesReset && includeInGroupReset === false ? { includeInGroupReset } : {}),
       writeJoinCodes: (c) => {
         try { writeJoinCodesFile(o.dataDir, o.sessionId, c, holdLockNow); }
         catch (err) {
@@ -330,10 +333,11 @@ export async function openSession(o: {
       // ones); `!issued` then drops `found` exactly in that case, so no credential outlives the codes it was issued under.
       const found = readSeats(true);
       // BUG-0021: settleCodes may remove the AI-role file with the old seats, so what it holds is noted first (only a valid file counts).
-      const onFile = o.consentNotice ? readDroppableAiRoles() : [];
+      const onFile = o.consentNotice ? readDroppableAiRoles() : { roles: [], includeInGroup: true };
       const joinCodes = settleCodes(true, false);
       const seats = settleSeats(!joinCodes?.issued, found);
-      return done(opened, { outcome: "new", joinCodes, seats }, seatsCreated && onFile.length > 0 ? onFile : undefined);
+      const dropped = seatsCreated && onFile.roles.length > 0;
+      return done(opened, { outcome: "new", joinCodes, seats }, dropped ? onFile.roles : undefined, dropped && !onFile.includeInGroup ? false : undefined);
     }
     if (restored.kind === "empty") { const joinCodes = settleCodes(false, false); return done(opened, { outcome: "new", joinCodes, seats: settleSeats(false, undefined) }); }
     if (restored.kind === "ended" && o.managed) throw new SessionStoreError("resume_refused", "the session has ended");
@@ -349,7 +353,7 @@ export async function openSession(o: {
     const found = readSeats(false, true); // a started session: consents of any notice version stand (R15)
     const joinCodes = settleCodes(true, true);
     // The log's own identity (logs written before US-0053 carry none: then a new one) survives a lost credentials file.
-    const seats = settleSeats(!joinCodes?.issued, found, restored.info.logIdentity, restored.info.startedAiRoles ?? []);
+    const seats = settleSeats(!joinCodes?.issued, found, restored.info.logIdentity, restored.info.startedAiRoles ?? [], restored.info.startedIncludeInGroup);
     const resumeNotes = await opened.engine.markResumed(restored.info);
     return done(opened, { outcome: "resumed", resume: restored.info, resumeNotes, joinCodes, seats });
   } catch (err) {

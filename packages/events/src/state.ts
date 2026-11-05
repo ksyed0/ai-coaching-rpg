@@ -57,7 +57,7 @@ function withTalk(talk: SessionState["talk"], roleId: string, text: string): Ses
 }
 
 /** Distinct strings of `aiRoles` that name a player role of the event, first occurrence only; anything else (a non-string, an AI character, an unknown role) is dropped. */
-function foldAiRoles(e: Extract<SessionEvent, { type: "session.started" }>): string[] {
+export function aiRolesOfStarted(e: Extract<SessionEvent, { type: "session.started" }>): string[] {
   if (!Array.isArray(e.aiRoles)) return [];
   const out: string[] = [];
   for (const r of e.aiRoles as unknown[]) {
@@ -65,6 +65,9 @@ function foldAiRoles(e: Extract<SessionEvent, { type: "session.started" }>): str
   }
   return out;
 }
+
+/** US-0061: whether AI players count toward group scores. On unless the log says `false` (absent, or a 3b log, means on). */
+export const includeInGroupOf = (e: Extract<SessionEvent, { type: "session.started" }>): boolean => e.includeInGroup !== false;
 
 /** Appends a whisper to `roleId`'s list (a role id such as "__proto__" is an ordinary own key) and keeps the latest MAX_WHISPERS_PER_ROLE. The scene id is kept only when the addressee takes part in the current scene. */
 function withWhisper(s: SessionState, e: { seq: number; roleId: string; text: string }): SessionState["whispers"] {
@@ -89,7 +92,7 @@ export function reduce(state: SessionState, e: SessionEvent): SessionState {
   const s: SessionState = { ...state, lastSeq: e.seq };
   switch (e.type) {
     case "session.started":
-      return { ...s, status: "running", scenarioId: e.scenarioId, version: e.version, roles: e.roles, aiRoles: foldAiRoles(e) };
+      return { ...s, status: "running", scenarioId: e.scenarioId, version: e.version, roles: e.roles, aiRoles: aiRolesOfStarted(e) };
     case "scene.entered":
       return { ...s, advanceRequested: false, gmVerdicts: {}, currentScene: { id: e.sceneId, enteredAt: e.ts, participants: e.participants, pausedMs: 0 },
         pausedSince: s.paused ? e.ts : null,

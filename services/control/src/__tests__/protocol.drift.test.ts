@@ -35,6 +35,8 @@ describe("protocol copy", () => {
     { type: "ready", port: 4000, status: "resumed", modelLabel: "local", aiCalls: 1_000_000 },
     { type: "ready", port: 4000, status: "new", modelLabel: "local", aiRolesReset: ["tech_lead"] },
     { type: "ready", port: 4000, status: "new", modelLabel: "local", aiRolesReset: Array.from({ length: 256 }, (_, i) => `r${i}`) },
+    { type: "ready", port: 4000, status: "new", modelLabel: "local", aiRoles: ["tech_lead"], includeInGroup: false },
+    { type: "ready", port: 4000, status: "new", modelLabel: "local", aiRolesReset: ["tech_lead"], includeInGroupReset: false },
   ];
   const invalid: unknown[] = [
     null, "x", [], {}, { type: "codes" }, { type: "codes", codes: [{ roleId: "cfo", code: "" }] }, { type: "codes", codes: [{ roleId: "Bad Id", code: "c" }] },
@@ -51,6 +53,8 @@ describe("protocol copy", () => {
     { type: "ready", port: 4000, status: "new", modelLabel: "m", aiCalls: 1.5 },
     { type: "ready", port: 4000, status: "new", modelLabel: "m", aiRolesReset: ["facilitator"] }, { type: "ready", port: 4000, status: "new", modelLabel: "m", aiRolesReset: "tech_lead" },
     { type: "ready", port: 4000, status: "new", modelLabel: "m", aiRolesReset: Array.from({ length: 257 }, (_, i) => `r${i}`) },
+    { type: "ready", port: 4000, status: "new", modelLabel: "m", includeInGroup: true }, { type: "ready", port: 4000, status: "new", modelLabel: "m", includeInGroup: "false" },
+    { type: "ready", port: 4000, status: "new", modelLabel: "m", includeInGroupReset: true }, { type: "ready", port: 4000, status: "new", modelLabel: "m", includeInGroupReset: 0 },
   ];
   it("accepts and rejects the same child messages as the runtime", () => {
     for (const m of valid) { expect(RuntimeChild.safeParse(m).success).toBe(true); expect(ChildMessageSchema.safeParse(m).success).toBe(true); }
@@ -63,11 +67,13 @@ describe("protocol copy", () => {
       { type: "reissue", requestId: "r1", roleId: "cfo", reason: "removed" }, { type: "reissue", requestId: "r1", roleId: "cfo", by: "Sam", reason: "removed" },
       { type: "set_ai_roles", requestId: "r1", roles: [] }, { type: "set_ai_roles", requestId: "r1", roles: ["tech_lead", "delivery_lead"] },
       { type: "set_ai_roles", requestId: "r1", roles: Array.from({ length: 256 }, (_, i) => `r${i}`) },
+      { type: "set_ai_roles", requestId: "r1", roles: [], includeInGroup: true }, { type: "set_ai_roles", requestId: "r1", roles: ["tech_lead"], includeInGroup: false },
       { type: "bot_alert", roleId: "tech_lead", message: "skipped a turn: the model did not answer" }, { type: "bot_alert", roleId: "tech_lead", message: "x".repeat(200) }];
     const bad: unknown[] = [{ type: "reissue", requestId: "r1" }, { type: "reissue", requestId: "r1", roleId: "facilitator" }, { type: "reissue", requestId: "r 1", roleId: "cfo" },
       { type: "reissue", requestId: "r1", roleId: "cfo", by: "x".repeat(201) }, { type: "reissue", requestId: "r1", roleId: "cfo", z: 1 }, { type: "reissue", requestId: "r1", roleId: "cfo", reason: "other" }, { type: "reissue", requestId: "r1", roleId: "cfo", reason: "" }, { type: "other" }, null,
       { type: "set_ai_roles", requestId: "r1", roles: Array.from({ length: 257 }, (_, i) => `r${i}`) }, { type: "set_ai_roles", requestId: "r1", roles: "tech_lead" },
-      { type: "set_ai_roles", requestId: "r1", roles: ["facilitator"] }, { type: "set_ai_roles", requestId: "r1", roles: [], by: "Kim" }, { type: "set_ai_roles", requestId: "r1", roles: [], includeInGroup: true },
+      { type: "set_ai_roles", requestId: "r1", roles: ["facilitator"] }, { type: "set_ai_roles", requestId: "r1", roles: [], by: "Kim" }, { type: "set_ai_roles", requestId: "r1", roles: [], includeInGroup: "x" }, { type: "set_ai_roles", requestId: "r1", roles: [], includeInGroup: 1 },
+      { type: "set_ai_roles", requestId: "r1", roles: [], includeInGroup: null },
       { type: "set_ai_roles", requestId: "r 1", roles: [] }, { type: "set_ai_roles", roles: [] },
       { type: "bot_alert", roleId: "tech_lead", message: "x".repeat(201) }, { type: "bot_alert", roleId: "tech_lead", message: "" }, { type: "bot_alert", roleId: "facilitator", message: "m" },
       { type: "bot_alert", roleId: "tech_lead", message: "m", extra: 1 }, { type: "bot_alert", roleId: "tech_lead", message: "m", requestId: "r1" }, { type: "bot_alert", message: "m" }];

@@ -47,7 +47,7 @@ let errors: string[];
 beforeEach(() => {
   setEnvelopeClock(() => new Date(T0));
   launcher = {
-    setAiRoles: vi.fn(async (_id: string, roles: string[]) => ({ roles, codes: [{ roleId: "delivery_lead", code: CODE_H }] })),
+    setAiRoles: vi.fn(async (_id: string, roles: string[], includeInGroup?: boolean) => ({ roles, includeInGroup: includeInGroup ?? true, codes: [{ roleId: "delivery_lead", code: CODE_H }] })),
     intents: vi.fn(async () => []),
     reissue: vi.fn(async () => CODE_H),
   };
@@ -136,7 +136,7 @@ describe("POST ai-roles guards", () => {
     expect(raw.length).toBeGreaterThan(1024);
     expect(raw.length).toBeLessThan(4096);
     expect((await h.roles(post(rolesPath, null, { raw }))).status).toBe(200);
-    expect(launcher.setAiRoles).toHaveBeenCalledWith(SID, long);
+    expect(launcher.setAiRoles).toHaveBeenCalledWith(SID, long, undefined);
     launcher.setAiRoles.mockClear();
     const over = JSON.stringify({ roles: ["a"], pad: "x".repeat(4096) });
     const res = await h.roles(post(rolesPath, null, { raw: over }));
@@ -145,20 +145,61 @@ describe("POST ai-roles guards", () => {
   });
 });
 
+describe("POST ai-roles group-score option (US-0061)", () => {
+  it("POST {roles:[\"tech_lead\"], includeInGroup:false} forwards false and answers includeInGroup false", async () => {
+    const h = await handlers();
+    const res = await h.roles(post(rolesPath, { roles: ["tech_lead"], includeInGroup: false }));
+    expect(res.status).toBe(200);
+    expect(launcher.setAiRoles).toHaveBeenCalledWith(SID, ["tech_lead"], false);
+    expect((await json(res)).data.includeInGroup).toBe(false);
+  });
+
+  it("POST {roles:[\"tech_lead\"]} forwards no value (the BFF never defaults a missing field)", async () => {
+    const h = await handlers();
+    const res = await h.roles(post(rolesPath, { roles: ["tech_lead"] }));
+    expect(res.status).toBe(200);
+    expect(launcher.setAiRoles.mock.calls[0]![2]).toBeUndefined();
+  });
+
+  it("includeInGroup \"false\", 0 or null answers 400 without calling the launcher", async () => {
+    const h = await handlers();
+    for (const v of ["false", 0, null, 1, "true", {}]) {
+      const res = await h.roles(post(rolesPath, { roles: [], includeInGroup: v }));
+      expect(res.status, JSON.stringify(v)).toBe(400);
+      expect((await json(res)).error?.code).toBe("bad_request");
+    }
+    expect(launcher.setAiRoles).not.toHaveBeenCalled();
+  });
+
+  it("an extra key still answers 400", async () => {
+    const h = await handlers();
+    expect((await h.roles(post(rolesPath, { roles: [], includeInGroup: true, extra: 1 }))).status).toBe(400);
+    expect(launcher.setAiRoles).not.toHaveBeenCalled();
+  });
+
+  it("the answer's includeInGroup comes from the launcher's reply, not the request", async () => {
+    const h = await handlers();
+    launcher.setAiRoles.mockResolvedValueOnce({ roles: [], includeInGroup: true, codes: [] });
+    const b = await json(await h.roles(post(rolesPath, { roles: [], includeInGroup: false })));
+    expect(b.data.includeInGroup).toBe(true);
+  });
+});
+
 describe("POST ai-roles answers", () => {
   it("forwards the roles and answers only { roles, codes } built from the launcher's reply", async () => {
     const h = await handlers();
     launcher.setAiRoles.mockResolvedValueOnce({
       roles: ["tech_lead"],
+      includeInGroup: true,
       codes: [{ roleId: "delivery_lead", code: CODE_H, token: "LEAK", port: 4242 }],
       port: 4242,
       token: "LEAK",
     });
     const res = await h.roles(post(rolesPath, { roles: ["tech_lead"] }));
     expect(res.status).toBe(200);
-    expect(launcher.setAiRoles).toHaveBeenCalledWith(SID, ["tech_lead"]);
+    expect(launcher.setAiRoles).toHaveBeenCalledWith(SID, ["tech_lead"], undefined);
     const b = await json(res);
-    expect(b.data).toEqual({ roles: ["tech_lead"], codes: [{ roleId: "delivery_lead", code: CODE_H }] });
+    expect(b.data).toEqual({ roles: ["tech_lead"], includeInGroup: true, codes: [{ roleId: "delivery_lead", code: CODE_H }] });
     expect(JSON.stringify(b)).not.toContain("LEAK");
     expect(errors.join("\n")).not.toContain(CODE_H);
   });
@@ -166,7 +207,7 @@ describe("POST ai-roles answers", () => {
   it("an empty list is accepted (all roles back to human)", async () => {
     const h = await handlers();
     expect((await h.roles(post(rolesPath, { roles: [] }))).status).toBe(200);
-    expect(launcher.setAiRoles).toHaveBeenCalledWith(SID, []);
+    expect(launcher.setAiRoles).toHaveBeenCalledWith(SID, [], undefined);
   });
 
   it("drops a code whose role is in roles, even when the launcher returned it (defence in depth)", async () => {

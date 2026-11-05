@@ -13,6 +13,7 @@ import { aiErrorText, parseAiAnswer, readRoster, setAiRoles } from "../../lib/co
 import { confirmCopy } from "../../lib/console-confirm";
 import { roleLabel } from "../../lib/names";
 import { AiRoleSwitch } from "./AiRoleSwitch";
+import { GroupScoreOption } from "./GroupScoreOption";
 import { CodesPanel } from "./CodesPanel";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -42,6 +43,9 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
   // session may have people who joined since: a switch to AI reads the roster once to word the confirmation.
   const [roleIds, setRoleIds] = useState<string[]>([]);
   const [aiRoles, setAiRolesState] = useState<string[]>([]);
+  // US-0061: the group-score option (on by default), shown while at least one role is AI; every post of the AI set carries it.
+  const [includeInGroup, setIncludeInGroup] = useState(true);
+  const optionRefocus = useRef(false);
   const [ask, setAsk] = useState<Ask | null>(null);
   const [switching, setSwitching] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
@@ -61,6 +65,15 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
     const el = document.querySelector<HTMLElement>(`[data-ai-switch="${CSS.escape(roleId)}"]`);
     if (!el || (el as HTMLButtonElement).disabled) return;
     refocus.current = null;
+    el.focus();
+  });
+
+  // The checkbox is disabled while a post runs, which drops focus: it goes back to the box.
+  useEffect(() => {
+    if (!optionRefocus.current || switching) return;
+    const el = document.getElementById("new-group-score");
+    if (!el || (el as HTMLInputElement).disabled) return;
+    optionRefocus.current = false;
     el.focus();
   });
 
@@ -111,7 +124,7 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
     // The WHOLE wanted set: the current AI roles with this one added or taken out.
     const others = aiRoles.filter((r) => r !== a.roleId);
     const wanted = a.toAi ? [...others, a.roleId] : others;
-    const r = await setAiRoles(created.sessionId, wanted, fetchImpl);
+    const r = await setAiRoles(created.sessionId, wanted, includeInGroup, fetchImpl);
     switchBusy.current = false;
     setSwitching(false);
     if (!r.ok) {
@@ -125,8 +138,28 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
     } else {
       const answer = parseAiAnswer(r.data);
       applyAi(answer.roles, answer.codes);
+      if (answer.includeInGroup !== null) setIncludeInGroup(answer.includeInGroup);
     }
     setAsk(null);
+  }
+
+  /** The checkbox: the current AI set with the new option. A refusal leaves the box as it was and shows the error copy. */
+  async function changeOption(next: boolean) {
+    if (switchBusy.current || !created) return;
+    switchBusy.current = true;
+    setSwitching(true);
+    setSwitchError(null);
+    optionRefocus.current = true;
+    const r = await setAiRoles(created.sessionId, aiRoles, next, fetchImpl);
+    switchBusy.current = false;
+    setSwitching(false);
+    if (!r.ok) {
+      setSwitchError(aiErrorText(r));
+      return;
+    }
+    const answer = parseAiAnswer(r.data);
+    applyAi(answer.roles, answer.codes);
+    setIncludeInGroup(answer.includeInGroup ?? next);
   }
 
   useEffect(() => {
@@ -176,6 +209,7 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
     setCodes(issued);
     setRoleIds(issued.map((c) => c.roleId));
     setAiRolesState([]);
+    setIncludeInGroup(true);
     setCreated({
       sessionId: d.sessionId,
       modelLabel: typeof d.modelLabel === "string" ? d.modelLabel : null,
@@ -227,6 +261,9 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
               );
             })}
           </ul>
+          {aiRoles.length > 0 ? (
+            <GroupScoreOption id="new-group-score" checked={includeInGroup} disabled={switching || stale} onChange={(n) => void changeOption(n)} />
+          ) : null}
           <p className="err" role="alert">
             {switchError}
           </p>

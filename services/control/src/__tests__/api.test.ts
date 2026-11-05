@@ -117,7 +117,7 @@ describe("authentication", () => {
       const r = await put(port, { roles: ["tech_lead"] });
       expect(r.status).toBe(200);
       expect(r.json).toEqual({ success: true, data: { roles: ["tech_lead"], codes: [] }, error: null });
-      expect(calls).toEqual([{ name: "setAiRoles", args: [ID, ["tech_lead"]] }]);
+      expect(calls).toEqual([{ name: "setAiRoles", args: [ID, ["tech_lead"], undefined] }]);
     });
 
     it("PUT passes the supervisor's human codes through and never an AI code", async () => {
@@ -126,6 +126,22 @@ describe("authentication", () => {
       const r = await put(port, { roles: ["tech_lead"] });
       expect(r.json.data).toEqual({ roles: ["tech_lead"], codes: [{ roleId: "cfo", code: CODE }] });
       expect(r.text).not.toContain(AI_CODE);
+    });
+
+    it("PUT with includeInGroup \"no\" is 400", async () => {
+      const { sup, calls } = aiStub();
+      const port = await boot(sup);
+      for (const v of ["no", 0, null]) expect((await put(port, { roles: [], includeInGroup: v })).status).toBe(400);
+      expect(calls).toEqual([]);
+    });
+
+    it("PUT {roles:[], includeInGroup:false} is 200 and passes the option on", async () => {
+      const { sup, calls } = aiStub({ setAiRoles: (_id: string, roles: string[], inc?: boolean) => Promise.resolve({ roles, includeInGroup: inc ?? true, codes: [] }) });
+      const port = await boot(sup);
+      const r = await put(port, { roles: [], includeInGroup: false });
+      expect(r.status).toBe(200);
+      expect(r.json.data).toEqual({ roles: [], includeInGroup: false, codes: [] });
+      expect(calls).toEqual([{ name: "setAiRoles", args: [ID, [], false] }]);
     });
 
     it("PUT with an extra key, 13 roles, a non-array or a bad body is 400 and calls nothing", async () => {

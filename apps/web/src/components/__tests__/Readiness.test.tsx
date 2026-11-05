@@ -903,7 +903,7 @@ describe("Readiness: switching roles to AI players and back", () => {
       fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
     });
     expect(aiPosts(m)).toHaveLength(1);
-    expect(aiPosts(m)[0]!.body).toEqual({ roles: ["tech_lead", "account_manager"] });
+    expect(aiPosts(m)[0]!.body).toEqual({ roles: ["tech_lead", "account_manager"], includeInGroup: true });
     expect(aiPosts(m)[0]!.init.headers).toMatchObject({ "X-Requested-With": "scenecoach" });
     await waitFor(() => expect(m.f.calls.filter((c) => c.url.endsWith("/readiness")).length).toBe(readsBefore + 1));
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -923,7 +923,7 @@ describe("Readiness: switching roles to AI players and back", () => {
     await act(async () => {
       fireEvent.click(within(dlg).getByRole("button", { name: "Switch to human" }));
     });
-    expect(aiPosts(m)[0]!.body).toEqual({ roles: ["cfo"] });
+    expect(aiPosts(m)[0]!.body).toEqual({ roles: ["cfo"], includeInGroup: true });
     await screen.findByRole("heading", { name: "New code for Tech lead" });
     expect(screen.getByText("TL-NEW")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "I have copied the codes" }));
@@ -1001,7 +1001,7 @@ describe("Readiness: switching roles to AI players and back", () => {
     await act(async () => {
       fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
     });
-    expect(aiPosts(m)[1]!.body).toEqual({ roles: ["tech_lead"] });
+    expect(aiPosts(m)[1]!.body).toEqual({ roles: ["tech_lead"], includeInGroup: true });
     await waitFor(() => expect(document.body.textContent).not.toContain("TL-NEW"));
     expect(screen.queryByRole("heading", { name: "New code for Tech lead" })).toBeNull();
   });
@@ -1071,5 +1071,125 @@ describe("Readiness: switching roles to AI players and back", () => {
     });
     const next = await screen.findByRole("button", { name: "Make Delivery lead human" });
     await waitFor(() => expect(document.activeElement).toBe(next));
+  });
+});
+
+describe("Readiness: the group-score option", () => {
+  const LABEL = "Include AI players in group scores";
+  const HINT =
+    "On: what the AI players say can count as team evidence in the group report, always marked AI. Off: their lines are context only. AI players never get an individual score. You can change this until the start.";
+  const HUMAN = (roleId: string, name: string) => ({ roleId, name, joined: true, consented: true, connected: true });
+  const AI = (roleId: string) => ({ roleId, joined: true, consented: false, connected: true, ai: true as const });
+  const HUMANS = [HUMAN("account_manager", "Pat"), { roleId: "delivery_lead", joined: false, consented: false, connected: false }, HUMAN("tech_lead", "Lee")];
+  const WITH_AI = [HUMAN("account_manager", "Pat"), { roleId: "delivery_lead", joined: false, consented: false, connected: false }, AI("tech_lead")];
+  const aiPosts = (m: ReturnType<typeof mount>) => m.posts().filter((c) => c.url.endsWith("/ai-roles"));
+  const box = () => screen.getByRole("checkbox", { name: LABEL }) as HTMLInputElement;
+
+  it("no checkbox while every role is human", async () => {
+    mount(readiness({ roster: HUMANS, includeInGroup: true }));
+    await ready();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it("with tech_lead AI the checkbox \"Include AI players in group scores\" is checked and described by the hint", async () => {
+    mount(readiness({ roster: WITH_AI, includeInGroup: true }));
+    await ready();
+    expect(box().checked).toBe(true);
+    const hint = document.getElementById(box().getAttribute("aria-describedby")!)!;
+    expect(hint.textContent).toBe(HINT);
+    expect(hint.className).toContain("muted");
+  });
+
+  it("unchecking posts {roles:[\"tech_lead\"], includeInGroup:false} and stays unchecked after the answer", async () => {
+    const m = mount(readiness({ roster: WITH_AI, includeInGroup: true }), {
+      "/ai-roles": { status: 200, body: ok({ roles: ["tech_lead"], includeInGroup: false, codes: [] }) },
+    });
+    await ready();
+    // The mock readiness keeps answering the OLD value (as a control service whose memory lags): only the POST answer says "off".
+    await act(async () => {
+      fireEvent.click(box());
+    });
+    expect(aiPosts(m)).toHaveLength(1);
+    expect(aiPosts(m)[0]!.body).toEqual({ roles: ["tech_lead"], includeInGroup: false });
+    await waitFor(() => expect(m.f.calls.filter((c) => c.url.endsWith("/readiness")).length).toBeGreaterThan(1));
+    await waitFor(() => expect(box().disabled).toBe(false));
+    expect(box().checked).toBe(false);
+    expect(document.activeElement).toBe(box());
+  });
+
+  it("switching delivery_lead to AI while unchecked posts includeInGroup false", async () => {
+    const m = mount(readiness({ roster: WITH_AI, includeInGroup: false }), {
+      "/ai-roles": { status: 200, body: ok({ roles: ["tech_lead", "delivery_lead"], includeInGroup: false, codes: [] }) },
+    });
+    await ready();
+    fireEvent.click(screen.getByRole("button", { name: "Make Delivery lead an AI player" }));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+    expect(aiPosts(m)[0]!.body).toEqual({ roles: ["tech_lead", "delivery_lead"], includeInGroup: false });
+  });
+
+  it("a failed post shows the AI error copy and the checkbox shows the readiness value again", async () => {
+    const m = mount(readiness({ roster: WITH_AI, includeInGroup: true }), {
+      "/ai-roles": { status: 409, body: refused("ai_started", "") },
+    });
+    await ready();
+    await act(async () => {
+      fireEvent.click(box());
+    });
+    await screen.findByText("Roles can no longer be changed: the session has started.");
+    expect(aiPosts(m)).toHaveLength(1);
+    await waitFor(() => expect(box().disabled).toBe(false));
+    expect(box().checked).toBe(true);
+  });
+
+  it("running with AI roles shows \"AI players in group scores: off\" and no checkbox", async () => {
+    mount(readiness({ status: "running", roster: WITH_AI, includeInGroup: false }));
+    await ready();
+    expect(screen.getByText("AI players in group scores: off")).toBeTruthy();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it("a poll answered with the old value while the post is in flight does not undo the choice: the box, a role switch and the running line keep the new option", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const f = fakeFetch((url) => {
+      if (url.endsWith("/readiness")) return { status: 200, body: ok(readiness({ roster: WITH_AI, includeInGroup: true })) };
+      if (url.endsWith("/ai-roles")) return { status: 200, body: ok({ roles: ["tech_lead"], includeInGroup: false, codes: [] }) };
+      return { status: 200, body: ok({}) };
+    });
+    const slow = ((input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith("/ai-roles") ? gate.then(() => f.fetch(input, init)) : f.fetch(input, init)) as typeof fetch;
+    const t = fakeTimer();
+    const r = render(<Readiness sessionId={SID} fetch={slow} setTimer={t.setTimer} />);
+    await ready();
+    await act(async () => {
+      fireEvent.click(box());
+    });
+    // A poll issued during the post: answered with the old value.
+    await act(async () => {
+      t.fire();
+    });
+    await act(async () => {
+      release();
+    });
+    await waitFor(() => expect(box().disabled).toBe(false));
+    expect(box().checked).toBe(false);
+    // The poll that follows the post also lags: still unchecked, and a role switch posts the option the facilitator last saw.
+    await act(async () => {
+      t.fire();
+    });
+    expect(box().checked).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Make Delivery lead an AI player" }));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+    const posts = f.calls.filter((c) => c.url.endsWith("/ai-roles"));
+    expect(posts[1]!.body).toEqual({ roles: ["tech_lead", "delivery_lead"], includeInGroup: false });
+    // After the start the read-only line shows that option, not the lagging poll.
+    r.rerender(
+      <Readiness sessionId={SID} fetch={slow} setTimer={t.setTimer} live={{ status: "running", roster: WITH_AI }} />,
+    );
+    await screen.findByText("AI players in group scores: off");
   });
 });

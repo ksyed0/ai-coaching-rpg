@@ -150,4 +150,20 @@ describe("useReadiness", () => {
     await flush();
     expect(f.calls).toHaveLength(2);
   });
+
+  it("a refresh() that arrives while a poll is in flight queues exactly one more poll", async () => {
+    const { f, h } = setup(() => ({ status: 200, body: ok(readiness()) }));
+    f.hold();
+    // The first poll is in flight (held); three refreshes become one queued poll.
+    act(() => {
+      h.result.current.refresh();
+      h.result.current.refresh();
+      h.result.current.refresh();
+    });
+    expect(f.calls).toHaveLength(1);
+    f.release();
+    await flush();
+    await flush();
+    expect(f.calls).toHaveLength(2);
+  });
 });

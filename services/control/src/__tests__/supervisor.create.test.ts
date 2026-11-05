@@ -56,7 +56,7 @@ describe("Supervisor.create", () => {
     expect(r).toEqual({ sessionId: children[0]!.env.SESSION_ID, status: "running", port: 4321, modelLabel: "test-model", codes: CODES });
     expect(/^[0-9a-f]{32}$/.test(r.sessionId)).toBe(true);
     expect(list.read()).toEqual([{ sessionId: r.sessionId, scenarioId: "friday-escalation", status: "running" }]);
-    expect(sup.get(r.sessionId)).toEqual({ sessionId: r.sessionId, scenarioId: "friday-escalation", status: "running", port: 4321, modelLabel: "test-model" });
+    expect(sup.get(r.sessionId)).toEqual({ sessionId: r.sessionId, scenarioId: "friday-escalation", status: "running", port: 4321, modelLabel: "test-model", includeInGroup: true });
     expect(sup.list()).toHaveLength(1);
     expect(sup.get(sid(99))).toBeUndefined();
     expect(timers.every((t) => t.cancelled)).toBe(true);

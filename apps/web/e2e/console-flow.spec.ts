@@ -376,6 +376,9 @@ test("Axe passes on /console, /console/new and /console/[id] (with an AI player:
     await expect(
       fac.getByRole("button", { name: "Make Tech lead human" }),
     ).toBeVisible();
+    await expect(
+      fac.getByRole("checkbox", { name: "Include AI players in group scores" }),
+    ).toBeChecked();
     await checkBothSchemes(fac, `New session, with an AI player ${at}`);
     await noHorizontalScroll(fac, width);
 
@@ -430,6 +433,18 @@ test("Axe passes on /console, /console/new and /console/[id] (with an AI player:
     await expect(startButton(fac)).toBeEnabled();
     await checkBothSchemes(fac, `readiness, everyone in, an AI player in a seat ${at}`);
     await noHorizontalScroll(fac, width);
+
+    // US-0061: the group-score option, ticked (above) and unticked.
+    const option = fac.getByRole("checkbox", { name: "Include AI players in group scores" });
+    await expect(option).toBeChecked();
+    await option.uncheck();
+    await expect(option).not.toBeChecked();
+    await expect(option).toBeEnabled();
+    await checkBothSchemes(fac, `readiness, group-score option unticked ${at}`);
+    await noHorizontalScroll(fac, width);
+    await option.check();
+    await expect(option).toBeChecked();
+    await expect(option).toBeEnabled();
 
     // The switch back to human asks first; the AI row has a switch and no reissue.
     await fac.getByRole("button", { name: "Make Tech lead human" }).click();
