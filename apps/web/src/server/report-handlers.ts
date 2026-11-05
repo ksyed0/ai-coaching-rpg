@@ -17,8 +17,16 @@ export const REPORT_COOKIE = "__Host-scenecoach-report";
  * appear in a scenario role id, so it never shares a bucket with a join.
  */
 const ENTER_ROLE = "*report-enter";
-/** The read throttle's slot: every read is counted, and more than 60 in 60 s from one address block it for 60 s (a rate limit, not a failure count). */
-const READ_ROLE = "*report-read";
+/**
+ * Reads are throttled in two ways, so a room of participants behind one shared address never shares a budget:
+ * - READ_FAIL_ROLE (in the enter throttle's table, the join's limits): a read that fails BEFORE reaching control (no cookie, or a
+ *   forged, tampered, expired or wrong-purpose one) is a failure of its address; more than 5 in 60 s block that address for 60 s.
+ * - READ_CRED_ROLE (in the read throttle's table, 60 reads in 60 s): a valid read is counted against its CREDENTIAL, keyed on the
+ *   unsealed credential id (an in-memory key only: never logged, never returned). The 61st read in a minute is refused.
+ * The role slots start with `*`, which no scenario role id can contain, so no read key collides with an enter or a join key.
+ */
+const READ_FAIL_ROLE = "*report-read-fail";
+const READ_CRED_ROLE = "*report-read-cred";
 const MAX_TOKEN_CHARS = 64;
 const MAX_ENTER_BODY_BYTES = 512;
 
@@ -133,14 +141,22 @@ export function handleReportGet(req: Request, deps: Deps): Promise<Response> {
   return safely(async () => {
     const address = requestAddress(req);
     if (address === null) return badRequest();
-    const blocked = deps.reportThrottle.blockedForMs(address, READ_ROLE);
+    const failures = deps.reportEnterThrottle;
+    const blocked = failures.blockedForMs(address, READ_FAIL_ROLE);
     if (blocked > 0) return throttled(blocked);
-    // Every read is counted (the throttle is a rate limit here, not a failure count).
-    deps.reportThrottle.fail(address, READ_ROLE);
     const token = readCookie(req);
-    if (token === null) return neutral();
-    const c = unseal<unknown>(token, deps.config.cookieKeys, deps.now(), "rpt");
-    if (!isReportCookie(c)) return neutral();
+    const c = token === null ? null : unseal<unknown>(token, deps.config.cookieKeys, deps.now(), "rpt");
+    if (!isReportCookie(c)) {
+      failures.fail(address, READ_FAIL_ROLE);
+      return neutral();
+    }
+    // A valid cookie: the credential's own budget (a revoked credential still counts, so a stale tab cannot poll either).
+    const perCredential = deps.reportThrottle;
+    const credBlocked = perCredential.blockedForMs(c.credentialId, READ_CRED_ROLE);
+    if (credBlocked > 0) return throttled(credBlocked);
+    perCredential.fail(c.credentialId, READ_CRED_ROLE);
+    const justBlocked = perCredential.blockedForMs(c.credentialId, READ_CRED_ROLE);
+    if (justBlocked > 0) return throttled(justBlocked);
     if (!deps.launcher) return unavailable();
     try {
       const read = await deps.launcher.readReport(c.sessionId, c.credentialId);

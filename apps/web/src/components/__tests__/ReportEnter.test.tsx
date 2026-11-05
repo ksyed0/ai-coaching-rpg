@@ -52,9 +52,8 @@ describe("ReportEnter", () => {
     first.unmount();
     // The same module, mounted again with no fragment: the used token is gone, so nothing is posted and the link reads as dead.
     render(<ReportEnter fetch={fetchFn as unknown as typeof fetch} navigate={navigate} />);
-    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("This link no longer works. Ask your facilitator for a new one."));
-    expect(fetchFn).toHaveBeenCalledTimes(1);
-    expect(navigate).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(navigate).toHaveBeenCalledTimes(2));
+    expect(fetchFn).toHaveBeenCalledTimes(1); // the used token was not posted again
   });
 
   it("a new fragment on the same document is a new attempt: the address bar is cleaned and the new token is posted", async () => {
@@ -98,17 +97,34 @@ describe("ReportEnter", () => {
     expect(JSON.parse((fetchFn.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toEqual({ token: TOKEN });
   });
 
-  it("a missing or empty fragment is refused without any request", async () => {
+  it("a missing or empty fragment goes to /report with no request (an existing cookie decides there)", async () => {
     for (const hash of ["", "#"]) {
       vi.resetModules();
       window.history.replaceState(null, "", `/report/enter${hash}`);
       const ReportEnter = await load();
       const fetchFn = vi.fn();
-      const r = render(<ReportEnter fetch={fetchFn as unknown as typeof fetch} navigate={vi.fn()} />);
-      await waitFor(() => expect(screen.getByRole("status").textContent).toBe("This link no longer works. Ask your facilitator for a new one."));
+      const navigate = vi.fn();
+      const r = render(<ReportEnter fetch={fetchFn as unknown as typeof fetch} navigate={navigate} />);
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith("/report"));
       expect(fetchFn).not.toHaveBeenCalled();
+      expect(screen.queryByText("This link no longer works. Ask your facilitator for a new one.")).toBeNull();
       r.unmount();
     }
+  });
+
+  it("leaves with location.replace, so /report/enter does not stay in the history", async () => {
+    const { replaceWith } = await import("../ReportEnter");
+    const loc = { replace: vi.fn(), assign: vi.fn() };
+    replaceWith("/report", loc as unknown as Location);
+    expect(loc.replace).toHaveBeenCalledWith("/report");
+    expect(loc.assign).not.toHaveBeenCalled();
+  });
+
+  it("renders no status copy until it has mounted (the server HTML shows only the no-script sentence)", async () => {
+    const ReportEnter = await load();
+    const html = renderToStaticMarkup(<ReportEnter />);
+    expect(html).not.toContain("Opening your report");
+    expect(html).toContain("This link needs JavaScript to open");
   });
 
   it("a refused link (404) reads the refused copy and does not navigate", async () => {

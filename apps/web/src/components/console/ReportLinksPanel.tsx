@@ -19,7 +19,7 @@ import { ConfirmDialog, focusFallback } from "./ConfirmDialog";
 
 // Participant report links, for an ended session. The facilitator issues, reissues and revokes one link per participant. A new link is
 // shown once, in this component's state only: never browser storage, the URL, the console or a cookie. Dismissing it (or leaving the
-// page) drops it. The list never carries a credential id or a token; only dates and flags.
+// page, including a pagehide, which is what a back-forward-cache snapshot fires first) drops it. The list never carries a credential id or a token; only dates and flags.
 
 export type ReportLinksPanelProps = { sessionId: string; fetch?: typeof fetch };
 
@@ -55,6 +55,16 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
     return () => {
       alive.current = false;
     };
+  }, []);
+
+  // A page that is being put into the back-forward cache must not come back showing the link.
+  useEffect(() => {
+    const drop = () => {
+      setShown(null);
+      setCopyNote("");
+    };
+    window.addEventListener("pagehide", drop);
+    return () => window.removeEventListener("pagehide", drop);
   }, []);
 
   const shownRole = shown?.role ?? null;

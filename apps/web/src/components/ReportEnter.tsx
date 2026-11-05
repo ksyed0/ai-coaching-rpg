@@ -9,12 +9,15 @@ import { MESSAGES } from "../lib/messages";
 // sees. The token lives in one module variable only: not in storage, not in a URL, not in any message. React StrictMode runs the effect
 // twice and the second run sees an empty fragment, so the first run's token and request are kept and reused. Once the exchange has
 // succeeded both are dropped before the page navigates. A new fragment on the same document (the same page opened again from a link)
-// is a new attempt.
+// is a new attempt. The page leaves with location.replace, so /report/enter (which a Back button would reload without its fragment) is
+// not left in the history; a visit with no fragment at all (Back, a restored page, a bare URL) just goes on to /report, where an
+// existing cookie decides what is shown.
 
 export type ReportEnterProps = { fetch?: typeof fetch; navigate?: (url: string) => void };
-type Phase = "opening" | "refused" | "throttled" | "retry";
+type Phase = "idle" | "opening" | "refused" | "throttled" | "retry";
 
-const goTo = (url: string) => window.location.assign(url);
+/** Replaces the current history entry, so the link page is not a Back target. `loc` is a test seam. */
+export const replaceWith = (url: string, loc: Pick<Location, "replace"> = window.location) => loc.replace(url);
 
 let token: string | undefined; // undefined: the fragment has not been read yet
 let inFlight: Promise<Phase | "done"> | null = null;
@@ -26,8 +29,8 @@ function outcome(r: Awaited<ReturnType<typeof postJson>>): Phase | "done" {
   return "retry";
 }
 
-export function ReportEnter({ fetch: fetchImpl, navigate = goTo }: ReportEnterProps) {
-  const [phase, setPhase] = useState<Phase>("opening");
+export function ReportEnter({ fetch: fetchImpl, navigate = replaceWith }: ReportEnterProps) {
+  const [phase, setPhase] = useState<Phase>("idle");
   const heading = useRef<HTMLHeadingElement>(null);
 
   function attempt(): Promise<Phase | "done"> {
@@ -60,7 +63,9 @@ export function ReportEnter({ fetch: fetchImpl, navigate = goTo }: ReportEnterPr
     if (token === undefined) token = window.location.hash.replace(/^#/, "");
     // Before anything is awaited: the fragment must not stay in the address bar or the history entry.
     window.history.replaceState(null, "", window.location.pathname);
-    if (inFlight === null) inFlight = attempt();
+    // No fragment at the first read: nothing to exchange. Go on to /report (a valid cookie shows the report, none shows the refusal).
+    if (inFlight === null) inFlight = token === "" ? Promise.resolve("done") : attempt();
+    setPhase((p) => (p === "idle" ? "opening" : p));
     settle(inFlight, mine(id));
     // A new non-empty fragment on this document (another link opened in the same tab) is a new attempt with its own token.
     const onHashChange = () => {
@@ -92,7 +97,8 @@ export function ReportEnter({ fetch: fetchImpl, navigate = goTo }: ReportEnterPr
     settle(inFlight, mine(id));
   }
 
-  const text = phase === "opening" ? MESSAGES.reportOpening : phase === "refused" ? MESSAGES.reportRefused
+  // "idle": the server-rendered HTML and the first paint say nothing, so with script off only the no-script sentence is there.
+  const text = phase === "idle" ? "" : phase === "opening" ? MESSAGES.reportOpening : phase === "refused" ? MESSAGES.reportRefused
     : phase === "throttled" ? MESSAGES.reportEnterThrottled : MESSAGES.reportEnterRetry;
   return (
     <>
@@ -100,7 +106,7 @@ export function ReportEnter({ fetch: fetchImpl, navigate = goTo }: ReportEnterPr
         <h1 ref={heading} tabIndex={-1}>Open your report</h1>
       </div>
       <div className="body narrow">
-        <p className={phase === "opening" ? "muted" : "banner warn"} role="status">{text}</p>
+        <p className={phase === "opening" || phase === "idle" ? "muted" : "banner warn"} role="status">{text}</p>
         {phase === "throttled" || phase === "retry" ? (
           <p><button className="btn pri" type="button" onClick={again}>Try again</button></p>
         ) : null}

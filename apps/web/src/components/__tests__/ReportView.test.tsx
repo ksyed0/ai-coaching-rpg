@@ -79,6 +79,14 @@ describe("ReportView", () => {
     }
   });
 
+  it("throttled offers Try again too", async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(fail(429, "rate_limited")).mockResolvedValueOnce(released("Back"));
+    render(<ReportView fetch={fetchFn as unknown as typeof fetch} />);
+    await waitFor(() => expect(status()).toBe("Too many requests. Wait a minute and try again."));
+    await act(async () => { screen.getByRole("button", { name: "Try again" }).click(); });
+    await screen.findByRole("heading", { name: "Your report" });
+  });
+
   it("retry offers a button that loads again; refused does nothing else", async () => {
     const fetchFn = vi.fn().mockResolvedValueOnce(fail(503, "unavailable")).mockResolvedValueOnce(released("Back"));
     render(<ReportView fetch={fetchFn as unknown as typeof fetch} />);

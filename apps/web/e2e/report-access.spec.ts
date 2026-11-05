@@ -47,7 +47,8 @@ async function openReport(page: Page, link: string): Promise<void> {
 
 test("issue, open in a fresh browser, revoke, reissue: the old link is refused and the new one works; the re-run is the report that shows", async ({ browser }) => {
   test.setTimeout(300_000);
-  stack = await startLauncherStack();
+  const output: string[] = [];
+  stack = await startLauncherStack({ onOutput: (l) => output.push(l) });
   const { fac, sessionId } = await endedSession(browser, stack);
   opened.push(fac.context());
   await seedReports(stack, sessionId);
@@ -56,19 +57,35 @@ test("issue, open in a fresh browser, revoke, reissue: the old link is refused a
   // Issue a link for bob and open it in a context that has never seen the console.
   const first = await issueLink(fac);
   const participant = await (await fresh(browser)).newPage();
-  const enterRequests: string[] = [];
-  participant.on("request", (r) => {
-    if (r.url().includes("/report/enter")) enterRequests.push(r.url());
-  });
   await openReport(participant, first);
   const own = participant.locator("pre.report-text").first();
   await expect(own).toContainText(RERUN_TEXT); // the live re-run (-2), not the superseded first run
   expect(await own.innerText()).not.toContain(OLD_RUN_TEXT); // the superseded first run's strength line is not shown
   await expect(participant.getByText(/^Available until /)).toBeVisible();
   expect(new URL(participant.url()).hash).toBe("");
-  expect(participant.url()).not.toContain(first.split("#")[1]!);
-  // The token went to the enter route in a POST body only; the document request for /report/enter carried no token (a fragment is never sent).
-  expect(enterRequests.every((u) => !u.includes("#") && !u.includes(first.split("#")[1]!))).toBe(true);
+  const [tokenId, tokenSecret] = first.split("#")[1]!.split(".");
+  expect(participant.url()).not.toContain(tokenSecret!);
+
+  // Back: the link page replaced itself, so it is not in the history and nothing in it holds the token.
+  await participant.goBack();
+  expect(participant.url()).not.toContain("/report/enter");
+  expect(participant.url()).not.toContain(tokenSecret!);
+  expect(await participant.evaluate(() => history.length)).toBeLessThanOrEqual(2);
+  expect(await participant.evaluate(() => document.referrer)).toBe("");
+  await participant.goto(`${stack.baseUrl}/report`); // the cookie is still valid: the report shows without the link
+  await expect(participant.locator("pre.report-text").first()).toContainText(RERUN_TEXT);
+
+  // The pages themselves (not only the API) are private: no-store and no-referrer in the real response headers.
+  for (const path of ["/report", "/report/enter"]) {
+    const res = await participant.context().request.get(`${stack.baseUrl}${path}`);
+    expect(res.headers()["cache-control"], `${path} cache-control`).toContain("no-store");
+    expect(res.headers()["referrer-policy"], `${path} referrer-policy`).toBe("no-referrer");
+  }
+
+  // Neither the control service nor `next start` ever printed the token (its id or its secret).
+  const printed = output.join("\n");
+  expect(printed).not.toContain(tokenSecret!);
+  expect(printed).not.toContain(tokenId!);
 
   // Revoke in the console; the next read in that same browser is refused.
   await dismiss(fac);
@@ -100,12 +117,12 @@ test("with JavaScript off the link page says so and sends nothing; five bad toke
   noJs.on("request", (r) => requests.push(new URL(r.url()).pathname));
   const doc = await noJs.goto(`${stack.baseUrl}/report/enter#x`);
   // Chromium's script-disabled emulation keeps <noscript> hidden (a browser with scripting off shows it), so the check is on what the
-  // server sent. The page stays on "Opening your report…" and the address bar keeps the fragment: nothing ran.
+  // server sent. The page says nothing else and the address bar keeps the fragment: nothing ran.
   expect(await doc!.text()).toContain(
     '<noscript><p class="banner warn">This link needs JavaScript to open. Turn it on for this site, or ask your facilitator for help.</p></noscript>',
   );
   await expect(noJs.getByRole("heading", { name: "Open your report" })).toBeVisible();
-  await expect(noJs.getByRole("status")).toHaveText("Opening your report…");
+  await expect(noJs.getByRole("status")).toHaveText(""); // no "Opening…" next to the no-script sentence
   expect(new URL(noJs.url()).hash).toBe("#x");
   expect(requests.filter((p) => p.startsWith("/api/"))).toEqual([]);
 

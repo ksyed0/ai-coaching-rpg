@@ -77,6 +77,15 @@ describe("ReportLinksPanel", () => {
     expect((await screen.findAllByText("Copied.")).length).toBeGreaterThan(0);
   });
 
+  it("drops a shown link when the page is hidden for good (pagehide), so a restored page does not show it again", async () => {
+    mount(READY, { [BASE]: () => ({ status: 200, body: ok({ role: "delivery_lead", token: TOKEN, credential: cred() }) }) });
+    fireEvent.click(await screen.findByRole("button", { name: "Issue link for Delivery lead" }));
+    await screen.findByLabelText(/link for Delivery lead/i, { selector: "input" });
+    act(() => { window.dispatchEvent(new Event("pagehide")); });
+    expect(screen.queryByLabelText(/link for Delivery lead/i, { selector: "input" })).toBeNull();
+    expect(document.body.textContent).not.toContain(TOKEN);
+  });
+
   it("falls back to selecting the text when the clipboard is unavailable", async () => {
     Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
     mount(READY, { [BASE]: () => ({ status: 200, body: ok({ role: "delivery_lead", token: TOKEN, credential: cred() }) }) });

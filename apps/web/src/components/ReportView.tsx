@@ -89,7 +89,7 @@ export function ReportView({ fetch: fetchImpl }: ReportViewProps) {
         ) : (
           <>
             <p className={model.kind === "loading" ? "muted" : "banner warn"} role="status">{note[model.kind]}</p>
-            {model.kind === "retry" ? <p><button className="btn pri" type="button" onClick={retry}>Try again</button></p> : null}
+            {model.kind === "retry" || model.kind === "throttled" ? <p><button className="btn pri" type="button" onClick={retry}>Try again</button></p> : null}
           </>
         )}
       </div>

@@ -296,8 +296,10 @@ describe("GET /api/v1/report", () => {
       facCookie(),
     ];
     now = T0 + 20; // so `expired` is past its expiry
+    let n = 0;
     for (const c of cookies) {
-      const res = await handleReportGet(getReq(c), deps);
+      // each from its own address: this test is about the answer, not the per-address block
+      const res = await handleReportGet(getReq(c, { "X-Forwarded-For": `198.51.100.${++n}` }), deps);
       expect(res.status).toBe(404);
       expect(await res.text()).toBe(NEUTRAL);
       expectPrivate(res);
@@ -326,19 +328,52 @@ describe("GET /api/v1/report", () => {
     }
   });
 
-  it("is throttled per address: more than 60 reads in a minute get a 429 until the block ends", async () => {
+  it("valid reads are limited per credential, not per address: one credential gets 60 reads a minute, the 61st is a 429 with Retry-After", async () => {
     for (let i = 0; i < 60; i++) expect((await handleReportGet(getReq(reportCookie()), deps)).status).toBe(200);
-    // the 61st is counted and trips the block but is still served; the 62nd is refused
-    expect((await handleReportGet(getReq(reportCookie()), deps)).status).toBe(200);
     const next = await handleReportGet(getReq(reportCookie()), deps);
     expect(next.status).toBe(429);
     expect(next.headers.get("Retry-After")).toBe("60");
     expectPrivate(next);
-    expect(launcher.readReport).toHaveBeenCalledTimes(61);
-    const other = await handleReportGet(getReq(reportCookie(), { "X-Forwarded-For": "203.0.113.9" }), deps);
+    expect(launcher.readReport).toHaveBeenCalledTimes(60);
+    // another credential behind the same address is unaffected
+    const other = await handleReportGet(getReq(reportCookie({ credentialId: "ZZZZZZZZZZZ" })), deps);
     expect(other.status).toBe(200);
     now += 60_001;
     expect((await handleReportGet(getReq(reportCookie()), deps)).status).toBe(200);
+  });
+
+  it("a room behind one address: 20 different credentials each read five times and none is throttled", async () => {
+    for (let n = 0; n < 20; n++) {
+      const cookie = reportCookie({ credentialId: `CRED${String(n).padStart(7, "0")}` });
+      for (let i = 0; i < 5; i++) expect((await handleReportGet(getReq(cookie), deps)).status).toBe(200);
+    }
+    expect(launcher.readReport).toHaveBeenCalledTimes(100);
+  });
+
+  it("cookies that fail before reaching control are counted per address: the sixth is refused, the seventh is a 429; other addresses and valid readers behind a clean address are fine", async () => {
+    for (let i = 0; i < 6; i++) expect((await handleReportGet(getReq(`${REPORT_COOKIE}=forged${i}`), deps)).status).toBe(404);
+    const blocked = await handleReportGet(getReq(`${REPORT_COOKIE}=forged7`), deps);
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Retry-After")).toBe("60");
+    expectPrivate(blocked);
+    // the block is for the address, so a valid cookie from it waits too; a different address does not
+    expect((await handleReportGet(getReq(reportCookie()), deps)).status).toBe(429);
+    expect((await handleReportGet(getReq(reportCookie(), { "X-Forwarded-For": "203.0.113.9" }), deps)).status).toBe(200);
+    expect(launcher.readReport).toHaveBeenCalledTimes(1);
+    now += 60_001;
+    expect((await handleReportGet(getReq(reportCookie()), deps)).status).toBe(200);
+  });
+
+  it("valid reads never count as address failures, and the read keys do not collide with the enter keys", async () => {
+    for (let i = 0; i < 30; i++) await handleReportGet(getReq(reportCookie({ credentialId: `CRED${String(i).padStart(7, "0")}` })), deps);
+    // five bad enter tokens leave reads alone
+    launcher.exchangeReportToken.mockRejectedValue(new LauncherError("not_found"));
+    for (let i = 0; i < 5; i++) expect((await handleReportEnter(enterReq(), deps)).status).toBe(404);
+    expect((await handleReportGet(getReq(reportCookie()), deps)).status).toBe(200);
+    // and five forged reads leave enter alone
+    launcher.exchangeReportToken.mockResolvedValue({ credentialId: CRED_ID, sessionId: SID, role: "ana", expiresAt: EXPIRES });
+    for (let i = 0; i < 5; i++) await handleReportGet(getReq(`${REPORT_COOKIE}=forged${i}`), deps);
+    expect((await handleReportEnter(enterReq(), deps)).status).toBe(200);
   });
 
   it("never logs the credential id, role, session id or address", async () => {
