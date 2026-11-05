@@ -3769,7 +3769,7 @@
       "assignee": "Agent",
       "status": "To Do",
       "branch": "feature/EPIC-0002-US-0063-participant-report",
-      "notes": "Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "notes": "Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). Inputs from slice 2c-1 (US-0062, done): the credential id lives only in the sealed `__Host-scenecoach-report` cookie and the control path, so the participant actor is `{ role, credentialId }` resolved by the control service; the report page already renders all text escaped and has the states, print view and throttles to extend; control refuses store trouble with a 503 (never the neutral 404), which the new routes must keep; a held `review.lock` is retried with backoff and answers try again. Open follow-ups that touch this area: BUG-0027, BUG-0028."
     },
     {
       "id": "TASK-0093",
@@ -3779,7 +3779,7 @@
       "assignee": "Agent",
       "status": "To Do",
       "branch": "feature/EPIC-0002-US-0064-report-moderation-web",
-      "notes": "Spec sections 5.8 and 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "notes": "Spec sections 5.8 and 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). It replaces the terminal steps (`pnpm evaluate --out \"$CONTROL_DATA_DIR/reports\"`, then `pnpm moderate open` and `release`) that slice 2c-1 documents and that the console names in its fixed \"reports are not ready\" message; update that message and the README/EVALUATOR note when this lands. The control service already resolves a session's live review including a re-run (`<id>-2`); reuse `@acr/runtime/reports` for reads and add the write path through the review store, not around it."
     }
   ],
   "testCases": [
@@ -5322,6 +5322,54 @@
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0025",
+      "title": "Forged-cookie read failures share the enter throttle table, so a saturated table reaches valid reads",
+      "severity": "Low",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0026",
+      "title": "`ws-server.roster.test.ts` (a superseded connection gets no roster frame) is flaky in full runtime runs",
+      "severity": "Low",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0027",
+      "title": "The conflict sentences are copied between the control service and the web server with no test that they stay equal",
+      "severity": "Low",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0028",
+      "title": "Slice 2c-1 test and cleanup gaps: seeded e2e folders, thin Axe coverage, dead console branches",
+      "severity": "Low",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
     }
   ],
   "costs": {
@@ -5906,6 +5954,38 @@
         "projectedUsd": 400
       },
       "BUG-0024": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0025": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0026": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0027": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0028": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -6683,9 +6763,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-05T23:38:43.437Z",
-  "commitSha": "a4b3afb",
-  "buildNumber": "527",
+  "generatedAt": "2026-11-05T23:39:58.615Z",
+  "commitSha": "a293f4c",
+  "buildNumber": "528",
   "branch": "docs/session-close-2c-1",
   "sessionTimeline": [
     {
@@ -6986,7 +7066,7 @@
       "2026-11-05T16:29:49.626Z",
       "2026-11-05T22:26:16.924Z",
       "2026-11-05T23:24:56.057Z",
-      "2026-11-05T23:38:43.530Z"
+      "2026-11-05T23:39:58.694Z"
     ],
     "doneCounts": [
       0,
@@ -7376,7 +7456,7 @@
       0,
       0,
       0,
-      0
+      4
     ],
     "atRisk": [
       0,

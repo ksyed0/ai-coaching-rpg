@@ -332,3 +332,51 @@ Lesson Encoded: No
 Found in the review of the BUG-0017 fix. Both hubs ended the opening window (`SseWriter.endOpening`) before registering `conn.onFrame`, but the first `onFrame` flushes the replay queued in the connection synchronously, before anything can drain `out`. A complete replay can be up to 256 KiB of event JSON (`MAX_REPLAY_BYTES`, services/runtime/src/host/session-host.ts) plus about 30 bytes of SSE framing for each of up to 1,000 events, so after a joined frame already over the 64 KiB high-water mark the total passed the 256 KiB stall cap and the browser was dropped as slow on reconnect, and again on every retry. Affects `StreamHub` and `FacilitatorHub`.
 
 Fixed: both hubs now call `endOpening` right after the first `onFrame` registration, so the replay flush belongs to the opening; the cap applies from the first frame after it. Memory stays bounded: the exempt part is the joined frame (and reset) plus a replay the runtime caps at 256 KiB, written once per stream, and a reader that stalls afterwards is still dropped at the 256 KiB cap. A test per hub (a queued replay past the cap is delivered in order, then a stall ends the stream with `reconnecting`) fails without the change; `FakeConn` now flushes queued frames on the first `onFrame`, like `RuntimeConnection`.
+
+```
+BUG-0025: Forged-cookie read failures share the enter throttle table, so a saturated table reaches valid reads
+Severity: Low
+Related Story: US-0062
+Related Task: TASK-0100
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Found in the final review of slice 2c-1 PR 2. `GET /api/v1/report` counts reads that fail before control (no, forged, expired or wrong-purpose cookie) in `reportEnterThrottle` under `*report-read-fail`, the same table that `POST /api/v1/report/enter` uses. When that table is full of blocked addresses (about 10 000), `blockedForMs` answers 429 for every address without an entry, valid readers and valid enters included. Forged GETs have no Origin check and no body, so they fill it more cheaply than enter POSTs. Practical only with a spoofable `X-Forwarded-For` or a botnet, and the threat model's general fail-closed sentence covers it without saying it now reaches valid reads. Fix: give read failures their own throttle instance (one line in `routes.ts`) and say so in `docs/THREAT_MODEL.md`.
+
+```
+BUG-0026: `ws-server.roster.test.ts` (a superseded connection gets no roster frame) is flaky in full runtime runs
+Severity: Low
+Related Story: US-0062
+Related Task: TASK-0100
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Seen once in a full `@acr/runtime` run and once in five isolated runs during slice 2c-1, with no changed file touching it. It looks like a timing assumption in the test, but it has not been run against `develop` to confirm that it is not caused by this slice. Not related to US-0062 itself; filed there because it was found while closing the slice. Fix: reproduce with `vitest run --repeat` on `develop`, then replace the timing assumption with an event wait (see BUG-0020 for the same class).
+
+```
+BUG-0027: The conflict sentences are copied between the control service and the web server with no test that they stay equal
+Severity: Low
+Related Story: US-0062
+Related Task: TASK-0100
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+`KNOWN_CONFLICTS` in `apps/web/src/server/report-handlers.ts` repeats the fixed sentences of `services/control/src/reports.ts` and `report-access.ts`, because the web package must not import the control service or the runtime. If control rewords one, the console silently falls back to its generic sentence. Fix: a test that reads the sentences from both sources (a small shared constants file under `packages/events` is the allowed route) and fails when they differ.
+
+```
+BUG-0028: Slice 2c-1 test and cleanup gaps: seeded e2e folders, thin Axe coverage, dead console branches
+Severity: Low
+Related Story: US-0062
+Related Task: TASK-0100
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Left open by the slice 2c-1 reviews, none blocking. (1) The Playwright test seeds its review folders with the runtime's `moderate` functions (`services/control/src/__tests__/seed-report-folders.ts`, which also reaches into runtime test fixtures and seeds `alice` and `bob`, not the session's seated roles) instead of running a real `evaluate`. (2) Axe covers the report and refused states and the console panel, but not the throttled and not-released states or `/report/enter`. (3) `ReportLinksPanel` keeps "Revoked" and "Link expired" branches that the real API never produces, because control lists only live credentials. (4) The `ReportView` retry has no unmount guard (harmless in React 18). Fix: move the seeder under `services/runtime` and use the session's roles; add the Axe states; drop or feed the dead branches.

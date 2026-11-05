@@ -1910,7 +1910,7 @@ Type: Dev
 Assignee: Agent
 Status: To Do
 Branch: feature/EPIC-0002-US-0063-participant-report
-Notes: Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). Inputs from slice 2c-1 (US-0062, done): the credential id lives only in the sealed `__Host-scenecoach-report` cookie and the control path, so the participant actor is `{ role, credentialId }` resolved by the control service; the report page already renders all text escaped and has the states, print view and throttles to extend; control refuses store trouble with a 503 (never the neutral 404), which the new routes must keep; a held `review.lock` is retried with backoff and answers try again. Open follow-ups that touch this area: BUG-0027, BUG-0028.
 ```
 
 ```
@@ -1934,5 +1934,5 @@ Type: Dev
 Assignee: Agent
 Status: To Do
 Branch: feature/EPIC-0002-US-0064-report-moderation-web
-Notes: Spec sections 5.8 and 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Spec sections 5.8 and 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). It replaces the terminal steps (`pnpm evaluate --out "$CONTROL_DATA_DIR/reports"`, then `pnpm moderate open` and `release`) that slice 2c-1 documents and that the console names in its fixed "reports are not ready" message; update that message and the README/EVALUATOR note when this lands. The control service already resolves a session's live review including a re-run (`<id>-2`); reuse `@acr/runtime/reports` for reads and add the write path through the review store, not around it.
 ```

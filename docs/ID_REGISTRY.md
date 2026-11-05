@@ -7,7 +7,7 @@
 | TASK         | TASK-0101             | TASK-0100         |
 | AC           | AC-0369               | AC-0368           |
 | TC           | TC-0127               | TC-0126           |
-| BUG          | BUG-0025              | BUG-0024          |
+| BUG          | BUG-0029              | BUG-0028          |
 | L            | L-0034                | L-0033            |
 
 Reserved blocks (2026-10-06): AC-0130..AC-0139 and TASK-0040..TASK-0042 US-0025; AC-0140..AC-0149 and TASK-0043..TASK-0045 US-0017; AC-0150..AC-0159 and TASK-0046..TASK-0048 US-0016; AC-0160..AC-0169 and TASK-0049..TASK-0051 US-0018. Free below the blocks: AC-0127..AC-0129 and TASK-0035..TASK-0039. Next/Last point past the reserved blocks; an id in a block that its story does not use stays unused (ids are never reassigned).
@@ -71,3 +71,5 @@ Assigned 2026-11-05 (slice 2b-3c, PR 2): AC-0364 (US-0061: for a session without
 Assigned 2026-11-05 (slice 2c-1, PR 1): AC-0365 (US-0062: the reader of released reports is read-only and follows a re-run folder) and AC-0366 (US-0062: a revoke or reissue ends reads at once, even for a holder of a live cookie, and a wrong-session read does not touch the credential); TC-0121 (AC-0327: the credential store), TC-0122 (AC-0329, AC-0330, AC-0366: the report service and its API) and TC-0123 (AC-0365: the runtime reader and the import boundary). TASK-0091 is reused (no new TASK; next free stays TASK-0100).
 
 Assigned 2026-11-05 (slice 2c-1, PR 2): AC-0367 (US-0062: opening a report link keeps the token out of logs, referrer and the address bar; no-script fallback) and AC-0368 (US-0062: forged cross-site enter refused before the throttle, a blocked address gets 429 with Retry-After while a refused token stays the neutral 404, no-store and no-referrer, no credential id in the console DTO); TC-0124 (AC-0330, AC-0367, AC-0368: BFF routes and pages), TC-0125 (AC-0327, AC-0328, AC-0368: console panel) and TC-0126 (end to end and Axe). TASK-0100 (TASK-0092 was already taken by US-0063). Slice 2c-1 is complete; the next AC is AC-0369, the next TC is TC-0127 and the next TASK is TASK-0101.
+
+Assigned 2026-11-05 (slice 2c-1 close): BUG-0025 (forged-cookie read failures share the enter throttle table), BUG-0026 (`ws-server.roster.test.ts` flake), BUG-0027 (conflict sentences duplicated between control and web) and BUG-0028 (slice 2c-1 test and cleanup gaps), all open. L-0032 and L-0033 were added at the same close.
