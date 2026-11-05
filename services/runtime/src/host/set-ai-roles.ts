@@ -37,8 +37,12 @@ export class AiRolesRefusedError extends Error {
  * 4. Kick each changed role (to AI: CLOSE_AI_FILLED; back to human: CLOSE_REISSUED), swap the codes in, re-send the roster (a role nobody
  *    held sends nothing from the kick). A kick that throws is reported, not rethrown: the caller must still receive the codes.
  * Nothing is appended to the log (the start refuses a log that has events).
+ *
+ * US-0061: `includeInGroup` (absent keeps the current option; a defined non-boolean is `invalid`) is part of the same record. An option
+ * change alone (`optionChanged`) issues no code and touches no seat: it sets the option, persists, and on a failure restores it and
+ * rethrows (returns []). With role changes the option is set before the one persist and restored with the roles. Both refused after the start.
  */
-export async function setAiRoles(d: AiRolesDeps, roles: string[]): Promise<{ roleId: string; code: string }[]> {
+export async function setAiRoles(d: AiRolesDeps, roles: string[], includeInGroup?: boolean): Promise<{ roleId: string; code: string }[]> {
   const aiSet = d.seats.aiRoles;
   if (!aiSet) throw new AiRolesRefusedError(AI_ROLES_REFUSED.failed);
   if (Array.isArray(roles) && roles.length > 0 && !noticeNamesAiPlayers(d.seats.consent.notice.version)) throw new AiRolesRefusedError(AI_ROLES_REFUSED.notice);
@@ -49,12 +53,20 @@ export async function setAiRoles(d: AiRolesDeps, roles: string[]): Promise<{ rol
     if (typeof r !== "string" || !d.host.hasPlayerRole(r) || wanted.has(r)) throw new AiRolesRefusedError(AI_ROLES_REFUSED.invalid);
     wanted.add(r);
   }
+  if (includeInGroup !== undefined && typeof includeInGroup !== "boolean") throw new AiRolesRefusedError(AI_ROLES_REFUSED.invalid);
   const players = d.host.playerRoleIds();
   if (players.length === 0) throw new AiRolesRefusedError(AI_ROLES_REFUSED.failed);
   if (players.every((r) => wanted.has(r))) throw new AiRolesRefusedError(AI_ROLES_REFUSED.noHuman);
   if (wanted.size > MAX_AI_ROLES) throw new AiRolesRefusedError(AI_ROLES_REFUSED.tooMany);
   const changed = players.filter((r) => aiSet.has(r) !== wanted.has(r));
-  if (changed.length === 0) return [];
+  const optionChanged = includeInGroup !== undefined && includeInGroup !== aiSet.includeInGroup;
+  if (changed.length === 0 && !optionChanged) return [];
+  if (changed.length === 0) {
+    const optionBefore = aiSet.includeInGroup;
+    aiSet.setIncludeInGroup(includeInGroup!);
+    try { d.seats.persist(); } catch (err) { aiSet.setIncludeInGroup(optionBefore); throw err; }
+    return [];
+  }
 
   const old = d.codes();
   let codes = old;
@@ -65,14 +77,17 @@ export async function setAiRoles(d: AiRolesDeps, roles: string[]): Promise<{ rol
   const credBefore = changed.map((r) => d.seats.credentials.snapshotRole(r));
   const consentBefore = changed.map((r) => d.seats.consent.entryOf(r));
   const aiBefore = aiSet.list();
+  const optionBefore = aiSet.includeInGroup;
   try {
     for (const r of changed) { d.seats.credentials.revoke(r); d.seats.consent.withdraw(r); }
     aiSet.replace(players.filter((r) => wanted.has(r)), players);
+    if (includeInGroup !== undefined) aiSet.setIncludeInGroup(includeInGroup);
     d.seats.persist();
   } catch (err) {
     // Memory first (so no old code can open a seat whose holder is still connected), then the old codes file, then one best-effort re-persist.
     changed.forEach((r, i) => { d.seats.credentials.restoreRole(r, credBefore[i]); d.seats.consent.restoreEntry(r, consentBefore[i]); });
     aiSet.replace(aiBefore, players);
+    aiSet.setIncludeInGroup(optionBefore);
     try { d.writeCodes(old); } catch (restoreErr) { d.report?.("restoring the join codes file after a failed AI-role change", restoreErr); }
     try { d.seats.persist(); } catch (persistErr) { d.report?.("re-persisting the seats after a failed AI-role change", persistErr); }
     throw err;

@@ -129,6 +129,20 @@ describe("the start gate with AI seats (US-0060)", () => {
     expect(engine.state.aiRoles).toEqual(["tech_lead"]);
   });
 
+  it("start with tech_lead AI and the option off logs includeInGroup false; with the option on it logs true", async () => {
+    for (const off of [true, false]) {
+      const { port, seats, plain, engine } = await setup();
+      if (off) seats.aiRoles!.setIncludeInGroup(false);
+      await humans(port, seats, plain);
+      await seat(port, "tech_lead", plain.tech_lead!, "bot1");
+      const f = await facilitator(port);
+      f.send({ type: "start" });
+      const started = (await f.next((m) => m.type === "event" && m.event.type === "session.started")).event;
+      expect(engine.state.aiRoles).toEqual(["tech_lead"]);
+      expect(started.includeInGroup).toBe(!off);
+    }
+  });
+
   it("a session without AI roles: the refusal, joined frames and session.started are as before (format 2, no aiRoles key)", async () => {
     const { port, seats, plain, host } = await setup({ aiRoles: [] });
     const f0 = await facilitator(port);

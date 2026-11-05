@@ -280,3 +280,95 @@ describe("setAiRoles caps (US-0060)", () => {
     expect(await refusal(setAiRoles(deps, players))).toBe("at least one player role must stay human");
   });
 });
+
+describe("setAiRoles with the group-score option (US-0061)", () => {
+  it("an option-only change from on to off persists v2, returns [], keeps every code and credential, kicks nobody and sends no roster", async () => {
+    const e = await setup({ aiRoles: ["tech_lead"] });
+    const p = await pat(e);
+    const kick = vi.fn(); const roster = vi.fn(); const set = vi.fn();
+    const deps = { ...e.deps, server: { kickRole: kick, broadcastRoster: roster }, setCodes: set };
+    const creds = JSON.stringify(PLAYERS.map((r) => e.seats.credentials.snapshotRole(r)));
+    const persists0 = e.state.persists;
+    expect(JSON.parse(e.files.aiRoles).v).toBe(1);
+    expect(await setAiRoles(deps, ["tech_lead"], false)).toEqual([]);
+    expect(e.seats.aiRoles!.includeInGroup).toBe(false);
+    expect(JSON.parse(e.files.aiRoles)).toEqual({ v: 2, ...BIND, roles: ["tech_lead"], includeInGroup: false });
+    expect(e.state.persists - persists0).toBe(1);
+    expect(e.written).toHaveLength(0); // no code issued
+    expect(set).not.toHaveBeenCalled();
+    expect(kick).not.toHaveBeenCalled();
+    expect(roster).not.toHaveBeenCalled();
+    expect(JSON.stringify(PLAYERS.map((r) => e.seats.credentials.snapshotRole(r)))).toBe(creds);
+    expect(e.seats.consent.hasEntry("account_manager")).toBe(true);
+    expect(p.ws.readyState).toBe(p.ws.OPEN);
+    expect(e.current().verify("account_manager", e.plain.account_manager!)).toBe(true);
+  });
+
+  it("the same option again is a no-op that writes nothing", async () => {
+    const e = await setup({ aiRoles: ["tech_lead"] });
+    expect(await setAiRoles(e.deps, ["tech_lead"], true)).toEqual([]); // on and asked on: nothing
+    expect(e.state.persists).toBe(0);
+    expect(await setAiRoles(e.deps, ["tech_lead"], false)).toEqual([]);
+    const before = stateOf(e);
+    expect(await setAiRoles(e.deps, ["tech_lead"], false)).toEqual([]);
+    expect(await setAiRoles(e.deps, ["tech_lead"])).toEqual([]); // absent keeps the current option
+    expect(stateOf(e)).toBe(before);
+    expect(e.state.persists).toBe(1);
+  });
+
+  it("a role switch without includeInGroup keeps an off option", async () => {
+    const e = await setup({ aiRoles: ["tech_lead"] });
+    await setAiRoles(e.deps, ["tech_lead"], false);
+    const out = await setAiRoles(e.deps, ["tech_lead", "account_manager"]);
+    expect(out.map((x) => x.roleId)).toEqual(["account_manager"]);
+    expect(e.seats.aiRoles!.includeInGroup).toBe(false);
+    expect(JSON.parse(e.files.aiRoles)).toMatchObject({ v: 2, includeInGroup: false, roles: ["account_manager", "tech_lead"] });
+  });
+
+  it("roles and option together change both in one persist", async () => {
+    const e = await setup();
+    const persists0 = e.state.persists;
+    const out = await setAiRoles(e.deps, ["tech_lead"], false);
+    expect(out.map((x) => x.roleId)).toEqual(["tech_lead"]);
+    expect(e.state.persists - persists0).toBe(1);
+    expect(JSON.parse(e.files.aiRoles)).toMatchObject({ v: 2, includeInGroup: false, roles: ["tech_lead"] });
+    expect(e.seats.aiRoles!.includeInGroup).toBe(false);
+  });
+
+  it("a failed persist restores the option (option only, and with roles)", async () => {
+    const e = await setup({ aiRoles: ["tech_lead"] });
+    const filesBefore = JSON.stringify(e.files);
+    e.state.persistFails = true;
+    await expect(setAiRoles(e.deps, ["tech_lead"], false)).rejects.toThrow("disk full");
+    expect(e.seats.aiRoles!.includeInGroup).toBe(true);
+    expect(JSON.stringify(e.files)).toBe(filesBefore);
+    await expect(setAiRoles(e.deps, ["account_manager"], false)).rejects.toThrow("disk full");
+    expect(e.seats.aiRoles!.includeInGroup).toBe(true);
+    expect(e.seats.aiRoles!.list()).toEqual(["tech_lead"]);
+    expect(JSON.stringify(e.files)).toBe(filesBefore);
+  });
+
+  it("an option change after the start is refused \"AI roles can only be changed before the start\"", async () => {
+    const e = await setup({ aiRoles: ["tech_lead"] });
+    await pat(e);
+    const d = await seat(e.port, "delivery_lead", e.plain.delivery_lead!, "dana", "Dana");
+    await consent(d, e.seats, "delivery_lead", "dana");
+    await seat(e.port, "tech_lead", e.plain.tech_lead!, "bot1");
+    await e.host.start();
+    const before = stateOf(e);
+    expect(await refusal(setAiRoles(e.deps, ["tech_lead"], false))).toBe("AI roles can only be changed before the start");
+    expect(stateOf(e)).toBe(before);
+    expect(e.seats.aiRoles!.includeInGroup).toBe(true);
+  });
+
+  it("includeInGroup false with roles [] under notice v1 is allowed; a defined non-boolean is invalid and changes nothing", async () => {
+    const e = await setup({ noticeVersion: "v1" });
+    expect(noticeNamesAiPlayers("v1")).toBe(false);
+    expect(await setAiRoles(e.deps, [], false)).toEqual([]);
+    expect(e.seats.aiRoles!.includeInGroup).toBe(false);
+    const before = stateOf(e);
+    for (const bad of ["no", 0, 1, null, {}, []]) expect(await refusal(setAiRoles(e.deps, [], bad as unknown as boolean)), JSON.stringify(bad)).toBe(AI_ROLES_REFUSED.invalid);
+    expect(await refusal(setAiRoles(e.deps, ["tech_lead"], false))).toBe(AI_ROLES_REFUSED.notice);
+    expect(stateOf(e)).toBe(before);
+  });
+});

@@ -130,6 +130,11 @@ export class SessionHost {
     return this.engine.state.status === "idle" ? (this.seats?.aiRoles?.has(roleId) ?? false) : this.engine.state.aiRoles.includes(roleId);
   }
 
+  /** US-0061: whether AI players count toward group scores (before the start the seat file's option, default true). */
+  includeInGroup(): boolean {
+    return this.seats?.aiRoles?.includeInGroup ?? true;
+  }
+
   /** US-0060: the AI roles in the scenario's player-role order. */
   aiRoleIds(): string[] {
     return this.playerRoleIds().filter((r) => this.isAiRole(r));
@@ -365,7 +370,7 @@ export class SessionHost {
     const aiRoles = this.aiRoleIds();
     // Defence in depth: an AI role has no consent, so a stray entry for one is never recorded.
     const consents = Object.fromEntries(Object.entries(seats.consent.snapshot()).filter(([r]) => !aiRoles.includes(r)));
-    return { consents, names: seats.credentials.names(), logIdentity: seats.credentials.logIdentity, ...(aiRoles.length > 0 ? { aiRoles } : {}) };
+    return { consents, names: seats.credentials.names(), logIdentity: seats.credentials.logIdentity, ...(aiRoles.length > 0 ? { aiRoles, includeInGroup: this.includeInGroup() } : {}) };
   }
 
   /** Serialises everything that mutates the session so NPC turns never interleave. */

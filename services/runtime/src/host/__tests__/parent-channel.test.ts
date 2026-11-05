@@ -108,7 +108,7 @@ describe("parent channel", () => {
     openParentChannel(f.proc)!.onMessage((m) => got.push(m));
     const valid = { type: "set_ai_roles", requestId: "r1", roles: ["tech_lead"] };
     for (const bad of [
-      { ...valid, extra: 1 }, { ...valid, by: "Kim" }, { ...valid, includeInGroup: true }, { ...valid, roles: ["facilitator"] }, { ...valid, roles: ["Bad Id"] },
+      { ...valid, extra: 1 }, { ...valid, by: "Kim" }, { ...valid, includeInGroup: "x" }, { ...valid, includeInGroup: 0 }, { ...valid, includeInGroup: null }, { ...valid, roles: ["facilitator"] }, { ...valid, roles: ["Bad Id"] },
       { ...valid, roles: Array.from({ length: 257 }, (_, i) => `r${i}`) }, { ...valid, roles: "tech_lead" }, { ...valid, roles: [7] }, { ...valid, requestId: "a b" }, { type: "set_ai_roles", roles: [] },
     ]) f.emit("message", bad);
     expect(got).toEqual([]);
@@ -116,7 +116,20 @@ describe("parent channel", () => {
     f.emit("message", { type: "set_ai_roles", requestId: "r2", roles: [] });
     f.emit("message", { type: "set_ai_roles", requestId: "r3", roles: Array.from({ length: 256 }, (_, i) => `r${i}`) });
     expect(got).toHaveLength(3);
+    // US-0061: the option is a boolean and optional.
+    f.emit("message", { ...valid, requestId: "r4", includeInGroup: true });
+    f.emit("message", { ...valid, requestId: "r5", includeInGroup: false });
+    expect(got).toHaveLength(5);
     expect(ParentMessageSchema.safeParse({ type: "reissue", requestId: "r1", roleId: "cfo" }).success).toBe(true);
+  });
+
+  it("ready carries includeInGroup / includeInGroupReset only as false", () => {
+    const base = { type: "ready", port: 4000, status: "new", modelLabel: "m" };
+    for (const k of ["includeInGroup", "includeInGroupReset"]) {
+      expect(ChildMessageSchema.safeParse({ ...base, [k]: false }).success, k).toBe(true);
+      for (const bad of [true, "false", 0, null]) expect(ChildMessageSchema.safeParse({ ...base, [k]: bad }).success, `${k}=${String(bad)}`).toBe(false);
+    }
+    expect(ChildMessageSchema.safeParse(base).success).toBe(true);
   });
 
   it("bot_alert with an extra key, a reserved role id or a 201-character message is dropped", () => {

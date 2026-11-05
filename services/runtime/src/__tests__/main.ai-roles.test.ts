@@ -1,4 +1,4 @@
-import { mkdtemp, rm, unlink, mkdir } from "node:fs/promises";
+import { mkdtemp, rm, unlink, mkdir, readFile, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,7 +35,7 @@ function fakeParent() {
     await vi.waitFor(() => { if (!reply()) throw new Error("no reply yet"); }, { timeout: 30_000, interval: 10 });
     return reply() as Reply;
   };
-  const setRoles = (requestId: string, roles: string[]) => ask({ type: "set_ai_roles", requestId, roles });
+  const setRoles = (requestId: string, roles: string[], includeInGroup?: boolean) => ask({ type: "set_ai_roles", requestId, roles, ...(includeInGroup !== undefined ? { includeInGroup } : {}) });
   return { parent, sent, ask, setRoles };
 }
 async function boot(parent: ParentChannel, o: { scenario?: string; data?: string } = {}) {
@@ -169,6 +169,50 @@ describe("bootstrap answers set_ai_roles over the parent channel (US-0060)", () 
     expect(ready.aiRolesReset).toEqual(["tech_lead"]);
     expect("aiRoles" in ready).toBe(false); // the file went with the old seats: the roles are human again until the parent re-sends them
     expect(JSON.stringify(ready)).not.toMatch(/code/i);
+  });
+
+  it("US-0061: a lobby with the option off answers ready with includeInGroup false; with it on, no key; an option-only change answers no codes and survives a restart", async () => {
+    const a = fakeParent();
+    const first = await boot(a.parent);
+    expect("includeInGroup" in readyOf(a.sent)).toBe(false);
+    const file = path.join(first.data, "p1.ai-roles.json");
+    expect(await a.setRoles("a1", ["tech_lead"])).toEqual({ type: "ai_roles_set", requestId: "a1", codes: [{ roleId: "tech_lead", code: expect.any(String) }] });
+    const off = await a.setRoles("a2", ["tech_lead"], false); // option only
+    expect(off).toEqual({ type: "ai_roles_set", requestId: "a2", codes: [] });
+    expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ v: 2, roles: ["tech_lead"], includeInGroup: false });
+    // the same option again writes nothing
+    const m0 = (await stat(file)).mtimeMs; const c0 = await readFile(file, "utf8");
+    await new Promise((r) => setTimeout(r, 25));
+    expect(await a.setRoles("a3", ["tech_lead"], false)).toEqual({ type: "ai_roles_set", requestId: "a3", codes: [] });
+    expect(await a.setRoles("a4", ["tech_lead"])).toEqual({ type: "ai_roles_set", requestId: "a4", codes: [] });
+    expect((await stat(file)).mtimeMs).toBe(m0);
+    expect(await readFile(file, "utf8")).toBe(c0);
+    await first.runtime.stop(); runtimes.pop();
+    const b = fakeParent();
+    await boot(b.parent, { data: first.data });
+    expect(readyOf(b.sent)).toMatchObject({ aiRoles: ["tech_lead"], includeInGroup: false });
+    expect("includeInGroupReset" in readyOf(b.sent)).toBe(false);
+    expect((await b.setRoles("a5", ["tech_lead"], true)).type).toBe("ai_roles_set");
+    await runtimes.pop()!.stop();
+    const c = fakeParent();
+    await boot(c.parent, { data: first.data });
+    expect("includeInGroup" in readyOf(c.sent)).toBe(false);
+    expect(readyOf(c.sent).aiRoles).toEqual(["tech_lead"]);
+  });
+
+  it("US-0061: a restart that issues fresh codes after the option was off sends includeInGroupReset false with aiRolesReset", async () => {
+    const a = fakeParent();
+    const first = await boot(a.parent);
+    expect((await a.setRoles("a1", ["tech_lead"], false)).type).toBe("ai_roles_set");
+    await first.runtime.stop(); runtimes.pop();
+    await unlink(path.join(first.data, "p1.codes.json"));
+    const fresh = fakeParent();
+    await boot(fresh.parent, { data: first.data });
+    const ready = readyOf(fresh.sent);
+    expect(ready.aiRolesReset).toEqual(["tech_lead"]);
+    expect(ready.includeInGroupReset).toBe(false);
+    expect("includeInGroup" in ready).toBe(false);
+    expect("aiRoles" in ready).toBe(false);
   });
 
   it("a reissue still answers reissued as before", async () => {

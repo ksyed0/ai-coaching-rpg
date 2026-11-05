@@ -25,8 +25,8 @@ const ReissueSchema = z.strictObject({
   /** US-0059: a remove (before the start only) instead of a plain reissue. */
   reason: z.literal("removed").optional(),
 });
-/** US-0060: which player roles an AI plays (before the start). No `by`, no `includeInGroup`. */
-const SetAiRolesSchema = z.strictObject({ type: z.literal("set_ai_roles"), requestId: RequestId, roles: z.array(RoleId).max(MAX_CODES) });
+/** US-0060: which player roles an AI plays (before the start). No `by`. `includeInGroup` absent keeps the current option (US-0061). */
+const SetAiRolesSchema = z.strictObject({ type: z.literal("set_ai_roles"), requestId: RequestId, roles: z.array(RoleId).max(MAX_CODES), includeInGroup: z.boolean().optional() });
 /** US-0060: a live AI player's alert for the facilitator. Fire-and-forget: the runtime never answers it. */
 const BotAlertSchema = z.strictObject({ type: z.literal("bot_alert"), roleId: RoleId, message: z.string().min(1).max(MAX_BOT_ALERT_CHARS) });
 export const ParentMessageSchema = z.discriminatedUnion("type", [ReissueSchema, SetAiRolesSchema, BotAlertSchema]);
@@ -41,6 +41,10 @@ export const ChildMessageSchema = z.discriminatedUnion("type", [
     aiRoles: z.array(RoleId).max(MAX_CODES).optional(),
     /** BUG-0021: the lobby's AI roles this start dropped with the old seats (fresh codes); present only when there were any. The parent restores them. */
     aiRolesReset: z.array(RoleId).max(MAX_CODES).optional(),
+    /** US-0061: the group-score option; present only when it is off (`false`). */
+    includeInGroup: z.literal(false).optional(),
+    /** US-0061: the option the dropped lobby seats had; present only as `false`, with aiRolesReset. */
+    includeInGroupReset: z.literal(false).optional(),
     /** US-0060: the AI-player model calls already recorded in the log (utterances of AI roles); present only when above 0. */
     aiCalls: z.number().int().min(1).max(MAX_AI_CALLS).optional(),
   }),
