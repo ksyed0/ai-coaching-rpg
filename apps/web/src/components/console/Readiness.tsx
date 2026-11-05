@@ -205,9 +205,11 @@ export function Readiness({
   async function changeOption(next: boolean) {
     const current = polledRoster.current.filter((e) => e.ai === true).map((e) => e.roleId);
     refocusOption.current = true;
-    setOption(next);
     await act(
-      () => setAiRoles(sessionId, current, next, fetchImpl),
+      () => {
+        setOption(next); // shown only once the post is really made
+        return setAiRoles(sessionId, current, next, fetchImpl);
+      },
       (d) => {
         const answer = parseAiAnswer(d);
         if (answer.includeInGroup !== null) setOption(answer.includeInGroup);
@@ -299,10 +301,11 @@ export function Readiness({
     next.focus();
   }, [data]);
 
-  // A new readiness answer is the truth again; the chosen value only bridges the gap until it arrives.
+  // The chosen value bridges the gap until a readiness answer reflects it. An answer that does not (one issued while the post was in
+  // flight) must not overwrite it: the poll that follows the post carries the new value (refresh() queues one).
   useEffect(() => {
-    if (!busy.current) setOption(null);
-  }, [polled]);
+    if (option !== null && polled?.includeInGroup === option) setOption(null);
+  }, [polled, option]);
 
   useEffect(() => {
     if (!refocusOption.current || working || !data) return;
@@ -596,7 +599,7 @@ function View(p: ViewProps) {
           <GroupScoreOption id={OPTION_ID} checked={p.option} disabled={p.working} onChange={p.onOption} />
         ) : null}
         {running && hasAi ? (
-          <p className="muted small">AI players in group scores: {data.includeInGroup ? "on" : "off"}</p>
+          <p className="muted small">AI players in group scores: {p.option ? "on" : "off"}</p>
         ) : null}
         {idle ? (
           <p className="muted small">

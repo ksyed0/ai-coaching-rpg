@@ -147,6 +147,8 @@ describe("NewSessionForm: AI players on the created panel", () => {
     roster?: { roleId: string; name?: string; joined: boolean; ai?: true }[] | null;
     /** The first post is applied by the server but times out (ai_roles_unconfirmed). */
     timeoutFirst?: boolean;
+    /** Roles another tab made AI: every answer after the first lists them too. */
+    otherTabAi?: string[];
   };
   async function open(o: Opts = {}) {
     let ai: string[] = [];
@@ -165,7 +167,8 @@ describe("NewSessionForm: AI players on the created panel", () => {
         ai = roles;
         posts += 1;
         if (o.timeoutFirst && posts === 1) return { status: 504, body: refused("ai_roles_unconfirmed", "") };
-        return { status: 200, body: ok({ roles, codes: back.map((r) => ({ roleId: r, code: `NEW-${r}` })) }) };
+        const answered = o.otherTabAi && posts > 1 ? [...roles, ...o.otherTabAi] : roles;
+        return { status: 200, body: ok({ roles: answered, codes: back.map((r) => ({ roleId: r, code: `NEW-${r}` })) }) };
       }
       return { status: 200, body: ok(created) };
     });
@@ -376,4 +379,20 @@ describe("NewSessionForm: AI players on the created panel", () => {
     expect(aiPosts(f)[2]!.body).toEqual({ roles: ["delivery_lead", "account_manager"], includeInGroup: false });
   });
 
+
+  it("the checkbox applies the roles the answer lists (another tab switched account_manager to AI), and a later post keeps them", async () => {
+    const f = await open({ otherTabAi: ["account_manager"] });
+    await press("Make Delivery lead an AI player");
+    await confirm();
+    const box = (await screen.findByRole("checkbox", { name: "Include AI players in group scores" })) as HTMLInputElement;
+    await act(async () => {
+      fireEvent.click(box);
+    });
+    await screen.findByRole("button", { name: "Make Account manager human" });
+    await waitFor(() => expect(box.disabled).toBe(false));
+    await act(async () => {
+      fireEvent.click(box);
+    });
+    expect(aiPosts(f)[2]!.body).toEqual({ roles: ["delivery_lead", "account_manager"], includeInGroup: true });
+  });
 });

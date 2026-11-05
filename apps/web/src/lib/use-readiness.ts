@@ -54,6 +54,9 @@ export function useReadiness(
     let alive = true;
     let failures = 0;
     let running = false;
+    // A refresh() that arrives while a poll is in flight must not be lost (that poll may have been answered before the change the caller
+    // just made): exactly one more poll starts when the running one is done.
+    let queued = false;
     let cancel: (() => void) | null = null;
     const url = `/api/v1/console/sessions/${encodeURIComponent(sessionId)}/readiness`;
 
@@ -64,7 +67,18 @@ export function useReadiness(
       }, ms);
     };
     async function poll(): Promise<void> {
-      if (!alive || running) return;
+      if (!alive) return;
+      if (running) {
+        queued = true;
+        return;
+      }
+      await pollOnce();
+      if (alive && queued) {
+        queued = false;
+        void poll();
+      }
+    }
+    async function pollOnce(): Promise<void> {
       running = true;
       cancel?.();
       cancel = null;

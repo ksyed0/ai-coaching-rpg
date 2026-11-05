@@ -1105,7 +1105,7 @@ describe("Readiness: the group-score option", () => {
       "/ai-roles": { status: 200, body: ok({ roles: ["tech_lead"], includeInGroup: false, codes: [] }) },
     });
     await ready();
-    m.current.readiness = readiness({ roster: WITH_AI, includeInGroup: false });
+    // The mock readiness keeps answering the OLD value (as a control service whose memory lags): only the POST answer says "off".
     await act(async () => {
       fireEvent.click(box());
     });
@@ -1148,5 +1148,48 @@ describe("Readiness: the group-score option", () => {
     await ready();
     expect(screen.getByText("AI players in group scores: off")).toBeTruthy();
     expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it("a poll answered with the old value while the post is in flight does not undo the choice: the box, a role switch and the running line keep the new option", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const f = fakeFetch((url) => {
+      if (url.endsWith("/readiness")) return { status: 200, body: ok(readiness({ roster: WITH_AI, includeInGroup: true })) };
+      if (url.endsWith("/ai-roles")) return { status: 200, body: ok({ roles: ["tech_lead"], includeInGroup: false, codes: [] }) };
+      return { status: 200, body: ok({}) };
+    });
+    const slow = ((input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith("/ai-roles") ? gate.then(() => f.fetch(input, init)) : f.fetch(input, init)) as typeof fetch;
+    const t = fakeTimer();
+    const r = render(<Readiness sessionId={SID} fetch={slow} setTimer={t.setTimer} />);
+    await ready();
+    await act(async () => {
+      fireEvent.click(box());
+    });
+    // A poll issued during the post: answered with the old value.
+    await act(async () => {
+      t.fire();
+    });
+    await act(async () => {
+      release();
+    });
+    await waitFor(() => expect(box().disabled).toBe(false));
+    expect(box().checked).toBe(false);
+    // The poll that follows the post also lags: still unchecked, and a role switch posts the option the facilitator last saw.
+    await act(async () => {
+      t.fire();
+    });
+    expect(box().checked).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Make Delivery lead an AI player" }));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Use AI player" }));
+    });
+    const posts = f.calls.filter((c) => c.url.endsWith("/ai-roles"));
+    expect(posts[1]!.body).toEqual({ roles: ["tech_lead", "delivery_lead"], includeInGroup: false });
+    // After the start the read-only line shows that option, not the lagging poll.
+    r.rerender(
+      <Readiness sessionId={SID} fetch={slow} setTimer={t.setTimer} live={{ status: "running", roster: WITH_AI }} />,
+    );
+    await screen.findByText("AI players in group scores: off");
   });
 });

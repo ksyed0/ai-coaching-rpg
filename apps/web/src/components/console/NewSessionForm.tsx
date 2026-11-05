@@ -158,6 +158,7 @@ export function NewSessionForm({ fetch: fetchImpl }: NewSessionFormProps) {
       return;
     }
     const answer = parseAiAnswer(r.data);
+    applyAi(answer.roles, answer.codes);
     setIncludeInGroup(answer.includeInGroup ?? next);
   }
 
