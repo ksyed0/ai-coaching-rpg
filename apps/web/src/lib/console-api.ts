@@ -1,4 +1,4 @@
-import type { ApiResult } from "./api";
+import { getJson, postJson, type ApiResult } from "./api";
 import { MESSAGES } from "./messages";
 
 // What the console pages know about the BFF's answers. Everything from the network is untrusted: shapes are checked here and text is
@@ -158,3 +158,56 @@ export function failureText(r: Extract<ApiResult, { ok: false }>): string {
   if (r.status === 502 || r.status === 503) return CONSOLE_COPY.unreachable;
   return MESSAGES.generic;
 }
+
+// ---- participant report links (console) ----
+
+export type ReportLink = { role: string; createdAt: number; expiresAt: number; lastUsedAt?: number; active: boolean; revoked: boolean };
+export type ReportLinkRole = { role: string; link: ReportLink | null };
+export type ReportLinksView = { state: "ready" | "not_ready" | "unavailable"; roles: ReportLinkRole[] };
+
+/** The fixed sentence for a session with nothing released yet (the same words the control service uses). */
+export const REPORT_NOT_READY =
+  "No reports are ready for this session yet. Run evaluate, then moderate open and release, from the terminal (see the guide).";
+export const REPORT_UNAVAILABLE = "The reports for this session cannot be read. Check them with moderate status.";
+
+const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+function parseReportLink(role: string, v: unknown): ReportLink | null {
+  const o = obj(v);
+  if (!o || !num(o.createdAt) || !num(o.expiresAt)) return null;
+  return {
+    role,
+    createdAt: o.createdAt,
+    expiresAt: o.expiresAt,
+    ...(num(o.lastUsedAt) ? { lastUsedAt: o.lastUsedAt } : {}),
+    active: o.active === true,
+    revoked: o.revoked === true,
+  };
+}
+
+export function parseReportLinks(v: unknown): ReportLinksView | null {
+  const o = obj(v);
+  if (!o) return null;
+  const state = (["ready", "not_ready", "unavailable"] as const).find((s) => s === o.state);
+  if (!state) return null;
+  const roles: ReportLinkRole[] = [];
+  for (const x of Array.isArray(o.roles) ? o.roles : []) {
+    const r = obj(x);
+    if (!r || typeof r.role !== "string") continue;
+    roles.push({ role: r.role, link: r.credential === null || r.credential === undefined ? null : parseReportLink(r.role, r.credential) });
+  }
+  return { state, roles };
+}
+
+/** The one-time token from an issue or reissue answer; null when the answer is not shaped like one. */
+export function parseIssuedToken(v: unknown): string | null {
+  const o = obj(v);
+  return o && typeof o.token === "string" && o.token.length > 0 ? o.token : null;
+}
+
+const linksPath = (sessionId: string) => `/api/v1/console/sessions/${encodeURIComponent(sessionId)}/report-links`;
+
+export const fetchReportLinks = (sessionId: string, f?: typeof fetch) => getJson(linksPath(sessionId), f);
+export const issueReportLink = (sessionId: string, role: string, f?: typeof fetch) => postJson(linksPath(sessionId), { role }, f);
+export const reportLinkAction = (sessionId: string, role: string, action: "reissue" | "revoke", f?: typeof fetch) =>
+  postJson(`${linksPath(sessionId)}/${encodeURIComponent(role)}`, { action }, f);
