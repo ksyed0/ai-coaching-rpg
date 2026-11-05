@@ -89,6 +89,8 @@ describe("ReportLinksPanel", () => {
   it("removes the link from the DOM after dismissal and never writes it to storage, the URL or the console", async () => {
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     const log = vi.spyOn(console, "log");
+    const err = vi.spyOn(console, "error");
+    const warn = vi.spyOn(console, "warn");
     const before = window.location.href;
     const m = mount(READY, { [BASE]: () => ({ status: 200, body: ok({ role: "delivery_lead", token: TOKEN, credential: cred() }) }) });
     fireEvent.click(await screen.findByRole("button", { name: "Issue link for Delivery lead" }));
@@ -98,6 +100,8 @@ describe("ReportLinksPanel", () => {
     expect(document.body.innerHTML).not.toContain("SECRETsecret");
     expect(setItem).not.toHaveBeenCalled();
     expect(log).not.toHaveBeenCalled();
+    expect(err).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
     expect(JSON.stringify({ ...localStorage })).not.toContain("SECRET");
     expect(JSON.stringify({ ...sessionStorage })).not.toContain("SECRET");
     expect(window.location.href).toBe(before);
@@ -176,6 +180,45 @@ describe("ReportLinksPanel", () => {
     mount(view("ready", [{ role: "delivery_lead", credential: cred({ id: "SHOULD-NOT-SHOW" }) }]));
     await screen.findByText("Link active until", { exact: false });
     expect(document.body.textContent).not.toContain("SHOULD-NOT-SHOW");
+  });
+
+  it("unavailable still lists live links with Revoke (confirmed) and no Issue or Reissue", async () => {
+    const m = mount(view("unavailable", [{ role: "account_manager", credential: cred() }, { role: "delivery_lead", credential: null }]), {
+      [`${BASE}/account_manager`]: () => ({ status: 200, body: ok({ role: "account_manager", revoked: true }) }),
+    });
+    expect(await screen.findByText("The reports for this session cannot be read. Check them with moderate status.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^(Issue|Reissue) link/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke link for Account manager" }));
+    expect(posts(m)).toHaveLength(0);
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke link" }));
+    await waitFor(() => expect(posts(m)).toHaveLength(1));
+    expect(posts(m)[0]!.body).toEqual({ action: "revoke" });
+  });
+
+  it("while a link is shown every action is disabled with a hint; dismissal enables them and returns focus", async () => {
+    mount(READY, { [BASE]: () => ({ status: 200, body: ok({ role: "delivery_lead", token: TOKEN, credential: cred() }) }) });
+    fireEvent.click(await screen.findByRole("button", { name: "Issue link for Delivery lead" }));
+    await screen.findByLabelText(/link for Delivery lead/i, { selector: "input" });
+    expect(await screen.findByText("Link for Delivery lead created. Copy it now.")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Copy link" })));
+    expect(screen.getByText("Copy or dismiss the link above first.")).toBeTruthy();
+    const actions = () => screen.getAllByRole("button", { name: /^(Issue|Reissue|Revoke) link for/ }) as HTMLButtonElement[];
+    expect(actions().length).toBeGreaterThan(2);
+    expect(actions().every((b) => b.disabled)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "I have copied the link" }));
+    expect(actions().every((b) => !b.disabled)).toBe(true);
+    expect(screen.queryByText("Copy or dismiss the link above first.")).toBeNull();
+    const row = screen.getByRole("heading", { name: "Delivery lead" }).closest("li")!;
+    expect(row.contains(document.activeElement)).toBe(true);
+  });
+
+  it("the shown link input is not autofilled or spell-checked", async () => {
+    mount(READY, { [BASE]: () => ({ status: 200, body: ok({ role: "delivery_lead", token: TOKEN, credential: cred() }) }) });
+    fireEvent.click(await screen.findByRole("button", { name: "Issue link for Delivery lead" }));
+    const input = await screen.findByLabelText(/link for Delivery lead/i, { selector: "input" });
+    expect(input.getAttribute("autocomplete")).toBe("off");
+    expect(input.getAttribute("spellcheck")).toBe("false");
   });
 });
 

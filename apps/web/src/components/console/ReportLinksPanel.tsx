@@ -46,6 +46,9 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
   const [confirm, setConfirm] = useState<Confirm | null>(null);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const copyBtn = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const refocusRole = useRef<string | null>(null);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -53,6 +56,11 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
       alive.current = false;
     };
   }, []);
+
+  const shownRole = shown?.role ?? null;
+  useEffect(() => {
+    if (shownRole !== null) copyBtn.current?.focus();
+  }, [shownRole]);
 
   const load = useCallback(async () => {
     const r = await fetchReportLinks(sessionId, fetchImpl);
@@ -79,6 +87,7 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
     if (token === null) return false;
     setShown({ role, link: `${window.location.origin}/report/enter#${token}` });
     setCopyNote("");
+    setMessage(`Link for ${roleLabel(role)} created. Copy it now.`);
     return true;
   }
 
@@ -135,9 +144,19 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
   }
 
   function dismiss() {
+    refocusRole.current = shown?.role ?? null;
     setShown(null);
     setCopyNote("");
+    setMessage("");
   }
+
+  // After a dismissal, focus goes to the dismissed role's action button (its row, once the buttons are enabled again).
+  useEffect(() => {
+    if (shown !== null || refocusRole.current === null) return;
+    const row = list.current?.querySelector<HTMLElement>(`[data-role-row="${CSS.escape(refocusRole.current)}"]`);
+    refocusRole.current = null;
+    row?.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus();
+  }, [shown]);
 
   const ready = data?.state === "ready";
   return (
@@ -154,10 +173,10 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
           <p className="banner warn">This link is shown only once. Anyone who has it can read this participant&apos;s report.</p>
           <div className="field">
             <label htmlFor={`${headingId}-link`}>Report link for {roleLabel(shown.role)}</label>
-            <input id={`${headingId}-link`} className="t mono" type="text" readOnly value={shown.link} ref={input} onFocus={(e) => e.currentTarget.select()} />
+            <input id={`${headingId}-link`} className="t mono" type="text" autoComplete="off" spellCheck={false} readOnly value={shown.link} ref={input} onFocus={(e) => e.currentTarget.select()} />
           </div>
           <div className="rowactions">
-            <button className="btn" type="button" onClick={() => void copy()}>
+            <button className="btn" type="button" ref={copyBtn} onClick={() => void copy()}>
               Copy link
             </button>
             <button className="btn pri" type="button" onClick={dismiss}>
@@ -193,31 +212,32 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
       ) : null}
 
       {data?.state === "not_ready" ? <p className="banner warn">{REPORT_NOT_READY}</p> : null}
+      {shown !== null ? <p className="small muted">Copy or dismiss the link above first.</p> : null}
 
-      {data !== null && data.state !== "unavailable" && data.roles.length > 0 ? (
-        <ul className="codes">
+      {data !== null && data.roles.length > 0 ? (
+        <ul className="codes" ref={list}>
           {data.roles.map(({ role, link }) => {
             const label = roleLabel(role);
             const live = link !== null && link.active;
             return (
-              <li className="code-row" key={role}>
+              <li className="code-row" key={role} data-role-row={role}>
                 <h3 className="code-role">{label}</h3>
                 <span>{statusOf(link)}</span>
                 {link !== null && !link.revoked ? (
                   <span className="small muted">{link.lastUsedAt === undefined ? "Not opened yet" : `Last opened ${when(link.lastUsedAt)}`}</span>
                 ) : null}
                 {!live && ready ? (
-                  <button className="btn" type="button" disabled={busy} aria-label={`Issue link for ${label}`} onClick={() => void issue(role)}>
+                  <button className="btn" type="button" disabled={busy || shown !== null} aria-label={`Issue link for ${label}`} onClick={() => void issue(role)}>
                     Issue link
                   </button>
                 ) : null}
                 {live && ready ? (
-                  <button className="btn" type="button" disabled={busy} aria-label={`Reissue link for ${label}`} onClick={(e) => setConfirm({ kind: "reissue", role, opener: e.currentTarget })}>
+                  <button className="btn" type="button" disabled={busy || shown !== null} aria-label={`Reissue link for ${label}`} onClick={(e) => setConfirm({ kind: "reissue", role, opener: e.currentTarget })}>
                     Reissue
                   </button>
                 ) : null}
                 {live ? (
-                  <button className="btn" type="button" disabled={busy} aria-label={`Revoke link for ${label}`} onClick={(e) => setConfirm({ kind: "revoke", role, opener: e.currentTarget })}>
+                  <button className="btn" type="button" disabled={busy || shown !== null} aria-label={`Revoke link for ${label}`} onClick={(e) => setConfirm({ kind: "revoke", role, opener: e.currentTarget })}>
                     Revoke
                   </button>
                 ) : null}
