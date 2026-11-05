@@ -2702,12 +2702,12 @@
       "title": "As a participant, I want to read my report after the session has ended, so that I do not depend on the session still running.",
       "priority": "High",
       "estimate": "L",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0002-US-0062-report-access",
       "acs": [
         {
           "id": "AC-0327",
-          "text": "releasing a report issues a 128-bit report-access credential, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in access.json beside the review directory (0600, atomic, outside the review log)",
+          "text": "the facilitator issues a link for a released report from the console; the credential is 128 bits from a CSPRNG, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in one report-access.json under the control data directory (0600, atomic, outside every review folder) (store and service built in slice 2c-1 PR 1; TC-0121; the console button is PR 2)",
           "done": false
         },
         {
@@ -2717,12 +2717,22 @@
         },
         {
           "id": "AC-0329",
-          "text": "the control service verifies the credential and serves released views without a live runtime, tied to the session in the credential",
+          "text": "the control service verifies the credential and serves released views without a live runtime, tied to the session in the credential (service and API built in slice 2c-1 PR 1; TC-0122; the browser side is PR 2)",
           "done": false
         },
         {
           "id": "AC-0330",
-          "text": "a cross-role or cross-session request and an expired or revoked credential are refused with one neutral response",
+          "text": "a cross-role or cross-session request and an expired or revoked credential are refused with one neutral response (control-service side built in slice 2c-1 PR 1; TC-0122)",
+          "done": false
+        },
+        {
+          "id": "AC-0365",
+          "text": "the reader of released reports is read-only (`@acr/runtime/reports`, nothing in it writes), resolves the single live review folder including a re-run's `<id>-2`, and the control service imports only the allowed runtime subpaths (built in slice 2c-1 PR 1; TC-0123)",
+          "done": true
+        },
+        {
+          "id": "AC-0366",
+          "text": "a revoke or reissue ends reads at once even for a holder of a live cookie (every read re-checks the credential), and a read with the wrong session answers 404 without touching lastUsedAt (control-service side built in slice 2c-1 PR 1; TC-0122)",
           "done": false
         }
       ],
@@ -3727,9 +3737,9 @@
       "title": "Report-access credential and control-service report API",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "In Progress",
       "branch": "feature/EPIC-0002-US-0062-report-access",
-      "notes": "Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "notes": "Spec section 5.8; slice 2c-1 plan docs/superpowers/plans/2026-11-05-slice-2c-1-report-access.md. PR 1 (control side) built the hashed credential store, the control-service report links and read API and the read-only runtime reader (TC-0121 to TC-0123); PR 2 adds the browser routes and the console panel. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
     },
     {
       "id": "TASK-0092",
@@ -4942,6 +4952,36 @@
       "type": "Regression",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0121",
+      "title": "The report-access credential is 128 bits, stored hashed, with an expiry, in one private file",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0091",
+      "relatedAC": "AC-0327",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0122",
+      "title": "The report service and its API issue only for released roles and refuse everything else with one neutral answer",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0091",
+      "relatedAC": "AC-0329, AC-0330, AC-0366",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0123",
+      "title": "The reader of released reports is read-only and follows a re-run, and the control service imports only the allowed runtime subpaths",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0091",
+      "relatedAC": "AC-0365",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -5608,7 +5648,7 @@
       "outputTokens": 0
     },
     "US-0062": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 1600,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
@@ -6266,11 +6306,11 @@
       "isAtRisk": false
     },
     "US-0062": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0063": {
       "missingTCs": true,
@@ -6577,10 +6617,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-05T14:43:17.109Z",
-  "commitSha": "82706e1",
-  "buildNumber": "512",
-  "branch": "release/0.1.0",
+  "generatedAt": "2026-11-05T22:26:16.806Z",
+  "commitSha": "eca04bb",
+  "buildNumber": "533",
+  "branch": "feature/EPIC-0002-US-0062-report-access",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6722,11 +6762,11 @@
     }
   },
   "budget": {
-    "totalBudget": 808.4862,
+    "totalBudget": 807.5862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 4853.1,
+    "totalProjected": 6452.200000000001,
     "percentUsed": 99,
-    "burnRate": 19.563133,
+    "burnRate": 18.77575444444445,
     "daysRemaining": 0,
     "projectedExhaustion": 0,
     "thresholds": [
@@ -6768,9 +6808,9 @@
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 187.19682000000003,
+        "budget": 186.29682000000005,
         "spent": 184.49682000000004,
-        "remaining": 2.6999999999999886,
+        "remaining": 1.8000000000000114,
         "percentUsed": 99
       },
       {
@@ -6869,7 +6909,9 @@
       "2026-11-04T21:12:37.282Z",
       "2026-11-05T01:26:05.061Z",
       "2026-11-05T02:43:13.491Z",
-      "2026-11-05T14:43:17.216Z"
+      "2026-11-05T14:43:17.216Z",
+      "2026-11-05T16:29:49.626Z",
+      "2026-11-05T22:26:16.924Z"
     ],
     "doneCounts": [
       0,
@@ -6930,6 +6972,8 @@
       0,
       0,
       1,
+      1,
+      1,
       1
     ],
     "totalStories": [
@@ -6939,6 +6983,8 @@
       65,
       65,
       13,
+      65,
+      65,
       65,
       65,
       65,
@@ -7052,6 +7098,8 @@
       799.4862,
       799.4862,
       799.4862,
+      799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
@@ -7086,6 +7134,8 @@
       0,
       0,
       0,
+      null,
+      null,
       null,
       null,
       null,
@@ -7174,6 +7224,8 @@
       0,
       0,
       3,
+      3,
+      3,
       3
     ],
     "openBugs": [
@@ -7235,9 +7287,13 @@
       0,
       0,
       0,
+      0,
+      0,
       0
     ],
     "atRisk": [
+      0,
+      0,
       0,
       0,
       0,
@@ -7357,6 +7413,8 @@
       33019880,
       33019880,
       33019880,
+      33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -7391,6 +7449,8 @@
       0,
       0,
       0,
+      5997518,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -7479,7 +7539,9 @@
       1.136923076923077,
       1.1415384615384618,
       1.1375000000000002,
-      1.1375000000000002
+      1.1375000000000002,
+      1.1375000000000002,
+      1.1421875000000004
     ],
     "velocityByWeek": {
       "labels": [

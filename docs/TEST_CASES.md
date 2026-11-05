@@ -1867,3 +1867,48 @@ Actual Result: As expected, 2026-11-05: 4 files, 49 tests passed (re-run for thi
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-3c, PR 2. The golden test is also green after every commit of both PRs.
+
+## US-0062: report access
+
+TC-0121: The report-access credential is 128 bits, stored hashed, with an expiry, in one private file
+Related Story: US-0062
+Related Task: TASK-0091
+Related AC: AC-0327
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/report-access.test.ts src/__tests__/config.test.ts` (the token is `<id>.<secret>` from the system's random generator; the file holds the id, a salt and a hash and never the token or the secret; the file is mode 0600, written atomically and read without following links; expiry is `REPORT_ACCESS_DAYS` days, default 90, valid 1 to 365; a revoke is never undone by a `lastUsedAt` touch; an unreadable or malformed file fails closed and is never replaced; `check` with a different expected session answers null and leaves the file byte-identical).
+Expected Result: All tests pass; no test finds a token, secret or hash in the file, a result or a message.
+Actual Result: As expected, 2026-11-05: 2 files, 45 tests passed.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 1. The console button that issues a link is PR 2, so AC-0327 stays open.
+
+TC-0122: The report service and its API issue only for released roles and refuse everything else with one neutral answer
+Related Story: US-0062
+Related Task: TASK-0091
+Related AC: AC-0329, AC-0330, AC-0366
+Type: Regression
+Preconditions: As TC-0110; the tests build a real released review folder in a temporary directory.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/reports.test.ts src/__tests__/api.reports.test.ts` (issue, reissue and revoke, revoke also for a session no longer listed; a corrupt store file is 503 on exchange and read and a failed lastUsedAt write still answers 200; an unreadable reader is 503 "cannot be read" and `links` state unavailable; a role that is not released, an AI role named only in the group draft and a session with nothing ready are refused with the fixed sentences; an unknown, wrong-secret, revoked, expired, malformed and cross-session token or id gets identical bytes; a read re-checks the credential each time, a withdrawn report reads as not released, a corrupt review is 503, and a wrong-session read does not change `lastUsedAt`; no log line holds a token, id, role or path).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-05: 2 files, 41 tests passed (re-run after the review fixes).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 1. The browser routes and the cookie are PR 2, so AC-0329, AC-0330 and AC-0366 stay open.
+
+TC-0123: The reader of released reports is read-only and follows a re-run, and the control service imports only the allowed runtime subpaths
+Related Story: US-0062
+Related Task: TASK-0091
+Related AC: AC-0365
+Type: Regression
+Preconditions: As TC-0110.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/reports` (the reader resolves the single live review folder, skips a superseded one and a symbolic-link folder, lists released roles, returns a scrubbed view, gives `unavailable` for a changed or unreadable file and a plain outcome, never a throw, when a folder moves mid-read; run 20 times in a row on 2026-11-05, stable).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/bots/imports.test.ts` (control source outside `__tests__` imports `@acr/runtime` only through the `players` and `reports` subpaths).
+Expected Result: Both commands pass.
+Actual Result: As expected, 2026-11-05: step 1 2 files, 18 tests passed; step 2 1 file, 2 tests passed.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 1.

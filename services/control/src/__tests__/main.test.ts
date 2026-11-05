@@ -36,6 +36,16 @@ const get = (port: number, p: string, token: string | null = TOKEN): Promise<Res
   fetch(`http://127.0.0.1:${port}${p}`, { headers: token === null ? {} : { "x-service-token": token } });
 
 describe("startControl", () => {
+  it("wires the report service: an exchange of an unknown token is the neutral 404, not the missing-route 404 of an unwired service", async () => {
+    running = await startControl(env, { port: 0 });
+    const exchange = (token: string) => fetch(`http://127.0.0.1:${running!.port}/report-access/exchange`, { method: "POST", headers: { "x-service-token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ token }) });
+    const a = await exchange("nope");
+    expect(a.status).toBe(404);
+    const links = await get(running.port, `/sessions/${sid(1)}/report-links`);
+    expect(links.status).toBe(404); // no such session; reached the report route's session check
+    expect((await links.json()).error.message).toBe("That session does not exist.");
+  });
+
   it("warns when CONTROL_READY_TIMEOUT_MS + 2 * CONTROL_GRACE_MS exceeds what the web server waits, and stays quiet otherwise", async () => {
     const logs: string[] = [];
     running = await startControl({ ...env, CONTROL_READY_TIMEOUT_MS: "100000", CONTROL_GRACE_MS: "10000" }, { port: 0, log: (m) => logs.push(m) });

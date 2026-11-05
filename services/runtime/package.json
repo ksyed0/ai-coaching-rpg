@@ -5,7 +5,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./players": "./src/players/index.ts"
+    "./players": "./src/players/index.ts",
+    "./reports": "./src/reports/index.ts"
   },
   "scripts": {
     "dev": "tsx watch src/main.ts",

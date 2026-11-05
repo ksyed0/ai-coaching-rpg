@@ -12,6 +12,22 @@ const problems = (env: NodeJS.ProcessEnv): string => {
   throw new Error("expected loadControlConfig to throw");
 };
 
+describe("loadControlConfig report settings", () => {
+  it("derives the report paths and defaults REPORT_ACCESS_DAYS to 90", () => {
+    const c = loadControlConfig(base());
+    expect(c.reportsDir).toBe(path.join(DATA, "reports"));
+    expect(c.reportAccessFile).toBe(path.join(DATA, "report-access.json"));
+    expect(c.reportAccessDays).toBe(90);
+    expect(loadControlConfig({ ...base(), REPORT_ACCESS_DAYS: "1" }).reportAccessDays).toBe(1);
+    expect(loadControlConfig({ ...base(), REPORT_ACCESS_DAYS: "365" }).reportAccessDays).toBe(365);
+  });
+  it.each(["0", "400", "abc", "", "1.5", "-3"])("rejects REPORT_ACCESS_DAYS=%j with a message that names the variable and no value", (v) => {
+    const m = problems({ ...base(), REPORT_ACCESS_DAYS: v });
+    expect(m).toContain("REPORT_ACCESS_DAYS must be a whole number from 1 to 365");
+    if (v !== "") expect(m).not.toContain(v);
+  });
+});
+
 describe("loadControlConfig", () => {
   it("applies defaults and derives paths", () => {
     const c = loadControlConfig(base());
