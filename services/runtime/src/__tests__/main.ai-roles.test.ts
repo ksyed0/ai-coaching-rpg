@@ -1,4 +1,4 @@
-import { mkdtemp, rm, unlink, mkdir, readFile, stat } from "node:fs/promises";
+import { mkdtemp, rm, unlink, mkdir, readFile, open } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { bootstrap, type Runtime } from "../main.js";
 import type { ChildMessage, ParentChannel, ParentMessage } from "../host/parent-channel.js";
 import { AI_ROLES_REFUSED } from "../host/set-ai-roles.js";
+
+/** Content and mtime of a file from ONE open descriptor (no check-then-use on the path: CodeQL js/file-system-race). */
+async function readWithMtime(file: string): Promise<{ mtimeMs: number; text: string }> {
+  const fh = await open(file, "r");
+  try { return { mtimeMs: (await fh.stat()).mtimeMs, text: await fh.readFile("utf8") }; } finally { await fh.close(); }
+}
 
 // Only the "no join codes" test strips them: the real openSession always issues codes for a scenario with player roles.
 let stripCodes = false;
@@ -181,12 +187,11 @@ describe("bootstrap answers set_ai_roles over the parent channel (US-0060)", () 
     expect(off).toEqual({ type: "ai_roles_set", requestId: "a2", codes: [] });
     expect(JSON.parse(await readFile(file, "utf8"))).toMatchObject({ v: 2, roles: ["tech_lead"], includeInGroup: false });
     // the same option again writes nothing
-    const m0 = (await stat(file)).mtimeMs; const c0 = await readFile(file, "utf8");
+    const before = await readWithMtime(file);
     await new Promise((r) => setTimeout(r, 25));
     expect(await a.setRoles("a3", ["tech_lead"], false)).toEqual({ type: "ai_roles_set", requestId: "a3", codes: [] });
     expect(await a.setRoles("a4", ["tech_lead"])).toEqual({ type: "ai_roles_set", requestId: "a4", codes: [] });
-    expect((await stat(file)).mtimeMs).toBe(m0);
-    expect(await readFile(file, "utf8")).toBe(c0);
+    expect(await readWithMtime(file)).toEqual(before);
     await first.runtime.stop(); runtimes.pop();
     const b = fakeParent();
     await boot(b.parent, { data: first.data });
