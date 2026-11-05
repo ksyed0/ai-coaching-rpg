@@ -50,6 +50,14 @@ describe("security headers (src/proxy.ts)", () => {
     expect(h.get("Permissions-Policy")).toContain("camera=()");
   });
 
+  it("the report pages are never stored and never send a referrer (the link's token is in the address)", () => {
+    for (const p of ["/report", "/report/enter"]) {
+      const h = run(p).headers;
+      expect(h.get("Cache-Control"), p).toBe("no-store");
+      expect(h.get("Referrer-Policy"), p).toBe("no-referrer");
+    }
+  });
+
   it("allows eval only in development and upgrades insecure requests only for an https origin", () => {
     const prod = contentSecurityPolicy("N", { dev: false, https: true });
     expect(prod).not.toContain("unsafe-eval");

@@ -152,3 +152,11 @@ table.grid tbody th { font-weight: 600; }
 
 /* Facilitator interventions: lists without bullets (its own class: ul.plain is the player's brief and keeps its indent). */
 ul.console-list { list-style: none; padding: 0; margin: 0; }
+
+/* Participant report: the report text is escaped plain text that keeps its line breaks and wraps; sections sit apart. */
+.report { display: flex; flex-direction: column; gap: 16px; max-width: 75ch; }
+pre.report-text { margin: 0; font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media print {
+  .apphdr, .no-print { display: none !important; }
+  body, .card, .page { background: none !important; }
+}
