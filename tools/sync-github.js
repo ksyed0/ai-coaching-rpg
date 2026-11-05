@@ -23,22 +23,9 @@ const {
   buildIssueBody,
   batchedRequests,
 } = require('./lib/github-client');
+const { plainText, digits } = require('./lib/safe-text');
 
 const dryRun = process.argv.includes('--dry-run');
-
-// Text pulled from GitHub is untrusted and ends up in docs/BUGS.md. Rebuild it from a fixed alphabet:
-// every character of the result is taken from SAFE_CHARS itself, never from the input, so the result is
-// one line of plain characters (no Markdown structure) and carries no data from the request.
-const SAFE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,:;!?()\'"/&+_-';
-function plainText(input, maxLength) {
-  let out = '';
-  for (const ch of String(input)) {
-    if (out.length >= maxLength) break;
-    const at = SAFE_CHARS.indexOf(ch);
-    out += at >= 0 ? SAFE_CHARS[at] : ' ';
-  }
-  return out.replace(/ {2,}/g, ' ').trim();
-}
 
 async function run() {
   let config;
@@ -97,7 +84,7 @@ async function run() {
       const severityFromLabel = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
       const matchedLabel = (ghIssue.labels || []).map((l) => l.name).find((n) => severityFromLabel[n]);
       const severity = matchedLabel ? severityFromLabel[matchedLabel] : 'Medium';
-      const issueNo = plainText(String(Number.parseInt(ghIssue.number, 10)), 12);
+      const issueNo = digits(ghIssue.number);
       const title = plainText(ghIssue.title.replace(/^\[BUG-\d+\]\s*/, ''), 200);
 
       if (!dryRun) {
