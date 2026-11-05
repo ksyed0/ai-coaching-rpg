@@ -53,8 +53,15 @@ const crit = (id: string, score: number, seq: number, quote: string) => ({ id, s
 // ---- run (a): friday-escalation, all three players, scripted evaluator ------------------------------------------------------------
 const FRIDAY = path.join(REPO, "scenarios", "friday-escalation");
 const SC1 = "s1_huddle"; const SC2 = "s2_client_call"; const SC3 = "s3_internal_wrap";
-const FRIDAY_EVENTS = (silent: string[] = []): SessionEvent[] => {
-  const say = (at: number, roleId: string, text: string): [number, never] | null => (silent.includes(roleId) ? null : [at, { type: "utterance", roleId, text, channel: "text" } as never]);
+const PLAYERS = ["delivery_lead", "tech_lead", "account_manager"];
+/** `silent` roles say nothing; `maxPlayerLines` keeps only the first n player lines of the whole log (AI character lines are never cut). */
+const FRIDAY_EVENTS = (silent: string[] = [], maxPlayerLines = Infinity): SessionEvent[] => {
+  let playerLines = 0;
+  const say = (at: number, roleId: string, text: string): [number, never] | null => {
+    if (silent.includes(roleId)) return null;
+    if (PLAYERS.includes(roleId) && ++playerLines > maxPlayerLines) return null;
+    return [at, { type: "utterance", roleId, text, channel: "text" } as never];
+  };
   const lines = [
     say(10, "delivery_lead", "Okay, Priya's email is in. First reactions on the request from the client?"),
     say(20, "tech_lead", "My worry is the ingestion layer. Anything we add now competes with go-live."),
@@ -180,6 +187,7 @@ async function record(out: Golden): Promise<void> {
     const fa = await loadEvaluationInput(FRIDAY);
     const eventsA = FRIDAY_EVENTS();
     const eventsC = FRIDAY_EVENTS(["delivery_lead", "tech_lead"]);
+    const eventsD = FRIDAY_EVENTS([], 1); // exactly one player line in the whole log: below MIN_UTTERANCES for every player and for the team
     const eventsB = longEvents();
     const mini = { scenario: sampleScenario(), rubrics: sampleRubrics() as unknown as Rubric[] };
     const runs: Run[] = [
@@ -187,6 +195,8 @@ async function record(out: Golden): Promise<void> {
         provider: () => { const s = createScriptedEvaluator(eventsA, fa.scenario, fa.rubrics); return recording(s.name, (req, sig) => s.stream(req, sig)); } },
       { id: "b", scenarioDir: "", events: eventsB, ...mini, cfg: await cfgOf(1_500), info: { provider: "golden provider", model: "golden-model", variant: "v1", rubricHash: "h1", calibration: CAL_OK }, provider: () => providerB(eventsB) },
       { id: "c", scenarioDir: FRIDAY, events: eventsC, scenario: fa.scenario, rubrics: fa.rubrics, cfg: await cfgOf(), info: { provider: "golden provider", model: "golden-model", variant: "v1", rubricHash: "h1", calibration: { state: "not_calibrated" } }, provider: () => providerC(eventsC) },
+      { id: "d", scenarioDir: FRIDAY, events: eventsD, scenario: fa.scenario, rubrics: fa.rubrics, cfg: await cfgOf(), info: { provider: "mock", scripted: true, calibration: { state: "not_calibrated" } },
+        provider: () => { const s = createScriptedEvaluator(eventsD, fa.scenario, fa.rubrics); return recording(s.name, (req, sig) => s.stream(req, sig)); } },
     ];
     for (const r of runs) {
       const k = `run.${r.id}`;
@@ -194,6 +204,11 @@ async function record(out: Golden): Promise<void> {
       const provider = r.provider();
       const result: EvaluationResult = await evaluateSession({ events: r.events, scenario: r.scenario, rubrics: r.rubrics, provider, config: r.cfg, nonce: NONCE });
       if (r.id === "b") expect(result.trimmed).not.toBeNull();
+      if (r.id === "d") {
+        expect(result.participants.map((p) => p.status)).toEqual(["insufficient_evidence", "insufficient_evidence", "insufficient_evidence"]);
+        expect(result.group.status).toBe("insufficient_evidence");
+        expect(provider.calls).toHaveLength(0);
+      }
       if (r.id === "c") {
         expect(result.participants.map((p) => `${p.roleId}:${p.status}`).sort()).toEqual(["account_manager:failed", "delivery_lead:insufficient_evidence", "tech_lead:insufficient_evidence"]);
         expect(result.group.status).toBe("ok");

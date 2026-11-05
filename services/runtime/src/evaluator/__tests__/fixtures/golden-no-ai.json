@@ -442,5 +442,121 @@
   "run.c.verify": {
     "label": "JSON.stringify(verifyReportFiles(...))",
     "sha256": "0d5b74b67f03cf6bbc937b56cc644e65c5d1e32acbb657f46838516732780476"
+  },
+  "run.d.cli.exitCode": {
+    "label": "runEvaluate exit code",
+    "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+  },
+  "run.d.cli.files": {
+    "label": "file names written by the CLI",
+    "sha256": "622bf919fde436840f112a24900974e69e2287a24c175c87d4d19e7e0fe73bd4"
+  },
+  "run.d.cli.reports['account_manager.json']": {
+    "label": "file account_manager.json written by the CLI",
+    "sha256": "a2dea8ec431b44dec54c57bdf8ef5291c5b6f41228e5c80fa6f05ac5e0675f5d"
+  },
+  "run.d.cli.reports['account_manager.md']": {
+    "label": "file account_manager.md written by the CLI",
+    "sha256": "2a0de244d42f0c90196d70d14ef65ae6eeefdda5f60684c9022acfc636cf5e4b"
+  },
+  "run.d.cli.reports['delivery_lead.json']": {
+    "label": "file delivery_lead.json written by the CLI",
+    "sha256": "f62e330d5398c18fdc99482ede7f793959ec74d21cb2b3a464c353453ed0854d"
+  },
+  "run.d.cli.reports['delivery_lead.md']": {
+    "label": "file delivery_lead.md written by the CLI",
+    "sha256": "5d1e01ab1348d6bef99dd2bf2e2b6bc8ebe9fb2d1726edf6bfe6c118dca806d9"
+  },
+  "run.d.cli.reports['group.json']": {
+    "label": "file group.json written by the CLI",
+    "sha256": "61e3bcdf48d4ad061392631111787838542a8d7b9d2ceac045c57e4496273593"
+  },
+  "run.d.cli.reports['group.md']": {
+    "label": "file group.md written by the CLI",
+    "sha256": "7df34d58f2eae8162db5913280fa594e12637af523cff0d245021dedab2395b6"
+  },
+  "run.d.cli.reports['index.md']": {
+    "label": "file index.md written by the CLI",
+    "sha256": "d27028112afe06a5bf6ba61cfe803191c957c7ff051499280cfc13c153984373"
+  },
+  "run.d.cli.reports['method.md']": {
+    "label": "file method.md written by the CLI",
+    "sha256": "d897ec56d97c2e74c7d16386b390e8c2e6bd11210f2bb606be7703e17f8c166f"
+  },
+  "run.d.cli.reports['tech_lead.json']": {
+    "label": "file tech_lead.json written by the CLI",
+    "sha256": "a53bb0974ca8973b0e828d9cf223c7975a78f5eec11a38e0e3ce04ab491c0034"
+  },
+  "run.d.cli.reports['tech_lead.md']": {
+    "label": "file tech_lead.md written by the CLI",
+    "sha256": "f648144baa17850046630b981217b940302f4fdfe4af38940b6628bf506fb6c3"
+  },
+  "run.d.cli.stderr": {
+    "label": "runEvaluate stderr (the narration)",
+    "sha256": "35cbb740dfc99d2beebe97e6daa2d5f1673408c7c2f524c90520fbdd052baca0"
+  },
+  "run.d.cli.stdout": {
+    "label": "runEvaluate stdout with --json -",
+    "sha256": "6db08e683218b9ee96aed659306f5a1de2597234f3fbbcfa574ba362b9f41d83"
+  },
+  "run.d.reports['account_manager.json']": {
+    "label": "rendered report file account_manager.json",
+    "sha256": "b36ee350b4528a28a6eef22669d98ca288f7bf3fdb87913383abc30734f6efc0"
+  },
+  "run.d.reports['account_manager.md']": {
+    "label": "rendered report file account_manager.md",
+    "sha256": "2c3df0efd04d741d665eb22aebf8548fcd4b87f6873c83558da0f018807f29d4"
+  },
+  "run.d.reports['delivery_lead.json']": {
+    "label": "rendered report file delivery_lead.json",
+    "sha256": "58b18d050abc6818a7a393c09c4bc77a5f4fae2e59b4c6ddd229beec25648c62"
+  },
+  "run.d.reports['delivery_lead.md']": {
+    "label": "rendered report file delivery_lead.md",
+    "sha256": "9da917b234d655067d35f1ffc532db615577a40d00750ff1be574d4019a074bd"
+  },
+  "run.d.reports['group.json']": {
+    "label": "rendered report file group.json",
+    "sha256": "073479011b159c1ebada9b7b51d159b89215e61349ff07ec49b6885ec6572495"
+  },
+  "run.d.reports['group.md']": {
+    "label": "rendered report file group.md",
+    "sha256": "cb829ed64e7174ff69e8f3dcf55a6529e52c96bef128f5c7179dd52b572812fe"
+  },
+  "run.d.reports['index.md']": {
+    "label": "rendered report file index.md",
+    "sha256": "07507dcfa978e6db08132f300ea88b4a129da9422b7de4c128c884bc104ec231"
+  },
+  "run.d.reports['method.md']": {
+    "label": "rendered report file method.md",
+    "sha256": "d897ec56d97c2e74c7d16386b390e8c2e6bd11210f2bb606be7703e17f8c166f"
+  },
+  "run.d.reports['tech_lead.json']": {
+    "label": "rendered report file tech_lead.json",
+    "sha256": "1ef91873a9ad55c4cc34e6e4ed48fa5aa9db32011d983aa04a01e2156c1e55d1"
+  },
+  "run.d.reports['tech_lead.md']": {
+    "label": "rendered report file tech_lead.md",
+    "sha256": "33c25137831ec6d0d449b0b3aff67de88f1ca9ad553680a16961eac273b32e79"
+  },
+  "run.d.requests.count": {
+    "label": "number of provider calls",
+    "sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+  },
+  "run.d.review.index.facilitator.opened": {
+    "label": "facilitator review index right after open",
+    "sha256": "27b70b28b3d1ba3f057e5696488433a23ddde5af14e77666e89c8143db5c3b9c"
+  },
+  "run.d.review.noScoredPlayer": {
+    "label": "no player was scored in this run, so nothing was released or exported",
+    "sha256": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe"
+  },
+  "run.d.summary": {
+    "label": "summaryLines(result) joined by newline",
+    "sha256": "14a25d8a6096ac17bbcefb31dc8d3be84c29ba4784b3cd89e7c598ec63e68784"
+  },
+  "run.d.verify": {
+    "label": "JSON.stringify(verifyReportFiles(...))",
+    "sha256": "7340319b17a433e919de3337bef504d06e247dde1982fb4cbccbd3d905cc804d"
   }
 }
