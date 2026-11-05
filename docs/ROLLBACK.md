@@ -159,6 +159,36 @@ Rollback trigger: AI players misbehave or exhaust the model budget, a session wi
 ### Rolling forward again
 Redeploy slice 2b-3b. The `intents/` directory, if it was kept, is read again; stale files of sessions that no longer exist are harmless.
 
+## EPIC-0002 slice 2b-3c PR 1: the group-score option (US-0061)
+
+```
+Release: unreleased (feature/EPIC-0002-US-0061-group-score-option; PR 2, feature/EPIC-0002-US-0061-ai-evaluator, follows; no release is tagged before PR 2)
+Date: not deployed
+Rollback trigger: the option misbehaves in the console, a lobby with AI roles cannot open or resume, or the runtime must go back to a 3b build.
+```
+
+### What changes on disk and in the log
+
+- **New field `includeInGroup` in `session.started`**, written (true or false) only when the session has AI roles. The log stays format 3; a session without AI roles is byte for byte as before (format 2).
+- **The AI-role file** `<id>.ai-roles.json` stays version 1 while the option is on, which is the 3b shape. It becomes version 2 (`includeInGroup: false`) only while the option is off.
+- **IPC and control API.** `set_ai_roles` and `ready` gain optional option fields; `PUT /sessions/:id/ai-roles` takes an optional `includeInGroup` and answers it. Nothing to migrate.
+
+### Rolling back to 3b
+
+- **A log with `includeInGroup` is read by a 3b runtime.** Verified by reading restore (`session-engine.ts` `doRestore` on `develop` before this slice), not by running a 3b binary: it reads `session.started` by its known fields, validates `aiRoles` and ignores the extra key, so a started session resumes. The option is then lost to that build, which is harmless because no 3b code reads it.
+- **Risk R3 (accepted by the owner, 2026-11-04): with the option OFF, a rolled-back 3b build refuses that lobby.** Its AI-role file is version 2, which the 3b reader does not know, so the lobby fails to open with "cannot use the AI-role file" until you move `<id>.ai-roles.json` aside. Moving it aside makes that lobby's AI roles human again (the build then has no AI-role record for it). A lobby with the option on has a version 1 file and is read normally. A started session is not affected, because after the start its record is the log.
+- **Before the rollback,** list the lobbies whose option is off (the file says `"v":2`) and either switch their AI roles back to human, tick the option on, or plan to move the file aside.
+- **3b and 3c roll back together.** They are released together (before 3c the evaluator could score an AI seat individually), so if the AI seats are the reason for the rollback, roll back 3b as described in the 3b section above as well; 3b alone is a safe target only for the AI-role file reading above.
+
+### Steps
+
+1. Redeploy the previous control service, runtime and web app (no data migration).
+2. Handle the lobbies with the option off as above.
+3. **Smoke test:** `pnpm demo --fast` passes its 29 checks; `pnpm demo --web` passes W-01 to W-08.
+
+### Rolling forward again
+Redeploy this slice. A version 1 file reads as option on; a version 2 file that survived reads as off; logs without the field mean on.
+
 ## BUG-0023: whispers kept in the player snapshot and labelled Private
 
 ```

@@ -2663,13 +2663,13 @@
       "title": "As a facilitator, I want to choose whether AI players count toward group scores, so that the team result reflects what I intend.",
       "priority": "Medium",
       "estimate": "M",
-      "status": "Planned",
-      "branch": "feature/EPIC-0002-US-0061-ai-group-score-option",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0002-US-0061-group-score-option (slice 2b-3c PR 1); feature/EPIC-0002-US-0061-ai-evaluator (PR 2)",
       "acs": [
         {
           "id": "AC-0323",
-          "text": "the option Include AI players in group scores defaults to on, can be changed until the start and is recorded in session.started",
-          "done": false
+          "text": "the option Include AI players in group scores defaults to on, can be changed until the start and is recorded in session.started (built in slice 2b-3c PR 1; TC-0114; the evaluator does not read it until PR 2)",
+          "done": true
         },
         {
           "id": "AC-0324",
@@ -3712,9 +3712,9 @@
       "title": "Evaluator evidence rule for AI players and stamp note",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
-      "branch": "feature/EPIC-0002-US-0061-ai-group-score-option",
-      "notes": "Spec section 5.9. Touches the evaluator and the calibration stamp. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "status": "In Progress",
+      "branch": "feature/EPIC-0002-US-0061-group-score-option (PR 1); feature/EPIC-0002-US-0061-ai-evaluator (PR 2)",
+      "notes": "Plan docs/superpowers/plans/2026-11-04-slice-2b-3c-ai-group-score.md; PR 1 option plumbing, PR 2 evaluator. Spec section 5.9. Touches the evaluator and the calibration stamp. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
     },
     {
       "id": "TASK-0091",
@@ -4865,6 +4865,16 @@
       "relatedTask": "TASK-0099",
       "relatedAC": "AC-0316",
       "type": "Accessibility",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0114",
+      "title": "The group-score option is recorded, kept across restarts and never reaches a player; sessions without AI roles are unchanged",
+      "relatedStory": "US-0061",
+      "relatedTask": "TASK-0090",
+      "relatedAC": "AC-0323",
+      "type": "Regression",
       "status": "Pass",
       "defect": "None"
     }
@@ -6184,11 +6194,11 @@
       "isAtRisk": false
     },
     "US-0061": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0062": {
       "missingTCs": true,
@@ -6502,10 +6512,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-04T21:12:37.161Z",
-  "commitSha": "12eb659",
-  "buildNumber": "508",
-  "branch": "docs/bugfixes-session-close",
+  "generatedAt": "2026-11-05T01:26:04.962Z",
+  "commitSha": "7f080ea",
+  "buildNumber": "519",
+  "branch": "feature/EPIC-0002-US-0061-group-score-option",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6647,13 +6657,13 @@
     }
   },
   "budget": {
-    "totalBudget": 16399.4862,
+    "totalBudget": 15599.4862,
     "totalSpent": 799.4862,
     "totalProjected": 70400,
     "percentUsed": 5,
     "burnRate": 19.563133,
-    "daysRemaining": 797,
-    "projectedExhaustion": 797,
+    "daysRemaining": 756,
+    "projectedExhaustion": 756,
     "thresholds": [
       50,
       75,
@@ -6689,10 +6699,10 @@
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 7384.49682,
+        "budget": 6584.49682,
         "spent": 184.49682000000004,
-        "remaining": 7200,
-        "percentUsed": 2
+        "remaining": 6400,
+        "percentUsed": 3
       },
       {
         "id": "EPIC-0007",
@@ -6786,9 +6796,11 @@
       "2026-11-04T17:07:23.775Z",
       "2026-11-04T18:53:35.566Z",
       "2026-11-04T19:59:30.549Z",
-      "2026-11-04T21:12:37.282Z"
+      "2026-11-04T21:12:37.282Z",
+      "2026-11-05T01:26:05.061Z"
     ],
     "doneCounts": [
+      0,
       0,
       0,
       0,
@@ -6900,6 +6912,7 @@
       65,
       65,
       65,
+      65,
       65
     ],
     "aiCosts": [
@@ -6933,6 +6946,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -7014,9 +7028,11 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
+      0,
       0,
       0,
       0,
@@ -7128,9 +7144,11 @@
       5,
       5,
       1,
+      0,
       0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -7242,6 +7260,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -7275,6 +7294,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -7356,7 +7376,8 @@
       1.16,
       1.16,
       1.146153846153846,
-      1.136923076923077
+      1.136923076923077,
+      1.1415384615384618
     ],
     "velocityByWeek": {
       "labels": [

@@ -1833,11 +1833,11 @@ Notes: Spec section 5.9. Spec docs/superpowers/specs/2026-10-26-web-client-desig
 US-0061 (EPIC-0002): As a facilitator, I want to choose whether AI players count toward group scores, so that the team result reflects what I intend.
 Priority: Medium
 Estimate: M
-Status: Planned
-Branch: feature/EPIC-0002-US-0061-ai-group-score-option
+Status: In Progress
+Branch: feature/EPIC-0002-US-0061-group-score-option (slice 2b-3c PR 1); feature/EPIC-0002-US-0061-ai-evaluator (PR 2)
 Dependencies: US-0060
 Acceptance Criteria:
-  - [ ] AC-0323: the option Include AI players in group scores defaults to on, can be changed until the start and is recorded in session.started
+  - [x] AC-0323: the option Include AI players in group scores defaults to on, can be changed until the start and is recorded in session.started (built in slice 2b-3c PR 1; TC-0114; the evaluator does not read it until PR 2)
   - [ ] AC-0324: when on the group rubric treats the AI player lines as team evidence labelled AI; when off they are context only; individual criteria never score an AI player
   - [ ] AC-0325: a report that includes AI players carries a calibration-stamp note that this case is not covered by the calibration baseline
   - [ ] AC-0326: the evaluator change has its own independent review and tests for both settings
@@ -1847,9 +1847,9 @@ Acceptance Criteria:
 TASK-0090 (US-0061): Evaluator evidence rule for AI players and stamp note
 Type: Dev
 Assignee: Agent
-Status: To Do
-Branch: feature/EPIC-0002-US-0061-ai-group-score-option
-Notes: Spec section 5.9. Touches the evaluator and the calibration stamp. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Status: In Progress
+Branch: feature/EPIC-0002-US-0061-group-score-option (PR 1); feature/EPIC-0002-US-0061-ai-evaluator (PR 2)
+Notes: Plan docs/superpowers/plans/2026-11-04-slice-2b-3c-ai-group-score.md; PR 1 option plumbing, PR 2 evaluator. Spec section 5.9. Touches the evaluator and the calibration stamp. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```
