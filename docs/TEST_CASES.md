@@ -1781,3 +1781,89 @@ Actual Result: As expected, 2026-11-04: step 1 1 file, 38 tests; step 2 10 files
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-3c, PR 1 (Tasks 1 to 8). Covers AC-0323 only: the evaluator does not read the option yet (AC-0324 to AC-0326 and the stamp note are PR 2). The control `/ai-roles` answer for an option-only change has no codes. The option is not shown on the player page or the console timeline by design.
+
+TC-0115: The group rubric treats AI player lines as labelled team evidence when the option is on and as context only when it is off; individual criteria never score an AI player
+Related Story: US-0061
+Related Task: TASK-0090
+Related AC: AC-0324
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed, the tests use a recording fake provider.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/evaluator/__tests__/ai-players.test.ts src/evaluator/__tests__/transcript.test.ts src/evaluator/__tests__/parse.test.ts src/evaluator/__tests__/evaluate.ai.test.ts src/evaluator/__tests__/verify.test.ts src/evaluator/__tests__/reports.ai.test.ts src/evaluator/__tests__/cli.ai.test.ts` (Tasks 10 to 12 and 15: the AI roles and the option are read from the log, AI lines are labelled from role ids, the group verifier accepts an AI quote only when the option is on and marks it, an AI role gets no model call and no file, and the end-to-end run over a real session log gives the same on and off results).
+Expected Result: With the option on, a group quote from an AI line is kept and carries `ai: true` and the label "(AI player)" in `group.json` and `group.md`; with it off the same quote is dropped as unverified; no request names an AI role as a subject; a team score needs at least two human lines (`insufficient evidence: the human players spoke N time(s)`); an invalid AI record gives exit 2 before any model call.
+Actual Result: As expected, 2026-11-05: 7 files, 106 tests passed (re-run for this entry). Mutations recorded in the task reports: one verifier for both settings fails the off test, counting AI lines toward team speech fails both silent-humans tests, always-on option fails the end-to-end off test.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3c, PR 2 (Tasks 10 to 12 and 15). The independent review's F1 (roles read from the first session.started anywhere) is covered under TC-0117.
+
+TC-0116: A report of a session with AI players carries the calibration stamp note under both settings
+Related Story: US-0061
+Related Task: TASK-0090
+Related AC: AC-0325
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed, the tests use a recording fake provider.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/calibration/__tests__/stamp.test.ts` (Task 13: the note is appended once to the calibrated, thin, stale, not calibrated and malformed-fallback lines, kept by `normalizeStamp` only for `includesAi === true`, and absent without AI players).
+  2. From `services/runtime`: `pnpm exec vitest run src/evaluator/__tests__/cli.ai.test.ts` (Task 15: the stamp note is in the written reports with the option on and off).
+Expected Result: Every report of a session with AI players ends its stamp line with "This report includes AI players: this case is not covered by the calibration baseline." (index, group, personal reports and `calibration_line`); a session without AI players has the unchanged line.
+Actual Result: As expected, 2026-11-05: step 1 1 file, 34 tests passed; step 2 is part of the TC-0115 run (7 files, 106 tests).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3c, PR 2 (Task 13). The review view carries the note from the draft's `calibration_line` (tested in `review/__tests__/view.test.ts`).
+
+TC-0117: The evaluator change has its own independent review, and every finding fixed has a test
+Related Story: US-0061
+Related Task: TASK-0090
+Related AC: AC-0326
+Type: Review
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed, the tests use a recording fake provider.
+Steps:
+  1. Read `.superpowers/sdd/2026-11-04-slice-2b-3c-ai-group-score/pr2-independent-review.md`: reviewer Claude Opus 5.5 (`claude-opus-5-5`), not part of the build; counts Critical 0, Important 1 (F1), Minor 4 (F2 to F5); probes run as temporary tests and deleted.
+  2. From `services/runtime`: `pnpm exec vitest run src/evaluator/__tests__/ai-players.test.ts src/evaluator/__tests__/evaluate.ai.test.ts src/review/__tests__/ai-players.test.ts src/calibration/__tests__/draft.test.ts` (Task 16 fixes: F1 `671d0f1`, F4 `ebab6ce`, F5 `f759cbc`).
+Expected Result: The review exists and names the model; F1, F4 and F5 are fixed with tests (a second session.started is refused, a log with the session.started second is read correctly, the review loader refuses a missing or unlisted AI mark, calibration excerpts refuse an AI subject); F2 and F3 are recorded as accepted risks in docs/THREAT_MODEL.md and docs/EVALUATOR.md.
+Actual Result: As expected, 2026-11-05: step 2 4 files, 120 tests passed (re-run for this entry).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3c, PR 2 (Task 16 record). Known residual: calibration excerpts still show other AI players' lines as plain role lines. The whole-branch review (`pr2-final-review.md`) re-checked the fixes: F1, F4 (group drafts) and F5 closed; Critical 0, Important 0, three more Minor points on hand-edited input (M1 to M3) recorded there.
+
+TC-0118: An AI role gets no individual report, no self-assessment and the index row "AI player, not scored"
+Related Story: US-0061
+Related Task: TASK-0090
+Related AC: AC-0322
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed, the tests use a recording fake provider.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/evaluator/__tests__/evaluate.ai.test.ts src/evaluator/__tests__/reports.ai.test.ts src/review/__tests__/ai-players.test.ts` (Tasks 11, 12 and 14: no model call and no `<role>.md` or `<role>.json` for an AI role, `verifyReportFiles` flags a stray one, the index and the review index list the role as AI player, not scored, and self-assessment for an AI role is refused).
+Expected Result: No individual report and no model call for an AI role; `index.md` lists ``- `bob`: AI player, not scored``; the review index shows an AI row; self-assessment names no subject ("that role is not a player in this review").
+Actual Result: As expected, 2026-11-05: 3 files, 52 tests passed (re-run for this entry).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3c, PR 2. The evaluator part of AC-0322 only: report-access credentials are slice 2c, so AC-0322 stays open.
+
+TC-0119: AI quotes are labelled AI in reports and review exports
+Related Story: US-0061
+Related Task: TASK-0090
+Related AC: AC-0321
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed, the tests use a recording fake provider.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/evaluator/__tests__/reports.ai.test.ts src/review/__tests__/ai-players.test.ts src/review/__tests__/view.test.ts` (Tasks 12 and 14: every line of `group.md` and the JSON that shows an AI quote has the label, `ai_players` and the marks survive the working copy, the export and the released and redacted copies, and a corrupt `ai_players` or a missing or unlisted AI mark is refused when the drafts are loaded).
+Expected Result: Every AI quote and notable moment in a report or an export reads "(AI player)" (for example ``(line #6, `bob` (AI player))``) and has `ai: true` in the JSON.
+Actual Result: As expected, 2026-11-05: 3 files, 49 tests passed (re-run for this entry).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3c, PR 2. The evaluator and review part of AC-0321 only: web report pages and downloads are slice 2c, so AC-0321 stays open. Accepted risk: free text (rationales, talking points) is not label-checked.
+
+TC-0120: A session without AI roles gets byte-identical requests and reports, and a log written before the option existed is scored with the option on
+Related Story: US-0061
+Related Task: TASK-0090
+Related AC: AC-0364
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed, the tests use a recording fake provider.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/evaluator/__tests__/golden.test.ts src/evaluator/__tests__/evaluate.ai.test.ts src/evaluator/__tests__/cli.test.ts src/evaluator/__tests__/cli.ai.test.ts` (Tasks 1, 11 and 15: the golden recording made on `develop` before any 3c change, never re-recorded, stays green; a format-2 log has no AI output and its requests still name every scenario player; a 3b-style log with `aiRoles` and no `includeInGroup` counts as on).
+Expected Result: The golden recording of the evaluator's requests and rendered reports matches for a session without AI roles; the 3b-style log is scored with the option on.
+Actual Result: As expected, 2026-11-05: 4 files, 49 tests passed (re-run for this entry). The independent review also compared the f355c92 evaluator with HEAD over five cases outside the golden test (structural trimming, a fixable-problem re-ask, a provider failure, an aborted run, a format 3 log with `aiRoles: []`): identical.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2b-3c, PR 2. The golden test is also green after every commit of both PRs.
