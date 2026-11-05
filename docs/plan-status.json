@@ -6665,12 +6665,28 @@
       "context": "",
       "date": "2026-10-30",
       "bugIds": []
+    },
+    {
+      "id": "L-0032",
+      "title": "A directory that a loader reads in full must hold only what the loader owns",
+      "rule": "The review loaders (`loadDrafts`, `siblingReleased`, `moderate open`) read every `*.json` and `*.md` in a review folder and refuse anything unknown. Never put another feature's file there, even a credential or index file that \"belongs with the reports\". Keep it in a sibling location (the report-access store is one `report-access.json` under `CONTROL_DATA_DIR`). When a design says \"beside X\", check what reads X's directory before choosing the path.\n_Learned in the Opus review of the slice 2c-1 plan: a planned `access.json` inside `reports/<sessionId>/` would have made every later `moderate release` in that folder fail as corrupt (`review/draft.ts:334`, `review/store.ts:300`)._",
+      "context": "",
+      "date": "2026-11-05",
+      "bugIds": []
+    },
+    {
+      "id": "L-0033",
+      "title": "A rate limit keyed on the address alone locks out a room behind one NAT",
+      "rule": "Workshops put many participants behind one public address. Count only failures per address (and block with a 429 and `Retry-After`, never the same text as a refused credential), and limit successful requests per credential or session instead. A refusal text that is also what a throttle returns hides the real cause from the person who is blocked.\n_Learned in the final review of slice 2c-1 PR 2: the read route charged every read per address (60 a minute for the whole room), and a blocked enter looked like \"Not found\" to a participant with a valid link._",
+      "context": "",
+      "date": "2026-11-05",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-05T23:24:55.959Z",
-  "commitSha": "a7a2a2f",
-  "buildNumber": "551",
-  "branch": "feature/EPIC-0002-US-0062-report-pages",
+  "generatedAt": "2026-11-05T23:38:43.437Z",
+  "commitSha": "a4b3afb",
+  "buildNumber": "527",
+  "branch": "docs/session-close-2c-1",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6901,7 +6917,7 @@
   "completion": {
     "likelyDate": "Sep 7",
     "rangeStart": "Feb 12",
-    "rangeEnd": "Apr 2",
+    "rangeEnd": "Apr 3",
     "velocityWeeks": 5,
     "storiesPerWeek": 0.4,
     "pointsPerWeek": 1.5
@@ -6969,7 +6985,8 @@
       "2026-11-05T14:43:17.216Z",
       "2026-11-05T16:29:49.626Z",
       "2026-11-05T22:26:16.924Z",
-      "2026-11-05T23:24:56.057Z"
+      "2026-11-05T23:24:56.057Z",
+      "2026-11-05T23:38:43.530Z"
     ],
     "doneCounts": [
       0,
@@ -7033,6 +7050,7 @@
       1,
       1,
       1,
+      2,
       2
     ],
     "totalStories": [
@@ -7042,6 +7060,7 @@
       65,
       65,
       13,
+      65,
       65,
       65,
       65,
@@ -7161,6 +7180,7 @@
       799.4862,
       799.4862,
       799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
@@ -7195,6 +7215,7 @@
       0,
       0,
       0,
+      null,
       null,
       null,
       null,
@@ -7289,6 +7310,7 @@
       3,
       3,
       3,
+      8,
       8
     ],
     "openBugs": [
@@ -7353,9 +7375,11 @@
       0,
       0,
       0,
+      0,
       0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -7481,6 +7505,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -7515,6 +7540,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -7609,6 +7635,7 @@
       1.1375000000000002,
       1.1375000000000002,
       1.1421875000000004,
+      1.1380952380952383,
       1.1380952380952383
     ],
     "velocityByWeek": {
