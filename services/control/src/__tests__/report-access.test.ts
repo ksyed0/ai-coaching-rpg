@@ -13,10 +13,14 @@ const DAY = 86_400_000;
 const T0 = 1_800_000_000_000;
 const SID = "sess-1";
 
-function make(opts: { days?: number; beforeWrite?: () => Promise<void> } = {}) {
+function make(opts: { days?: number; beforeWrite?: () => Promise<void>; maxBytes?: number; syncDir?: (d: string) => void } = {}) {
   const file = path.join(tmp(), "report-access.json");
   const clock = { t: T0 };
-  const store = new ReportAccessStore({ file, days: opts.days ?? 90, now: () => clock.t }, opts.beforeWrite ? { beforeWrite: opts.beforeWrite } : {});
+  const store = new ReportAccessStore({ file, days: opts.days ?? 90, now: () => clock.t }, {
+    ...(opts.beforeWrite ? { beforeWrite: opts.beforeWrite } : {}),
+    ...(opts.maxBytes !== undefined ? { maxBytes: opts.maxBytes } : {}),
+    ...(opts.syncDir ? { syncDir: opts.syncDir } : {}),
+  });
   return { file, clock, store };
 }
 const code = async (p: Promise<unknown>): Promise<{ code: string; message: string } | null> => {
@@ -224,5 +228,66 @@ describe("ReportAccessStore", () => {
     const { token } = await store.issue(SID, "alice");
     const again = new ReportAccessStore({ file, days: 90, now: () => clock.t });
     expect(await again.verify(token)).not.toBeNull();
+  });
+
+  it("rejects a days value that is not an integer 1..365 at construction, without naming the value", () => {
+    for (const days of [NaN, Infinity, 0, 366, 1.5, -1]) {
+      expect(() => new ReportAccessStore({ file: "x", days, now: () => T0 })).toThrow(/days/);
+      try { new ReportAccessStore({ file: "x", days, now: () => T0 }); } catch (e) { expect((e as Error).message).toBe("days must be an integer from 1 to 365"); }
+    }
+  });
+
+  it("a non-finite now() refuses to write and leaves the file byte-identical and readable", async () => {
+    const { store, file, clock } = make();
+    const { token } = await store.issue(SID, "alice");
+    const before = readFileSync(file);
+    for (const bad of [NaN, Infinity]) {
+      clock.t = bad;
+      expect((await code(store.issue(SID, "bob")))?.code).toBe("unavailable");
+      expect((await code(store.reissue(SID, "alice")))?.code).toBe("unavailable");
+      expect(readFileSync(file).equals(before)).toBe(true);
+    }
+    clock.t = T0;
+    expect(await store.verify(token)).not.toBeNull();
+  });
+
+  it("a write that would exceed the size cap is refused and leaves the file byte-identical and readable", async () => {
+    const { store, file } = make({ maxBytes: 300 });
+    const { token } = await store.issue(SID, "alice");
+    const before = readFileSync(file);
+    expect(before.length).toBeLessThan(300);
+    expect((await code(store.issue(SID, "bob")))?.code).toBe("unavailable");
+    expect((await code(store.issue(SID, "carol")))?.code).toBe("unavailable");
+    expect(readFileSync(file).equals(before)).toBe(true);
+    expect(await store.verify(token)).not.toBeNull();
+  });
+
+  it("issue and reissue prune records dead for more than 30 days and keep live and recently dead ones", async () => {
+    const { store, clock } = make({ days: 10 });
+    const old = await store.issue(SID, "old");            // expires T0+10d
+    const revokedOld = await store.issue(SID, "rev");
+    await store.revoke(SID, "rev");                       // revoked at T0
+    clock.t = T0 + 5 * DAY;
+    const recent = await store.issue(SID, "recent");      // expires T0+15d
+    clock.t = T0 + 44 * DAY;                              // old: dead 34d; rev: dead 44d; recent: dead 29d
+    const live = await store.issue(SID, "live");
+    let ids = (await store.list(SID)).map((c) => c.id);
+    expect(ids).not.toContain(old.credential.id);
+    expect(ids).not.toContain(revokedOld.credential.id);
+    expect(ids).toContain(recent.credential.id);
+    expect(ids).toContain(live.credential.id);
+    clock.t = T0 + 46 * DAY;                              // recent now dead 31d
+    await store.reissue(SID, "live");
+    ids = (await store.list(SID)).map((c) => c.id);
+    expect(ids).not.toContain(recent.credential.id);
+    expect(ids).toContain(live.credential.id);            // revoked just now, kept
+    expect(ids).toHaveLength(2);
+  });
+
+  it("a failing directory sync after the rename does not fail the write", async () => {
+    const { store, file } = make({ syncDir: () => { throw new Error("EIO"); } });
+    const { token } = await store.issue(SID, "alice");
+    expect(readFileSync(file, "utf8")).toContain(token.split(".")[0]);
+    expect(await store.verify(token)).not.toBeNull();
   });
 });

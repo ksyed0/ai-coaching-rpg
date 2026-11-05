@@ -12,13 +12,14 @@ export type ReportCredential = {
 type Record_ = ReportCredential & { salt: string; hash: string };
 
 /** Tests only: a hook run just before every file write (to make writes slow). */
-export type ReportAccessHooks = { beforeWrite?: () => Promise<void> };
+export type ReportAccessHooks = { beforeWrite?: () => Promise<void>; maxBytes?: number; syncDir?: (dir: string) => void };
 
 const ID_RE = /^[A-Za-z0-9_-]{11}$/;       // 8 random bytes, base64url
 const SECRET_RE = /^[A-Za-z0-9_-]{22}$/;   // 16 random bytes, base64url
 const TOUCH_MS = 10 * 60_000;
 const DAY_MS = 86_400_000;
 const MAX_BYTES = 8 * 1024 * 1024;
+const PRUNE_MS = 30 * DAY_MS;
 const UNAVAILABLE = "Report links are unavailable. Try again.";
 const CONFLICT = "A link is already active for this role.";
 const BAD = "Invalid session or role.";
@@ -57,7 +58,9 @@ function isRecord(v: unknown): v is Record_ {
  */
 export class ReportAccessStore {
   private chain: Promise<unknown> = Promise.resolve();
-  constructor(private readonly o: { file: string; days: number; now: () => number }, private readonly hooks: ReportAccessHooks = {}) {}
+  constructor(private readonly o: { file: string; days: number; now: () => number }, private readonly hooks: ReportAccessHooks = {}) {
+    if (!Number.isInteger(o.days) || o.days < 1 || o.days > 365) throw new Error("days must be an integer from 1 to 365");
+  }
 
   private queue<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.chain.then(fn, fn);
@@ -95,6 +98,10 @@ export class ReportAccessStore {
 
   private async writeAll(list: Record_[]): Promise<void> {
     await this.hooks.beforeWrite?.();
+    // Never write what the reader would refuse: that would disable the store for good.
+    if (!list.every(isRecord)) throw new Corrupt();
+    const data = Buffer.from(`${JSON.stringify(list)}\n`, "utf8");
+    if (data.length > (this.hooks.maxBytes ?? MAX_BYTES)) throw new Corrupt();
     const dir = path.dirname(this.o.file);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const tmp = path.join(dir, `.${path.basename(this.o.file)}.tmp-${process.pid}-${randomBytes(6).toString("hex")}`);
@@ -102,7 +109,6 @@ export class ReportAccessStore {
     try {
       try {
         fchmodSync(fd, 0o600);
-        const data = Buffer.from(`${JSON.stringify(list)}\n`, "utf8");
         let off = 0;
         while (off < data.length) off += writeSync(fd, data, off, data.length - off);
         fsyncSync(fd);
@@ -112,8 +118,16 @@ export class ReportAccessStore {
       try { unlinkSync(tmp); } catch { /* already gone */ }
       throw err;
     }
-    const dfd = openSync(dir, constants.O_RDONLY);
-    try { fsyncSync(dfd); } finally { closeSync(dfd); }
+    // The rename already persisted the data; a failed directory sync is best effort.
+    try {
+      if (this.hooks.syncDir) this.hooks.syncDir(dir);
+      else { const dfd = openSync(dir, constants.O_RDONLY); try { fsyncSync(dfd); } finally { closeSync(dfd); } }
+    } catch { /* best effort */ }
+  }
+
+  /** Drops records that died more than 30 days ago. Live records and recently dead ones stay. */
+  private prune(list: Record_[], now: number): Record_[] {
+    return list.filter((r) => now - Math.min(r.expiresAt, r.revokedAt ?? Infinity) <= PRUNE_MS);
   }
 
   /** Runs a mutating step in the queue; any storage failure becomes one fixed-message error. */
@@ -152,7 +166,7 @@ export class ReportAccessStore {
       const now = this.o.now();
       if (list.some((r) => r.sessionId === sessionId && r.role === role && live(r, now))) throw new ControlError("conflict", CONFLICT);
       const { rec, token } = this.mint(list, sessionId, role);
-      return { result: { credential: strip(rec), token }, list: [...list, rec] };
+      return { result: { credential: strip(rec), token }, list: [...this.prune(list, now), rec] };
     });
   }
 
@@ -162,7 +176,7 @@ export class ReportAccessStore {
       const now = this.o.now();
       const next = list.map((r) => (r.sessionId === sessionId && r.role === role && live(r, now) ? { ...r, revokedAt: now } : r));
       const { rec, token } = this.mint(next, sessionId, role);
-      return { result: { credential: strip(rec), token }, list: [...next, rec] };
+      return { result: { credential: strip(rec), token }, list: [...this.prune(next, now), rec] };
     });
   }
 
