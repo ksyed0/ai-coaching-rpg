@@ -77,7 +77,7 @@ async function evaluate(file: string, over: { quote?: { seq: number; text: strin
 const requestsFor = (calls: ChatRequest[], role: string) => calls.filter((c) => c.system.includes(INDIVIDUAL_SENTENCE(role)));
 
 describe("evaluating a real engine log with an AI player", () => {
-  it.each([[true, "on"], [false, "off"]] as const)("includeInGroup %s (%s): exit 0, no tech_lead report, index row, group labels and stamp note", async (on) => {
+  it.each([[true, "on"], [false, "off"]] as const)("includeInGroup %s (%s): exit 0, no tech_lead report, index row, group labels and stamp note", async (on: boolean, _label: string) => {
     const file = await engineLog({ aiRoles: ["tech_lead"], includeInGroup: on });
     const e = await evaluate(file);
     expect(e.r.exitCode).toBe(0);
