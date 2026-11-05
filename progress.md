@@ -341,3 +341,8 @@
 - **Owner decisions (2026-11-05):** version v0.1.0; scope is everything on `develop`; tag and create a GitHub Release from the changelog; README updated; MIT license.
 - **Not done:** `PROJECT.md` (AGENTS.md section on the Maintenance Log) does not exist in this repository, so no Maintenance Log was finalised.
 - **Next:** release PR into `develop`, then `release/0.1.0` into `main` (merge commit, not squash), tag `v0.1.0`, GitHub Release.
+
+## Session 25 — 2026-11-05 (PROJECT.md)
+
+- **Shipped:** `PROJECT.md`, the project constitution that AGENTS.md section 3 and Protocol 0 name (discovery answers, data schemas, behavioral rules, architectural invariants, user profile, design system, maintenance log). Release v0.1.0 recorded in its Maintenance Log. Remote merged branches deleted.
+- **Next:** brainstorm slice 2c (US-0062 to US-0064, reports in the browser).
