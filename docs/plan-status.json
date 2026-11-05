@@ -6667,9 +6667,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-05T23:07:26.536Z",
-  "commitSha": "bc12b93",
-  "buildNumber": "546",
+  "generatedAt": "2026-11-05T23:24:55.959Z",
+  "commitSha": "a7a2a2f",
+  "buildNumber": "551",
   "branch": "feature/EPIC-0002-US-0062-report-pages",
   "sessionTimeline": [
     {
@@ -6900,7 +6900,7 @@
   },
   "completion": {
     "likelyDate": "Sep 7",
-    "rangeStart": "Feb 11",
+    "rangeStart": "Feb 12",
     "rangeEnd": "Apr 2",
     "velocityWeeks": 5,
     "storiesPerWeek": 0.4,
@@ -6969,7 +6969,7 @@
       "2026-11-05T14:43:17.216Z",
       "2026-11-05T16:29:49.626Z",
       "2026-11-05T22:26:16.924Z",
-      "2026-11-05T23:07:26.646Z"
+      "2026-11-05T23:24:56.057Z"
     ],
     "doneCounts": [
       0,
