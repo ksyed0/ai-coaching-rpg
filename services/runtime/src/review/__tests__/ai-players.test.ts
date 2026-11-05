@@ -192,6 +192,30 @@ describe("validation of AI marks and ai_players", () => {
     );
   });
 
+  it.each([
+    ["an evidence item", (g: any) => { delete g.criteria[0].evidence[0].ai; }],
+    ["a notable moment", (g: any) => { delete g.notable_moments[0].ai; }],
+  ])("%s naming an ai_players role without the AI mark is refused", async (_n, edit) => {
+    await tamper(edit);
+    await expect(loadDrafts(dir)).rejects.toThrow("group.json: an AI player's line has no AI mark");
+  });
+
+  it.each([
+    ["an evidence item", (g: any) => { g.criteria[0].evidence[0].role = "alice"; }],
+    ["a notable moment", (g: any) => { g.notable_moments[0].role = "alice"; }],
+  ])("%s marked AI for a role not in ai_players is refused", async (_n, edit) => {
+    await tamper(edit);
+    await expect(loadDrafts(dir)).rejects.toThrow("group.json: an AI mark is on a role that is not an AI player");
+  });
+
+  it.each([
+    ["an evidence item", (g: any) => { g.ai_players.included_in_group = false; }],
+    ["a notable moment", (g: any) => { g.ai_players.included_in_group = false; delete g.criteria[0].evidence[0].ai; g.criteria[0].evidence[0].role = "alice"; }],
+  ])("%s naming an AI player while the option is off is refused", async (_n, edit) => {
+    await tamper(edit);
+    await expect(loadDrafts(dir)).rejects.toThrow("group.json: an AI player's line is quoted while AI players are not included");
+  });
+
   it("a pre-3c draft directory (no ai_players) still loads", async () => {
     await tamper((g) => {
       delete g.ai_players;

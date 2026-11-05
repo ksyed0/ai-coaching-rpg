@@ -250,6 +250,25 @@ function aiRolesOf(file: string, raw: Record<string, unknown>): string[] {
   return a.roles as string[];
 }
 
+/**
+ * Every quote of a group draft agrees with `ai_players`: an item by a listed AI role carries `ai: true`, an `ai: true` item names a listed
+ * role, and none names an AI role while AI players are not included. A draft without `ai_players` (pre-3c) must hold no AI mark.
+ */
+function checkAiMarks(file: string, raw: Record<string, unknown>, roles: string[]): void {
+  const off = isObj(raw.ai_players) && raw.ai_players.included_in_group === false;
+  const items: unknown[] = [];
+  if (Array.isArray(raw.criteria))
+    for (const c of raw.criteria) if (isObj(c) && Array.isArray(c.evidence)) items.push(...c.evidence);
+  if (Array.isArray(raw.notable_moments)) items.push(...raw.notable_moments);
+  for (const it of items) {
+    if (!isObj(it)) continue;
+    const isAi = typeof it.role === "string" && roles.includes(it.role);
+    if (it.ai === true && !isAi) bad(file, "an AI mark is on a role that is not an AI player");
+    if (isAi && off) bad(file, "an AI player's line is quoted while AI players are not included");
+    if (isAi && it.ai !== true) bad(file, "an AI player's line has no AI mark");
+  }
+}
+
 function parseSubject(
   file: string,
   raw: Record<string, unknown>,
@@ -387,7 +406,8 @@ export async function loadDrafts(
       "this directory does not hold a complete set of draft reports (a group report and at least one player)",
     );
   const group = subjects.get(GROUP);
-  for (const r of group ? aiRolesOf(group.file, group.raw) : [])
-    if (subjects.has(r)) bad(group!.file, "ai_players is invalid");
+  const aiRoles = group ? aiRolesOf(group.file, group.raw) : [];
+  for (const r of aiRoles) if (subjects.has(r)) bad(group!.file, "ai_players is invalid");
+  if (group) checkAiMarks(group.file, group.raw, aiRoles);
   return { ...meta, legacy, subjects, files };
 }
