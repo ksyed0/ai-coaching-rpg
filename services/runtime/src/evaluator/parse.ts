@@ -98,6 +98,8 @@ export type Evidence = {
   span: [number, number];
   /** The quote contains rating language (a participant may write it into their own line to sway the scorer). A flag only: nothing is capped. */
   ratingLanguage: boolean;
+  /** The quote is from an AI player. */
+  ai?: true;
 };
 /** A quote must have at least this many characters to count at all. */
 export const MIN_QUOTE_CHARS = 8;
@@ -142,7 +144,7 @@ export function makeVerifier(t: Transcript, allow: (u: UtteranceRec) => boolean)
     const at = u.norm.indexOf(q);
     if (at === -1) return null;
     const stored = q.length > MAX_QUOTE_CHARS ? q.slice(0, MAX_QUOTE_CHARS) : q;
-    return { seq, roleId: u.roleId, quote: stored, sceneId: u.sceneId, sceneNumber: u.sceneNumber, sceneTitle: u.sceneTitle, atMs: u.atMs, time: formatClock(u.atMs), span: [at, at + stored.length], ratingLanguage: RATING_LANGUAGE.test(stored) };
+    return { seq, roleId: u.roleId, quote: stored, sceneId: u.sceneId, sceneNumber: u.sceneNumber, sceneTitle: u.sceneTitle, atMs: u.atMs, time: formatClock(u.atMs), span: [at, at + stored.length], ratingLanguage: RATING_LANGUAGE.test(stored), ...(u.speaker === "ai_player" ? { ai: true as const } : {}) };
   };
 }
 
