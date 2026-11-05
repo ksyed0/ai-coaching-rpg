@@ -2,10 +2,12 @@
 
 AGENTS.md section 20: every deployment has a rollback plan written before it starts. Nothing in this repository is deployed to a shared environment yet (the runtime runs on the operator's machine, from `./run.sh` or Docker Compose); this file records what a rollback has to handle, release by release, so the plan exists before the first deployment.
 
+All sections below ship in release 0.1.0 (tag `v0.1.0`, 2026-11-05), the first tagged release. To go back to an earlier state, check out the commit a section names; there is no earlier tag.
+
 ## EPIC-0002 slice 2a: participant web client (US-0052 to US-0056, US-0065)
 
 ```
-Release: unreleased (develop, after the slice 2a pull requests #53 to #57 and the US-0065 pull request are merged)
+Release: 0.1.0 (develop, after the slice 2a pull requests #53 to #57 and the US-0065 pull request are merged)
 Date: not deployed
 Rollback trigger: the web client or the new runtime misbehaves in a session (players cannot join or rejoin, the start gate
 blocks a session that should start, a leak of facilitator-only data to a player stream), or the runtime must go back to a
@@ -44,7 +46,7 @@ A slice 2a runtime reads the logs an older runtime wrote (formats 0 and 1). A se
 ## EPIC-0002 slice 2b-1: facilitator console and control service (US-0057 to US-0059)
 
 ```
-Release: unreleased (the stacked branches feature/EPIC-0002-US-0057-facilitator-login, ...-US-0058-launcher-control-service and ...-US-0059-readiness, after their pull requests are merged)
+Release: 0.1.0 (the stacked branches feature/EPIC-0002-US-0057-facilitator-login, ...-US-0058-launcher-control-service and ...-US-0059-readiness, after their pull requests are merged)
 Date: not deployed
 Rollback trigger: the control service or the console misbehaves (sessions cannot be created or resumed, a runtime is orphaned, players cannot join through the launcher lookup, a code reissue locks a player out), or the web app must go back to single-runtime mode for any other reason.
 ```
@@ -79,7 +81,7 @@ Set the console variables again and start `pnpm control` on the same `CONTROL_DA
 ## EPIC-0002 slice 2b-2a: runtime protocol for the live console (US-0059)
 
 ```
-Release: unreleased (feature/EPIC-0002-US-0059-player-copies, then feature/EPIC-0002-US-0059-runtime-protocol and ...-remove-participant, each merged by its pull request)
+Release: 0.1.0 (feature/EPIC-0002-US-0059-player-copies, then feature/EPIC-0002-US-0059-runtime-protocol and ...-remove-participant, each merged by its pull request)
 Date: not deployed
 Rollback trigger: players see something they should not, `end_now` misbehaves, or the control service mishandles an `ended` that follows `ready`.
 ```
@@ -104,7 +106,7 @@ Nothing to repair: the newer build reads logs written by the older one, and a `f
 ## EPIC-0002 slice 2b-3a: AI roles in the log and the lobby (US-0060)
 
 ```
-Release: unreleased (feature/EPIC-0002-US-0060-ai-role-record, then ...-ai-role-gate and ...-ai-role-labels, each merged by its pull request)
+Release: 0.1.0 (feature/EPIC-0002-US-0060-ai-role-record, then ...-ai-role-gate and ...-ai-role-labels, each merged by its pull request)
 Date: not deployed
 Rollback trigger: a session with AI roles cannot resume, the AI-role file blocks a lobby from opening, or the runtime must go back to a build from before this slice.
 ```
@@ -129,7 +131,7 @@ Redeploy slice 2b-3a. If a build from before 3a has run a lobby meanwhile, move 
 ## EPIC-0002 slice 2b-3b: reachable AI seats (US-0060)
 
 ```
-Release: unreleased (feature/EPIC-0002-US-0060-bot-engine, then ...-ai-seats-reachable and ...-ai-toggle-prompt, each merged by its pull request; no release is tagged before slice 2b-3c). PR 3 adds the toggle, Prompt AI player and the AI players panel
+Release: 0.1.0 (feature/EPIC-0002-US-0060-bot-engine, then ...-ai-seats-reachable and ...-ai-toggle-prompt, each merged by its pull request; no release is tagged before slice 2b-3c). PR 3 adds the toggle, Prompt AI player and the AI players panel
 Date: not deployed
 Rollback trigger: AI players misbehave or exhaust the model budget, a session with AI roles cannot start or resume, or the control service must go back to a build without a bot host.
 ```
@@ -162,7 +164,7 @@ Redeploy slice 2b-3b. The `intents/` directory, if it was kept, is read again; s
 ## EPIC-0002 slice 2b-3c PR 1: the group-score option (US-0061)
 
 ```
-Release: unreleased (feature/EPIC-0002-US-0061-group-score-option; PR 2, feature/EPIC-0002-US-0061-ai-evaluator, follows; no release is tagged before PR 2)
+Release: 0.1.0 (feature/EPIC-0002-US-0061-group-score-option; PR 2, feature/EPIC-0002-US-0061-ai-evaluator, follows; no release is tagged before PR 2)
 Date: not deployed
 Rollback trigger: the option misbehaves in the console, a lobby with AI roles cannot open or resume, or the runtime must go back to a 3b build.
 ```
@@ -193,7 +195,7 @@ Redeploy this slice. A version 1 file reads as option on; a version 2 file that 
 ## EPIC-0002 slice 2b-3c PR 2: the AI-aware evaluator (US-0061)
 
 ```
-Release: unreleased (feature/EPIC-0002-US-0061-ai-evaluator, merged by its pull request; 3b and 3c can now be released together, the owner decides when)
+Release: 0.1.0 (feature/EPIC-0002-US-0061-ai-evaluator, merged by its pull request; 3b and 3c can now be released together, the owner decides when)
 Date: not deployed
 Rollback trigger: the evaluator refuses a log it should read, a report is wrongly labelled, or a session with AI players is scored as if they were human.
 ```
@@ -221,7 +223,7 @@ Redeploy this slice. Re-run `pnpm evaluate` for the sessions with AI players who
 ## BUG-0023: whispers kept in the player snapshot and labelled Private
 
 ```
-Release: unreleased (fix/bug-0023-whisper-private-label-and-reload, merged by its pull request).
+Release: 0.1.0 (fix/bug-0023-whisper-private-label-and-reload, merged by its pull request).
 Date: not deployed
 Rollback trigger: a player or the console shows a whisper that is not theirs, or a join snapshot is rejected or breaks a client.
 ```
