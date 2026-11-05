@@ -26,7 +26,7 @@ const CreateBody = z.strictObject({ scenarioId: z.string().min(1).max(MAX_FIELD)
 const ReissueBody = z.strictObject({ roleId: z.string().min(1).max(MAX_FIELD).optional(), all: z.literal(true).optional(), by: z.string().max(MAX_FIELD).optional(), reason: z.literal("removed").optional() })
   .refine((b) => (b.roleId === undefined) !== (b.all === undefined))
   .refine((b) => b.reason === undefined || b.roleId !== undefined); // a remove names its role
-const AiRolesBody = z.strictObject({ roles: z.array(z.string().min(1).max(MAX_FIELD)).max(12) });
+const AiRolesBody = z.strictObject({ roles: z.array(z.string().min(1).max(MAX_FIELD)).max(12), includeInGroup: z.boolean().optional() });
 const ReservationId = z.string().regex(/^[0-9a-f]{32}$/);
 const RunBody = z.strictObject({ reservation: ReservationId, hint: z.string().max(1200).optional() });
 const ReleaseBody = z.strictObject({ reservation: ReservationId });
@@ -149,7 +149,7 @@ export function createApi(deps: {
     }
     if (seg.length === 3 && seg[2] === "ai-roles" && method === "PUT") {
       const body = parse(AiRolesBody, await jsonBody(req));
-      return ok(res, await supervisor.setAiRoles(id, body.roles)); // codes: human roles only (the supervisor keeps AI codes to the bots)
+      return ok(res, await supervisor.setAiRoles(id, body.roles, body.includeInGroup)); // codes: human roles only (the supervisor keeps AI codes to the bots)
     }
     if (seg.length === 5 && seg[2] === "ai-roles" && seg[4] === "intents" && method === "GET") {
       let roleId: string;

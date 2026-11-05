@@ -36,17 +36,19 @@ export type SpawnFn = (o: { env: NodeJS.ProcessEnv; logFile: string }) => ChildH
 export type SetTimer = (fn: () => void, ms: number) => () => void;
 
 export type SessionStatus = "running" | "stopped" | "ended";
-export type SessionInfo = { sessionId: string; scenarioId: string; status: SessionStatus; port?: number; modelLabel?: string };
+export type SessionInfo = { sessionId: string; scenarioId: string; status: SessionStatus; port?: number; modelLabel?: string; includeInGroup?: boolean };
 export type CreateResult = { sessionId: string; status: "running"; port: number; modelLabel: string; codes: { roleId: string; code: string }[] };
 
 type Codes = { roleId: string; code: string }[];
-type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: string[]; aiRolesReset?: string[]; aiCalls?: number };
+type ReadyInfo = { port: number; modelLabel: string; codes?: Codes; aiRoles?: string[]; aiRolesReset?: string[]; includeInGroup?: false; includeInGroupReset?: false; aiCalls?: number };
 type ExitState = { done: boolean; promise?: Promise<void> };
 type Proc = { child: ChildHandle; exit: ExitState };
 type Live = {
   scenarioId: string; status: SessionStatus; port?: number; modelLabel?: string; child?: ChildHandle; token?: string; graceCancel?: () => void;
   /** The AI roles of the latest ready or successful set_ai_roles; a ready without aiRoles resets it. */
   aiRoles?: string[];
+  /** The group-score option of the latest ready or successful set_ai_roles (a ready without `includeInGroup: false` means on). */
+  includeInGroup?: boolean;
 };
 /** The runtime's fixed refusal reasons (services/runtime/src/host/set-ai-roles.ts, AI_ROLES_REFUSED) and the control code each becomes. */
 export const AI_REFUSALS = new Map<string, ControlErrorCode>([
@@ -58,9 +60,9 @@ export const AI_REFUSALS = new Map<string, ControlErrorCode>([
 ]);
 export const AI_ROLES_FAILED = "the AI roles could not be changed";
 const AI_ROLE_REFUSED = "switch the role back to human first";
-export type AiRolesResult = { roles: string[]; codes: Codes };
+export type AiRolesResult = { roles: string[]; includeInGroup: boolean; codes: Codes };
 
-type PendingAiRoles = { sessionId: string; child: ChildHandle; resolve: (codes: Codes) => void; reject: (e: ControlError) => void; cancel: () => void; roles: string[] };
+type PendingAiRoles = { sessionId: string; child: ChildHandle; resolve: (codes: Codes) => void; reject: (e: ControlError) => void; cancel: () => void; roles: string[]; includeInGroup: boolean };
 type PendingReissue = { sessionId: string; child: ChildHandle; resolve: (code: string) => void; reject: (e: ControlError) => void; cancel: () => void };
 
 const defaultSetTimer: SetTimer = (fn, ms) => {
@@ -210,7 +212,7 @@ export class Supervisor {
           if (requireCodes && got === undefined) { fail(new ControlError("start_failed", START_FAILED)); return; }
           settled = true;
           codes = undefined;
-          resolve({ port: m.port, modelLabel: m.modelLabel, ...(got ? { codes: got } : {}), ...(m.aiRoles ? { aiRoles: m.aiRoles } : {}), ...(m.aiRolesReset ? { aiRolesReset: m.aiRolesReset } : {}), ...(m.aiCalls !== undefined ? { aiCalls: m.aiCalls } : {}) });
+          resolve({ port: m.port, modelLabel: m.modelLabel, ...(got ? { codes: got } : {}), ...(m.aiRoles ? { aiRoles: m.aiRoles } : {}), ...(m.aiRolesReset ? { aiRolesReset: m.aiRolesReset } : {}), ...(m.includeInGroup === false ? { includeInGroup: false as const } : {}), ...(m.includeInGroupReset === false ? { includeInGroupReset: false as const } : {}), ...(m.aiCalls !== undefined ? { aiCalls: m.aiCalls } : {}) });
         }
       });
     });
@@ -277,6 +279,7 @@ export class Supervisor {
     const out: SessionInfo = { sessionId: id, scenarioId, status: l?.status ?? status };
     if (l?.port !== undefined && out.status === "running") out.port = l.port;
     if (l?.modelLabel !== undefined && out.status === "running") out.modelLabel = l.modelLabel;
+    if (l?.includeInGroup !== undefined && out.status === "running") out.includeInGroup = l.includeInGroup;
     return out;
   }
 
@@ -324,7 +327,7 @@ export class Supervisor {
     this.live.get(id)?.graceCancel?.();
     if (ready.codes) this.roleOrder.set(id, ready.codes.map((c) => c.roleId));
     this.uncertain.delete(id); // a ready's aiRoles is the truth again
-    this.live.set(id, { scenarioId, status: "running", port: ready.port, modelLabel: ready.modelLabel, child, token, aiRoles: ready.aiRoles ?? [] });
+    this.live.set(id, { scenarioId, status: "running", port: ready.port, modelLabel: ready.modelLabel, child, token, aiRoles: ready.aiRoles ?? [], includeInGroup: ready.includeInGroup !== false });
     child.onMessage((raw) => {
       const parsed = ChildMessageSchema.safeParse(raw);
       if (!parsed.success) return;
@@ -435,7 +438,7 @@ export class Supervisor {
       return;
     }
     const l = this.live.get(id);
-    if (l && l.child === child) l.aiRoles = p.roles;
+    if (l && l.child === child) { l.aiRoles = p.roles; l.includeInGroup = p.includeInGroup; }
     p.resolve(m.codes);
   }
 
@@ -444,16 +447,22 @@ export class Supervisor {
     return [...(this.live.get(id)?.aiRoles ?? [])];
   }
 
+  /** The session's group-score option (latest ready or successful set); undefined when unknown. */
+  includeInGroupOf(id: string): boolean | undefined {
+    return this.live.get(id)?.includeInGroup;
+  }
+
   /**
    * Switches the session's AI roles over IPC (no HTTP route yet). Codes of roles now AI go only to the bots and are never returned;
    * codes of roles now human are returned. `roles` is the new AI set in scenario order.
    */
-  setAiRoles(id: string, roles: string[]): Promise<AiRolesResult> {
+  setAiRoles(id: string, roles: string[], includeInGroup?: boolean): Promise<AiRolesResult> {
     if (!this.entryOf(id)) return Promise.reject(new ControlError("not_found", "that session does not exist"));
     if (!Array.isArray(roles) || roles.length > 256 || !roles.every((r) => RoleIdSchema.safeParse(r).success)) return Promise.reject(new ControlError("bad_request", "that AI roles request is not valid"));
+    if (includeInGroup !== undefined && typeof includeInGroup !== "boolean") return Promise.reject(new ControlError("bad_request", "that AI roles request is not valid"));
     if (this.settingAiRoles.has(id)) return Promise.reject(new ControlError("conflict", "the AI roles are already being changed"));
     this.settingAiRoles.add(id);
-    return this.withLock(id, () => this.sendAiRolesLocked(id, roles, this.uncertain.get(id) ?? [])).finally(() => { this.settingAiRoles.delete(id); });
+    return this.withLock(id, () => this.sendAiRolesLocked(id, roles, this.uncertain.get(id) ?? [], includeInGroup)).finally(() => { this.settingAiRoles.delete(id); });
   }
 
   /**
@@ -461,18 +470,19 @@ export class Supervisor {
    * `uncertain` (B14) are roles a timed-out earlier set may have switched: after this set, each one the reply did not cover gets its own
    * reissue (a retry of a set that applied returns no codes), BEFORE the bots are told, so a code is never issued twice.
    */
-  private async sendAiRolesLocked(id: string, wanted: string[], uncertain: string[] = []): Promise<AiRolesResult> {
+  private async sendAiRolesLocked(id: string, wanted: string[], uncertain: string[] = [], includeInGroup?: boolean): Promise<AiRolesResult> {
     const l = this.live.get(id);
     if (!l || l.status !== "running" || !l.child) throw new ControlError("conflict", "the session is not running");
     const child = l.child;
     const requestId = randomBytes(8).toString("hex");
-    const parsed = ParentMessageSchema.safeParse({ type: "set_ai_roles", requestId, roles: wanted });
+    const parsed = ParentMessageSchema.safeParse({ type: "set_ai_roles", requestId, roles: wanted, ...(includeInGroup !== undefined ? { includeInGroup } : {}) });
     if (!parsed.success) throw new ControlError("bad_request", "that AI roles request is not valid");
     const msg = parsed.data;
     const order = await this.playerOrder(id, l.scenarioId);
     const rank = (r: string): number => { const i = order.indexOf(r); return i < 0 ? order.length : i; };
     const aiNow = [...wanted].sort((a, b) => rank(a) - rank(b));
     const before = l.aiRoles ?? [];
+    const optionNow = includeInGroup ?? l.includeInGroup ?? true; // kept in Live only when the reply arrives: a timeout leaves it unchanged
     let reply: Codes;
     try {
       reply = await new Promise<Codes>((resolve, reject) => {
@@ -480,7 +490,7 @@ export class Supervisor {
           this.pendingAiRoles.delete(requestId);
           reject(new ControlError("timeout", "the AI roles may or may not have changed; reissue the changed roles"));
         }, this.reissueTimeoutMs);
-        this.pendingAiRoles.set(requestId, { sessionId: id, child, resolve, reject, cancel, roles: aiNow });
+        this.pendingAiRoles.set(requestId, { sessionId: id, child, resolve, reject, cancel, roles: aiNow, includeInGroup: optionNow });
         let sent = false;
         try { sent = child.send(msg); } catch { sent = false; }
         if (!sent) {
@@ -525,9 +535,13 @@ export class Supervisor {
       const left = before.filter((r) => !aiSet.has(r));
       // Order matters: removeRoles first, then ONE attach that takes the new AI roles in with their codes (setCodes would drop them).
       if (left.length > 0) { try { void bots.removeRoles(id, left).catch(failed("removeRoles")); } catch (err) { failed("removeRoles")(err); } }
-      try { void bots.attach(id, { port: now.port, aiRoles: [...aiNow], codes: toBots }).catch(failed("attach")); } catch (err) { failed("attach")(err); }
+      // An option-only set (same AI role set, no code for the bots) touches no bot.
+      const setChanged = aiNow.length !== before.length || aiNow.some((r) => !before.includes(r));
+      if (setChanged || toBots.length > 0) {
+        try { void bots.attach(id, { port: now.port, aiRoles: [...aiNow], codes: toBots }).catch(failed("attach")); } catch (err) { failed("attach")(err); }
+      }
     }
-    return { roles: [...aiNow], codes };
+    return { roles: [...aiNow], includeInGroup: optionNow, codes };
   }
 
   /**
@@ -539,16 +553,17 @@ export class Supervisor {
   // BUG-0021 (was known gap M-1): after a control-service restart the in-memory set is empty, so the set to restore comes from
   // `ready.aiRolesReset`, the lobby's AI roles the runtime dropped with the old seats. The in-memory set wins when there is one.
   // KNOWN GAP (M4): reissueAll inside the B14 window re-sends a captured AI set that may be stale (the roles are labelled, but the
-  // facilitator's intent of the timed-out set is lost). Recorded in docs/THREAT_MODEL.md.
-  private async afterCodedLaunch(id: string, ready: ReadyInfo, inMemory: string[]): Promise<Codes> {
+  // facilitator's intent of the timed-out set is lost; the same holds for the group-score option). Recorded in docs/THREAT_MODEL.md.
+  private async afterCodedLaunch(id: string, ready: ReadyInfo, inMemory: { roles: string[]; includeInGroup: boolean | undefined }): Promise<Codes> {
     const issued = ready.codes ?? [];
-    const captured = inMemory.length > 0 ? inMemory : (ready.aiRolesReset ?? []);
+    const captured = inMemory.roles.length > 0 ? inMemory.roles : (ready.aiRolesReset ?? []);
+    const capturedOption = inMemory.roles.length > 0 ? (inMemory.includeInGroup ?? true) : ready.includeInGroupReset !== false;
     let ai = ready.aiRoles ?? [];
     let status: "empty" | "running" | "ended";
     try { status = readLogStatus(path.join(this.o.config.sessionsDir, `${id}.jsonl`)); } catch { status = "running"; }
-    if (status === "empty" && captured.length > 0 && !(captured.length === ai.length && captured.every((r) => ai.includes(r)))) {
+    if (status === "empty" && captured.length > 0 && (!(captured.length === ai.length && captured.every((r) => ai.includes(r))) || capturedOption !== (ready.includeInGroup !== false))) {
       try {
-        const sent = await this.sendAiRolesLocked(id, captured);
+        const sent = await this.sendAiRolesLocked(id, captured, [], capturedOption);
         ai = sent.roles;
         // The re-send's human codes are newer than the launch's: they win (a role that flipped to human gets its NEW code).
         const newer = new Map(sent.codes.map((c) => [c.roleId, c.code]));
@@ -667,7 +682,7 @@ export class Supervisor {
       if (e.status === "ended") throw new ControlError("conflict", "the session has ended");
       if (e.status === "running") throw new ControlError("conflict", "already running");
       await this.waitPrevious(id);
-      const captured = this.aiRolesOf(id);
+      const captured = { roles: this.aiRolesOf(id), includeInGroup: this.includeInGroupOf(id) };
       const ready = await this.launch(id, e.scenarioId, false);
       const codes = ready.codes || ready.aiRolesReset ? await this.afterCodedLaunch(id, ready, captured) : undefined;
       const info = this.get(id)!;
@@ -769,7 +784,7 @@ export class Supervisor {
           throw new ControlError("start_failed", START_FAILED);
         }
       }
-      const captured = this.aiRolesOf(id);
+      const captured = { roles: this.aiRolesOf(id), includeInGroup: this.includeInGroupOf(id) };
       this.botForget(id); // the old bots and their intent files go with the old codes (B12)
       const ready = await this.launch(id, e.scenarioId, true);
       this.logFn(`session ${id} codes reissued`);
@@ -797,7 +812,7 @@ export class Supervisor {
       }
       try {
         await this.waitPrevious(e.sessionId);
-        const captured = this.aiRolesOf(e.sessionId);
+        const captured = { roles: this.aiRolesOf(e.sessionId), includeInGroup: this.includeInGroupOf(e.sessionId) };
         const ready = await this.launch(e.sessionId, e.scenarioId, false);
         // Codes issued here are not returned (nobody asked); the AI roles' codes still reach the bots, the human ones are discarded: the facilitator reissues.
         if (ready.codes || ready.aiRolesReset) await this.afterCodedLaunch(e.sessionId, ready, captured).catch(() => this.logFn(`session ${e.sessionId} AI roles could not be set again`));
