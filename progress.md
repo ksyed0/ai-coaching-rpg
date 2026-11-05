@@ -346,3 +346,12 @@
 
 - **Shipped:** `PROJECT.md`, the project constitution that AGENTS.md section 3 and Protocol 0 name (discovery answers, data schemas, behavioral rules, architectural invariants, user profile, design system, maintenance log). Release v0.1.0 recorded in its Maintenance Log. Remote merged branches deleted.
 - **Next:** brainstorm slice 2c (US-0062 to US-0064, reports in the browser).
+
+## Session 26 — 2026-11-05 (EPIC-0002 slice 2c-1 PR 1: report access, control side)
+
+- **Shipped (branch `feature/EPIC-0002-US-0062-report-access`, not pushed at the time of this entry):** the read-only runtime reader `@acr/runtime/reports` (resolves the single live review including a re-run's `<id>-2`, lists released roles, returns a scrubbed released view); the hashed report-access store (`<id>.<secret>` token, 128-bit secret, salted SHA-256, one `report-access.json` under the control data directory, 0600, atomic, fails closed, `lastUsedAt` touched at most every 10 minutes); the control-service report links and read API (issue, reissue, revoke, list, exchange, read) with `REPORT_ACCESS_DAYS` (1 to 365, default 90). Follow-ups from review: `check(id, expectedSessionId)` compares the session before the touch, so a wrong-session read leaves the file unchanged; the mid-read rename test accepts `not_released` (20 runs in a row stable); a test that an AI role named in the group draft gets no link.
+- **Ids:** AC-0365, AC-0366, TC-0121 to TC-0123 (next free AC-0367, TC-0124, TASK-0100, BUG-0025). TASK-0091 reused, now In Progress; AC-0365 ticked; AC-0327, AC-0329, AC-0330 and AC-0366 noted and stay open for PR 2 (browser routes, cookie, console panel). US-0062 In Progress. AC-0327 reworded to the one-global-file design.
+- **Verification (2026-11-05):** see the PR for the gate; `npm run plan:generate` and `tests/unit/id-registry.test.js` run after these documents.
+- **Known gaps:** nothing in the console or the browser uses the new routes yet; a revoke with a live participant cookie is checked in the browser slice (PR 2).
+- **Next:** push and open PR 1 into `develop` (US-0062, TASK-0091, AC-0327/0329/0330/0365/0366 progress), merge on green CI; then PR 2 (browser).
+

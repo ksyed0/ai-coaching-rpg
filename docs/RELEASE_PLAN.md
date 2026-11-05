@@ -1857,23 +1857,25 @@ Notes: Plan docs/superpowers/plans/2026-11-04-slice-2b-3c-ai-group-score.md; PR 
 US-0062 (EPIC-0002): As a participant, I want to read my report after the session has ended, so that I do not depend on the session still running.
 Priority: High
 Estimate: L
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0002-US-0062-report-access
 Dependencies: US-0056
 Acceptance Criteria:
-  - [ ] AC-0327: releasing a report issues a 128-bit report-access credential, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in access.json beside the review directory (0600, atomic, outside the review log)
+  - [ ] AC-0327: the facilitator issues a link for a released report from the console; the credential is 128 bits from a CSPRNG, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in one report-access.json under the control data directory (0600, atomic, outside every review folder) (store and service built in slice 2c-1 PR 1; TC-0121; the console button is PR 2)
   - [ ] AC-0328: the console shows the report link with the credential once, and the facilitator can revoke or reissue it
-  - [ ] AC-0329: the control service verifies the credential and serves released views without a live runtime, tied to the session in the credential
-  - [ ] AC-0330: a cross-role or cross-session request and an expired or revoked credential are refused with one neutral response
+  - [ ] AC-0329: the control service verifies the credential and serves released views without a live runtime, tied to the session in the credential (service and API built in slice 2c-1 PR 1; TC-0122; the browser side is PR 2)
+  - [ ] AC-0330: a cross-role or cross-session request and an expired or revoked credential are refused with one neutral response (control-service side built in slice 2c-1 PR 1; TC-0122)
+  - [x] AC-0365: the reader of released reports is read-only (`@acr/runtime/reports`, nothing in it writes), resolves the single live review folder including a re-run's `<id>-2`, and the control service imports only the allowed runtime subpaths (built in slice 2c-1 PR 1; TC-0123)
+  - [ ] AC-0366: a revoke or reissue ends reads at once even for a holder of a live cookie (every read re-checks the credential), and a read with the wrong session answers 404 without touching lastUsedAt (control-service side built in slice 2c-1 PR 1; TC-0122)
 ```
 
 ```
 TASK-0091 (US-0062): Report-access credential and control-service report API
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: In Progress
 Branch: feature/EPIC-0002-US-0062-report-access
-Notes: Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Spec section 5.8; slice 2c-1 plan docs/superpowers/plans/2026-11-05-slice-2c-1-report-access.md. PR 1 (control side) built the hashed credential store, the control-service report links and read API and the read-only runtime reader (TC-0121 to TC-0123); PR 2 adds the browser routes and the console panel. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```

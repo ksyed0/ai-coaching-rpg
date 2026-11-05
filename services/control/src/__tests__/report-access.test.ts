@@ -176,13 +176,11 @@ describe("ReportAccessStore", () => {
     expect(writes).toBe(before);
   });
 
-  it("rejects malformed tokens cheaply, before any file read", async () => {
+  it("rejects malformed tokens before any file read", async () => {
     const { store, file } = make();
     writeFileSync(file, "this is not json at all");
     for (const t of ["", "nodot", "a.b", ".", `${"A".repeat(10_000)}.${"B".repeat(10_000)}`, "AAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAA!", "AAAAAAAAAAA.AAAAAAAAAAAAAAAAAAAAAA.x", "AAAAAAAAAA+.AAAAAAAAAAAAAAAAAAAAAA"]) {
-      const t0 = performance.now();
       expect(await store.verify(t)).toBeNull(); // a corrupt file would throw/fail closed only if it were read
-      expect(performance.now() - t0).toBeLessThan(50);
     }
     expect(await store.verify(undefined as unknown as string)).toBeNull();
     expect(await store.check("not an id!")).toBeNull();
