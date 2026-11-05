@@ -84,6 +84,7 @@ beforeEach(() => {
     launcher: launcher as never,
     joinThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
     reportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: t }),
+    reportEnterThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
   } as unknown as Deps;
   logged = [];
   for (const k of ["error", "warn", "log", "info", "debug"] as const) {
@@ -122,8 +123,12 @@ describe("POST /api/v1/report/enter", () => {
     expect(launcher.exchangeReportToken).toHaveBeenCalledWith(TOKEN);
   });
 
-  it("Max-Age is at least 1 and the cookie never outlives the credential", async () => {
-    launcher.exchangeReportToken.mockResolvedValue({ credentialId: CRED_ID, sessionId: SID, role: "ana", expiresAt: T0 + 400 });
+  it("a credential with under a second left is refused; with a second left Max-Age is 1; the cookie never outlives the credential", async () => {
+    launcher.exchangeReportToken.mockResolvedValue({ credentialId: CRED_ID, sessionId: SID, role: "ana", expiresAt: T0 + 999 });
+    const short = await handleReportEnter(enterReq(), deps);
+    expect(short.status).toBe(404);
+    expect(short.headers.get("Set-Cookie")).toBeNull();
+    launcher.exchangeReportToken.mockResolvedValue({ credentialId: CRED_ID, sessionId: SID, role: "ana", expiresAt: T0 + 1999 });
     const res = await handleReportEnter(enterReq(), deps);
     expect(res.status).toBe(200);
     expect(res.headers.get("Set-Cookie")).toContain("Max-Age=1;");
@@ -146,10 +151,12 @@ describe("POST /api/v1/report/enter", () => {
       expect(res.headers.get("Set-Cookie")).toBeNull();
     }
     expect(launcher.exchangeReportToken).not.toHaveBeenCalled();
-    expect(deps.joinThrottle.blockedForMs("unknown", "*report")).toBe(0);
-    // none of those counted as a failure: five real failures are still free
+    // none of those counted as a failure: five real failures are still free (a charged 403 would block the fifth) and a good token passes
     launcher.exchangeReportToken.mockRejectedValue(new LauncherError("not_found"));
     for (let i = 0; i < 5; i++) expect((await handleReportEnter(enterReq(), deps)).status).toBe(404);
+    launcher.exchangeReportToken.mockResolvedValue({ credentialId: CRED_ID, sessionId: SID, role: "ana", expiresAt: EXPIRES });
+    expect((await handleReportEnter(enterReq(), deps)).status).toBe(200);
+    expect(launcher.exchangeReportToken).toHaveBeenCalledTimes(6);
   });
 
   it("a refusal (control 404) is the neutral 404, byte-equal for every kind, without a cookie", async () => {
@@ -178,8 +185,12 @@ describe("POST /api/v1/report/enter", () => {
     // now blocked: even a good token is not tried
     launcher.exchangeReportToken.mockResolvedValue({ credentialId: CRED_ID, sessionId: SID, role: "ana", expiresAt: EXPIRES });
     const blocked = await handleReportEnter(enterReq(), deps);
-    expect(blocked.status).toBe(404);
-    expect(await blocked.text()).toBe(NEUTRAL);
+    const bp = await parts(blocked);
+    expect(bp.status).toBe(429);
+    expect(bp.json.error).toEqual({ code: "rate_limited", message: "Too many attempts. Wait a minute and try again." });
+    expect(blocked.headers.get("Retry-After")).toBe("60");
+    expectPrivate(blocked);
+    expect(blocked.headers.get("Set-Cookie")).toBeNull();
     expect(launcher.exchangeReportToken).toHaveBeenCalledTimes(6);
     // another address is unaffected
     const other = await handleReportEnter(enterReq(undefined, { ...SAME_SITE, "X-Forwarded-For": "203.0.113.9" }), deps);
@@ -205,10 +216,12 @@ describe("POST /api/v1/report/enter", () => {
       expectPrivate(res);
       expect(res.headers.get("Set-Cookie")).toBeNull();
     }
-    expect(deps.joinThrottle.blockedForMs("unknown", "*report")).toBe(0);
+    expect(launcher.exchangeReportToken).toHaveBeenCalledTimes(4);
+    // four 503s were not charged: five failures are still free (a charged 503 would block the fifth), then a good token passes
     launcher.exchangeReportToken.mockRejectedValue(new LauncherError("not_found"));
-    for (let i = 0; i < 5; i++) await handleReportEnter(enterReq(), deps);
-    expect((await handleReportEnter(enterReq(), deps)).status).toBe(404); // sixth failure still just refused, not 503
+    for (let i = 0; i < 5; i++) expect((await handleReportEnter(enterReq(), deps)).status).toBe(404);
+    launcher.exchangeReportToken.mockResolvedValue({ credentialId: CRED_ID, sessionId: SID, role: "ana", expiresAt: EXPIRES });
+    expect((await handleReportEnter(enterReq(), deps)).status).toBe(200);
   });
 
   it("no launcher configured is a 503", async () => {
@@ -315,15 +328,13 @@ describe("GET /api/v1/report", () => {
 
   it("is throttled per address: more than 60 reads in a minute get a 429 until the block ends", async () => {
     for (let i = 0; i < 60; i++) expect((await handleReportGet(getReq(reportCookie()), deps)).status).toBe(200);
-    const calls = launcher.readReport.mock.calls.length;
-    const res = await handleReportGet(getReq(reportCookie()), deps);
-    // the 61st is counted and trips the block; the 62nd is refused
+    // the 61st is counted and trips the block but is still served; the 62nd is refused
+    expect((await handleReportGet(getReq(reportCookie()), deps)).status).toBe(200);
     const next = await handleReportGet(getReq(reportCookie()), deps);
-    expect([res.status, next.status]).toContain(429);
     expect(next.status).toBe(429);
     expect(next.headers.get("Retry-After")).toBe("60");
     expectPrivate(next);
-    expect(launcher.readReport.mock.calls.length).toBeLessThanOrEqual(calls + 1);
+    expect(launcher.readReport).toHaveBeenCalledTimes(61);
     const other = await handleReportGet(getReq(reportCookie(), { "X-Forwarded-For": "203.0.113.9" }), deps);
     expect(other.status).toBe(200);
     now += 60_001;

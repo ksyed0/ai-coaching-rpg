@@ -19,7 +19,7 @@ function specifiers(text: string): string[] {
 }
 
 /** Whether a specifier reaches the runtime: the package by name (any subpath) or a relative path into its source. */
-const reachesRuntime = (spec: string): boolean => spec.startsWith("@acr/runtime") || /runtime\/src/.test(spec);
+const reachesRuntime = (spec: string): boolean => spec.startsWith("@acr/runtime") || /runtime\/src/.test(spec) || /services\/runtime(\/|$)/.test(spec);
 
 /** The specifiers in `text` that reach the runtime. */
 const violations = (text: string): string[] => specifiers(text).filter(reachesRuntime);
@@ -35,6 +35,7 @@ describe("web sources and the runtime", () => {
     expect(violations('import a from "@acr/runtime/reports";')).toEqual(["@acr/runtime/reports"]);
     expect(violations('import a from "../../../services/runtime/src/reports";')).toEqual(["../../../services/runtime/src/reports"]);
     expect(violations('const a = await import("../runtime/src/x");')).toEqual(["../runtime/src/x"]);
+    expect(violations('import a from "../../services/runtime/dist/x"; import b from "../../services/runtime";')).toEqual(["../../services/runtime/dist/x", "../../services/runtime"]);
     expect(violations('import a from "@acr/events"; import b from "./runtime-lookup"; import c from "node:fs";')).toEqual([]);
   });
 

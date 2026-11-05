@@ -14,6 +14,7 @@ import { seal, unseal } from "./seal";
 export const REPORT_COOKIE = "__Host-scenecoach-report";
 /** The enter throttle's role slot. `*` cannot appear in a scenario role id, so it never shares a bucket with a join. */
 const ENTER_ROLE = "*report-enter";
+/** The enter throttle: more than 5 failed tokens in 60 s from one address block it for 60 s (the join's limits). */
 const READ_ROLE = "*report-read";
 const MAX_TOKEN_CHARS = 64;
 const MAX_ENTER_BODY_BYTES = 512;
@@ -88,8 +89,11 @@ export function handleReportEnter(req: Request, deps: Deps): Promise<Response> {
     if (!checkOrigin(req, deps.config.publicOrigin) || !checkFetchSite(req)) return forbidden();
     const address = requestAddress(req);
     if (address === null) return badRequest();
-    const throttle = deps.joinThrottle;
-    if (throttle.blockedForMs(address, ENTER_ROLE) > 0) return neutral();
+    const throttle = deps.reportEnterThrottle;
+    // A block says only that THIS address has failed too often (not whether any token is good), so it may be named: a visitor behind a
+    // shared address is told to wait instead of "Not found".
+    const blocked = throttle.blockedForMs(address, ENTER_ROLE);
+    if (blocked > 0) return throttled(blocked);
     const body = await readBody(req, ["token"], MAX_ENTER_BODY_BYTES);
     if (body === null || typeof body.token !== "string") return badRequest();
     // A token of the wrong size cannot be a link: refused (and charged) without troubling the control service.
@@ -108,9 +112,10 @@ export function handleReportEnter(req: Request, deps: Deps): Promise<Response> {
     }
     const now = deps.now();
     const remainingMs = found.expiresAt - now;
-    if (remainingMs <= 0) return refuse();
+    // Under a second left: a cookie could not honestly live that long (Max-Age is whole seconds, at least 1), so refuse.
+    if (remainingMs < 1000) return refuse();
     const cookie: ReportCookie = { sessionId: found.sessionId, credentialId: found.credentialId, role: found.role, expiresAt: found.expiresAt };
-    const maxAge = Math.max(1, Math.floor(remainingMs / 1000));
+    const maxAge = Math.floor(remainingMs / 1000);
     return priv(ok({}, { headers: { "Set-Cookie": cookieHeader(seal(cookie, deps.config.cookieKeys, now, "rpt"), maxAge) } }));
   });
 }

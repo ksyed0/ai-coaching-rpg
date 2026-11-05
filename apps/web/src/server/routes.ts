@@ -48,6 +48,8 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     // of LOGIN (never out of a signed-in console) for CONSOLE_GLOBAL_THROTTLE.blockMs at a time.
     consoleGlobalThrottle: new JoinThrottle({ ...CONSOLE_GLOBAL_THROTTLE, now }),
     reportThrottle: new JoinThrottle({ ...REPORT_READ_THROTTLE, now }),
+    // Failed report-link tokens: the join's limits, in a table of their own.
+    reportEnterThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
     facilitatorBudget: new FacilitatorBudget(),
     facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now }),
     hub: new StreamHub({ maxStreams: config.maxStreams, maxStreamsPerSession: config.maxStreamsPerSession, maxStreamsPerAddress: config.maxStreamsPerAddress, setTimer: realTimer, now }),

@@ -75,7 +75,7 @@ export type CreatedSession = {
 const DEFAULT_TIMEOUT_MS = 5_000;
 /** A create against a hung child can take the child's ready timeout plus two grace periods (ruling R10). */
 const DEFAULT_LONG_TIMEOUT_MS = 120_000;
-/** Far above any real answer; a larger body is not read to the end. */
+/** Far above any real answer. The body is buffered whole (`res.text()`) before this is checked, so it bounds what we parse, not what we read; the control service is a trusted internal service. */
 const MAX_RESPONSE_CHARS = 1024 * 1024;
 /**
  * A released report (structured view plus the rendered markdown of the participant's and the group's report) is the one answer that can
