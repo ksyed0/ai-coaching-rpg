@@ -26,7 +26,8 @@ export type LauncherReason =
 
 /** A failed call to the control service. The message repeats only the reason word. */
 export class LauncherError extends Error {
-  constructor(readonly reason: LauncherReason) {
+  /** `detail`: the control service's own sentence, kept only for the report-link calls (the caller checks it against a closed list). */
+  constructor(readonly reason: LauncherReason, readonly detail?: string) {
     super(`launcher: ${reason}`);
     this.name = "LauncherError";
   }
@@ -56,6 +57,13 @@ const MAX_HINT_POINTS = 300;
 const TRIGGERS: readonly string[] = ["reply", "nudge", "prompt"];
 const OUTCOMES: readonly string[] = ["spoken", "skipped", "dropped"];
 const REASONS: readonly string[] = ["model_failed", "timeout", "unusable", "budget"];
+/** A report link as the console may see it: never the credential id, the token or the secret. */
+export type ReportLinkInfo = { role: string; createdAt: number; expiresAt: number; revokedAt?: number; lastUsedAt?: number };
+export type ReportLinksState = "ready" | "not_ready" | "unavailable";
+export type ReportLinkRow = { role: string; credential: ReportLinkInfo | null };
+export type IssuedReportLink = { credential: ReportLinkInfo; token: string };
+export type ReportExchange = { credentialId: string; sessionId: string; role: string; expiresAt: number };
+export type ReportRead = { state: "released"; view: Record<string, unknown> } | { state: "not_released" };
 export type CreatedSession = {
   sessionId: string;
   status: "running";
@@ -69,6 +77,15 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_LONG_TIMEOUT_MS = 120_000;
 /** Far above any real answer; a larger body is not read to the end. */
 const MAX_RESPONSE_CHARS = 1024 * 1024;
+/**
+ * A released report (structured view plus the rendered markdown of the participant's and the group's report) is the one answer that can
+ * be large, so `readReport` alone gets a higher cap. 4 MiB is a safety limit well above a real report, not a size we expect.
+ */
+export const MAX_REPORT_RESPONSE_CHARS = 4 * 1024 * 1024;
+/** The longest control sentence kept as `detail`. */
+const MAX_DETAIL_CHARS = 300;
+/** A credential id as it goes into a path: base64url only. */
+const CREDENTIAL_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The control service's ControlError / API codes. Anything else is generic. */
 const BY_CODE: Record<string, LauncherReason> = {
@@ -170,6 +187,26 @@ function toIntent(v: unknown): IntentEntry | null {
     ...(v.reason !== undefined && { reason: v.reason as NonNullable<IntentEntry["reason"]> }),
     ...(v.hint !== undefined && { hint: Array.from(v.hint).slice(0, MAX_HINT_POINTS).join("") }),
   };
+}
+
+const isTime = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** Picked field by field, so the credential's id (and anything else) is dropped here and can never be forwarded by mistake. */
+function toReportLink(v: unknown): ReportLinkInfo {
+  if (!isObject(v) || !isId(v.role) || !isTime(v.createdAt) || !isTime(v.expiresAt)) return bad();
+  if (v.revokedAt !== undefined && !isTime(v.revokedAt)) return bad();
+  if (v.lastUsedAt !== undefined && !isTime(v.lastUsedAt)) return bad();
+  return {
+    role: v.role,
+    createdAt: v.createdAt,
+    expiresAt: v.expiresAt,
+    ...(v.revokedAt !== undefined && { revokedAt: v.revokedAt }),
+    ...(v.lastUsedAt !== undefined && { lastUsedAt: v.lastUsedAt }),
+  };
+}
+function toIssued(d: unknown): IssuedReportLink {
+  if (!isObject(d) || !isText(d.token)) return bad();
+  return { credential: toReportLink(d.credential), token: d.token };
 }
 
 export type LauncherOptions = {
@@ -367,6 +404,55 @@ export class LauncherClient {
     return `/sessions/${this.id(id)}/ai-roles/${encodeURIComponent(roleId)}/${leaf}`;
   }
 
+  // ---- report links (US-0062) ----
+
+  async reportLinks(id: string): Promise<{ state: ReportLinksState; roles: ReportLinkRow[] }> {
+    const d = await this.call("GET", `/sessions/${this.id(id)}/report-links`, undefined, this.timeoutMs);
+    if (!isObject(d) || !Array.isArray(d.roles)) return bad();
+    if (d.state !== "ready" && d.state !== "not_ready" && d.state !== "unavailable") return bad();
+    return {
+      state: d.state,
+      roles: d.roles.map((r) => (isObject(r) && isId(r.role) ? { role: r.role, credential: r.credential === null ? null : toReportLink(r.credential) } : bad())),
+    };
+  }
+
+  async issueReportLink(id: string, role: string): Promise<IssuedReportLink> {
+    if (!isId(role)) throw new LauncherError("not_found");
+    return toIssued(await this.call("POST", `/sessions/${this.id(id)}/report-links`, { role }, this.timeoutMs, { detail: true }));
+  }
+
+  async reissueReportLink(id: string, role: string): Promise<IssuedReportLink> {
+    return toIssued(await this.call("POST", this.linkPath(id, role, "/reissue"), {}, this.timeoutMs, { detail: true }));
+  }
+
+  async revokeReportLink(id: string, role: string): Promise<boolean> {
+    const d = await this.call("DELETE", this.linkPath(id, role, ""), undefined, this.timeoutMs);
+    if (!isObject(d) || typeof d.revoked !== "boolean") return bad();
+    return d.revoked;
+  }
+
+  /** Trades a link token for the credential behind it. A not_found is the control service's one neutral refusal. */
+  async exchangeReportToken(token: string): Promise<ReportExchange> {
+    const d = await this.call("POST", "/report-access/exchange", { token }, this.timeoutMs);
+    if (!isObject(d) || !isText(d.credentialId) || !isText(d.sessionId) || !isId(d.role) || !isTime(d.expiresAt)) return bad();
+    return { credentialId: d.credentialId, sessionId: d.sessionId, role: d.role, expiresAt: d.expiresAt };
+  }
+
+  /** One participant's report, for the credential the sealed cookie names. Its answer alone may exceed the usual response cap. */
+  async readReport(id: string, credentialId: string): Promise<ReportRead> {
+    if (typeof credentialId !== "string" || !CREDENTIAL_ID.test(credentialId)) throw new LauncherError("not_found");
+    const d = await this.call("GET", `/sessions/${this.id(id)}/reports/${encodeURIComponent(credentialId)}`, undefined, this.timeoutMs, { maxChars: MAX_REPORT_RESPONSE_CHARS });
+    if (!isObject(d)) return bad();
+    if (d.state === "not_released") return { state: "not_released" };
+    if (d.state === "released" && isObject(d.view)) return { state: "released", view: d.view };
+    return bad();
+  }
+
+  private linkPath(id: string, role: string, leaf: string): string {
+    if (!isId(role)) throw new LauncherError("not_found");
+    return `/sessions/${this.id(id)}/report-links/${encodeURIComponent(role)}${leaf}`;
+  }
+
   /** A session id is checked before it goes into a path, so nothing can change the route. */
   private id(raw: string): string {
     if (!isValidSessionId(raw)) throw new LauncherError("not_found");
@@ -375,10 +461,11 @@ export class LauncherClient {
 
   /** One request. Resolves with the envelope's `data`, or throws a LauncherError; nothing from the transport escapes. */
   private async call(
-    method: "GET" | "POST" | "PUT",
+    method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
     body: unknown,
     timeoutMs: number,
+    o: { maxChars?: number; detail?: boolean } = {},
   ): Promise<unknown> {
     const signal = AbortSignal.timeout(timeoutMs);
     let status: number;
@@ -400,7 +487,7 @@ export class LauncherClient {
     } catch {
       throw new LauncherError(signal.aborted ? "timeout" : "unavailable");
     }
-    if (text.length > MAX_RESPONSE_CHARS) throw new LauncherError("failed");
+    if (text.length > (o.maxChars ?? MAX_RESPONSE_CHARS)) throw new LauncherError("failed");
     let env: unknown;
     try {
       env = JSON.parse(text);
@@ -414,10 +501,10 @@ export class LauncherClient {
       return e.data;
     }
     const err = e && isObject(e.error) ? e.error : undefined;
-    if (err && typeof err.code === "string")
-      throw new LauncherError(
-        Object.hasOwn(BY_CODE, err.code) ? BY_CODE[err.code]! : "failed",
-      );
+    if (err && typeof err.code === "string") {
+      const detail = o.detail && typeof err.message === "string" && err.message.length <= MAX_DETAIL_CHARS ? err.message : undefined;
+      throw new LauncherError(Object.hasOwn(BY_CODE, err.code) ? BY_CODE[err.code]! : "failed", detail);
+    }
     throw new LauncherError(BY_STATUS[status] ?? "failed");
   }
 }

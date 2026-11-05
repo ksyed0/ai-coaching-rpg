@@ -4,15 +4,17 @@ import type { Config } from "./config";
 // Sealed cookie: AES-256-GCM, token `keyId.nonce.ciphertext.tag` (base64url parts). The key id is authenticated as AAD so a token
 // cannot be relabelled to another key; expiry lives inside the sealed payload so the browser cannot extend it.
 type Keys = Config["cookieKeys"];
+/** Who a token is for: no purpose is the player cookie, "fac" the facilitator console, "rpt" a participant report link. */
+export type SealPurpose = "fac" | "rpt";
 
 const MAX_TOKEN_CHARS = 4096;
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
 
 /** The authenticated data: the key id, plus the purpose when there is one, so a token sealed for one audience opens for no other. */
-const aad = (id: string, purpose?: "fac"): Buffer => Buffer.from(purpose ? `${id}|${purpose}` : id, "utf8");
+const aad = (id: string, purpose?: SealPurpose): Buffer => Buffer.from(purpose ? `${id}|${purpose}` : id, "utf8");
 
-export function seal(payload: unknown, keys: Keys, now: number, purpose?: "fac"): string {
+export function seal(payload: unknown, keys: Keys, now: number, purpose?: SealPurpose): string {
   const first = keys[0];
   if (!first) throw new Error("seal needs at least one key");
   if (typeof payload !== "object" || payload === null || Array.isArray(payload)) throw new Error("seal payload must be an object");
@@ -35,7 +37,7 @@ function canonical(part: string): Buffer | null {
 }
 
 /** Null for anything that is not a live token sealed with one of `keys`. Never throws. */
-export function unseal<T>(token: string, keys: Keys, now: number, purpose?: "fac"): T | null {
+export function unseal<T>(token: string, keys: Keys, now: number, purpose?: SealPurpose): T | null {
   try {
     if (typeof token !== "string" || token.length > MAX_TOKEN_CHARS) return null;
     const parts = token.split(".");
