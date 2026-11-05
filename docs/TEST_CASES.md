@@ -1893,7 +1893,7 @@ Preconditions: As TC-0110; the tests build a real released review folder in a te
 Steps:
   1. From `services/control`: `pnpm exec vitest run src/__tests__/reports.test.ts src/__tests__/api.reports.test.ts` (issue, reissue and revoke, revoke also for a session no longer listed; a corrupt store file is 503 on exchange and read and a failed lastUsedAt write still answers 200; an unreadable reader is 503 "cannot be read" and `links` state unavailable; a role that is not released, an AI role named only in the group draft and a session with nothing ready are refused with the fixed sentences; an unknown, wrong-secret, revoked, expired, malformed and cross-session token or id gets identical bytes; a read re-checks the credential each time, a withdrawn report reads as not released, a corrupt review is 503, and a wrong-session read does not change `lastUsedAt`; no log line holds a token, id, role or path).
 Expected Result: All tests pass.
-Actual Result: As expected, 2026-11-05: 2 files, 44 tests passed (re-run after the review fixes).
+Actual Result: As expected, 2026-11-05: 2 files, 41 tests passed (re-run after the review fixes).
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2c-1, PR 1. The browser routes and the cookie are PR 2, so AC-0329, AC-0330 and AC-0366 stay open.
