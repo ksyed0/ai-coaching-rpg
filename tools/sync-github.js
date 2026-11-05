@@ -97,6 +97,7 @@ async function run() {
       const severityFromLabel = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
       const matchedLabel = (ghIssue.labels || []).map((l) => l.name).find((n) => severityFromLabel[n]);
       const severity = matchedLabel ? severityFromLabel[matchedLabel] : 'Medium';
+      const issueNo = plainText(String(Number.parseInt(ghIssue.number, 10)), 12);
       const title = plainText(ghIssue.title.replace(/^\[BUG-\d+\]\s*/, ''), 200);
 
       if (!dryRun) {
@@ -109,11 +110,11 @@ async function run() {
           `Related Story:`,
           `Steps to Reproduce:`,
           ``,
-          `   1. Reported via GitHub Issue #${ghIssue.number}`,
+          `   1. Reported via GitHub Issue #${issueNo}`,
           `   Expected:`,
           `   Actual:`,
           `   Status: Open`,
-          `   GH Issue: #${ghIssue.number}`,
+          `   GH Issue: #${issueNo}`,
           `   Fix Branch:`,
           `   Lesson Encoded: No`,
           '',
@@ -123,7 +124,7 @@ async function run() {
         const existing = fs.readFileSync(bugsPath, 'utf8');
         const separator = existing.endsWith('\n') ? '' : '\n';
         fs.writeFileSync(bugsPath, existing + separator + entry, 'utf8');
-        state.entries.push(buildStateEntry(newBugId, ghIssue.number, 'open'));
+        state.entries.push(buildStateEntry(newBugId, Number(issueNo), 'open'));
       } else {
         console.log(`  [dry-run] PULL_CREATE BUG from GH #${ghIssue.number}: ${title}`);
       }
