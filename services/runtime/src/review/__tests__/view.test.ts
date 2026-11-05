@@ -36,7 +36,7 @@ const draftOf = async (s: string) =>
 describe("viewReport / renderSubjectMarkdown", () => {
   it('the review facilitator view shows "AI draft calibration ...: <line with the note>"', async () => {
     const result = await sampleEvaluation();
-    result.ai = { roles: ["bob"], includeInGroup: true };
+    result.ai = { roles: ["zed"], includeInGroup: true }; // no report of its own: an AI role that was also a subject is corrupt
     const w = await writeReports(result, { outDir: root, evaluator: { provider: "scripted mock", scripted: true, rubricHash: "h1", variant: "v1" } });
     await openReview(w.dir, { by: "kamal", now: fixedClock() });
     const l = await loadReview(w.dir);

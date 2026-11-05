@@ -112,6 +112,8 @@ function checkRaw(file: string, raw: Record<string, unknown>): void {
           (typeof m.scene_title !== "string" || dirty(m.scene_title)))
       )
         bad(file, `${what} has an invalid seq, scene, time or scene title`);
+      if (m.ai !== undefined && m.ai !== true)
+        bad(file, "an evidence item has an invalid AI mark");
     }
   };
   moments(raw.notable_moments, "notable_moments");
@@ -228,6 +230,26 @@ function parseObjectives(file: string, raw: unknown): DraftObjective[] {
   });
 }
 
+const MAX_AI_ROLES = 12;
+
+/** `ai_players` of a group report: absent, or `{ roles, included_in_group }`. Whether a role is also a subject is checked in `loadDrafts`. */
+function aiRolesOf(file: string, raw: Record<string, unknown>): string[] {
+  const a = raw.ai_players;
+  if (a === undefined) return [];
+  if (
+    !isObj(a) ||
+    !Array.isArray(a.roles) ||
+    a.roles.length > MAX_AI_ROLES ||
+    typeof a.included_in_group !== "boolean" ||
+    !a.roles.every(
+      (r) => typeof r === "string" && isFileSafeId(r) && r !== GROUP,
+    ) ||
+    new Set(a.roles).size !== a.roles.length
+  )
+    bad(file, "ai_players is invalid");
+  return a.roles as string[];
+}
+
 function parseSubject(
   file: string,
   raw: Record<string, unknown>,
@@ -246,6 +268,8 @@ function parseSubject(
   if (file !== `${role}.json`)
     bad(file, "the file name does not match the role");
   if (group) checkCoverage(file, raw.lo_coverage);
+  if (group) aiRolesOf(file, raw);
+  else if (raw.ai_players !== undefined) bad(file, "ai_players is invalid");
   const ev = raw.evaluation;
   if (!isObj(ev) || typeof ev.status !== "string")
     bad(file, "evaluation is missing");
@@ -362,5 +386,8 @@ export async function loadDrafts(
     throw new ReviewCorruptError(
       "this directory does not hold a complete set of draft reports (a group report and at least one player)",
     );
+  const group = subjects.get(GROUP);
+  for (const r of group ? aiRolesOf(group.file, group.raw) : [])
+    if (subjects.has(r)) bad(group!.file, "ai_players is invalid");
   return { ...meta, legacy, subjects, files };
 }
