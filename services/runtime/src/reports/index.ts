@@ -139,6 +139,7 @@ export async function readReleasedView(
   if (f.k === "none") return { kind: "not_released" };
   try {
     const l = await loadReview(f.dir);
+    if (l.view.opened.session.id !== sessionId) return { kind: "unavailable" };
     if (l.view.subjects.get(role)?.kind !== "participant")
       return { kind: "not_released" };
     if (!allowed(l, role, role)) return { kind: "not_released" };
@@ -193,6 +194,7 @@ export async function listReleasedRoles(
   if (f.k !== "found") return null;
   try {
     const l = await loadReview(f.dir);
+    if (l.view.opened.session.id !== sessionId) return null;
     return [...l.view.subjects.values()]
       .filter((s) => s.kind === "participant" && allowed(l, s.id, s.id))
       .map((s) => s.id)
