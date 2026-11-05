@@ -200,7 +200,7 @@ describe("NewSessionForm: AI players on the created panel", () => {
     expect(within(dlg).getByText("Fill Delivery lead with an AI player?")).toBeTruthy();
     expect(within(dlg).getByRole("button", { name: "Use AI player" }).className).not.toContain("danger");
     await confirm();
-    expect(aiPosts(f)[0]!.body).toEqual({ roles: ["delivery_lead"] });
+    expect(aiPosts(f)[0]!.body).toEqual({ roles: ["delivery_lead"], includeInGroup: true });
     await waitFor(() => expect(document.body.textContent).not.toContain("CODE-DL"));
     expect(screen.getByText("CODE-AM")).toBeTruthy();
     const row = screen.getByText("AI player").closest("li")!;
@@ -235,7 +235,7 @@ describe("NewSessionForm: AI players on the created panel", () => {
     await screen.findByRole("button", { name: "Make Delivery lead human" });
     await press("Make Account manager an AI player");
     await confirm();
-    expect(aiPosts(f)[1]!.body).toEqual({ roles: ["delivery_lead", "account_manager"] });
+    expect(aiPosts(f)[1]!.body).toEqual({ roles: ["delivery_lead", "account_manager"], includeInGroup: true });
   });
 
   it("Make human posts the set without it, shows the new code once under \"New code for Delivery lead\" and drops it on dismissal", async () => {
@@ -245,7 +245,7 @@ describe("NewSessionForm: AI players on the created panel", () => {
     await press("Make Delivery lead human");
     expect(within(screen.getByRole("dialog")).getByText("Switch Delivery lead back to a human?")).toBeTruthy();
     await confirm("Switch to human");
-    expect(aiPosts(f)[1]!.body).toEqual({ roles: [] });
+    expect(aiPosts(f)[1]!.body).toEqual({ roles: [], includeInGroup: true });
     expect(await screen.findByRole("heading", { name: "New code for Delivery lead" })).toBeTruthy();
     expect(screen.getByText("NEW-delivery_lead")).toBeTruthy();
     expect(screen.getByText("CODE-AM")).toBeTruthy();
@@ -301,7 +301,7 @@ describe("NewSessionForm: AI players on the created panel", () => {
     // The next switch posts the resynchronised set, so it cannot flip delivery_lead back to human.
     await press("Make Account manager an AI player");
     await confirm();
-    expect(aiPosts(f)[1]!.body).toEqual({ roles: ["delivery_lead", "account_manager"] });
+    expect(aiPosts(f)[1]!.body).toEqual({ roles: ["delivery_lead", "account_manager"], includeInGroup: true });
   });
 
   it("an unconfirmed answer whose roster read fails switches the switches off and points to Open session", async () => {
@@ -354,4 +354,26 @@ describe("NewSessionForm: AI players on the created panel", () => {
     expect(document.body.textContent).not.toContain("CODE-AM");
     expect(screen.getAllByRole("button", { name: /^Make .* an AI player$/ })).toHaveLength(2);
   });
+
+  it("the created panel shows the checkbox after delivery_lead is switched to AI, and unchecking posts false", async () => {
+    const f = await open();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    await press("Make Delivery lead an AI player");
+    await confirm();
+    const box = (await screen.findByRole("checkbox", { name: "Include AI players in group scores" })) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    expect(document.getElementById(box.getAttribute("aria-describedby")!)!.textContent).toContain("You can change this until the start.");
+    await act(async () => {
+      fireEvent.click(box);
+    });
+    expect(aiPosts(f)[1]!.body).toEqual({ roles: ["delivery_lead"], includeInGroup: false });
+    await waitFor(() => expect(box.disabled).toBe(false));
+    expect(box.checked).toBe(false);
+    expect(document.activeElement).toBe(box);
+    // A later switch keeps the option the facilitator chose.
+    await press("Make Account manager an AI player");
+    await confirm();
+    expect(aiPosts(f)[2]!.body).toEqual({ roles: ["delivery_lead", "account_manager"], includeInGroup: false });
+  });
+
 });

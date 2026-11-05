@@ -38,17 +38,18 @@ export function aiErrorText(r: Extract<ApiResult, { ok: false }>): string {
   return r.message !== "" ? r.message : AI_ERRORS[r.code]!;
 }
 
-/** POST .../ai-roles with the WHOLE wanted AI set (never only the toggled role). */
-export function setAiRoles(sessionId: string, roles: string[], fetchImpl?: typeof fetch): Promise<ApiResult> {
-  return postJson(`/api/v1/console/sessions/${encodeURIComponent(sessionId)}/ai-roles`, { roles }, fetchImpl);
+/** POST .../ai-roles with the WHOLE wanted AI set (never only the toggled role) and the group-score option, both always (US-0061 C2). */
+export function setAiRoles(sessionId: string, roles: string[], includeInGroup: boolean, fetchImpl?: typeof fetch): Promise<ApiResult> {
+  return postJson(`/api/v1/console/sessions/${encodeURIComponent(sessionId)}/ai-roles`, { roles, includeInGroup }, fetchImpl);
 }
 
-/** The answer's AI set and the human roles' codes; anything malformed reads as nothing. */
-export function parseAiAnswer(d: unknown): { roles: string[]; codes: CodeEntry[] } {
+/** The answer's AI set, the group-score option (null when malformed: the shown value stays) and the human roles' codes; anything malformed reads as nothing. */
+export function parseAiAnswer(d: unknown): { roles: string[]; codes: CodeEntry[]; includeInGroup: boolean | null } {
   const o = (typeof d === "object" && d !== null ? d : {}) as Record<string, unknown>;
   return {
     roles: Array.isArray(o.roles) ? o.roles.filter((r): r is string => typeof r === "string") : [],
     codes: parseCodes(o.codes),
+    includeInGroup: typeof o.includeInGroup === "boolean" ? o.includeInGroup : null,
   };
 }
 

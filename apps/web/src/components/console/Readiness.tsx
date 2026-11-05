@@ -19,6 +19,7 @@ import { CodesPanel } from "./CodesPanel";
 import { confirmCopy } from "../../lib/console-confirm";
 import { aiErrorText, parseAiAnswer, setAiRoles } from "../../lib/console-ai";
 import { AiRoleSwitch } from "./AiRoleSwitch";
+import { GroupScoreOption } from "./GroupScoreOption";
 import { ConfirmDialog, focusFallback } from "./ConfirmDialog";
 
 // The facilitator's view of one session before and after the start: the model, who has joined, consented and connected (in words,
@@ -48,6 +49,7 @@ type Confirm =
   | { kind: "to_human"; roleId: string; opener: HTMLElement };
 type Shown = { seq: number; heading: string; codes: CodeEntry[] };
 
+const OPTION_ID = "group-score-option";
 const yesNo = (v: boolean) => (v ? "Yes" : "No");
 const url = (id: string, tail: string) =>
   `/api/v1/console/sessions/${encodeURIComponent(id)}/${tail}`;
@@ -99,6 +101,8 @@ export function Readiness({
   const [shown, setShown] = useState<Shown | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [startedHere, setStartedHere] = useState(false);
+  // The option the facilitator just chose, shown until the next readiness answer (or null: show the value readiness holds).
+  const [option, setOption] = useState<boolean | null>(null);
   const busy = useRef(false);
   // After a successful Remove the seat's row loses its Remove button (and with it the dialog's opener): focus moves to that row's
   // Reissue button once the refreshed roster has arrived, so it never falls to the page.
@@ -106,6 +110,8 @@ export function Readiness({
   // After a role switch (confirmed, refused or cancelled) focus goes back to that role's switch, found by its data attribute because the
   // roster re-renders under it.
   const refocusSwitch = useRef<string | null>(null);
+  // After a change of the group-score option the checkbox was disabled while the post ran, which drops focus: it goes back to the box.
+  const refocusOption = useRef(false);
   // Every issue gets its own number, so a new code is never shown by a panel that still holds the previous one.
   const seq = useRef(0);
   const show = (heading: string, codes: CodeEntry[]) =>
@@ -163,16 +169,19 @@ export function Readiness({
     );
     setConfirm(null);
   }
-  /** Posts the WHOLE wanted AI set: the roster's current AI roles with this one added or taken out. */
+  /** The option the checkbox shows now: the one just chosen, else the one readiness holds (on when nothing is known). */
+  const optionNow = () => option ?? polled?.includeInGroup ?? true;
+  /** Posts the WHOLE wanted AI set: the roster's current AI roles with this one added or taken out, and the current option. */
   async function switchRole(roleId: string, toAi: boolean) {
     const current = polledRoster.current.filter((e) => e.ai === true).map((e) => e.roleId);
     const wanted = toAi ? [...current.filter((r) => r !== roleId), roleId] : current.filter((r) => r !== roleId);
     refocusSwitch.current = roleId;
     await act(
-      () => setAiRoles(sessionId, wanted, fetchImpl),
+      () => setAiRoles(sessionId, wanted, optionNow(), fetchImpl),
       (d) => {
         // The answer is taken as a whole: no role that is AI now keeps a code on screen, and every code it returns is shown once.
         const answer = parseAiAnswer(d);
+        if (answer.includeInGroup !== null) setOption(answer.includeInGroup);
         const ai = new Set(answer.roles);
         const fresh = answer.codes.filter((c) => !ai.has(c.roleId));
         if (fresh.length > 0)
@@ -191,6 +200,24 @@ export function Readiness({
       },
     );
     setConfirm(null);
+  }
+  /** Posts the roster's current AI set with the new option; a refusal leaves the box showing what readiness holds. */
+  async function changeOption(next: boolean) {
+    const current = polledRoster.current.filter((e) => e.ai === true).map((e) => e.roleId);
+    refocusOption.current = true;
+    setOption(next);
+    await act(
+      () => setAiRoles(sessionId, current, next, fetchImpl),
+      (d) => {
+        const answer = parseAiAnswer(d);
+        if (answer.includeInGroup !== null) setOption(answer.includeInGroup);
+      },
+      (r) => {
+        setOption(null);
+        refresh();
+        return aiErrorText(r);
+      },
+    );
   }
   async function reissueAll() {
     await act(
@@ -272,6 +299,19 @@ export function Readiness({
     next.focus();
   }, [data]);
 
+  // A new readiness answer is the truth again; the chosen value only bridges the gap until it arrives.
+  useEffect(() => {
+    if (!busy.current) setOption(null);
+  }, [polled]);
+
+  useEffect(() => {
+    if (!refocusOption.current || working || !data) return;
+    const el = document.getElementById(OPTION_ID);
+    if (!el || (el as HTMLInputElement).disabled) return;
+    refocusOption.current = false;
+    el.focus();
+  });
+
   useEffect(() => {
     const roleId = refocusSwitch.current;
     if (roleId === null || confirm !== null || !data) return;
@@ -311,6 +351,8 @@ export function Readiness({
       error={error}
       shown={shown}
       confirm={confirm}
+      option={optionNow()}
+      onOption={(next) => void changeOption(next)}
       onAskRole={(roleId, opener) =>
         setConfirm({ kind: "role", roleId, opener })
       }
@@ -346,6 +388,9 @@ type ViewProps = {
   error: string | null;
   shown: Shown | null;
   confirm: Confirm | null;
+  /** The group-score option the checkbox shows. */
+  option: boolean;
+  onOption: (next: boolean) => void;
   onAskRole: (roleId: string, opener: HTMLElement) => void;
   onAskRemove: (roleId: string, opener: HTMLElement) => void;
   onAskAll: (opener: HTMLElement) => void;
@@ -368,6 +413,7 @@ function View(p: ViewProps) {
   const idle = data.status === "idle";
   const running = data.status === "running";
   const started = p.startedHere || data.status === "running";
+  const hasAi = data.roster.some((e) => e.ai === true);
   const waiting = splitWaiting(data.roster, data.missing, data.aiWaiting);
   const reason = !idle
     ? null
@@ -546,6 +592,12 @@ function View(p: ViewProps) {
             </table>
           </div>
         )}
+        {idle && hasAi ? (
+          <GroupScoreOption id={OPTION_ID} checked={p.option} disabled={p.working} onChange={p.onOption} />
+        ) : null}
+        {running && hasAi ? (
+          <p className="muted small">AI players in group scores: {data.includeInGroup ? "on" : "off"}</p>
+        ) : null}
         {idle ? (
           <p className="muted small">
             Codes issued earlier are not shown again. Reissue a role to get a

@@ -23,6 +23,8 @@ export type Readiness = {
   missing: string[];
   /** US-0060: AI roles whose bot has not connected yet. Empty when the server does not send it (an older server). */
   aiWaiting: string[];
+  /** US-0061: the group-score option (on unless the server says it is off). */
+  includeInGroup: boolean;
 };
 export type ListedSession = {
   sessionId: string;
@@ -115,6 +117,7 @@ export function parseReadiness(v: unknown): Readiness | null {
     aiWaiting: Array.isArray(o.aiWaiting)
       ? o.aiWaiting.filter((m): m is string => typeof m === "string")
       : [],
+    includeInGroup: o.includeInGroup !== false,
   };
 }
 
