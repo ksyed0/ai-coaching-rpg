@@ -1857,25 +1857,36 @@ Notes: Plan docs/superpowers/plans/2026-11-04-slice-2b-3c-ai-group-score.md; PR 
 US-0062 (EPIC-0002): As a participant, I want to read my report after the session has ended, so that I do not depend on the session still running.
 Priority: High
 Estimate: L
-Status: In Progress
-Branch: feature/EPIC-0002-US-0062-report-access
+Status: Done
+Branch: feature/EPIC-0002-US-0062-report-access (slice 2c-1 PR 1); feature/EPIC-0002-US-0062-report-pages (PR 2)
 Dependencies: US-0056
 Acceptance Criteria:
-  - [ ] AC-0327: the facilitator issues a link for a released report from the console; the credential is 128 bits from a CSPRNG, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in one report-access.json under the control data directory (0600, atomic, outside every review folder) (store and service built in slice 2c-1 PR 1; TC-0121; the console button is PR 2)
-  - [ ] AC-0328: the console shows the report link with the credential once, and the facilitator can revoke or reissue it
-  - [ ] AC-0329: the control service verifies the credential and serves released views without a live runtime, tied to the session in the credential (service and API built in slice 2c-1 PR 1; TC-0122; the browser side is PR 2)
-  - [ ] AC-0330: a cross-role or cross-session request and an expired or revoked credential are refused with one neutral response (control-service side built in slice 2c-1 PR 1; TC-0122)
-  - [x] AC-0365: the reader of released reports is read-only (`@acr/runtime/reports`, nothing in it writes), resolves the single live review folder including a re-run's `<id>-2`, and the control service imports only the allowed runtime subpaths (built in slice 2c-1 PR 1; TC-0123)
-  - [ ] AC-0366: a revoke or reissue ends reads at once even for a holder of a live cookie (every read re-checks the credential), and a read with the wrong session answers 404 without touching lastUsedAt (control-service side built in slice 2c-1 PR 1; TC-0122)
+  - [x] AC-0327: the facilitator issues a link for a released report from the console; the credential is 128 bits from a CSPRNG, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in one report-access.json under the control data directory (0600, atomic, outside every review folder) (store and service built in slice 2c-1 PR 1, TC-0121; the console button in PR 2, TC-0125 and TC-0126)
+  - [x] AC-0328: the console shows the report link (/report/enter#token) with the credential once, and the facilitator can revoke or reissue it (reissue asks for confirmation and says the old link stops working at once) (built in slice 2c-1 PR 2; TC-0125 for the panel, TC-0126 for the whole flow in a browser)
+  - [x] AC-0329: the control service verifies the credential and serves released views without a live runtime, tied to the session in the credential (service and API in PR 1, TC-0122; the browser side in PR 2, TC-0124 and TC-0126: the report is read from the reports folder by the control service alone, after the session has ended)
+  - [x] AC-0330: a cross-role or cross-session request and an expired or revoked credential are refused with one neutral response (control side TC-0122; the BFF and the pages in PR 2, TC-0124 and TC-0126)
+  - [x] AC-0365: the reader of released reports is read-only (`@acr/runtime/reports`, nothing in it writes), resolves the single live review folder including a re-run's `<id>-2`, and the control service imports only the allowed runtime subpaths (built in slice 2c-1 PR 1; TC-0123; TC-0126 seeds a superseded first run and a live `-2` and sees the re-run's text)
+  - [x] AC-0366: a revoke or reissue ends reads at once even for a holder of a live cookie (every read re-checks the credential), and a read with the wrong session answers 404 without touching lastUsedAt (control side TC-0122; browser side TC-0126: revoke in the console, reload /report in the same browser, refused; reissue, the old link refused and the new one works)
+  - [x] AC-0367: opening a report link keeps the token out of every server log, `Referer` and the address bar: the fragment is removed before anything is awaited, posted once (also under React StrictMode), dropped after the exchange, and with script blocked the page says so and sends nothing (built in slice 2c-1 PR 2; TC-0124, TC-0126)
+  - [x] AC-0368: the enter route refuses a forged cross-site POST before the throttle, answers a blocked address 429 `rate_limited` with Retry-After (a refused token stays the neutral 404), and /report, /report/enter and every report response carry no-store and no-referrer; the console DTO never carries a credential id (built in slice 2c-1 PR 2; TC-0124, TC-0125, TC-0126; docs/THREAT_MODEL.md "Report access")
 ```
 
 ```
 TASK-0091 (US-0062): Report-access credential and control-service report API
 Type: Dev
 Assignee: Agent
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0002-US-0062-report-access
-Notes: Spec section 5.8; slice 2c-1 plan docs/superpowers/plans/2026-11-05-slice-2c-1-report-access.md. PR 1 (control side) built the hashed credential store, the control-service report links and read API and the read-only runtime reader (TC-0121 to TC-0123); PR 2 adds the browser routes and the console panel. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Spec section 5.8; slice 2c-1 plan docs/superpowers/plans/2026-11-05-slice-2c-1-report-access.md. PR 1 (control side) built the hashed credential store, the control-service report links and read API and the read-only runtime reader (TC-0121 to TC-0123). Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+TASK-0100 (US-0062): Report pages, BFF report routes and console link panel
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0062-report-pages
+Notes: Slice 2c-1 PR 2 (same plan). The BFF exchange and read routes with the sealed `__Host-scenecoach-report` cookie, /report/enter and /report, the console Participant reports panel, the Playwright and Axe tests (TC-0124 to TC-0126) and docs/THREAT_MODEL.md "Report access". TASK-0092 was already taken by US-0063, so this slice uses TASK-0100.
 ```
 
 ```

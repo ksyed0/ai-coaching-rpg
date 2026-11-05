@@ -1912,3 +1912,48 @@ Actual Result: As expected, 2026-11-05: step 1 2 files, 18 tests passed; step 2 
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2c-1, PR 1.
+
+TC-0124: The BFF report routes and the participant pages keep the token out of logs, address bar and referrer, and refuse as one
+Related Story: US-0062
+Related Task: TASK-0100
+Related AC: AC-0330, AC-0367, AC-0368
+Type: Regression
+Preconditions: As TC-0110.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/report-handlers.test.ts src/components/__tests__/ReportEnter.test.tsx src/components/__tests__/ReportView.test.tsx` (the enter route checks Origin and Fetch-Metadata before the throttle and before any control call; the cookie has the exact attributes and a Max-Age equal to the time left; refusals are byte-equal; the sixth failure from one address blocks it and a blocked address gets 429 `rate_limited` with Retry-After while a refused token stays the neutral 404; a read without, with a tampered or with a wrong-purpose cookie is the neutral 404; a control 404 clears the cookie and a 503 does not; every response has no-store and no-referrer; no console call receives the token; the page removes the fragment through `history.replaceState` before the request, posts the token once under StrictMode, drops it after success, treats a new non-empty fragment as a new attempt, shows the exact copy for every state, renders markup as text, and `pre.report-text` is `pre-wrap` with `overflow-wrap: anywhere`; the print rule hides the header and the Print button).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-05: 3 files, 44 tests passed (24 + 20); the new ReportEnter tests (token dropped after success, hashchange) fail against the previous component.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 2.
+
+TC-0125: The console Participant reports panel issues, reissues and revokes links and shows a new link once
+Related Story: US-0062
+Related Task: TASK-0100
+Related AC: AC-0327, AC-0328, AC-0368
+Type: Regression
+Preconditions: As TC-0110.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/ReportLinksPanel.test.tsx` (a row per role with its status, expiry and last-opened time; Issue, Reissue behind a confirmation that says the old link stops working at once, Revoke behind a confirmation and reachable whenever a link exists; the link is shown once in the component's state, with Copy and a fallback selection, and the other buttons wait until it is dismissed; focus moves to the link's Copy button and back to the role's button; the not-ready, unavailable and failure sentences; no credential id or token in the list).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-05: 1 file, 18 tests passed.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 2.
+
+TC-0126: A participant opens a report link in a fresh browser, and revoke and reissue take effect at once (Playwright, with Axe)
+Related Story: US-0062
+Related Task: TASK-0100
+Related AC: AC-0328, AC-0329, AC-0330, AC-0365, AC-0366, AC-0367, AC-0368
+Type: Integration
+Preconditions: As TC-0110, plus the Playwright browser (`PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed) and `next build --webpack` done in `apps/web`. Each test starts the real control service (mock models, temporary data directory) and `next start` in launcher mode.
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test report-access axe`.
+  2. The first test signs in, creates a session, seats three players, starts and ends it, then seeds `<data dir>/reports/<session>` (a first run, released, then superseded) and `<session>-2` (a re-run with one changed strength line, released) with the runtime's own `moderate` functions. It issues a link for a role, opens it in a fresh browser context and checks that the re-run's text shows (not the old text), "Available until" shows and the address bar has no fragment. It revokes in the console and reloads `/report` in the same browser (refused copy), issues again, reissues, and checks that the superseded link is refused in another fresh context and the reissued one opens.
+  3. The second test, with JavaScript disabled, opens `/report/enter#x`: the server's HTML carries the no-script sentence and no request to `/api/` is made. Six bad tokens from one address are each refused; the seventh attempt shows "Too many attempts. Wait a minute and try again."
+  4. The third test runs Axe (serious and critical, WCAG 2 A and AA) on the console panel (list, and with a link shown), `/report` (report and refused) at 1280 and 400 px in light and dark, with no horizontal scroll.
+Expected Result: All pass, zero violations.
+Actual Result: As expected, 2026-11-05: report-access and axe.spec.ts, 5 tests passed in 48.8 s.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 2. The review folders are seeded, not produced by a real `evaluate` of the e2e session (the mock models cannot score a real session). The no-script check reads the server's HTML because Chromium's script-disabled emulation keeps `<noscript>` hidden. The bad-token count is six, not five, before the block: the join's rule is "more than 5 failures".

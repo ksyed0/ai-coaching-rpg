@@ -4,9 +4,9 @@
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
-| TASK         | TASK-0100             | TASK-0099         |
-| AC           | AC-0367               | AC-0366           |
-| TC           | TC-0124               | TC-0123           |
+| TASK         | TASK-0101             | TASK-0100         |
+| AC           | AC-0369               | AC-0368           |
+| TC           | TC-0127               | TC-0126           |
 | BUG          | BUG-0025              | BUG-0024          |
 | L            | L-0032                | L-0031            |
 
@@ -69,3 +69,5 @@ Assigned 2026-11-04 (slice 2b-3c, PR 1): TC-0114 (AC-0323). No new AC or TASK: t
 Assigned 2026-11-05 (slice 2b-3c, PR 2): AC-0364 (US-0061: for a session without AI roles the evaluator's requests and reports are byte-identical to the build before the slice, and a log written before the option existed is scored with the option on); TC-0115 (AC-0324), TC-0116 (AC-0325), TC-0117 (AC-0326: the independent review record and its fixes), TC-0118 (AC-0322, evaluator part), TC-0119 (AC-0321, reports and exports) and TC-0120 (AC-0364). No new TASK: the work closes TASK-0090. Slice 2b-3c is complete; the next AC is AC-0365 and the next TC is TC-0121.
 
 Assigned 2026-11-05 (slice 2c-1, PR 1): AC-0365 (US-0062: the reader of released reports is read-only and follows a re-run folder) and AC-0366 (US-0062: a revoke or reissue ends reads at once, even for a holder of a live cookie, and a wrong-session read does not touch the credential); TC-0121 (AC-0327: the credential store), TC-0122 (AC-0329, AC-0330, AC-0366: the report service and its API) and TC-0123 (AC-0365: the runtime reader and the import boundary). TASK-0091 is reused (no new TASK; next free stays TASK-0100).
+
+Assigned 2026-11-05 (slice 2c-1, PR 2): AC-0367 (US-0062: opening a report link keeps the token out of logs, referrer and the address bar; no-script fallback) and AC-0368 (US-0062: forged cross-site enter refused before the throttle, a blocked address gets 429 with Retry-After while a refused token stays the neutral 404, no-store and no-referrer, no credential id in the console DTO); TC-0124 (AC-0330, AC-0367, AC-0368: BFF routes and pages), TC-0125 (AC-0327, AC-0328, AC-0368: console panel) and TC-0126 (end to end and Axe). TASK-0100 (TASK-0092 was already taken by US-0063). Slice 2c-1 is complete; the next AC is AC-0369, the next TC is TC-0127 and the next TASK is TASK-0101.
