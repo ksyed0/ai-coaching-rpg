@@ -65,7 +65,7 @@ export function createReportService(d: { config: ControlConfig; store: ReportAcc
       return c === null ? null : { credentialId: c.id, sessionId: c.sessionId, role: c.role, expiresAt: c.expiresAt };
     },
     async read(sessionId, credentialId) {
-      const c = await store.check(credentialId);
+      const c = await store.check(credentialId, sessionId);
       if (c === null || c.sessionId !== sessionId) return { status: 404 };
       const r = await readReleasedView(config.reportsDir, sessionId, c.role, secrets);
       if (r.kind === "released") return { status: 200, body: { state: "released", view: r } };

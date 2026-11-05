@@ -192,12 +192,13 @@ describe("states", () => {
       await chmod(path.join(dir, "alice.json"), 0o600);
     }
   });
-  it("a directory moved away mid-read gives unavailable or missing, never a throw", async () => {
+  it("a directory moved away mid-read gives a plain outcome, never a throw", async () => {
     await release();
     const p = readReleasedView(root, sessionId, "alice", secrets);
     await rename(dir, `${dir}.gone`);
     const r = await p;
-    expect(["released", "unavailable", "missing"]).toContain(r.kind);
+    // The rename can land between the directory listing and the review load, so not_released is legitimate too.
+    expect(["released", "unavailable", "missing", "not_released"]).toContain(r.kind);
     expect(JSON.stringify(r)).not.toContain(root);
   });
   it("a symbolic-link review folder is not followed", async () => {

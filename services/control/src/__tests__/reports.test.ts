@@ -17,6 +17,7 @@ const refusal = async (p: Promise<unknown>): Promise<{ code: string; message: st
   try { await p; return null; } catch (e) { if (e instanceof ControlError) return { code: e.code, message: e.message }; throw e; }
 };
 const DAY = 86_400_000;
+const store_list = (world: ReportWorld) => world.store.list(world.sessionId);
 
 describe("links", () => {
   it("is ready with the released roles and their live credential", async () => {
@@ -66,6 +67,14 @@ describe("issue and reissue", () => {
     w = await makeReportWorld({ release: false });
     svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t });
     expect(await refusal(svc.issue(w.sessionId, "alice"))).toEqual({ code: "conflict", message: NO_REPORT });
+  });
+  it("an AI role named in the group draft cannot get a link and is never listed", async () => {
+    await w.cleanup();
+    w = await makeReportWorld({ aiRoles: ["ai1"] });
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t });
+    expect(await refusal(svc.issue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: NO_REPORT });
+    expect(await refusal(svc.reissue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: NO_REPORT });
+    expect((await svc.links(w.sessionId)).roles.map((r) => r.role)).toEqual(["alice", "bob"]);
   });
   it("a second issue for a live pair is a conflict", async () => {
     await svc.issue(w.sessionId, "alice");
@@ -136,6 +145,15 @@ describe("read", () => {
     expect(await svc.read(w.sessionId, "../etc")).toEqual({ status: 404 });
     await svc.revoke(w.sessionId, "alice");
     expect(await svc.read(w.sessionId, credential.id)).toEqual({ status: 404 });
+  });
+  it("a read with the wrong session does not touch lastUsedAt", async () => {
+    const { credential } = await svc.issue(w.sessionId, "alice");
+    const before = readFileSync(w.file, "utf8");
+    w.clock.t += 60 * 60_000;
+    expect(await svc.read("other-session", credential.id)).toEqual({ status: 404 });
+    expect(readFileSync(w.file, "utf8")).toBe(before);
+    expect((await svc.read(w.sessionId, credential.id)).status).toBe(200);
+    expect((await store_list(w))[0]!.lastUsedAt).toBe(w.clock.t);
   });
   it("is dead at exactly expiresAt", async () => {
     const { credential } = await svc.issue(w.sessionId, "alice");

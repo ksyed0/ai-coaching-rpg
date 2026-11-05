@@ -208,13 +208,16 @@ export class ReportAccessStore {
     return this.lookup(id, secret);
   }
 
-  /** The per-read re-check: the credential by id if it is live, else null. */
-  async check(credentialId: string): Promise<ReportCredential | null> {
+  /**
+   * The per-read re-check: the credential by id if it is live, else null. With an expected session, a credential of another session is
+   * null too, decided before the lastUsedAt touch so a wrong-session read leaves the file alone.
+   */
+  async check(credentialId: string, expectedSessionId?: string): Promise<ReportCredential | null> {
     if (typeof credentialId !== "string" || !ID_RE.test(credentialId)) return null;
-    return this.lookup(credentialId, undefined);
+    return this.lookup(credentialId, undefined, expectedSessionId);
   }
 
-  private async lookup(id: string, secret: string | undefined): Promise<ReportCredential | null> {
+  private async lookup(id: string, secret: string | undefined, expectedSessionId?: string): Promise<ReportCredential | null> {
     try {
       return await this.mutate(async (list) => {
         const now = this.o.now();
@@ -227,6 +230,7 @@ export class ReportAccessStore {
           if (!(want.length === got.length && timingSafeEqual(want, got)) || !rec) return { result: null };
         }
         if (!rec || !live(rec, now)) return { result: null };
+        if (expectedSessionId !== undefined && rec.sessionId !== expectedSessionId) return { result: null };
         if (rec.lastUsedAt === undefined || now - rec.lastUsedAt >= TOUCH_MS) {
           const touched: Record_ = { ...rec, lastUsedAt: now };
           return { result: strip(touched), list: list.map((r) => (r.id === id ? touched : r)) };

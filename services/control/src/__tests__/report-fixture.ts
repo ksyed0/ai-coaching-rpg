@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { rename, rm, writeFile } from "node:fs/promises";
+import { readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { makeDraftDir, makeRunner } from "../../../runtime/src/review/__tests__/fixtures.js";
@@ -8,8 +8,15 @@ import type { ControlConfig } from "../config.js";
 import { ReportAccessStore } from "../report-access.js";
 
 /** A real released review folder (alice and bob released) plus a store in a temp dir, for the report service and API tests. */
-export async function makeReportWorld(opts: { release?: boolean } = {}) {
+export async function makeReportWorld(opts: { release?: boolean; aiRoles?: string[] } = {}) {
   const { root, dir } = await makeDraftDir();
+  if (opts.aiRoles) {
+    // The group draft names AI players (they are never subjects, so they have no report of their own).
+    const gf = path.join(dir, "group.json");
+    const g = JSON.parse(await readFile(gf, "utf8")) as Record<string, unknown>;
+    g.ai_players = { roles: opts.aiRoles, included_in_group: false };
+    await writeFile(gf, JSON.stringify(g, null, 2));
+  }
   const sessionId = path.basename(dir);
   const run = makeRunner(root);
   const rel = path.relative(root, dir);

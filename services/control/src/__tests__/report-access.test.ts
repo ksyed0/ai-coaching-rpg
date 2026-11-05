@@ -154,6 +154,17 @@ describe("ReportAccessStore", () => {
     expect((await store.list(SID))[0]?.lastUsedAt).toBe(T0 + 10 * 60_000);
   });
 
+  it("check with an expected session: a different session is null and the file is untouched; the right one behaves as before", async () => {
+    const { file, store, clock } = make();
+    const { credential } = await store.issue(SID, "alice");
+    const before = readFileSync(file);
+    clock.t = T0 + 60 * 60_000;
+    expect(await store.check(credential.id, "sess-2")).toBeNull();
+    expect(readFileSync(file).equals(before)).toBe(true);
+    expect((await store.check(credential.id, SID))?.lastUsedAt).toBe(T0 + 60 * 60_000);
+    expect((await store.check(credential.id))?.id).toBe(credential.id);
+  });
+
   it("a check inside the window does not rewrite the file", async () => {
     let writes = 0;
     const { store } = make({ beforeWrite: async () => { writes++; } });
