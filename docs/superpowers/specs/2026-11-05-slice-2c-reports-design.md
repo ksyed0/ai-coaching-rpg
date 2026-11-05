@@ -8,27 +8,27 @@ A participant who finished a session can read their own released report, and the
 
 - Slice 2c ships in this order: 2c-1 report access and the read-only participant page (US-0062), 2c-2 self-assess and respond (US-0063), 2c-3 facilitator evaluate, moderate, release and export in the console (US-0064) **[owner]**.
 - The console issues report links for any role whose report is released, on an ended session. That covers reports released from the terminal as well **[owner]**.
-- Until 2c-3, the console shows the exact `pnpm evaluate --out` command, and the control service gives a clear refusal when the reports folder or the released reports are missing **[owner]**.
+- Until 2c-3, the console shows a fixed "reports are not ready" message naming the steps (evaluate, then moderate open and release), and the control service refuses with it when no live review or no released report exists **[owner; amended to a fixed sentence, because control errors may carry no paths or ids]**.
 - A participant gets their own report plus the group report **[owner]**. AI roles and roles with no released report get no link.
 - Success: a participant opens the link on a phone, sees only what the review policy releases to them, and loses access the moment the facilitator revokes the link or it expires.
 
 ## 2. Decisions for 2c-1
 
-1. **Read path.** A new read-only runtime subpath export `@acr/runtime/reports` returns the released view of one role's report and the group report with peers removed, driven by the review policy (`canView`). The control service is its only consumer; the BFF never touches `data/reports`. The SDK Import Guard rule that today lets the control service import only `@acr/runtime/players` is extended to allow this second subpath and nothing else.
-2. **Where reports live.** `CONTROL_DATA_DIR/reports/<sessionId>/`, the folder `pnpm evaluate --out` writes. The control service ties the folder to the session named in the credential, because `canView` knows roles, not sessions.
+1. **Read path.** A new read-only runtime subpath export `@acr/runtime/reports` returns the released view of one role's report and the group report with peers removed, driven by the review policy (`canView`). The control service is its only consumer; the BFF never touches `data/reports`. The runtime's `exports` map is the boundary, and `services/control/src/__tests__/bots/imports.test.ts` pins what the control service may import; it is changed to allow `@acr/runtime/players` and `@acr/runtime/reports` and nothing else. (The SDK Import Guard script only checks provider SDKs.)
+2. **Where reports live.** Under `CONTROL_DATA_DIR/reports/`: the folder `<sessionId>`, or `<sessionId>-2` … after an evaluate re-run (which supersedes the earlier review). The reader resolves the one live, unsuperseded review whose recorded session id matches the credential's session, because `canView` knows roles, not sessions. "Released" includes the `amending` state, as the policy does.
 3. **The link does not carry the credential in a path or query.** The console issues `/report/enter#<token>`. The page reads the fragment in script, removes it from the address bar with `history.replaceState`, and posts it to `POST /api/v1/report/enter`. The BFF exchanges it with the control service and sets a sealed, `HttpOnly` `__Host-` cookie, then redirects to a clean `/report`. The cookie's lifetime is the credential's remaining life (never longer), not the session's.
 4. **JavaScript fallback.** The fragment needs script. When script is blocked or fails, `/report/enter` shows "This link needs JavaScript to open. Turn it on for this site, or ask your facilitator for help." A test pins that message.
-5. **Credential store** `services/control/src/report-access.ts`, file `access.json` beside the reports (`0600`, atomic write, outside the review log).
-   - Record: `{ id, role, hash, createdAt, expiresAt, revokedAt?, lastUsedAt? }`. `hash` is a salted SHA-256 of a 128-bit CSPRNG token; the token is high-entropy, so a slow hash adds nothing.
+5. **Credential store** `services/control/src/report-access.ts`: one file `CONTROL_DATA_DIR/report-access.json` (`0600`, atomic write, one in-process write queue). It must not sit inside a review folder: the review loaders read every `*.json` there and refuse unknown files, so a credential file would break later releases.
+   - Token `<id>.<secret>` (8 random bytes and 16 random bytes = 128 bits, base64url). Record: `{ id, sessionId, role, salt, hash, createdAt, expiresAt, revokedAt?, lastUsedAt? }`; `hash` is a salted SHA-256 of the secret. The id is the lookup key, so an exchange never scans files.
    - `REPORT_ACCESS_DAYS` defaults to 90 and is validated at startup (integer, 1 to 365).
-   - One live credential per role. Issuing for a role that already has a live credential is refused (409). **Reissue** is a separate, explicit action that revokes the old credential and issues a new one.
+   - One live credential per (session, role). Issuing for a live pair is refused (409). **Reissue** is a separate, explicit action that revokes the old credential and issues a new one. Revoke works whenever a credential exists, whatever the report's state.
    - `lastUsedAt` is written on exchange and on report reads, at most once per 10 minutes per credential, so the console can show whether a link looks used or shared.
 6. **Control API.**
-   - `POST /sessions/:id/report-links` issues links for the released human roles and returns each token once.
+   - `GET /sessions/:id/report-links` lists roles and credentials; `POST /sessions/:id/report-links { role }` issues one link and returns the token once. AI roles never appear: an AI role cannot be a report subject.
    - `POST /sessions/:id/report-links/:role/reissue` and `DELETE /sessions/:id/report-links/:role`.
    - `POST /report-access/exchange { token }` returns `{ credentialId, role, sessionId, expiresAt }` or the neutral refusal.
-   - `GET /sessions/:id/reports/:role` returns the released view. The control service re-verifies the credential id (live, unexpired, unrevoked) on every call, so revoking takes effect at once even while a cookie exists.
-7. **One neutral refusal** for a wrong role, wrong session, expired, revoked or unknown token: the same status and body, so the exchange is not an oracle for which sessions or roles exist. The exchange is throttled per client address, like the other credentials.
+   - `GET /sessions/:id/reports/:credentialId` returns the released view (the role comes from the credential, never from the URL or the request). The control service re-verifies the credential id (live, unexpired, unrevoked) on every call, so revoking takes effect at once even while a cookie exists.
+7. **One neutral refusal** for a wrong role, wrong session, expired, revoked or unknown token: the same status and body, so the exchange is not an oracle for which sessions or roles exist. The exchange is throttled per client address and applies the same cross-site checks as join, so a forged cross-site POST cannot sign a victim into someone else's report. A live credential whose report is later withdrawn or unreadable gets "not released yet" or "try again", not the neutral refusal (the holder already knows the credential exists).
 8. **Console.** On an ended session the console lists each released human role with: Issue link, Reissue, Revoke, the expiry date and last-used time. Reissue asks for confirmation and says the old link stops working at once. The token is shown once, like join codes.
 9. **Participant page `/report`.**
    - States: loading, report, not released yet, expired or revoked, try again.
@@ -51,7 +51,7 @@ Self-assess and respond from the page. New versioned actor kind `participant_ses
 
 ### 2c-3 (US-0064), outlined
 
-Facilitator evaluate, moderation, release and export in the console, run by the control service. Replaces the printed `pnpm evaluate --out` command. Needs its own spec.
+Facilitator evaluate, moderation, release and export in the console, run by the control service. Replaces the terminal steps. Needs its own spec.
 
 ## 4. Threat-model changes (new section "Report access" in `docs/THREAT_MODEL.md`, written in 2c-1 PR 2)
 
