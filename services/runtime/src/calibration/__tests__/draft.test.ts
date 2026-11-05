@@ -291,6 +291,13 @@ describe("excerptDraft", () => {
       { scene: "s2_client_call", role: "account_manager", text: "Agreed." },
     ]);
   });
+  it("refuses an AI player as the subject, and a log whose AI record is invalid, writing nothing", async () => {
+    const withAi = (over: Record<string, unknown>) => fridayLog().map((e) => (e.type === "session.started" ? { ...e, roles: Object.fromEntries(["delivery_lead", "tech_lead", "account_manager", "client_sponsor"].map((r) => [r, { kind: scenario.roles[r]?.type === "player" ? "player" : "npc" }])), ...over } : e)) as SessionEvent[];
+    await expect(ex({ log: withAi({ logFormat: 3, aiRoles: ["delivery_lead"] }) })).rejects.toThrow(/that role is an AI player in this session/);
+    await expect(ex({ log: withAi({ logFormat: 3, aiRoles: ["no_such_role"] }) })).rejects.toThrow(CalibrationInputError);
+    // a human subject in the same session still drafts
+    await expect(ex({ log: withAi({ logFormat: 3, aiRoles: ["tech_lead"] }) })).resolves.toHaveProperty("file");
+  });
   it.each([
     ["a subject with fewer than 2 lines", { from: 7, to: 9 }, /delivery_lead has 1 line in seq 7 to 9 \(at least 2 are needed\)/],
     ["from after to", { from: 9, to: 7 }, /--from must not be after --to/],
