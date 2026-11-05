@@ -31,6 +31,8 @@ export type LauncherStack = {
   controlUrl: string;
   serviceToken: string;
   facilitatorSecret: string;
+  /** The control service's data dir (a temp dir this stack owns, removed by stop()); report folders go under `reports/`. */
+  dataDir: string;
   /** SIGTERMs the control service (its runtimes exit when the IPC channel closes), waits, and starts it again on the same port, data dir and token. */
   restartControl(): Promise<void>;
   /** Kills `next start` and starts it again on the same port with the same COOKIE_KEYS. */
@@ -241,6 +243,7 @@ export async function startLauncherStack(
       controlUrl,
       serviceToken,
       facilitatorSecret,
+      dataDir,
       async restartControl() {
         await stopControl(control);
         control = await startControl(controlPort, dataDir, serviceToken, out);
