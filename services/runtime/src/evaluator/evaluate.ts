@@ -20,7 +20,7 @@ export type ParticipantEval = {
   /** Things worth knowing about this evaluation that are not failures (for example next actions dropped for an unknown learning objective). */
   notes: string[];
 };
-export type NotableMoment = { seq: number; roleId: string; quote: string; note: string; sceneNumber: number; sceneTitle: string; time: string };
+export type NotableMoment = { seq: number; roleId: string; quote: string; note: string; sceneNumber: number; sceneTitle: string; time: string; /** The quoted line is an AI player's (only possible when AI players count toward group scores). */ ai?: true };
 export type GroupEval = {
   status: EvalStatus; reason?: string; criteria: CriterionResult[]; objectives: LoResult[]; talking_points: string[]; notable_moments: NotableMoment[]; modelCalls: number;
 };
@@ -172,7 +172,7 @@ export async function evaluateSession(input: EvaluateInput): Promise<EvaluationR
         const { verified } = verifyAll([m], verify);
         const note = cleanProse(typeof m === "object" && m !== null ? (m as Record<string, unknown>).note : "", 300);
         const e: Evidence | undefined = verified[0];
-        if (e && moments.length < 4 && !moments.some((x) => x.seq === e.seq && x.quote === e.quote)) moments.push({ seq: e.seq, roleId: e.roleId, quote: e.quote, note, sceneNumber: e.sceneNumber, sceneTitle: e.sceneTitle, time: e.time });
+        if (e && moments.length < 4 && !moments.some((x) => x.seq === e.seq && x.quote === e.quote)) moments.push({ seq: e.seq, roleId: e.roleId, quote: e.quote, note, sceneNumber: e.sceneNumber, sceneTitle: e.sceneTitle, time: e.time, ...(e.ai ? { ai: true as const } : {}) });
       }
       groupEval = {
         status: "ok", criteria: normalised.criteria, objectives: aggregateObjectives(objectives, scoreMap(normalised.criteria)),

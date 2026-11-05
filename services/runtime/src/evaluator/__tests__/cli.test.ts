@@ -149,6 +149,30 @@ describe("helpers", () => {
   });
 });
 
+describe("a session with an AI player", () => {
+  const aiLogText = () => {
+    const lines = logText().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    Object.assign(lines[0], { logFormat: 3, aiRoles: ["tech_lead"], includeInGroup: true, roles: { delivery_lead: { kind: "player" }, tech_lead: { kind: "player" }, account_manager: { kind: "player" } } });
+    return lines.map((e) => JSON.stringify(e)).join("\n") + "\n";
+  };
+  it("the summary and --json name tech_lead as AI player, not scored", async () => {
+    await writeFile(log, aiLogText());
+    const r = await run([log, "--out", path.join(dir, "o"), "--json", "-"]);
+    expect(r.exitCode).toBe(0);
+    const summary = JSON.parse(r.out.slice(r.out.indexOf("{")));
+    expect(summary.aiPlayers).toEqual({ roles: ["tech_lead"], includeInGroup: true });
+    expect(summary.participants.map((p: { role: string }) => p.role)).toEqual(["account_manager", "delivery_lead"]);
+    expect(summary.files).not.toContain("tech_lead.md");
+    expect(r.err).toContain("tech_lead: AI player, not scored");
+  });
+  it("summaryLines adds one line per AI role, and nothing without AI roles", () => {
+    const base = { participants: [], group: { status: "ok", criteria: [] }, modelCalls: 1 };
+    expect(summaryLines({ ...base, ai: { roles: ["bob"], includeInGroup: false } } as never)).toEqual(["bob: AI player, not scored", "team: ", "model calls: 1"]);
+    expect(summaryLines(base as never)).toEqual(["team: ", "model calls: 1"]);
+    expect(() => summaryLines({ ...base, ai: { roles: ["Bad Id"], includeInGroup: true } } as never)).toThrow();
+  });
+});
+
 describe("the calibration stamp in a run", () => {
   const ok = { criteria: [{ id: "discovery", score: null }, { id: "shared_understanding", score: null }], talking_points: ["x"] };
   const provider = { name: "fake", async *stream() { yield JSON.stringify(ok); } };

@@ -23,6 +23,7 @@ export type RenderedReports = { files: Map<string, string>; participants: Partic
 /** Renders every report file in memory: `<role>.md` and `.json`, `group.md` and `.json`, `index.md` and `method.md`. Pure. Role ids are validated first. */
 export function renderReports(result: EvaluationResult, evaluator: EvaluatorInfo, secrets: string[] = []): RenderedReports {
   for (const p of result.participants) checkRoleId(p.roleId);
+  for (const r of result.ai?.roles ?? []) checkRoleId(r);
   const ctx = { result, evaluator, secrets };
   const files = new Map<string, string>();
   const participants = result.participants.map((p) => buildParticipantReport(ctx, p));
@@ -46,7 +47,9 @@ function renderIndex(result: EvaluationResult, participants: ParticipantReport[]
     `Evaluator: ${safeMd(evaluator.provider, 200, sec)}${evaluator.model ? `, model ${safeMd(evaluator.model, 100, sec)}` : ""}.`, "",
     ...(evaluator.variant || evaluator.rubricHash ? [`Prompt variant ${token(evaluator.variant, sec)}, rubric ${token(evaluator.rubricHash, sec)}.`, ""] : []), ...(evaluator.scripted ? [DEMO_NOTE, ""] : []), "## Reports", ""];
   for (const r of roles) out.push(`- [${r}](${r}.md) ([JSON](${r}.json))`);
-  out.push("- [Group report](group.md) ([JSON](group.json))", "- [How scores are produced](method.md)", "", "## Learning-objective results for everyone", "");
+  out.push("- [Group report](group.md) ([JSON](group.json))", "- [How scores are produced](method.md)");
+  for (const r of result.ai?.roles ?? []) out.push(`- ${id(r, sec)}: AI player, not scored`);
+  out.push("", "## Learning-objective results for everyone", "");
   const team = group.lo_coverage.objectives.some((o) => o.team.score !== null);
   out.push(`| Learning objective | ${roles.map((r) => `\`${r}\``).join(" | ")}${team ? " | Team" : ""} |`, `| --- | ${roles.map(() => "---").join(" | ")}${team ? " | ---" : ""} |`);
   for (const o of group.lo_coverage.objectives) {

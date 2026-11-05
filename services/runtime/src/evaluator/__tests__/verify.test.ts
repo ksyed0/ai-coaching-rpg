@@ -123,7 +123,7 @@ describe("verifyReportFiles with AI players", () => {
         expect(v.problems).toEqual([]);
         expect(v.reports).toBe(2);
         // The same report checked against a log where the option is off must flag bob's quote.
-        if (on) expect((await verifyReportFiles(w.dir, aiLog(false), sampleScenario())).problems.join()).toMatch(/not a player's/);
+        if (on) expect((await verifyReportFiles(w.dir, aiLog(false), sampleScenario())).problems.join()).toMatch(/although AI players were not included in group scores/);
       } finally { await rm(out, { recursive: true, force: true }); }
     }
   });
