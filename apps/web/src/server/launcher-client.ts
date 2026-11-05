@@ -38,6 +38,8 @@ export type SessionInfo = {
   status: "running" | "stopped" | "ended";
   port?: number;
   modelLabel?: string;
+  /** Whether AI players' scores count in the group score (US-0061); absent when the control service did not say. */
+  includeInGroup?: boolean;
 };
 export type RoleCode = { roleId: string; code: string };
 /** One line of an AI player's intent log, as the control service returns it (US-0060). */
@@ -147,6 +149,7 @@ function toInfo(v: unknown): SessionInfo {
     status: v.status,
     ...(v.port !== undefined && { port: v.port }),
     ...(v.modelLabel !== undefined && { modelLabel: v.modelLabel }),
+    ...(typeof v.includeInGroup === "boolean" && { includeInGroup: v.includeInGroup }),
   };
 }
 
@@ -297,21 +300,23 @@ export class LauncherClient {
 
   /**
    * Sets which roles AI players play. The reply's `codes` are the human roles' codes only (the control service never returns an AI
-   * code); the BFF filters again.
+   * code); the BFF filters again. `includeInGroup` is sent only when given (absent = keep the current value); the reply must carry it.
    */
   async setAiRoles(
     id: string,
     roles: string[],
-  ): Promise<{ roles: string[]; codes: RoleCode[] }> {
+    includeInGroup?: boolean,
+  ): Promise<{ roles: string[]; includeInGroup: boolean; codes: RoleCode[] }> {
     const d = await this.call(
       "PUT",
       `/sessions/${this.id(id)}/ai-roles`,
-      { roles },
+      includeInGroup === undefined ? { roles } : { roles, includeInGroup },
       this.longTimeoutMs,
     );
-    if (!isObject(d) || !Array.isArray(d.roles)) return bad();
+    if (!isObject(d) || !Array.isArray(d.roles) || typeof d.includeInGroup !== "boolean") return bad();
     return {
       roles: d.roles.map((r) => (isId(r) ? r : bad())),
+      includeInGroup: d.includeInGroup,
       codes: toRoleCodes(d.codes),
     };
   }

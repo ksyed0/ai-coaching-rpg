@@ -499,6 +499,16 @@ describe("console session API", () => {
     );
   });
 
+  it("readiness answers includeInGroup false when the launcher's info says false and true when it has no field", async () => {
+    const a = await api();
+    for (const [field, want] of [[{ includeInGroup: false }, false], [{ includeInGroup: true }, true], [{}, true]] as const) {
+      launcher.session.mockResolvedValueOnce({ sessionId: SID, scenarioId: "pitch", status: "stopped", ...field });
+      expect((await json(await a.readiness(get(`/sessions/${SID}/readiness`)))).data.includeInGroup).toBe(want);
+    }
+    launcher.session.mockResolvedValueOnce({ sessionId: SID, scenarioId: "pitch", status: "running", includeInGroup: false });
+    expect((await json(await a.readiness(get(`/sessions/${SID}/readiness`)))).data.includeInGroup).toBe(false);
+  });
+
   it("readiness for a stopped or ended session opens no socket", async () => {
     const a = await api();
     for (const status of ["stopped", "ended"] as const) {
@@ -511,6 +521,7 @@ describe("console session API", () => {
       expect(res.status).toBe(200);
       expect((await json(res)).data).toEqual({
         launcherStatus: status,
+        includeInGroup: true,
         status: null,
         modelLabel: null,
         roster: [],
@@ -558,6 +569,7 @@ describe("console session API", () => {
     expect(res.status).toBe(200);
     expect((await json(res)).data).toEqual({
       launcherStatus: "running",
+      includeInGroup: true,
       status: null,
       modelLabel: "mock",
       roster: [],

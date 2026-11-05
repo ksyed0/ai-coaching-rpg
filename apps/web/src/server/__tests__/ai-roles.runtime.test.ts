@@ -330,7 +330,7 @@ async function realStack(parentEnv: Record<string, string | undefined>, o: { gat
     createSession: (scenarioId: string) => wrap(() => sup.create(scenarioId)),
     session: async (id: string) => need(sup.get(id)),
     facilitator: async (id: string) => need(sup.facilitator(id)),
-    setAiRoles: (id: string, roles: string[]) => wrap(() => sup.setAiRoles(id, roles)),
+    setAiRoles: (id: string, roles: string[], includeInGroup?: boolean) => wrap(() => sup.setAiRoles(id, roles, includeInGroup)),
     intents: (id: string, role: string) => wrap(async () => sup.intents(id, role)),
   };
   const st: RealStack = { sup, host, pids, parentEnv, releaseBot: release, config, says, launcher };

@@ -264,6 +264,7 @@ export async function handleConsoleReadiness(
   const base = {
     launcherStatus: info.status,
     modelLabel: info.modelLabel ?? null,
+    includeInGroup: info.includeInGroup !== false,
   };
   const unknown = {
     ...base,

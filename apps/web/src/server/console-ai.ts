@@ -24,21 +24,27 @@ function rolesOf(v: unknown): string[] | null {
   return new Set(v).size === v.length ? (v as string[]) : null;
 }
 
-/** POST /api/v1/console/sessions/:id/ai-roles { roles }: the new AI set and the human roles' codes (which a switch may have changed). */
+/**
+ * POST /api/v1/console/sessions/:id/ai-roles { roles, includeInGroup? }: the new AI set, the group-score option and the human roles' codes
+ * (which a switch may have changed). A missing includeInGroup is forwarded as missing (keep the current value); it is never defaulted here.
+ */
 export async function handleConsoleAiRoles(req: Request, deps: Deps): Promise<Response> {
   const g = guard(req, deps, true);
   if ("response" in g) return g.response;
   const id = sessionIdOf(req);
   if (id === null) return notFound();
-  const body = await readBody(req, ["roles"], AI_BODY_MAX_BYTES);
+  const body = await readBody(req, ["roles", "includeInGroup"], AI_BODY_MAX_BYTES);
   const roles = body === null ? null : rolesOf(body.roles);
-  if (roles === null) return badRequest();
+  if (body === null || roles === null) return badRequest();
+  const includeInGroup = body.includeInGroup;
+  if (includeInGroup !== undefined && typeof includeInGroup !== "boolean") return badRequest();
   if (!deps.launcher) return unreachable();
   try {
-    const r = await deps.launcher.setAiRoles(id, roles);
+    const r = await deps.launcher.setAiRoles(id, roles, includeInGroup);
     const ai = new Set(r.roles);
     return ok({
       roles: r.roles.map((x) => x),
+      includeInGroup: r.includeInGroup,
       // An AI role's code never leaves the control service; drop it here even if a launcher sent one.
       codes: r.codes.filter((x) => !ai.has(x.roleId)).map((x) => ({ roleId: x.roleId, code: x.code })),
     });
