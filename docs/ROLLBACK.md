@@ -190,6 +190,34 @@ Rollback trigger: the option misbehaves in the console, a lobby with AI roles ca
 ### Rolling forward again
 Redeploy this slice. A version 1 file reads as option on; a version 2 file that survived reads as off; logs without the field mean on.
 
+## EPIC-0002 slice 2b-3c PR 2: the AI-aware evaluator (US-0061)
+
+```
+Release: unreleased (feature/EPIC-0002-US-0061-ai-evaluator, merged by its pull request; 3b and 3c can now be released together, the owner decides when)
+Date: not deployed
+Rollback trigger: the evaluator refuses a log it should read, a report is wrongly labelled, or a session with AI players is scored as if they were human.
+```
+
+### What changes on disk and in the log
+
+- **Nothing in the log and nothing in the seat files.** PR 2 only reads `session.started` (`aiRoles`, `includeInGroup`) and changes what `pnpm evaluate`, the review tool and `pnpm calibration draft --excerpt` do with it. No format bump, no migration.
+- **Reports written by PR 2 for a session with AI players** have an `ai_players` block in `group.json`, `ai: true` on AI quotes, an extra note, an AI row in `index.md` and the stamp note. Reports for a session without AI roles are byte-identical to the build before 3c, so rolling back changes nothing for them. Reports already written stay as written; re-run `pnpm evaluate` to produce new ones.
+
+### Rolling back to 3b
+
+- **A 3c rollback rolls back 3b: the AI seats.** An evaluator from before 3c does not know AI players: it would score an AI role like a human (a model call, a personal report, the AI line quoted as the player's own). So if 3c is rolled back, do not leave 3b's AI seats reachable. Roll back 3b as described in its section above as well (release 3b and 3c together, roll them back together), or at least do not run `pnpm evaluate` on a session with AI roles until the evaluator is back.
+- **Risk R3 restated (accepted by the owner, 2026-11-04):** with the option OFF, a rolled-back 3b build refuses that lobby ("cannot use the AI-role file") until you move `<id>.ai-roles.json` aside, which makes its AI roles human again. A lobby with the option on has a version 1 file and is read normally; a started session is not affected. See the PR 1 section above.
+- **Not checked by running an older build.** That an older review tool loads a PR 2 draft with `ai_players` was not tested; regenerate the drafts with the older evaluator instead of moderating the PR 2 ones.
+
+### Steps
+
+1. Redeploy the previous runtime (the evaluator ships with it); no data migration.
+2. If AI seats were the reason, roll back 3b too (above) and handle the lobbies with the option off.
+3. **Smoke test:** `pnpm demo --fast` passes its 29 checks; `pnpm demo --showcase --fast --evaluate` passes all its checks (S-16 reads the reports back).
+
+### Rolling forward again
+Redeploy this slice. Re-run `pnpm evaluate` for the sessions with AI players whose reports were written by the older evaluator.
+
 ## BUG-0023: whispers kept in the player snapshot and labelled Private
 
 ```

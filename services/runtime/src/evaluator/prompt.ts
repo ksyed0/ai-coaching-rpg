@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { ChatRequest } from "@acr/adapters";
 import { LEVEL_LABELS, type Rubric, type Scenario } from "@acr/script";
+import type { AiPlayers } from "./ai-players.js";
 
 export const newNonce = (): string => randomBytes(8).toString("hex");
 export const open = (nonce: string): string => `<<<TRANSCRIPT ${nonce}>>>`;
@@ -81,19 +82,31 @@ export function buildParticipantRequest(input: PromptInput & { roleId: string })
 }
 
 /** The request that asks for the GROUP's scores, the facilitator's talking points and notable moments. */
-export function buildGroupRequest(input: PromptInput & { players: string[] }): ChatRequest {
+export function buildGroupRequest(input: PromptInput & { players: string[]; aiPlayers?: AiPlayers }): ChatRequest {
   const notes = clean(input.scenario.meta.facilitator_notes);
+  const humans = input.players.join(", ");
+  const ai = input.aiPlayers;
+  const aiNames = ai ? ai.roles.join(", ") : "";
+  const taskLines = !ai
+    ? [`YOUR TASK: score the team formed by the players (${humans}) using the whole transcript. Evidence for a team criterion may be a quote from any player; never quote an AI character, an inject or the Game Master as evidence.`]
+    : [
+      ai.includeInGroup
+        ? `YOUR TASK: score the team formed by the players (${humans}) and the AI players (${aiNames}) using the whole transcript. Evidence for a team criterion may be a quote from any player or AI player (lines labelled "(player)" or "(AI player)"); never quote an AI character, an inject or the Game Master as evidence.`
+        : `YOUR TASK: score the team formed by the players (${humans}) using the whole transcript. The AI players (${aiNames}, lines labelled "(AI player)") are not part of the scored team: their lines are context only, like an AI character's. Evidence for a team criterion may be a quote from any player; never quote an AI player, an AI character, an inject or the Game Master as evidence.`,
+      `In rationales and talking points, name an AI player as "<id> (AI player)"; when AI players are not included, never credit their lines to the team.`,
+    ];
+  const momentFrom = ai?.includeInGroup ? "a player's or AI player's line" : "a player's line";
   const system = [
     `You are an experienced learning-and-development assessor. You score the TEAM as a whole in a role-play training session against a team rubric and prepare talking points for the facilitator's debrief.`,
     ``, SECURITY, ``,
-    `YOUR TASK: score the team formed by the players (${input.players.join(", ")}) using the whole transcript. Evidence for a team criterion may be a quote from any player; never quote an AI character, an inject or the Game Master as evidence.`,
+    ...taskLines,
     ``, SCALE, ``, EVIDENCE, ``,
     `Score every criterion in this list (use exactly these ids): ${idsList(input.rubrics)}.`, ``,
     `RUBRIC:`, rubricText(input.rubrics), ``,
     `LEARNING OBJECTIVES:`, los(input.scenario), ``,
     ...(notes ? [`FACILITATOR NOTES from the scenario author (trusted; address them in the talking points): ${notes}`, ``] : []),
     `FACILITATOR TALKING POINTS: 3 to 5 short, specific points the facilitator can raise in the debrief, each grounded in something that happened (for example compare what was first offered with the final terms).`,
-    `NOTABLE MOMENTS: 2 to 4 moments worth discussing, each {"seq":<number>,"quote":"<exact text from a player's line>","note":"why it matters"}.`, ``,
+    `NOTABLE MOMENTS: 2 to 4 moments worth discussing, each {"seq":<number>,"quote":"<exact text from ${momentFrom}>","note":"why it matters"}.`, ``,
     `OUTPUT FORMAT: one JSON object and nothing else:`,
     `{"criteria":[{"id":"<criterion id>","score":<1|2|3|4|null>,"rationale":"...","evidence":[{"seq":<number>,"quote":"..."}],"confidence":"high|medium|low"}],"talking_points":["..."],"notable_moments":[{"seq":<number>,"quote":"...","note":"..."}]}`,
   ].join("\n");

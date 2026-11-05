@@ -1810,8 +1810,8 @@ Acceptance Criteria:
   - [x] AC-0318: switching a joined human to AI asks for confirmation and revokes their credential and consent; switching back stops the bot and issues a new code once (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b; PR 2 built the routes and the bot stop on switching back, PR 3 built the confirmation for a joined human (danger tone, naming the person), the new code shown once on switching back and the removal of an AI role's code from the one-time panels; TC-0111: unit tests supervisor.ai-roles, Readiness, NewSessionForm, console-confirm; end to end ai-players.spec.ts)
   - [x] AC-0319: the player bot code moves from demo/ to a shared module used by the demo and the control service, with its own PLAYER_MODEL and PLAYER_TEMPERATURE settings (built in slice 2b-3b PR 1: services/runtime/src/players/, exported as @acr/runtime/players, with a boundary test; the settings are parsed by parseAiPlayerSettings and read by the control service from PR 2 on; players, hint, live, settings tests and the demo suite; TC-0105)
   - [x] AC-0320: session.started records aiRoles, AI roles skip consent, and the start gate counts human seats and connected AI bots separately (runtime part built in 2b-3a (aiRoles recorded, AI seats skip consent, the gate checks humans and bots apart; TC-0102); the console shows the counts in 2b-3b PR 2: readiness splits `missing` humans from `aiWaiting` bots and Start waits for both, checked against a real runtime and a real bot; TC-0108. Setting AI roles needs the API until PR 3 adds the toggle, which is AC-0317)
-  - [ ] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c)
-  - [ ] AC-0322: an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored (2b-3c and 2c read state.aiRoles from the log, which 2b-3a records)
+  - [ ] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c)
+  - [ ] AC-0322: an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored (2b-3c and 2c read state.aiRoles from the log, which 2b-3a records; evaluator part built in 2b-3c (no individual report, no self-assessment, index row AI player, not scored; TC-0118: Tasks 11, 12, 14); report-access credentials in 2c)
   - [x] AC-0358: session.started records aiRoles in scenario order (log format 3) only when a session has AI roles, other sessions keep format 2, the runtime reads formats 0 to 3 and refuses aiRoles in an older format, and the lobby's AI roles are kept in <id>.ai-roles.json beside the seat files across a managed restart (events state and player-copy tests, session-engine-restore.test.ts, session-store.ai-roles.test.ts; TC-0100)
   - [x] AC-0359: the control service can set the AI roles of a session before the start over the private IPC channel only; each changed role gets a new code in the same step, a switched human's credential and consent are revoked and their socket closed with 4004, and the change is refused after the start (set-ai-roles, parent-channel, main.ai-roles, protocol drift and supervisor.ai-roles tests; TC-0101)
   - [x] AC-0360: the default consent notice is v2, which says a participant's seat may be played by an AI player, and a started session whose players consented under v1 restarts on v2 with every consenting participant able to rejoin, a participant who took a seat over after a reissue included, and a different participant still refused (main.consent-v2.test.ts and the tests that used to pin v1; TC-0103)
@@ -1833,23 +1833,24 @@ Notes: Spec section 5.9. Spec docs/superpowers/specs/2026-10-26-web-client-desig
 US-0061 (EPIC-0002): As a facilitator, I want to choose whether AI players count toward group scores, so that the team result reflects what I intend.
 Priority: Medium
 Estimate: M
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0002-US-0061-group-score-option (slice 2b-3c PR 1); feature/EPIC-0002-US-0061-ai-evaluator (PR 2)
 Dependencies: US-0060
 Acceptance Criteria:
-  - [x] AC-0323: the option Include AI players in group scores defaults to on, can be changed until the start and is recorded in session.started (built in slice 2b-3c PR 1; TC-0114; the evaluator does not read it until PR 2)
-  - [ ] AC-0324: when on the group rubric treats the AI player lines as team evidence labelled AI; when off they are context only; individual criteria never score an AI player
-  - [ ] AC-0325: a report that includes AI players carries a calibration-stamp note that this case is not covered by the calibration baseline
-  - [ ] AC-0326: the evaluator change has its own independent review and tests for both settings
+  - [x] AC-0323: the option Include AI players in group scores defaults to on, can be changed until the start and is recorded in session.started (built in slice 2b-3c PR 1; TC-0114; the evaluator reads it in PR 2)
+  - [x] AC-0324: when on the group rubric treats the AI player lines as team evidence labelled AI; when off they are context only; individual criteria never score an AI player (built in slice 2b-3c PR 2; TC-0115: Tasks 10 to 12 and 15; a team score also needs at least two human lines)
+  - [x] AC-0325: a report that includes AI players carries a calibration-stamp note that this case is not covered by the calibration baseline (built in slice 2b-3c PR 2, both settings; TC-0116: Task 13)
+  - [x] AC-0326: the evaluator change has its own independent review and tests for both settings (Claude Opus 5.5: Critical 0, Important 1 fixed, Minor 4 of which 2 fixed and 2 accepted; TC-0117: Task 16 record)
+  - [x] AC-0364: for a session without AI roles the evaluator's requests and reports are byte-identical to the build before slice 2b-3c, and a log written before the option existed is scored with the option on (built in slice 2b-3c PR 2; TC-0120: Tasks 1, 11, 15)
 ```
 
 ```
 TASK-0090 (US-0061): Evaluator evidence rule for AI players and stamp note
 Type: Dev
 Assignee: Agent
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0002-US-0061-group-score-option (PR 1); feature/EPIC-0002-US-0061-ai-evaluator (PR 2)
-Notes: Plan docs/superpowers/plans/2026-11-04-slice-2b-3c-ai-group-score.md; PR 1 option plumbing, PR 2 evaluator. Spec section 5.9. Touches the evaluator and the calibration stamp. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Plan docs/superpowers/plans/2026-11-04-slice-2b-3c-ai-group-score.md; PR 1 option plumbing (TC-0114), PR 2 evaluator (TC-0115 to TC-0120; independent review in Task 16). Spec section 5.9. Touches the evaluator and the calibration stamp. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
 ```
 
 ```

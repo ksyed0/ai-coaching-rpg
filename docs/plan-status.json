@@ -2613,12 +2613,12 @@
         },
         {
           "id": "AC-0321",
-          "text": "AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c)",
+          "text": "AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c)",
           "done": false
         },
         {
           "id": "AC-0322",
-          "text": "an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored (2b-3c and 2c read state.aiRoles from the log, which 2b-3a records)",
+          "text": "an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored (2b-3c and 2c read state.aiRoles from the log, which 2b-3a records; evaluator part built in 2b-3c (no individual report, no self-assessment, index row AI player, not scored; TC-0118: Tasks 11, 12, 14); report-access credentials in 2c)",
           "done": false
         },
         {
@@ -2663,28 +2663,33 @@
       "title": "As a facilitator, I want to choose whether AI players count toward group scores, so that the team result reflects what I intend.",
       "priority": "Medium",
       "estimate": "M",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0061-group-score-option (slice 2b-3c PR 1); feature/EPIC-0002-US-0061-ai-evaluator (PR 2)",
       "acs": [
         {
           "id": "AC-0323",
-          "text": "the option Include AI players in group scores defaults to on, can be changed until the start and is recorded in session.started (built in slice 2b-3c PR 1; TC-0114; the evaluator does not read it until PR 2)",
+          "text": "the option Include AI players in group scores defaults to on, can be changed until the start and is recorded in session.started (built in slice 2b-3c PR 1; TC-0114; the evaluator reads it in PR 2)",
           "done": true
         },
         {
           "id": "AC-0324",
-          "text": "when on the group rubric treats the AI player lines as team evidence labelled AI; when off they are context only; individual criteria never score an AI player",
-          "done": false
+          "text": "when on the group rubric treats the AI player lines as team evidence labelled AI; when off they are context only; individual criteria never score an AI player (built in slice 2b-3c PR 2; TC-0115: Tasks 10 to 12 and 15; a team score also needs at least two human lines)",
+          "done": true
         },
         {
           "id": "AC-0325",
-          "text": "a report that includes AI players carries a calibration-stamp note that this case is not covered by the calibration baseline",
-          "done": false
+          "text": "a report that includes AI players carries a calibration-stamp note that this case is not covered by the calibration baseline (built in slice 2b-3c PR 2, both settings; TC-0116: Task 13)",
+          "done": true
         },
         {
           "id": "AC-0326",
-          "text": "the evaluator change has its own independent review and tests for both settings",
-          "done": false
+          "text": "the evaluator change has its own independent review and tests for both settings (Claude Opus 5.5: Critical 0, Important 1 fixed, Minor 4 of which 2 fixed and 2 accepted; TC-0117: Task 16 record)",
+          "done": true
+        },
+        {
+          "id": "AC-0364",
+          "text": "for a session without AI roles the evaluator's requests and reports are byte-identical to the build before slice 2b-3c, and a log written before the option existed is scored with the option on (built in slice 2b-3c PR 2; TC-0120: Tasks 1, 11, 15)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -3712,9 +3717,9 @@
       "title": "Evaluator evidence rule for AI players and stamp note",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0061-group-score-option (PR 1); feature/EPIC-0002-US-0061-ai-evaluator (PR 2)",
-      "notes": "Plan docs/superpowers/plans/2026-11-04-slice-2b-3c-ai-group-score.md; PR 1 option plumbing, PR 2 evaluator. Spec section 5.9. Touches the evaluator and the calibration stamp. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "notes": "Plan docs/superpowers/plans/2026-11-04-slice-2b-3c-ai-group-score.md; PR 1 option plumbing (TC-0114), PR 2 evaluator (TC-0115 to TC-0120; independent review in Task 16). Spec section 5.9. Touches the evaluator and the calibration stamp. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
     },
     {
       "id": "TASK-0091",
@@ -4877,6 +4882,66 @@
       "type": "Regression",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0115",
+      "title": "The group rubric treats AI player lines as labelled team evidence when the option is on and as context only when it is off; individual criteria never score an AI player",
+      "relatedStory": "US-0061",
+      "relatedTask": "TASK-0090",
+      "relatedAC": "AC-0324",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0116",
+      "title": "A report of a session with AI players carries the calibration stamp note under both settings",
+      "relatedStory": "US-0061",
+      "relatedTask": "TASK-0090",
+      "relatedAC": "AC-0325",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0117",
+      "title": "The evaluator change has its own independent review, and every finding fixed has a test",
+      "relatedStory": "US-0061",
+      "relatedTask": "TASK-0090",
+      "relatedAC": "AC-0326",
+      "type": "Review",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0118",
+      "title": "An AI role gets no individual report, no self-assessment and the index row \"AI player, not scored\"",
+      "relatedStory": "US-0061",
+      "relatedTask": "TASK-0090",
+      "relatedAC": "AC-0322",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0119",
+      "title": "AI quotes are labelled AI in reports and review exports",
+      "relatedStory": "US-0061",
+      "relatedTask": "TASK-0090",
+      "relatedAC": "AC-0321",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0120",
+      "title": "A session without AI roles gets byte-identical requests and reports, and a log written before the option existed is scored with the option on",
+      "relatedStory": "US-0061",
+      "relatedTask": "TASK-0090",
+      "relatedAC": "AC-0364",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -5171,109 +5236,109 @@
   ],
   "costs": {
     "US-0001": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
@@ -5285,37 +5350,37 @@
       "outputTokens": 0
     },
     "US-0020": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
@@ -5327,37 +5392,37 @@
       "outputTokens": 0
     },
     "US-0027": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
@@ -5369,19 +5434,19 @@
       "outputTokens": 0
     },
     "US-0034": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
@@ -5393,139 +5458,139 @@
       "outputTokens": 0
     },
     "US-0038": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
-      "projectedUsd": 400,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
-      "projectedUsd": 3200,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
-      "projectedUsd": 800,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
-      "projectedUsd": 3200,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
-      "projectedUsd": 3200,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
@@ -5543,19 +5608,19 @@
       "outputTokens": 0
     },
     "US-0062": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
-      "projectedUsd": 1600,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
-      "projectedUsd": 3200,
+      "projectedUsd": 0.9,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
@@ -6512,10 +6577,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-05T01:26:04.962Z",
-  "commitSha": "7f080ea",
+  "generatedAt": "2026-11-05T02:43:13.408Z",
+  "commitSha": "20307bd",
   "buildNumber": "519",
-  "branch": "feature/EPIC-0002-US-0061-group-score-option",
+  "branch": "feature/EPIC-0002-US-0061-ai-evaluator",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6657,20 +6722,24 @@
     }
   },
   "budget": {
-    "totalBudget": 15599.4862,
+    "totalBudget": 808.4862,
     "totalSpent": 799.4862,
-    "totalProjected": 70400,
-    "percentUsed": 5,
+    "totalProjected": 4853.1,
+    "percentUsed": 99,
     "burnRate": 19.563133,
-    "daysRemaining": 756,
-    "projectedExhaustion": 756,
+    "daysRemaining": 0,
+    "projectedExhaustion": 0,
     "thresholds": [
       50,
       75,
       90,
       100
     ],
-    "crossedThresholds": [],
+    "crossedThresholds": [
+      50,
+      75,
+      90
+    ],
     "epicBudgets": [
       {
         "id": "EPIC-0001",
@@ -6699,26 +6768,26 @@
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 6584.49682,
+        "budget": 187.19682000000003,
         "spent": 184.49682000000004,
-        "remaining": 6400,
-        "percentUsed": 3
+        "remaining": 2.6999999999999886,
+        "percentUsed": 99
       },
       {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 3649.199152,
+        "budget": 52.799152,
         "spent": 49.199152,
-        "remaining": 3600,
-        "percentUsed": 1
+        "remaining": 3.6000000000000014,
+        "percentUsed": 93
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 4836.899364,
+        "budget": 39.599364,
         "spent": 36.899364,
-        "remaining": 4800,
-        "percentUsed": 1
+        "remaining": 2.700000000000003,
+        "percentUsed": 93
       },
       {
         "id": "EPIC-0003",
@@ -6797,7 +6866,8 @@
       "2026-11-04T18:53:35.566Z",
       "2026-11-04T19:59:30.549Z",
       "2026-11-04T21:12:37.282Z",
-      "2026-11-05T01:26:05.061Z"
+      "2026-11-05T01:26:05.061Z",
+      "2026-11-05T02:43:13.491Z"
     ],
     "doneCounts": [
       0,
@@ -6855,9 +6925,11 @@
       0,
       0,
       0,
-      0
+      0,
+      1
     ],
     "totalStories": [
+      65,
       65,
       65,
       65,
@@ -6971,6 +7043,7 @@
       799.4862,
       799.4862,
       799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
@@ -7004,6 +7077,7 @@
       0,
       0,
       0,
+      null,
       null,
       null,
       null,
@@ -7087,7 +7161,8 @@
       0,
       0,
       0,
-      0
+      0,
+      3
     ],
     "openBugs": [
       1,
@@ -7145,9 +7220,11 @@
       5,
       1,
       0,
+      0,
       0
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -7261,6 +7338,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -7294,6 +7372,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -7377,7 +7456,8 @@
       1.16,
       1.146153846153846,
       1.136923076923077,
-      1.1415384615384618
+      1.1415384615384618,
+      1.1375000000000002
     ],
     "velocityByWeek": {
       "labels": [
@@ -7394,7 +7474,7 @@
         0,
         0,
         0,
-        0
+        3
       ],
       "rollingAvg": [
         0,
@@ -7402,7 +7482,7 @@
         0,
         0,
         0,
-        0
+        0.8
       ]
     }
   }

@@ -2,6 +2,7 @@ import type { ChatRequest, ModelProvider } from "@acr/adapters";
 import type { SessionEvent } from "@acr/events";
 import type { Criterion, Rubric, Scenario } from "@acr/script";
 import { collectModelReply } from "../agents/model-reply.js";
+import { aiOptionOf, aiRolesOf, type AiPlayers } from "./ai-players.js";
 import { INVALID, aggregateObjectives, type CriterionScore, type LoInput, type LoResult } from "./aggregate.js";
 import type { EvalConfig } from "./config.js";
 import { cleanActions, cleanList, cleanProse, extractJson, makeVerifier, normaliseCriteria, verifyAll, type Action, type CriterionResult, type Evidence } from "./parse.js";
@@ -19,7 +20,7 @@ export type ParticipantEval = {
   /** Things worth knowing about this evaluation that are not failures (for example next actions dropped for an unknown learning objective). */
   notes: string[];
 };
-export type NotableMoment = { seq: number; roleId: string; quote: string; note: string; sceneNumber: number; sceneTitle: string; time: string };
+export type NotableMoment = { seq: number; roleId: string; quote: string; note: string; sceneNumber: number; sceneTitle: string; time: string; /** The quoted line is an AI player's (only possible when AI players count toward group scores). */ ai?: true };
 export type GroupEval = {
   status: EvalStatus; reason?: string; criteria: CriterionResult[]; objectives: LoResult[]; talking_points: string[]; notable_moments: NotableMoment[]; modelCalls: number;
 };
@@ -28,6 +29,7 @@ export type EvaluationResult = {
   utterancesByRole: Record<string, number>; scenes: { id: string; title: string }[];
   trimmed: TrimInfo | null; participants: ParticipantEval[]; group: GroupEval;
   objectives: LoInput[]; facilitatorNotes: string; modelCalls: number; failures: string[];
+  /** Present only when the session had AI players: who they were and whether they counted toward the group. */ ai?: AiPlayers;
 };
 
 export class EvaluatorInputError extends Error {
@@ -94,11 +96,18 @@ export async function evaluateSession(input: EvaluateInput): Promise<EvaluationR
   const individual = rubrics.filter((r) => r.scope === "individual");
   const group = rubrics.filter((r) => r.scope === "group");
   if (individual.length === 0) throw new EvaluatorInputError("the scenario's rubrics have no individual criteria to score against");
+  const aiFound = aiRolesOf(input.events, scenario);
+  if (aiFound === "invalid") throw new EvaluatorInputError("the log's session.started.aiRoles is not a list of distinct player roles");
+  const aiOption = aiOptionOf(input.events);
+  if (aiOption === "invalid") throw new EvaluatorInputError("the log's session.started.includeInGroup is not true or false");
+  const allPlayers = Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => r.id);
+  const players = allPlayers.filter((r) => !aiFound.includes(r));
+  if (players.length === 0) throw new EvaluatorInputError("every player role in this session is an AI player: there is no one to score");
+  const aiPlayers: AiPlayers | undefined = aiFound.length > 0 ? { roles: aiFound, includeInGroup: aiOption } : undefined;
   const t: Transcript = buildTranscript(input.events, scenario);
   const rendered = renderTranscript(t, config.transcriptChars);
   const nonce = input.nonce ?? newNonce();
   const objectives: LoInput[] = scenario.meta.learning_objectives.map((lo) => ({ id: lo.id, statement: lo.statement, rubric_criteria: lo.rubric_criteria }));
-  const players = Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => r.id);
   const base = { scenario, transcript: rendered.text, nonce, maxTokens: config.maxTokens, temperature: config.temperature, ...(config.model ? { model: config.model } : {}) };
   const failures: string[] = [];
   let modelCalls = 0;
@@ -145,12 +154,12 @@ export async function evaluateSession(input: EvaluateInput): Promise<EvaluationR
   };
   let groupEval: GroupEval;
   if (groupCrit.length === 0) groupEval = groupEmpty("insufficient_evidence", "the scenario has no group criteria");
-  else if (playerSpeech < MIN_UTTERANCES) groupEval = groupEmpty("insufficient_evidence", `insufficient evidence: the team spoke ${playerSpeech} time(s)`);
+  else if (playerSpeech < MIN_UTTERANCES) groupEval = groupEmpty("insufficient_evidence", `insufficient evidence: ${aiPlayers ? "the human players" : "the team"} spoke ${playerSpeech} time(s)`);
   else if (input.signal?.aborted) { groupEval = groupEmpty("failed", "run aborted"); failures.push("group: run aborted"); }
   else {
-    const verify = makeVerifier(t, (u) => u.speaker === "player");
+    const verify = makeVerifier(t, aiPlayers?.includeInGroup ? (u) => u.speaker === "player" || u.speaker === "ai_player" : (u) => u.speaker === "player");
     let normalised: ReturnType<typeof normaliseCriteria> | undefined;
-    const asked = await ask(input.provider, buildGroupRequest({ ...base, rubrics: group, players }), config, input.signal, (v) => { normalised = normaliseCriteria(v.criteria, groupCrit, verify); return judge(v, normalised, groupCrit.map((c) => c.id)); });
+    const asked = await ask(input.provider, buildGroupRequest({ ...base, rubrics: group, players, ...(aiPlayers ? { aiPlayers } : {}) }), config, input.signal, (v) => { normalised = normaliseCriteria(v.criteria, groupCrit, verify); return judge(v, normalised, groupCrit.map((c) => c.id)); });
     modelCalls += asked.calls;
     if (!asked.ok || !normalised) {
       const reason = asked.ok ? "no usable evaluation" : asked.reason;
@@ -163,7 +172,7 @@ export async function evaluateSession(input: EvaluateInput): Promise<EvaluationR
         const { verified } = verifyAll([m], verify);
         const note = cleanProse(typeof m === "object" && m !== null ? (m as Record<string, unknown>).note : "", 300);
         const e: Evidence | undefined = verified[0];
-        if (e && moments.length < 4 && !moments.some((x) => x.seq === e.seq && x.quote === e.quote)) moments.push({ seq: e.seq, roleId: e.roleId, quote: e.quote, note, sceneNumber: e.sceneNumber, sceneTitle: e.sceneTitle, time: e.time });
+        if (e && moments.length < 4 && !moments.some((x) => x.seq === e.seq && x.quote === e.quote)) moments.push({ seq: e.seq, roleId: e.roleId, quote: e.quote, note, sceneNumber: e.sceneNumber, sceneTitle: e.sceneTitle, time: e.time, ...(e.ai ? { ai: true as const } : {}) });
       }
       groupEval = {
         status: "ok", criteria: normalised.criteria, objectives: aggregateObjectives(objectives, scoreMap(normalised.criteria)),
@@ -176,6 +185,6 @@ export async function evaluateSession(input: EvaluateInput): Promise<EvaluationR
     sessionId: t.sessionId, scenario: { id: scenario.meta.id, title: scenario.meta.title, version: scenario.meta.version },
     startedAtIso: new Date(t.startedTs).toISOString(), sessionComplete: t.complete, utterancesByRole: t.counts, scenes: t.scenes,
     trimmed: rendered.trimmed, participants, group: groupEval, objectives, facilitatorNotes: cleanProse(scenario.meta.facilitator_notes, 800),
-    modelCalls, failures,
+    modelCalls, failures, ...(aiPlayers ? { ai: aiPlayers } : {}),
   };
 }

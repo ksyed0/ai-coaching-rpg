@@ -62,7 +62,7 @@ export type JsonCriterion = {
   id: string; name: string; score: number | null; level_label: string; confidence: string | null; rationale: string; flags: string[]; flag_codes: FlagCode[]; dropped_quotes: number;
   /** True when the evaluator's answer for this criterion was unusable (not the same as Not observed). */
   invalid: boolean;
-  evidence: { seq: number; role: string; quote: string; scene: number; scene_title: string; time: string; flags: string[] }[];
+  evidence: { seq: number; role: string; quote: string; scene: number; scene_title: string; time: string; flags: string[]; /** The quoted line is an AI player's. */ ai?: true }[];
   moderation?: Moderation;
 };
 /** What the review changed on a criterion; present only on a moderated view. */
@@ -99,12 +99,17 @@ export type GroupReport = Common & {
   learning_objectives_note?: string;
   lo_coverage: { players: string[]; objectives: { id: string; statement: string; by_role: Record<string, { score: number | null; label: string; incomplete: boolean }>; team: { score: number | null; label: string; incomplete: boolean } }[] };
   comments?: ReportComment[];
+  /** Present only when the session had AI players: who they were and whether they counted toward the group. They get no individual report. */
+  ai_players?: { roles: string[]; included_in_group: boolean };
   facilitator_notes: string;
   talking_points: { from_scenario: string; from_evaluator: string[] };
-  notable_moments: { seq: number; role: string; quote: string; note: string; scene: number; scene_title: string; time: string }[];
+  notable_moments: { seq: number; role: string; quote: string; note: string; scene: number; scene_title: string; time: string; ai?: true }[];
 };
 
 export const DEMO_NOTE = "This report was produced by the scripted offline evaluator: it is demo data, not a real assessment.";
+export const AI_PARTICIPANT_NOTE = "AI players took part in this session (marked AI player). Their lines are context only for your scores and are never quoted as your evidence.";
+export const AI_GROUP_ON_NOTE = "AI players took part in this session and Include AI players in group scores was on: their lines could count as team evidence, and every quote from them is marked AI player. AI players get no individual report.";
+export const AI_GROUP_OFF_NOTE = "AI players took part in this session and Include AI players in group scores was off: their lines were context only and are never quoted as evidence. AI players get no individual report.";
 export const NO_GROUP_LO_NOTE = "No learning objective is mapped to a group criterion, so there is no team learning-objective result.";
 
 function notesOf(r: EvaluationResult, e: EvaluatorInfo): string[] {
@@ -116,21 +121,27 @@ function notesOf(r: EvaluationResult, e: EvaluatorInfo): string[] {
   return notes;
 }
 
+/** The stamp a report prints: the evaluator's calibration, marked when the session had AI players (the baseline does not cover that case). */
+export function reportStamp(e: EvaluatorInfo, r: EvaluationResult): StampState | undefined {
+  return r.ai ? { ...normalizeStamp(e.calibration), includesAi: true } : e.calibration;
+}
+
 function common(ctx: ReportContext, modelCalls: number): Common {
   const r = ctx.result;
+  const stamp = reportStamp(ctx.evaluator, r);
   return {
     schema: REPORT_SCHEMA, status: "draft", demo: ctx.evaluator.scripted === true, draft_notice: DRAFT_BANNER, visibility: VISIBILITY_LINE, scenario: r.scenario,
     session: { id: r.sessionId, date: r.startedAtIso, complete: r.sessionComplete, scenes: r.scenes.map((s, i) => ({ number: i + 1, id: s.id, title: s.title })) },
     evaluator: {
       provider: ctx.evaluator.provider, ...(ctx.evaluator.model ? { model: ctx.evaluator.model } : {}), ...(ctx.evaluator.variant ? { variant: ctx.evaluator.variant } : {}),
-      ...(ctx.evaluator.rubricHash ? { rubricHash: ctx.evaluator.rubricHash } : {}), calibration: normalizeStamp(ctx.evaluator.calibration), calibration_line: stampLine(ctx.evaluator.calibration), model_calls: modelCalls,
+      ...(ctx.evaluator.rubricHash ? { rubricHash: ctx.evaluator.rubricHash } : {}), calibration: normalizeStamp(stamp), calibration_line: stampLine(stamp), model_calls: modelCalls,
     }, notes: notesOf(r, ctx.evaluator), method: buildMethod({ players: r.participants.length }),
   };
 }
 
 export const jsonCriterion = (c: CriterionResult): JsonCriterion => ({
   id: c.id, name: c.name, score: c.score, level_label: c.invalid ? INVALID_LABEL : c.label, confidence: c.confidence, rationale: c.rationale, flags: c.flags, flag_codes: flagCodesOf(c.flags), dropped_quotes: c.droppedQuotes, invalid: c.invalid,
-  evidence: c.evidence.map((e) => ({ seq: e.seq, role: e.roleId, quote: e.quote, scene: e.sceneNumber, scene_title: e.sceneTitle, time: e.time, flags: e.ratingLanguage ? ["rating language"] : [] })),
+  evidence: c.evidence.map((e) => ({ seq: e.seq, role: e.roleId, quote: e.quote, scene: e.sceneNumber, scene_title: e.sceneTitle, time: e.time, flags: e.ratingLanguage ? ["rating language"] : [], ...(e.ai ? { ai: true as const } : {}) })),
 });
 const jsonObjective = (o: LoResult): JsonObjective => ({ id: o.id, statement: o.statement, score: o.score, label: o.label, criteria: o.criteria, observed: o.observed, incomplete: o.incomplete });
 
@@ -138,7 +149,7 @@ const withNotes = (c: Common, extra: string[]): Common => ({ ...c, notes: [...c.
 
 export function buildParticipantReport(ctx: ReportContext, p: ParticipantEval): ParticipantReport {
   const report: ParticipantReport = {
-    ...withNotes(common(ctx, p.modelCalls), p.notes), kind: "participant", participant: { role: p.roleId, utterances: p.utterances },
+    ...withNotes(common(ctx, p.modelCalls), [...p.notes, ...(ctx.result.ai ? [AI_PARTICIPANT_NOTE] : [])]), kind: "participant", participant: { role: p.roleId, utterances: p.utterances },
     evaluation: { status: p.status, ...(p.reason ? { reason: p.reason } : {}) },
     summary: { strengths: p.strengths, development_points: p.development_points, next_actions: p.next_actions },
     learning_objectives: p.objectives.map(jsonObjective), criteria: p.criteria.map(jsonCriterion),
@@ -150,7 +161,7 @@ export function buildGroupReport(ctx: ReportContext): GroupReport {
   const r = ctx.result; const g: GroupEval = r.group;
   const hasGroupLo = g.objectives.some((o) => o.criteria.length > 0);
   const report: GroupReport = {
-    ...common(ctx, g.modelCalls), kind: "group", evaluation: { status: g.status, ...(g.reason ? { reason: g.reason } : {}) },
+    ...withNotes(common(ctx, g.modelCalls), r.ai ? [r.ai.includeInGroup ? AI_GROUP_ON_NOTE : AI_GROUP_OFF_NOTE] : []), kind: "group", evaluation: { status: g.status, ...(g.reason ? { reason: g.reason } : {}) },
     criteria: g.criteria.map(jsonCriterion), learning_objectives: hasGroupLo ? g.objectives.map(jsonObjective) : [], ...(hasGroupLo ? {} : { learning_objectives_note: NO_GROUP_LO_NOTE }),
     lo_coverage: {
       players: r.participants.map((p) => p.roleId),
@@ -160,8 +171,9 @@ export function buildGroupReport(ctx: ReportContext): GroupReport {
         team: { score: g.objectives[i]!.score, label: g.objectives[i]!.label, incomplete: g.objectives[i]!.incomplete },
       })),
     },
+    ...(r.ai ? { ai_players: { roles: [...r.ai.roles], included_in_group: r.ai.includeInGroup } } : {}),
     facilitator_notes: r.facilitatorNotes, talking_points: { from_scenario: r.facilitatorNotes, from_evaluator: g.talking_points },
-    notable_moments: g.notable_moments.map((m) => ({ seq: m.seq, role: m.roleId, quote: m.quote, note: m.note, scene: m.sceneNumber, scene_title: m.sceneTitle, time: m.time })),
+    notable_moments: g.notable_moments.map((m) => ({ seq: m.seq, role: m.roleId, quote: m.quote, note: m.note, scene: m.sceneNumber, scene_title: m.sceneTitle, time: m.time, ...(m.ai ? { ai: true as const } : {}) })),
   };
   return scrubDeep(report, ctx.secrets);
 }

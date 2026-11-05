@@ -3,6 +3,7 @@ import { mdEscape, safeMd } from "../demo/transcript-md.js";
 import { DRAFT_BANNER, VISIBILITY_LINE, buildMethod, methodMarkdown, type Method } from "./method.js";
 import { NO_GROUP_LO_NOTE, loScoreText, scoreText, type GroupReport, type JsonCriterion, type ParticipantReport } from "./report-model.js";
 
+const AI_LABEL = " (AI player)";
 const cap = (s: string) => (s.length > 0 ? s[0]!.toUpperCase() + s.slice(1) : s);
 /** A validated id, or an escaped fragment: report text never carries an unchecked identifier. */
 export const id = (v: string, sec: string[]): string => (isSafeId(v) ? `\`${v}\`` : safeMd(v, 64, sec));
@@ -62,7 +63,7 @@ function evidenceSection(cs: JsonCriterion[], sec: string[], showRole: boolean):
     out.push(`### ${safeMd(c.name, 120, sec)} (${id(c.id, sec)})`, "");
     if (c.evidence.length === 0) out.push("No verified quote.", "");
     else {
-      for (const e of c.evidence) out.push(`- Scene ${e.scene}, ${e.time} (line #${e.seq}${showRole ? `, ${id(e.role, sec)}` : ""}): "${safeMd(e.quote, 320, sec)}"${e.flags.length ? " (contains rating language: read with care)" : ""}`);
+      for (const e of c.evidence) out.push(`- Scene ${e.scene}, ${e.time} (line #${e.seq}${showRole ? `, ${id(e.role, sec)}${e.ai ? AI_LABEL : ""}` : ""}): "${safeMd(e.quote, 320, sec)}"${e.flags.length ? " (contains rating language: read with care)" : ""}`);
       out.push("");
     }
   }
@@ -111,7 +112,8 @@ export function renderParticipantMarkdown(r: ParticipantReport, secrets: string[
 /** The group report as Markdown. */
 export function renderGroupMarkdown(r: GroupReport, secrets: string[] = []): string {
   const sec = secrets;
-  const out = header("Group report", r, sec, [["Players", r.lo_coverage.players.map((p) => id(p, sec)).join(", ")]]);
+  const out = header("Group report", r, sec, [["Players", r.lo_coverage.players.map((p) => id(p, sec)).join(", ")],
+    ...(r.ai_players ? [["AI players (not scored individually)", r.ai_players.roles.map((x) => `${id(x, sec)}${AI_LABEL}`).join(", ")] as [string, string]] : [])]);
   out.push("## Group criteria", "");
   if (r.evaluation.status !== "ok") out.push(`${safeMd(r.evaluation.reason ?? r.evaluation.status, 400, sec)}`, "");
   out.push(...criteriaTable(r.criteria, sec), "");
@@ -134,7 +136,7 @@ export function renderGroupMarkdown(r: GroupReport, secrets: string[] = []): str
   }
   out.push("## Notable moments", "");
   if (r.notable_moments.length === 0) out.push("None with a verified quote.", "");
-  else for (const m of r.notable_moments) out.push(`- Scene ${m.scene}, ${m.time} (line #${m.seq}, ${id(m.role, sec)}): "${safeMd(m.quote, 320, sec)}"${m.note ? ` - ${safeMd(m.note, 300, sec)}` : ""}`);
+  else for (const m of r.notable_moments) out.push(`- Scene ${m.scene}, ${m.time} (line #${m.seq}, ${id(m.role, sec)}${m.ai ? AI_LABEL : ""}): "${safeMd(m.quote, 320, sec)}"${m.note ? ` - ${safeMd(m.note, 300, sec)}` : ""}`);
   if (r.notable_moments.length) out.push("");
   out.push(...evidenceSection(r.criteria, sec, true));
   out.push(...methodMarkdown(r.method, 2));

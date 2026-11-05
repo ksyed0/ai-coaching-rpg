@@ -1,5 +1,6 @@
 import type { SessionEvent } from "@acr/events";
 import type { Scenario } from "@acr/script";
+import { aiRolesOf } from "./ai-players.js";
 
 /**
  * Collapses every kind of whitespace and control character to one space and drops invisible and bidi controls. Used for BOTH the text
@@ -19,13 +20,13 @@ export function formatClock(ms: number): string {
 }
 
 export type UtteranceRec = {
-  seq: number; roleId: string; speaker: "player" | "npc"; /** The AI character's display name (npc only). */ name?: string;
+  seq: number; roleId: string; speaker: "player" | "ai_player" | "npc"; /** The AI character's display name (npc only). */ name?: string;
   /** The recorded text, untouched. */ text: string; /** normText(text): what the model saw and what quotes are verified against. */ norm: string;
   atMs: number; sceneId: string | null; /** 1-based scene number in order of entry; 0 outside any scene. */ sceneNumber: number; sceneTitle: string;
 };
 
 export type Entry =
-  | { kind: "scene_start"; seq: number; sceneId: string; number: number; title: string; goal: string; participants: string[] }
+  | { kind: "scene_start"; seq: number; sceneId: string; number: number; title: string; goal: string; participants: string[]; /** Participants who are AI players. */ aiParticipants?: string[] }
   | { kind: "scene_end"; seq: number; sceneId: string; number: number; reason: string }
   | { kind: "inject"; seq: number; to: string[]; content: string }
   | { kind: "gm"; seq: number; condition: string; verdict: boolean; reasoning: string }
@@ -43,12 +44,17 @@ export type Transcript = {
   scenarioId: string | null;
   /** True when the log ends with session.ended. */
   complete: boolean;
+  /** Player roles an AI plays (from the log only). */
+  aiRoles: string[];
 };
 
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /** Builds the full, ordered transcript of a session from its events. Pure. Players, AI characters, injects, scene boundaries and Game Master verdicts. */
 export function buildTranscript(events: SessionEvent[], scenario: Scenario): Transcript {
+  const aiFound = aiRolesOf(events, scenario);
+  const aiRoles = aiFound === "invalid" ? [] : aiFound;
+  const isAi = (id: string) => aiRoles.includes(id);
   const entries: Entry[] = [];
   const utterances = new Map<number, UtteranceRec>();
   const counts: Record<string, number> = {};
@@ -64,7 +70,7 @@ export function buildTranscript(events: SessionEvent[], scenario: Scenario): Tra
         scenes.push({ id: e.sceneId, title: titleOf(e.sceneId) });
         current = { id: e.sceneId, number };
         const sc = scenario.script.scenes.find((s) => s.id === e.sceneId);
-        entries.push({ kind: "scene_start", seq: e.seq, sceneId: e.sceneId, number, title: titleOf(e.sceneId), goal: normText(sc?.goal ?? ""), participants: e.participants });
+        entries.push({ kind: "scene_start", seq: e.seq, sceneId: e.sceneId, number, title: titleOf(e.sceneId), goal: normText(sc?.goal ?? ""), participants: e.participants, ...(aiRoles.length > 0 ? { aiParticipants: e.participants.filter(isAi) } : {}) });
         break;
       }
       case "scene.exited":
@@ -74,7 +80,7 @@ export function buildTranscript(events: SessionEvent[], scenario: Scenario): Tra
       case "utterance": {
         const role = scenario.roles[e.roleId];
         const rec: UtteranceRec = {
-          seq: e.seq, roleId: e.roleId, speaker: role?.type === "npc" ? "npc" : "player", name: role?.type === "npc" ? role.name : undefined,
+          seq: e.seq, roleId: e.roleId, speaker: role?.type === "npc" ? "npc" : isAi(e.roleId) ? "ai_player" : "player", name: role?.type === "npc" ? role.name : undefined,
           text: e.text, norm: normText(e.text), atMs: e.ts - startedTs, sceneId: current?.id ?? null, sceneNumber: current?.number ?? 0,
           sceneTitle: current ? titleOf(current.id) : "",
         };
@@ -90,7 +96,7 @@ export function buildTranscript(events: SessionEvent[], scenario: Scenario): Tra
     }
   }
   const first = events[0];
-  return { entries, utterances, counts, scenes, startedTs, sessionId: first?.sessionId ?? "", scenarioId: first && first.type === "session.started" ? first.scenarioId : null, complete };
+  return { entries, utterances, counts, scenes, startedTs, sessionId: first?.sessionId ?? "", scenarioId: first && first.type === "session.started" ? first.scenarioId : null, complete, aiRoles };
 }
 
 export type TrimInfo = { budgetChars: number; fullChars: number; keptChars: number; omittedLines: number; shortenedLines: number; /** Injects, Game Master lines or scene boundaries were shortened or dropped too because they alone exceeded the budget. */ structuralTrimmed: boolean };
@@ -98,6 +104,7 @@ const MIN_CAP = 60;
 const MAX_CAP = 2_000;
 
 function speakerLabel(u: UtteranceRec): string {
+  if (u.speaker === "ai_player") return `${u.roleId} (AI player)`;
   return u.speaker === "npc" ? `${u.roleId} (AI character ${normText(u.name ?? "")})` : `${u.roleId} (player)`;
 }
 function speechHeader(u: UtteranceRec): string { return `#${u.seq} ${formatClock(u.atMs)} ${speakerLabel(u)}: `; }
@@ -105,7 +112,7 @@ function speechHeader(u: UtteranceRec): string { return `#${u.seq} ${formatClock
 /** level 0: everything (a Game Master line keeps its reasoning). 1: Game Master reasoning dropped. 2: injects clipped to 120 characters, Game Master lines dropped, scene starts without goal. 3: scene boundaries only. */
 function structuralLine(e: Exclude<Entry, { kind: "utterance" }>, level = 0): string | null {
   switch (e.kind) {
-    case "scene_start": return level >= 3 ? `--- Scene ${e.number} begins ---` : `--- Scene ${e.number} begins: "${e.title}". ${level >= 2 ? "" : `Goal: ${e.goal}. `}In the room: ${e.participants.join(", ")} ---`;
+    case "scene_start": return level >= 3 ? `--- Scene ${e.number} begins ---` : `--- Scene ${e.number} begins: "${e.title}". ${level >= 2 ? "" : `Goal: ${e.goal}. `}In the room: ${e.participants.map((p) => (e.aiParticipants?.includes(p) ? `${p} (AI player)` : p)).join(", ")} ---`;
     case "scene_end": return `--- Scene ${e.number} ends (${e.reason}) ---`;
     case "inject": return level >= 3 ? null : `[Inject #${e.seq} to ${e.to.join(", ")}: ${clip(e.content, level >= 2 ? 120 : 600)}]`;
     case "gm": return level >= 2 ? null : `[Game Master #${e.seq}: condition "${clip(e.condition, 200)}" judged ${e.verdict ? "TRUE" : "FALSE"}${level >= 1 ? "" : `: ${e.reasoning}`}]`;

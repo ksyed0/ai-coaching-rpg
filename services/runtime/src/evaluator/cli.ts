@@ -135,7 +135,7 @@ export async function runEvaluate(deps: EvaluateDeps): Promise<{ exitCode: numbe
   if (toErr) {
     deps.stdout.write(`${JSON.stringify({
       ok: result.failures.length === 0, session: result.sessionId, dir: written.dir, files: written.files.map((f) => path.relative(written.dir, f)), modelCalls: result.modelCalls,
-      participants: result.participants.map((p) => ({ role: p.roleId, status: p.status, ...(p.reason ? { reason: p.reason } : {}) })), group: { status: result.group.status }, failures: result.failures,
+      participants: result.participants.map((p) => ({ role: p.roleId, status: p.status, ...(p.reason ? { reason: p.reason } : {}) })), group: { status: result.group.status }, ...(result.ai ? { aiPlayers: { roles: result.ai.roles, includeInGroup: result.ai.includeInGroup } } : {}), failures: result.failures,
     }, null, 2)}\n`);
   }
   return { exitCode: result.failures.length > 0 ? 1 : 0, result, written };

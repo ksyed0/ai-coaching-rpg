@@ -69,6 +69,8 @@ export function renderReviewIndex(
     );
     for (const sv of subjects.values())
       out.push(`| ${id(sv.id, sec)} | ${stateText(sv)} | ${openItems(sv)} |`);
+    for (const r of groupDraft?.ai_players?.roles ?? [])
+      out.push(`| ${id(r, sec)} | AI player, not scored | - |`);
     out.push("");
     const roles = [...subjects.values()].filter(
       (s) => s.kind === "participant",

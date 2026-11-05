@@ -4,6 +4,9 @@ import path from "node:path";
 import { applyCommand, loadReview, openReview } from "../store.js";
 import { viewReport, renderSubjectMarkdown } from "../view.js";
 import { makeDraftDir, fixedClock, resolveBodies } from "./fixtures.js";
+import { AI_STAMP_NOTE } from "../../calibration/stamp.js";
+import { sampleEvaluation } from "../../evaluator/__tests__/fixtures.js";
+import { writeReports } from "../../evaluator/report-write.js";
 import { releasedBanner } from "../../evaluator/method.js";
 import { sha256 } from "../hash.js";
 import type { ParticipantReport } from "../../evaluator/report-model.js";
@@ -31,6 +34,18 @@ const draftOf = async (s: string) =>
   ) as ParticipantReport;
 
 describe("viewReport / renderSubjectMarkdown", () => {
+  it('the review facilitator view shows "AI draft calibration ...: <line with the note>"', async () => {
+    const result = await sampleEvaluation();
+    result.ai = { roles: ["zed"], includeInGroup: true }; // no report of its own: an AI role that was also a subject is corrupt
+    const w = await writeReports(result, { outDir: root, evaluator: { provider: "scripted mock", scripted: true, rubricHash: "h1", variant: "v1" } });
+    await openReview(w.dir, { by: "kamal", now: fixedClock() });
+    const l = await loadReview(w.dir);
+    const draft = JSON.parse(await readFile(path.join(w.dir, "alice.json"), "utf8")) as ParticipantReport;
+    const r = viewReport(draft, l.view, "alice", { audience: "facilitator" }) as ParticipantReport;
+    expect(r.evaluator.calibration_line).toMatch(/^AI draft calibration \(not the calibration of the final scores\): Calibration: not calibrated .*\)\. /);
+    expect(r.evaluator.calibration_line.endsWith(AI_STAMP_NOTE)).toBe(true);
+    expect(renderSubjectMarkdown(r, [])).toContain(AI_STAMP_NOTE);
+  });
   it("shows an unreviewed subject as in review, facilitator only, with the AI scores and no 'adjusted' marks", async () => {
     const l = await loadReview(dir);
     const r = viewReport(await draftOf("alice"), l.view, "alice", {

@@ -8,6 +8,7 @@ import { isFileSafeId, type SessionEvent } from "@acr/events";
 import type { Criterion, Rubric, Scenario } from "@acr/script";
 import { collectModelReply } from "../agents/model-reply.js";
 import { extractJson } from "../evaluator/parse.js";
+import { aiRolesOf } from "../evaluator/ai-players.js";
 import { hasHiddenChar, HIDDEN_CHARS_MESSAGE } from "./hidden-chars.js";
 import { CalibrationInputError, modelFamily, type Judge } from "./judge.js";
 import { assignSplit, checkProbeAgainstScenario, hasPrototypeKey, hiddenFactRoles, individualCriteria, MAX_PROBE_BYTES, parseYamlQuiet, printable } from "./probe-load.js";
@@ -336,6 +337,9 @@ export async function excerptDraft(i: ExcerptInput): Promise<{ file: string; war
   if (i.from > i.to) throw new CalibrationInputError("--from must not be after --to");
   draftCriteria(i.rubrics, i.criterion);
   const subject = subjectOf(i.scenario, i.subject);
+  const ai = aiRolesOf(i.log, i.scenario);
+  if (ai === "invalid") throw new CalibrationInputError("the log's session.started.aiRoles is not a list of distinct player roles");
+  if (ai.includes(subject)) throw new CalibrationInputError("that role is an AI player in this session");
   const started = i.log.find((e) => e.type === "session.started");
   const sid = started?.type === "session.started" ? started.scenarioId : undefined;
   if (sid !== i.scenario.meta.id) throw new CalibrationInputError(`the log is of scenario ${printable(String(sid), 64)}, not ${i.scenario.meta.id}`);

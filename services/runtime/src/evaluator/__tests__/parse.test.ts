@@ -208,3 +208,16 @@ describe("evidence gaming (distinct lines, overlap, minimum quote)", () => {
     expect(run({ score: 3, evidence: [{ seq: 3, quote: "what Finance really needs" }] }).evidence[0]!.ratingLanguage).toBe(false);
   });
 });
+
+describe("AI evidence", () => {
+  const evs = sampleEvents();
+  (evs[0] as unknown as Record<string, unknown>).logFormat = 3; (evs[0] as unknown as Record<string, unknown>).aiRoles = ["bob"];
+  const t = buildTranscript(evs, sampleScenario());
+  const v = makeVerifier(t, (u) => u.speaker === "player" || u.speaker === "ai_player");
+  it("a quote from bob verified with allow player-or-ai carries ai: true; one from alice has no ai key", () => {
+    expect(v({ seq: 4, quote: "ingestion layer and the go-live date" })).toMatchObject({ roleId: "bob", ai: true });
+    const a = v({ seq: 3, quote: "what Finance really needs" });
+    expect(a).not.toBeNull();
+    expect("ai" in a!).toBe(false);
+  });
+});

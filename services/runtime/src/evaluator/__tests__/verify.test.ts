@@ -95,3 +95,36 @@ describe("the scripted evaluator", () => {
     expect(t).toBe("");
   });
 });
+
+describe("verifyReportFiles with AI players", () => {
+  const aiLog = (includeInGroup: boolean) => {
+    const evs = sampleEvents();
+    Object.assign(evs[0] as unknown as Record<string, unknown>, { logFormat: 3, aiRoles: ["bob"], includeInGroup });
+    return evs;
+  };
+  const reply = (extra: object) => ({
+    name: "p",
+    async *stream(req: ChatRequest): AsyncIterable<string> {
+      const who = /score only the participant with role id "(\w+)"/i.exec(req.system)?.[1];
+      const c = (id: string, score: number, seq: number, quote: string) => ({ id, score, rationale: "r", confidence: "high", evidence: [{ seq, quote }] });
+      yield JSON.stringify(who
+        ? { criteria: [c("discovery", 3, 3, "what Finance really needs"), c("listening", 3, 5, "Have I got that right?"), c("negotiation", 2, 11, "phased module for 48 thousand")], strengths: ["s"], development_points: ["d"], next_actions: [] }
+        : { criteria: [c("shared_understanding", 3, 6, "a phased module costs about three person-weeks")], talking_points: ["t"], notable_moments: [], ...extra });
+    },
+  });
+  it("accepts a group quote of an AI player only when the option is on, and expects no report for the AI role", async () => {
+    for (const on of [true, false]) {
+      const out = await mkdtemp(path.join(os.tmpdir(), "acr-ver-ai-"));
+      try {
+        const result = await evaluateSession({ events: aiLog(on), scenario: sampleScenario(), rubrics: sampleRubrics(), provider: reply({}), config: cfg });
+        const w = await writeReports(result, { outDir: out, evaluator: { provider: "scripted" } });
+        const v = await verifyReportFiles(w.dir, aiLog(on), sampleScenario());
+        // Off: the evaluator already dropped bob's quote, so the report is clean either way; on: bob's quote is accepted.
+        expect(v.problems).toEqual([]);
+        expect(v.reports).toBe(2);
+        // The same report checked against a log where the option is off must flag bob's quote.
+        if (on) expect((await verifyReportFiles(w.dir, aiLog(false), sampleScenario())).problems.join()).toMatch(/although AI players were not included in group scores/);
+      } finally { await rm(out, { recursive: true, force: true }); }
+    }
+  });
+});
