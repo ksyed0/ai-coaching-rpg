@@ -7,6 +7,7 @@ import type { SessionEvent } from "@acr/events";
 import { evaluateSession, EvaluatorInputError } from "../evaluate.js";
 import { parseEvalConfig } from "../config.js";
 import { renderReports, writeReports } from "../report-write.js";
+import { AI_STAMP_NOTE } from "../../calibration/stamp.js";
 import { AI_GROUP_OFF_NOTE, AI_GROUP_ON_NOTE, AI_PARTICIPANT_NOTE } from "../report-model.js";
 import { verifyReportFiles } from "../verify.js";
 import { sampleAnswers, sampleEvents, sampleRubrics, sampleScenario } from "./fixtures.js";
@@ -120,6 +121,31 @@ describe("reports of a session with an AI player", () => {
         }
       }
     });
+  });
+});
+
+describe("the calibration stamp note in AI reports", () => {
+  const notCalibrated = "Calibration: not calibrated (no calibration result for this judge, prompt variant and rubric).";
+  it("an AI session's index.md, group.json calibration_line and alice.md carry the note, on and off", async () => {
+    for (const on of [true, false]) {
+      const files = renderReports(await evaluate(on), EVALUATOR).files;
+      const want = `${notCalibrated} ${AI_STAMP_NOTE}`;
+      expect(files.get("index.md")).toContain(want);
+      expect(files.get("alice.md")).toContain(want);
+      expect(files.get("group.md")).toContain(want);
+      for (const f of ["group.json", "alice.json"]) {
+        const j = JSON.parse(files.get(f)!);
+        expect(j.evaluator.calibration_line).toBe(want);
+        expect(j.evaluator.calibration).toEqual({ state: "not_calibrated", includesAi: true });
+      }
+      for (const f of ["index.md", "alice.md", "group.md"]) expect(files.get(f)!.split(AI_STAMP_NOTE).length - 1).toBe(1);
+    }
+  });
+  it("a session without AI players has no note anywhere", async () => {
+    const r = await evaluateSession({ events: sampleEvents(), scenario: sampleScenario(), rubrics: sampleRubrics(), provider, config: cfg, nonce: "n" });
+    const files = renderReports(r, EVALUATOR).files;
+    for (const [name, text] of files) expect(text, name).not.toContain(AI_STAMP_NOTE);
+    expect(JSON.parse(files.get("group.json")!).evaluator.calibration).toEqual({ state: "not_calibrated" });
   });
 });
 

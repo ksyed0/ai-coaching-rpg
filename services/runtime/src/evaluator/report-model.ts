@@ -121,14 +121,20 @@ function notesOf(r: EvaluationResult, e: EvaluatorInfo): string[] {
   return notes;
 }
 
+/** The stamp a report prints: the evaluator's calibration, marked when the session had AI players (the baseline does not cover that case). */
+export function reportStamp(e: EvaluatorInfo, r: EvaluationResult): StampState | undefined {
+  return r.ai ? { ...normalizeStamp(e.calibration), includesAi: true } : e.calibration;
+}
+
 function common(ctx: ReportContext, modelCalls: number): Common {
   const r = ctx.result;
+  const stamp = reportStamp(ctx.evaluator, r);
   return {
     schema: REPORT_SCHEMA, status: "draft", demo: ctx.evaluator.scripted === true, draft_notice: DRAFT_BANNER, visibility: VISIBILITY_LINE, scenario: r.scenario,
     session: { id: r.sessionId, date: r.startedAtIso, complete: r.sessionComplete, scenes: r.scenes.map((s, i) => ({ number: i + 1, id: s.id, title: s.title })) },
     evaluator: {
       provider: ctx.evaluator.provider, ...(ctx.evaluator.model ? { model: ctx.evaluator.model } : {}), ...(ctx.evaluator.variant ? { variant: ctx.evaluator.variant } : {}),
-      ...(ctx.evaluator.rubricHash ? { rubricHash: ctx.evaluator.rubricHash } : {}), calibration: normalizeStamp(ctx.evaluator.calibration), calibration_line: stampLine(ctx.evaluator.calibration), model_calls: modelCalls,
+      ...(ctx.evaluator.rubricHash ? { rubricHash: ctx.evaluator.rubricHash } : {}), calibration: normalizeStamp(stamp), calibration_line: stampLine(stamp), model_calls: modelCalls,
     }, notes: notesOf(r, ctx.evaluator), method: buildMethod({ players: r.participants.length }),
   };
 }

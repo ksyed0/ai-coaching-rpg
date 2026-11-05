@@ -3,10 +3,14 @@ import { readRegularCapped } from "../util/read-regular.js";
 import { MIN_SET_PROBES } from "./probe-load.js";
 import { summaryFile, type CalibrationSummary } from "./report.js";
 
-export type StampState =
+export type StampState = (
   | { state: "not_calibrated" }
   | { state: "stale"; reason: string }
-  | { state: "ok" | "thin"; summary: CalibrationSummary };
+  | { state: "ok" | "thin"; summary: CalibrationSummary }
+) & { includesAi?: true };
+
+/** Appended to the stamp line of a report that includes AI players: the calibration baseline does not cover that case. */
+export const AI_STAMP_NOTE = "This report includes AI players: this case is not covered by the calibration baseline.";
 
 /** Contrast needs at least this many usable groups before its ordering count means anything. */
 const MIN_CONTRAST_GROUPS = 3;
@@ -81,9 +85,10 @@ function project(m: CalibrationSummary): CalibrationSummary {
 export function normalizeStamp(s: unknown): StampState {
   try {
     if (!isObj(s)) return NOT_CALIBRATED;
-    if (s.state === "stale" && typeof s.reason === "string") return { state: "stale", reason: s.reason.slice(0, 200) };
-    if ((s.state === "ok" || s.state === "thin") && isSummary(s.summary)) return { state: s.state, summary: project(s.summary) };
-    return NOT_CALIBRATED;
+    const ai = s.includesAi === true ? { includesAi: true as const } : {};
+    if (s.state === "stale" && typeof s.reason === "string") return { state: "stale", reason: s.reason.slice(0, 200), ...ai };
+    if ((s.state === "ok" || s.state === "thin") && isSummary(s.summary)) return { state: s.state, summary: project(s.summary), ...ai };
+    return { ...NOT_CALIBRATED, ...ai };
   } catch {
     return NOT_CALIBRATED;
   }
@@ -93,6 +98,15 @@ const NOT_CALIBRATED_LINE = "Calibration: not calibrated (no calibration result 
 
 /** The one-line stamp. States measurements only; never claims the scores are accurate. Never throws. */
 export function stampLine(s: StampState | undefined): string {
+  const line = baseStampLine(s);
+  try {
+    return s?.includesAi === true ? `${line} ${AI_STAMP_NOTE}` : line;
+  } catch {
+    return line;
+  }
+}
+
+function baseStampLine(s: StampState | undefined): string {
   try {
     if (!s || s.state === "not_calibrated") return NOT_CALIBRATED_LINE;
     if (s.state === "stale") return `Calibration: not calibrated for this rubric or prompt version (${String(s.reason).slice(0, 200)}).`;

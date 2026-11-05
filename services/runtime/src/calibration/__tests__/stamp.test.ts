@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { lookupCalibration, normalizeStamp, stampLine } from "../stamp.js";
+import { AI_STAMP_NOTE, lookupCalibration, normalizeStamp, stampLine, type StampState } from "../stamp.js";
 import { summaryFile, type CalibrationSummary } from "../report.js";
 
 let dir: string;
@@ -174,5 +174,42 @@ describe("stampLine", () => {
       expect(() => stampLine(s as never)).not.toThrow();
       expect(stampLine(s as never)).toMatch(/not calibrated/i);
     }
+  });
+});
+
+describe("the AI note on the stamp", () => {
+  const NOTE = "This report includes AI players: this case is not covered by the calibration baseline.";
+  it("AI_STAMP_NOTE is the fixed wording", () => expect(AI_STAMP_NOTE).toBe(NOTE));
+  it("stampLine of every state with includesAi ends with the note, exactly once", async () => {
+    await put(summary());
+    const ok = await look();
+    await put(summary({ probes: { total: 8, tune: 4, holdout: 4 } }));
+    const thin = await look();
+    const states: unknown[] = [{ state: "not_calibrated" }, { state: "stale", reason: "the rubric changed" }, ok, thin, { state: "ok", summary: {} }, undefined];
+    for (const s of states) {
+      const base = stampLine(s as StampState | undefined);
+      const line = stampLine(s === undefined ? ({ includesAi: true } as never) : ({ ...(s as object), includesAi: true } as never));
+      expect(line).toBe(`${base} ${NOTE}`);
+      expect(line.split(NOTE).length - 1).toBe(1);
+      expect(line.endsWith(NOTE)).toBe(true);
+    }
+  });
+  it("normalizeStamp keeps includesAi only for exactly true", async () => {
+    await put(summary());
+    const ok = await look();
+    expect(normalizeStamp({ ...ok, includesAi: true })).toMatchObject({ state: "ok", includesAi: true });
+    expect(normalizeStamp({ state: "not_calibrated", includesAi: true })).toEqual({ state: "not_calibrated", includesAi: true });
+    expect(normalizeStamp({ state: "stale", reason: "r", includesAi: true })).toEqual({ state: "stale", reason: "r", includesAi: true });
+    for (const v of ["yes", 1, {}, false, null, "true"]) {
+      expect(normalizeStamp({ ...ok, includesAi: v })).not.toHaveProperty("includesAi");
+      expect(normalizeStamp({ state: "stale", reason: "r", includesAi: v })).not.toHaveProperty("includesAi");
+      expect(normalizeStamp({ state: "not_calibrated", includesAi: v })).toEqual({ state: "not_calibrated" });
+    }
+  });
+  it("without includesAi every line is unchanged", async () => {
+    await put(summary());
+    expect(stampLine(await look())).not.toContain("AI players");
+    expect(stampLine({ state: "not_calibrated" })).toBe("Calibration: not calibrated (no calibration result for this judge, prompt variant and rubric).");
+    expect(normalizeStamp({ state: "not_calibrated" })).toEqual({ state: "not_calibrated" });
   });
 });
