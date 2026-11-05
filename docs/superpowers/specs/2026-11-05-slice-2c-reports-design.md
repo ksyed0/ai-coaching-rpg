@@ -61,7 +61,7 @@ Facilitator evaluate, moderation, release and export in the console, run by the 
 - **No existence oracle.** One neutral refusal; exchange throttled per address.
 - **Boundary.** The BFF holds no report data and no credential hashes; the control service reads reports only through `@acr/runtime/reports`; the import guard enforces this.
 - **Policy drives the view.** Peers are removed from the group report by the review policy in the runtime, not in the page.
-- **Inherited limits, restated.** The review chain is unkeyed (`THREAT_MODEL.md`, review log section), so anyone who can write the reports directory can alter reports; `access.json` has the same file-mode protection. A shared computer keeps the cookie until it expires or is revoked.
+- **Inherited limits, restated.** The review chain is unkeyed (`THREAT_MODEL.md`, review log section), so anyone who can write the reports directory can alter reports; `report-access.json` has the same file-mode protection. A shared computer keeps the cookie until it expires or is revoked.
 - **Not in 2c-1.** No participant-written content (2c-2 reopens the section for that), no export file (2c-3).
 
 ## 5. Risks carried into the plan
