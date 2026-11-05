@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -21,8 +23,12 @@ describe("ReportEnter", () => {
     let release!: (r: Response) => void;
     const fetchFn = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) => new Promise<Response>((r) => { release = r; }));
     const navigate = vi.fn();
+    const replace = vi.spyOn(window.history, "replaceState");
     render(<ReportEnter fetch={fetchFn as unknown as typeof fetch} navigate={navigate} />);
     await waitFor(() => expect(fetchFn).toHaveBeenCalledTimes(1));
+    // The address bar is cleaned before the request is made, not merely before it resolves.
+    expect(replace).toHaveBeenCalledWith(null, "", "/report/enter");
+    expect(replace.mock.invocationCallOrder[0]).toBeLessThan(fetchFn.mock.invocationCallOrder[0]!);
     expect(window.location.hash).toBe("");
     expect(window.location.pathname).toBe("/report/enter");
     expect(screen.getByRole("status").textContent).toBe("Opening your report…");
@@ -34,6 +40,52 @@ describe("ReportEnter", () => {
     expect(String(url)).not.toContain(TOKEN);
     await act(async () => { release(envelope(200)); });
     await waitFor(() => expect(navigate).toHaveBeenCalledWith("/report"));
+  });
+
+  it("drops the token and the finished request before it navigates", async () => {
+    const ReportEnter = await load();
+    const fetchFn = vi.fn(async () => envelope(200));
+    const seen: { fetches: number }[] = [];
+    const navigate = vi.fn(() => { seen.push({ fetches: fetchFn.mock.calls.length }); });
+    const first = render(<ReportEnter fetch={fetchFn as unknown as typeof fetch} navigate={navigate} />);
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/report"));
+    first.unmount();
+    // The same module, mounted again with no fragment: the used token is gone, so nothing is posted and the link reads as dead.
+    render(<ReportEnter fetch={fetchFn as unknown as typeof fetch} navigate={navigate} />);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("This link no longer works. Ask your facilitator for a new one."));
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("a new fragment on the same document is a new attempt: the address bar is cleaned and the new token is posted", async () => {
+    const ReportEnter = await load();
+    const NEXT = "ZyXwVuTs.9876543210zyxwvutsrq";
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(envelope(404, "not_found"))
+      .mockResolvedValueOnce(envelope(200));
+    const navigate = vi.fn();
+    render(<ReportEnter fetch={fetchFn as unknown as typeof fetch} navigate={navigate} />);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("no longer works"));
+    expect(JSON.parse(fetchFn.mock.calls[0]![1].body as string)).toEqual({ token: TOKEN });
+    // The user opens another link in the same tab: only the fragment changes, the page does not reload.
+    await act(async () => {
+      window.history.pushState(null, "", `/report/enter#${NEXT}`);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    });
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/report"));
+    expect(JSON.parse(fetchFn.mock.calls[1]![1].body as string)).toEqual({ token: NEXT });
+    expect(window.location.hash).toBe("");
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it("an empty fragment change is ignored", async () => {
+    const ReportEnter = await load();
+    const fetchFn = vi.fn(async () => envelope(404, "not_found"));
+    render(<ReportEnter fetch={fetchFn as unknown as typeof fetch} navigate={vi.fn()} />);
+    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("no longer works"));
+    await act(async () => { window.dispatchEvent(new HashChangeEvent("hashchange")); });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("status").textContent).toContain("no longer works");
   });
 
   it("StrictMode's double mount posts once", async () => {
@@ -104,5 +156,14 @@ describe("ReportEnter", () => {
     expect(renderToStaticMarkup(<ReportEnter />)).toContain(
       "<noscript><p class=\"banner warn\">This link needs JavaScript to open. Turn it on for this site, or ask your facilitator for help.</p></noscript>",
     );
+  });
+});
+
+describe("report text styling", () => {
+  it("keeps line breaks and wraps long unbroken text instead of scrolling sideways", () => {
+    const css = readFileSync(join(__dirname, "..", "..", "lib", "app.css"), "utf8");
+    const rule = /pre\.report-text\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toMatch(/white-space:\s*pre-wrap/);
+    expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
   });
 });

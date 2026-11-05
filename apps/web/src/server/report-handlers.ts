@@ -12,9 +12,12 @@ import { seal, unseal } from "./seal";
 // Nothing here logs or echoes a token, credential id, role, session id or address. Every answer is private: no-store, no-referrer.
 
 export const REPORT_COOKIE = "__Host-scenecoach-report";
-/** The enter throttle's role slot. `*` cannot appear in a scenario role id, so it never shares a bucket with a join. */
+/**
+ * The enter throttle's role slot: more than 5 failed tokens in 60 s from one address block it for 60 s (the join's limits). `*` cannot
+ * appear in a scenario role id, so it never shares a bucket with a join.
+ */
 const ENTER_ROLE = "*report-enter";
-/** The enter throttle: more than 5 failed tokens in 60 s from one address block it for 60 s (the join's limits). */
+/** The read throttle's slot: every read is counted, and more than 60 in 60 s from one address block it for 60 s (a rate limit, not a failure count). */
 const READ_ROLE = "*report-read";
 const MAX_TOKEN_CHARS = 64;
 const MAX_ENTER_BODY_BYTES = 512;
@@ -82,7 +85,8 @@ const isReportCookie = (v: unknown): v is ReportCookie => {
 /**
  * POST /api/v1/report/enter { token }. Origin and Fetch-Metadata first (a forged cross-site POST cannot sign a victim into someone
  * else's report), then the per-address failure throttle (the join's: more than 5 failures in 60 s block the address for 60 s), then
- * the control service. Every refusal, blocked or not, is the same neutral 404.
+ * the control service. A blocked address gets 429 `rate_limited` with `Retry-After` (it reveals only this caller's own failure count);
+ * a refused token (unknown, expired, revoked, malformed or the wrong size) is the same neutral 404 whatever the reason.
  */
 export function handleReportEnter(req: Request, deps: Deps): Promise<Response> {
   return safely(async () => {

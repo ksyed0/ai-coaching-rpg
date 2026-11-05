@@ -97,6 +97,11 @@ describe("ReportView", () => {
 
 describe("print rules", () => {
   const css = readFileSync(join(__dirname, "..", "..", "lib", "app.css"), "utf8");
+  it("pre.report-text keeps line breaks and wraps long unbroken text", () => {
+    const rule = /pre\.report-text\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(rule).toMatch(/white-space:\s*pre-wrap/);
+    expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
+  });
   it("an @media print rule hides the header, the Print button and removes backgrounds", () => {
     const block = /@media print\s*\{([\s\S]*?)\n\}/.exec(css)?.[1] ?? "";
     expect(block).toMatch(/\.apphdr[^{]*\.no-print[^{]*\{\s*display:\s*none\s*!important;?\s*\}|\.no-print[^{]*\.apphdr[^{]*\{\s*display:\s*none/);

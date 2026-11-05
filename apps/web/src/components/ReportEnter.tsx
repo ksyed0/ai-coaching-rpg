@@ -7,7 +7,9 @@ import { MESSAGES } from "../lib/messages";
 // Opens a report link. The token is in the URL fragment (never sent to a server by the browser): this reads it once, removes it from the
 // address bar before anything is awaited, posts it to the BFF, and goes to /report. The BFF answers with an HttpOnly cookie this code never
 // sees. The token lives in one module variable only: not in storage, not in a URL, not in any message. React StrictMode runs the effect
-// twice and the second run sees an empty fragment, so the first run's token and request are kept and reused.
+// twice and the second run sees an empty fragment, so the first run's token and request are kept and reused. Once the exchange has
+// succeeded both are dropped before the page navigates. A new fragment on the same document (the same page opened again from a link)
+// is a new attempt.
 
 export type ReportEnterProps = { fetch?: typeof fetch; navigate?: (url: string) => void };
 type Phase = "opening" | "refused" | "throttled" | "retry";
@@ -37,7 +39,13 @@ export function ReportEnter({ fetch: fetchImpl, navigate = goTo }: ReportEnterPr
   function settle(p: Promise<Phase | "done">, alive: () => boolean) {
     void p.then((o) => {
       if (!alive()) return;
-      if (o === "done") { navigate("/report"); return; } // stays "opening": the page is going away
+      if (o === "done") {
+        // The token has done its job: drop it (and the finished request) before leaving, so nothing here holds it any longer.
+        token = undefined;
+        inFlight = null;
+        navigate("/report"); // stays "opening": the page is going away
+        return;
+      }
       if (o === "refused") token = ""; // a dead link is not worth keeping
       setPhase(o);
     });
@@ -54,7 +62,23 @@ export function ReportEnter({ fetch: fetchImpl, navigate = goTo }: ReportEnterPr
     window.history.replaceState(null, "", window.location.pathname);
     if (inFlight === null) inFlight = attempt();
     settle(inFlight, mine(id));
-    return () => { current.current = null; };
+    // A new non-empty fragment on this document (another link opened in the same tab) is a new attempt with its own token.
+    const onHashChange = () => {
+      const next = window.location.hash.replace(/^#/, "");
+      if (next === "") return;
+      token = next;
+      window.history.replaceState(null, "", window.location.pathname);
+      const again = Symbol("hash");
+      current.current = again;
+      setPhase("opening");
+      inFlight = attempt();
+      settle(inFlight, mine(again));
+    };
+    window.addEventListener("hashchange", onHashChange);
+    return () => {
+      window.removeEventListener("hashchange", onHashChange);
+      current.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
