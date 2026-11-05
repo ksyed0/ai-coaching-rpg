@@ -311,4 +311,90 @@ describe("the AI-role seat file (US-0060)", () => {
     expect(b.seats!.aiRoles!.list()).toEqual([]);
     expect(await readRoles()).toEqual([]);
   });
+
+  describe("US-0061: the group-score option in the AI-role file", () => {
+    const optionOffLobby = async () => {
+      const a = await lobby();
+      a.seats!.aiRoles!.setIncludeInGroup(false);
+      a.seats!.persist();
+      return a;
+    };
+    const fileJson = async () => JSON.parse(await readFile(aiFile(), "utf8")) as Record<string, unknown>;
+
+    it("a lobby restart keeps the option off", async () => {
+      const a = await optionOffLobby();
+      expect((await fileJson()).v).toBe(2);
+      await crash(a);
+      const b = await openIt();
+      expect(b.joinCodes!.issued).toBeNull();
+      expect(b.seats!.aiRoles!.list()).toEqual(["tech_lead"]);
+      expect(b.seats!.aiRoles!.includeInGroup).toBe(false);
+      expect(await fileJson()).toMatchObject({ v: 2, roles: ["tech_lead"], includeInGroup: false });
+    });
+
+    it("a lobby with the option on keeps a v1 file with no includeInGroup key", async () => {
+      const a = await lobby();
+      await crash(a);
+      const b = await openIt();
+      expect(b.seats!.aiRoles!.includeInGroup).toBe(true);
+      const f = await fileJson();
+      expect(f.v).toBe(1);
+      expect("includeInGroup" in f).toBe(false);
+    });
+
+    it("a resumed started session takes the option from the log even when the file says on", async () => {
+      const a = await lobby();
+      await a.engine.start(Object.fromEntries(players().map((id) => [id, `p_${id}`])), { aiRoles: ["tech_lead"], includeInGroup: false });
+      await crash(a);
+      const b = await openIt();
+      expect(b.outcome).toBe("resumed");
+      expect(b.seats!.aiRoles!.includeInGroup).toBe(false);
+      expect(await fileJson()).toMatchObject({ v: 2, includeInGroup: false });
+    });
+
+    it("a resumed started session whose log says on takes it from the log even when the file says off", async () => {
+      const a = await optionOffLobby();
+      await a.engine.start(Object.fromEntries(players().map((id) => [id, `p_${id}`])), { aiRoles: ["tech_lead"], includeInGroup: true });
+      await crash(a);
+      await writeFile(aiFile(), JSON.stringify({ v: 2, sessionId: "s", scenarioSha256: "a".repeat(64), roles: ["tech_lead"], includeInGroup: false }));
+      const b = await openIt();
+      expect(b.seats!.aiRoles!.includeInGroup).toBe(true);
+      expect((await fileJson()).v).toBe(1);
+    });
+
+    it("BUG-0021 path: fresh codes drop a v2 file with roles [tech_lead] and off; aiRolesReset is [tech_lead] and includeInGroupReset is false", async () => {
+      const a = await optionOffLobby();
+      await crash(a);
+      await rm(path.join(dir, "s.codes.json"));
+      const b = await openIt();
+      expect(b.joinCodes!.issued).not.toBeNull();
+      expect(b.aiRolesReset).toEqual(["tech_lead"]);
+      expect(b.includeInGroupReset).toBe(false);
+      expect(b.seats!.aiRoles!.list()).toEqual([]);
+      expect(b.seats!.aiRoles!.includeInGroup).toBe(true);
+      expect(await fileJson()).toMatchObject({ v: 1, roles: [] });
+    });
+
+    it("the same with the option on has no includeInGroupReset", async () => {
+      const a = await lobby();
+      await crash(a);
+      await rm(path.join(dir, "s.codes.json"));
+      const b = await openIt();
+      expect(b.aiRolesReset).toEqual(["tech_lead"]);
+      expect("includeInGroupReset" in b).toBe(false);
+    });
+
+    it("a managed lobby with an invalid group-score option refuses the open naming the file and quoting nothing", async () => {
+      const a = await lobby();
+      await crash(a);
+      await writeFile(aiFile(), JSON.stringify({ v: 2, sessionId: "s", scenarioSha256: "a".repeat(64), roles: [], includeInGroup: SECRET }));
+      await chmod(aiFile(), 0o600);
+      const err = await openIt().catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(SessionStoreError);
+      expect(err).toMatchObject({ code: "seats" });
+      expect((err as Error).message).toContain("s.ai-roles.json");
+      expect((err as Error).message).toContain("invalid group-score option");
+      expect((err as Error).message).not.toContain(SECRET);
+    });
+  });
 });
