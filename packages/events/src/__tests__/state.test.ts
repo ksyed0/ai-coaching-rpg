@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialState, reduce, visibleTranscript, activeElapsedMs, MAX_WHISPERS_PER_ROLE, type SessionEvent } from "../index.js";
+import { initialState, reduce, includeInGroupOf, aiRolesOfStarted, visibleTranscript, activeElapsedMs, MAX_WHISPERS_PER_ROLE, type SessionEvent } from "../index.js";
 
 const env = (seq: number) => ({ seq, ts: 1_000 + seq, sessionId: "s1" });
 
@@ -347,5 +347,26 @@ describe("whispers (BUG-0023)", () => {
       whisper(3, "host", "a"), whisper(4, "analyst", "b"), { ...env(5), type: "utterance", roleId: "host", text: "hi", channel: "text" },
     ];
     expect(evs.reduce((st, e) => reduceReplay(st, e), initialState())).toEqual(evs.reduce((st, e) => reduce(st, e), initialState()));
+  });
+});
+
+describe("the group-score option (US-0061)", () => {
+  const st = (extra: Record<string, unknown> = {}) => ({
+    ...env(1), type: "session.started", scenarioId: "sc", version: "1",
+    roles: { tech_lead: { kind: "player" }, client_sponsor: { kind: "npc" } }, ...extra,
+  } as SessionEvent as Extract<SessionEvent, { type: "session.started" }>);
+
+  it("includeInGroupOf is true for an event without the field, true for true, false only for false", () => {
+    expect(includeInGroupOf(st())).toBe(true);
+    expect(includeInGroupOf(st({ aiRoles: ["tech_lead"], includeInGroup: true }))).toBe(true);
+    expect(includeInGroupOf(st({ aiRoles: ["tech_lead"], includeInGroup: false }))).toBe(false);
+  });
+
+  it("aiRolesOfStarted equals the folded state.aiRoles for the existing fold cases", () => {
+    for (const ai of [["tech_lead", 7, "client_sponsor", "tech_lead", "ghost"], undefined, "tech_lead", [], ["tech_lead"]]) {
+      const e = st(ai === undefined ? {} : { aiRoles: ai });
+      expect(aiRolesOfStarted(e)).toEqual(reduce(initialState(), e).aiRoles);
+    }
+    expect(aiRolesOfStarted(st({ aiRoles: ["tech_lead", 7, "client_sponsor", "tech_lead"] }))).toEqual(["tech_lead"]);
   });
 });

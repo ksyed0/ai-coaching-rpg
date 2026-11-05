@@ -43,7 +43,9 @@ export type EventBody =
        * US-0060: player roles an AI plays, in scenario order; present only when non-empty. Readers treat absence as none. Unlike `consents`
        * it is public to every player (labels), and never lists an AI character.
        */
-      aiRoles?: string[] }
+      aiRoles?: string[];
+      /** US-0061: whether AI players count toward group scores; written only with `aiRoles`; absent means on. */
+      includeInGroup?: boolean }
   | { type: "scene.entered"; sceneId: string; participants: string[] }
   | { type: "scene.exited"; sceneId: string; reason: ExitReason }
   | { type: "utterance"; roleId: string; text: string; channel: Channel;
@@ -77,7 +79,7 @@ export type EventBody =
 export type SessionEvent = EventEnvelope & EventBody;
 export type EventType = EventBody["type"];
 
-/** The newest session log format this version reads and writes (session.started.logFormat). A log without the field is format 0. Format 3 (US-0060) adds `aiRoles`. */
+/** The newest session log format this version reads and writes (session.started.logFormat). A log without the field is format 0. Format 3 (US-0060) adds `aiRoles` (US-0061 adds `includeInGroup` to it without a new format). */
 export const LOG_FORMAT = 3;
 /** The format written when a session has no AI roles, so an older runtime can still resume it after a rollback. */
 export const LOG_FORMAT_WITHOUT_AI_ROLES = 2;

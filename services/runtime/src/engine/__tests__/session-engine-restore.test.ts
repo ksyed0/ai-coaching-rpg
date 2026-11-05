@@ -595,4 +595,27 @@ describe("log format 3 and the AI roles (US-0060)", () => {
     expect(err).toBeInstanceOf(RestoreError);
     expect(err).toMatchObject({ code: "invalid_log" });
   });
+
+  describe("includeInGroup (US-0061)", () => {
+    it("a format-3 log with includeInGroup false resumes with startedIncludeInGroup false", async () => {
+      const log = await logOf([body({ aiRoles: ["tech_lead"], includeInGroup: false }), enterFri()]);
+      const out = await fresh(log).restore();
+      expect(out).toMatchObject({ kind: "running", info: { format: 3, startedAiRoles: ["tech_lead"], startedIncludeInGroup: false } });
+    });
+    it("a format-3 log without the field resumes with no startedIncludeInGroup (a 3b log), and true is not reported either", async () => {
+      for (const over of [{ aiRoles: ["tech_lead"] }, { aiRoles: ["tech_lead"], includeInGroup: true }]) {
+        const out = await fresh(await logOf([body(over), enterFri()])).restore();
+        if (out.kind !== "running") throw new Error("expected running");
+        expect(Object.hasOwn(out.info, "startedIncludeInGroup")).toBe(false);
+      }
+    });
+    it.each([["a format 2 log", { logFormat: 2, aiRoles: ["tech_lead"], includeInGroup: false }], ["a log without aiRoles", { includeInGroup: false }], ["the string \"false\"", { aiRoles: ["tech_lead"], includeInGroup: "false" }], ["null", { aiRoles: ["tech_lead"], includeInGroup: null }]])("includeInGroup in %s is invalid_log and nothing is appended", async (_n, over) => {
+      const log = await logOf([body(over), enterFri()]);
+      const n = (await log.all()).length;
+      const err = await fresh(log).restore().then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(RestoreError);
+      expect(err).toMatchObject({ code: "invalid_log" });
+      expect((await log.all()).length).toBe(n);
+    });
+  });
 });

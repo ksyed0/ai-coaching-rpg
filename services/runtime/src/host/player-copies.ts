@@ -51,7 +51,7 @@ export function snapshotForPlayer(s: SessionState, who: string): PlayerSnapshot 
 }
 
 /** Fields of session.started copied to a player as they are. A field added to the event type must be listed here (or handled in startedForPlayer) to compile. */
-const STARTED_FOR_PLAYERS: Record<Exclude<keyof StartedEvent, "roles" | "consents" | "names" | "logIdentity" | "aiRoles">, true> = {
+const STARTED_FOR_PLAYERS: Record<Exclude<keyof StartedEvent, "roles" | "consents" | "names" | "logIdentity" | "aiRoles" | "includeInGroup">, true> = {
   type: true, seq: true, ts: true, sessionId: true, scenarioId: true, version: true, logFormat: true, scenarioHash: true,
 };
 
