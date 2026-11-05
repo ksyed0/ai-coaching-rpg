@@ -23,6 +23,16 @@ export const MESSAGES = {
   notStarted: "You can speak once the scene starts.",
   joinRefused: "That did not work. Check the link and the code, or ask your facilitator for a new code.",
   badName: "Enter a name of 1 to 60 characters on one line.",
+  // The participant report pages (ReportEnter, ReportView).
+  reportOpening: "Opening your report…",
+  reportRefused: "This link no longer works. Ask your facilitator for a new one.",
+  reportEnterThrottled: "Too many attempts. Wait a minute and try again.",
+  reportEnterRetry: "We could not open the report. Try again.",
+  reportNoScript: "This link needs JavaScript to open. Turn it on for this site, or ask your facilitator for help.",
+  reportLoading: "Loading your report…",
+  reportNotReleased: "Your report is not available right now. Ask your facilitator.",
+  reportRetry: "We could not load your report. Try again.",
+  reportThrottled: "Too many requests. Wait a minute and try again.",
   generic: "Something went wrong. Try again.",
   badLink: "This join link is incomplete. Open the link your facilitator gave you.",
   // The facilitator console's live view (use-console-stream.ts). `stopped`, `expired`, `busy` and the two browser-side finals are fixed copy.

@@ -44,6 +44,8 @@ export function pageHeaders(pathname: string, csp: string): [string, string][] {
     ["Cross-Origin-Opener-Policy", "same-origin"],
     ["Cross-Origin-Resource-Policy", "same-origin"],
   ];
+  // The report pages open with a secret in the address and show a person's report: never stored by a browser or a shared cache.
+  if (pathname === "/report" || pathname.startsWith("/report/")) h.push(["Cache-Control", "no-store"]);
   if (isPrivatePath(pathname)) h.push(["X-Robots-Tag", ROBOTS_TAG]);
   return h;
 }

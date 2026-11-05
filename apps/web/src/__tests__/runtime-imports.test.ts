@@ -18,16 +18,31 @@ function specifiers(text: string): string[] {
   return [...text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*)["'`]([^"'`]+)["'`]/g)].map((m) => m[1]!);
 }
 
+/** Whether a specifier reaches the runtime: the package by name (any subpath) or a relative path into its source. */
+const reachesRuntime = (spec: string): boolean => spec.startsWith("@acr/runtime") || /runtime\/src/.test(spec) || /services\/runtime(\/|$)/.test(spec);
+
+/** The specifiers in `text` that reach the runtime. */
+const violations = (text: string): string[] => specifiers(text).filter(reachesRuntime);
+
 describe("web sources and the runtime", () => {
   it("the checker sees every import form", () => {
     const fixture = ['import a from "@acr/runtime/x";', 'import "@acr/runtime/y";', 'const b = await import("@acr/runtime/z");', "const c = await import(`@acr/runtime/t`);", 'const d = require("@acr/runtime/u");', 'export { e } from "@acr/runtime/v";'].join("\n");
-    expect(specifiers(fixture)).toHaveLength(6);
+    expect(specifiers(fixture)).toEqual(["@acr/runtime/x", "@acr/runtime/y", "@acr/runtime/z", "@acr/runtime/t", "@acr/runtime/u", "@acr/runtime/v"]);
+    expect(violations(fixture)).toHaveLength(6);
   });
 
-  it("no web source outside __tests__ imports @acr/runtime in any form", () => {
+  it("the predicate reports a bad specifier and passes clean ones", () => {
+    expect(violations('import a from "@acr/runtime/reports";')).toEqual(["@acr/runtime/reports"]);
+    expect(violations('import a from "../../../services/runtime/src/reports";')).toEqual(["../../../services/runtime/src/reports"]);
+    expect(violations('const a = await import("../runtime/src/x");')).toEqual(["../runtime/src/x"]);
+    expect(violations('import a from "../../services/runtime/dist/x"; import b from "../../services/runtime";')).toEqual(["../../services/runtime/dist/x", "../../services/runtime"]);
+    expect(violations('import a from "@acr/events"; import b from "./runtime-lookup"; import c from "node:fs";')).toEqual([]);
+  });
+
+  it("no web source outside __tests__ imports @acr/runtime or reaches into runtime/src in any form", () => {
     const files = sources(SRC);
     expect(files.length).toBeGreaterThan(20);
-    const hits = files.filter((f) => specifiers(readFileSync(f, "utf8")).some((s) => s.startsWith("@acr/runtime")));
+    const hits = files.filter((f) => violations(readFileSync(f, "utf8")).length > 0);
     expect(hits).toEqual([]);
   });
 });

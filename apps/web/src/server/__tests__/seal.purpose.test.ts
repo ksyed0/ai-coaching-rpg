@@ -20,4 +20,13 @@ describe("seal purpose", () => {
     );
     expect(unseal(seal(payload, KEYS, NOW), KEYS, NOW)).toEqual(payload);
   });
+
+  it("an rpt-sealed token opens only as rpt: never as player or fac, and neither of those opens as rpt", () => {
+    const rpt = seal(payload, KEYS, NOW, "rpt");
+    expect(unseal(rpt, KEYS, NOW, "rpt")).toEqual(payload);
+    expect(unseal(rpt, KEYS, NOW)).toBeNull();
+    expect(unseal(rpt, KEYS, NOW, "fac")).toBeNull();
+    expect(unseal(seal(payload, KEYS, NOW), KEYS, NOW, "rpt")).toBeNull();
+    expect(unseal(seal(payload, KEYS, NOW, "fac"), KEYS, NOW, "rpt")).toBeNull();
+  });
 });

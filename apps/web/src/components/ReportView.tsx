@@ -1,0 +1,98 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { getJson } from "../lib/api";
+import { MESSAGES } from "../lib/messages";
+
+// The participant's released report. The text arrives already scrubbed and rendered to markdown by the runtime; it is shown here as
+// escaped plain text in a pre-wrap block, never parsed into HTML. Who the reader is comes from the HttpOnly cookie, not from this page.
+
+export type ReportViewProps = { fetch?: typeof fetch };
+type Model =
+  | { kind: "loading" }
+  | { kind: "report"; own: string; group: string | null; until: string | null }
+  | { kind: "not_released" | "refused" | "retry" | "throttled" };
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null;
+
+function parse(data: unknown): Model {
+  if (!isObj(data)) return { kind: "retry" };
+  if (data.state === "not_released") return { kind: "not_released" };
+  const md = isObj(data.view) && isObj(data.view.markdown) ? data.view.markdown : null;
+  if (data.state !== "released" || md === null || typeof md.own !== "string") return { kind: "retry" };
+  return {
+    kind: "report",
+    own: md.own,
+    group: typeof md.group === "string" ? md.group : null,
+    until: typeof data.availableUntil === "string" ? data.availableUntil : null,
+  };
+}
+
+function formatUntil(iso: string): string | null {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "long", timeStyle: "short" }).format(d);
+}
+
+export function ReportView({ fetch: fetchImpl }: ReportViewProps) {
+  const [model, setModel] = useState<Model>({ kind: "loading" });
+  const heading = useRef<HTMLHeadingElement>(null);
+
+  const load = useCallback(async (alive: () => boolean) => {
+    const r = await getJson("/api/v1/report", fetchImpl);
+    if (!alive()) return;
+    if (r.ok) setModel(parse(r.data));
+    else if (r.status === 404) setModel({ kind: "refused" });
+    else if (r.status === 429) setModel({ kind: "throttled" });
+    else setModel({ kind: "retry" });
+  }, [fetchImpl]);
+
+  useEffect(() => {
+    let live = true;
+    void load(() => live);
+    return () => { live = false; };
+  }, [load]);
+
+  useEffect(() => { if (model.kind !== "loading") heading.current?.focus(); }, [model.kind]);
+
+  const retry = () => { setModel({ kind: "loading" }); void load(() => true); };
+  const note: Record<string, string> = {
+    loading: MESSAGES.reportLoading,
+    not_released: MESSAGES.reportNotReleased,
+    refused: MESSAGES.reportRefused,
+    retry: MESSAGES.reportRetry,
+    throttled: MESSAGES.reportThrottled,
+  };
+  const until = model.kind === "report" && model.until !== null ? formatUntil(model.until) : null;
+
+  return (
+    <>
+      <div className="tb">
+        <h1 ref={heading} tabIndex={-1}>Participant report</h1>
+        {until !== null ? <p>{`Available until ${until}`}</p> : null}
+      </div>
+      <div className="body report">
+        {model.kind === "report" ? (
+          <>
+            <section className="card stack" aria-labelledby="report-own">
+              <h2 className="s" id="report-own">Your report</h2>
+              <pre className="report-text">{model.own}</pre>
+            </section>
+            {model.group !== null ? (
+              <section className="card stack" aria-labelledby="report-group">
+                <h2 className="s" id="report-group">Group report</h2>
+                <pre className="report-text">{model.group}</pre>
+              </section>
+            ) : null}
+            <p className="no-print"><button className="btn" type="button" onClick={() => window.print()}>Print</button></p>
+          </>
+        ) : (
+          <>
+            <p className={model.kind === "loading" ? "muted" : "banner warn"} role="status">{note[model.kind]}</p>
+            {model.kind === "retry" || model.kind === "throttled" ? <p><button className="btn pri" type="button" onClick={retry}>Try again</button></p> : null}
+          </>
+        )}
+      </div>
+    </>
+  );
+}

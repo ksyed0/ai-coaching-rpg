@@ -220,6 +220,30 @@ Rollback trigger: the evaluator refuses a log it should read, a report is wrongl
 ### Rolling forward again
 Redeploy this slice. Re-run `pnpm evaluate` for the sessions with AI players whose reports were written by the older evaluator.
 
+## EPIC-0002 slice 2c-1: participant report access (US-0062)
+
+```
+Release: 0.1.0 (feature/EPIC-0002-US-0062-report-access, PR 1; feature/EPIC-0002-US-0062-report-pages, PR 2; merged by their pull requests)
+Date: not deployed
+Rollback trigger: a participant link opens someone else's report or a revoked link still opens, the control service refuses to start on the new setting, the console panel breaks an ended session's page, or the report routes must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **One new file:** `<CONTROL_DATA_DIR>/report-access.json` (mode 0600; salted hashes of the links, no token), created on the first issue. **Older builds ignore it:** nothing before this slice reads or lists the control data directory for it, and it sits outside every review folder, so the review tool and `pnpm moderate` are not affected. Leaving it in place is safe; deleting it makes every issued link stop working (the holders see "This link no longer works").
+- **One new setting:** `REPORT_ACCESS_DAYS` (a whole number 1 to 365, default 90; an invalid value stops the control service at start naming the variable). An older control service does not read it and does not complain about it being set.
+- **New routes:** the control service gains `/sessions/:id/report-links...`, `/report-access/exchange` and `/sessions/:id/reports/:credentialId`; the web app gains `/report`, `/report/enter`, `/api/v1/report` and `/api/v1/report/enter` and the console `report-links` routes. **Older builds have no `/report` routes:** a link already given to a participant opens a "not found" page, and the console shows no Participant reports panel. Nothing else in a session depends on them.
+- **No change to the log, the review folders or any report.** The reader is read-only (`@acr/runtime/reports`); the new runtime export is an addition. The cookie `__Host-scenecoach-report` is new; a rolled-back web app ignores it and it expires by itself (or clear it by hand).
+
+### Rolling back
+
+1. Redeploy the previous web app and control service together (the control service's routes and the web app's go as a pair); no data migration.
+2. **Links already issued:** they stop working with the rollback (no `/report` page). Tell participants who were sent a link. If the rollback is because a link may have leaked, do not wait for the rollback: revoke it in the console (it takes effect at once), or move `report-access.json` aside to end every link.
+3. **Smoke test:** the console opens an ended session without the panel; `pnpm demo --web` passes W-01 to W-08.
+
+### Rolling forward again
+Redeploy this slice. Put `report-access.json` back if it was moved aside (links not yet expired work again); otherwise reissue the links in the console.
+
 ## BUG-0023: whispers kept in the player snapshot and labelled Private
 
 ```
