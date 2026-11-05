@@ -1,13 +1,15 @@
 'use strict';
 const https = require('https');
+const { apiPath: checkedApiPath, bodyText } = require('./safe-text');
 
 function githubRequest(token, method, apiPath, body) {
   return new Promise((resolve, reject) => {
-    const data = body ? JSON.stringify(body) : null;
+    const safePath = checkedApiPath(apiPath);
+    const data = body ? bodyText(JSON.stringify(body), 1000000) : null;
     const req = https.request(
       {
         hostname: 'api.github.com',
-        path: apiPath,
+        path: safePath,
         method,
         headers: {
           Authorization: `Bearer ${token}`,

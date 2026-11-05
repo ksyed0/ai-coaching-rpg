@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+- Code-scanning findings in the PlanVisualizer tooling (alerts 1 to 6). The GitHub sync no longer writes a pulled issue's title, number or a status into `docs/BUGS.md`, the release plan or the sync state without rebuilding it from a fixed alphabet first (`tools/lib/safe-text.js`); data sent to GitHub is limited to ordinary text (emoji, CJK and control characters become spaces) and the request path is refused if it holds an unexpected character; the dashboard e2e test reads its status file once instead of checking for it first.
+
 ## [0.1.0] - 2026-11-05
 
 First tagged release. It covers everything built so far: the shared event log and runtime, the terminal client, the web client for players (slice 2a), the control service and facilitator console (slice 2b), live AI players and the group-score option (slices 2b-3b and 2b-3c), the post-session evaluator and its moderation tools. Released under the MIT License.

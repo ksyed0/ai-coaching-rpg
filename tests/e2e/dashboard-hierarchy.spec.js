@@ -14,7 +14,13 @@ let originalStatus = null;
 
 test.beforeAll(() => {
   // Swap in test fixture, generate dashboard, restore original
-  originalStatus = fs.existsSync(STATUS_PATH) ? fs.readFileSync(STATUS_PATH) : null;
+  // One read, no existence check first: a missing file is the null case (no check-then-use race).
+  try {
+    originalStatus = fs.readFileSync(STATUS_PATH);
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+    originalStatus = null;
+  }
   fs.copyFileSync(FIXTURE_PATH, STATUS_PATH);
   execSync('node tools/generate-dashboard.js', { cwd: ROOT });
   if (originalStatus) fs.writeFileSync(STATUS_PATH, originalStatus);
