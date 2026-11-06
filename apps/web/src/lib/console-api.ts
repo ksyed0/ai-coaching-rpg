@@ -1,4 +1,4 @@
-import { getJson, postJson, type ApiResult } from "./api";
+import { getJson, postForFile, postJson, type ApiResult } from "./api";
 import { MESSAGES, REPORT_CONSOLE, REPORT_REFUSALS, type ReportRefusal } from "./messages";
 
 // What the console pages know about the BFF's answers. Everything from the network is untrusted: shapes are checked here and text is
@@ -254,7 +254,13 @@ export type ReportSubjectDetail = {
   id: string; state: ReportSubjectState; criteria: ReportCriterion[];
   summary: { strengths: string[]; developments: string[]; actions: { lo: string; text: string }[] };
   comments: { visibility: "internal" | "feedback"; text: string; criterion?: string }[];
+  /** The participants' responses; a dispute is open until it has a resolution. */
+  responses: ReportResponse[];
+  /** The log sequence numbers of this subject's releases, oldest first. */
+  versions: number[];
 };
+export type ReportResponse = { seq: number; role: string; text: string; criterion?: string; dispute: boolean; resolution?: { outcome: string; reason: string } };
+export type ResolveOutcome = "upheld" | "amended" | "declined";
 /** What an edit names as the level it expects to replace (`--expect`): the level the form showed. */
 export type ReportExpect = "1" | "2" | "3" | "4" | "na" | "invalid";
 
@@ -351,8 +357,19 @@ export function parseReportSubject(v: unknown): ReportSubjectDetail | null {
     const visibility = pick(["internal", "feedback"] as const, c?.visibility);
     return c && visibility && str(c.text) && (c.criterion === undefined || str(c.criterion)) ? { visibility, text: c.text, ...(str(c.criterion) ? { criterion: c.criterion } : {}) } : null;
   });
-  if (!criteria || !actions || !comments) return null;
-  return { id: o.id, state, criteria, summary: { strengths: sm.strengths, developments: sm.developments, actions }, comments };
+  const responses = each(o.responses, (x): ReportResponse | null => {
+    const r = obj(x);
+    if (!r || !count(r.seq) || !str(r.role) || !str(r.text) || typeof r.dispute !== "boolean" || !(r.criterion === undefined || str(r.criterion))) return null;
+    const res = obj(r.resolution);
+    if (r.resolution !== undefined && !(res && str(res.outcome) && str(res.reason))) return null;
+    return {
+      seq: r.seq, role: r.role, text: r.text, dispute: r.dispute, ...(str(r.criterion) ? { criterion: r.criterion } : {}),
+      ...(res && str(res.outcome) && str(res.reason) ? { resolution: { outcome: res.outcome, reason: res.reason } } : {}),
+    };
+  });
+  const versions = each(o.versions, (x) => (count(x) ? x : null));
+  if (!criteria || !actions || !comments || !responses || !versions) return null;
+  return { id: o.id, state, criteria, summary: { strengths: sm.strengths, developments: sm.developments, actions }, comments, responses, versions };
 }
 
 /** The level a criterion shows, as the edit's `expect`. */
@@ -381,3 +398,35 @@ export const acceptItem = (sessionId: string, subject: string, b: { criterion: s
   postJson(`${subjectPath(sessionId, subject)}/accept`, b, f);
 export const commentOn = (sessionId: string, subject: string, b: { text: string; criterion?: string; feedback?: true; by: string }, f?: typeof fetch) =>
   postJson(`${subjectPath(sessionId, subject)}/comment`, b, f);
+
+// ---- release and after (US-0064, part B) ----
+
+/** A safe subject id, as the BFF checks it (a role, `group`). */
+const SUBJECT_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** A release answer: the subjects released and whether the released group's per-role table is now out of date. Null when it does not fit. */
+export function parseReleased(v: unknown): { released: string[]; groupTableStale: boolean } | null {
+  const o = obj(v);
+  if (!o || !strs(o.released) || !o.released.every((x) => SUBJECT_ID.test(x)) || typeof o.groupTableStale !== "boolean") return null;
+  return { released: o.released, groupTableStale: o.groupTableStale };
+}
+
+
+/** The subject ids of a `blocked` release refusal (safe ids only, at most 50); empty for any other answer. */
+export function blockedOf(r: Extract<ApiResult, { ok: false }>): string[] {
+  const d = obj(r.data);
+  if (r.code !== "blocked" || !d || !Array.isArray(d.blocked)) return [];
+  return d.blocked.filter((x): x is string => str(x) && SUBJECT_ID.test(x)).slice(0, 50);
+}
+
+/** An explicit, non-empty list of subjects: the server refuses an empty list and has no `all` flag. */
+export const releaseSubjects = (sessionId: string, subjects: string[], by: string, f?: typeof fetch) => postJson(`${reportPath(sessionId)}/release`, { subjects, by }, f);
+export const amendSubject = (sessionId: string, subject: string, reason: string, by: string, f?: typeof fetch) =>
+  postJson(`${subjectPath(sessionId, subject)}/amend`, { reason, by }, f);
+export const withdrawSubject = (sessionId: string, subject: string, reason: string, by: string, f?: typeof fetch) =>
+  postJson(`${subjectPath(sessionId, subject)}/withdraw`, { reason, by }, f);
+export const resolveDispute = (sessionId: string, b: { seq: number; outcome: ResolveOutcome; reason: string; by: string }, f?: typeof fetch) =>
+  postJson(`${reportPath(sessionId)}/resolve`, b, f);
+/** The export is a POST (it records the export first); the answer is the Markdown text to save, never to render. */
+export const exportReport = (sessionId: string, b: { subject: string; audience: "facilitator" | `participant:${string}`; by: string }, f?: typeof fetch) =>
+  postForFile(`${reportPath(sessionId)}/export`, b, f);

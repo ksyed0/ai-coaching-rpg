@@ -8,6 +8,7 @@ import { handleConsoleAiIntents, handleConsoleAiPrompt, handleConsoleAiRoles } f
 import {
   handleConsoleReportAccept, handleConsoleReportCancel, handleConsoleReportComment, handleConsoleReportEdit, handleConsoleReportEditSummary,
   handleConsoleReportEvaluate, handleConsoleReportOpen, handleConsoleReportOverview, handleConsoleReportSubject,
+  handleConsoleReportAmend, handleConsoleReportExport, handleConsoleReportRelease, handleConsoleReportResolve, handleConsoleReportWithdraw,
 } from "./console-report-handlers";
 import { handleConsoleCommand, handleConsoleFacts } from "./console-command";
 import { handleConsoleStream } from "./console-stream";
@@ -159,3 +160,8 @@ export const consoleReportEditPOST = route(handleConsoleReportEdit);
 export const consoleReportAcceptPOST = route(handleConsoleReportAccept);
 export const consoleReportCommentPOST = route(handleConsoleReportComment);
 export const consoleReportEditSummaryPOST = route(handleConsoleReportEditSummary);
+export const consoleReportReleasePOST = route(handleConsoleReportRelease);
+export const consoleReportResolvePOST = route(handleConsoleReportResolve);
+export const consoleReportExportPOST = route(handleConsoleReportExport);
+export const consoleReportAmendPOST = route(handleConsoleReportAmend);
+export const consoleReportWithdrawPOST = route(handleConsoleReportWithdraw);

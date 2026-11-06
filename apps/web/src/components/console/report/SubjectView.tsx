@@ -8,30 +8,42 @@ import {
   fetchReportSubject,
   parseReportSubject,
   reportFailureText,
+  resolveDispute,
   type ReportSubjectDetail,
+  type ResolveOutcome,
 } from "../../../lib/console-api";
 import type { ApiResult } from "../../../lib/api";
 import { REPORT_CONSOLE } from "../../../lib/messages";
 import { CriterionRow, type EditInput } from "./CriterionRow";
+import { ResolveDisputePanel } from "./ResolveDisputePanel";
 import { subjectLabel } from "./SubjectList";
 
-// One subject's report for the facilitator: the criteria (levels with edit and accept), the summary (accept), the comments so far and a
-// comment box. Every write carries the typed name; without a valid one nothing is enabled. A refusal is one fixed sentence; what was typed
-// stays (a stale edit or a refused comment loses nothing). Every string from the report is rendered as a React text node.
+// One subject's report for the facilitator: the criteria (levels with edit and accept), the summary (accept), the comments so far, the
+// participant's open disputes (resolve) and a comment box. Every write carries the typed name; without a valid one nothing is enabled. A
+// refusal is one fixed sentence; what was typed stays (a stale edit or a refused comment loses nothing). Every string from the report is
+// rendered as a React text node.
 
 export type SubjectViewProps = {
   sessionId: string;
   subject: string;
   /** The valid typed name, or null (then every write is disabled). */
   author: string | null;
-  /** False when the evaluation of this subject failed (from the subject list): every criterion is scored by hand, none accepted. */
+  /**
+   * False when the evaluation of this subject failed (from the subject list): every criterion is scored by hand, none accepted. Missing
+   * means unknown, which fails closed (scored by hand).
+   */
   evaluationOk?: boolean;
   fetch?: typeof fetch;
   /** After a successful write (the panel refreshes its subject list). */
   onChanged?: () => void;
+  /**
+   * Bumped by the panel after its own release, amend or withdraw succeeds: the view reads the subject again (its state, so whether it can
+   * be edited, and its versions, so whether a dispute can be resolved as amended) without remounting, so nothing typed is lost.
+   */
+  refresh?: number;
 };
 
-export function SubjectView({ sessionId, subject, author, evaluationOk = true, fetch: fetchImpl, onChanged }: SubjectViewProps) {
+export function SubjectView({ sessionId, subject, author, evaluationOk = false, fetch: fetchImpl, onChanged, refresh = 0 }: SubjectViewProps) {
   const id = useId();
   const [view, setView] = useState<ReportSubjectDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -65,6 +77,14 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = true, f
     void load();
   }, [load]);
 
+  // A panel action changed this subject: read it again, keeping the view (and what is typed) on screen meanwhile.
+  const seen = useRef(refresh);
+  useEffect(() => {
+    if (seen.current === refresh) return;
+    seen.current = refresh;
+    void load();
+  }, [refresh, load]);
+
   /** Runs a write; null when it succeeded (then the view reloads), else the fixed sentence (on the status line unless `inRow`: the row shows it). */
   async function run(call: Promise<ApiResult>, inRow = false): Promise<string | null> {
     setPending(true);
@@ -87,6 +107,7 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = true, f
   const by = author ?? "";
   const edit = (criterion: string) => (input: EditInput) => run(editCriterion(sessionId, subject, { criterion, ...input, by }, fetchImpl), true);
   const accept = (criterion: string) => void run(acceptItem(sessionId, subject, { criterion, by }, fetchImpl));
+  const resolve = (seq: number, outcome: ResolveOutcome, reason: string) => run(resolveDispute(sessionId, { seq, outcome, reason, by }, fetchImpl), true);
   async function sendComment() {
     if (!canWrite || comment.trim() === "") return;
     const refusal = await run(commentOn(sessionId, subject, { text: comment, ...(about !== "" ? { criterion: about } : {}), ...(feedback ? { feedback: true as const } : {}), by }, fetchImpl));
@@ -95,6 +116,8 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = true, f
       setFeedback(false);
     }
   }
+  /** Edits and acceptances are refused on a released or withdrawn report (`not_editable`): amend it first. Comments and resolves are not. */
+  const editable = view !== null && (view.state === "draft" || view.state === "amending");
   const nameOf = (criterion: string) => view?.criteria.find((c) => c.id === criterion)?.name ?? criterion;
   const label = subjectLabel(subject);
 
@@ -117,6 +140,7 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = true, f
       {view === null ? null : (
         <>
           {!canWrite ? <p className="small muted">{REPORT_CONSOLE.nameNeeded}</p> : null}
+          {!editable ? <p className="small muted">{REPORT_CONSOLE.amendToChange}</p> : null}
           {!evaluationOk ? <p className="banner warn">{REPORT_CONSOLE.evaluationFailed}</p> : null}
           <div>
             {/* Reload shows the latest levels without clearing an open form (a stale refusal asks for this). */}
@@ -126,7 +150,7 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = true, f
           </div>
           <ul className="console-list stack">
             {view.criteria.map((c) => (
-              <CriterionRow key={c.id} criterion={c} canWrite={canWrite} pending={pending} byHand={!evaluationOk} onEdit={edit(c.id)} onAccept={() => accept(c.id)} />
+              <CriterionRow key={c.id} criterion={c} canWrite={canWrite} pending={pending} byHand={!evaluationOk} editable={editable} onEdit={edit(c.id)} onAccept={() => accept(c.id)} />
             ))}
           </ul>
 
@@ -153,11 +177,13 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = true, f
                 ))}
               </ul>
             ) : null}
-            <div>
-              <button className="btn" type="button" disabled={!canWrite || pending} onClick={() => void run(acceptItem(sessionId, subject, { summary: true, by }, fetchImpl))}>
-                Accept the summary
-              </button>
-            </div>
+            {editable ? (
+              <div>
+                <button className="btn" type="button" disabled={!canWrite || pending} onClick={() => void run(acceptItem(sessionId, subject, { summary: true, by }, fetchImpl))}>
+                  Accept the summary
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {view.comments.length > 0 ? (
@@ -173,6 +199,8 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = true, f
               </ul>
             </div>
           ) : null}
+
+          <ResolveDisputePanel responses={view.responses} versions={view.versions} canWrite={canWrite} pending={pending} criterionName={nameOf} onResolve={resolve} />
         </>
       )}
 

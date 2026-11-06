@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isFileSafeId } from "@acr/events";
+import { isFileSafeId, isSafeId } from "@acr/events";
 import { z } from "zod";
 import { BAD_REQUEST, fail, failClosed, HttpError, jsonBody, ok, parse } from "./http-util.js";
 import { isConsoleName, type ModOutcome, type ModerationService } from "./moderation.js";
@@ -41,15 +41,27 @@ const EditSummaryBody = z.strictObject({
   actions: z.array(z.strictObject({ lo: z.string(), text: z.string() })).max(50).optional(), by: By,
 });
 
+const ReleaseBody = z.strictObject({ subjects: z.array(CriterionId).min(1).max(50), by: By });
+const ReasonBody = z.strictObject({ reason: z.string(), by: By });
+const ResolveBody = z.strictObject({
+  seq: z.number().int().min(1).max(999_999_999), outcome: z.enum(["upheld", "amended", "declined"]), reason: z.string(), by: By,
+});
+const ExportBody = z.strictObject({
+  subject: CriterionId,
+  audience: z.union([z.literal("facilitator"), z.string().refine((a) => a.startsWith("participant:") && isSafeId(a.slice("participant:".length))).transform((a) => a as `participant:${string}`)]),
+  by: By,
+});
+
 const notFound = (): never => { throw new HttpError(404, "not_found", "Not found."); };
 
 /** Answers a closed outcome: only a code (and the blocked subject ids), a fixed sentence, never text from the review layer. */
 function respond<T>(res: ServerResponse, o: ModOutcome<T> | JobOutcome): void {
   switch (o.status) {
     case 200: ok(res, (o.value as unknown) ?? {}); return;
-    case 404: return notFound();
+    // an unknown subject keeps its own closed code (no message) so the console can say which thing was not found
+    case 404: if ("code" in o && o.code === "unknown_subject") { failClosed(res, 404, "unknown_subject"); return; } return notFound();
     case 400: fail(res, 400, o.code, BAD_REQUEST); return;
-    case 409: failClosed(res, 409, o.code, "detail" in o && o.code === "blocked" && o.detail ? { blocked: o.detail } : null); return;
+    case 409: failClosed(res, 409, o.code, "detail" in o && o.code === "blocked" && o.detail ? { blocked: o.detail.filter(isSafeId) } : null); return;
     default:
       if (o.code === "busy") fail(res, 503, "busy", BUSY, false, Math.max(1, Math.ceil(o.retryAfterMs / 1000)));
       else fail(res, 503, "unavailable", REPORT_UNAVAILABLE);
@@ -63,7 +75,7 @@ async function job(res: ServerResponse, run: () => Promise<JobOutcome>): Promise
   respond(res, out);
 }
 
-const SUBJECT_ACTIONS = new Set(["edit", "accept", "comment", "edit-summary"]);
+const SUBJECT_ACTIONS = new Set(["edit", "accept", "comment", "edit-summary", "amend", "withdraw"]);
 
 /**
  * The facilitator's evaluate and review routes under `/sessions/:id/report` (the caller has checked the service token and the session id).
@@ -115,6 +127,21 @@ async function route(seg: string[], method: string, req: IncomingMessage, res: S
     respond(res, await moderation.open(id, b.by));
     return true;
   }
+  if (n === 4 && method === "POST" && (seg[3] === "release" || seg[3] === "resolve" || seg[3] === "export")) {
+    if (!moderation) return false;
+    exists();
+    if (seg[3] === "release") {
+      const b = parse(ReleaseBody, await jsonBody(req));
+      respond(res, await moderation.release(id, { subjects: b.subjects }, b.by));
+    } else if (seg[3] === "resolve") {
+      const b = parse(ResolveBody, await jsonBody(req, MAX_TEXT_BODY_BYTES));
+      respond(res, await moderation.resolve(id, { seq: b.seq, outcome: b.outcome, reason: b.reason }, b.by));
+    } else {
+      const b = parse(ExportBody, await jsonBody(req));
+      respond(res, await moderation.export(id, { subject: b.subject, audience: b.audience }, b.by));
+    }
+    return true;
+  }
   if (n >= 5 && seg[3] === "subjects") {
     const isRead = n === 5 && method === "GET";
     const isWrite = n === 6 && method === "POST" && SUBJECT_ACTIONS.has(seg[5]!);
@@ -145,6 +172,16 @@ async function route(seg: string[], method: string, req: IncomingMessage, res: S
         respond(res, await moderation.comment(id, subject, {
           text: b.text, ...(b.criterion !== undefined ? { criterion: b.criterion } : {}), ...(b.feedback !== undefined ? { feedback: b.feedback } : {}),
         }, b.by));
+        return true;
+      }
+      case "amend": {
+        const b = parse(ReasonBody, await jsonBody(req, MAX_TEXT_BODY_BYTES));
+        respond(res, await moderation.amend(id, subject, { reason: b.reason }, b.by));
+        return true;
+      }
+      case "withdraw": {
+        const b = parse(ReasonBody, await jsonBody(req, MAX_TEXT_BODY_BYTES));
+        respond(res, await moderation.withdraw(id, subject, { reason: b.reason }, b.by));
         return true;
       }
       default: {

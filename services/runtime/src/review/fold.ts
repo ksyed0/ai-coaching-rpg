@@ -591,7 +591,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         const svs = e.subjects.map((id) => subj(e, id));
         for (const sv of svs) {
           if (sv.state !== "draft" && sv.state !== "amending")
-            ill(e, `${sv.id} is ${sv.state}`);
+            ill(e, `${sv.id} is ${sv.state}`, "not_editable");
           const problems = releaseProblems(sv);
           if (problems.length)
             ill(
@@ -628,6 +628,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ill(
             e,
             `${sv.id} is ${sv.state}; only a released report can be amended`,
+            "not_editable",
           );
         if (e.basedOn !== sv.versions.at(-1))
           ill(e, "basedOn is not the current version of the report");
@@ -642,6 +643,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ill(
             e,
             `${sv.id} is ${sv.state}; only a released report can be withdrawn`,
+            "not_editable",
           );
         sv.state = "withdrawn";
         // the group's frozen table still holds this player's row
@@ -779,6 +781,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ill(
             e,
             "amend the report and release the new version first, then resolve the dispute as amended",
+            "needs_amend",
           );
         found.r.resolution = {
           seq: e.seq,

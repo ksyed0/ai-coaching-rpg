@@ -244,8 +244,8 @@ describe("ModerationService, part A", () => {
     expect(await rec(svc.overview("../etc"))).toEqual({ status: 404 });
     expect(await rec(svc.subject("s-no-such-session", "alice"))).toEqual({ status: 404 });
     expect(await rec(svc.open("s-no-such-session", "priya"))).toEqual({ status: 404 });
-    expect(await rec(svc.subject(id, "zed"))).toEqual({ status: 404 });
-    expect(await rec(svc.accept(id, "zed", { summary: true }, "priya"))).toEqual({ status: 404 });
+    expect(await rec(svc.subject(id, "zed"))).toEqual({ status: 404, code: "unknown_subject" });
+    expect(await rec(svc.accept(id, "zed", { summary: true }, "priya"))).toEqual({ status: 404, code: "unknown_subject" });
   });
 
   it("overview is not_evaluated with no candidate, evaluating while the job runs, ready_to_open for a complete unopened draft, in_review once opened, orphan true for a broken candidate, and carries summary and subjects only in_review", async () => {
@@ -351,6 +351,21 @@ describe("ModerationService, part A", () => {
     expect(await rec(svc.overview(id))).toMatchObject({ status: 200, value: { stage: "in_review", confirm: null } });
   });
 
+  it("records a blocked release (with detail) and a finished job (with an outputDir) for the leak sweep", async () => {
+    const pre = await jobs.preflight(id);
+    if (!pre.ok) throw new Error("preflight");
+    expect(await jobs.start(id, { confirmedCalls: pre.upTo, by: "priya-console" })).toMatchObject({ status: 200 });
+    const out = await placeDraft();
+    children.at(-1)!.stdout.write(`${JSON.stringify({ ok: true, dir: out, modelCalls: 5 })}\n`);
+    children.at(-1)!.exit(0);
+    await vi.waitFor(() => expect(jobs.status(id).state).toBe("done"));
+    expect(await rec(svc.open(id, "priya"))).toEqual({ status: 200, value: { subjects: 3 } });
+    const blocked = await rec(svc.release(id, { subjects: ["alice", "bob"] }, "priya"));
+    expect(blocked).toMatchObject({ status: 409, code: "blocked", detail: expect.any(Array) });
+    const done = await rec(Promise.resolve(jobs.status(id)));
+    expect(done.outputDir).not.toBeNull();
+  });
+
   it("no outcome field contains a path separator or a review-layer message", () => {
     const strings: string[] = [];
     const walk = (v: unknown): void => {
@@ -361,7 +376,7 @@ describe("ModerationService, part A", () => {
     seen.forEach(walk);
     expect(seen.length).toBeGreaterThan(40);
     expect(strings.length).toBeGreaterThan(100);
-    const REVIEW_TEXT = [/moderate/i, /pnpm/, /--[a-z]/, /nothing was changed/, /try again/i, /unknown (subject|criterion)/, /is currently/, /another/i, /lock/i, /cannot be read/, /not valid/];
+    const REVIEW_TEXT = [/moderate/i, /pnpm/, /--[a-z]/, /nothing was changed/, /try again/i, /unknown (subject|criterion)/, /is currently/, /another/i, /\block/i, /cannot be read/, /not valid/];
     for (const s of strings) {
       expect(s, s).not.toMatch(/[/\\]/);
       for (const re of REVIEW_TEXT) expect(s, s).not.toMatch(re);

@@ -234,6 +234,54 @@ test("Axe: the Report panel ready to evaluate, with a refused name, the evaluate
   await expect(report.getByRole("button", { name: "Edit Discovery" })).toBeEnabled();
   await checkAt(fac, "the subject view");
   await report.getByRole("button", { name: "Edit Discovery" }).click();
-  await expect(report.getByLabel("Reason (required)")).toBeVisible();
+  await expect(report.getByLabel("Reason (required; shown to the participant)")).toBeVisible();
   await checkAt(fac, "the subject view with an open edit form");
+});
+
+// ---- US-0064 part B: the release, amend and withdraw dialogs, the dispute panel and the export menu (launcher stack, seeded draft) ----
+
+test("Axe: the release, amend and withdraw dialogs, the open-dispute panel and the export menu", async ({ browser }) => {
+  test.setTimeout(300_000);
+  launcher = await startLauncherStack();
+  const { fac, participant, sessionId } = await draftParticipant(browser);
+
+  // Bob released (the terminal's own function), then a dispute from his page: the console then has a dispute to resolve.
+  await releaseRole(launcher, sessionId);
+  await participant.reload();
+  await expect(participant.getByRole("heading", { name: "Your report" })).toBeVisible();
+  const respond = participant.getByRole("form", { name: "Send a response" });
+  await respond.getByLabel("Your response").fill("I disagree with the level on this one.");
+  await respond.getByRole("checkbox", { name: "I disagree with this" }).check();
+  await respond.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(participant.getByText("1 of 50 used")).toBeVisible();
+
+  await fac.goto(`${launcher.baseUrl}/console/${sessionId}`);
+  const report = fac.getByRole("region", { name: "Report", exact: true });
+  await report.getByLabel("Your name for the review record").fill("priya");
+  await expect(report.getByRole("button", { name: "Review Bob" })).toBeVisible();
+
+  // The export menu (alice and bob are released) and bob's view with the open dispute and its resolve form.
+  await expect(report.getByRole("region", { name: "Export" }).getByRole("button", { name: "Download" })).toBeEnabled();
+  await report.getByRole("button", { name: "Review Bob" }).click();
+  await expect(report.locator(".report-disputes").getByLabel("Reason shown to the participant (required)")).toBeVisible();
+  await checkAt(fac, "the subject view with an open dispute, and the export menu");
+
+  // Each dialog, opened and cancelled (this test changes nothing).
+  const dialog = fac.getByRole("dialog");
+  const cancel = async () => {
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
+  };
+  await report.getByRole("region", { name: "Release" }).getByRole("button", { name: "Release everything…" }).click();
+  await expect(dialog.getByText("Every participant, with the other participants' individual results removed")).toBeVisible();
+  await checkAt(fac, "the release dialog");
+  await cancel();
+  await report.getByRole("button", { name: "Amend Bob" }).click();
+  await expect(dialog.getByLabel("Reason for the amendment (required)")).toBeVisible();
+  await checkAt(fac, "the amend dialog");
+  await cancel();
+  await report.getByRole("button", { name: "Withdraw Alice" }).click();
+  await expect(dialog.getByText("Withdrawing cannot be undone.")).toBeVisible();
+  await checkAt(fac, "the withdraw dialog");
+  await cancel();
 });

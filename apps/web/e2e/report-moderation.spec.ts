@@ -79,13 +79,13 @@ test("review in the browser: the seeded draft opens with the run summary and sub
   await expect(discovery(a).getByText("Level 2", { exact: true })).toBeVisible();
   await discovery(b).getByRole("button", { name: "Edit Discovery" }).click();
   await discovery(b).getByLabel("New level").selectOption("4");
-  await discovery(b).getByLabel("Reason (required)").fill("Tab B reason: heard it in both scenes.");
+  await discovery(b).getByLabel("Reason (required; shown to the participant)").fill("Tab B reason: heard it in both scenes.");
   await discovery(b).getByLabel("Rationale (optional)").fill("Tab B rationale.");
   await b.getByLabel("Comment").fill("Tab B comment that must survive.");
 
   await discovery(a).getByRole("button", { name: "Edit Discovery" }).click();
   await discovery(a).getByLabel("New level").selectOption("3");
-  await discovery(a).getByLabel("Reason (required)").fill("Asked two open questions about the need.");
+  await discovery(a).getByLabel("Reason (required; shown to the participant)").fill("Asked two open questions about the need.");
   await discovery(a).getByRole("button", { name: "Save" }).click();
   await expect(a.locator(".report-subject").getByText("Saved.", { exact: true })).toBeVisible();
   await expect(discovery(a).getByText("Level 3", { exact: true })).toBeVisible();
@@ -94,14 +94,14 @@ test("review in the browser: the seeded draft opens with the run summary and sub
   // B's save names level 2, which is no longer shown: refused as stale, and nothing B typed is lost.
   await discovery(b).getByRole("button", { name: "Save" }).click();
   await expect(discovery(b).getByText(STALE, { exact: true })).toBeVisible();
-  await expect(discovery(b).getByLabel("Reason (required)")).toHaveValue("Tab B reason: heard it in both scenes.");
+  await expect(discovery(b).getByLabel("Reason (required; shown to the participant)")).toHaveValue("Tab B reason: heard it in both scenes.");
   await expect(discovery(b).getByLabel("Rationale (optional)")).toHaveValue("Tab B rationale.");
   await expect(discovery(b).getByLabel("New level")).toHaveValue("4");
   await expect(b.getByLabel("Comment")).toHaveValue("Tab B comment that must survive.");
   // Reloading the levels shows A's level and keeps the open form, which now replaces level 3.
   await b.getByRole("button", { name: "Reload the levels" }).click();
   await expect(discovery(b).getByText("Now level 3: your save replaces it.")).toBeVisible();
-  await expect(discovery(b).getByLabel("Reason (required)")).toHaveValue("Tab B reason: heard it in both scenes.");
+  await expect(discovery(b).getByLabel("Reason (required; shown to the participant)")).toHaveValue("Tab B reason: heard it in both scenes.");
 
   // Accept: the edit made bob's summary stale (one open item); A accepts it and the item closes.
   await expect(bobRow.getByText("1 open item", { exact: true })).toBeVisible();

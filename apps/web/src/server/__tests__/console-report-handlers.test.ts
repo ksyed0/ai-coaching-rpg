@@ -184,10 +184,10 @@ describe("console report handlers", () => {
       expect((await json(res)).error).toEqual({ code, message: REPORT_REFUSALS[code] });
     }
     expect(REPORT_REFUSALS.orphan).toBe("A report folder for this session is damaged. See the rollback notes to remove it, then evaluate again.");
-    // control answers an unknown subject 404 (as an unknown session), never 409: there is no unknown_subject sentence
-    expect("unknown_subject" in REPORT_REFUSALS).toBe(false);
+    // an unknown subject is never 409: whatever status carries the code, the BFF answers 404 with its own sentence (not the session one)
     answer = () => refused(409, "unknown_subject");
-    expect((await json(await handleConsoleReportOpen(post("/open", { by: "priya" }), deps))).error).toEqual({ code: "generic", message: REPORT_REFUSALS.generic });
+    const unknown = await handleConsoleReportOpen(post("/open", { by: "priya" }), deps);
+    expect([unknown.status, (await json(unknown)).error]).toEqual([404, { code: "unknown_subject", message: "That report was not found. Reload the page." }]);
   });
 
   it("stale reaches the browser as the stale sentence only", async () => {

@@ -317,3 +317,141 @@ describe("wiring in startControl", () => {
     expect(spawned[0]!.child.signals).toEqual(["SIGTERM"]);
   });
 });
+
+describe("report routes, part B (release, resolve, export, amend, withdraw)", () => {
+  const BY = { by: "priya" };
+  const withB = (): Fakes => {
+    const f = fakes();
+    for (const m of ["release", "resolve", "export", "amend", "withdraw"]) f.moderation[m] = vi.fn(async () => ({ status: 200, value: { fine: true } }));
+    return f;
+  };
+  const PART_B: { name: string; path: string; body: unknown; fn: string }[] = [
+    { name: "release", path: R("/release"), body: { subjects: ["alice", "group"], ...BY }, fn: "release" },
+    { name: "resolve", path: R("/resolve"), body: { seq: 4, outcome: "declined", reason: "Stands.", ...BY }, fn: "resolve" },
+    { name: "export", path: R("/export"), body: { subject: "alice", audience: "participant:alice", ...BY }, fn: "export" },
+    { name: "amend", path: R("/subjects/alice/amend"), body: { reason: "Fix.", ...BY }, fn: "amend" },
+    { name: "withdraw", path: R("/subjects/alice/withdraw"), body: { reason: "Gone.", ...BY }, fn: "withdraw" },
+  ];
+
+  it("every part B route answers 200 and passes the typed fields to the service", async () => {
+    const { port, f } = await boot({ f: withB() });
+    for (const r of PART_B) {
+      const x = await call(port, "POST", r.path, { body: r.body });
+      expect([r.name, x.status, x.json.success]).toEqual([r.name, 200, true]);
+      expect(f.moderation[r.fn]).toHaveBeenCalledTimes(1);
+    }
+    expect(f.moderation.release).toHaveBeenCalledWith(ID, { subjects: ["alice", "group"] }, "priya");
+    expect(f.moderation.resolve).toHaveBeenCalledWith(ID, { seq: 4, outcome: "declined", reason: "Stands." }, "priya");
+    expect(f.moderation.export).toHaveBeenCalledWith(ID, { subject: "alice", audience: "participant:alice" }, "priya");
+    expect(f.moderation.amend).toHaveBeenCalledWith(ID, "alice", { reason: "Fix." }, "priya");
+    expect(f.moderation.withdraw).toHaveBeenCalledWith(ID, "alice", { reason: "Gone." }, "priya");
+  });
+
+  it("release with {subjects: []} and with {all: true} are 400 before the service is called", async () => {
+    const { port, f } = await boot({ f: withB() });
+    for (const body of [{ subjects: [], ...BY }, { all: true, ...BY }, { subjects: ["alice"], all: true, ...BY }, { subjects: ["../x"], ...BY },
+      { subjects: Array.from({ length: 51 }, (_, i) => `s${i}`), ...BY }, { subjects: "alice", ...BY }, { subjects: ["alice"] }]) {
+      const x = await call(port, "POST", R("/release"), { body });
+      expect([JSON.stringify(body).slice(0, 40), x.status, x.json.error.code]).toEqual([JSON.stringify(body).slice(0, 40), 400, "invalid"]);
+    }
+    expect(f.moderation.release).not.toHaveBeenCalled();
+  });
+
+  it("the other part B bodies are strict: an unknown key, a bad enum, seq or audience, a missing reason are 400", async () => {
+    const { port, f } = await boot({ f: withB() });
+    const bad: [string, unknown][] = [
+      [R("/resolve"), { seq: 0, outcome: "upheld", reason: "r", ...BY }], [R("/resolve"), { seq: 1.5, outcome: "upheld", reason: "r", ...BY }],
+      [R("/resolve"), { seq: 1, outcome: "maybe", reason: "r", ...BY }], [R("/resolve"), { seq: 1, outcome: "upheld", ...BY }],
+      [R("/export"), { subject: "alice", audience: "hr", ...BY }], [R("/export"), { subject: "../x", audience: "facilitator", ...BY }],
+      [R("/export"), { subject: "alice", audience: "facilitator", download: true, ...BY }],
+      [R("/subjects/alice/amend"), { ...BY }], [R("/subjects/alice/withdraw"), { reason: "r", extra: 1, ...BY }],
+    ];
+    for (const [p, body] of bad) expect([p, (await call(port, "POST", p, { body })).status]).toEqual([p, 400]);
+    for (const fn of ["resolve", "export", "amend", "withdraw"]) expect(f.moderation[fn]).not.toHaveBeenCalled();
+  });
+
+  it("ids are checked and the session looked up before the body is read; wrong methods and unknown paths are 404", async () => {
+    const { port, f } = await boot({ f: withB() });
+    const junk = { raw: "{ not json" };
+    for (const p of [R("/subjects/..%2Fx/amend"), R("/subjects/Bad%20Id/withdraw"), `/sessions/..%2Fetc/report/release`, `/sessions/not%20valid/report/export`])
+      expect([p, (await call(port, "POST", p, junk)).status]).toEqual([p, 404]);
+    const gone = await boot({ known: false, f: withB() });
+    for (const p of [R("/release"), R("/resolve"), R("/export"), R("/subjects/alice/amend")])
+      expect([p, (await call(gone.port, "POST", p, junk)).status]).toEqual([p, 404]);
+    for (const p of [R("/release"), R("/resolve"), R("/export"), R("/subjects/alice/amend"), R("/subjects/alice/withdraw")])
+      expect([p, (await call(port, "GET", p)).status]).toEqual([p, 404]);
+    expect((await call(port, "POST", R("/release/all"), { body: {} })).status).toBe(404);
+    for (const fn of Object.values(f.moderation)) expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("export audience: participant: with an empty, slashed or 65-character id is 400; a 64-character id is accepted", async () => {
+    const { port, f } = await boot({ f: withB() });
+    for (const audience of ["participant:", "participant:a/b", `participant:${"a".repeat(65)}`]) {
+      const x = await call(port, "POST", R("/export"), { body: { subject: "alice", audience, ...BY } });
+      expect([audience.slice(0, 20), x.status, x.json.error.code]).toEqual([audience.slice(0, 20), 400, "invalid"]);
+    }
+    expect(f.moderation.export).not.toHaveBeenCalled();
+    const long = `participant:${"a".repeat(64)}`;
+    const x = await call(port, "POST", R("/export"), { body: { subject: "alice", audience: long, ...BY } });
+    expect(x.status).toBe(200);
+    expect(f.moderation.export).toHaveBeenCalledWith(ID, { subject: "alice", audience: long }, "priya");
+  });
+
+  it("an unknown subject is 404 with the code unknown_subject; an unknown session stays a plain not_found", async () => {
+    const { port, f } = await boot({ f: withB() });
+    f.moderation.amend!.mockResolvedValueOnce({ status: 404, code: "unknown_subject" });
+    let x = await call(port, "POST", R("/subjects/alice/amend"), { body: { reason: "Fix.", ...BY } });
+    expect([x.status, x.json.error]).toEqual([404, { code: "unknown_subject" }]);
+    f.moderation.amend!.mockResolvedValueOnce({ status: 404 });
+    x = await call(port, "POST", R("/subjects/alice/amend"), { body: { reason: "Fix.", ...BY } });
+    expect([x.status, x.json.error.code]).toEqual([404, "not_found"]);
+  });
+
+  it("without a moderation service every part B route is 404", async () => {
+    const { port } = await boot({ moderation: false });
+    for (const r of PART_B) expect([r.name, (await call(port, "POST", r.path, { body: r.body })).status]).toEqual([r.name, 404]);
+  });
+
+  it("body caps: 4 KB for release and export, 16 KB for amend, withdraw and resolve; over is 413", async () => {
+    const { port, f } = await boot({ f: withB() });
+    const big = (n: number): string => "x".repeat(n);
+    for (const [p, body] of [
+      [R("/release"), { subjects: ["alice"], ...BY, pad: big(5000) }], [R("/export"), { subject: "alice", audience: "facilitator", ...BY, pad: big(5000) }],
+      [R("/resolve"), { seq: 1, outcome: "upheld", reason: big(17 * 1024), ...BY }],
+      [R("/subjects/alice/amend"), { reason: big(17 * 1024), ...BY }], [R("/subjects/alice/withdraw"), { reason: big(17 * 1024), ...BY }],
+    ] as [string, unknown][]) {
+      const x = await call(port, "POST", p, { body });
+      expect([p, x.status, x.json?.error?.message]).toEqual([p, 413, "That request is too large."]);
+    }
+    for (const [p, body] of [
+      [R("/resolve"), { seq: 1, outcome: "upheld", reason: big(10 * 1024), ...BY }],
+      [R("/subjects/alice/amend"), { reason: big(10 * 1024), ...BY }], [R("/subjects/alice/withdraw"), { reason: big(10 * 1024), ...BY }],
+    ] as [string, unknown][]) expect([p, (await call(port, "POST", p, { body })).status]).toEqual([p, 200]);
+    expect(f.moderation.release).not.toHaveBeenCalled();
+    expect(f.moderation.export).not.toHaveBeenCalled();
+  });
+
+  it("release with an open item is 409 blocked with data.blocked ids (safe ids only) and no text", async () => {
+    const { port, f } = await boot({ f: withB() });
+    f.moderation.release!.mockResolvedValueOnce({ status: 409, code: "blocked", detail: ["alice", "/etc/passwd", "group", "has space"] });
+    const x = await call(port, "POST", R("/release"), { body: { subjects: ["alice", "group"], ...BY } });
+    expect([x.status, x.json]).toEqual([409, { success: false, data: { blocked: ["alice", "group"] }, error: { code: "blocked" } }]);
+    f.moderation.amend!.mockResolvedValueOnce({ status: 409, code: "superseded" });
+    expect((await call(port, "POST", R("/subjects/alice/amend"), { body: { reason: "r", ...BY } })).json.error).toEqual({ code: "superseded" });
+    f.moderation.resolve!.mockResolvedValueOnce({ status: 409, code: "needs_amend", detail: ["alice"] });
+    const y = await call(port, "POST", R("/resolve"), { body: { seq: 1, outcome: "amended", reason: "r", ...BY } });
+    expect([y.status, y.json]).toEqual([409, { success: false, data: null, error: { code: "needs_amend" } }]);
+  });
+
+  it("export is POST only (GET is 404) and answers JSON {fileName, markdown} with no attachment headers", async () => {
+    const { port, f } = await boot({ f: withB() });
+    f.moderation.export!.mockResolvedValueOnce({ status: 200, value: { fileName: "report-alice.md", markdown: "# Report\n" } });
+    expect((await call(port, "GET", R("/export"))).status).toBe(404);
+    const x = await call(port, "POST", R("/export"), { body: { subject: "alice", audience: "facilitator", ...BY } });
+    expect(x.status).toBe(200);
+    expect(x.json).toEqual({ success: true, data: { fileName: "report-alice.md", markdown: "# Report\n" }, error: null });
+    expect(x.headers.get("content-type")).toMatch(/application\/json/);
+    expect(x.headers.get("content-disposition")).toBeNull();
+  });
+});
+

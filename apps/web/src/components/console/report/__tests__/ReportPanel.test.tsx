@@ -143,3 +143,21 @@ describe("ReportPanel: polling through a failed read, and progress announced", (
     expect(list.getAttribute("aria-relevant")).toBe("additions");
   });
 });
+
+describe("ReportPanel: evaluationOk fails closed", () => {
+  it("when the selected subject's row is missing from the overview, its view is scored by hand", async () => {
+    const m = mount(inReview(), (url, body) => {
+      if (url === `${BASE}/subjects/account_manager`) return { status: 200, body: ok(subjectView()) };
+      if (url === `${BASE}/subjects/account_manager/accept` && body !== undefined) return { status: 200, body: ok({}) };
+      return undefined;
+    });
+    typeName("kamal");
+    fireEvent.click(await screen.findByRole("button", { name: "Review Account manager" }));
+    expect(await screen.findByRole("button", { name: "Accept Clarity" })).toBeTruthy();
+    // the next overview no longer lists the subject: its row (and its evaluationOk) is gone
+    m.set(inReview([row("group")]));
+    fireEvent.click(screen.getByRole("button", { name: "Accept the summary" }));
+    expect(await screen.findByText("The evaluation failed for this subject: score each criterion by hand.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Accept Clarity" })).toBeNull();
+  });
+});

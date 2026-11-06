@@ -10,9 +10,7 @@ import {
   ReviewRefusedError,
   ReviewUsageError,
 } from "./errors.js";
-import { amendedSince } from "./fold.js";
-import { releaseProblems } from "./gate.js";
-import { cleanLine, facilitator, need, shownName } from "./cli-util.js";
+import { cleanLine } from "./cli-util.js";
 import { exportHandler } from "./export.js";
 import {
   applyCommand,
@@ -21,7 +19,7 @@ import {
   type Loaded,
 } from "./store.js";
 import { cleanBy, cleanText, parseLevel } from "./text.js";
-import { LIMITS, type ReviewEvent } from "./types.js";
+import { LIMITS } from "./types.js";
 import { renderSubjectMarkdown } from "./view.js";
 import { facilitatorReport } from "../moderation/read.js";
 import type { ExpectLevel } from "../moderation/types.js";
@@ -33,6 +31,13 @@ import {
   editSummary,
   openReviewLoaded,
 } from "../moderation/write.js";
+import {
+  amendSubject,
+  releaseRefusal,
+  releaseWith,
+  resolveDispute,
+  withdrawSubject,
+} from "../moderation/write-b.js";
 
 export const MODERATE_USAGE = [
   "usage: pnpm moderate <subcommand> <reports-dir> [options]",
@@ -139,27 +144,11 @@ const ARITY: Record<string, number> = {
   respond: 0,
   resolve: 1,
 };
-/** The refusal text of `release`. The top-level error is cut at 400 characters, so keep whole (capped) lines and say how many were left out. */
-export function releaseRefusal(problems: string[]): string {
-  const shown: string[] = [];
-  let len = 60; // "refused: nothing was released:" plus the line markers and the "... and N more" tail
-  for (const raw of problems) {
-    const p = raw.length > 110 ? `${raw.slice(0, 107)}...` : raw;
-    if (shown.length > 0 && len + p.length + 5 > 340) break;
-    shown.push(p);
-    len += p.length + 5;
-  }
-  const more = problems.length - shown.length;
-  return `nothing was released:\n  ${shown.join("\n  ")}${more > 0 ? `\n  ... and ${more} more; run status for the full list` : ""}`;
-}
+// `releaseRefusal` moved to the moderation module (part B); re-exported so `pnpm moderate` and its tests keep the one text.
+export { releaseRefusal };
 /** The hint printed when a release or withdrawal left the released group's per-role table out of date. */
-const staleHint = (before: Loaded, after: Loaded): string | null => {
-  const b = before.view.subjects.get("group");
-  const a = after.view.subjects.get("group");
-  return a?.tableStale && !b?.tableStale
-    ? "the group's per-role table is now out of date; amend and re-release the group to refresh it"
-    : null;
-};
+const STALE_HINT =
+  "the group's per-role table is now out of date; amend and re-release the group to refresh it";
 const lvl = (l: unknown): string => (l === null ? "na" : String(l));
 
 function statusLines(l: Loaded): string[] {
@@ -310,7 +299,7 @@ export const HANDLERS: Record<string, Handler> = {
     return 0;
   },
   async release(c) {
-    const actor = facilitator(c);
+    const by = cleanBy(c.values.by);
     const all = c.values.all === true;
     if (all && c.args.length > 0)
       throw new ReviewUsageError(
@@ -318,68 +307,29 @@ export const HANDLERS: Record<string, Handler> = {
       );
     if (!all && c.args.length === 0)
       throw new ReviewUsageError("release needs <subject>... or --all");
-    let before!: Loaded;
-    const { appended, loaded } = await applyCommand(c.dir, c.now, (l) => {
-      before = l;
-      const ids = all
+    const base = { dir: c.dir, by, now: c.now, secrets: c.secrets };
+    const r = await releaseWith(base, (l) =>
+      all
         ? [...l.view.subjects.values()]
             .filter((s) => s.state === "draft" || s.state === "amending")
             .map((s) => s.id)
-        : [...new Set(c.args)];
-      if (ids.length === 0)
-        throw new ReviewRefusedError(
-          "nothing was released: no subject is waiting for release",
-        );
-      const problems: string[] = [];
-      for (const id of ids) {
-        const sv = l.view.subjects.get(id);
-        if (!sv) {
-          problems.push(`${shownName(id)}: unknown subject`);
-          continue;
-        }
-        if (sv.state !== "draft" && sv.state !== "amending") {
-          problems.push(`${id}: is ${sv.state}`);
-          continue;
-        }
-        for (const p of releaseProblems(sv)) problems.push(`${id}: ${p}`);
-      }
-      if (problems.length)
-        throw new ReviewRefusedError(
-          releaseRefusal(problems),
-          "blocked",
-          ids.filter((id) => problems.some((p) => p.startsWith(`${id}: `))),
-        );
-      return [{ actor, body: { type: "report.released", subjects: ids } }];
-    });
-    const e = appended[0] as Extract<ReviewEvent, { type: "report.released" }>;
-    c.out(`released ${e.subjects.join(", ")} as version ${e.seq}`);
-    const hint = staleHint(before, loaded);
-    if (hint) c.out(hint);
+        : [...new Set(c.args)],
+    );
+    c.out(`released ${r.released.join(", ")} as version ${r.version}`);
+    if (r.groupTableStale) c.out(STALE_HINT);
     return 0;
   },
   async amend(c) {
     const [subject] = c.args;
     if (!subject) throw new ReviewUsageError("amend needs <subject>");
-    const actor = facilitator(c);
-    const reason = cleanText(
-      String(c.values.reason ?? ""),
-      LIMITS.reason,
-      "--reason",
-      c.secrets,
-    );
-    await applyCommand(c.dir, c.now, (l) => {
-      const sv = need(l.view.subjects.get(subject), "subject");
-      return [
-        {
-          actor,
-          body: {
-            type: "report.amended",
-            subject,
-            reason,
-            basedOn: sv.versions.at(-1) ?? 0,
-          },
-        },
-      ];
+    const by = cleanBy(c.values.by);
+    await amendSubject({
+      dir: c.dir,
+      by,
+      now: c.now,
+      secrets: c.secrets,
+      subject,
+      reason: String(c.values.reason ?? ""),
     });
     c.out(`${subject} reopened for amendment`);
     return 0;
@@ -387,22 +337,17 @@ export const HANDLERS: Record<string, Handler> = {
   async withdraw(c) {
     const [subject] = c.args;
     if (!subject) throw new ReviewUsageError("withdraw needs <subject>");
-    const actor = facilitator(c);
-    const reason = cleanText(
-      String(c.values.reason ?? ""),
-      LIMITS.reason,
-      "--reason",
-      c.secrets,
-    );
-    let before!: Loaded;
-    const { loaded } = await applyCommand(c.dir, c.now, (l) => {
-      before = l;
-      need(l.view.subjects.get(subject), "subject");
-      return [{ actor, body: { type: "report.withdrawn", subject, reason } }];
+    const by = cleanBy(c.values.by);
+    const r = await withdrawSubject({
+      dir: c.dir,
+      by,
+      now: c.now,
+      secrets: c.secrets,
+      subject,
+      reason: String(c.values.reason ?? ""),
     });
     c.out(`${subject} withdrawn`);
-    const hint = staleHint(before, loaded);
-    if (hint) c.out(hint);
+    if (r.groupTableStale) c.out(STALE_HINT);
     return 0;
   },
   async "self-assess"(c) {
@@ -548,40 +493,17 @@ export const HANDLERS: Record<string, Handler> = {
         "resolve needs the response number shown by status",
       );
     const seq = Number(arg);
-    const actor = facilitator(c);
-    const reason = cleanText(
-      String(c.values.reason ?? ""),
-      LIMITS.reason,
-      "--reason",
-      c.secrets,
-    );
-    const outcome = c.values.outcome;
-    if (outcome !== "upheld" && outcome !== "amended" && outcome !== "declined")
-      throw new ReviewUsageError("--outcome needs upheld, amended or declined");
-    await applyCommand(c.dir, c.now, (l) => {
-      const found = [...l.view.subjects.values()]
-        .flatMap((sv) => sv.responses.map((r) => ({ sv, r })))
-        .find((x) => x.r.seq === seq);
-      if (!found)
-        throw new ReviewRefusedError(
-          "there is no response with that number; run status for the open disputes",
-        );
-      if (!found.r.dispute)
-        throw new ReviewRefusedError(
-          "that response is not a dispute, so there is nothing to resolve",
-        );
-      if (found.r.resolution)
-        throw new ReviewRefusedError("that dispute is already resolved");
-      if (outcome === "amended" && !amendedSince(found.sv, seq))
-        throw new ReviewRefusedError(
-          `${found.sv.id}'s report has no new released version since the response; run amend, make the change and release again, then resolve the dispute as amended`,
-        );
-      return [
-        {
-          actor,
-          body: { type: "dispute.resolved", response: seq, outcome, reason },
-        },
-      ];
+    const by = cleanBy(c.values.by);
+    // the reason is cleaned before the outcome is checked, as before
+    const outcome = c.values.outcome as "upheld" | "amended" | "declined";
+    await resolveDispute({
+      dir: c.dir,
+      by,
+      now: c.now,
+      secrets: c.secrets,
+      seq,
+      outcome,
+      reason: String(c.values.reason ?? ""),
     });
     c.out(`dispute #${seq} resolved: ${outcome}`);
     return 0;

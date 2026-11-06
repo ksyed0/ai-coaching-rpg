@@ -12,6 +12,13 @@ export {
   editSummary,
   openFacilitatorReview,
 } from "./write.js";
+export {
+  amendSubject,
+  exportReport,
+  releaseSubjects,
+  resolveDispute,
+  withdrawSubject,
+} from "./write-b.js";
 export { toModResult } from "./result.js";
 export type {
   Base,

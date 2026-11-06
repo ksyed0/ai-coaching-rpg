@@ -20,6 +20,8 @@ export type CriterionRowProps = {
   pending: boolean;
   /** The evaluation of this subject failed: the criterion is scored by hand (Edit), never accepted. */
   byHand?: boolean;
+  /** False for a released or withdrawn report (the server refuses edits and acceptances until it is amended): no Edit, no Accept. */
+  editable?: boolean;
   /** Resolves to null when saved, or the fixed sentence of the refusal. */
   onEdit: (input: EditInput) => Promise<string | null>;
   onAccept: () => void;
@@ -27,7 +29,7 @@ export type CriterionRowProps = {
 
 const toLevel = (v: string): ReportLevel => (v === "na" ? null : (Number(v) as 1 | 2 | 3 | 4));
 
-export function CriterionRow({ criterion: c, canWrite, pending, byHand = false, onEdit, onAccept }: CriterionRowProps) {
+export function CriterionRow({ criterion: c, canWrite, pending, byHand = false, editable = true, onEdit, onAccept }: CriterionRowProps) {
   const id = useId();
   const [form, setForm] = useState<{ expect: ReportExpect; level: string; reason: string; rationale: string } | null>(null);
   const [error, setError] = useState("");
@@ -82,7 +84,7 @@ export function CriterionRow({ criterion: c, canWrite, pending, byHand = false, 
           ))}
         </ul>
       ) : null}
-      {form === null ? (
+      {!editable ? null : form === null ? (
         <div className="rowactions">
           {/* release needs an invalid level, or any level of a failed evaluation, edited: accepting it would not unblock it */}
           {c.status === "needs_review" && c.current !== "invalid" && !byHand ? (
@@ -112,7 +114,7 @@ export function CriterionRow({ criterion: c, canWrite, pending, byHand = false, 
             </select>
           </div>
           <div className="field">
-            <label htmlFor={`${id}-reason`}>Reason (required)</label>
+            <label htmlFor={`${id}-reason`}>Reason (required; shown to the participant)</label>
             <textarea id={`${id}-reason`} className="t" rows={2} value={form.reason} required onChange={(e) => setForm({ ...form, reason: e.target.value })} />
           </div>
           <div className="field">
