@@ -4,7 +4,11 @@ import path from "node:path";
 import { fsyncDir } from "../engine/event-log.js";
 import { SessionLock, SessionLockError } from "../engine/log-files.js";
 import { readRegularCapped } from "../util/read-regular.js";
-import { ReviewCorruptError, ReviewRefusedError } from "./errors.js";
+import {
+  ReviewBusyError,
+  ReviewCorruptError,
+  ReviewRefusedError,
+} from "./errors.js";
 import { sha256 } from "./hash.js";
 import {
   LIMITS,
@@ -190,7 +194,7 @@ export async function withReviewLock<T>(
       err instanceof SessionLockError &&
       (err.code === "locked" || err.code === "contention")
     )
-      throw new ReviewRefusedError(
+      throw new ReviewBusyError(
         "another moderate command is running on this review; try again in a moment",
       );
     throw err;
