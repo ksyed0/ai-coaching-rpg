@@ -6,7 +6,6 @@ import {
   blockedOf,
   cancelEvaluate,
   fetchReportOverview,
-  groupTableStaleOf,
   openReview,
   parseReleased,
   parseReportOverview,
@@ -65,8 +64,8 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
   const [moderation, setModeration] = useState<Moderation | null>(null);
   const [dialogError, setDialogError] = useState("");
   const [blocked, setBlocked] = useState<string[]>([]);
-  /** The last release or withdraw left the released group's per-role table out of date. */
-  const [tableStale, setTableStale] = useState(false);
+  /** Bumped after a successful release, amend or withdraw, so the open subject view reads its subject again. */
+  const [changes, setChanges] = useState(0);
   /** A row's Export: the subject the export menu starts on (it remounts per click). */
   const [exportFor, setExportFor] = useState<{ subject: string; n: number } | null>(null);
   /** Counts finished reads, a failed one included, so the poll is rescheduled after every answer. */
@@ -123,7 +122,7 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
   }
 
   /** A release, amend or withdraw: on success the dialog closes and the status line says what happened; a refusal keeps it open. */
-  async function moderate(call: Promise<ApiResult>, done: (data: unknown) => string, stale: ((data: unknown) => boolean) | null) {
+  async function moderate(call: Promise<ApiResult>, done: (data: unknown) => string) {
     setPending(true);
     setMessage("");
     setDialogError("");
@@ -137,14 +136,18 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
       setModeration(null);
       setBlocked([]);
       setMessage(done(r.data));
-      if (stale !== null) setTableStale(stale(r.data));
     }
     await load();
+    if (r.ok && alive.current) setChanges((n) => n + 1);
   }
 
   const rows = overview?.subjects ?? [];
   const row = (id: string) => rows.find((r) => r.id === id);
   const inReview = overview?.stage === "in_review";
+  // The released group's per-role table is out of date (a player released or withdrawn after it), read from the group's own row so the
+  // hint stays until the group is amended and released again, whatever the last action answered.
+  const group = row("group");
+  const tableStale = group?.tableStale === true && group.state === "released";
 
   return (
     <section className="card stack report-panel" aria-labelledby={headingId}>
@@ -203,7 +206,7 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
           {overview.stage === "in_review" && selected !== null ? (
             <SubjectView
               key={selected} sessionId={sessionId} subject={selected} author={author}
-              evaluationOk={overview.subjects.find((s) => s.id === selected)?.evaluationOk ?? false} {...(fetchImpl ? { fetch: fetchImpl } : {})} onChanged={() => void load()} />
+              evaluationOk={overview.subjects.find((s) => s.id === selected)?.evaluationOk ?? false} {...(fetchImpl ? { fetch: fetchImpl } : {})} onChanged={() => void load()} refresh={changes} />
           ) : null}
         </>
       )}
@@ -229,21 +232,21 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
             onConfirm={() => void moderate(releaseSubjects(sessionId, moderation.ids, author, fetchImpl), (d) => {
               const released = parseReleased(d);
               return released === null ? REPORT_CONSOLE.saved : REPORT_CONSOLE.released(released.released.map(subjectLabel).join(", "));
-            }, groupTableStaleOf)}
+            })}
           />
         ) : moderation.kind === "amend" ? (
           <AmendDialog
             subject={{ id: moderation.id, audience: audienceOf(moderation.id) }}
             name={author} pending={pending} opener={moderation.opener} error={dialogError}
             onCancel={() => setModeration(null)}
-            onConfirm={(reason) => void moderate(amendSubject(sessionId, moderation.id, reason, author, fetchImpl), () => REPORT_CONSOLE.amended, null)}
+            onConfirm={(reason) => void moderate(amendSubject(sessionId, moderation.id, reason, author, fetchImpl), () => REPORT_CONSOLE.amended)}
           />
         ) : (
           <WithdrawDialog
             subject={{ id: moderation.id, audience: audienceOf(moderation.id) }}
             name={author} pending={pending} opener={moderation.opener} error={dialogError}
             onCancel={() => setModeration(null)}
-            onConfirm={(reason) => void moderate(withdrawSubject(sessionId, moderation.id, reason, author, fetchImpl), () => REPORT_CONSOLE.withdrawn, groupTableStaleOf)}
+            onConfirm={(reason) => void moderate(withdrawSubject(sessionId, moderation.id, reason, author, fetchImpl), () => REPORT_CONSOLE.withdrawn)}
           />
         )
       ) : null}

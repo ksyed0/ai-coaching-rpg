@@ -265,14 +265,49 @@ describe("saveMarkdown", () => {
     Object.assign(URL, { createObjectURL: create, revokeObjectURL: revoke });
     const clicked: HTMLAnchorElement[] = [];
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { clicked.push(this); });
-    saveMarkdown("# R <b>x</b>", "report-group.md");
+    const later: (() => void)[] = [];
+    saveMarkdown("# R <b>x</b>", "report-group.md", (fn) => { later.push(fn); });
     expect(clicked).toHaveLength(1);
     expect(clicked[0]!.download).toBe("report-group.md");
     expect(clicked[0]!.getAttribute("href")).toBe("blob:x");
     expect(clicked[0]!.isConnected).toBe(false);
     expect(blobs[0]!.type).toBe("text/markdown;charset=utf-8");
     expect(await blobs[0]!.text()).toBe("# R <b>x</b>");
-    await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:x"));
+    expect(revoke).not.toHaveBeenCalled();
+    later.forEach((fn) => fn());
+    expect(revoke).toHaveBeenCalledWith("blob:x");
+  });
+});
+
+describe("fix wave G2: the object URL outlives the download", () => {
+  it("is not revoked at 0 ms, only after 30 s", () => {
+    vi.useFakeTimers();
+    try {
+      const revoke = vi.fn();
+      Object.assign(URL, { createObjectURL: () => "blob:y", revokeObjectURL: revoke });
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+      saveMarkdown("# R", "report-group.md");
+      vi.advanceTimersByTime(0);
+      expect(revoke).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(29_999);
+      expect(revoke).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(1);
+      expect(revoke).toHaveBeenCalledWith("blob:y");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses the injected timer with a 30 s delay", () => {
+    const revoke = vi.fn();
+    Object.assign(URL, { createObjectURL: () => "blob:z", revokeObjectURL: revoke });
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    const later: { fn: () => void; ms: number }[] = [];
+    saveMarkdown("# R", "report-group.md", (fn, ms) => { later.push({ fn, ms }); });
+    expect(later.map((l) => l.ms)).toEqual([30_000]);
+    expect(revoke).not.toHaveBeenCalled();
+    later[0]!.fn();
+    expect(revoke).toHaveBeenCalledWith("blob:z");
   });
 });
 
@@ -295,6 +330,146 @@ describe("fix round 1: carried disputes and read-only released views", () => {
       expect(screen.queryByText("Amend the report to change it.") !== null, state).toBe(!writable);
       expect(screen.getByRole("button", { name: "Add comment" }), state).toBeTruthy();
       expect(screen.getByRole("button", { name: "Resolve" }), state).toBeTruthy();
+      cleanup();
+    }
+  });
+});
+
+describe("fix wave G1: the open subject view follows a panel release, amend or withdraw", () => {
+  /** A panel whose overview and subject view the test changes as the server would; `answer` answers the writes. */
+  function live(first: { overview: unknown; view: unknown }, answer: (url: string, body: unknown) => { status: number; body: unknown } | undefined) {
+    const state = { ...first };
+    const f = fakeFetch((url, body) => {
+      const a = body === undefined ? undefined : answer(url, body);
+      if (a) return a;
+      if (url === BASE) return { status: 200, body: ok(state.overview) };
+      if (url === `${BASE}/subjects/account_manager`) return { status: 200, body: ok(state.view) };
+      return { status: 404, body: refused("not_found", "x") };
+    });
+    render(<ReportPanel sessionId={SID} fetch={f.fetch} setTimer={fakeTimer().setTimer} />);
+    fireEvent.change(screen.getByLabelText("Your name for the review record"), { target: { value: "kamal" } });
+    return { f, state };
+  }
+
+  it("after a release from the bar, the open view of that subject shows no Edit or Accept", async () => {
+    const m = live({ overview: inReview([row("account_manager"), row("group")]), view: subjectView() }, (url) => {
+      if (url !== `${BASE}/release`) return undefined;
+      m.state.overview = inReview([row("account_manager", { state: "released", version: 4 }), row("group", { state: "released", version: 4 })]);
+      m.state.view = subjectView({ state: "released", versions: [4] });
+      return { status: 200, body: ok({ released: ["account_manager", "group"], groupTableStale: false }) };
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Review Account manager" }));
+    expect(await screen.findByRole("button", { name: "Edit Clarity" })).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("region", { name: "Release" })).getByRole("button", { name: "Release everything…" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Release" }));
+    expect(await screen.findByText("Amend the report to change it.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit Clarity" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Accept Clarity" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Accept the summary" })).toBeNull();
+  });
+
+  it("after Amend, the open view shows the edit tools; after the re-release Amended is offered for an earlier dispute", async () => {
+    const released = { overview: inReview([row("account_manager", { state: "released", version: 4 }), row("group", { state: "released", version: 4 })]), view: subjectView({ state: "released", versions: [4], responses: [dispute()] }) };
+    const m = live(released, (url) => {
+      if (url === `${BASE}/subjects/account_manager/amend`) {
+        m.state.overview = inReview([row("account_manager", { state: "amending", version: 4 }), row("group", { state: "released", version: 4 })]);
+        m.state.view = subjectView({ state: "amending", versions: [4], responses: [dispute()] });
+        return { status: 200, body: ok({}) };
+      }
+      if (url === `${BASE}/release`) {
+        m.state.overview = inReview([row("account_manager", { state: "released", version: 9 }), row("group", { state: "released", version: 4 })]);
+        m.state.view = subjectView({ state: "released", versions: [4, 9], responses: [dispute()] });
+        return { status: 200, body: ok({ released: ["account_manager"], groupTableStale: false }) };
+      }
+      return undefined;
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Review Account manager" }));
+    expect(await screen.findByText("Amend the report to change it.")).toBeTruthy();
+    const outcomes = () => [...(screen.getByLabelText("Outcome") as HTMLSelectElement).options].map((o) => o.value);
+    expect(outcomes()).toEqual(["", "upheld", "declined"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Amend Account manager" }));
+    fireEvent.change(screen.getByLabelText("Reason for the amendment (required)"), { target: { value: "Pace." } });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Amend" }));
+    expect(await screen.findByRole("button", { name: "Edit Clarity" })).toBeTruthy();
+    expect(screen.queryByText("Amend the report to change it.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Release Account manager" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Release" }));
+    await waitFor(() => expect(outcomes()).toEqual(["", "upheld", "amended", "declined"]));
+    expect(screen.queryByRole("button", { name: "Edit Clarity" })).toBeNull();
+  });
+
+  it("a refused panel action does not reload the open view (a typed comment stays)", async () => {
+    const m = live({ overview: inReview([row("account_manager", { state: "released", version: 4 }), row("group")]), view: subjectView({ state: "released", versions: [4] }) }, (url) =>
+      url.endsWith("/amend") ? { status: 409, body: refused("stale", "x") } : undefined);
+    fireEvent.click(await screen.findByRole("button", { name: "Review Account manager" }));
+    await screen.findByText("Amend the report to change it.");
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Keep me." } });
+    const viewReads = () => m.f.calls.filter((c) => c.url === `${BASE}/subjects/account_manager`).length;
+    const before = viewReads();
+    fireEvent.click(screen.getByRole("button", { name: "Amend Account manager" }));
+    fireEvent.change(screen.getByLabelText("Reason for the amendment (required)"), { target: { value: "Pace." } });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Amend" }));
+    await waitFor(() => expect(m.f.calls.filter((c) => c.url === BASE).length).toBeGreaterThanOrEqual(2));
+    expect(viewReads()).toBe(before);
+    expect((screen.getByLabelText("Comment") as HTMLTextAreaElement).value).toBe("Keep me.");
+  });
+});
+
+describe("fix wave G3: the group-table banner follows the group row", () => {
+  it("release group, release one player (banner on), release another (answer false): the banner stays while the group row is stale", async () => {
+    const players = (am: string, sl: string) => [row("account_manager", { state: am, version: am === "released" ? 5 : null }), row("sales_lead", { state: sl, version: sl === "released" ? 6 : null })];
+    let current = inReview([...players("draft", "draft"), row("group", { state: "released", version: 3 })]);
+    let answer = { released: ["account_manager"], groupTableStale: true };
+    const f = fakeFetch((url, body) => {
+      if (body !== undefined && url === `${BASE}/release`) {
+        const r = (body as { subjects: string[] }).subjects;
+        current = inReview([...players("released", r.includes("sales_lead") ? "released" : "draft"), row("group", { state: "released", version: 3, tableStale: true })]);
+        return { status: 200, body: ok({ ...answer, released: r }) };
+      }
+      if (url === BASE) return { status: 200, body: ok(current) };
+      return { status: 404, body: refused("not_found", "x") };
+    });
+    render(<ReportPanel sessionId={SID} fetch={f.fetch} setTimer={fakeTimer().setTimer} />);
+    fireEvent.change(screen.getByLabelText("Your name for the review record"), { target: { value: "kamal" } });
+    const HINT = "The group's per-role table is now out of date; amend and re-release the group to refresh it.";
+    const bar = await screen.findByRole("region", { name: "Release" });
+    expect(screen.queryByText(HINT)).toBeNull();
+    fireEvent.click(within(bar).getByLabelText("Account manager"));
+    fireEvent.click(within(bar).getByRole("button", { name: "Release selected…" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Release" }));
+    expect(await screen.findByText(HINT)).toBeTruthy();
+    answer = { released: ["sales_lead"], groupTableStale: false };
+    fireEvent.click(within(bar).getByLabelText("Sales lead"));
+    fireEvent.click(within(bar).getByRole("button", { name: "Release selected…" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Release" }));
+    await waitFor(() => expect(f.calls.filter((c) => c.url === `${BASE}/release`)).toHaveLength(2));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByText(HINT)).toBeTruthy();
+  });
+
+  it("the banner shows on load for a released, stale group and not for an amending one", async () => {
+    for (const [state, shown] of [["released", true], ["amending", false]] as const) {
+      const f = fakeFetch((url) => (url === BASE ? { status: 200, body: ok(inReview([row("account_manager"), row("group", { state, version: 3, tableStale: true })])) } : { status: 404, body: refused("not_found", "x") }));
+      render(<ReportPanel sessionId={SID} fetch={f.fetch} setTimer={fakeTimer().setTimer} />);
+      await screen.findByRole("region", { name: "Release" });
+      expect(screen.queryByText("The group's per-role table is now out of date; amend and re-release the group to refresh it.") !== null, state).toBe(shown);
+      cleanup();
+    }
+  });
+});
+
+describe("fix wave G4: an unknown subject says the report, not the session, was not found", () => {
+  it("a 404 unknown_subject shows the report sentence; a plain 404 keeps the session sentence", async () => {
+    for (const [code, text] of [["unknown_subject", "That report was not found. Reload the page."], ["not_found", "That session was not found."]] as const) {
+      mountPanel(inReview([row("account_manager", { state: "released", version: 4 }), row("group")]), (url) =>
+        url.endsWith("/amend") ? { status: 404, body: refused(code, "SERVER TEXT") } : undefined);
+      fireEvent.click(await screen.findByRole("button", { name: "Amend Account manager" }));
+      fireEvent.change(screen.getByLabelText("Reason for the amendment (required)"), { target: { value: "Pace." } });
+      fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Amend" }));
+      expect(await within(screen.getByRole("dialog")).findByText(text)).toBeTruthy();
+      expect(screen.queryByText("SERVER TEXT")).toBeNull();
       cleanup();
     }
   });

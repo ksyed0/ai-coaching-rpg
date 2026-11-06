@@ -133,11 +133,11 @@ describe("ReleaseBar and the release dialog in the panel", () => {
     expect(screen.queryByText("SERVER TEXT")).toBeNull();
   });
 
-  it("the groupTableStale hint is shown after a release or withdraw", async () => {
+  it("the group-table hint is shown after a release or withdraw leaves the released group's row stale", async () => {
     const m = mount(inReview([row("account_manager"), row("group", { state: "released", version: 3 })]), (url) => {
-      if (url === `${BASE}/release`) return { status: 200, body: ok({ released: ["account_manager"], groupTableStale: true }) };
-      if (url === `${BASE}/subjects/account_manager/withdraw`) return { status: 200, body: ok({ groupTableStale: true }) };
-      return undefined;
+      if (url !== `${BASE}/release`) return undefined;
+      m.set(inReview([row("account_manager", { state: "released", version: 4 }), row("group", { state: "released", version: 3, tableStale: true })]));
+      return { status: 200, body: ok({ released: ["account_manager"], groupTableStale: true }) };
     });
     typeName("kamal");
     const bar = await screen.findByRole("region", { name: "Release" });
@@ -147,8 +147,11 @@ describe("ReleaseBar and the release dialog in the panel", () => {
     expect(await screen.findByText(HINT)).toBeTruthy();
     cleanup();
 
-    const n = mount(inReview([row("account_manager", { state: "released", version: 4 }), row("group", { state: "released", version: 3 })]), (url) =>
-      url === `${BASE}/subjects/account_manager/withdraw` ? { status: 200, body: ok({ groupTableStale: true }) } : undefined);
+    const n = mount(inReview([row("account_manager", { state: "released", version: 4 }), row("group", { state: "released", version: 3 })]), (url) => {
+      if (url !== `${BASE}/subjects/account_manager/withdraw`) return undefined;
+      n.set(inReview([row("account_manager", { state: "withdrawn", version: 4 }), row("group", { state: "released", version: 3, tableStale: true })]));
+      return { status: 200, body: ok({ groupTableStale: true }) };
+    });
     typeName("kamal");
     fireEvent.click(await screen.findByRole("button", { name: "Withdraw Account manager" }));
     fireEvent.change(screen.getByLabelText("Reason for withdrawing (required)"), { target: { value: "Recorded against the wrong person." } });
@@ -157,6 +160,5 @@ describe("ReleaseBar and the release dialog in the panel", () => {
     expect(posts(n.f, `${BASE}/subjects/account_manager/withdraw`)[0]!.body).toEqual({ reason: "Recorded against the wrong person.", by: "kamal" });
     expect(await screen.findByText(HINT)).toBeTruthy();
     expect(screen.getByText("The report was withdrawn.")).toBeTruthy();
-    void m;
   });
 });

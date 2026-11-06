@@ -36,9 +36,9 @@ describe("SubjectView", () => {
     expect(save.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("New level"), { target: { value: "4" } });
     expect(save.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Reason (required)"), { target: { value: "   " } });
+    fireEvent.change(screen.getByLabelText("Reason (required; shown to the participant)"), { target: { value: "   " } });
     expect(save.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText("Reason (required)"), { target: { value: "Heard it twice." } });
+    fireEvent.change(screen.getByLabelText("Reason (required; shown to the participant)"), { target: { value: "Heard it twice." } });
     expect(save.disabled).toBe(false);
     fireEvent.click(save);
     await waitFor(() => expect(posts(f)).toHaveLength(1));
@@ -52,12 +52,12 @@ describe("SubjectView", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Edit Clarity" }));
     fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Check the second scene." } });
     fireEvent.change(screen.getByLabelText("New level"), { target: { value: "2" } });
-    fireEvent.change(screen.getByLabelText("Reason (required)"), { target: { value: "Only once." } });
+    fireEvent.change(screen.getByLabelText("Reason (required; shown to the participant)"), { target: { value: "Only once." } });
     fireEvent.change(screen.getByLabelText("Rationale (optional)"), { target: { value: "Said it late." } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText(STALE)).toBeTruthy();
     expect(screen.queryByText("SERVER TEXT")).toBeNull();
-    expect((screen.getByLabelText("Reason (required)") as HTMLTextAreaElement).value).toBe("Only once.");
+    expect((screen.getByLabelText("Reason (required; shown to the participant)") as HTMLTextAreaElement).value).toBe("Only once.");
     expect((screen.getByLabelText("Rationale (optional)") as HTMLTextAreaElement).value).toBe("Said it late.");
     expect((screen.getByLabelText("Comment") as HTMLTextAreaElement).value).toBe("Check the second scene.");
   });
@@ -122,7 +122,7 @@ describe("SubjectView: recovering from a stale edit", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Edit Clarity" }));
     fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Check the second scene." } });
     fireEvent.change(screen.getByLabelText("New level"), { target: { value: "4" } });
-    fireEvent.change(screen.getByLabelText("Reason (required)"), { target: { value: "Heard it twice." } });
+    fireEvent.change(screen.getByLabelText("Reason (required; shown to the participant)"), { target: { value: "Heard it twice." } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText(STALE)).toBeTruthy();
     // someone else set level 2 meanwhile; the facilitator reloads
@@ -130,7 +130,7 @@ describe("SubjectView: recovering from a stale edit", () => {
     stale = false;
     fireEvent.click(screen.getByRole("button", { name: "Reload the levels" }));
     expect(await screen.findByText("Now level 2: your save replaces it.")).toBeTruthy();
-    expect((screen.getByLabelText("Reason (required)") as HTMLTextAreaElement).value).toBe("Heard it twice.");
+    expect((screen.getByLabelText("Reason (required; shown to the participant)") as HTMLTextAreaElement).value).toBe("Heard it twice.");
     expect((screen.getByLabelText("Comment") as HTMLTextAreaElement).value).toBe("Check the second scene.");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(f.calls.filter((c) => c.init.method === "POST")).toHaveLength(2));

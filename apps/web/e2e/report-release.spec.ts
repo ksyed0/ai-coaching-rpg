@@ -54,7 +54,7 @@ async function editLevel(page: Page, name: string, level: string, reason: string
   const c = criterion(page, name);
   await c.getByRole("button", { name: `Edit ${name}` }).click();
   await c.getByLabel("New level").selectOption(level);
-  await c.getByLabel("Reason (required)").fill(reason);
+  await c.getByLabel("Reason (required; shown to the participant)").fill(reason);
   await c.getByRole("button", { name: "Save" }).click();
   await expect(page.locator(".report-subject").getByText("Saved.", { exact: true })).toBeVisible();
   await expect(c.getByText(`Level ${level}`, { exact: true })).toBeVisible();
@@ -204,7 +204,6 @@ test("release in the browser, the participant reads it with the runtime gone, a 
   await expect(participant.getByText("1 of 50 used")).toBeVisible();
 
   await review(a, BOB, "Discovery");
-  await a.locator(".report-subject").getByRole("button", { name: "Reload the levels" }).click();
   const disputes = a.locator(".report-disputes");
   await expect(disputes.getByText(DISPUTE, { exact: true })).toBeVisible();
   await expect(disputes.getByText("About Listening")).toBeVisible();
@@ -233,7 +232,6 @@ test("release in the browser, the participant reads it with the runtime gone, a 
   await expect(participant.getByRole("heading", { name: "Your report" })).toBeVisible();
 
   // Change the level, accept the summary, release again from the row.
-  await a.locator(".report-subject").getByRole("button", { name: "Reload the levels" }).click();
   await editLevel(a, "Discovery", "4", "Amended after the dispute.");
   await a.getByRole("button", { name: "Accept the summary" }).click();
   await expect(row(a, "Bob").getByText("No open items", { exact: true })).toBeVisible();

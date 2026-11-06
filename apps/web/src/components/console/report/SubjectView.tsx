@@ -36,9 +36,14 @@ export type SubjectViewProps = {
   fetch?: typeof fetch;
   /** After a successful write (the panel refreshes its subject list). */
   onChanged?: () => void;
+  /**
+   * Bumped by the panel after its own release, amend or withdraw succeeds: the view reads the subject again (its state, so whether it can
+   * be edited, and its versions, so whether a dispute can be resolved as amended) without remounting, so nothing typed is lost.
+   */
+  refresh?: number;
 };
 
-export function SubjectView({ sessionId, subject, author, evaluationOk = false, fetch: fetchImpl, onChanged }: SubjectViewProps) {
+export function SubjectView({ sessionId, subject, author, evaluationOk = false, fetch: fetchImpl, onChanged, refresh = 0 }: SubjectViewProps) {
   const id = useId();
   const [view, setView] = useState<ReportSubjectDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -71,6 +76,14 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = false, 
     setView(null);
     void load();
   }, [load]);
+
+  // A panel action changed this subject: read it again, keeping the view (and what is typed) on screen meanwhile.
+  const seen = useRef(refresh);
+  useEffect(() => {
+    if (seen.current === refresh) return;
+    seen.current = refresh;
+    void load();
+  }, [refresh, load]);
 
   /** Runs a write; null when it succeeded (then the view reloads), else the fixed sentence (on the status line unless `inRow`: the row shows it). */
   async function run(call: Promise<ApiResult>, inRow = false): Promise<string | null> {

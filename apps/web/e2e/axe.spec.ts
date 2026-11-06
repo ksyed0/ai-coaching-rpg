@@ -234,7 +234,7 @@ test("Axe: the Report panel ready to evaluate, with a refused name, the evaluate
   await expect(report.getByRole("button", { name: "Edit Discovery" })).toBeEnabled();
   await checkAt(fac, "the subject view");
   await report.getByRole("button", { name: "Edit Discovery" }).click();
-  await expect(report.getByLabel("Reason (required)")).toBeVisible();
+  await expect(report.getByLabel("Reason (required; shown to the participant)")).toBeVisible();
   await checkAt(fac, "the subject view with an open edit form");
 });
 

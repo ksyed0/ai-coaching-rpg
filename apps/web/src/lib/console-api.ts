@@ -411,8 +411,6 @@ export function parseReleased(v: unknown): { released: string[]; groupTableStale
   return { released: o.released, groupTableStale: o.groupTableStale };
 }
 
-/** Whether a release or withdraw answer says the group's per-role table is now out of date (only the literal true). */
-export const groupTableStaleOf = (v: unknown): boolean => obj(v)?.groupTableStale === true;
 
 /** The subject ids of a `blocked` release refusal (safe ids only, at most 50); empty for any other answer. */
 export function blockedOf(r: Extract<ApiResult, { ok: false }>): string[] {

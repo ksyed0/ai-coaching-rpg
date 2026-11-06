@@ -9,8 +9,14 @@ import { subjectLabel } from "./SubjectList";
 // released group); the view is the facilitator's, or for a role the participant's own. The export is a POST (control records it first);
 // the answer is saved as a file through a Blob link and never opened or rendered. A refusal shows the fixed sentence and saves nothing.
 
-/** Saves `text` as a download named `fileName` (a Blob URL on a hidden link that is clicked and removed; never opened as a page). */
-export function saveMarkdown(text: string, fileName: string): void {
+/** How long the Blob URL stays valid after the click: revoking it at once can cancel the download (Firefox, older Safari). */
+export const REVOKE_AFTER_MS = 30_000;
+
+/**
+ * Saves `text` as a download named `fileName` (a Blob URL on a hidden link that is clicked and removed; never opened as a page). The URL
+ * is revoked `REVOKE_AFTER_MS` later through `later` (injected in tests).
+ */
+export function saveMarkdown(text: string, fileName: string, later: (fn: () => void, ms: number) => void = (fn, ms) => void setTimeout(fn, ms)): void {
   const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
   const a = document.createElement("a");
   a.href = url;
@@ -20,7 +26,7 @@ export function saveMarkdown(text: string, fileName: string): void {
   document.body.append(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
+  later(() => URL.revokeObjectURL(url), REVOKE_AFTER_MS);
 }
 
 /** The subjects that can be exported for the facilitator: released ones, and the index once the group is released. */

@@ -114,7 +114,7 @@ export function CriterionRow({ criterion: c, canWrite, pending, byHand = false, 
             </select>
           </div>
           <div className="field">
-            <label htmlFor={`${id}-reason`}>Reason (required)</label>
+            <label htmlFor={`${id}-reason`}>Reason (required; shown to the participant)</label>
             <textarea id={`${id}-reason`} className="t" rows={2} value={form.reason} required onChange={(e) => setForm({ ...form, reason: e.target.value })} />
           </div>
           <div className="field">
