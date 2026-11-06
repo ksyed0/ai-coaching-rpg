@@ -1971,7 +1971,7 @@ Expected Result: All tests pass; no event carries a role that did not come from 
 Actual Result: As expected, 2026-11-06: runtime 4 files, 77 tests (step 1); control 2 files, 32 tests (step 2), all passing.
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2c-2, PR 1. The browser and BFF part of AC-0335 is PR 2, so AC-0331 and AC-0335 stay open.
+Notes: Slice 2c-2, PR 1. The browser and BFF part of AC-0335 is PR 2, so AC-0331 and AC-0335 stay open. Closed in PR 2 (TC-0133, TC-0134).
 
 TC-0128: The self-assessment form is blind: it carries no evaluator level, rationale or evidence
 Related Story: US-0063
@@ -1985,7 +1985,7 @@ Expected Result: All tests pass.
 Actual Result: As expected, 2026-11-06: runtime 2 files, 29 tests, all passing.
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2c-2, PR 1 (the data side). The page that shows the form is PR 2, so AC-0332 stays open.
+Notes: Slice 2c-2, PR 1 (the data side). The page that shows the form is PR 2, so AC-0332 stays open. Closed in PR 2 (TC-0133, TC-0134).
 
 TC-0129: A held review.lock is retried with backoff and answers busy, and a concurrent CLI command leaves a valid chain
 Related Story: US-0063
@@ -2000,7 +2000,7 @@ Expected Result: All tests pass.
 Actual Result: As expected, 2026-11-06: runtime 2 files, 47 tests (step 1); control 2 files, 32 tests (step 2), all passing.
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2c-2, PR 1. "Try again" on the page is PR 2, so AC-0333 stays open.
+Notes: Slice 2c-2, PR 1. "Try again" on the page is PR 2, so AC-0333 stays open. Closed in PR 2 (TC-0133, TC-0134).
 
 TC-0130: Participant text is scrubbed on write and exports neutralise link and image syntax
 Related Story: US-0063
@@ -2014,7 +2014,7 @@ Expected Result: All tests pass.
 Actual Result: As expected, 2026-11-06: runtime 2 files, 33 tests, all passing.
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2c-2, PR 1 (the write and export sides). The escaping in the page and the threat-model section are PR 2, so AC-0334 stays open.
+Notes: Slice 2c-2, PR 1 (the write and export sides). The escaping in the page and the threat-model section are PR 2, so AC-0334 stays open. Closed in PR 2 (TC-0133, TC-0134).
 
 TC-0131: Capacity is bounded, and no write attempt begins after a revoke or reissue has returned
 Related Story: US-0063
@@ -2044,7 +2044,7 @@ Expected Result: All tests pass.
 Actual Result: As expected, 2026-11-06: runtime 3 files, 59 tests (step 1); control 1 file, 21 tests (step 2), all passing.
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2c-2, PR 1. The console column is PR 2, so AC-0371 stays open.
+Notes: Slice 2c-2, PR 1. The console column is PR 2, so AC-0371 stays open. Closed in PR 2 (TC-0133, TC-0134).
 
 TC-0133: A participant rates with the runtime exited, sees the report, table and forms after release, and revoke and reissue refuse the next write (Playwright, with Axe)
 Related Story: US-0063
@@ -2054,11 +2054,11 @@ Type: Integration
 Preconditions: As TC-0126 (the Playwright browser, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed, and `next build --webpack` done in `apps/web`; build first, because the stacks run `next start` against that build). Each test starts the real control service (mock models, temporary data directory) and `next start` in launcher mode. The review folders are seeded with the runtime's own `moderate` functions as `/2` reviews (`services/control/src/__tests__/seed-report-folders.ts`, which also has `release` and `resolve` sub-commands), with a recognisable evaluator level and rationale planted in the draft.
 Steps:
   1. From `apps/web`: `pnpm exec next build --webpack`, then `pnpm exec playwright test e2e/report-access.spec.ts e2e/axe.spec.ts --trace off`.
-  2. (a) `a draft player rates with the runtime exited and never sees the evaluator; release, then the table and form appear; a dispute is resolved and its reason shows`: the console lists the draft role ("Rated 0 of 3 criteria") with the release warning; the facilitator issues a link for the draft; the participant opens it in a fresh browser, rates three criteria with a note, saves, reloads (the saved ratings and note come back) and finds neither the planted level nor the planted rationale in the page text, the page HTML or any response body; the console then shows "Rated 3 of 3 criteria"; after release the page shows "Your report", the comparison table (evaluator's level beside the participant's rating), no Save button and the response form ("0 of 50 used"); a response and a dispute raise the count to 2 of 50; after the facilitator resolves the dispute and the page is reloaded, "Outcome: upheld" and the facilitator's reason show.
+  2. (a) `a draft player rates with the runtime exited and never sees the evaluator; release, then the table and form appear; a dispute is resolved and its reason shows`: the console lists the draft role ("Rated 0 of 3 criteria") with the release warning; the facilitator issues a link for the draft; the participant opens it in a fresh browser, rates three criteria with a note, saves, reloads (the saved ratings and note come back), chooses "Not observed" for one criterion, saves and reloads (it is still checked: control's real `null` level passes the BFF parser), restores that rating, and finds neither the planted level nor the planted rationale in the page text, the page HTML or any response body; the console then shows "Rated 3 of 3 criteria"; after release the page shows "Your report", the comparison table (evaluator's level beside the participant's rating), no Save button and the response form ("0 of 50 used"); a response and a dispute raise the count to 2 of 50; after the facilitator resolves the dispute and the page is reloaded, "Outcome: upheld" and the facilitator's reason show; a 1,500-character unbroken response leaves no horizontal scroll at 400 px. The response bodies are all read before the canary check, and a recorded body must be the `GET /api/v1/report` JSON with `self_assess`.
   3. (b) `revoke while the participant's cookie exists`: after a revoke, Save answers 404, the page shows the refused sentence, the form is gone, the cookie and the browser draft are cleared. (c) `reissue mid-rating`: the old tab's Save answers 404 and is refused (cookie and draft cleared); the new link, opened in the same browser, shows the earlier saved rating and note and no unsaved choice. (d) `a stale form after release`: Save answers 409, the page says the ratings are closed, what was typed stays in the form, the cookie stays, and after a reload the closed rating was never written ("Not rated").
-  4. (e), (f) and (g) are the Axe specs: `Axe: the self-rating form, its busy error, and the released page with the table, responses and forms; and the console panel with a draft row` and `Axe: the closed, old_schema, throttled and not_released states of /report`, each at 1280 and 400 px in light and dark (serious and critical, WCAG 2 A and AA, no horizontal scroll). The 2c-1 specs in the same files (TC-0126) are run too.
+  4. (e) and (f) are the Axe specs: `Axe: the self-rating form, its busy error, and the released page with the table, responses and forms; and the console panel with a draft row` and `Axe: the closed, old_schema, throttled and not_released states of /report`, each at 1280 and 400 px in light and dark (serious and critical, WCAG 2 A and AA, no horizontal scroll). The 2c-1 specs in the same files (TC-0126) are run too.
 Expected Result: All pass, zero violations.
-Actual Result: As expected, 2026-11-06: `report-access.spec.ts` and `axe.spec.ts`, 11 tests passed in 3.8 min (7 in report-access.spec.ts: 3 from TC-0126 and the 4 above; 4 in axe.spec.ts: 2 earlier and the 2 above), on the installed Chromium 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE` after a fresh `next build --webpack`.
+Actual Result: As expected, 2026-11-06 (re-run after the review fixes; the same 11 tests): `report-access.spec.ts` and `axe.spec.ts`, 11 tests passed in 3.8 min (7 in report-access.spec.ts: 3 from TC-0126 and the 4 above; 4 in axe.spec.ts: 2 earlier and the 2 above), on the installed Chromium 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE` after a fresh `next build --webpack`.
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2c-2, PR 2. The busy, closed, old_schema, throttled and not_released pages are produced by intercepting the BFF's answer in the browser with the fixed body control would give (a held review lock, a different seeded log or a burst of reads is hard to produce through the real stack); those states are covered against the real services by TC-0129, TC-0132 and the unit tests of TC-0134. The planted level is the draft's level label, so after release only the rationale appears (it is the real detector for a leak before release). The seeder's `release` and `resolve` assume one review folder per session.
@@ -2074,7 +2074,7 @@ Steps:
   2. From `apps/web`: `pnpm exec vitest run src/components/__tests__/ReportLinksPanel.test.tsx src/server/__tests__/report-writes.test.ts src/server/__tests__/report-handlers.test.ts src/server/__tests__/launcher-client.test.ts` (the console panel lists draft roles with "Rated k of n criteria" and "x of y players have rated", shows "not available" for an unknown count only on a draft row, warns that releasing closes self-rating and tells a draft row from a released one; the BFF write routes refuse a cross-site request (Origin and Fetch-Metadata) before any throttle accounting, need a JSON content type, cap the body at 64 KB and 16 KB, refuse a body with a `role` or any other unknown key, take the credential only from the sealed cookie, count writes per credential and failures per address, clear the cookie only on a 404 and keep it on a 503 or `busy`, answer 409 with a fixed sentence per state and re-read the view after a write).
   3. From `services/control`: `pnpm exec vitest run src/__tests__/reports.test.ts src/__tests__/api.reports.test.ts` (a draft role can be linked and a withdrawn role cannot; the draft read returns the blind form and the progress; a released `/1` review still reads `released`; `draft` is carried on each link row). From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/progress.test.ts`.
 Expected Result: All tests pass.
-Actual Result: As expected, 2026-11-06: step 1, 8 files, 74 tests; step 2, 4 files, 157 tests; step 3, control 2 files, 56 tests, runtime 1 file, 5 tests, all passing. Full runs the same day: runtime 220 files, 4226 passed and 1 skipped; control 32 files, 541 passed; web 73 files, 1188 passed.
+Actual Result: As expected, 2026-11-06: step 1, 8 files, 77 tests; step 2, 4 files, 159 tests; step 3, control 2 files, 56 tests, runtime 1 file, 5 tests, all passing. Full runs the same day: runtime 220 files, 4226 passed and 1 skipped; control 32 files, 541 passed; web 73 files, 1193 passed.
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2c-2, PR 2. The end-to-end behaviour is TC-0133; the control and runtime write side is TC-0127 to TC-0132.
