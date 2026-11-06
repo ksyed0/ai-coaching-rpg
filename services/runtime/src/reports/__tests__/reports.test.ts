@@ -17,6 +17,7 @@ import {
   resolveReviewDir,
 } from "../index.js";
 import { loadReview, supersedeReview } from "../../review/store.js";
+import { readReview, sealEntries } from "../../review/review-log.js";
 import { writeReports } from "../../evaluator/report-write.js";
 import { sampleEvaluation } from "../../evaluator/__tests__/fixtures.js";
 import {
@@ -306,5 +307,107 @@ describe("reviewStatus", () => {
     } finally {
       await chmod(root, 0o700);
     }
+  });
+});
+
+describe("readReleasedView own: participant self-ratings, responses and resolutions (pin)", () => {
+  it("readReleasedView own contains self ratings, responses, and resolution outcome and reason for a /1 and a /2 review", async () => {
+    // self-rate before release, release, then a dispute on the released report that the facilitator declines
+    const cur = (await loadReview(dir)).view.subjects
+      .get("alice")!
+      .criteria.find((c) => c.id === "listening")!;
+    expect(cur).toBeTruthy();
+    expect(
+      (
+        await run([
+          "self-assess",
+          rel,
+          "--role",
+          "alice",
+          "--rate",
+          "listening=3",
+          "--note",
+          "PIN-SELF-NOTE",
+          "--by",
+          "kamal",
+        ])
+      ).code,
+    ).toBe(0);
+    await release();
+    expect(
+      (
+        await run([
+          "respond",
+          rel,
+          "--role",
+          "alice",
+          "--criterion",
+          "listening",
+          "--text",
+          "PIN-RESPONSE",
+          "--dispute",
+          "--by",
+          "kamal",
+        ])
+      ).code,
+    ).toBe(0);
+    const seq = (await loadReview(dir)).events.find(
+      (e) => e.type === "response.added",
+    )!.seq;
+    expect(
+      (
+        await run([
+          "resolve",
+          rel,
+          String(seq),
+          "--outcome",
+          "declined",
+          "--reason",
+          "PIN-REASON",
+          "--by",
+          "kamal",
+        ])
+      ).code,
+    ).toBe(0);
+
+    const check = async () => {
+      const r = await readReleasedView(root, sessionId, "alice", secrets);
+      if (r.kind !== "released") throw new Error(r.kind);
+      const own = JSON.stringify(r.own);
+      expect(own).toContain("PIN-SELF-NOTE");
+      expect(own).toContain("PIN-RESPONSE");
+      expect(own).toContain("declined");
+      expect(own).toContain("PIN-REASON");
+      expect(JSON.stringify(r.own.self)).toContain("listening");
+    };
+    // the /2 review as written
+    expect(
+      (await readReview(dir)).events[0]!,
+    ).toMatchObject({ schema: "acr.review/2" });
+    await check();
+
+    // the same events re-sealed as a /1 review
+    const { events } = await readReview(dir);
+    let t = 1_800_000_000_000;
+    const resealed = sealEntries(
+      [],
+      "0".repeat(64),
+      events.map((e) => {
+        const { seq: _s, ts: _t, prev: _p, actor, ...body } = e as any;
+        return {
+          actor,
+          body: e.type === "review.opened" ? { ...body, schema: "acr.review/1" } : body,
+        };
+      }),
+      () => (t += 1000),
+    );
+    await writeFile(
+      path.join(dir, "review.jsonl"),
+      resealed.map((e) => `${JSON.stringify(e)}\n`).join(""),
+    );
+    expect((await readReview(dir)).events[0]!).toMatchObject({
+      schema: "acr.review/1",
+    });
+    await check();
   });
 });

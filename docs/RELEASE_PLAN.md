@@ -1897,20 +1897,24 @@ Status: Planned
 Branch: feature/EPIC-0002-US-0063-participant-report
 Dependencies: US-0062
 Acceptance Criteria:
-  - [ ] AC-0331: a versioned actor kind participant_session is accepted only for self-assess, respond (including marking a dispute) and reading the own released report; resolve stays a facilitator action; REVIEW_SCHEMA is bumped and the fold and write checks accept the new kind
+  - [ ] AC-0331: a versioned actor kind participant_session is accepted only for self-assess, respond (including marking a dispute) and reading the own released report; resolve stays a facilitator action; REVIEW_SCHEMA is bumped and the fold and write checks accept the new kind (runtime part built in slice 2c-2 PR 1: `acr.review/2`, the actor, the fold and `isEventShape`, TC-0127; the reading of the own report in the browser is PR 2)
   - [ ] AC-0332: the report page shows levels with evidence, the calibration stamp, the self-rating column and a response box, and works after the runtime has exited
-  - [ ] AC-0333: a held review.lock is retried with backoff and the participant sees try again
+  - [ ] AC-0333: a held review.lock is retried with backoff and the participant sees try again (lock distinction, retry with backoff and the `busy` answer built in slice 2c-2 PR 1, TC-0129; "try again" on the page is PR 2)
   - [ ] AC-0334: responses and names are scrubbed and escaped in the page, exports strip Markdown link and image syntax, and the threat model records the unkeyed chain and the control service as the only web writer
-  - [ ] AC-0335: tests cover forging, cross-role access and the CLI attested path still working
+  - [ ] AC-0335: tests cover forging, cross-role access and the CLI attested path still working (runtime and control parts built in slice 2c-2 PR 1, TC-0127: the role comes from the credential, a body naming a role is 400, every refusal is the neutral 404; the browser and BFF part is PR 2)
+  - [ ] AC-0369: capacity is bounded: at most 50 ratings per submit, 10 times the criteria in ratings per role in a review, 50 responses per report, text of at most 1,500 characters (UTF-16 bound 3,000 at the door), per-route body caps (16 KB responses, 64 KB self-ratings, 4 KB elsewhere) and at most 20 counted writes per credential in 10 minutes with a Retry-After (built in slice 2c-2 PR 1; TC-0131)
+  - [ ] AC-0370: no write attempt begins after a revoke or reissue has returned (the credential is re-checked before every attempt); an attempt already past its credential check may complete (control side built in slice 2c-2 PR 1; TC-0131)
+  - [ ] AC-0371: the rating progress of each role (and of each players-count) shows in `moderate status` and, in PR 2, in the console (`moderate status` built in slice 2c-2 PR 1; TC-0132)
+  - [ ] AC-0372: a review opened before `acr.review/2` refuses web ratings and responses with a fixed old-schema sentence that points to the terminal, and a build that does not know `/2` cannot read a `/2` review (docs/ROLLBACK.md) (refusal built in slice 2c-2 PR 1; TC-0132)
 ```
 
 ```
 TASK-0092 (US-0063): Actor kind, report page, self-assess and respond routes
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: In Progress
 Branch: feature/EPIC-0002-US-0063-participant-report
-Notes: Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). Inputs from slice 2c-1 (US-0062, done): the credential id lives only in the sealed `__Host-scenecoach-report` cookie and the control path, so the participant actor is `{ role, credentialId }` resolved by the control service; the report page already renders all text escaped and has the states, print view and throttles to extend; control refuses store trouble with a 503 (never the neutral 404), which the new routes must keep; a held `review.lock` is retried with backoff and answers try again. Open follow-ups that touch this area: BUG-0027, BUG-0028.
+Notes: Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). Inputs from slice 2c-1 (US-0062, done): the credential id lives only in the sealed `__Host-scenecoach-report` cookie and the control path, so the participant actor is `{ role, credentialId }` resolved by the control service; the report page already renders all text escaped and has the states, print view and throttles to extend; control refuses store trouble with a 503 (never the neutral 404), which the new routes must keep; a held `review.lock` is retried with backoff and answers try again. Open follow-ups that touch this area: BUG-0027, BUG-0028. Slice 2c-2 PR 1 (no browser) is done: review schema `acr.review/2` and the `participant_session` actor, `ReviewBusyError`, `@acr/runtime/participant` (blind form, self-ratings, responses, progress, caps), the supersede carry, the control write routes (`PUT /sessions/:id/reports/:credentialId/self-ratings`, `POST .../responses`) with per-route body caps, the throttle, the retry and the revoke re-check, the start-up writability check, and rating progress in `moderate status`. PR 2 (the browser: link rule, read states, BFF routes, page, console panel, Playwright and Axe, threat model) is still to do, so the story and AC-0331 to AC-0335 stay open. Plan docs/superpowers/plans/2026-11-05-slice-2c-2-participant-actions.md.
 ```
 
 ```

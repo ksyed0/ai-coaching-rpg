@@ -20,7 +20,11 @@ import {
 } from "../review-log.js";
 import { LIMITS, REVIEW_FILE, ZERO_HASH, type Entry } from "../types.js";
 import * as fsp from "node:fs/promises";
-import { ReviewCorruptError, ReviewRefusedError } from "../errors.js";
+import {
+  ReviewBusyError,
+  ReviewCorruptError,
+  ReviewRefusedError,
+} from "../errors.js";
 
 let dir: string;
 beforeEach(async () => {
@@ -181,6 +185,17 @@ describe("review log", () => {
       "again",
     );
   });
+  it("withReviewLock throws ReviewBusyError when the lock is held, and it is still a ReviewRefusedError with the same message", async () => {
+    await withReviewLock(dir, async () => {
+      const err = await withReviewLock(dir, async () => 1).catch((e) => e);
+      expect(err).toBeInstanceOf(ReviewBusyError);
+      expect(err).toBeInstanceOf(ReviewRefusedError);
+      expect(err.exit).toBe(1);
+      expect(err.message).toBe(
+        "another moderate command is running on this review; try again in a moment",
+      );
+    });
+  });
   it("takes carriedFrom from the entry only, never from the body", () => {
     const e = comment("a");
     const [x] = sealEntries(
@@ -197,5 +212,47 @@ describe("review log", () => {
       clock(),
     );
     expect(y!.carriedFrom).toBe("ok");
+  });
+
+  it("a web event round-trips through readReview", async () => {
+    const web: Entry = {
+      actor: {
+        kind: "participant_session",
+        v: 1,
+        role: "alice",
+        credentialId: "AAAAAAAAAAA",
+      },
+      body: {
+        type: "self.rated",
+        role: "alice",
+        criterion: "listening",
+        level: 2,
+      },
+    };
+    const sealed = await append([web]);
+    const back = await readReview(dir);
+    expect(back.events).toEqual(sealed);
+    expect(back.events[0]!.actor).toEqual(web.actor);
+  });
+
+  it("a /1 log written before this change still loads", async () => {
+    const opener: Entry = {
+      actor: fac,
+      body: {
+        type: "review.opened",
+        schema: "acr.review/1",
+        policyVersion: 1,
+        legacy: false,
+        session: { id: "s", logSha256: null, startedAt: "t" },
+        scenario: { id: "sc", sha256: null },
+        rubricHash: null,
+        files: {},
+        codes: null,
+      },
+    };
+    await append([opener]);
+    const back = await readReview(dir);
+    expect(back.events).toHaveLength(1);
+    expect(back.events[0]!.type).toBe("review.opened");
   });
 });

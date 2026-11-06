@@ -5,8 +5,8 @@
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
 | TASK         | TASK-0101             | TASK-0100         |
-| AC           | AC-0369               | AC-0368           |
-| TC           | TC-0127               | TC-0126           |
+| AC           | AC-0373               | AC-0372           |
+| TC           | TC-0133               | TC-0132           |
 | BUG          | BUG-0029              | BUG-0028          |
 | L            | L-0034                | L-0033            |
 
@@ -73,3 +73,5 @@ Assigned 2026-11-05 (slice 2c-1, PR 1): AC-0365 (US-0062: the reader of released
 Assigned 2026-11-05 (slice 2c-1, PR 2): AC-0367 (US-0062: opening a report link keeps the token out of logs, referrer and the address bar; no-script fallback) and AC-0368 (US-0062: forged cross-site enter refused before the throttle, a blocked address gets 429 with Retry-After while a refused token stays the neutral 404, no-store and no-referrer, no credential id in the console DTO); TC-0124 (AC-0330, AC-0367, AC-0368: BFF routes and pages), TC-0125 (AC-0327, AC-0328, AC-0368: console panel) and TC-0126 (end to end and Axe). TASK-0100 (TASK-0092 was already taken by US-0063). Slice 2c-1 is complete; the next AC is AC-0369, the next TC is TC-0127 and the next TASK is TASK-0101.
 
 Assigned 2026-11-05 (slice 2c-1 close): BUG-0025 (forged-cookie read failures share the enter throttle table), BUG-0026 (`ws-server.roster.test.ts` flake), BUG-0027 (conflict sentences duplicated between control and web) and BUG-0028 (slice 2c-1 test and cleanup gaps), all open. L-0032 and L-0033 were added at the same close.
+
+Assigned 2026-11-06 (slice 2c-2, PR 1): AC-0369 (US-0063: capacity bounds), AC-0370 (US-0063: no write attempt begins after a revoke or reissue has returned), AC-0371 (US-0063: rating progress in `moderate status` and the console) and AC-0372 (US-0063: old-schema refusal); TC-0127 (AC-0331, AC-0335: fold and forging), TC-0128 (AC-0332: blind read), TC-0129 (AC-0333: lock and retry), TC-0130 (AC-0334: text and export), TC-0131 (AC-0369, AC-0370: capacity and revoke) and TC-0132 (AC-0371, AC-0372: progress and old schema). TASK-0092 is reused (no new TASK; next free stays TASK-0101). The next AC is AC-0373, the next TC is TC-0133.

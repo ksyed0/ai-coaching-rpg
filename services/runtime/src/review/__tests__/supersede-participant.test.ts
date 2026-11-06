@@ -10,7 +10,8 @@ import {
 } from "../store.js";
 import { ReviewRefusedError } from "../errors.js";
 import { canView } from "../policy.js";
-import { POLICY_VERSION, type Body, type Entry } from "../types.js";
+import { POLICY_VERSION, type Actor, type Body, type Entry } from "../types.js";
+import * as log from "../review-log.js";
 import { renderSubjectMarkdown, viewReport } from "../view.js";
 import type { ParticipantReport } from "../../evaluator/report-model.js";
 import {
@@ -369,5 +370,167 @@ describe("fix round F1/F3: supersede never leaves a dead end and says what it di
       `not carried: open dispute #${bobDispute} by bob (bob is not in the new run`,
     );
     expect(r.out).not.toContain("BOB-OPEN");
+  });
+});
+
+describe("US-0063 supersede carries only the latest self-rating per role and criterion", () => {
+  const web = (role: string): Actor => ({
+    kind: "participant_session",
+    v: 1,
+    role,
+    credentialId: "AAAAAAAAAAA",
+  });
+  const rate = (
+    dir: string,
+    role: string,
+    criterion: string,
+    level: 1 | 2 | 3 | 4,
+    actor: Actor = part(role),
+  ) =>
+    apply(dir, () => [
+      { actor, body: { type: "self.rated", role, criterion, level } },
+    ]);
+  const ratedEvents = async (dir: string) =>
+    (await loadReview(dir)).events.filter((e) => e.type === "self.rated");
+
+  it("ten resubmits of one criterion carry as one self.rated, and the carried one is the latest by seq", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    for (let i = 0; i < 10; i++)
+      await rate(dir1, "alice", "listening", ((i % 4) + 1) as 1 | 2 | 3 | 4);
+    // the last of the ten is level 2 (i = 9)
+    await supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() });
+    const rated = (await ratedEvents(dir2)) as {
+      role: string;
+      criterion: string;
+      level: number;
+    }[];
+    expect(rated).toHaveLength(1);
+    expect(rated[0]).toMatchObject({
+      role: "alice",
+      criterion: "listening",
+      level: 2,
+    });
+    expect(
+      (await loadReview(dir2)).view.subjects
+        .get("alice")!
+        .criteria.find((c) => c.id === "listening")!.self?.level,
+    ).toBe(2);
+  });
+  it("keeps the latest per role and per criterion separately", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    await rate(dir1, "alice", "listening", 1);
+    await rate(dir1, "bob", "listening", 1);
+    await rate(dir1, "alice", "listening", 4);
+    await rate(dir1, "bob", "listening", 3);
+    await supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() });
+    const rated = (await ratedEvents(dir2)) as {
+      role: string;
+      level: number;
+    }[];
+    expect(rated.map((e) => [e.role, e.level])).toEqual([
+      ["alice", 4],
+      ["bob", 3],
+    ]);
+  });
+  it("after ten resubmits a resolved dispute still resolves the same response, outcome and reason intact; responses are all carried", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    for (let i = 0; i < 10; i++)
+      await rate(dir1, "alice", "listening", ((i % 4) + 1) as 1 | 2 | 3 | 4);
+    await releaseOf(dir1, "alice");
+    await respond(dir1, "alice", "FIRST", true);
+    const first = await lastSeq(dir1);
+    await respond(dir1, "alice", "SECOND", false);
+    await respond(dir1, "alice", "THIRD", true);
+    const third = await lastSeq(dir1);
+    await resolveDispute(dir1, first, "declined");
+    await resolveDispute(dir1, third, "upheld");
+    await supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() });
+    const l2 = await loadReview(dir2);
+    const a = l2.view.subjects.get("alice")!;
+    expect(a.responses.map((r) => r.text)).toEqual([
+      "FIRST",
+      "SECOND",
+      "THIRD",
+    ]);
+    expect(a.responses.map((r) => r.resolution?.outcome ?? null)).toEqual([
+      "declined",
+      null,
+      "upheld",
+    ]);
+    expect(a.responses[0]!.resolution?.reason).toBe("checked");
+    expect(a.responses[2]!.resolution?.reason).toBe("checked");
+    const resolved = l2.events.filter((e) => e.type === "dispute.resolved");
+    expect(resolved.map((e) => (e as { response: number }).response)).toEqual([
+      a.responses[0]!.seq,
+      a.responses[2]!.seq,
+    ]);
+    // nine of the ten ratings were skipped, so every carried response sits that much earlier than in the old log
+    expect(a.responses[0]!.seq).toBeLessThan(first);
+  });
+  it("carried participant_session events keep their original actor and stay valid in the new /2 log", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    await rate(dir1, "bob", "listening", 1, web("bob"));
+    await rate(dir1, "bob", "listening", 3, web("bob"));
+    await releaseOf(dir1, "alice");
+    await apply(dir1, () => [
+      {
+        actor: web("alice"),
+        body: { type: "response.added", role: "alice", text: "VIA-LINK" },
+      },
+    ]);
+    await supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() });
+    const l2 = await loadReview(dir2);
+    expect((l2.events[0] as { schema?: string }).schema).toBe("acr.review/2");
+    const carried = l2.events.filter((e) => e.carriedFrom !== undefined);
+    const mine = carried.filter(
+      (e) => e.type === "self.rated" || e.type === "response.added",
+    );
+    expect(mine).toHaveLength(2);
+    expect(mine.every((e) => e.actor.kind === "participant_session")).toBe(
+      true,
+    );
+    expect(mine.map((e) => e.actor)).toEqual([web("bob"), web("alice")]);
+    expect(
+      l2.view.subjects.get("bob")!.criteria.find((c) => c.id === "listening")!
+        .self?.level,
+    ).toBe(3);
+  });
+  it("a supersede interrupted under /1 code and re-run under /2 is refused with a message saying to re-run with the same version", async () => {
+    await openReview(dir1, { by: "kamal", now: fixedClock() });
+    await rate(dir1, "bob", "listening", 2);
+    await supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() });
+    // rebuild what an interrupted /1 supersede left: copies whose opener says /1, and the old review still live
+    const copies = (await log.readReview(dir2)).events;
+    const entries: Entry[] = copies.map((e) => {
+      const {
+        seq: _s,
+        ts: _t,
+        prev: _p,
+        actor,
+        carriedFrom,
+        ...body
+      } = e as Record<string, unknown> & { actor: Actor; carriedFrom?: string };
+      return {
+        actor,
+        ...(carriedFrom ? { carriedFrom } : {}),
+        body: (body.type === "review.opened"
+          ? { ...body, schema: "acr.review/1" }
+          : body) as Body,
+      };
+    });
+    await rm(path.join(dir2, "review.jsonl"));
+    await log.writeEvents(
+      dir2,
+      log.sealEntries([], "0".repeat(64), entries, fixedClock()),
+    );
+    const oldText = await readFile(path.join(dir1, "review.jsonl"), "utf8");
+    const lines = oldText.trimEnd().split("\n");
+    await writeFile(
+      path.join(dir1, "review.jsonl"),
+      lines.slice(0, -1).join("\n") + "\n",
+    );
+    await expect(
+      supersedeReview(dir1, dir2, { by: "kamal", now: fixedClock() }),
+    ).rejects.toThrow(/same version/);
   });
 });
