@@ -1,15 +1,19 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
-import { isSafeId, isValidSessionId } from "@acr/events";
+import { isFileSafeId, isSafeId, isValidSessionId } from "@acr/events";
 import { z } from "zod";
 import { RoleIdSchema } from "./protocol.js";
 import type { ControlConfig } from "./config.js";
+import type { ParticipantWriteService, WriteOutcome } from "./participant-writes.js";
 import { isCredentialId } from "./report-access.js";
 import type { ReportService } from "./reports.js";
 import { ControlError, type ControlErrorCode, type Supervisor } from "./supervisor.js";
 
-/** Largest request body read, in bytes. */
+/** Largest request body read, in bytes, unless a route names its own cap. */
 export const MAX_BODY_BYTES = 4096;
+/** Participant write caps. The self-rating cap assumes at most about 10 criteria of 1,500 CJK characters (today's rubrics have 7). */
+export const MAX_RESPONSE_BODY_BYTES = 16 * 1024;
+export const MAX_SELF_RATINGS_BODY_BYTES = 64 * 1024;
 
 type Envelope<T> = { success: boolean; data: T | null; error: { code: string; message: string } | null };
 
@@ -35,6 +39,17 @@ const ReleaseBody = z.strictObject({ reservation: ReservationId });
 const NoBody = z.strictObject({});
 const LinkBody = z.strictObject({ role: z.string().min(1).max(MAX_FIELD) });
 const ExchangeBody = z.strictObject({ token: z.string().max(64) });
+// Text bounds are UTF-16 units (twice the 1,500 code-point limit): the runtime counts code points, so 1,500 emoji must pass here.
+const TEXT_UNITS = 1500 * 2;
+const CriterionId = z.string().refine(isFileSafeId);
+const SelfRatingsBody = z.strictObject({
+  ratings: z.array(z.strictObject({
+    criterion: CriterionId,
+    level: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.null()]),
+    note: z.string().max(TEXT_UNITS).optional(),
+  })).max(50),
+});
+const ResponseBody = z.strictObject({ criterion: CriterionId.optional(), text: z.string().max(TEXT_UNITS), dispute: z.boolean().optional() });
 const REPORT_UNAVAILABLE = "The report is unavailable. Try again.";
 
 class HttpError extends Error {
@@ -49,26 +64,27 @@ function tokenOk(given: string | string[] | undefined, expected: string): boolea
   return timingSafeEqual(digest(given), digest(expected));
 }
 
-function send(res: ServerResponse, status: number, body: Envelope<unknown>, closeConnection = false): void {
+function send(res: ServerResponse, status: number, body: Envelope<unknown>, closeConnection = false, retryAfterSeconds?: number): void {
   if (res.headersSent) { res.end(); return; }
   const text = JSON.stringify(body);
   res.writeHead(status, {
     "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
     "Content-Length": Buffer.byteLength(text), ...(closeConnection ? { Connection: "close" } : {}),
+    ...(retryAfterSeconds !== undefined ? { "Retry-After": String(retryAfterSeconds) } : {}),
   });
   res.end(text);
 }
 const ok = (res: ServerResponse, data: unknown): void => send(res, 200, { success: true, data, error: null });
-const fail = (res: ServerResponse, status: number, code: string, message: string, closeConnection = false): void =>
-  send(res, status, { success: false, data: null, error: { code, message } }, closeConnection);
+const fail = (res: ServerResponse, status: number, code: string, message: string, closeConnection = false, retryAfterSeconds?: number): void =>
+  send(res, status, { success: false, data: null, error: { code, message } }, closeConnection, retryAfterSeconds);
 
 /**
- * Reads at most MAX_BODY_BYTES. A declared length over the cap is refused at once (nothing is read); an undeclared or understated one
+ * Reads at most `max` bytes (MAX_BODY_BYTES unless the route names a cap). A declared length over the cap is refused at once (nothing is read); an undeclared or understated one
  * is cut off the moment the running total passes the cap. Resolves to the text ("" for no body).
  */
-function readBody(req: IncomingMessage): Promise<string> {
+function readBody(req: IncomingMessage, max = MAX_BODY_BYTES): Promise<string> {
   const declared = req.headers["content-length"];
-  if (declared !== undefined && (!/^[0-9]{1,15}$/.test(declared) || Number(declared) > MAX_BODY_BYTES)) {
+  if (declared !== undefined && (!/^[0-9]{1,15}$/.test(declared) || Number(declared) > max)) {
     return Promise.reject(new HttpError(413, "payload_too_large", "That request is too large.", true));
   }
   return new Promise<string>((resolve, reject) => {
@@ -76,7 +92,7 @@ function readBody(req: IncomingMessage): Promise<string> {
     let size = 0;
     req.on("data", (c: Buffer) => {
       size += c.length;
-      if (size > MAX_BODY_BYTES) { chunks.length = 0; reject(new HttpError(413, "payload_too_large", "That request is too large.", true)); req.removeAllListeners("data"); req.resume(); return; }
+      if (size > max) { chunks.length = 0; reject(new HttpError(413, "payload_too_large", "That request is too large.", true)); req.removeAllListeners("data"); req.resume(); return; }
       chunks.push(c);
     });
     req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
@@ -85,8 +101,8 @@ function readBody(req: IncomingMessage): Promise<string> {
 }
 
 /** The body as a parsed JSON object, or undefined when there is none. A body needs `application/json`. */
-async function jsonBody(req: IncomingMessage): Promise<unknown> {
-  const text = await readBody(req);
+async function jsonBody(req: IncomingMessage, max = MAX_BODY_BYTES): Promise<unknown> {
+  const text = await readBody(req, max);
   if (text === "") return undefined;
   const type = String(req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
   if (type !== "application/json") throw new HttpError(400, "bad_request", BAD_REQUEST);
@@ -114,8 +130,10 @@ export function createApi(deps: {
   config: ControlConfig; supervisor: Supervisor; scenarios: () => Promise<{ id: string; title: string }[]>; log?: (m: string) => void;
   /** Report links (EPIC-0002). Optional: the routes answer 404 when it is absent. */
   reports?: ReportService;
+  /** Participant ratings and responses (EPIC-0002). Optional: the routes answer 404 when it is absent. */
+  participantWrites?: ParticipantWriteService;
 }): RequestListener {
-  const { config, supervisor, scenarios, reports } = deps;
+  const { config, supervisor, scenarios, reports, participantWrites } = deps;
   const log = deps.log ?? (() => {});
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -196,6 +214,25 @@ export function createApi(deps: {
       if (r.status === 200) return ok(res, r.body);
       if (r.status === 503) return fail(res, 503, "unavailable", REPORT_UNAVAILABLE);
       return neutral();
+    }
+    if (seg.length === 5 && seg[2] === "reports" && ((seg[4] === "self-ratings" && method === "PUT") || (seg[4] === "responses" && method === "POST"))) {
+      if (!participantWrites) return notFound();
+      let credentialId: string;
+      try { credentialId = decodeURIComponent(seg[3]!); } catch { return neutral(); }
+      if (!isCredentialId(credentialId)) return neutral(); // before the body is read or any lookup
+      let outcome: WriteOutcome;
+      if (seg[4] === "self-ratings") {
+        const body = parse(SelfRatingsBody, await jsonBody(req, MAX_SELF_RATINGS_BODY_BYTES));
+        outcome = await participantWrites.rate(id, credentialId, body.ratings.map((r) => ({ criterion: r.criterion, level: r.level, ...(r.note !== undefined ? { note: r.note } : {}) })));
+      } else {
+        const body = parse(ResponseBody, await jsonBody(req, MAX_RESPONSE_BODY_BYTES));
+        outcome = await participantWrites.respond(id, credentialId, {
+          text: body.text, ...(body.criterion !== undefined ? { criterion: body.criterion } : {}), ...(body.dispute !== undefined ? { dispute: body.dispute } : {}),
+        });
+      }
+      if (outcome.status === 200) return ok(res, { wrote: outcome.wrote });
+      if (outcome.status === 404) return neutral();
+      return fail(res, outcome.status, outcome.code, outcome.message, false, outcome.retryAfterMs !== undefined ? Math.max(1, Math.ceil(outcome.retryAfterMs / 1000)) : undefined);
     }
     if (seg[2] === "report-links" && seg.length <= 5) {
       if (!reports) return notFound();

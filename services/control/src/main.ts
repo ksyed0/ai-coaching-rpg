@@ -9,6 +9,7 @@ import { IntentLog } from "./bots/intent-log.js";
 import { createApi } from "./api.js";
 import { loadControlConfig, loadControlEnv } from "./config.js";
 import { ReportAccessStore } from "./report-access.js";
+import { createParticipantWriteService, warnIfReportsNotWritable } from "./participant-writes.js";
 import { createReportService } from "./reports.js";
 import { listScenarios, scenarioDir } from "./scenarios.js";
 import { SessionList } from "./session-list.js";
@@ -63,13 +64,17 @@ export async function startControl(
     bots: (deps) => new BotHost({ provider, settings: config.aiPlayer, intents, scenarioFor, log, ...deps }),
   });
   await supervisor.resumeAll();
-  // ONE store for the whole service: two instances on one file would lose each other's updates.
-  const reports = createReportService({
-    config, store: new ReportAccessStore({ file: config.reportAccessFile, days: config.reportAccessDays, now: Date.now }),
-    secrets: collectSecrets(env), now: Date.now, log,
+  // ONE store for the whole service: two instances on one file would lose each other's updates, and a stale list could undo a revoke.
+  const store = new ReportAccessStore({ file: config.reportAccessFile, days: config.reportAccessDays, now: Date.now });
+  const secrets = collectSecrets(env);
+  const reports = createReportService({ config, store, secrets, now: Date.now, log });
+  const participantWrites = createParticipantWriteService({
+    config, store, secrets, now: Date.now, log, random: Math.random,
+    sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
   });
+  await warnIfReportsNotWritable(config.reportsDir, log);
 
-  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports }));
+  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites }));
   // Create, restart and a whole-session reissue can take up to readyTimeoutMs + 2 * graceMs (a start, then a stop and a forced stop),
   // so no limit may be shorter than that (Ruling R10). Node's requestTimeout bounds only the time to RECEIVE a request (the bodies here
   // are at most 4 KB), not the response, and `timeout` (idle socket) is off by default; both are set explicitly so a Node default

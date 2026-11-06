@@ -4,9 +4,20 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BotHost } from "../bots/bot-host.js";
 import { startControl, type RunningControl } from "../main.js";
+import * as participantWrites from "../participant-writes.js";
+import * as reportsModule from "../reports.js";
 import { SessionList } from "../session-list.js";
 import type { SpawnFn } from "../supervisor.js";
 import { FakeChild, READY, sid } from "./fake-child.js";
+
+vi.mock("../reports.js", async (orig) => {
+  const m = await orig<typeof import("../reports.js")>();
+  return { ...m, createReportService: vi.fn(m.createReportService) };
+});
+vi.mock("../participant-writes.js", async (orig) => {
+  const m = await orig<typeof import("../participant-writes.js")>();
+  return { ...m, createParticipantWriteService: vi.fn(m.createParticipantWriteService), warnIfReportsNotWritable: vi.fn(m.warnIfReportsNotWritable) };
+});
 
 const TOKEN = "k".repeat(40);
 let root: string;
@@ -44,6 +55,25 @@ describe("startControl", () => {
     const links = await get(running.port, `/sessions/${sid(1)}/report-links`);
     expect(links.status).toBe(404); // no such session; reached the report route's session check
     expect((await links.json()).error.message).toBe("That session does not exist.");
+  });
+
+  it("both report services receive the same ReportAccessStore instance", async () => {
+    vi.mocked(reportsModule.createReportService).mockClear();
+    vi.mocked(participantWrites.createParticipantWriteService).mockClear();
+    running = await startControl(env, { port: 0 });
+    const a = vi.mocked(reportsModule.createReportService).mock.calls[0]![0].store;
+    const b = vi.mocked(participantWrites.createParticipantWriteService).mock.calls[0]![0].store;
+    expect(a).toBe(b);
+  });
+
+  it("main calls warnIfReportsNotWritable at start-up", async () => {
+    const warn = vi.mocked(participantWrites.warnIfReportsNotWritable);
+    warn.mockClear();
+    const logs: string[] = [];
+    running = await startControl(env, { port: 0, log: (m) => logs.push(m) });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0]![0]).toBe(path.join(env.CONTROL_DATA_DIR!, "reports"));
+    expect(logs).toContain(participantWrites.NOT_WRITABLE_LOG); // no reports directory yet
   });
 
   it("warns when CONTROL_READY_TIMEOUT_MS + 2 * CONTROL_GRACE_MS exceeds what the web server waits, and stays quiet otherwise", async () => {
