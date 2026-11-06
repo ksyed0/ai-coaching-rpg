@@ -103,6 +103,8 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = false, 
       setFeedback(false);
     }
   }
+  /** Edits and acceptances are refused on a released or withdrawn report (`not_editable`): amend it first. Comments and resolves are not. */
+  const editable = view !== null && (view.state === "draft" || view.state === "amending");
   const nameOf = (criterion: string) => view?.criteria.find((c) => c.id === criterion)?.name ?? criterion;
   const label = subjectLabel(subject);
 
@@ -125,6 +127,7 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = false, 
       {view === null ? null : (
         <>
           {!canWrite ? <p className="small muted">{REPORT_CONSOLE.nameNeeded}</p> : null}
+          {!editable ? <p className="small muted">{REPORT_CONSOLE.amendToChange}</p> : null}
           {!evaluationOk ? <p className="banner warn">{REPORT_CONSOLE.evaluationFailed}</p> : null}
           <div>
             {/* Reload shows the latest levels without clearing an open form (a stale refusal asks for this). */}
@@ -134,7 +137,7 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = false, 
           </div>
           <ul className="console-list stack">
             {view.criteria.map((c) => (
-              <CriterionRow key={c.id} criterion={c} canWrite={canWrite} pending={pending} byHand={!evaluationOk} onEdit={edit(c.id)} onAccept={() => accept(c.id)} />
+              <CriterionRow key={c.id} criterion={c} canWrite={canWrite} pending={pending} byHand={!evaluationOk} editable={editable} onEdit={edit(c.id)} onAccept={() => accept(c.id)} />
             ))}
           </ul>
 
@@ -161,11 +164,13 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = false, 
                 ))}
               </ul>
             ) : null}
-            <div>
-              <button className="btn" type="button" disabled={!canWrite || pending} onClick={() => void run(acceptItem(sessionId, subject, { summary: true, by }, fetchImpl))}>
-                Accept the summary
-              </button>
-            </div>
+            {editable ? (
+              <div>
+                <button className="btn" type="button" disabled={!canWrite || pending} onClick={() => void run(acceptItem(sessionId, subject, { summary: true, by }, fetchImpl))}>
+                  Accept the summary
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {view.comments.length > 0 ? (

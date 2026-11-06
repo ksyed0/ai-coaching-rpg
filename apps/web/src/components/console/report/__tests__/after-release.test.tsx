@@ -275,3 +275,27 @@ describe("saveMarkdown", () => {
     await waitFor(() => expect(revoke).toHaveBeenCalledWith("blob:x"));
   });
 });
+
+describe("fix round 1: carried disputes and read-only released views", () => {
+  it("a dispute carried from a superseded review (seq below the first release) is not offered amended", () => {
+    const props = { canWrite: true, pending: false, criterionName: (c: string) => c, onResolve: async () => null };
+    render(<ResolveDisputePanel {...props} responses={[dispute({ seq: 2 })]} versions={[4]} />);
+    expect([...(screen.getByLabelText("Outcome") as HTMLSelectElement).options].map((o) => o.value)).toEqual(["", "upheld", "declined"]);
+  });
+
+  it("a released and a withdrawn subject show no Edit or Accept; an amending and a draft subject do; comment and resolve stay", async () => {
+    for (const state of ["released", "withdrawn", "amending", "draft"] as const) {
+      const f = fakeFetch((url) => (url === `${BASE}/subjects/account_manager` ? { status: 200, body: ok(subjectView({ state, versions: [4, 9], responses: [dispute()] })) } : { status: 404, body: refused("not_found", "x") }));
+      render(<SubjectView sessionId={SID} subject="account_manager" author="kamal" evaluationOk fetch={f.fetch} />);
+      await screen.findByRole("heading", { name: "Clarity" });
+      const writable = state === "draft" || state === "amending";
+      expect(screen.queryByRole("button", { name: "Edit Clarity" }) !== null, state).toBe(writable);
+      expect(screen.queryByRole("button", { name: "Accept Clarity" }) !== null, state).toBe(writable);
+      expect(screen.queryByRole("button", { name: "Accept the summary" }) !== null, state).toBe(writable);
+      expect(screen.queryByText("Amend the report to change it.") !== null, state).toBe(!writable);
+      expect(screen.getByRole("button", { name: "Add comment" }), state).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Resolve" }), state).toBeTruthy();
+      cleanup();
+    }
+  });
+});

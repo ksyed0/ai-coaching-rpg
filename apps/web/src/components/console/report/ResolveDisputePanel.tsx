@@ -9,8 +9,12 @@ import { REPORT_CONSOLE } from "../../../lib/messages";
 // dispute (the server's rule, review/fold.ts amendedSince): amend the report, release it again, then resolve it as amended. A refused
 // resolve keeps what was typed.
 
-/** Whether the report was released again after `seq` (a response needs a release, so a later release is an amended one). */
-export const amendedAfter = (versions: readonly number[], seq: number): boolean => versions.some((v) => v > seq);
+/**
+ * Whether an amendment produced a new release after `seq` (the server's `amendedSince`). Within one review only the first release comes
+ * out of draft; every later one comes out of an amendment. So the amended releases are `versions.slice(1)`: a dispute carried from a
+ * superseded review can sit below the first release, which is not an amended one.
+ */
+export const amendedAfter = (versions: readonly number[], seq: number): boolean => versions.slice(1).some((v) => v > seq);
 
 export type ResolveDisputePanelProps = {
   responses: ReportResponse[];

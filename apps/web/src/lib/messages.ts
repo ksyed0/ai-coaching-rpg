@@ -177,6 +177,7 @@ export const REPORT_CONSOLE = {
   withdrawHidden: "It is no longer shown to:",
   withdrawn: "The report was withdrawn.",
   resolved: "The dispute is resolved.",
+  amendToChange: "Amend the report to change it.",
   amendFirst: "To resolve it as amended, amend the report and release the new version first.",
   exported: (fileName: string) => `Downloaded ${fileName}.`,
 } as const;
