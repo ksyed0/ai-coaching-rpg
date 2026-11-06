@@ -300,3 +300,62 @@ describe("readCodesRecord", () => {
     );
   });
 });
+
+describe("US-0063 checkActor and the /2 opener", () => {
+  const session = (over: Record<string, unknown> = {}) =>
+    ({
+      kind: "participant_session",
+      v: 1,
+      role: "alice",
+      credentialId: "AAAAAAAAAAA",
+      ...over,
+    }) as never;
+  const rate = (actor: never) =>
+    applyCommand(dir, fixedClock(), () => [
+      {
+        actor,
+        body: {
+          type: "self.rated",
+          role: "alice",
+          criterion: "listening",
+          level: 3,
+        },
+      },
+    ]);
+  it("accepts a participant_session actor entry", async () => {
+    await openReview(dir, { by: "kamal", now: fixedClock() });
+    await rate(session());
+    const l = await loadReview(dir);
+    expect(l.events.at(-1)!.actor).toEqual(session());
+  });
+  it("refuses one with v:2 or a malformed credentialId", async () => {
+    await openReview(dir, { by: "kamal", now: fixedClock() });
+    await expect(rate(session({ v: 2 }))).rejects.toBeInstanceOf(
+      ReviewRefusedError,
+    );
+    await expect(
+      rate(session({ credentialId: "not-a-credential" })),
+    ).rejects.toBeInstanceOf(ReviewRefusedError);
+  });
+  it("openReview and supersedeReview write an opener with schema acr.review/2", async () => {
+    const l = await openReview(dir, { by: "kamal", now: fixedClock() });
+    expect((l.events[0] as { schema?: string }).schema).toBe("acr.review/2");
+    const { writeReports } = await import("../../evaluator/report-write.js");
+    const { sampleEvaluation } =
+      await import("../../evaluator/__tests__/fixtures.js");
+    const { supersedeReview } = await import("../store.js");
+    const w = await writeReports(await sampleEvaluation(), {
+      outDir: root,
+      evaluator: {
+        provider: "scripted mock",
+        scripted: true,
+        rubricHash: "h1",
+        variant: "v1",
+      },
+    });
+    await supersedeReview(dir, w.dir, { by: "kamal", now: fixedClock() });
+    expect(
+      ((await loadReview(w.dir)).events[0] as { schema?: string }).schema,
+    ).toBe("acr.review/2");
+  });
+});
