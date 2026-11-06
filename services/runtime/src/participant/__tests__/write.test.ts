@@ -238,6 +238,28 @@ describe("submitSelfRatings", () => {
     expect(await logLen(env)).toBeGreaterThan(len);
   });
 
+  it("a note that grows past 1,500 characters when scrubbed is invalid and keeps the earlier note", async () => {
+    env = await liveReview();
+    const [a] = await crits(env);
+    await submitSelfRatings({
+      ...ctx(env),
+      ratings: [{ criterion: a, level: 3, note: "keep me" }],
+    });
+    const len = await logLen(env);
+    const note = "abc " + "x".repeat(1495 - 4 - 4) + " abc";
+    expect(note.length).toBe(1495);
+    expect(
+      await submitSelfRatings({
+        ...ctx(env, "alice", ["abc"]),
+        ratings: [{ criterion: a, level: 3, note }],
+      }),
+    ).toEqual({ kind: "invalid" });
+    expect(await logLen(env)).toBe(len);
+    expect((await sv(env)).criteria.find((x) => x.id === a)!.self!.note).toBe(
+      "keep me",
+    );
+  });
+
   it("an empty or all-hidden note is absent and the rating is still written", async () => {
     env = await liveReview();
     const [a, b] = await crits(env);

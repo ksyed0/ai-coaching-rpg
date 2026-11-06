@@ -7,10 +7,11 @@
  */
 import { isFileSafeId } from "@acr/events";
 import { stripHidden } from "../calibration/hidden-chars.js";
+import { scrubText } from "../demo/report.js";
 import { reviewStatus } from "../reports/index.js";
 import { ReviewBusyError } from "../review/errors.js";
 import { applyCommand, type Loaded } from "../review/store.js";
-import { cleanText, cpLen } from "../review/text.js";
+import { cleanText } from "../review/text.js";
 import { LIMITS, REVIEW_SCHEMA, type Entry } from "../review/types.js";
 import type {
   RatingInput,
@@ -48,9 +49,12 @@ const actorOf = (c: SubmitCtx) =>
     credentialId: c.credentialId,
   }) as const;
 
-/** The text `cleanText` would reject as too long (before its own scrubbing), as opposed to empty. */
-const tooLong = (raw: string): boolean =>
-  cpLen(stripHidden(String(raw)).replace(/\r\n?/g, "\n").trim()) > LIMITS.text;
+/** True only when the note is empty after stripping hidden characters and scrubbing; any other cleanText failure is over-length. */
+const emptyNote = (raw: string, secrets: string[]): boolean =>
+  scrubText(
+    stripHidden(String(raw)).replace(/\r\n?/g, "\n").trim(),
+    secrets,
+  ).trim().length === 0;
 
 /** The subject for this role in a live /2 review, or the refusal that applies. */
 function subjectOf(l: Loaded, role: string) {
@@ -94,7 +98,7 @@ export async function submitSelfRatings(
         try {
           note = cleanText(r.note, LIMITS.text, "note", c.secrets);
         } catch {
-          if (tooLong(r.note)) return { kind: "invalid" };
+          if (!emptyNote(r.note, c.secrets)) return { kind: "invalid" };
           note = undefined; // empty or all-hidden: no note
         }
       }
