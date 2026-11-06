@@ -5,6 +5,10 @@ import {
   handleConsoleSessionGet, handleConsoleSessionsCreate, handleConsoleSessionsList, handleConsoleStart,
 } from "./console-sessions";
 import { handleConsoleAiIntents, handleConsoleAiPrompt, handleConsoleAiRoles } from "./console-ai";
+import {
+  handleConsoleReportAccept, handleConsoleReportCancel, handleConsoleReportComment, handleConsoleReportEdit, handleConsoleReportEditSummary,
+  handleConsoleReportEvaluate, handleConsoleReportOpen, handleConsoleReportOverview, handleConsoleReportSubject,
+} from "./console-report-handlers";
 import { handleConsoleCommand, handleConsoleFacts } from "./console-command";
 import { handleConsoleStream } from "./console-stream";
 import {
@@ -35,6 +39,9 @@ const REPORT_READ_THROTTLE = { max: 60, windowMs: 60_000, blockMs: 60_000 };
 /** Participant writes per credential: more than 30 in 60 s block that credential's writes for 60 s. */
 const REPORT_WRITE_THROTTLE = { max: 30, windowMs: 60_000, blockMs: 60_000 };
 
+/** The facilitator's evaluate and review writes per console cookie: more than 60 in 60 s block that cookie's writes for 60 s. */
+const CONSOLE_REPORT_THROTTLE = { max: 60, windowMs: 60_000, blockMs: 60_000 };
+
 export function createDeps(env: Record<string, string | undefined>): Deps {
   const config = loadConfig(env);
   const now = () => Date.now();
@@ -52,6 +59,7 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     consoleGlobalThrottle: new JoinThrottle({ ...CONSOLE_GLOBAL_THROTTLE, now }),
     reportThrottle: new JoinThrottle({ ...REPORT_READ_THROTTLE, now }),
     reportWriteThrottle: new JoinThrottle({ ...REPORT_WRITE_THROTTLE, now }),
+    consoleReportThrottle: new JoinThrottle({ ...CONSOLE_REPORT_THROTTLE, now }),
     // Failed report-link tokens: the join's limits, in a table of their own.
     reportEnterThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
     facilitatorBudget: new FacilitatorBudget(),
@@ -142,3 +150,12 @@ export const reportRespondPOST = route(handleReportRespond);
 export const consoleReportLinksGET = route(handleConsoleReportLinks);
 export const consoleReportLinksPOST = route(handleConsoleReportLinksIssue);
 export const consoleReportLinkActionPOST = route(handleConsoleReportLinkAction);
+export const consoleReportGET = route(handleConsoleReportOverview);
+export const consoleReportEvaluatePOST = route(handleConsoleReportEvaluate);
+export const consoleReportCancelPOST = route(handleConsoleReportCancel);
+export const consoleReportOpenPOST = route(handleConsoleReportOpen);
+export const consoleReportSubjectGET = route(handleConsoleReportSubject);
+export const consoleReportEditPOST = route(handleConsoleReportEdit);
+export const consoleReportAcceptPOST = route(handleConsoleReportAccept);
+export const consoleReportCommentPOST = route(handleConsoleReportComment);
+export const consoleReportEditSummaryPOST = route(handleConsoleReportEditSummary);

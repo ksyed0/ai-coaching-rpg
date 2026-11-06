@@ -95,3 +95,33 @@ export const MESSAGES = {
   consoleNothingYet: "Nothing has been said yet.",
   consoleServerError: "The server reported a problem with the live view. It keeps updating if it can.",
 } as const;
+
+/**
+ * The facilitator's evaluate and review refusals: one fixed sentence per closed code (the codes are control's, services/control/src/moderation-routes.ts,
+ * plus the BFF's own `invalid_name`, `payload_too_large`, `timeout` and `generic`). Control's own text never reaches the browser.
+ */
+export const REPORT_REFUSALS = {
+  not_ended: "The session has not ended yet. Evaluate it after it ends.",
+  already_evaluated: "This session already has a report draft.",
+  already_running: "An evaluation is already running for this session.",
+  too_many_running: "Another session is being evaluated. Wait for it to finish, then try again.",
+  confirm_mismatch: "The number of model calls changed. Reload the panel and confirm the new number.",
+  no_review: "There is no report to open for this session yet.",
+  unknown_subject: "That player or group is not in this report.",
+  unknown_criterion: "That criterion is not in this report.",
+  stale: "Someone changed this. Reload the level and try again.",
+  blocked: "Some players are not ready for this yet. Finish what is open for them, then try again.",
+  not_released: "That report has not been released.",
+  not_editable: "This report can no longer be edited.",
+  superseded: "A newer review replaced this one. Reload the page.",
+  needs_amend: "This released report must be amended before it can change.",
+  refused: "That action is not possible right now.",
+  invalid: "That could not be saved. Check what you entered.",
+  invalid_name: "Use letters, digits, underscore or hyphen, up to 56 characters.",
+  payload_too_large: "That is too large to save.",
+  busy: "The report is busy. Try again in a moment.",
+  unavailable: "The report is unavailable. Try again.",
+  timeout: "The report service took too long to answer. Try again.",
+  generic: "That action is not possible right now.",
+} as const;
+export type ReportRefusal = keyof typeof REPORT_REFUSALS;

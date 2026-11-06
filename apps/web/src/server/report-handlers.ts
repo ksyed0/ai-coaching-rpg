@@ -194,7 +194,7 @@ const WRITE_SENTENCES: Record<string, string> = {
 };
 
 /** The body as text, or "too_big" once it passes the cap (the rest is not read). */
-async function readCapped(req: Request, maxBytes: number): Promise<string | "too_big" | null> {
+export async function readCapped(req: Request, maxBytes: number): Promise<string | "too_big" | null> {
   if (!req.body) return "";
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
