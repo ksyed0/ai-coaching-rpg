@@ -17,6 +17,7 @@ import { secretValues } from "../secrets.js";
 import { cleanLine } from "../review/cli-util.js";
 import { canView } from "../review/policy.js";
 import { readReview } from "../review/review-log.js";
+import { loadDrafts } from "../review/draft.js";
 import { loadReview, type Loaded } from "../review/store.js";
 import { GROUP } from "../review/types.js";
 import {
@@ -91,6 +92,51 @@ async function locate(reportsDir: string, sessionId: string): Promise<Located> {
     return superseded > 0 ? { k: "unavailable" } : { k: "none" };
   } catch {
     return { k: "unavailable" };
+  }
+}
+
+export type DraftCandidate = {
+  name: string;
+  dir: string;
+  hasReview: boolean;
+  complete: boolean;
+};
+
+/**
+ * The session's report folders (`<id>`, `<id>-2`..`-99`; real directories only), opened or not, sorted by name. `hasReview` means the
+ * folder's log starts with `review.opened`; `complete` means its drafts load and belong to this session. Never throws.
+ */
+export async function listDraftCandidates(
+  reportsDir: string,
+  sessionId: string,
+): Promise<DraftCandidate[]> {
+  if (typeof sessionId !== "string" || !isValidSessionId(sessionId)) return [];
+  try {
+    const ents = await readdir(reportsDir, { withFileTypes: true });
+    const names = ents
+      .filter((e) => e.isDirectory() && isCandidate(e.name, sessionId))
+      .map((e) => e.name)
+      .sort();
+    const out: DraftCandidate[] = [];
+    for (const name of names) {
+      const dir = path.join(reportsDir, name);
+      let hasReview = false;
+      try {
+        hasReview = (await readReview(dir)).events[0]?.type === "review.opened";
+      } catch {
+        hasReview = false;
+      }
+      let complete = false;
+      try {
+        complete = (await loadDrafts(dir)).sessionId === sessionId;
+      } catch {
+        complete = false;
+      }
+      out.push({ name, dir, hasReview, complete });
+    }
+    return out;
+  } catch {
+    return [];
   }
 }
 
