@@ -150,9 +150,13 @@ export function createParticipantWriteService(d: {
   };
 }
 
-/** Start-up check: logs one fixed line when the reports directory cannot be written to. Never throws. */
+/**
+ * Start-up check: logs one fixed line when the reports directory exists but cannot be written to. A missing directory is quiet
+ * (a fresh deploy has none; it is created when the first report is released). Never throws.
+ */
 export async function warnIfReportsNotWritable(dir: string, log: (m: string) => void): Promise<void> {
-  try { await access(dir, constants.W_OK); } catch {
+  try { await access(dir, constants.W_OK); } catch (err) {
+    if ((err as NodeJS.ErrnoException | null)?.code === "ENOENT") return;
     try { log(NOT_WRITABLE_LOG); } catch { /* a failing logger must not stop start-up */ }
   }
 }

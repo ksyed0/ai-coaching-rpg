@@ -134,7 +134,7 @@ export async function submitSelfRatings(
       const have = l.events.filter(
         (e) => e.type === "self.rated" && e.role === c.role,
       ).length;
-      if (have + changed.length > 10 * sv.criteria.length) {
+      if (changed.length > 0 && have + changed.length > 10 * sv.criteria.length) {
         outcome = { k: "too_many" };
         return [];
       }

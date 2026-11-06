@@ -3,7 +3,7 @@ import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { submitResponse, submitSelfRatings, type SubmitCtx } from "../index.js";
 import { loadReview } from "../../review/store.js";
-import { withReviewLock } from "../../review/review-log.js";
+import { readReview, sealEntries, withReviewLock, writeEvents } from "../../review/review-log.js";
 import { makeFold, fixedClock } from "../../review/__tests__/fixtures.js";
 import { REVIEW_FILE } from "../../review/types.js";
 import { liveReview, type Env } from "./helpers.js";
@@ -297,6 +297,29 @@ describe("submitSelfRatings", () => {
       }),
     ).toEqual({ kind: "too_many" });
     expect(await logLen(env)).toBe(len);
+  });
+
+  it("an unchanged resubmit is ok with wrote 0 even when CLI-attested writes already pushed the role past the cap", async () => {
+    env = await liveReview();
+    const [a] = await crits(env);
+    expect(
+      await submitSelfRatings({ ...ctx(env), ratings: [{ criterion: a, level: 2 }] }),
+    ).toEqual({ kind: "ok", wrote: 1 });
+    const cap = 10 * (await crits(env)).length;
+    const { events, tailHash } = await readReview(env.dir);
+    const rated = events.find((e) => e.type === "self.rated")!;
+    // cap more identical events (as the CLI would write them): the role now has cap + 1.
+    const entries = Array.from({ length: cap }, () => ({ actor: rated.actor, body: rated }));
+    await writeEvents(env.dir, sealEntries(events, tailHash, entries, fixedClock(1_900_000_001_000)));
+    const len = await logLen(env);
+    expect(
+      await submitSelfRatings({ ...ctx(env), ratings: [{ criterion: a, level: 2 }] }),
+    ).toEqual({ kind: "ok", wrote: 0 });
+    expect(await logLen(env)).toBe(len);
+    // A real change is still refused over the cap.
+    expect(
+      await submitSelfRatings({ ...ctx(env), ratings: [{ criterion: a, level: 4 }] }),
+    ).toEqual({ kind: "too_many" });
   });
 
   it("old_schema in a /1 review", async () => {

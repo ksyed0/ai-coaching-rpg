@@ -1,9 +1,12 @@
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { withReviewLock } from "../../../runtime/src/review/review-log.js";
 import { loadReview } from "../../../runtime/src/review/store.js";
+import { makeFold } from "../../../runtime/src/review/__tests__/fixtures.js";
+import { REVIEW_FILE } from "../../../runtime/src/review/types.js";
 import {
   WRITE_BUSY, WRITE_CLOSED, WRITE_INVALID, WRITE_NOT_RELEASED, WRITE_OLD_SCHEMA, WRITE_THROTTLED, WRITE_TOO_MANY, WRITE_WITHDRAWN,
   createParticipantWriteService, warnIfReportsNotWritable, type WriteOutcome,
@@ -137,6 +140,21 @@ describe("outcome mapping", () => {
     expect(WRITE_OLD_SCHEMA).toBe("This review was opened before online ratings were available. Your facilitator can take your rating or response in the terminal.");
   });
 
+  it("a review sealed as acr.review/1 answers 409 old_schema with the fixed sentence, for a rating and a response, and writes nothing", async () => {
+    await open({ release: false });
+    const svc = mk();
+    const c = await cred("alice");
+    const [k] = await crits();
+    const l = await loadReview(w.dir);
+    const sealed = makeFold(l.drafts, { schema: "acr.review/1" }).log();
+    await writeFile(path.join(w.dir, REVIEW_FILE), sealed.map((e) => `${JSON.stringify(e)}\n`).join(""));
+    const rated = await svc.rate(w.sessionId, c.id, [{ criterion: k!, level: 3 }]);
+    expect(rated).toEqual({ status: 409, code: "old_schema", message: WRITE_OLD_SCHEMA });
+    const responded = await svc.respond(w.sessionId, c.id, { text: "hello" });
+    expect(responded).toEqual({ status: 409, code: "old_schema", message: WRITE_OLD_SCHEMA });
+    expect((await events()).length).toBe(0);
+  });
+
   it("no fixed sentence carries an id, a path or a role", () => {
     for (const s of [WRITE_CLOSED, WRITE_NOT_RELEASED, WRITE_WITHDRAWN, WRITE_TOO_MANY, WRITE_OLD_SCHEMA, WRITE_BUSY, WRITE_INVALID, WRITE_THROTTLED]) {
       expect(s.length).toBeGreaterThan(10);
@@ -244,8 +262,7 @@ describe("serialising and idempotence", () => {
     const c = await cred();
     const svc = mk({ sleep: async () => { throw new Error("must not sleep: writes of one session are serialised before the lock"); } });
     const [a, b] = await Promise.all([svc.respond(w.sessionId, c.id, { text: "same" }), svc.respond(w.sessionId, c.id, { text: "same" })]);
-    expect(a.status).toBe(200);
-    expect(b.status).toBe(200);
+    expect([a, b]).toEqual([{ status: 200, wrote: true }, { status: 200, wrote: false }]);
     expect((await events()).filter((e) => e.type === "response.added").length).toBe(1);
   });
 
@@ -341,6 +358,11 @@ describe("an unwritable reports folder", () => {
 });
 
 describe("warnIfReportsNotWritable", () => {
+  it("logs nothing for a directory that does not exist yet (a fresh deploy)", async () => {
+    const lines: string[] = [];
+    await warnIfReportsNotWritable(path.join(tmpdir(), "acr-ctl-never-created", "reports"), (m) => lines.push(m));
+    expect(lines).toEqual([]);
+  });
   it.skipIf(isRoot)("logs one fixed line for a read-only dir and nothing for a writable one", async () => {
     const dir = mkdtempSync(path.join(tmpdir(), "acr-ctl-ro-"));
     const lines: string[] = [];
@@ -351,12 +373,15 @@ describe("warnIfReportsNotWritable", () => {
       await warnIfReportsNotWritable(dir, (m) => lines.push(m));
       expect(lines.length).toBe(1);
       expect(lines[0]).not.toContain(dir);
-      await warnIfReportsNotWritable(path.join(dir, "missing"), (m) => lines.push(m));
-      expect(lines.length).toBe(2);
-      expect(lines[1]).toBe(lines[0]);
+      await warnIfReportsNotWritable(path.join(dir, "missing"), (m) => lines.push(m)); // missing: quiet, even under a read-only parent
+      expect(lines.length).toBe(1);
     } finally { chmodSync(dir, 0o700); rmSync(dir, { recursive: true, force: true }); }
   });
   it("never throws, even when the logger does", async () => {
-    await expect(warnIfReportsNotWritable("/definitely/not/here", () => { throw new Error("boom"); })).resolves.toBeUndefined();
+    const dir = mkdtempSync(path.join(tmpdir(), "acr-ctl-ro-"));
+    try {
+      if (!isRoot) chmodSync(dir, 0o500);
+      await expect(warnIfReportsNotWritable(dir, () => { throw new Error("boom"); })).resolves.toBeUndefined();
+    } finally { chmodSync(dir, 0o700); rmSync(dir, { recursive: true, force: true }); }
   });
 });

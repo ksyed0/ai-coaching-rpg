@@ -77,7 +77,7 @@ export async function startControl(
   const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites }));
   // Create, restart and a whole-session reissue can take up to readyTimeoutMs + 2 * graceMs (a start, then a stop and a forced stop),
   // so no limit may be shorter than that (Ruling R10). Node's requestTimeout bounds only the time to RECEIVE a request (the bodies here
-  // are at most 4 KB), not the response, and `timeout` (idle socket) is off by default; both are set explicitly so a Node default
+  // are at most 64 KB), not the response, and `timeout` (idle socket) is off by default; both are set explicitly so a Node default
   // change cannot cut a long operation. Only the header wait stays short, against a stalled connection.
   const longestOp = config.readyTimeoutMs + 2 * config.graceMs;
   server.headersTimeout = HEADERS_TIMEOUT_MS;

@@ -165,7 +165,7 @@ describe("participant write routes", () => {
     expect(r.headers.find(([k]) => k === "retry-after")![1]).toBe("2");
   });
 
-  it("7 criteria with 1,500-character CJK notes passes the 64 KB cap and is written (Review Focus 3)", async () => {
+  it("a 7-criterion body fits the 64 KB cap; the real service writes every fixture criterion with full-length CJK notes; 1,500 emoji pass a released review (Review Focus 3)", async () => {
     const real = createParticipantWriteService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, sleep: async () => {}, random: () => 0.5 });
     const p = await boot(real);
     const cred = (await w.store.issue(w.sessionId, "alice")).credential;
@@ -183,9 +183,16 @@ describe("participant write routes", () => {
     // And the real service writes every criterion the review has (the fixture has 3), each with a 1,500-character CJK note.
     const r = await call(p, "PUT", ratingsPath(cred.id), { body: { ratings: ids.map((c) => ({ criterion: c, level: 3, note })) } });
     expect([r.status, r.json.success, r.json.data]).toEqual([200, true, { wrote: ids.length }]);
-    const emoji = "\u{1F600}".repeat(1500);
-    const e = await call(p, "POST", responsesPath(cred.id), { body: { text: emoji } });
-    expect(e.status).not.toBe(400); // 1,500 emoji are 3,000 UTF-16 units: inside the schema bound
+    // 1,500 emoji are 3,000 UTF-16 units: inside the schema bound. A response needs a released review, so run it against one.
+    const saved = w;
+    const released = await makeReportWorld();
+    w = released;
+    try {
+      const rp = await boot(createParticipantWriteService({ config: released.config, store: released.store, secrets: [], now: () => released.clock.t, sleep: async () => {}, random: () => 0.5 }));
+      const rc = (await released.store.issue(released.sessionId, "alice")).credential;
+      const e = await call(rp, "POST", responsesPath(rc.id), { body: { text: "\u{1F600}".repeat(1500) } });
+      expect([e.status, e.json.success, e.json.data]).toEqual([200, true, { wrote: true }]);
+    } finally { w = saved; await released.cleanup(); }
   });
 
   it("one byte over either cap is 413 with the fixed sentence; other routes still cap at 4 KB", async () => {

@@ -73,7 +73,7 @@ describe("startControl", () => {
     running = await startControl(env, { port: 0, log: (m) => logs.push(m) });
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toBe(path.join(env.CONTROL_DATA_DIR!, "reports"));
-    expect(logs).toContain(participantWrites.NOT_WRITABLE_LOG); // no reports directory yet
+    expect(logs).not.toContain(participantWrites.NOT_WRITABLE_LOG); // a fresh deploy has no reports directory yet: quiet
   });
 
   it("warns when CONTROL_READY_TIMEOUT_MS + 2 * CONTROL_GRACE_MS exceeds what the web server waits, and stays quiet otherwise", async () => {
