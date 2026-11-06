@@ -326,3 +326,26 @@ The Report panel says "A report folder for this session is damaged" when a folde
 
 ### Rolling forward again
 Redeploy this slice. The panel reads the reviews and drafts on disk as they are (one opened in the terminal shows as in review); `report-jobs.json` is picked up again, a job it records as running reads as interrupted.
+
+## US-0064: release, amend, withdraw, resolve and export from the console (slice 2c-3 part B)
+
+```
+Release: unreleased (feature/EPIC-0002-US-0064-report-release-web, PR B, stacked on PR A)
+Date: not deployed
+Rollback trigger: a console release, amend or withdraw changes a subject nobody named, a release ignores the gate, a resolve shows the wrong reason to a participant, an export is served without its event or writes to the server's disk, or the part B routes must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No schema change and no new file or setting.** Release, amend, withdraw and resolve are the same `acr.review/2` events `pnpm moderate` writes, with `by` `<name>-console`. An export appends one `report.exported` event (destination `console-download`) to `review.jsonl` and writes no file anywhere on the server.
+- **New routes:** control `POST /sessions/:id/report/release`, `.../resolve`, `.../export`, `.../subjects/:subject/amend` and `.../withdraw`, and the same five under the web app's `/api/v1/console/sessions/:id/report`.
+- **Deploy order: control before web.** Part A's last fix made `scoreByHand` a required field of control's overview and subject answers, and the web app fails closed (the panel says the report could not be read) when it is missing. Deploy or restart the control service first, then the web app; roll back in the opposite order (web first).
+
+### Rolling back part B
+
+1. Redeploy the web app and control service of PR A (web first, then control); no data migration. The Report panel stays (evaluate, open, edit, accept, comment), without the release bar, the row actions, the dialogs, the dispute panel or the export menu; the part B routes answer 404.
+2. **Everything part B did in the browser is still possible in the terminal:** `pnpm moderate release|amend|withdraw|resolve|export <dir> ...` in `$CONTROL_DATA_DIR/reports/<session id>` (see README). Events written from the console, `report.exported` with `console-download` included, stay valid: the `-console` actors remain ordinary facilitator actors, and the terminal reads and continues the review.
+3. **Smoke test:** `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads a review released from the console; a participant's link still opens the released report (the participant pages are slice 2c-1 and 2c-2, not part B).
+
+### Rolling forward again
+Redeploy this slice (control first). The panel reads the review on disk as it is, including releases, amendments and withdrawals made in the terminal meanwhile.

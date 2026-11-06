@@ -2168,3 +2168,73 @@ Actual Result: As expected, 2026-11-06: 7 tests passed in 1.6 min after the whol
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2c-3 part A. Not covered end to end: a real evaluate that scores (the seeded draft stands in; scoring keeps its evaluator tests), the `evaluating` card with progress and Cancel, the failed and orphan states (unit tests in TC-0137 and TC-0139), the `ready_to_open` stage and its Open the review button (unit and service tests only, TC-0138 and TC-0139: the seed and the real child both open the review themselves), a subject whose evaluation failed (unit tests, TC-0139), and Axe on the running card. The double click proves the one-job guard with the real child and the real routes; which of `already_running` and `already_evaluated` the second tab gets depends on timing, and both are accepted.
+
+TC-0141: The moderation library (part B) releases an explicit list through the gate, requires reasons, resolves disputes and exports with the event first
+Related Story: US-0064
+Related Task: TASK-0102
+Related AC: AC-0337, AC-0375, AC-0376, AC-0377
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/moderation/__tests__/write-b.test.ts` (release with an empty list is a usage error and writes nothing; an open criterion throws `blocked` with that subject's id and leaves the log bytes unchanged; an unknown subject is `unknown_subject` and an already released one `not_editable`; two subjects release in one write and `groupTableStale` is reported; withdraw and amend require a reason; withdrawing a player after the group was released reports `groupTableStale`; resolve as `amended` before an amend is `needs_amend`; an export of a draft is `not_released` and appends nothing; a facilitator export of an amending subject and a participant export of another role's report are refused; an export appends exactly one `report.exported` event with destination `console-download` and a participant audience gets no facilitator-only text; the reports directory listing is unchanged apart from `review.jsonl`).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: runtime 1 file, 12 tests, all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part B. These are the same gate and fold the terminal's `pnpm moderate` uses (`review/gate.ts`, `review/fold.ts`); the terminal's own release, amend, withdraw, resolve and export tests are unchanged.
+
+TC-0142: The moderation service and the control report routes (part B) give closed results, cap bodies, refuse an `all` release and serve export as JSON with no file written
+Related Story: US-0064
+Related Task: TASK-0102
+Related AC: AC-0337, AC-0375, AC-0376, AC-0377
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/moderation-b.test.ts` (release with an empty list or an unsafe id is 400 and writes nothing; an open item is 409 `blocked` with the ids and nothing written; release answers `released` and `groupTableStale`, an unknown subject is 404 and a second release 409 `not_editable`; every part B event is by `<name>-console` and a bad name is 400; amend and withdraw need a reason; resolve: `amended` before an amend is `needs_amend`, declined closes the dispute, a missing response is `refused`; export of a draft, and a facilitator export of an amending subject, are `not_released` and write nothing; export returns `{ fileName, markdown }`, writes the event first and nothing to the reports folder; a `participant:alice` export of the group has no `bob` column while the facilitator's has; a superseded review is `superseded` for a write and `refused` for a participant export).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/moderation-routes.test.ts src/__tests__/moderation.test.ts` (the part B describe: every route answers 200 and passes the typed fields; `{subjects: []}` and `{all: true}` are 400 before the service is called; strict bodies (an unknown key, a bad enum, `seq` or audience, a missing reason are 400); ids and the session are checked before the body is read, wrong methods and unknown paths are 404; without a moderation service every part B route is 404; 4 KB for release and export and 16 KB for amend, withdraw and resolve, over is 413; a blocked release carries only safe ids and no text; export is `POST` only and answers JSON with no attachment headers. The part A tests of both files still pass).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: step 1, 1 file, 10 tests; step 2, 2 files, 38 tests (22 in moderation-routes, 8 of them part B; 16 in moderation), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part B. The routes test uses a fake service; the service test runs the real review library on a fixture draft.
+
+TC-0143: The console's release bar, dialogs, row actions, dispute panel and export menu, and the BFF's part B routes, behave as specified
+Related Story: US-0064
+Related Task: TASK-0102
+Related AC: AC-0337, AC-0338, AC-0375, AC-0376, AC-0377
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report/__tests__/release.test.tsx src/components/console/report/__tests__/after-release.test.tsx src/components/console/report/__tests__/ReportPanel.test.tsx src/components/console/report/__tests__/SubjectView.test.tsx src/lib/__tests__/report-audience.test.ts` (the release dialog names each subject and its audience and lists what blocks it, and its confirm is disabled while anything blocks; "Release everything" sends the full list, never an `all` flag; the amend and withdraw dialogs name the subject and audience, withdraw says it cannot be undone, and both require a reason; the dispute panel offers Amended only after an amend has been released (a dispute carried from a superseded review is not offered it); export posts, saves the returned text and shows the fixed sentence on a refusal; a stale or busy refusal keeps the typed reason; the group-table hint after a release or withdraw; released and withdrawn subjects show no Edit or Accept; a missing `evaluationOk` reads as failed; the audience wording equals `POLICY` in `services/runtime/src/review/policy.ts`, version 1).
+  2. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-report-handlers-b.test.ts src/__tests__/runtime-imports.test.ts` (the five part B routes check the cookie, then Origin and Fetch-Metadata, then the throttle; release refuses an `all` key and an empty list; caps; export builds the attachment itself with `Content-Disposition: attachment; filename="report-<subject>.md"`, `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`, and a bad file name becomes `report.md`; the route count and the import guard).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: step 1, 5 files, 40 tests (6, 14, 9, 9 and 2); step 2, 2 files, 11 tests (7 and 4), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part B. The summary text has no console control (edit-summary has control and BFF routes only; the terminal has the command), so nothing here tests one.
+
+TC-0144: Release in the browser, the participant reads it with the runtime gone, a dispute is resolved, amend and re-release, withdraw and export (Playwright, with Axe)
+Related Story: US-0064
+Related Task: TASK-0102
+Related AC: AC-0337, AC-0338, AC-0340, AC-0375, AC-0376, AC-0377
+Type: Integration
+Preconditions: As TC-0140 (the Playwright browser, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed, `next build --webpack` in `apps/web` first; the real control service with `MODEL_PROVIDER=mock` and `next start` in launcher mode). The draft is seeded with `seedDraft` (one opened review, every item accepted, alice released, bob and the group drafts) for the reason given in TC-0140.
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test report-moderation report-release axe --trace off`.
+  2. (a) `release in the browser, the participant reads it with the runtime gone, a dispute is resolved, amend and re-release, withdraw, export` (`report-release.spec.ts`):
+     - while the session runs, the runtime count finds its process (the positive control for the exit check below);
+     - the release bar offers bob and the group, not alice (released, with Amend, Withdraw and Export);
+     - a blocked release: tab A's dialog for bob names "Bob", "Bob (the participant this report is about)" and "The facilitator"; tab B's edit then makes bob's summary stale; A's confirm gets "Some reports still have open items. Resolve them, then try again." and "Blocked: Bob", the dialog now lists the open item with Release disabled, and `review.jsonl` gains no `report.released`;
+     - a same-origin release with `{all: true}` and one with `{subjects: []}` are 400, and nothing is released;
+     - bob's stale summary is accepted (the group's draft has none to accept), then "Release everything" names Bob and Group with their audiences (the group's from the policy) and releases both ("Released: Bob, Group.");
+     - once the runtime count is 0, bob's link is issued in the console and opened in a fresh browser context: the report shows, and the group report holds no `` | `alice` | `` column, while the facilitator's export of the group does;
+     - bob files a dispute on Listening; in bob's view the console lists it ("About Listening"), offers Upheld and Declined only, resolves it as upheld with a reason; after a reload the participant sees "Outcome: upheld" and the reason;
+     - Amend names Bob and his audience and is disabled until a reason is typed; bob is Amending while the participant still sees a report; Discovery is edited, the summary accepted, the row's Release re-releases bob ("Released: Bob."), and the participant's table shows the new level;
+     - Withdraw the group says "Withdrawing cannot be undone.", "It is no longer shown to:" and the group audience, is disabled until a reason is typed, and withdraws it; the participant's page no longer has a group report;
+     - the row's Export for bob preselects bob and the facilitator view; two downloads (`report-bob.md`) each equal the terminal's `pnpm moderate export <dir> bob --for facilitator` Markdown, the `console-download` events for bob go 1 then 2, and the reports folder's file list is the same before and after.
+  3. (b) `Axe: the release, amend and withdraw dialogs, the open-dispute panel and the export menu` (`axe.spec.ts`): bob released by the terminal function, a dispute filed from his page; bob's view with the open dispute and the export menu, then each dialog (opened and cancelled), each at 1280 and 400 px in light and dark (serious and critical, WCAG 2 A and AA, no horizontal scroll). The part A specs of both files are run too.
+Expected Result: All pass, zero violations.
+Actual Result: As expected, 2026-11-06: `report-moderation report-release axe` 9 tests passed in 2.2 min (2 in `report-moderation.spec.ts`, 1 in `report-release.spec.ts`, 6 in `axe.spec.ts`: 5 earlier and the 1 above); the whole suite (`playwright test --trace off`) 50 passed in 8.0 min; on the installed Chromium headless shell 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE` after a fresh `next build --webpack`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part B. What this does not prove: a real evaluate that scores (the seed stands in; the real evaluate child runs end to end only in TC-0140's one-job check); the summary edit (no console control); a refused amend, withdraw or resolve in the browser (unit tests, TC-0143); the participant export view and the index export in the browser (unit and service tests, TC-0142, TC-0143); Amended as a resolve outcome in the browser (unit tests). "Runtime gone" is the control service having stopped the ended session's runtime process (the end grace), checked by process list, not a crash.
