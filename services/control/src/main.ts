@@ -82,7 +82,11 @@ export async function startControl(
   const jobs = new ReportJobService({
     config, parentEnv: env, log, ...(opts.evalSpawn ? { spawn: opts.evalSpawn } : {}),
     sessions: { get: (id) => { const s = supervisor.get(id); return s ? { scenarioId: s.scenarioId, ended: s.status === "ended" } : undefined; } },
-    onDone: async (id, _outputDir, by) => { await moderation?.open(id, by); },
+    onDone: async (id, _outputDir, by) => {
+      let opened = false;
+      try { opened = (await moderation?.open(id, by))?.status === 200; } catch { /* logged below */ }
+      if (!opened) log("report open after evaluate did not complete");
+    },
   });
   moderation = new ModerationService({ config, jobs, secrets });
 

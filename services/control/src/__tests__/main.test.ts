@@ -1,12 +1,20 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { PassThrough } from "node:stream";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { loadScenario } from "@acr/script";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FakeClock } from "../../../runtime/src/engine/clock.js";
+import { JsonlEventLog } from "../../../runtime/src/engine/event-log.js";
+import { SessionEngine } from "../../../runtime/src/engine/session-engine.js";
+import { makeDraftDir } from "../../../runtime/src/review/__tests__/fixtures.js";
+import { REPO_ROOT } from "../config.js";
 import { BotHost } from "../bots/bot-host.js";
 import { startControl, type RunningControl } from "../main.js";
 import * as participantWrites from "../participant-writes.js";
 import * as reportsModule from "../reports.js";
 import { SessionList } from "../session-list.js";
+import type { EvalSpawnFn } from "../eval-child.js";
 import type { SpawnFn } from "../supervisor.js";
 import { FakeChild, READY, sid } from "./fake-child.js";
 
@@ -175,5 +183,81 @@ describe("startControl", () => {
     expect(spawned[0]!.MODEL_PROVIDER).toBe("mock");
     expect(spawned[0]!.GM_MODEL).toBe("from-dotenv");
     expect(spawned[0]!.LAUNCHER_TOKEN).toBeUndefined();
+  });
+
+  it("an evaluate by a typed name opens the review once, authored <name>-console with exactly one suffix", async () => {
+    const draft = await makeDraftDir();
+    try {
+      const id = path.basename(draft.dir);
+      const data = env.CONTROL_DATA_DIR!;
+      mkdirSync(path.join(data, "sessions"), { recursive: true });
+      const scenario = await loadScenario(path.join(REPO_ROOT, "scenarios", "friday-escalation"));
+      const log = new JsonlEventLog(id, path.join(data, "sessions"), { sync: false });
+      const engine = new SessionEngine({ scenario, log, clock: new FakeClock(1_000_000) });
+      await engine.start(Object.fromEntries(Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => [r.id, `p_${r.id}`])), {});
+      await engine.endNow({ actor: "facilitator" });
+      await log.close?.();
+      new SessionList(path.join(data, "sessions.json")).upsert({ sessionId: id, scenarioId: "friday-escalation", status: "ended" });
+      const evalSpawn: EvalSpawnFn = ({ argv }) => {
+        const out = argv[argv.indexOf("--out") + 1]!;
+        const stdout = new PassThrough();
+        const exits: ((c: number | null, s: string | null) => void)[] = [];
+        queueMicrotask(() => {
+          cpSync(draft.dir, path.join(out, id), { recursive: true });
+          stdout.write(JSON.stringify({ ok: true, session: id, dir: path.join(out, id), files: ["index.md"], modelCalls: 7, participants: [], group: { status: "ok" }, failures: [] }));
+          stdout.end();
+          for (const f of exits) f(0, null);
+        });
+        return { stdout, stderr: new PassThrough(), kill: () => {}, onExit: (cb) => { exits.push(cb); } };
+      };
+      running = await startControl({ ...env, SCENARIOS_DIR: path.join(REPO_ROOT, "scenarios") }, { port: 0, evalSpawn });
+      const r = await fetch(`http://127.0.0.1:${running.port}/sessions/${id}/report/evaluate`, {
+        method: "POST", headers: { "x-service-token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ confirmedCalls: 8, by: "priya" }),
+      });
+      expect(r.status).toBe(200);
+      const review = path.join(data, "reports", id, "review.jsonl");
+      await vi.waitFor(() => expect(readFileSync(review, "utf8")).toContain("review.opened"));
+      const first = JSON.parse(readFileSync(review, "utf8").split("\n")[0]!) as { type: string; actor: { kind: string; by: string } };
+      expect(first.type).toBe("review.opened");
+      expect(first.actor).toEqual({ kind: "facilitator", by: "priya-console" });
+      expect(readFileSync(review, "utf8")).not.toContain("priya-console-console");
+    } finally { rmSync(draft.root, { recursive: true, force: true }); }
+  });
+
+  it("logs one fixed line when the review cannot be opened after an evaluate", async () => {
+    const draft = await makeDraftDir();
+    try {
+      const id = path.basename(draft.dir);
+      const data = env.CONTROL_DATA_DIR!;
+      mkdirSync(path.join(data, "sessions"), { recursive: true });
+      const scenario = await loadScenario(path.join(REPO_ROOT, "scenarios", "friday-escalation"));
+      const log = new JsonlEventLog(id, path.join(data, "sessions"), { sync: false });
+      const engine = new SessionEngine({ scenario, log, clock: new FakeClock(1_000_000) });
+      await engine.start(Object.fromEntries(Object.values(scenario.roles).filter((r) => r.type === "player").map((r) => [r.id, `p_${r.id}`])), {});
+      await engine.endNow({ actor: "facilitator" });
+      await log.close?.();
+      new SessionList(path.join(data, "sessions.json")).upsert({ sessionId: id, scenarioId: "friday-escalation", status: "ended" });
+      const evalSpawn: EvalSpawnFn = ({ argv }) => {
+        const out = argv[argv.indexOf("--out") + 1]!;
+        const stdout = new PassThrough();
+        const exits: ((c: number | null, s: string | null) => void)[] = [];
+        queueMicrotask(() => {
+          cpSync(draft.dir, path.join(out, id), { recursive: true });
+          rmSync(path.join(data, "sessions", `${id}.jsonl`)); // the session log is gone, so the review cannot be bound to it
+          stdout.write(JSON.stringify({ ok: true, session: id, dir: path.join(out, id), files: ["index.md"], modelCalls: 7, participants: [], group: { status: "ok" }, failures: [] }));
+          stdout.end();
+          for (const f of exits) f(0, null);
+        });
+        return { stdout, stderr: new PassThrough(), kill: () => {}, onExit: (cb) => { exits.push(cb); } };
+      };
+      const logs: string[] = [];
+      running = await startControl({ ...env, SCENARIOS_DIR: path.join(REPO_ROOT, "scenarios") }, { port: 0, evalSpawn, log: (m) => logs.push(m) });
+      const r = await fetch(`http://127.0.0.1:${running.port}/sessions/${id}/report/evaluate`, {
+        method: "POST", headers: { "x-service-token": TOKEN, "content-type": "application/json" }, body: JSON.stringify({ confirmedCalls: 8, by: "priya" }),
+      });
+      expect(r.status).toBe(200);
+      await vi.waitFor(() => expect(logs).toContain("report open after evaluate did not complete"));
+      expect(logs.filter((l) => l.includes("report open after evaluate"))).toHaveLength(1);
+    } finally { rmSync(draft.root, { recursive: true, force: true }); }
   });
 });

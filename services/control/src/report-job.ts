@@ -26,9 +26,9 @@ export type JobOutcome =
 
 /** Progress lines kept per job (the newest). */
 export const PROGRESS_MAX = 50;
-/** EVAL_TIMEOUT_MS when the environment does not set a usable one (the evaluator's own default). */
+/** EVAL_TIMEOUT_MS when the environment does not set a usable one (the evaluator's own default; copied from agents/timeouts.ts). */
 export const DEFAULT_EVAL_TIMEOUT_MS = 180_000;
-/** The evaluator's accepted range for one call's timeout and its NPC reply timeout (`parseTimeoutEnv`), and the NPC reply default. */
+/** The evaluator's accepted range for one call's timeout and its NPC reply timeout (`parseTimeoutEnv`), and the NPC reply default (copied from agents/timeouts.ts). */
 const MIN_CALL_MS = 500;
 const MAX_CALL_MS = 600_000;
 const DEFAULT_NPC_REPLY_MS = 20_000;

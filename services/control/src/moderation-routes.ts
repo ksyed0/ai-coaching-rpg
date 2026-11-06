@@ -39,7 +39,6 @@ const EditSummaryBody = z.strictObject({
 });
 
 const notFound = (): never => { throw new HttpError(404, "not_found", "Not found."); };
-const bad = (): never => { throw new HttpError(400, "bad_request", BAD_REQUEST); };
 
 /** Answers a closed outcome: only a code (and the blocked subject ids), a fixed sentence, never text from the review layer. */
 function respond<T>(res: ServerResponse, o: ModOutcome<T> | JobOutcome): void {
@@ -69,6 +68,15 @@ const SUBJECT_ACTIONS = new Set(["edit", "accept", "comment", "edit-summary"]);
  * Ids in the path (the session, the subject) are checked and the session looked up BEFORE a body is read.
  */
 export async function handleReportRoute(seg: string[], method: string, req: IncomingMessage, res: ServerResponse, deps: ReportRouteDeps): Promise<boolean> {
+  try { return await route(seg, method, req, res, deps); }
+  catch (e) {
+    // A body that fails the schema or is not JSON is the one code `invalid` here (the web service sees one code); 413 and 404 stay as they are.
+    if (e instanceof HttpError && e.status === 400) { fail(res, 400, "invalid", BAD_REQUEST); return true; }
+    throw e;
+  }
+}
+
+async function route(seg: string[], method: string, req: IncomingMessage, res: ServerResponse, deps: ReportRouteDeps): Promise<boolean> {
   if (seg[0] !== "sessions" || seg[2] !== "report") return false;
   const { jobs, moderation, sessionId: id } = deps;
   const exists = (): void => { if (!deps.knows(id)) notFound(); };

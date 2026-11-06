@@ -177,6 +177,14 @@ describe("report routes", () => {
     expect(f.moderation.edit).toHaveBeenCalledWith(ID, "alice", { criterion: "clarity", level: null, reason: "Seen.", expect: "3", rationale: "why" }, "priya");
   });
 
+  it("every 400 from a body that fails the schema or is not JSON carries the one code invalid and the same sentence", async () => {
+    const { port } = await boot();
+    for (const [p, o] of [[R("/evaluate"), { body: { confirmedCalls: "8", by: "p" } }], [R("/open"), { raw: "{ no" }], [R("/subjects/alice/edit"), { body: { ...EDIT, extra: 1 } }]] as const) {
+      const x = await call(port, "POST", p, o);
+      expect([x.status, x.json.error.code, x.json.error.message]).toEqual([400, "invalid", "That request is not valid."]);
+    }
+  });
+
   it("an invalid name for evaluate is 400 invalid and starts nothing", async () => {
     const { port, f } = await boot();
     const x = await call(port, "POST", R("/evaluate"), { body: { confirmedCalls: 8, by: "two words" } });

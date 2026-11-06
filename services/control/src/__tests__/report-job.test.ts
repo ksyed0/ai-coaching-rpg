@@ -373,9 +373,9 @@ describe("ReportJobService", () => {
     const done = vi.fn(async () => { throw new Error("open failed"); });
     const svc = make({ onDone: done });
     onSpawn = (c) => { void succeed()(c); };
-    await svc.start(id, { confirmedCalls: 8, by: "priya-console" });
+    await svc.start(id, { confirmedCalls: 8, by: "priya" }); // the job carries the BARE typed name; `-console` is appended once, in moderation
     await vi.waitFor(() => expect(done).toHaveBeenCalledTimes(1));
-    expect(done).toHaveBeenCalledWith(id, id, "priya-console");
+    expect(done).toHaveBeenCalledWith(id, id, "priya");
     expect(svc.status(id)).toMatchObject({ state: "done", outputDir: id, modelCalls: 7 });
     // ready_to_open: a complete draft without a review, and no orphan
     expect(await listDraftCandidates(config.reportsDir, id)).toEqual([expect.objectContaining({ name: id, complete: true, hasReview: false })]);
