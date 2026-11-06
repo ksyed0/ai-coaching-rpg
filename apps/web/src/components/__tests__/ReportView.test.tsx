@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReportView } from "../ReportView";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); sessionStorage.clear(); });
 
 const UNTIL = "2027-02-03T10:30:00.000Z";
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -100,6 +100,67 @@ describe("ReportView", () => {
     view(async () => released("x"));
     await screen.findByRole("heading", { name: "Your report" });
     expect(document.activeElement).toBe(screen.getAllByRole("heading", { level: 1 })[0]);
+  });
+});
+
+describe("ReportView draft, closed and old-schema states", () => {
+  const FORM = {
+    criteria: [{ id: "c1", name: "Listening" }],
+    scale: [{ level: 1, label: "Emerging", meaning: "Rarely" }, { level: 2, label: "Developing", meaning: "Sometimes" }],
+    existing: {},
+  };
+  const selfAssess = () => json(200, { success: true, error: null, data: { state: "self_assess", availableUntil: UNTIL, ...FORM } });
+
+  it("shows the self-rating form for self_assess", async () => {
+    view(async () => selfAssess());
+    expect(await screen.findByRole("group", { name: "Listening" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save my ratings" })).toBeTruthy();
+  });
+
+  it("closed and old_schema read their fixed sentences", async () => {
+    view(async () => json(200, { success: true, error: null, data: { state: "closed" } }));
+    await waitFor(() => expect(status()).toBe("Ratings for this review are closed."));
+    cleanup();
+    view(async () => json(200, { success: true, error: null, data: { state: "old_schema" } }));
+    await waitFor(() => expect(status()).toBe("This review was opened before online ratings were available. Your facilitator can take your rating or response in the terminal."));
+  });
+
+  it("after a save the page takes the returned view (and keeps the form's saved message)", async () => {
+    sessionStorage.clear();
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(selfAssess())
+      .mockResolvedValueOnce(json(200, { success: true, error: null, data: { state: "self_assess", availableUntil: UNTIL, ...FORM, existing: { c1: { level: 1 } } } }));
+    render(<ReportView fetch={fetchFn as unknown as typeof fetch} />);
+    const g = await screen.findByRole("group", { name: "Listening" });
+    await act(async () => { fireEvent.click(within(g).getByRole("radio", { name: /Emerging/ })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save my ratings" })); });
+    await waitFor(() => expect(status()).toMatch(/saved/i));
+    expect(fetchFn.mock.calls[1]![0]).toBe("/api/v1/report/self-ratings");
+  });
+
+  it("a returned closed view replaces the form", async () => {
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(selfAssess())
+      .mockResolvedValueOnce(json(200, { success: true, error: null, data: { state: "released", availableUntil: UNTIL, view: { markdown: { own: "Now released", group: null } } } }));
+    render(<ReportView fetch={fetchFn as unknown as typeof fetch} />);
+    const g = await screen.findByRole("group", { name: "Listening" });
+    await act(async () => { fireEvent.click(within(g).getByRole("radio", { name: /Emerging/ })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save my ratings" })); });
+    await screen.findByRole("heading", { name: "Your report" });
+  });
+
+  it("a refused link from the form shows the refused state", async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(selfAssess()).mockResolvedValueOnce(fail(404, "not_found"));
+    render(<ReportView fetch={fetchFn as unknown as typeof fetch} />);
+    const g = await screen.findByRole("group", { name: "Listening" });
+    await act(async () => { fireEvent.click(within(g).getByRole("radio", { name: /Emerging/ })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Save my ratings" })); });
+    await waitFor(() => expect(status()).toBe("This link no longer works. Ask your facilitator for a new one."));
+  });
+
+  it("a malformed form reads as retry", async () => {
+    view(async () => json(200, { success: true, error: null, data: { state: "self_assess", criteria: "x" } }));
+    await waitFor(() => expect(status()).toBe("We could not load your report. Try again."));
   });
 });
 

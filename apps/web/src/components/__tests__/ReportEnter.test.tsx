@@ -182,4 +182,21 @@ describe("report text styling", () => {
     expect(rule).toMatch(/white-space:\s*pre-wrap/);
     expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
   });
+
+  it("entering a link clears the draft (Review Focus 4)", async () => {
+    sessionStorage.setItem("scenecoach-report-draft", JSON.stringify({ ratings: { c1: { level: 2, note: "old link" } } }));
+    const ReportEnter = await load();
+    const navigate = vi.fn();
+    render(<ReportEnter fetch={vi.fn(async () => envelope(200)) as unknown as typeof fetch} navigate={navigate} />);
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/report"));
+    expect(sessionStorage.getItem("scenecoach-report-draft")).toBeNull();
+  });
+
+  it("a refused link leaves a draft alone", async () => {
+    sessionStorage.setItem("scenecoach-report-draft", JSON.stringify({ ratings: {} }));
+    const ReportEnter = await load();
+    render(<ReportEnter fetch={vi.fn(async () => envelope(404, "not_found")) as unknown as typeof fetch} navigate={vi.fn()} />);
+    await screen.findByText("This link no longer works. Ask your facilitator for a new one.");
+    expect(sessionStorage.getItem("scenecoach-report-draft")).not.toBeNull();
+  });
 });
