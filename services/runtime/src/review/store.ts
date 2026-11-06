@@ -27,6 +27,7 @@ import {
   POLICY_VERSION,
   REVIEW_FILE,
   REVIEW_SCHEMA,
+  isCredentialIdShape,
   ZERO_HASH,
   CARRIED_MODERATION,
   CARRIED_PARTICIPANT,
@@ -83,7 +84,11 @@ function checkActor(a: Entry["actor"]): void {
     (a.kind === "facilitator" && isSafeId(a.by)) ||
     (a.kind === "participant" &&
       isFileSafeId(a.role) &&
-      isSafeId(a.attestedBy));
+      isSafeId(a.attestedBy)) ||
+    (a.kind === "participant_session" &&
+      a.v === 1 &&
+      isFileSafeId(a.role) &&
+      isCredentialIdShape(a.credentialId));
   if (!ok)
     throw new ReviewRefusedError("the actor on this command is not valid");
 }

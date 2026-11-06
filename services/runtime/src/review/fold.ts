@@ -15,7 +15,8 @@ import {
   GROUP,
   LIMITS,
   POLICY_VERSION,
-  REVIEW_SCHEMA,
+  REVIEW_SCHEMAS,
+  isCredentialIdShape,
   CARRIED_MODERATION,
   CARRIED_PARTICIPANT,
   type Actor,
@@ -135,7 +136,9 @@ export const who = (a: Actor): string =>
     ? a.by
     : a.kind === "participant"
       ? `${a.role} (attested by ${a.attestedBy})`
-      : "system";
+      : a.kind === "participant_session"
+        ? `${a.role} (web link ${a.credentialId})`
+        : "system";
 const levelOf = (c: DraftCriterion): CurrentLevel =>
   c.invalid ? "invalid" : c.score;
 const scoreOf = (l: CurrentLevel): CriterionScore =>
@@ -286,7 +289,8 @@ export function checkOpened(o: Record<string, unknown>): void {
   const a = o.actor as Record<string, unknown> | undefined;
   if (!a || a.kind !== "facilitator" || !isSafeId(a.by as string))
     bad("the opener must be a facilitator with a safe id");
-  if (o.schema !== REVIEW_SCHEMA) bad("unknown schema");
+  if (!(REVIEW_SCHEMAS as readonly unknown[]).includes(o.schema))
+    bad("unknown schema");
   if (o.policyVersion !== POLICY_VERSION) bad("unknown policy version");
   if (typeof o.legacy !== "boolean") bad("legacy must be true or false");
   const s = o.session;
@@ -326,12 +330,18 @@ export function checkOpened(o: Record<string, unknown>): void {
     bad("selfClosed must be a list of player ids");
 }
 
-/** An actor as the log may hold it: a facilitator with a safe id, a participant role attested by one, or the system. */
+/** An actor as the log may hold it: a facilitator with a safe id, a participant role attested by one, a web-link participant session, or the system. */
 function actorOk(a: unknown): boolean {
   if (!isRec(a)) return false;
   if (a.kind === "facilitator") return isSafeId(a.by as string);
   if (a.kind === "participant")
     return isFileSafeId(a.role as string) && isSafeId(a.attestedBy as string);
+  if (a.kind === "participant_session")
+    return (
+      a.v === 1 &&
+      isFileSafeId(a.role as string) &&
+      isCredentialIdShape(a.credentialId)
+    );
   return a.kind === "system";
 }
 
@@ -425,6 +435,14 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   /** Participant-attested events: the actor is the subject's own role, vouched for by a facilitator. */
   const attested = (e: ReviewEvent, role: unknown): void => {
     const a = e.actor;
+    if (a.kind === "participant_session") {
+      // actorOk already checked v, role and credentialId; the opener must be /2 and the role the event's own
+      if (first.schema !== "acr.review/2")
+        ill(e, "this review was opened before online ratings were available");
+      if (typeof role !== "string" || a.role !== role)
+        ill(e, "a web link acts only for its own role");
+      return;
+    }
     if (
       a.kind !== "participant" ||
       typeof role !== "string" ||
@@ -446,6 +464,12 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
       ill(e, "the review was superseded and is read-only");
     // Every actor, not only the opener's: the log on disk is untrusted, and `by` is rendered and compared later.
     if (!actorOk(e.actor)) ill(e, "the actor is not valid");
+    if (
+      e.actor.kind === "participant_session" &&
+      e.type !== "self.rated" &&
+      e.type !== "response.added"
+    )
+      ill(e, "a web link can only rate or respond");
     const carried = e.carriedFrom !== undefined;
     if (carried) {
       if (!carrying) ill(e, "a carried event must directly follow the opener");

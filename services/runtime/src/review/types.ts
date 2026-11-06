@@ -1,4 +1,6 @@
-export const REVIEW_SCHEMA = "acr.review/1";
+export const REVIEW_SCHEMA = "acr.review/2";
+/** Every review schema this runtime reads. Only /2 may hold a participant_session actor. */
+export const REVIEW_SCHEMAS = ["acr.review/1", "acr.review/2"] as const;
 export const VIEW_SCHEMA = "acr.view/1";
 export const POLICY_VERSION = 1;
 export const GROUP = "group";
@@ -17,9 +19,16 @@ export const LIMITS = {
 export type Level = 1 | 2 | 3 | 4 | null;
 /** What a criterion currently holds: a level, Not observed, or an evaluator error. */
 export type CurrentLevel = Level | "invalid";
+/** A report-access credential id: the canonical 11-character base64url text of 8 random bytes (the same rule as control's `isCredentialId`; the runtime does not import control). */
+export const isCredentialIdShape = (s: unknown): s is string =>
+  typeof s === "string" &&
+  s.length === 11 &&
+  Buffer.from(s, "base64url").toString("base64url") === s;
+
 export type Actor =
   | { kind: "facilitator"; by: string }
   | { kind: "participant"; role: string; attestedBy: string }
+  | { kind: "participant_session"; v: 1; role: string; credentialId: string }
   | { kind: "system" };
 export type Visibility = "internal" | "feedback";
 export type Outcome = "upheld" | "amended" | "declined";
@@ -32,7 +41,7 @@ export type Summary = {
 export type Body =
   | {
       type: "review.opened";
-      schema: typeof REVIEW_SCHEMA;
+      schema: (typeof REVIEW_SCHEMAS)[number];
       policyVersion: number;
       legacy: boolean;
       session: { id: string; logSha256: string | null; startedAt: string };

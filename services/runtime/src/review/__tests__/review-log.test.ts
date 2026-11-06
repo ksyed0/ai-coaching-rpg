@@ -198,4 +198,36 @@ describe("review log", () => {
     );
     expect(y!.carriedFrom).toBe("ok");
   });
+
+  it("a web event round-trips through readReview", async () => {
+    const web: Entry = {
+      actor: { kind: "participant_session", v: 1, role: "alice", credentialId: "AAAAAAAAAAA" },
+      body: { type: "self.rated", role: "alice", criterion: "listening", level: 2 },
+    };
+    const sealed = await append([web]);
+    const back = await readReview(dir);
+    expect(back.events).toEqual(sealed);
+    expect(back.events[0]!.actor).toEqual(web.actor);
+  });
+
+  it("a /1 log written before this change still loads", async () => {
+    const opener: Entry = {
+      actor: fac,
+      body: {
+        type: "review.opened",
+        schema: "acr.review/1",
+        policyVersion: 1,
+        legacy: false,
+        session: { id: "s", logSha256: null, startedAt: "t" },
+        scenario: { id: "sc", sha256: null },
+        rubricHash: null,
+        files: {},
+        codes: null,
+      },
+    };
+    await append([opener]);
+    const back = await readReview(dir);
+    expect(back.events).toHaveLength(1);
+    expect(back.events[0]!.type).toBe("review.opened");
+  });
 });

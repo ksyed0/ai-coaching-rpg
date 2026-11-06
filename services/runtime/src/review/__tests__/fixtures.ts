@@ -39,11 +39,14 @@ export const fixedClock = (start = 1_800_000_000_000) => {
   return () => (t += 1000);
 };
 
-export function makeFold(drafts: Drafts) {
+export function makeFold(
+  drafts: Drafts,
+  opts: { schema?: "acr.review/1" | "acr.review/2" } = {},
+) {
   const fac: Actor = { kind: "facilitator", by: "kamal" };
   const opened = (): Body => ({
     type: "review.opened",
-    schema: REVIEW_SCHEMA,
+    schema: opts.schema ?? REVIEW_SCHEMA,
     policyVersion: POLICY_VERSION,
     legacy: false,
     session: {
@@ -69,6 +72,12 @@ export function makeFold(drafts: Drafts) {
     role,
     attestedBy: "kamal",
   });
+  const web = (role: string, credentialId = "AAAAAAAAAAA"): Actor => ({
+    kind: "participant_session",
+    v: 1,
+    role,
+    credentialId,
+  });
   const foldE = (...entries: Entry[]): View =>
     currentView(
       drafts,
@@ -79,7 +88,7 @@ export function makeFold(drafts: Drafts) {
         fixedClock(),
       ),
     );
-  return { fac, opened, log, fold, part, foldE };
+  return { fac, opened, log, fold, part, web, foldE };
 }
 
 /** An accept for every needs-review criterion of a subject, plus summary.accepted when its summary is stale. */

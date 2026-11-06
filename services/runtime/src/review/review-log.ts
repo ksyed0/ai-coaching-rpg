@@ -35,6 +35,7 @@ function isEventShape(e: unknown): e is ReviewEvent {
     isObj(a) &&
     (a.kind === "facilitator" ||
       a.kind === "participant" ||
+      a.kind === "participant_session" ||
       a.kind === "system")
   );
 }
