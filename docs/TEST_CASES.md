@@ -1957,3 +1957,91 @@ Actual Result: As expected, 2026-11-05: report-access and axe.spec.ts, 5 tests p
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2c-1, PR 2. The review folders are seeded, not produced by a real `evaluate` of the e2e session (the mock models cannot score a real session). The no-script check reads the server's HTML because Chromium's script-disabled emulation keeps `<noscript>` hidden. The bad-token count is six, not five, before the block: the join's rule is "more than 5 failures".
+
+TC-0127: A participant_session actor is accepted only for self.rated and response.added, and a forged role or a facilitator command is refused
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0331, AC-0335
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/review/__tests__/fold-participant-session.test.ts src/review/__tests__/store.test.ts src/review/__tests__/review-log.test.ts src/review/__tests__/cli-self.test.ts` (the actor is accepted for `self.rated` and `response.added` only, in a `/2` review only, with `v` 1 and the role of the event; refused for every other event type, in a `/1` review, for another `v` and for a role mismatch; `/1` logs still load; a web event round-trips through `isEventShape`; a log that mixes attested CLI events and web events folds; the CLI attested path still works).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/participant-writes.test.ts src/__tests__/api.participant.test.ts` (the role is always taken from the live credential; a body with a `role` key or any unknown key is 400; a credential for one role cannot write for another; an unknown, revoked, expired, other-session or malformed credential id is the same neutral 404).
+Expected Result: All tests pass; no event carries a role that did not come from a credential.
+Actual Result: As expected, 2026-11-06: see the PR for the file and test counts.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1. The browser and BFF part of AC-0335 is PR 2, so AC-0331 and AC-0335 stay open.
+
+TC-0128: The self-assessment form is blind: it carries no evaluator level, rationale or evidence
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0332
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/form.test.ts src/reports/__tests__/reports.test.ts` (the form's keys are exactly `criteria`, `scale` and `existing`; canaries planted in the evaluator's rationale and evidence appear nowhere in it; no level is tied to a criterion other than the role's own; the reader still carries what the released report shows).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: see the PR for the file and test counts.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1 (the data side). The page that shows the form is PR 2, so AC-0332 stays open.
+
+TC-0129: A held review.lock is retried with backoff and answers busy, and a concurrent CLI command leaves a valid chain
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0333
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/write.test.ts src/review/__tests__/review-log.test.ts` (a held lock is `ReviewBusyError`, told apart from other failures).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/participant-writes.test.ts src/__tests__/api.participant.test.ts` (up to five attempts with an injected sleep and jitter, then a 503 with code `busy` and a fixed sentence; a concurrent `moderate` command leaves a valid hash chain; a revoke between two attempts writes nothing; writes of one session run one at a time).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: see the PR for the file and test counts.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1. "Try again" on the page is PR 2, so AC-0333 stays open.
+
+TC-0130: Participant text is scrubbed on write and exports neutralise link and image syntax
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0334
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/write.test.ts src/review/__tests__/export-participant-text.test.ts` (notes and responses are cleaned and counted in code points, a note that grows past the limit when scrubbed is refused, secrets are removed; Markdown link and image syntax in notes and responses is neutralised in the exports).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: see the PR for the file and test counts.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1 (the write and export sides). The escaping in the page and the threat-model section are PR 2, so AC-0334 stays open.
+
+TC-0131: Capacity is bounded, and no write attempt begins after a revoke or reissue has returned
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0369, AC-0370
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/write.test.ts` (an unchanged resubmit writes nothing; at most 50 ratings per submit, 10 times the criteria per review and 50 responses per report; a duplicate criterion in one submit is invalid; two concurrent identical responses write one event).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/participant-writes.test.ts src/__tests__/api.participant.test.ts` (20 counted writes per credential in 10 minutes, then 429 with `Retry-After`, and the table is swept; the credential is re-checked before every attempt, so a revoke or reissue that has returned stops the next attempt; `7 criteria with 1,500-character CJK notes passes the 64 KB cap and is written`; one byte over the 64 KB or 16 KB cap is 413 with the fixed sentence; other routes still cap at 4 KB).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: see the PR for the file and test counts.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1. An attempt already past its credential check may complete: a check inside the review lock would need an async hook in `applyCommand` and is out of scope (recorded in the spec).
+
+TC-0132: Rating progress shows in moderate status, and a review opened before /2 refuses web writes with the old-schema sentence
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0371, AC-0372
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/progress.test.ts src/participant/__tests__/write.test.ts` (the counts of rated and total criteria per role and per players-count, `unknown` when it cannot be read; a `/1` review answers `old_schema` and writes nothing).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/participant-writes.test.ts` (the 409 `old_schema` answer carries the fixed sentence that points to the terminal and no id or path).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: see the PR for the file and test counts.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1. The console column is PR 2, so AC-0371 stays open.

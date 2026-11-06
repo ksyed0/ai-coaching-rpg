@@ -270,3 +270,25 @@ Rollback trigger: a player or the console shows a whisper that is not theirs, or
 
 ### Rolling forward again
 Redeploy this fix. Nothing to restore.
+
+## US-0063: review schema `acr.review/2` and participant ratings (slice 2c-2)
+
+```
+Release: unreleased (feature/EPIC-0002-US-0063-participant-report, PR 1)
+Date: not deployed
+Rollback trigger: a participant write lands under the wrong role, the control service refuses to start, `moderate` cannot read a review it opened, or the write routes must go for any other reason.
+```
+
+### What changes on disk and in the log
+
+- **A new review schema.** `moderate open` now writes `acr.review/2`, and a participant's rating or response is an event with the actor kind `participant_session`. **A build that does not know `acr.review/2` cannot read any `/2` review:** `moderate`, `export` and the report reader all refuse it, so every `/2` review becomes unreadable (the folder is not damaged). `/1` reviews are unchanged and a new build still reads them.
+- **New routes.** The control service gains `PUT /sessions/:id/reports/:credentialId/self-ratings` and `POST .../responses`. An older control service answers 404 to both. Nothing else depends on them in PR 1 (the browser is PR 2).
+
+### Rolling back
+
+1. **Roll back only before any `/2` review is opened.** Check first: `grep -l '"acr.review/2"' <reports dir>/*/review.jsonl` finds none.
+2. **If a `/2` review is already open,** restore the reviews from a backup taken before the first `moderate open` of this build, or keep the new build and switch the write routes off by redeploying the control service without them. Do not edit `review.jsonl` by hand: it is hash-chained.
+3. Redeploy the previous control service and runtime together; no data migration. **Smoke test:** `pnpm moderate status` reads every review folder.
+
+### Rolling forward again
+Redeploy this slice. A review opened by the older build is `/1` and answers old-schema to web writes; the facilitator takes the rating in the terminal, or re-runs `moderate open` for a new review.
