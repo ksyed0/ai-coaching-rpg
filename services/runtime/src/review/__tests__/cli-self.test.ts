@@ -1031,3 +1031,30 @@ describe("fix round", () => {
     ).toBe(2);
   });
 });
+
+describe("moderate status rating progress and resolve help", () => {
+  it('moderate status prints "rated k of n criteria" per draft player and "x of y players have rated"', async () => {
+    const n = (await loadReview(dir)).view.subjects.get("alice")!.criteria.length;
+    const before = await run(["status", rel]);
+    expect(before.out).toContain(`alice: rated 0 of ${n} criteria`);
+    expect(before.out).toContain(`bob: rated 0 of ${n} criteria`);
+    expect(before.out).toContain("0 of 2 players have rated");
+    expect(before.out).not.toMatch(/group: rated/);
+    await run(["self-assess", rel, "--role", "alice", "--rate", "listening=3", "--by", "kamal"]);
+    const mid = await run(["status", rel]);
+    expect(mid.out).toContain(`alice: rated 1 of ${n} criteria`);
+    expect(mid.out).toContain(`bob: rated 0 of ${n} criteria`);
+    expect(mid.out).toContain("1 of 2 players have rated");
+    // released players are not counted
+    await release();
+    const after = await run(["status", rel]);
+    expect(after.out).not.toMatch(/rated \d+ of \d+ criteria/);
+    expect(after.out).not.toContain("players have rated");
+  });
+  it("resolve --help says the reason is shown to the participant", async () => {
+    const h = await run(["resolve", "--help"]);
+    expect(h.code).toBe(0);
+    const line = h.out.split("\n").find((l) => l.includes("resolve <dir>"))!;
+    expect(line).toMatch(/reason is shown to the participant/);
+  });
+});

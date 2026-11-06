@@ -49,7 +49,7 @@ export const MODERATE_USAGE = [
   "  supersede <old-dir> <new-dir> --by <name>                            move moderation of unchanged subjects to a re-run of a released session; the old review becomes read-only",
   "  self-assess <dir> --role <role> --list   |   self-assess <dir> --role <role> --rate <criterion>=<1|2|3|4|na>... [--note <text>] --by <facilitator>   blind self-rating before release (the facilitator attests)",
   "  respond <dir> --role <role> --text <text> [--criterion <id>] [--dispute] --by <facilitator>   a participant's response after release; --dispute puts it on the facilitator's list",
-  "  resolve <dir> <response-number> --outcome upheld|amended|declined --reason <text> --by <name>   close a dispute (`amended` needs an amend of that report first)",
+  "  resolve <dir> <response-number> --outcome upheld|amended|declined --reason <text> --by <name>   close a dispute; the reason is shown to the participant (`amended` needs an amend of that report first)",
   "exit codes: 0 done, 1 refused (fix and retry), 2 usage error or a damaged review/draft file",
   "A subject is a player role or `group`. Free text is stored after hidden characters are stripped and secrets scrubbed.",
 ].join("\n");
@@ -167,6 +167,8 @@ function statusLines(l: Loaded): string[] {
     out.push(
       `This review is superseded by ${l.view.superseded} and is read-only.`,
     );
+  let drafts = 0,
+    haveRated = 0;
   for (const sv of l.view.subjects.values()) {
     const open = sv.criteria.filter((c) => c.status === "needs_review");
     out.push(
@@ -176,11 +178,17 @@ function statusLines(l: Loaded): string[] {
       out.push(`  needs review: ${c.id} (currently ${lvl(c.current)})`);
     const rated = sv.criteria.filter((c) => c.self).length;
     if (rated > 0) out.push(`  ${rated} self-rating(s)`);
+    if (sv.id !== "group" && sv.state === "draft") {
+      drafts++;
+      if (rated > 0) haveRated++;
+      out.push(`  ${sv.id}: rated ${rated} of ${sv.criteria.length} criteria`);
+    }
     for (const r of sv.responses.filter((x) => x.dispute && !x.resolution))
       out.push(
         `  open dispute: #${r.seq} by ${r.role}${r.criterion ? ` on ${r.criterion}` : ""}`,
       );
   }
+  if (drafts > 0) out.push(`${haveRated} of ${drafts} players have rated`);
   return out;
 }
 
