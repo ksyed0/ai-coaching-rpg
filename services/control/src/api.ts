@@ -3,26 +3,26 @@ import type { IncomingMessage, RequestListener, ServerResponse } from "node:http
 import { isFileSafeId, isSafeId, isValidSessionId } from "@acr/events";
 import { z } from "zod";
 import { RoleIdSchema } from "./protocol.js";
+import { BAD_REQUEST, fail, HttpError, jsonBody, MAX_BODY_BYTES, ok, parse } from "./http-util.js";
 import type { ControlConfig } from "./config.js";
 import type { ParticipantWriteService, WriteOutcome } from "./participant-writes.js";
+import { handleReportRoute } from "./moderation-routes.js";
+import type { ModerationService } from "./moderation.js";
+import type { ReportJobService } from "./report-job.js";
 import { isCredentialId } from "./report-access.js";
 import type { ReportService } from "./reports.js";
 import { ControlError, type ControlErrorCode, type Supervisor } from "./supervisor.js";
 
-/** Largest request body read, in bytes, unless a route names its own cap. */
-export const MAX_BODY_BYTES = 4096;
 /** Participant write caps. The self-rating cap assumes at most about 10 criteria of 1,500 CJK characters (today's rubrics have 7). */
 export const MAX_RESPONSE_BODY_BYTES = 16 * 1024;
 export const MAX_SELF_RATINGS_BODY_BYTES = 64 * 1024;
-
-type Envelope<T> = { success: boolean; data: T | null; error: { code: string; message: string } | null };
 
 const STATUS: Record<ControlErrorCode, number> = {
   bad_request: 400, unknown_scenario: 400, not_found: 404, conflict: 409, capacity: 429, timeout: 504, start_failed: 502, unavailable: 503,
   ai_role: 409, ai_notice: 409, ai_started: 409, ai_no_human: 409, ai_too_many: 409, ai_invalid: 400,
   ai_busy: 409, ai_budget: 409, ai_absent: 409, ai_expired: 409,
 };
-const BAD_REQUEST = "That request is not valid.";
+export { MAX_BODY_BYTES };
 const UNAUTHORIZED = "Unauthorized.";
 const INTERNAL = "Something went wrong.";
 const MAX_FIELD = 200;
@@ -52,67 +52,12 @@ const SelfRatingsBody = z.strictObject({
 const ResponseBody = z.strictObject({ criterion: CriterionId.optional(), text: z.string().max(TEXT_UNITS), dispute: z.boolean().optional() });
 const REPORT_UNAVAILABLE = "The report is unavailable. Try again.";
 
-class HttpError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string, readonly closeConnection = false) { super(message); }
-}
-
 const digest = (s: string): Buffer => createHash("sha256").update(s).digest();
 
 /** Constant time: both sides are hashed to the same length first, so neither the length nor the content leaks through timing. */
 function tokenOk(given: string | string[] | undefined, expected: string): boolean {
   if (typeof given !== "string") return false;
   return timingSafeEqual(digest(given), digest(expected));
-}
-
-function send(res: ServerResponse, status: number, body: Envelope<unknown>, closeConnection = false, retryAfterSeconds?: number): void {
-  if (res.headersSent) { res.end(); return; }
-  const text = JSON.stringify(body);
-  res.writeHead(status, {
-    "Content-Type": "application/json", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
-    "Content-Length": Buffer.byteLength(text), ...(closeConnection ? { Connection: "close" } : {}),
-    ...(retryAfterSeconds !== undefined ? { "Retry-After": String(retryAfterSeconds) } : {}),
-  });
-  res.end(text);
-}
-const ok = (res: ServerResponse, data: unknown): void => send(res, 200, { success: true, data, error: null });
-const fail = (res: ServerResponse, status: number, code: string, message: string, closeConnection = false, retryAfterSeconds?: number): void =>
-  send(res, status, { success: false, data: null, error: { code, message } }, closeConnection, retryAfterSeconds);
-
-/**
- * Reads at most `max` bytes (MAX_BODY_BYTES unless the route names a cap). A declared length over the cap is refused at once (nothing is read); an undeclared or understated one
- * is cut off the moment the running total passes the cap. Resolves to the text ("" for no body).
- */
-function readBody(req: IncomingMessage, max = MAX_BODY_BYTES): Promise<string> {
-  const declared = req.headers["content-length"];
-  if (declared !== undefined && (!/^[0-9]{1,15}$/.test(declared) || Number(declared) > max)) {
-    return Promise.reject(new HttpError(413, "payload_too_large", "That request is too large.", true));
-  }
-  return new Promise<string>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on("data", (c: Buffer) => {
-      size += c.length;
-      if (size > max) { chunks.length = 0; reject(new HttpError(413, "payload_too_large", "That request is too large.", true)); req.removeAllListeners("data"); req.resume(); return; }
-      chunks.push(c);
-    });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", () => reject(new HttpError(400, "bad_request", BAD_REQUEST)));
-  });
-}
-
-/** The body as a parsed JSON object, or undefined when there is none. A body needs `application/json`. */
-async function jsonBody(req: IncomingMessage, max = MAX_BODY_BYTES): Promise<unknown> {
-  const text = await readBody(req, max);
-  if (text === "") return undefined;
-  const type = String(req.headers["content-type"] ?? "").split(";")[0]!.trim().toLowerCase();
-  if (type !== "application/json") throw new HttpError(400, "bad_request", BAD_REQUEST);
-  try { return JSON.parse(text) as unknown; } catch { throw new HttpError(400, "bad_request", BAD_REQUEST); }
-}
-
-function parse<T>(schema: z.ZodType<T>, value: unknown): T {
-  const r = schema.safeParse(value);
-  if (!r.success) throw new HttpError(400, "bad_request", BAD_REQUEST);
-  return r.data;
 }
 
 /** The error's name when it is a plain identifier (the shared rule), else a fixed word: never a message, never free text. */
@@ -132,8 +77,11 @@ export function createApi(deps: {
   reports?: ReportService;
   /** Participant ratings and responses (EPIC-0002). Optional: the routes answer 404 when it is absent. */
   participantWrites?: ParticipantWriteService;
+  /** The evaluate job and the facilitator's review operations (EPIC-0002). Optional: the routes answer 404 when absent. */
+  jobs?: ReportJobService;
+  moderation?: ModerationService;
 }): RequestListener {
-  const { config, supervisor, scenarios, reports, participantWrites } = deps;
+  const { config, supervisor, scenarios, reports, participantWrites, jobs, moderation } = deps;
   const log = deps.log ?? (() => {});
 
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -266,6 +214,7 @@ export function createApi(deps: {
       if (body.roleId !== undefined) return ok(res, { code: await supervisor.reissue(id, body.roleId, body.by, body.reason) });
       return ok(res, { codes: await supervisor.reissueAll(id, body.by) });
     }
+    if (await handleReportRoute(seg, method, req, res, { sessionId: id, knows: (sid) => supervisor.get(sid) !== undefined, jobs, moderation })) return;
     return notFound();
   }
 

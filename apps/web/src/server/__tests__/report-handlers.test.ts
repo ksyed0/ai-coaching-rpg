@@ -24,7 +24,7 @@ const CRED_ID = "AbCdEfGhIjK";
 const TOKEN = "AbCdEfGhIjK.0123456789abcdefghijkl";
 const EXPIRES = T0 + 86_400_000;
 const CONFLICT_SENTENCE = "A link is already active for this role.";
-const NOT_READY_SENTENCE = "No reports are ready for this session yet. Run evaluate and moderate open, from the terminal (see the guide).";
+const NOT_READY_SENTENCE = "No reports are ready for this session yet. Evaluate it from the Report panel of its console.";
 
 const config: Config = {
   runtimeUrl: "ws://127.0.0.1:1",

@@ -33,7 +33,7 @@ const MAX_ENTER_BODY_BYTES = 512;
 /** The control service's fixed conflict sentences (NOT_READY and NO_REPORT in services/control/src/reports.ts are copied here word for word; change both). Anything else is shown as the generic one. */
 const KNOWN_CONFLICTS: ReadonlySet<string> = new Set([
   "A link is already active for this role.",
-  "No reports are ready for this session yet. Run evaluate and moderate open, from the terminal (see the guide).",
+  "No reports are ready for this session yet. Evaluate it from the Report panel of its console.",
   "There is no report to link for this role.",
 ]);
 const GENERIC_CONFLICT = "That action is not possible right now.";

@@ -56,6 +56,7 @@ export type EditSummaryBody = { reason: string; strengths?: string[]; developmen
 
 /** The typed name: the `--by` rule with room for the `-console` suffix inside the chain's 64 characters. */
 const NAME = /^[A-Za-z0-9_-]{1,56}$/;
+export const isConsoleName = (name: unknown): name is string => typeof name === "string" && NAME.test(name);
 export const AUTHOR_SUFFIX = "-console";
 /** The session log `open` binds to, capped as `pnpm moderate open --session-log` reads it. */
 const SESSION_LOG_CAP = 64 * 1024 * 1024;

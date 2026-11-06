@@ -77,7 +77,7 @@ describe("issue and reissue", () => {
   it("refuses when nothing resolves, with the fixed sentence and no path or id", async () => {
     const r = await refusal(svc.issue("other-session", "alice"));
     expect(r).toEqual({ code: "conflict", message: NOT_READY });
-    expect(NOT_READY).toBe("No reports are ready for this session yet. Run evaluate and moderate open, from the terminal (see the guide).");
+    expect(NOT_READY).toBe("No reports are ready for this session yet. Evaluate it from the Report panel of its console.");
     expect(r!.message).not.toContain(w.root);
     expect(await refusal(svc.reissue("other-session", "alice"))).toEqual({ code: "conflict", message: NOT_READY });
   });

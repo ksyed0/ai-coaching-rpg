@@ -7,6 +7,9 @@ import { loadScenario, type Scenario } from "@acr/script";
 import { BotHost } from "./bots/bot-host.js";
 import { IntentLog } from "./bots/intent-log.js";
 import { createApi } from "./api.js";
+import type { EvalSpawnFn } from "./eval-child.js";
+import { ModerationService } from "./moderation.js";
+import { ReportJobService } from "./report-job.js";
 import { loadControlConfig, loadControlEnv } from "./config.js";
 import { ReportAccessStore } from "./report-access.js";
 import { createParticipantWriteService, warnIfReportsNotWritable } from "./participant-writes.js";
@@ -41,7 +44,7 @@ export type RunningControl = {
  */
 export async function startControl(
   env: NodeJS.ProcessEnv,
-  opts: { log?: (m: string) => void; spawn?: SpawnFn; port?: number } = {},
+  opts: { log?: (m: string) => void; spawn?: SpawnFn; port?: number; /** Tests: a stand-in for the evaluate child. */ evalSpawn?: EvalSpawnFn } = {},
 ): Promise<RunningControl> {
   const config = loadControlConfig(env);
   const log = opts.log ?? (() => {});
@@ -73,8 +76,17 @@ export async function startControl(
     sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
   });
   await warnIfReportsNotWritable(config.reportsDir, log);
+  // The evaluate job and the review operations need each other: the job opens the review when it is done, the review service reads the job.
+  // `env` is the .env-merged environment the supervisor gets, so a model key that lives only in .env reaches the evaluate child (which runs with NO_DOTENV=1).
+  let moderation: ModerationService | undefined;
+  const jobs = new ReportJobService({
+    config, parentEnv: env, log, ...(opts.evalSpawn ? { spawn: opts.evalSpawn } : {}),
+    sessions: { get: (id) => { const s = supervisor.get(id); return s ? { scenarioId: s.scenarioId, ended: s.status === "ended" } : undefined; } },
+    onDone: async (id, _outputDir, by) => { await moderation?.open(id, by); },
+  });
+  moderation = new ModerationService({ config, jobs, secrets });
 
-  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites }));
+  const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation }));
   // Create, restart and a whole-session reissue can take up to readyTimeoutMs + 2 * graceMs (a start, then a stop and a forced stop),
   // so no limit may be shorter than that (Ruling R10). Node's requestTimeout bounds only the time to RECEIVE a request (the bodies here
   // are at most 64 KB), not the response, and `timeout` (idle socket) is off by default; both are set explicitly so a Node default
@@ -92,7 +104,7 @@ export async function startControl(
       server.listen(port, CONTROL_HOST, () => { server.off("error", reject); resolve(); });
     });
   } catch (err) {
-    await supervisor.shutdown(); // resumed children (and bots) must not outlive a service that never started
+    await Promise.all([supervisor.shutdown(), jobs.shutdown()]); // resumed children (and bots) must not outlive a service that never started
     throw new Error(`cannot listen on ${CONTROL_HOST}:${port} (${(err as NodeJS.ErrnoException).code ?? "error"})`);
   }
   server.on("error", () => log("server error"));
@@ -104,7 +116,7 @@ export async function startControl(
     closing ??= (async () => {
       const stopped = new Promise<void>((resolve) => server.close(() => resolve()));
       server.closeIdleConnections();
-      await supervisor.shutdown(); // in-flight creates fail as their children go
+      await Promise.all([supervisor.shutdown(), jobs.shutdown()]); // in-flight creates fail as their children go; a running evaluate child is stopped
       server.closeAllConnections();
       await stopped;
     })();
