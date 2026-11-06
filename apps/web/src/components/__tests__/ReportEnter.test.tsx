@@ -178,7 +178,7 @@ describe("ReportEnter", () => {
 describe("report text styling", () => {
   it("keeps line breaks and wraps long unbroken text instead of scrolling sideways", () => {
     const css = readFileSync(join(__dirname, "..", "..", "lib", "app.css"), "utf8");
-    const rule = /pre\.report-text\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    const rule = /(?:^|\n)\.report-text\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
     expect(rule).toMatch(/white-space:\s*pre-wrap/);
     expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
   });

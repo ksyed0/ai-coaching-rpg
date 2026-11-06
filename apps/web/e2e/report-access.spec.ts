@@ -63,13 +63,20 @@ const rate = (page: Page, name: string, label: string) => criterion(page, name).
 const hasDraft = (page: Page) => page.evaluate((k) => sessionStorage.getItem(k) !== null, DRAFT_KEY);
 const reportCookies = (page: Page) => page.context().cookies().then((c) => c.filter((x) => x.name === REPORT_COOKIE));
 
-/** Starts recording every response body the page receives (HTML, JSON, scripts), for the canary checks. */
-function recordBodies(page: Page): string[] {
-  const bodies: string[] = [];
+type Recorded = { url: string; method: string; body: Promise<string | null> };
+/** Starts recording every response the page receives (HTML, JSON, scripts), for the canary checks. Await `settle()` before asserting on the bodies. */
+function recordBodies(page: Page): { settle(): Promise<{ url: string; method: string; body: string }[]> } {
+  const all: Recorded[] = [];
   page.on("response", (r) => {
-    void r.text().then((t) => bodies.push(t), () => undefined); // a redirect or an aborted request has no body
+    // A redirect or an aborted request has no body: it resolves to null. The promise is kept, never dropped, so nothing is read late.
+    all.push({ url: r.url(), method: r.request().method(), body: r.text().then((t) => t, () => null) });
   });
-  return bodies;
+  return {
+    async settle() {
+      const done = await Promise.all(all.map(async (x) => ({ url: x.url, method: x.method, body: await x.body })));
+      return done.filter((x): x is { url: string; method: string; body: string } => x.body !== null);
+    },
+  };
 }
 
 /** Opens a report link in a page and waits for the report. The address bar must carry no fragment once the page is up. */
@@ -254,14 +261,36 @@ test("a draft player rates with the runtime exited and never sees the evaluator;
   await expect(participant.getByRole("button", { name: "Save my ratings" })).toBeVisible();
   await expect(criterion(participant, "Discovery").getByRole("radio", { name: /^Advanced/ })).toBeChecked();
   await expect(criterion(participant, "Discovery").getByLabel("Note (optional)")).toHaveValue("My own view of discovery.");
+
+  // Not observed: choose it for one criterion, save, reload; it is still checked. This sends control's real self_assess body (level null)
+  // through the BFF parser and back, which a saved "Not observed" once broke.
+  await criterion(participant, "Negotiation").getByRole("radio", { name: "Not observed" }).check();
+  await participant.getByRole("button", { name: "Save my ratings" }).click();
+  await expect(participant.getByRole("status").filter({ hasText: "Your ratings are saved" })).toBeVisible();
+  await participant.reload();
+  await expect(participant.getByRole("button", { name: "Save my ratings" })).toBeVisible();
+  await expect(criterion(participant, "Negotiation").getByRole("radio", { name: "Not observed" })).toBeChecked();
+  // Put the rating back so the release assertions below are unchanged.
+  await rate(participant, "Negotiation", "Developing");
+  await participant.getByRole("button", { name: "Save my ratings" }).click();
+  await expect(participant.getByRole("status").filter({ hasText: "Your ratings are saved" })).toBeVisible();
+  await participant.reload();
+  await expect(criterion(participant, "Negotiation").getByRole("radio", { name: /^Developing/ })).toBeChecked();
   const pageText = await participant.locator("body").innerText();
   const html = await participant.content();
+  // Every body is read to the end before anything is asserted. The rationale canary is the real post-release detector (the released view
+  // is where evaluator prose lives); the level canary only catches a raw draft passthrough, since a level alone is a number the page may show.
+  const recorded = await bodies.settle();
   for (const canary of [CANARY_LEVEL, CANARY_RATIONALE]) {
     expect(pageText, `page text holds ${canary}`).not.toContain(canary);
     expect(html, `page html holds ${canary}`).not.toContain(canary);
-    expect(bodies.filter((b) => b.includes(canary)), `a response body holds ${canary}`).toEqual([]);
+    expect(recorded.filter((r) => r.body.includes(canary)).map((r) => r.url), `a response body holds ${canary}`).toEqual([]);
   }
-  expect(bodies.some((b) => b.includes("Save my ratings") || b.includes("self_assess"))).toBe(true); // the recorder did see the page and the form data
+  // Positive control: the recorder saw the GET /api/v1/report JSON itself (not bundle text that merely mentions the words).
+  const reads = recorded.filter((r) => r.method === "GET" && new URL(r.url).pathname === "/api/v1/report");
+  expect(reads.length).toBeGreaterThan(0);
+  expect(reads.some((r) => { try { return (JSON.parse(r.body) as { data?: { state?: string } }).data?.state === "self_assess"; } catch { return false; } })).toBe(true);
+  expect(reads.some((r) => r.body.includes('"self_assess"'))).toBe(true);
 
   // The console shows who has rated (a fresh load of the panel).
   await openPanel(fac, stack, sessionId);
@@ -305,6 +334,14 @@ test("a draft player rates with the runtime exited and never sees the evaluator;
   await expect(after.getByText("Outcome: upheld")).toBeVisible();
   await expect(after.getByText(`Facilitator's reason: ${RESOLVE_REASON}`)).toBeVisible();
   await expect(after.getByText("2 of 50 used")).toBeVisible();
+
+  // A long unbroken response and a note keep the page inside a 400 px screen.
+  const respondAgain = participant.getByRole("form", { name: "Send a response" });
+  await respondAgain.getByLabel("Your response").fill("W".repeat(1500));
+  await respondAgain.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(participant.getByText("3 of 50 used")).toBeVisible();
+  await participant.setViewportSize({ width: 400, height: 860 });
+  await noHorizontalScroll(participant, 400);
 });
 
 test("revoke while the participant's cookie exists: the next write is refused and the page shows the refused state", async ({ browser }) => {

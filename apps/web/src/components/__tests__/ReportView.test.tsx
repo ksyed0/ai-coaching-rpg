@@ -174,8 +174,8 @@ describe("ReportView draft, closed and old-schema states", () => {
 
 describe("print rules", () => {
   const css = readFileSync(join(__dirname, "..", "..", "lib", "app.css"), "utf8");
-  it("pre.report-text keeps line breaks and wraps long unbroken text", () => {
-    const rule = /pre\.report-text\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+  it(".report-text (pre and p) keeps line breaks and wraps long unbroken text", () => {
+    const rule = /(?:^|\n)\.report-text\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
     expect(rule).toMatch(/white-space:\s*pre-wrap/);
     expect(rule).toMatch(/overflow-wrap:\s*anywhere/);
   });
