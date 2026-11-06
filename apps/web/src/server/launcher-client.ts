@@ -776,6 +776,30 @@ export class LauncherClient {
     });
   }
 
+  /** Releases an explicit list of subjects; the answer is parsed closed. */
+  async reportRelease(id: string, b: { subjects: string[]; by: string }): Promise<{ released: string[]; groupTableStale: boolean }> {
+    const d = await this.reportCall("POST", id, "/release", { subjects: b.subjects, by: b.by });
+    if (!isObject(d) || !isFileIds(d.released) || d.released.length > MAX_BLOCKED || typeof d.groupTableStale !== "boolean") return bad();
+    return { released: d.released, groupTableStale: d.groupTableStale };
+  }
+  async reportResolve(id: string, b: { seq: number; outcome: "upheld" | "amended" | "declined"; reason: string; by: string }): Promise<void> {
+    await this.reportWrite(id, "/resolve", { seq: b.seq, outcome: b.outcome, reason: b.reason, by: b.by });
+  }
+  /** The audience's Markdown for one subject; the file name is kept as control said it (the BFF checks it before it names a download). */
+  async reportExport(id: string, b: { subject: string; audience: string; by: string }): Promise<{ fileName: string; markdown: string }> {
+    const d = await this.reportCall("POST", id, "/export", { subject: b.subject, audience: b.audience, by: b.by }, MAX_REPORT_RESPONSE_CHARS);
+    if (!isObject(d) || !isStr(d.markdown)) return bad();
+    return { fileName: isStr(d.fileName) ? d.fileName : "", markdown: d.markdown };
+  }
+  async reportAmend(id: string, subject: string, b: { reason: string; by: string }): Promise<void> {
+    await this.reportWrite(id, this.subjectPath(subject, "/amend"), { reason: b.reason, by: b.by });
+  }
+  async reportWithdraw(id: string, subject: string, b: { reason: string; by: string }): Promise<{ groupTableStale: boolean }> {
+    const d = await this.reportCall("POST", id, this.subjectPath(subject, "/withdraw"), { reason: b.reason, by: b.by });
+    if (!isObject(d) || typeof d.groupTableStale !== "boolean") return bad();
+    return { groupTableStale: d.groupTableStale };
+  }
+
   private async reportWrite(id: string, tail: string, body: unknown): Promise<void> {
     if (!isObject(await this.reportCall("POST", id, tail, body))) bad();
   }

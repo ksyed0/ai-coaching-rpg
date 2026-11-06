@@ -51,7 +51,7 @@ describe("web sources and the runtime", () => {
     const handlers = files.filter((f) => /[\\/]console-report-[^\\/]*\.ts$/.test(f));
     expect(handlers.map((f) => f.slice(SRC.length + 1))).toEqual(expect.arrayContaining([join("server", "console-report-handlers.ts")]));
     const routes = files.filter((f) => f.includes(join("console", "sessions", "[id]", "report") + "/") || f.includes(join("console", "sessions", "[id]", "report") + "\\"));
-    expect(routes).toHaveLength(9);
+    expect(routes).toHaveLength(14);
     const fsSpec = (spec: string): boolean => /^(node:)?fs(\/|$)/.test(spec);
     expect(fsSpec("node:fs")).toBe(true);
     expect(fsSpec("fs/promises")).toBe(true);

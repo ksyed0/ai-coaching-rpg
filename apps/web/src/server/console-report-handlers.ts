@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { isFileSafeId } from "@acr/events";
+import { isFileSafeId, isSafeId } from "@acr/events";
 import { REPORT_REFUSALS, type ReportRefusal } from "../lib/messages";
 import { readConsoleCookie } from "./console-session";
 import { failure, guard, isId, sessionIdOf } from "./console-sessions";
@@ -122,6 +122,8 @@ type Spec = {
   /** Whether the route needs a subject in its path / a typed name in its body. */
   subject: boolean;
   named: boolean;
+  /** Builds the success answer itself (export); by default the data goes in the JSON envelope. */
+  build?(data: unknown): Response;
 };
 
 /** SHA-256 of the console cookie (an in-memory key only: never logged or returned). */
@@ -158,7 +160,7 @@ function write(req: Request, deps: Deps, s: Spec): Promise<Response> {
     if (!deps.launcher) return say(503, "unavailable");
     try {
       const data = await timed(deps, s.send(deps as Deps & { launcher: NonNullable<Deps["launcher"]> }, id, subject, b, by));
-      return priv(ok(data));
+      return s.build ? s.build(data) : priv(ok(data));
     } catch (err) {
       return reportFailure(err);
     }
@@ -259,3 +261,71 @@ export const handleConsoleReportEditSummary = (req: Request, deps: Deps): Promis
       return {};
     },
   });
+
+/** POST .../report/release { subjects, by }: an explicit list of 1 to 50 subject ids, forwarded unchanged; an `all` flag is not a key. */
+export const handleConsoleReportRelease = (req: Request, deps: Deps): Promise<Response> =>
+  write(req, deps, {
+    keys: ["subjects"], subject: false, named: true,
+    valid: (b) => Array.isArray(b.subjects) && b.subjects.length >= 1 && b.subjects.length <= MAX_ITEMS && b.subjects.every((x) => isStr(x) && isFileSafeId(x)),
+    send: (d, id, _s, b, by) => d.launcher.reportRelease(id, { subjects: b.subjects as string[], by }),
+  });
+
+/** POST .../report/resolve { seq, outcome, reason, by } (16 KB) */
+export const handleConsoleReportResolve = (req: Request, deps: Deps): Promise<Response> =>
+  write(req, deps, {
+    keys: ["seq", "outcome", "reason"], max: MAX_TEXT_BODY_BYTES, subject: false, named: true,
+    valid: (b) => typeof b.seq === "number" && Number.isInteger(b.seq) && b.seq >= 1 && b.seq <= 999_999_999 && (b.outcome === "upheld" || b.outcome === "amended" || b.outcome === "declined") && isStr(b.reason),
+    send: async (d, id, _s, b, by) => {
+      await d.launcher.reportResolve(id, { seq: b.seq as number, outcome: b.outcome as "upheld", reason: b.reason as string, by });
+      return {};
+    },
+  });
+
+/** POST .../report/subjects/:subject/amend { reason, by } (16 KB) */
+export const handleConsoleReportAmend = (req: Request, deps: Deps): Promise<Response> =>
+  write(req, deps, {
+    keys: ["reason"], max: MAX_TEXT_BODY_BYTES, subject: true, named: true, valid: (b) => isStr(b.reason),
+    send: async (d, id, sub, b, by) => {
+      await d.launcher.reportAmend(id, sub!, { reason: b.reason as string, by });
+      return {};
+    },
+  });
+
+/** POST .../report/subjects/:subject/withdraw { reason, by } (16 KB) */
+export const handleConsoleReportWithdraw = (req: Request, deps: Deps): Promise<Response> =>
+  write(req, deps, {
+    keys: ["reason"], max: MAX_TEXT_BODY_BYTES, subject: true, named: true, valid: (b) => isStr(b.reason),
+    send: (d, id, sub, b, by) => d.launcher.reportWithdraw(id, sub!, { reason: b.reason as string, by }),
+  });
+
+/** A download name the BFF is willing to send: `report-<safe id>.md` (`report-index.md` included); anything else is `report.md`. */
+function downloadName(v: unknown): string {
+  const m = typeof v === "string" ? /^report-([A-Za-z0-9_-]+)\.md$/.exec(v) : null;
+  return m !== null && isSafeId(m[1]!) ? (v as string) : "report.md";
+}
+const AUDIENCE = /^participant:[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * POST .../report/export { subject, audience, by }: the BFF builds the attachment itself from control's { fileName, markdown } with exactly four
+ * headers; nothing from control's response headers is copied. Only POST: any other method is a 404, before any check.
+ */
+export const handleConsoleReportExport = (req: Request, deps: Deps): Promise<Response> => {
+  if (req.method !== "POST") return Promise.resolve(notFound());
+  return write(req, deps, {
+    keys: ["subject", "audience"], subject: false, named: true,
+    valid: (b) => isStr(b.subject) && isFileSafeId(b.subject) && isStr(b.audience) && (b.audience === "facilitator" || AUDIENCE.test(b.audience)),
+    send: (d, id, _s, b, by) => d.launcher.reportExport(id, { subject: b.subject as string, audience: b.audience as string, by }),
+    build: (data) => {
+      const f = data as { fileName: string; markdown: string };
+      return new Response(f.markdown, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/markdown; charset=utf-8",
+          "Content-Disposition": `attachment; filename="${downloadName(f.fileName)}"`,
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+        },
+      });
+    },
+  });
+};
