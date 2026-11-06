@@ -2815,33 +2815,63 @@
       "title": "As a facilitator, I want to evaluate, moderate and release reports in the browser, so that I can finish the whole programme in one place.",
       "priority": "High",
       "estimate": "XL",
-      "status": "Planned",
+      "status": "In Progress",
       "branch": "feature/EPIC-0002-US-0064-report-moderation-web",
       "acs": [
         {
           "id": "AC-0336",
-          "text": "the control service runs evaluate and moderate open on the facilitator behalf and the console shows the run summary and per-person status",
-          "done": false
+          "text": "the control service runs evaluate and moderate open on the facilitator behalf and the console shows the run summary and per-person status (built in slice 2c-3 part A: `ReportJobService` runs the evaluate CLI as a child and opens the review with the typed name, the Report panel shows the run summary and each subject's own state and open items; TC-0135, TC-0137, TC-0139, TC-0140)",
+          "done": true
         },
         {
           "id": "AC-0337",
-          "text": "the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate",
+          "text": "the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate (edit levels, accept, comment and edit-summary built in slice 2c-3 part A over the review library, TC-0136, TC-0138, TC-0139, TC-0140; edit-summary has a route but no console control yet; release, amend, withdraw and export are part B, TASK-0102)",
           "done": false
         },
         {
           "id": "AC-0338",
-          "text": "release, amend and withdraw show a confirmation that names the subject and audience, and an agent never performs them without the owner naming the subjects",
+          "text": "release, amend and withdraw show a confirmation that names the subject and audience, and an agent never performs them without the owner naming the subjects (part B, TASK-0102)",
           "done": false
         },
         {
           "id": "AC-0339",
-          "text": "the run summary shows scenes ended by the Game Master, fallback counts and alerts before release",
-          "done": false
+          "text": "the run summary shows scenes ended by the Game Master, fallback counts and alerts before release (built in slice 2c-3 part A: the shared `@acr/runtime/run-summary` module and the panel's \"How the run went\", shown from the moment the review is open; TC-0135, TC-0139, TC-0140)",
+          "done": true
         },
         {
           "id": "AC-0340",
-          "text": "an end-to-end test evaluates and releases a report and its owner reads it after the runtime has exited",
+          "text": "an end-to-end test evaluates and releases a report and its owner reads it after the runtime has exited (part B, TASK-0102)",
           "done": false
+        },
+        {
+          "id": "AC-0373",
+          "text": "the control service refuses to evaluate a session that already has a draft or review, and never reuses an orphan directory (slice 2c-3 part A; TC-0137, TC-0140)",
+          "done": true
+        },
+        {
+          "id": "AC-0374",
+          "text": "the facilitator confirms the model spend before evaluate runs, and a stale confirmation is refused (slice 2c-3 part A; TC-0137, TC-0139)",
+          "done": true
+        },
+        {
+          "id": "AC-0375",
+          "text": "release takes an explicit list of subjects; an empty list or `all` is refused by the server (part B, TASK-0102)",
+          "done": false
+        },
+        {
+          "id": "AC-0376",
+          "text": "export is a `POST` that records the export before serving the file, and nothing is written to the server's disk (part B, TASK-0102)",
+          "done": false
+        },
+        {
+          "id": "AC-0377",
+          "text": "the facilitator can resolve a participant's dispute in the browser (part B, TASK-0102)",
+          "done": false
+        },
+        {
+          "id": "AC-0378",
+          "text": "a stale edit keeps the facilitator's typed text (slice 2c-3 part A; TC-0138, TC-0139, TC-0140)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -3807,9 +3837,19 @@
       "title": "Browser moderation over the review store and the run summary",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "In Progress",
       "branch": "feature/EPIC-0002-US-0064-report-moderation-web",
-      "notes": "Spec sections 5.8 and 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). It replaces the terminal steps (`pnpm evaluate --out \"$CONTROL_DATA_DIR/reports\"`, then `pnpm moderate open` and `release`) that slice 2c-1 documents and that the console names in its fixed \"reports are not ready\" message; update that message and the README/EVALUATOR note when this lands. The control service already resolves a session's live review including a re-run (`<id>-2`); reuse `@acr/runtime/reports` for reads and add the write path through the review store, not around it."
+      "notes": "Spec docs/superpowers/specs/2026-11-06-slice-2c-3-facilitator-reports-design.md (addendum to sections 5.8 and 7 of docs/superpowers/specs/2026-10-26-web-client-design.md); plan docs/superpowers/plans/2026-11-06-slice-2c-3-facilitator-reports.md. Slice 2c-3 part A (PR A, this task) is built: the shared run-summary module (demo refactor) and the call bound, the draft-candidate lookup in `@acr/runtime/reports`, `@acr/runtime/moderation` (open, edit with `expect`, accept, comment, edit-summary, closed results), the control service's `ReportJobService` (evaluate as a child with a sanitised environment, one run across the service, confirmation, repeat guard, cancel, overall timeout, interrupted and orphan states) and `ModerationService` with the control routes, the BFF routes under `/api/v1/console/sessions/:id/report`, the console Report panel (author name, evaluate card and confirmation, run summary, subject list, subject view), the part A e2e and Axe, and docs/THREAT_MODEL.md \"Facilitator moderation\". The fixed \"reports are not ready\" message now points to the Report panel. Release, amend, withdraw, resolve and export stay in the terminal until part B (TASK-0102)."
+    },
+    {
+      "id": "TASK-0102",
+      "storyId": "US-0064",
+      "title": "Browser release and close-out: release, amend, withdraw, resolve and export",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0002-US-0064-report-release-web (stacked on feature/EPIC-0002-US-0064-report-moderation-web)",
+      "notes": "Slice 2c-3 part B (PR B), same spec and plan as TASK-0093. `release` with an explicit list of subjects (empty and `all` refused), `amend` and `withdraw` with a required reason, `resolve` (upheld, amended after an amend, declined), `export` as a `POST` that records the event first and returns the Markdown as an attachment (`console-download`, nothing written to disk); the release bar and dialogs that name each subject's audience from the visibility policy; the part B e2e (release, the participant reads with the runtime gone, amend, withdraw, resolve, export) with Axe on the dialogs; the README terminal steps for release, amend, withdraw and export replaced; the close-out docs. Covers AC-0337 (rest), AC-0338, AC-0340, AC-0375 to AC-0377. Carried from part A: release refusal codes (`unknown_subject` for unknown ids, `not_editable` for non-draft or amending subjects, `blocked` only for gate problems)."
     }
   ],
   "testCases": [
@@ -5142,6 +5182,66 @@
       "type": "Unit",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0135",
+      "title": "The run summary and the evaluation call bound come from one shared module, and the demo keeps its narration",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0336, AC-0339",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0136",
+      "title": "The moderation library (part A) reads a review for the console and writes open, edit, accept, comment and edit-summary through the review lock",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0337, AC-0378",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0137",
+      "title": "The evaluate job runs one sanitised child, is confirmed, guarded against repeats, cancellable and bounded in time",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0336, AC-0373, AC-0374",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0138",
+      "title": "The moderation service and the control report routes give closed results, cap bodies, require expect and attribute writes to <name>-console",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0337, AC-0373, AC-0378",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0139",
+      "title": "The console Report panel and the BFF report routes behave as specified",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0336, AC-0337, AC-0339, AC-0374, AC-0378",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0140",
+      "title": "The facilitator reviews a seeded draft in the browser, a stale second tab keeps its text, and a two-tab double click on Evaluate runs one job (Playwright, with Axe)",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0336, AC-0337, AC-0339, AC-0373, AC-0378",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -5868,7 +5968,7 @@
       "outputTokens": 0
     },
     "US-0064": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 3200,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
@@ -6560,11 +6660,11 @@
       "isAtRisk": false
     },
     "US-0064": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     }
   },
   "risk": {
@@ -6873,10 +6973,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-06T07:06:42.368Z",
-  "commitSha": "b8e3593",
-  "buildNumber": "556",
-  "branch": "feature/EPIC-0002-US-0063-participant-report-ui",
+  "generatedAt": "2026-11-06T20:16:40.877Z",
+  "commitSha": "c775053",
+  "buildNumber": "547",
+  "branch": "feature/EPIC-0002-US-0064-report-moderation-web",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7018,9 +7118,9 @@
     }
   },
   "budget": {
-    "totalBudget": 806.6862000000001,
+    "totalBudget": 805.7862,
     "totalSpent": 799.4862,
-    "totalProjected": 8051.300000000001,
+    "totalProjected": 11250.400000000001,
     "percentUsed": 99,
     "burnRate": 0,
     "daysRemaining": null,
@@ -7048,9 +7148,9 @@
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 185.39682000000005,
+        "budget": 184.49682000000004,
         "spent": 184.49682000000004,
-        "remaining": 0.9000000000000057,
+        "remaining": 0,
         "percentUsed": 100
       },
       {
@@ -7105,35 +7205,45 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "May 16",
-    "rangeStart": "Jan 26",
-    "rangeEnd": "Sep 5",
+    "likelyDate": "May 26",
+    "rangeStart": "Feb 2",
+    "rangeEnd": "Sep 16",
     "velocityWeeks": 5,
     "storiesPerWeek": 0.6,
-    "pointsPerWeek": 2.7
+    "pointsPerWeek": 2.6
   },
   "trends": {
     "dates": [
       "2026-10-03T02:24:51.406Z",
       "2026-11-06T05:38:48.389Z",
-      "2026-11-06T07:06:42.489Z"
+      "2026-11-06T07:06:42.489Z",
+      "2026-11-06T16:07:34.581Z",
+      "2026-11-06T20:16:40.988Z"
     ],
     "doneCounts": [
       0,
       2,
+      3,
+      3,
       3
     ],
     "totalStories": [
       13,
+      65,
+      65,
       65,
       65
     ],
     "aiCosts": [
       54.2322,
       799.4862,
+      799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
+      null,
       null,
       null,
       null
@@ -7141,14 +7251,20 @@
     "velocity": [
       0,
       8,
+      13,
+      13,
       13
     ],
     "openBugs": [
       0,
       4,
+      4,
+      4,
       4
     ],
     "atRisk": [
+      0,
+      0,
       0,
       0,
       0
@@ -7156,17 +7272,23 @@
     "inputTokens": [
       3089930,
       33019880,
+      33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
+      5997518,
       5997518,
       5997518
     ],
     "avgRisk": [
       1.0999999999999999,
       1.1380952380952383,
-      1.1387096774193552
+      1.1387096774193552,
+      1.1387096774193552,
+      1.1435483870967746
     ],
     "velocityByWeek": {
       "labels": [

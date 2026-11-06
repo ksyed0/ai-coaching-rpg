@@ -198,3 +198,42 @@ test("Axe: the closed, old_schema, throttled and not_released states of /report"
     await participant.unroute("**/api/v1/report", handler);
   }
 });
+
+// ---- US-0064 part A: the console Report panel's states (launcher stack; the draft is seeded, see report-moderation.spec.ts) ----
+
+test("Axe: the Report panel ready to evaluate, with a refused name, the evaluate confirmation, in review with the subject list, and a subject view with an open edit form", async ({ browser }) => {
+  test.setTimeout(300_000);
+  launcher = await startLauncherStack();
+  const { fac, sessionId } = await endedSession(browser, launcher);
+  contexts.push(fac.context());
+  const report = fac.getByRole("region", { name: "Report", exact: true });
+
+  // not_evaluated: the ready sentence and Evaluate; first with a name the rule refuses (the alert), then with a valid one.
+  await expect(report.getByText("Evaluate this session to draft a report for each player and the group.")).toBeVisible();
+  await report.getByLabel("Your name for the review record").fill("priya console");
+  await expect(report.getByRole("alert")).toBeVisible();
+  await checkAt(fac, "the Report panel with a refused name");
+  await report.getByLabel("Your name for the review record").fill("priya");
+  await expect(report.getByRole("button", { name: "Evaluate…" })).toBeEnabled();
+  await checkAt(fac, "the Report panel ready to evaluate");
+
+  // The confirmation dialog (cancelled: this test spends nothing).
+  await report.getByRole("button", { name: "Evaluate…" }).click();
+  await expect(fac.getByRole("dialog")).toContainText("makes up to 8 model calls");
+  await checkAt(fac, "the evaluate confirmation");
+  await fac.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+  await expect(fac.getByRole("dialog")).toHaveCount(0);
+
+  // in_review: the run summary and the subject list (the seed opens the review), then bob's view, then its edit form.
+  await seedDraft(launcher, sessionId);
+  await fac.reload();
+  await expect(report.getByText("The reports are drafted and the review is open.")).toBeVisible();
+  await expect(report.getByRole("button", { name: "Review Bob" })).toBeVisible();
+  await checkAt(fac, "the Report panel in review with the subject list");
+  await report.getByRole("button", { name: "Review Bob" }).click();
+  await expect(report.getByRole("button", { name: "Edit Discovery" })).toBeEnabled();
+  await checkAt(fac, "the subject view");
+  await report.getByRole("button", { name: "Edit Discovery" }).click();
+  await expect(report.getByLabel("Reason (required)")).toBeVisible();
+  await checkAt(fac, "the subject view with an open edit form");
+});

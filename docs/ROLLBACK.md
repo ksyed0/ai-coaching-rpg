@@ -292,3 +292,37 @@ Rollback trigger: a participant write lands under the wrong role, the control se
 
 ### Rolling forward again
 Redeploy this slice. A review opened by the older build is `/1` and answers old-schema to web writes; the facilitator takes the rating in the terminal, or re-runs `moderate open` for a new review.
+
+## US-0064: evaluate and review from the console (slice 2c-3 part A)
+
+```
+Release: unreleased (feature/EPIC-0002-US-0064-report-moderation-web, PR A)
+Date: not deployed
+Rollback trigger: an evaluate started from the console spends when it should not (a second run, a run nobody confirmed), a console edit lands in the wrong review or under the wrong name, the Report panel breaks an ended session's page, or the report routes must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No schema change.** Reviews are still `acr.review/2`; a console write is an ordinary facilitator event whose `by` is `<name>-console`. `pnpm moderate` reads and continues a review opened or edited from the console, and a build without the console routes reads it too.
+- **Evaluate writes what `pnpm evaluate --out "$CONTROL_DATA_DIR/reports"` writes:** a `<session id>` folder (or `<id>-N`) under `<CONTROL_DATA_DIR>/reports`, which control then opens with the typed name. Nothing else is written there.
+- **One new file:** `<CONTROL_DATA_DIR>/report-jobs.json` (mode 0600, written atomically): per session the job state, start time, folder name and model-call count, never a key. Older builds ignore it. Deleting it while no evaluate runs loses only the panel's "failed" and "model calls" lines; the drafts and reviews are untouched.
+- **One new setting:** `REPORT_EVALUATE_MARGIN_MS` (0 to 3600000, default 120000; `.env.example`). An older control service does not read it.
+- **New routes:** control `/sessions/:id/report...` (overview, evaluate, cancel, open, subject view, edit, accept, comment, edit-summary) and the web app's `/api/v1/console/sessions/:id/report...`. The console's "No reports are ready" sentence now points to the Report panel.
+
+### Removing an orphan report folder by hand
+
+The Report panel says "A report folder for this session is damaged" when a folder for the session has an incomplete draft set (or drafts that do not load) and no review: what a hard kill during the evaluator's brief write can leave. Control never reuses, deletes or evaluates over it, so Evaluate is not offered until it is gone.
+
+1. Make sure no evaluate is running for that session (the panel does not say "Evaluating…"); if one is, Cancel it or wait.
+2. Find the folder: `ls "$CONTROL_DATA_DIR/reports" | grep '^<session id>'` lists `<session id>` and any `<session id>-N`. The orphan is the one **without** a `review.jsonl`. **Never remove a folder that has a `review.jsonl`**: that is a review (it is hash-chained and may hold released reports and participants' ratings).
+3. Move it out of the reports directory rather than deleting it, for example `mkdir -p "$CONTROL_DATA_DIR/orphans" && mv "$CONTROL_DATA_DIR/reports/<folder>" "$CONTROL_DATA_DIR/orphans/"`. Delete the moved copy later, once nobody needs it.
+4. Reload the console page: the panel offers Evaluate again (no restart is needed; the overview is read per request).
+
+### Rolling back
+
+1. **Wait for, or cancel, any evaluate that is running** (stopping the control service kills the child: the run is lost, already-spent model calls are not refunded, and a kill during the write can leave an orphan folder; see above).
+2. Redeploy the previous web app and control service together; no data migration. **A build without these routes** has no Report panel (the console shows the participant links panel only, and the old "evaluate and moderate in the terminal" sentence again); the BFF and control answer 404 to the report routes. Reviews opened or edited from the console stay valid and are continued with `pnpm moderate` in `$CONTROL_DATA_DIR/reports/<session id>` (the `-console` names stay in their history). A draft that evaluate wrote but did not open is opened with `pnpm moderate open`. `report-jobs.json` and `REPORT_EVALUATE_MARGIN_MS` are ignored.
+3. **Smoke test:** the console opens an ended session without the Report panel; `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads a review opened from the console.
+
+### Rolling forward again
+Redeploy this slice. The panel reads the reviews and drafts on disk as they are (one opened in the terminal shows as in review); `report-jobs.json` is picked up again, a job it records as running reads as interrupted.

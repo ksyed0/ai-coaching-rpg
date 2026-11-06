@@ -1930,22 +1930,37 @@ Notes: Slice 2c-2 PR 2 (same plan, stacked on feature/EPIC-0002-US-0063-particip
 US-0064 (EPIC-0002): As a facilitator, I want to evaluate, moderate and release reports in the browser, so that I can finish the whole programme in one place.
 Priority: High
 Estimate: XL
-Status: Planned
+Status: In Progress
 Branch: feature/EPIC-0002-US-0064-report-moderation-web
 Dependencies: US-0062, US-0059
 Acceptance Criteria:
-  - [ ] AC-0336: the control service runs evaluate and moderate open on the facilitator behalf and the console shows the run summary and per-person status
-  - [ ] AC-0337: the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate
-  - [ ] AC-0338: release, amend and withdraw show a confirmation that names the subject and audience, and an agent never performs them without the owner naming the subjects
-  - [ ] AC-0339: the run summary shows scenes ended by the Game Master, fallback counts and alerts before release
-  - [ ] AC-0340: an end-to-end test evaluates and releases a report and its owner reads it after the runtime has exited
+  - [x] AC-0336: the control service runs evaluate and moderate open on the facilitator behalf and the console shows the run summary and per-person status (built in slice 2c-3 part A: `ReportJobService` runs the evaluate CLI as a child and opens the review with the typed name, the Report panel shows the run summary and each subject's own state and open items; TC-0135, TC-0137, TC-0139, TC-0140)
+  - [ ] AC-0337: the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate (edit levels, accept, comment and edit-summary built in slice 2c-3 part A over the review library, TC-0136, TC-0138, TC-0139, TC-0140; edit-summary has a route but no console control yet; release, amend, withdraw and export are part B, TASK-0102)
+  - [ ] AC-0338: release, amend and withdraw show a confirmation that names the subject and audience, and an agent never performs them without the owner naming the subjects (part B, TASK-0102)
+  - [x] AC-0339: the run summary shows scenes ended by the Game Master, fallback counts and alerts before release (built in slice 2c-3 part A: the shared `@acr/runtime/run-summary` module and the panel's "How the run went", shown from the moment the review is open; TC-0135, TC-0139, TC-0140)
+  - [ ] AC-0340: an end-to-end test evaluates and releases a report and its owner reads it after the runtime has exited (part B, TASK-0102)
+  - [x] AC-0373: the control service refuses to evaluate a session that already has a draft or review, and never reuses an orphan directory (slice 2c-3 part A; TC-0137, TC-0140)
+  - [x] AC-0374: the facilitator confirms the model spend before evaluate runs, and a stale confirmation is refused (slice 2c-3 part A; TC-0137, TC-0139)
+  - [ ] AC-0375: release takes an explicit list of subjects; an empty list or `all` is refused by the server (part B, TASK-0102)
+  - [ ] AC-0376: export is a `POST` that records the export before serving the file, and nothing is written to the server's disk (part B, TASK-0102)
+  - [ ] AC-0377: the facilitator can resolve a participant's dispute in the browser (part B, TASK-0102)
+  - [x] AC-0378: a stale edit keeps the facilitator's typed text (slice 2c-3 part A; TC-0138, TC-0139, TC-0140)
 ```
 
 ```
 TASK-0093 (US-0064): Browser moderation over the review store and the run summary
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: In Progress
 Branch: feature/EPIC-0002-US-0064-report-moderation-web
-Notes: Spec sections 5.8 and 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). It replaces the terminal steps (`pnpm evaluate --out "$CONTROL_DATA_DIR/reports"`, then `pnpm moderate open` and `release`) that slice 2c-1 documents and that the console names in its fixed "reports are not ready" message; update that message and the README/EVALUATOR note when this lands. The control service already resolves a session's live review including a re-run (`<id>-2`); reuse `@acr/runtime/reports` for reads and add the write path through the review store, not around it.
+Notes: Spec docs/superpowers/specs/2026-11-06-slice-2c-3-facilitator-reports-design.md (addendum to sections 5.8 and 7 of docs/superpowers/specs/2026-10-26-web-client-design.md); plan docs/superpowers/plans/2026-11-06-slice-2c-3-facilitator-reports.md. Slice 2c-3 part A (PR A, this task) is built: the shared run-summary module (demo refactor) and the call bound, the draft-candidate lookup in `@acr/runtime/reports`, `@acr/runtime/moderation` (open, edit with `expect`, accept, comment, edit-summary, closed results), the control service's `ReportJobService` (evaluate as a child with a sanitised environment, one run across the service, confirmation, repeat guard, cancel, overall timeout, interrupted and orphan states) and `ModerationService` with the control routes, the BFF routes under `/api/v1/console/sessions/:id/report`, the console Report panel (author name, evaluate card and confirmation, run summary, subject list, subject view), the part A e2e and Axe, and docs/THREAT_MODEL.md "Facilitator moderation". The fixed "reports are not ready" message now points to the Report panel. Release, amend, withdraw, resolve and export stay in the terminal until part B (TASK-0102).
+```
+
+```
+TASK-0102 (US-0064): Browser release and close-out: release, amend, withdraw, resolve and export
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0064-report-release-web (stacked on feature/EPIC-0002-US-0064-report-moderation-web)
+Notes: Slice 2c-3 part B (PR B), same spec and plan as TASK-0093. `release` with an explicit list of subjects (empty and `all` refused), `amend` and `withdraw` with a required reason, `resolve` (upheld, amended after an amend, declined), `export` as a `POST` that records the event first and returns the Markdown as an attachment (`console-download`, nothing written to disk); the release bar and dialogs that name each subject's audience from the visibility policy; the part B e2e (release, the participant reads with the runtime gone, amend, withdraw, resolve, export) with Axe on the dialogs; the README terminal steps for release, amend, withdraw and export replaced; the close-out docs. Covers AC-0337 (rest), AC-0338, AC-0340, AC-0375 to AC-0377. Carried from part A: release refusal codes (`unknown_subject` for unknown ids, `not_editable` for non-draft or amending subjects, `blocked` only for gate problems).
 ```

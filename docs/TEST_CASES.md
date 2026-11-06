@@ -2079,3 +2079,92 @@ Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2c-2, PR 2. The end-to-end behaviour is TC-0133; the control and runtime write side is TC-0127 to TC-0132.
 
+TC-0135: The run summary and the evaluation call bound come from one shared module, and the demo keeps its narration
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0336, AC-0339
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/run-summary/__tests__/evidence.test.ts src/run-summary/__tests__/bound.test.ts src/run-summary/__tests__/bound-log.test.ts src/demo/__tests__/live-evidence.test.ts` (the moved pure evidence collector: scenes the Game Master ended, fallback against real replies per character, facilitator alerts with sanitised reasons and no code, token or fact text; `evaluationCallBound` is 2 x (human players + 1) with a group rubric, adds no group call without group criteria and excludes AI-filled roles; `evaluationCallBoundFromLog` reads the log, scenario and rubrics and is null for a missing log, a missing scenario or invalid rubrics; `runSummaryFromLog` is null for a missing log or scenario and reads a recorded log; the demo test keeps only its narration).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: runtime 4 files, 72 tests (62, 5, 3 and 2), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. The panel that shows the summary is TC-0139 and TC-0140. The bound is an upper bound: the evaluator skips the group call below its minimum of utterances.
+
+TC-0136: The moderation library (part A) reads a review for the console and writes open, edit, accept, comment and edit-summary through the review lock
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0337, AC-0378
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/moderation/__tests__/read.test.ts src/moderation/__tests__/result.test.ts src/moderation/__tests__/write-a.test.ts` (status per subject with open criteria, open disputes, `evaluationOk` and `tableStale`; the subject view carries only its listed fields, with control characters and secrets stripped; an unknown subject is `unknown_subject`; `toModResult` maps busy, usage, coded and plain refusals and corrupt logs in a fixed order; `editScore` with a matching `expect` writes `score.edited`, a stale `expect` is `stale` and leaves the file bytes unchanged; accept, comment (feedback visible to the participant only after release) and edit-summary append events that `loadReview` verifies; a held lock is `ReviewBusyError`).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: runtime 3 files, 11 tests (3, 1 and 7), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. Release, amend, withdraw, resolve and export are part B (TASK-0102). These tests prove the library refuses a stale edit; that the page keeps the typed text is TC-0139 and TC-0140.
+
+TC-0137: The evaluate job runs one sanitised child, is confirmed, guarded against repeats, cancellable and bounded in time
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0336, AC-0373, AC-0374
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed (the child is a fake in these tests).
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/report-job.test.ts` (the argv, cwd and absolute paths of the spawn; a second start is `already_running` and another session's is `too_many_running`; a session with a complete draft or a review, an incomplete review included, is `already_evaluated` and spawns nothing; not ended is `not_ended`; a different `confirmedCalls` is `confirm_mismatch`; the output folder is read from the child's JSON and must be a candidate name, `..` refused; progress keeps only allowlisted lines, at most 50; `buildEvalChildEnv` holds nothing outside the allowlist and no `NODE_OPTIONS`; cancel and the overall timeout (clamped per-call timeout, max with `NPC_REPLY_TIMEOUT_MS`, below 2^31-1) kill the child; a cancel after exit does not relabel the run; a persist failure logs one fixed line; on exit 0 `onDone` is called once, and if it throws the overview reads `ready_to_open`; a persisted running state becomes `failed (interrupted)`; shutdown kills the child; a late complete draft is `ready_to_open`, not orphan; an orphan is a candidate whose drafts do not load; `REPORT_EVALUATE_MARGIN_MS` defaults to 120000 within 0 to 3600000; the real spawn wrapper passes exactly the given env).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/main.test.ts` (the report routes are wired and the evaluate child gets the `.env`-merged environment; `close()` stops a running job). From `services/runtime`: `pnpm exec vitest run src/reports/__tests__/candidates.test.ts src/evaluator/__tests__/main-env.test.ts` (the draft-candidate lookup lists `<id>` and `<id>-2`, not `<id>-100`, a symlink or another session, tells complete from incomplete and opened from unopened, and never throws; the evaluator does not read the repo `.env` when `NO_DOTENV=1`).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: control 1 file, 23 tests (step 1); control 1 file, 12 tests, runtime 2 files, 7 tests (5 and 2) (step 2), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. The real evaluate child is run once end to end in TC-0140 (the two-tab double click), on a log the mock evaluator cannot score; scoring is not proven end to end (Task 1 finding).
+
+TC-0138: The moderation service and the control report routes give closed results, cap bodies, require expect and attribute writes to <name>-console
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0337, AC-0373, AC-0378
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/moderation.test.ts` (the actor is `<cleaned name>-console` and the event passes `loadReview`; a name with a space or over 56 characters is `invalid`; a stale `expect` is 409 `stale` and keeps the log bytes; a busy lock is retried 5 times with the injected sleep, then 503 `busy`; a corrupt log, or a valid `review.opened` followed by a bad line, is 503 `unavailable`; a symlinked session log is 404 and never followed; open returns the subject count; the overview's stages (not_evaluated, evaluating, ready_to_open, in_review, orphan) and `confirm.upTo` only when a run may start; no outcome carries a path or a review-layer message).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/moderation-routes.test.ts src/__tests__/participant-writes.test.ts src/__tests__/bots/imports.test.ts` (every route answers with its service and 404s without it; a bad session, subject or criterion id is 404 before the body is read; 413 over 4 KB, 16 KB for comment and edit-summary; unknown keys, wrong types and non-JSON are one 400 `invalid`; edit without `expect` is 400; an invalid name for evaluate starts nothing; a 409 carries only the closed code; busy sets `Retry-After`; `GET evaluate` is 404; the service token is checked first; the shared lock retry still serves the participant writes; the import guard lists the allowed runtime subpaths).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: control 1 file, 14 tests (step 1); control 3 files, 38 tests (14, 21 and 3) (step 2), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. `edit-summary` has a control and BFF route but no console control in part A.
+
+TC-0139: The console Report panel and the BFF report routes behave as specified
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0336, AC-0337, AC-0339, AC-0374, AC-0378
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report` (the evaluate card's states, failed and orphan sentences included; the confirmation shows "up to N model calls" from the server's bound, says cancelling does not refund, and sends N back unchanged with the typed name; polling only while evaluating, and a failed poll keeps polling; the progress list and status line are polite live regions; refusals are the fixed sentence for their code; the run summary, alerts and comments are text, `<b>` stays literal; the subject list shows each subject's own state and open items; Save waits for a reason; a stale edit keeps the typed reason and comment and shows the stale sentence, and after a reload Save sends the new `expect`; writes stay disabled without a valid name; the name rule refuses "Kamal Syed"; the field works when storage is blocked; the panel shows above the participant links only once the session has ended).
+  2. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-report-handlers.test.ts src/__tests__/runtime-imports.test.ts src/__tests__/source-rules.test.ts` (a write without the console cookie is 401; a cross-site write is refused before the throttle counts it; the typed name is forwarded as `by` and nothing from the cookie; bodies that do not fit the route are refused; every closed control code is its own fixed sentence; an unknown code is the generic sentence; busy, unavailable and not found are fixed and control's `Retry-After` is not copied; the 15 s control timeout is 504; over the cap is 413; 61 writes a minute are throttled; the answers are parsed field by field and fail closed on an unknown level, an unsafe id or too much progress; the job's folder is never sent; the report handlers import neither the runtime nor the file system; the author field may use `sessionStorage` only).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: step 1, 4 files, 20 tests; step 2, 3 files, 32 tests (21, 4 and 7), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. The browser behaviour against the real services is TC-0140.
+
+TC-0140: The facilitator reviews a seeded draft in the browser, a stale second tab keeps its text, and a two-tab double click on Evaluate runs one job (Playwright, with Axe)
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0336, AC-0337, AC-0339, AC-0373, AC-0378
+Type: Integration
+Preconditions: As TC-0133 (the Playwright browser, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed, and `next build --webpack` done in `apps/web` first). Each test starts the real control service (`MODEL_PROVIDER=mock`, temporary data directory) and `next start` in launcher mode. The review test seeds the draft with `seedDraft` (the runtime's own evaluate and moderate functions: one opened review, alice released, bob a draft) because the e2e's players never speak and the mock evaluator scores nothing on that log (spec section 11, Task 1 finding).
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test report-moderation axe --trace off`.
+  2. (a) `review in the browser: the seeded draft opens with the run summary and subjects; edit, a stale second tab keeps its text, accept, comment`: before the seed the panel offers Evaluate; after it the stage is in_review (the seed opens the review), with "How the run went" and Review buttons for Alice (Released), Bob (Draft) and Group; tab A saves Discovery at level 3 with a reason; tab B, whose open form still expects level 2, gets the stale sentence while its level choice, reason, rationale and comment stay; Reload keeps the form and says the save now replaces level 3; the edit leaves bob one open item, Accept the summary closes it; a comment with `<b>` shows as literal text.
+  3. (b) `two tabs click Evaluate at once: one job runs, the other is refused, and a later evaluate is already_evaluated`: both tabs confirm "up to 8 model calls" together; exactly one says the evaluation has started and the other gets already running (or already has a draft); the real mock evaluate child finishes and control opens the review; the reports folder holds exactly one folder, `<session id>`; a later evaluate request from the page is 409 `already_evaluated` and adds no folder.
+  4. (c) `Axe: the Report panel ready to evaluate, with a refused name, the evaluate confirmation, in review with the subject list, and a subject view with an open edit form`: each at 1280 and 400 px in light and dark (serious and critical, WCAG 2 A and AA, no horizontal scroll). The four earlier Axe specs in `axe.spec.ts` are run too.
+Expected Result: All pass, zero violations.
+Actual Result: As expected, 2026-11-06: 7 tests passed in 1.7 min (2 in `report-moderation.spec.ts`; 5 in `axe.spec.ts`: 4 earlier and the 1 above), on the installed Chromium headless shell 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE` after a fresh `next build --webpack`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. Not covered end to end: a real evaluate that scores (the seeded draft stands in; scoring keeps its evaluator tests), the `evaluating` card with progress and Cancel, the failed and orphan states (unit tests in TC-0137 and TC-0139), and Axe on the running card. The double click proves the one-job guard with the real child and the real routes; which of `already_running` and `already_evaluated` the second tab gets depends on timing, and both are accepted.
