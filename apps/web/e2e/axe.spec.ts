@@ -1,5 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { checkBothSchemes as checkSchemes, noHorizontalScroll as noOverflow } from "./helpers/console";
+import { dismiss, endedSession, issueLink, openPanel, releaseRole, seedDraft } from "./helpers/reports";
+import { startLauncherStack, type LauncherStack } from "./helpers/start-launcher-stack";
 import { joinUrl, playerContext, PLAYERS, say, seat, type Player } from "./helpers/players";
 import { SESSION_ID, startStack, type Stack } from "./helpers/start-stack";
 
@@ -9,7 +12,15 @@ import { SESSION_ID, startStack, type Stack } from "./helpers/start-stack";
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
 
 let stack: Stack | null = null;
-test.afterEach(async () => { await stack?.stop(); stack = null; });
+let launcher: LauncherStack | null = null;
+const contexts: BrowserContext[] = [];
+test.afterEach(async () => {
+  await stack?.stop();
+  stack = null;
+  for (const c of contexts.splice(0)) await c.close().catch(() => undefined);
+  await launcher?.stop();
+  launcher = null;
+});
 
 /** Serious and critical violations only, reduced to what a failure message needs. */
 async function seriousViolations(page: Page) {
@@ -96,4 +107,94 @@ test("no horizontal scroll at 400 px", async ({ browser }) => {
   await say(pages.tech_lead, `A${"a".repeat(180)}h, said without a single space to break it.`);
   await say(pages.delivery_lead, "A short reply.");
   for (const role of PLAYERS) expect(await noHorizontalScroll(pages[role]), `the session view (${role})`).toEqual({ scroll: 400, client: 400 });
+});
+
+// ---- US-0063: the participant report page's states and the console panel's draft rows (launcher stack, seeded review folders) ----
+
+const WIDTHS = [1280, 400];
+async function checkAt(page: Page, screen: string): Promise<void> {
+  for (const width of WIDTHS) {
+    await page.setViewportSize({ width, height: 860 });
+    await checkSchemes(page, `${screen} (${width}px)`);
+    await noOverflow(page, width);
+  }
+}
+
+/** A draft player's session: ended, one review with bob still a draft, a link issued and opened in a fresh participant context. */
+async function draftParticipant(browser: Browser): Promise<{ fac: Page; participant: Page; sessionId: string; link: string }> {
+  const l = launcher!;
+  const { fac, sessionId } = await endedSession(browser, l);
+  contexts.push(fac.context());
+  await seedDraft(l, sessionId);
+  await openPanel(fac, l, sessionId);
+  const link = await issueLink(fac);
+  await dismiss(fac);
+  const ctx = await browser.newContext({ extraHTTPHeaders: { "X-Forwarded-For": "127.0.0.1" }, viewport: { width: 1280, height: 860 } });
+  contexts.push(ctx);
+  const participant = await ctx.newPage();
+  await participant.goto(link);
+  await participant.waitForURL("**/report");
+  await expect(participant.getByRole("button", { name: "Save my ratings" })).toBeVisible();
+  return { fac, participant, sessionId, link };
+}
+
+test("Axe: the self-rating form, its busy error, and the released page with the table, responses and forms; and the console panel with a draft row", async ({ browser }) => {
+  test.setTimeout(300_000);
+  launcher = await startLauncherStack();
+  const { fac, participant, sessionId } = await draftParticipant(browser);
+
+  // The console panel with a draft row (Bob) and a released row (Alice), at both widths in both schemes.
+  await openPanel(fac, launcher, sessionId);
+  await expect(fac.getByText("Rated 0 of 3 criteria")).toBeVisible();
+  await checkAt(fac, "the report links panel with a draft row");
+
+  // The form as it first opens, then with choices and a note, then with the save error summary the busy answer produces.
+  await checkAt(participant, "the self-rating form");
+  await participant.getByRole("group", { name: "Discovery", exact: true }).getByRole("radio", { name: /^Developing/ }).check();
+  await participant.getByRole("group", { name: "Discovery", exact: true }).getByLabel("Note (optional)").fill("A note so the counter has a value.");
+  await checkAt(participant, "the self-rating form with a note");
+
+  // The busy state is hard to produce through the real stack (it needs a held review lock), so the BFF's answer is intercepted.
+  await participant.route("**/api/v1/report/self-ratings", (route) =>
+    route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ success: false, data: { state: "busy" }, error: { code: "busy", message: "" } }) }),
+  );
+  await participant.getByRole("button", { name: "Save my ratings" }).click();
+  await expect(participant.locator("[role=alert].banner")).toContainText("Busy, try again");
+  await checkAt(participant, "the self-rating form (busy)");
+  await participant.unroute("**/api/v1/report/self-ratings");
+
+  // Released, with a response and a dispute on the page: the table, the responses list and the response form.
+  await releaseRole(launcher, sessionId);
+  await participant.reload();
+  await expect(participant.getByRole("heading", { name: "Your report" })).toBeVisible();
+  const respond = participant.getByRole("form", { name: "Send a response" });
+  await respond.getByLabel("Your response").fill("I disagree with the level on this one.");
+  await respond.getByRole("checkbox", { name: "I disagree with this" }).check();
+  await respond.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(participant.getByText("1 of 50 used")).toBeVisible();
+  await checkAt(participant, "the released report with the table, responses and forms");
+});
+
+test("Axe: the closed, old_schema, throttled and not_released states of /report", async ({ browser }) => {
+  test.setTimeout(300_000);
+  launcher = await startLauncherStack();
+  const { participant } = await draftParticipant(browser);
+
+  // These states are hard to produce through the real stack (a closed or old-schema review needs a different seeded log, throttling
+  // needs a burst of reads), so the BFF's GET /api/v1/report answer is intercepted in the browser with the fixed body control would give.
+  const states: { name: string; status: number; body: unknown; text: RegExp }[] = [
+    { name: "closed", status: 200, body: { success: true, data: { state: "closed" }, error: null }, text: /Ratings for this review are closed/ },
+    { name: "old_schema", status: 200, body: { success: true, data: { state: "old_schema" }, error: null }, text: /opened before online ratings/ },
+    { name: "not_released", status: 200, body: { success: true, data: { state: "not_released" }, error: null }, text: /not available right now/ },
+    { name: "throttled", status: 429, body: { success: false, data: null, error: { code: "throttled", message: "" } }, text: /Too many requests/ },
+  ];
+  for (const st of states) {
+    const handler = (route: import("@playwright/test").Route) =>
+      route.fulfill({ status: st.status, contentType: "application/json", headers: st.status === 429 ? { "Retry-After": "30" } : {}, body: JSON.stringify(st.body) });
+    await participant.route("**/api/v1/report", handler);
+    await participant.reload();
+    await expect(participant.getByRole("status")).toContainText(st.text);
+    await checkAt(participant, `/report ${st.name}`);
+    await participant.unroute("**/api/v1/report", handler);
+  }
 });
