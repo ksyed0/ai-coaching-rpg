@@ -11,7 +11,7 @@ Success: AC-0336 to AC-0340, plus the added criteria in section 9. A facilitator
 **Decisions fixed with the owner (2026-11-06):**
 - One spec, two PRs: **A** evaluate and review, **B** release and close-out.
 - Evaluate runs as a **child process** of the control service (the existing CLI, sanitised environment). Moderation runs **in-process** over the review library.
-- Browser actions are recorded with the existing attested actor: the facilitator types a name once per console session, the control service cleans it like `--by` and appends ` (console)`. **No schema bump.**
+- Browser actions are recorded with the existing attested actor: the facilitator types a name once per console session, the control service cleans it like `--by` (1 to 56 letters, digits, `_` or `-`, because the chain accepts only safe ids) and appends `-console`, so the actor reads `priya-console`. **No schema bump.**
 - The UI is a **Report panel group on the session console**, shown once the session has ended. No cross-session reports screen.
 - Export is a **Markdown download**; PDF is the browser's own "Save as PDF" through the existing print stylesheet. No server-side PDF.
 
@@ -40,15 +40,17 @@ Success: AC-0336 to AC-0340, plus the added criteria in section 9. A facilitator
 
 **Run.** Control spawns the existing evaluate CLI with `--json -`, reading the real output directory from its JSON (not guessing `<id>` or `<id>-2`). The child gets the sanitised environment pattern of `child-env.ts` plus the model settings; the model key goes only to the child. Control stores, per session: state (`idle`, `running`, `done`, `failed`), `startedAt`, the exit code, and a **capped tail of progress lines** (no raw log text, scrubbed). It never stores keys.
 
-**Confirmation.** The start request carries `confirmedCalls: n`. The server computes its own bound with the same function the dialog uses and refuses a different `n`. Open item: whether an honest upper bound exists before a run (roles plus the group, times retries) is checked in the plan. If it does not, the dialog confirms the roster and the model name and the request carries `confirmedRoster` instead. The exact count appears only after the run (`modelCalls`, as `summaryLines` prints it).
+**Confirmation.** The start request carries `confirmedCalls: n`. The server computes its own bound with the same function the dialog uses and refuses a different `n`. The bound is `2 × (human players + 1 if the group rubric has criteria)` (each ask makes at most 2 calls; AI-filled roles are not asked); transport retries are not counted. The request carries `confirmedCalls`; the overview returns the bound as `confirm.upTo` when the stage is ready. The exact count appears only after the run (`modelCalls`, as `summaryLines` prints it).
 
-**Limits.** One running evaluate across the service. An overall timeout (the CLI's `EVAL_TIMEOUT_MS` per call plus a margin). Cancel sends a signal to the child; money already spent is not refunded, and the dialog says so.
+**Limits.** One running evaluate across the service. An overall timeout of `bound × EVAL_TIMEOUT_MS + REPORT_EVALUATE_MARGIN_MS` (margin default 120,000), not a fixed figure. Cancel sends a signal to the child; money already spent is not refunded, and the dialog says so.
 
-**Restart.** A control restart mid-run marks the job `failed (interrupted)`. The CLI writes only after the model calls finish and removes its own partial directory on a write failure, so an interruption in the long phase leaves nothing. A hard kill during the brief write could leave an orphan directory without a review; on start, control reports any report directory without a review as an orphan and **never silently reuses it**.
+**Open after evaluate.** The start request carries the typed name; when the child exits 0, control opens the review at once with it (AC-0336 "runs evaluate and moderate open"). If the open fails the stage is `ready_to_open` and the console offers Open. Control finds the draft with a draft-candidate lookup (`<id>` or `<id>-N` holding the session's draft files, with or without a `review.jsonl`), exported from `@acr/runtime/reports`; the job state persists `outputDir` and `modelCalls`.
+
+**Restart.** A control restart mid-run marks the job `failed (interrupted)`. The CLI writes only after the model calls finish and removes its own partial directory on a write failure, so an interruption in the long phase leaves nothing. A hard kill during the brief write could leave an orphan directory without a review; an orphan is a candidate directory whose draft set is incomplete or fails to load. The overview carries `orphan: true` with a fixed sentence pointing at the ROLLBACK step (remove the folder by hand); control never reuses it. A late valid draft from a child that outlived a hard kill reads `ready_to_open`, not orphan. Control's shutdown kills the child.
 
 ## 4. Run summary (AC-0339)
 
-Scenes ended by the Game Master, fallback counts (canned lines against real replies), and facilitator alerts with their reasons, shown before release.
+Scenes ended by the Game Master (`scene.exited` with `reason: "gm_detects"`), fallback counts (canned lines against real replies), and facilitator alerts with their reasons, shown before release.
 
 The logic exists as `narrateRunSummary`/`collectLiveEvidence` in `demo/` (US-0023), and `collectLiveEvidence(events, scenario, opts)` is a pure function over session events. As with the AI-player bot in 2b, the plan **moves the pure part into a shared module** that the demo and the control service both use; the demo keeps only its narration. Open item: confirm in the plan that it separates cleanly (no demo-only context). Counts and sanitised reasons only; no code, token or fact text, as US-0023 already requires. Text is rendered as text.
 
@@ -56,7 +58,7 @@ The logic exists as `narrateRunSummary`/`collectLiveEvidence` in `demo/` (US-002
 
 All run in-process over the review library with its lock, gate rules and hash chain. Results are a **closed union**: `ok`, `refused` with a fixed code, `busy`, `invalid`; nothing from the review layer's text reaches the browser. A held `review.lock` is retried with backoff (as `ParticipantWriteService`), then `busy`.
 
-**Author.** The request carries the typed name; control validates and cleans it (same rules as `--by`) and appends ` (console)`. The BFF takes it from the body, not from the cookie. Anyone with the shared secret can type any name; this is documented in the threat model, not solved here.
+**Author.** The request carries the typed name; control validates it with the `--by` rule (a safe id: letters, digits, `_`, `-`; at most 56 characters so the `-console` suffix fits the chain's 64) and appends `-console`. The console field states the rule; a name with a space is refused with a fixed sentence. The BFF takes it from the body, not from the cookie. Anyone with the shared secret can type any name; this is documented in the threat model, not solved here.
 
 **Part A:** `open`, `edit` (level, reason, optional rationale; carries `--expect <level>` so two open tabs cannot overwrite each other), `accept` (a criterion or the summary), `comment` (optionally per criterion, optionally feedback to the participant), `edit-summary`.
 
@@ -64,9 +66,9 @@ All run in-process over the review library with its lock, gate rules and hash ch
 - `release`: takes an **explicit list of subjects**. An empty list and an `all` flag are refused by the server. The UI's "release everything" sends the full list it shows. All-or-nothing: every open item must be resolved first; a refusal names which subjects are blocked by a fixed code.
 - `amend` and `withdraw`: a reason is required. `withdraw` cannot be undone, and the dialog says so.
 - `resolve`: outcome `upheld`, `amended` or `declined` with a reason shown to the participant. `amended` needs an amend of that report first; the UI offers them in that order.
-- `export`: a **`POST`**, not a `GET`, because it records the export event in the chain before it serves the file (as the CLI does). It returns the Markdown as an attachment with a fixed safe filename and `no-store`. Subject is a role, `group` or `index`; audience is the facilitator view or `participant:<role>`. Nothing is written to the server's disk.
+- `export`: a **`POST`**, not a `GET`, because it records the export event in the chain before it serves the file (as the CLI does). It returns the Markdown as an attachment with a fixed safe filename and `no-store`. The event's destination label is `console-download`. Subject is a role, `group` or `index`; audience is the facilitator view or `participant:<role>`. Nothing is written to the server's disk.
 
-**Stage and state.** There is no global "released" stage. The report stage stops at `in_review`; each subject carries its own state (`draft`, `in review`, `released`, `amended`, `withdrawn`).
+**Stage and state.** There is no global "released" stage. The report stage is `not_ended`, `not_evaluated`, `evaluating`, `failed`, `ready_to_open` or `in_review`; each subject carries its own state (`draft`, `released`, `amending`, `withdrawn`, the review library's names).
 
 ## 6. Console UI
 
@@ -88,7 +90,7 @@ The Report panel group on the session console, shown when the session has ended;
 ## 7. Threat-model changes
 
 A new section **"Facilitator moderation"** in `docs/THREAT_MODEL.md`:
-- One shared facilitator secret; the typed name and ` (console)` marker are labels, not identity.
+- One shared facilitator secret; the typed name and `-console` marker are labels, not identity.
 - A click can spend model budget: one global evaluate slot, an explicit confirmation, a repeat guard, cancel.
 - The evaluate child gets a sanitised environment; the model key does not reach the control process's other children.
 - Cross-site writes are refused before any throttle; export is a `POST`.
@@ -99,7 +101,7 @@ Also: `docs/ID_REGISTRY.md`, `RELEASE_PLAN.md` (US-0064, TASK-0093 and any new t
 
 ## 8. Tests
 
-**Unit and service.** Job lifecycle (start, progress cap, done, failed, cancel kills the child, a second start refused, `already_evaluated`); a control restart marks a running job interrupted and reports an orphan; the closed result union; `--expect` stale refusal; release refused for an empty list, for `all`, and while open items remain (nothing written); withdraw and amend require a reason; export records the event first and serves the file; author cleaning and the ` (console)` suffix; per-route body caps; the confirmation re-check.
+**Unit and service.** Job lifecycle (start, progress cap, done, failed, cancel kills the child, a second start refused, `already_evaluated`); a control restart marks a running job interrupted and reports an orphan; the closed result union; `--expect` stale refusal; release refused for an empty list, for `all`, and while open items remain (nothing written); withdraw and amend require a reason; export records the event first and serves the file; author cleaning and the `-console` suffix; per-route body caps; the confirmation re-check.
 
 **Boundary.** The BFF imports no review code and holds no review data (import guard); no path or control text appears in any BFF error.
 
@@ -131,9 +133,6 @@ PR A ships alone and is useful (the facilitator evaluates and reviews in the bro
 
 ## 11. Open items settled at the start of the plan
 
-1. The ended session's log path and readability.
-2. Whether an honest pre-run model-call bound exists.
-3. Whether the run-summary logic separates cleanly from `demo/`.
-4. Whether the scripted evaluator scores an e2e-played session.
+Settled by the Opus review (2026-11-06): the ended log stays at `<sessionsDir>/<id>.jsonl`; the call bound is the formula in section 3; the run summary separates cleanly and the Game Master signal exists. Still open, settled in the plan's Task 1: whether the scripted evaluator scores an e2e-played session.
 
 Each has a named fallback above; none changes the design if it fails.
