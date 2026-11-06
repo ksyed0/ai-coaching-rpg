@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ResponsesList, parseResponses } from "../ResponsesList";
@@ -25,6 +27,16 @@ describe("ResponsesList", () => {
     expect(screen.getByText("General remark")).toBeTruthy();
     expect(container.querySelector("img")).toBeNull();
     expect(screen.getAllByText(/Outcome:/)).toHaveLength(3);
+  });
+  it("the response text carries the class whose rule keeps line breaks and wraps long words", () => {
+    const { container } = render(<ResponsesList items={parseResponses([{ text: "line one\nline two", dispute: false }], [])} />);
+    const el = screen.getByText(/line one/);
+    expect(el.classList.contains("report-text")).toBe(true);
+    expect(el.textContent).toBe("line one\nline two");
+    const css = readFileSync(join(__dirname, "../../lib/app.css"), "utf8");
+    expect(css).toMatch(/(^|\n)\.report-text\s*\{[^}]*white-space:\s*pre-wrap[^}]*overflow-wrap:\s*anywhere/);
+    expect(css).toMatch(/table\.compare td[^{]*\{[^}]*white-space:\s*pre-wrap/);
+    expect(container).toBeTruthy();
   });
   it("says so when there are none", () => {
     render(<ResponsesList items={[]} />);

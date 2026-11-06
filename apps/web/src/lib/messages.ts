@@ -69,6 +69,7 @@ export const MESSAGES = {
   respondDispute: "I disagree with this",
   respondSend: "Send",
   respondSending: "Sending…",
+  ratingsSavedReload: "Saved. Reload to see it.",
   respondSentReload: "Sent. Reload to see it.",
   respondBusy: "Busy, try again",
   respondTooMany: "You have used all 50 responses.",

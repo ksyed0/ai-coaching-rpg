@@ -117,6 +117,14 @@ describe("ReportView draft, closed and old-schema states", () => {
     expect(screen.getByRole("button", { name: "Save my ratings" })).toBeTruthy();
   });
 
+  it("a saved Not observed and a saved level come back pre-checked", async () => {
+    const two = { ...FORM, criteria: [{ id: "c1", name: "Listening" }, { id: "c2", name: "Framing" }], existing: { c1: { level: 2 }, c2: { level: "na" } } };
+    view(async () => json(200, { success: true, error: null, data: { state: "self_assess", availableUntil: UNTIL, ...two } }));
+    const l = await screen.findByRole("group", { name: "Listening" });
+    expect((within(l).getByRole("radio", { name: /Developing/ }) as HTMLInputElement).checked).toBe(true);
+    expect((within(screen.getByRole("group", { name: "Framing" })).getByRole("radio", { name: /Not observed/ }) as HTMLInputElement).checked).toBe(true);
+  });
+
   it("closed and old_schema read their fixed sentences", async () => {
     view(async () => json(200, { success: true, error: null, data: { state: "closed" } }));
     await waitFor(() => expect(status()).toBe("Ratings for this review are closed."));

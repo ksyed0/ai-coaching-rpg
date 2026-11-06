@@ -99,8 +99,14 @@ export function SelfRatingForm({ form, fetch: fetchImpl, onSaved, onRefused }: S
     setSaving(false);
     if (res.ok) {
       clearDraft();
+      // Saved, but the BFF's re-read failed: keep the form (as ResponseForm does) and ask for a reload instead of showing "could not load".
+      const d = res.data;
+      if (typeof d === "object" && d !== null && (d as { state?: unknown }).state === "retry") {
+        setNotice({ kind: "saved", text: MESSAGES.ratingsSavedReload });
+        return;
+      }
       setNotice({ kind: "saved", text: MESSAGES.ratingsSaved });
-      onSaved(res.data);
+      onSaved(d);
       return;
     }
     const state = typeof res.data === "object" && res.data !== null ? (res.data as { state?: unknown }).state : undefined;

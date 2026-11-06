@@ -74,6 +74,17 @@ describe("SelfRatingForm", () => {
     expect(stored()).toBeNull(); // pre-fill alone is not a touch
   });
 
+  it("a saved-but-retry answer says to reload, keeps the form mounted and clears the draft", async () => {
+    const { onSaved } = setup({ fetch: async () => json(200, { success: true, error: null, data: { saved: true, state: "retry" } }) });
+    pick("Listening", /Proficient/);
+    expect(stored()).not.toBeNull();
+    await save();
+    expect(screen.getByRole("status").textContent).toBe("Saved. Reload to see it.");
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(stored()).toBeNull();
+    expect(screen.getByRole("button", { name: "Save my ratings" })).toBeTruthy();
+  });
+
   it("a stored draft wins over the server's ratings", () => {
     sessionStorage.setItem(KEY, JSON.stringify({ ratings: { c1: { level: 4, note: "draft" } } }));
     setup({ form: { ...FORM, existing: { c1: { level: 1, note: "server" } } } });

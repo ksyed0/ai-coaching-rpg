@@ -90,6 +90,23 @@ describe("participant write routes", () => {
     expect(calls()).toBe(0);
   });
 
+  it("a full-size multi-byte submission passes the body cap; one over the cap is 413", async () => {
+    const emoji = "\u{1F600}".repeat(1500); // four bytes each in UTF-8
+    const ratings = Array.from({ length: 7 }, (_, i) => ({ criterion: `c${i + 1}`, level: 3, note: emoji }));
+    const bytes = new TextEncoder().encode(JSON.stringify({ ratings })).length;
+    expect(bytes).toBeGreaterThan(40_000);
+    expect(bytes).toBeLessThan(64 * 1024);
+    const ok = await handleReportRate(rateReq({ ratings }), deps);
+    expect(ok.status).toBe(200);
+    expect(launcher.rateReport).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(launcher.rateReport.mock.calls[0])).toContain(emoji);
+    const over = await parts(await handleReportRate(rateReq({ ratings: [{ criterion: "c1", level: 3, note: "\u{1F600}".repeat(17_000) }] }), deps));
+    expect(over.status).toBe(413);
+    expect(over.json.data).toEqual({ state: "too_large" });
+    expect((await handleReportRespond(respondReq({ text: "\u{1F600}".repeat(4_200) }), deps)).status).toBe(413); // 16,800 bytes
+    expect(launcher.rateReport).toHaveBeenCalledTimes(1);
+  });
+
   it("no cookie, forged cookie or other-audience cookie is the neutral 404", async () => {
     const { Cookie: _c, ...none } = SAME_SITE;
     for (const h of [none, { ...SAME_SITE, Cookie: `${REPORT_COOKIE}=forged` }, { ...SAME_SITE, Cookie: cookie("fac") }]) {

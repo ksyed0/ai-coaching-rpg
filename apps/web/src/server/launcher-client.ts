@@ -231,12 +231,13 @@ function toForm(d: Record<string, unknown>): SelfAssessForm {
       ? { level: c.level, label: c.label, meaning: c.meaning }
       : bad(),
   );
-  const existing: SelfAssessForm["existing"] = {};
-  for (const [k, v] of Object.entries(d.existing)) {
-    if (!isObject(v) || !(v.level === 1 || v.level === 2 || v.level === 3 || v.level === 4 || v.level === "na")) return bad();
+  // Control (and the runtime) store Not observed as `level: null`; the page's own form type calls it "na". A literal "na" is accepted too.
+  const entries = Object.entries(d.existing).map(([k, v]) => {
+    if (!isObject(v) || !(v.level === 1 || v.level === 2 || v.level === 3 || v.level === 4 || v.level === "na" || v.level === null)) return bad();
     if (v.note !== undefined && typeof v.note !== "string") return bad();
-    existing[k] = { level: v.level, ...(v.note !== undefined ? { note: v.note } : {}) };
-  }
+    return [k, { level: v.level === null ? ("na" as const) : v.level, ...(v.note !== undefined ? { note: v.note } : {}) }] as const;
+  });
+  const existing: SelfAssessForm["existing"] = Object.fromEntries(entries); // own keys only; a key such as __proto__ stays a plain data key
   return { criteria, scale, existing };
 }
 

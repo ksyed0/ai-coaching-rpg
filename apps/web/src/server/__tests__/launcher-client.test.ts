@@ -745,6 +745,17 @@ describe("LauncherClient report links", () => {
     }
   });
 
+  it("a saved Not observed arrives from control as level null and parses to na; other odd levels still fail closed", async () => {
+    const form = { criteria: [{ id: "a", name: "A" }], scale: [{ level: 1, label: "Low", meaning: "m" }] };
+    const read = (existing: unknown) => client(fakeFetch(() => reply(envelope({ state: "self_assess", ...form, existing }))).fetch).readReport(SID, "AbCdEfGhIjK");
+    expect(await read({ a: { level: null } })).toEqual({ state: "self_assess", ...form, existing: { a: { level: "na" } } });
+    expect(await read({ a: { level: null, note: "n" } })).toEqual({ state: "self_assess", ...form, existing: { a: { level: "na", note: "n" } } });
+    expect(await read({ a: { level: "na" } })).toEqual({ state: "self_assess", ...form, existing: { a: { level: "na" } } });
+    for (const bad of [{ a: { level: 0 } }, { a: { level: "3" } }, { a: {} }, { a: { level: undefined } }]) {
+      expect((await reasonOf(read(bad))).reason, JSON.stringify(bad)).toBe("failed");
+    }
+  });
+
   it("busy is a known LauncherReason and the server text never passes through", async () => {
     const f = fakeFetch(() => reply(errorEnvelope("busy", "SECRET"), 503));
     const r = await reasonOf(client(f.fetch).readReport(SID, "AbCdEfGhIjK"));
