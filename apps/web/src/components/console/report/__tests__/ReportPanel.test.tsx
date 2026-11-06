@@ -5,7 +5,7 @@ import { FakeClock, FakeEventSource, fakeFetch, fakeTimer, ok, readiness, refuse
 import type { EventSourceCtor } from "../../../../lib/use-session";
 import { SessionConsole } from "../../SessionConsole";
 import { ReportPanel } from "../ReportPanel";
-import { BASE, SID, inReview, job, overview, subjectView } from "./fixtures";
+import { BASE, SID, inReview, job, overview, row, subjectView } from "./fixtures";
 
 beforeEach(() => {
   try { sessionStorage.clear(); } catch { /* none */ }
@@ -81,6 +81,16 @@ describe("ReportPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Review Account manager" }));
     expect(await screen.findByRole("heading", { name: "Account manager" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Clarity" })).toBeTruthy();
+  });
+
+  it("a subject whose evaluation failed opens with the hand-scoring sentence and no Accept on its criteria", async () => {
+    const subjects = [row("account_manager", { evaluationOk: false, scoreByHand: ["clarity"] }), row("group")];
+    mount(inReview(subjects), (url) => (url === `${BASE}/subjects/account_manager` ? { status: 200, body: ok(subjectView()) } : undefined));
+    expect(await screen.findByText("1 open item")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review Account manager" }));
+    expect(await screen.findByText("The evaluation failed for this subject: score each criterion by hand.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Edit Clarity" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Accept Clarity" })).toBeNull();
   });
 });
 

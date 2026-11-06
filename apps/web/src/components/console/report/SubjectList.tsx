@@ -11,8 +11,12 @@ const STATE_PILL: Record<ReportSubjectState, string> = { draft: "pill warn", rel
 
 export const subjectLabel = (id: string): string => (id === "group" ? "Group" : roleLabel(id));
 
-/** Criteria still to review, open disputes, and a stale summary or table. */
-export const openItems = (r: ReportSubjectRow): number => r.openCriteria.length + r.openDisputes + (r.summaryStale ? 1 : 0) + (r.tableStale ? 1 : 0);
+/**
+ * Criteria still to review or to score by hand (each once: release blocks on both, and an accepted criterion of a failed evaluation or
+ * with an invalid level still blocks), open disputes, and a stale summary or table.
+ */
+export const openItems = (r: ReportSubjectRow): number =>
+  new Set([...r.openCriteria, ...r.scoreByHand]).size + r.openDisputes + (r.summaryStale ? 1 : 0) + (r.tableStale ? 1 : 0);
 
 export type SubjectListProps = { subjects: ReportSubjectRow[]; selected: string | null; onSelect: (id: string) => void };
 

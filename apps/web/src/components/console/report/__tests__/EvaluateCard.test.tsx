@@ -72,6 +72,21 @@ describe("EvaluateCard", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
+  it("while evaluating, the polite progress list is in the page before its first line, so that line is announced", () => {
+    const { rerender } = render(<EvaluateCard overview={parseReportOverview(overview({ stage: "evaluating", confirm: null, job: job({ state: "running", startedAt: 1 }) }))!} canWrite pending={false} onEvaluate={vi.fn()} onCancel={vi.fn()} onOpen={vi.fn()} />);
+    const list = screen.getByRole("list", { name: "Evaluation progress" });
+    expect(list.getAttribute("aria-live")).toBe("polite");
+    expect(list.getAttribute("aria-relevant")).toBe("additions");
+    expect(list.children).toHaveLength(0);
+    rerender(<EvaluateCard overview={parseReportOverview(overview({ stage: "evaluating", confirm: null, job: job({ state: "running", startedAt: 1, progress: ["evaluating the team"] }) }))!} canWrite pending={false} onEvaluate={vi.fn()} onCancel={vi.fn()} onOpen={vi.fn()} />);
+    // the same element, now with its first line
+    expect(screen.getByRole("list", { name: "Evaluation progress" })).toBe(list);
+    expect(list.textContent).toBe("evaluating the team");
+    cleanup();
+    render(<EvaluateCard overview={parseReportOverview(overview())!} canWrite pending={false} onEvaluate={vi.fn()} onCancel={vi.fn()} onOpen={vi.fn()} />);
+    expect(screen.queryByRole("list", { name: "Evaluation progress" })).toBeNull();
+  });
+
   it("the confirm dialog shows \"up to N calls\" from overview.confirm.upTo, says money already spent is not refunded on Cancel, and sends N back unchanged with the typed name", () => {
     const onConfirm = vi.fn();
     render(<EvaluateConfirmDialog upTo={8} name="kamal" pending={false} opener={null} onConfirm={onConfirm} onCancel={() => {}} />);

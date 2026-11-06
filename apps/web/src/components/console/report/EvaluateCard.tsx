@@ -36,13 +36,12 @@ export function EvaluateCard({ overview: o, canWrite, pending, onEvaluate, onCan
       {o.stage === "evaluating" ? (
         <>
           <p>{REPORT_CONSOLE.running}</p>
-          {o.job.progress.length > 0 ? (
-            <ol className="console-list report-progress small mono" aria-live="polite" aria-relevant="additions" aria-label="Evaluation progress">
-              {o.job.progress.map((line, i) => (
-                <li key={i}>{line}</li>
-              ))}
-            </ol>
-          ) : null}
+          {/* always in the page while evaluating (empty at first): a live region added together with its first line is not announced */}
+          <ol className="console-list report-progress small mono" aria-live="polite" aria-relevant="additions" aria-label="Evaluation progress">
+            {o.job.progress.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ol>
           <div>
             <button className="btn danger" type="button" disabled={pending} onClick={onCancel}>
               Cancel evaluation

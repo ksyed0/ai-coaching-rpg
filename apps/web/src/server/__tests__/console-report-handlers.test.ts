@@ -177,12 +177,17 @@ describe("console report handlers", () => {
   });
 
   it("every closed control code reaches the browser as its own fixed sentence and 409", async () => {
-    for (const code of ["not_ended", "already_evaluated", "already_running", "too_many_running", "confirm_mismatch", "no_review", "unknown_subject", "unknown_criterion", "stale", "blocked", "not_released", "not_editable", "superseded", "needs_amend", "refused"] as const) {
+    for (const code of ["not_ended", "already_evaluated", "already_running", "too_many_running", "confirm_mismatch", "orphan", "no_review", "unknown_criterion", "stale", "blocked", "not_released", "not_editable", "superseded", "needs_amend", "refused"] as const) {
       answer = () => refused(409, code);
       const res = await handleConsoleReportOpen(post("/open", { by: "priya" }), deps);
       expect([code, res.status]).toEqual([code, 409]);
       expect((await json(res)).error).toEqual({ code, message: REPORT_REFUSALS[code] });
     }
+    expect(REPORT_REFUSALS.orphan).toBe("A report folder for this session is damaged. See the rollback notes to remove it, then evaluate again.");
+    // control answers an unknown subject 404 (as an unknown session), never 409: there is no unknown_subject sentence
+    expect("unknown_subject" in REPORT_REFUSALS).toBe(false);
+    answer = () => refused(409, "unknown_subject");
+    expect((await json(await handleConsoleReportOpen(post("/open", { by: "priya" }), deps))).error).toEqual({ code: "generic", message: REPORT_REFUSALS.generic });
   });
 
   it("stale reaches the browser as the stale sentence only", async () => {
@@ -232,15 +237,19 @@ describe("console report handlers", () => {
 
   it("a body over the cap is 413", async () => {
     const big = (n: number) => JSON.stringify({ reason: "r", by: "priya", pad: "x".repeat(n) });
-    const over4k = await handleConsoleReportEdit(post("/subjects/alice/edit", null, { raw: JSON.stringify({ ...EDIT, rationale: "x".repeat(4096) }) }), deps);
+    const over4k = await handleConsoleReportAccept(post("/subjects/alice/accept", null, { raw: JSON.stringify({ summary: true, by: "priya", pad: "x".repeat(4096) }) }), deps);
     expect(over4k.status).toBe(413);
     expect((await json(over4k)).error).toEqual({ code: "payload_too_large", message: REPORT_REFUSALS.payload_too_large });
+    // an edit's reason (500) and rationale (1,500 characters) in CJK are about 6 KB: edit takes the 16 KB cap, as comment and edit-summary
+    const cjk = (n: number) => "\u8a55".repeat(n);
+    expect((await handleConsoleReportEdit(post("/subjects/alice/edit", { ...EDIT, reason: cjk(500), rationale: cjk(1500) }), deps)).status).toBe(200);
+    expect((await handleConsoleReportEdit(post("/subjects/alice/edit", { ...EDIT, rationale: "x".repeat(16 * 1024) }), deps)).status).toBe(413);
     // comment and edit-summary may carry up to 16 KB
     const okText = await handleConsoleReportComment(post("/subjects/alice/comment", { text: "x".repeat(8000), by: "priya" }), deps);
     expect(okText.status).toBe(200);
     expect((await handleConsoleReportComment(post("/subjects/alice/comment", { text: "x".repeat(16 * 1024), by: "priya" }), deps)).status).toBe(413);
     expect((await handleConsoleReportEditSummary(post("/subjects/alice/edit-summary", null, { raw: big(16 * 1024) }), deps)).status).toBe(413);
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
   });
 
   it("61 writes in a minute from one cookie are throttled", async () => {
@@ -346,9 +355,16 @@ describe("console report: clearer sentences and tighter parsers", () => {
   });
 
   it("subject ids, criterion ids and open criteria must be file-safe ids (fails closed)", async () => {
-    const ROW = { id: "alice", state: "draft", version: 1, criteriaTotal: 2, openCriteria: ["clarity"], summaryStale: false, tableStale: false, evaluationOk: true, selfRated: 0, openDisputes: [] };
+    const ROW = { id: "alice", state: "draft", version: 1, criteriaTotal: 2, openCriteria: ["clarity"], summaryStale: false, tableStale: false, evaluationOk: false, scoreByHand: ["clarity"], selfRated: 0, openDisputes: [] };
     answer = () => good({ ...OVERVIEW, subjects: [ROW] });
-    expect((await handleConsoleReportOverview(get(""), deps)).status).toBe(200);
+    const res = await handleConsoleReportOverview(get(""), deps);
+    expect(res.status).toBe(200);
+    // the facts the panel needs to say a subject is still blocked reach the browser
+    expect(((await json(res)).data as { subjects: unknown[] }).subjects[0]).toMatchObject({ evaluationOk: false, scoreByHand: ["clarity"] });
+    for (const scoreByHand of [["Bad Id"], undefined, "clarity"]) {
+      answer = () => good({ ...OVERVIEW, subjects: [{ ...ROW, scoreByHand }] });
+      expect((await handleConsoleReportOverview(get(""), deps)).status).toBe(502);
+    }
     answer = () => good({ ...OVERVIEW, subjects: [{ ...ROW, openCriteria: ["Bad Id"] }] });
     expect((await handleConsoleReportOverview(get(""), deps)).status).toBe(502);
     for (const v of [{ ...VIEW, id: "../alice" }, { ...VIEW, criteria: [{ ...VIEW.criteria[0]!, id: "<b>" }] }]) {

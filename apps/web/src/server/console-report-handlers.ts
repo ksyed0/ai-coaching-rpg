@@ -17,6 +17,7 @@ import { realTimer } from "./runtime-connection";
 /** Control may be slow: its lock retries (about 1.5 s) and its per-session queue. */
 export const CONTROL_TIMEOUT_MS = 15_000;
 const MAX_BODY_BYTES = 4 * 1024;
+/** edit (a reason and a rationale: about 6 KB in CJK), comment and edit-summary carry free text: 16 KB, as on control. */
 const MAX_TEXT_BODY_BYTES = 16 * 1024;
 const MAX_ITEMS = 50;
 const WRITE_ROLE = "*console-report-write";
@@ -24,7 +25,8 @@ const WRITE_ROLE = "*console-report-write";
 const NAME = /^[A-Za-z0-9_-]{1,56}$/;
 
 const CLOSED: ReadonlySet<string> = new Set([
-  "not_ended", "already_evaluated", "already_running", "too_many_running", "confirm_mismatch", "no_review", "unknown_subject", "unknown_criterion",
+  // no unknown_subject: control answers an unknown subject 404, as an unknown session
+  "not_ended", "already_evaluated", "already_running", "too_many_running", "confirm_mismatch", "orphan", "no_review", "unknown_criterion",
   "stale", "blocked", "not_released", "not_editable", "superseded", "needs_amend", "refused",
 ]);
 
@@ -206,10 +208,10 @@ export const handleConsoleReportCancel = (req: Request, deps: Deps): Promise<Res
 export const handleConsoleReportOpen = (req: Request, deps: Deps): Promise<Response> =>
   write(req, deps, { keys: [], subject: false, named: true, valid: () => true, send: (d, id, _s, _b, by) => d.launcher.reportOpen(id, by) });
 
-/** POST .../report/subjects/:subject/edit { criterion, level, reason, rationale?, expect, by } */
+/** POST .../report/subjects/:subject/edit { criterion, level, reason, rationale?, expect, by } (16 KB) */
 export const handleConsoleReportEdit = (req: Request, deps: Deps): Promise<Response> =>
   write(req, deps, {
-    keys: ["criterion", "level", "reason", "rationale", "expect"], subject: true, named: true,
+    keys: ["criterion", "level", "reason", "rationale", "expect"], max: MAX_TEXT_BODY_BYTES, subject: true, named: true,
     valid: (b) => isStr(b.criterion) && isFileSafeId(b.criterion) && (b.level === null || b.level === 1 || b.level === 2 || b.level === 3 || b.level === 4) && isStr(b.reason) && optStr(b.rationale) && EXPECT.includes(b.expect),
     send: async (d, id, sub, b, by) => {
       await d.launcher.reportEdit(id, sub!, {

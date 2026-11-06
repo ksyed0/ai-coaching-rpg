@@ -6,7 +6,7 @@ export const BASE = `/api/v1/console/sessions/${SID}/report`;
 export const job = (over: Record<string, unknown> = {}) => ({ state: "idle", startedAt: null, progress: [] as string[], modelCalls: null, ...over });
 
 export const row = (id: string, over: Record<string, unknown> = {}) => ({
-  id, state: "draft", version: null, criteriaTotal: 3, openCriteria: [] as string[], summaryStale: false, tableStale: false, evaluationOk: true, selfRated: 0, openDisputes: [] as unknown[], ...over,
+  id, state: "draft", version: null, criteriaTotal: 3, openCriteria: [] as string[], summaryStale: false, tableStale: false, evaluationOk: true, scoreByHand: [] as string[], selfRated: 0, openDisputes: [] as unknown[], ...over,
 });
 
 export const summary = (over: Record<string, unknown> = {}) => ({

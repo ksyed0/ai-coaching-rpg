@@ -66,6 +66,36 @@ describe("SubjectList", () => {
   });
 });
 
+describe("SubjectList: a subject release still blocks", () => {
+  it("the parser carries evaluationOk and scoreByHand, and refuses a row without them", () => {
+    const o = parseReportOverview(inReview([row("account_manager", { evaluationOk: false, scoreByHand: ["clarity", "pace"] })]))!;
+    expect(o.subjects[0]).toMatchObject({ evaluationOk: false, scoreByHand: ["clarity", "pace"] });
+    const { scoreByHand: _s, ...noHand } = row("group");
+    const { evaluationOk: _e, ...noOk } = row("group");
+    expect(parseReportOverview(inReview([noHand]))).toBeNull();
+    expect(parseReportOverview(inReview([noOk]))).toBeNull();
+    expect(parseReportOverview(inReview([row("group", { scoreByHand: [3] })]))).toBeNull();
+  });
+
+  it("criteria to score by hand count as open items, once each, so an accepted failed evaluation never reads \"No open items\"", () => {
+    const subjects = [
+      // the evaluation failed and every criterion was accepted: still three to score by hand
+      row("account_manager", { evaluationOk: false, scoreByHand: ["clarity", "pace", "tone"] }),
+      // an invalid level that was accepted: one by hand
+      row("delivery_lead", { scoreByHand: ["clarity"] }),
+      // open for review AND by hand: counted once
+      row("sales_lead", { openCriteria: ["clarity", "pace"], scoreByHand: ["clarity"] }),
+    ];
+    const o = parseReportOverview(inReview(subjects))!;
+    render(<SubjectList subjects={o.subjects} selected={null} onSelect={() => {}} />);
+    expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Account managerDraft3 open itemsReview",
+      "Delivery leadDraft1 open itemReview",
+      "Sales leadDraft2 open itemsReview",
+    ]);
+  });
+});
+
 describe("AuthorName", () => {
   function Harness({ onChange }: { onChange: (v: string) => void }) {
     return <AuthorName value={valueRef.v} onChange={(v) => { valueRef.v = v; onChange(v); }} />;

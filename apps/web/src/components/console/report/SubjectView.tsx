@@ -24,12 +24,14 @@ export type SubjectViewProps = {
   subject: string;
   /** The valid typed name, or null (then every write is disabled). */
   author: string | null;
+  /** False when the evaluation of this subject failed (from the subject list): every criterion is scored by hand, none accepted. */
+  evaluationOk?: boolean;
   fetch?: typeof fetch;
   /** After a successful write (the panel refreshes its subject list). */
   onChanged?: () => void;
 };
 
-export function SubjectView({ sessionId, subject, author, fetch: fetchImpl, onChanged }: SubjectViewProps) {
+export function SubjectView({ sessionId, subject, author, evaluationOk = true, fetch: fetchImpl, onChanged }: SubjectViewProps) {
   const id = useId();
   const [view, setView] = useState<ReportSubjectDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -115,6 +117,7 @@ export function SubjectView({ sessionId, subject, author, fetch: fetchImpl, onCh
       {view === null ? null : (
         <>
           {!canWrite ? <p className="small muted">{REPORT_CONSOLE.nameNeeded}</p> : null}
+          {!evaluationOk ? <p className="banner warn">{REPORT_CONSOLE.evaluationFailed}</p> : null}
           <div>
             {/* Reload shows the latest levels without clearing an open form (a stale refusal asks for this). */}
             <button className="btn" type="button" disabled={pending} onClick={() => void load()}>
@@ -123,7 +126,7 @@ export function SubjectView({ sessionId, subject, author, fetch: fetchImpl, onCh
           </div>
           <ul className="console-list stack">
             {view.criteria.map((c) => (
-              <CriterionRow key={c.id} criterion={c} canWrite={canWrite} pending={pending} onEdit={edit(c.id)} onAccept={() => accept(c.id)} />
+              <CriterionRow key={c.id} criterion={c} canWrite={canWrite} pending={pending} byHand={!evaluationOk} onEdit={edit(c.id)} onAccept={() => accept(c.id)} />
             ))}
           </ul>
 

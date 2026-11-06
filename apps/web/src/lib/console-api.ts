@@ -232,7 +232,13 @@ export type ReportStage = "not_ended" | "not_evaluated" | "evaluating" | "failed
 export type ReportJobReason = "interrupted" | "timeout" | "cancelled" | "error";
 export type ReportJobView = { state: "idle" | "running" | "done" | "failed"; reason?: ReportJobReason; progress: string[]; modelCalls: number | null };
 export type ReportSubjectState = "draft" | "released" | "amending" | "withdrawn";
-export type ReportSubjectRow = { id: string; state: ReportSubjectState; openCriteria: string[]; openDisputes: number; summaryStale: boolean; tableStale: boolean };
+export type ReportSubjectRow = {
+  id: string; state: ReportSubjectState; openCriteria: string[]; openDisputes: number; summaryStale: boolean; tableStale: boolean;
+  /** False when the evaluation of this subject failed: every criterion is then scored by hand. */
+  evaluationOk: boolean;
+  /** Criteria release requires to be scored by hand (edited); accepting them does not unblock it. */
+  scoreByHand: string[];
+};
 export type ReportRunSummaryView = {
   npcReplies: number; fallbackReplies: number; scenesEndedByGm: number;
   byCharacter: { roleId: string; name: string; replies: number; fallbackReplies: number }[];
@@ -283,8 +289,11 @@ function parseRow(v: unknown): ReportSubjectRow | null {
   const o = obj(v);
   const state = pick(SUBJECT_STATES, o?.state);
   if (!o || !str(o.id) || !state || !strs(o.openCriteria) || !Array.isArray(o.openDisputes)) return null;
-  if (typeof o.summaryStale !== "boolean" || typeof o.tableStale !== "boolean") return null;
-  return { id: o.id, state, openCriteria: o.openCriteria, openDisputes: o.openDisputes.length, summaryStale: o.summaryStale, tableStale: o.tableStale };
+  if (typeof o.summaryStale !== "boolean" || typeof o.tableStale !== "boolean" || typeof o.evaluationOk !== "boolean" || !strs(o.scoreByHand)) return null;
+  return {
+    id: o.id, state, openCriteria: o.openCriteria, openDisputes: o.openDisputes.length, summaryStale: o.summaryStale, tableStale: o.tableStale,
+    evaluationOk: o.evaluationOk, scoreByHand: o.scoreByHand,
+  };
 }
 
 function parseSummary(v: unknown): ReportRunSummaryView | null {

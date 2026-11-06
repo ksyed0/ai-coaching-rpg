@@ -106,8 +106,9 @@ export const REPORT_REFUSALS = {
   already_running: "An evaluation is already running for this session.",
   too_many_running: "Another session is being evaluated. Wait for it to finish, then try again.",
   confirm_mismatch: "The number of model calls changed. Reload the panel and confirm the new number.",
+  // the ROLLBACK step in docs: control refuses to evaluate beside a damaged folder (REPORT_CONSOLE.orphan is this sentence)
+  orphan: "A report folder for this session is damaged. See the rollback notes to remove it, then evaluate again.",
   no_review: "The review has not been opened yet. Open it first.",
-  unknown_subject: "That player or group is not in this report.",
   unknown_criterion: "That criterion is not in this report.",
   stale: "Someone changed this. Reload the level and try again.",
   blocked: "Some reports still have open items. Resolve them, then try again.",
@@ -144,10 +145,11 @@ export const REPORT_CONSOLE = {
     error: "The evaluation failed. Evaluate again.",
   },
   readyToOpen: "The reports are drafted, but the review is not open yet.",
+  evaluationFailed: "The evaluation failed for this subject: score each criterion by hand.",
   done: "The reports are drafted and the review is open.",
   doneCalls: (n: number) => ` The evaluation made ${n} model calls.`,
-  // The ROLLBACK step in docs: remove the damaged folder by hand. Control never reuses it.
-  orphan: "A report folder for this session is damaged. See the rollback notes to remove it, then evaluate again.",
+  // The ROLLBACK step in docs: remove the damaged folder by hand. Control never reuses it, and refuses to evaluate beside it.
+  orphan: REPORT_REFUSALS.orphan,
   confirmTitle: "Evaluate this session?",
   confirmCalls: (n: number) => `This sends the session transcript to the model and makes up to ${n} model calls.`,
   confirmNoRefund: "Cancelling a running evaluation does not refund money already spent on model calls.",

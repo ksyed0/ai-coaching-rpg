@@ -31,8 +31,8 @@ export type LauncherReason =
   | "already_running"
   | "too_many_running"
   | "confirm_mismatch"
+  | "orphan"
   | "no_review"
-  | "unknown_subject"
   | "unknown_criterion"
   | "stale"
   | "blocked"
@@ -162,8 +162,8 @@ const BY_CODE: Record<string, LauncherReason> = {
   already_running: "already_running",
   too_many_running: "too_many_running",
   confirm_mismatch: "confirm_mismatch",
+  orphan: "orphan",
   no_review: "no_review",
-  unknown_subject: "unknown_subject",
   unknown_criterion: "unknown_criterion",
   stale: "stale",
   blocked: "blocked",
@@ -306,7 +306,10 @@ export type ReportStage = "not_ended" | "not_evaluated" | "evaluating" | "failed
 export type SubjectState = "draft" | "released" | "amending" | "withdrawn";
 export type SubjectStatusRow = {
   id: string; state: SubjectState; version: number | null; criteriaTotal: number; openCriteria: string[]; summaryStale: boolean; tableStale: boolean;
-  evaluationOk: boolean; selfRated: number; openDisputes: { seq: number; role: string; criterion: string | null }[];
+  evaluationOk: boolean;
+  /** Criteria release requires to be scored by hand (an evaluation that failed, or an invalid level): accepting them does not unblock it. */
+  scoreByHand: string[];
+  selfRated: number; openDisputes: { seq: number; role: string; criterion: string | null }[];
 };
 export type ReportRunSummary = {
   npcReplies: number; fallbackReplies: number; scenesEndedByGm: number;
@@ -358,10 +361,10 @@ function toJob(v: unknown): ReportJob {
 function toSubjectStatus(v: unknown): SubjectStatusRow {
   if (!isObject(v) || !isStr(v.id) || !isFileSafeId(v.id) || !isStr(v.state) || !SUBJECT_STATES.includes(v.state)) return bad();
   if (!(v.version === null || isCount(v.version)) || !isCount(v.criteriaTotal) || !isFileIds(v.openCriteria) || !isCount(v.selfRated)) return bad();
-  if (typeof v.summaryStale !== "boolean" || typeof v.tableStale !== "boolean" || typeof v.evaluationOk !== "boolean") return bad();
+  if (typeof v.summaryStale !== "boolean" || typeof v.tableStale !== "boolean" || typeof v.evaluationOk !== "boolean" || !isFileIds(v.scoreByHand)) return bad();
   return {
     id: v.id, state: v.state as SubjectState, version: v.version, criteriaTotal: v.criteriaTotal, openCriteria: v.openCriteria,
-    summaryStale: v.summaryStale, tableStale: v.tableStale, evaluationOk: v.evaluationOk, selfRated: v.selfRated,
+    summaryStale: v.summaryStale, tableStale: v.tableStale, evaluationOk: v.evaluationOk, scoreByHand: v.scoreByHand, selfRated: v.selfRated,
     openDisputes: list(v.openDisputes, (d) => (isObject(d) && isCount(d.seq) && isStr(d.role) && (d.criterion === null || isStr(d.criterion)) ? { seq: d.seq, role: d.role, criterion: d.criterion } : bad())),
   };
 }

@@ -10,9 +10,9 @@ afterEach(cleanup);
 const PATH = `${BASE}/subjects/account_manager`;
 const STALE = "Someone changed this. Reload the level and try again.";
 
-function mount(view: unknown, writes: (url: string, body: unknown) => { status: number; body: unknown } = () => ({ status: 200, body: ok({}) }), author: string | null = "kamal") {
+function mount(view: unknown, writes: (url: string, body: unknown) => { status: number; body: unknown } = () => ({ status: 200, body: ok({}) }), author: string | null = "kamal", evaluationOk = true) {
   const f = fakeFetch((url, body) => (body !== undefined ? writes(url, body) : url === PATH ? { status: 200, body: ok(view) } : { status: 404, body: refused("not_found", "x") }));
-  render(<SubjectView sessionId={SID} subject="account_manager" author={author} fetch={f.fetch} />);
+  render(<SubjectView sessionId={SID} subject="account_manager" author={author} evaluationOk={evaluationOk} fetch={f.fetch} />);
   return f;
 }
 const posts = (f: ReturnType<typeof fakeFetch>) => f.calls.filter((c) => c.init.method === "POST");
@@ -87,6 +87,26 @@ describe("SubjectView", () => {
     expect(((await screen.findByRole("button", { name: "Accept Clarity" })) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Edit Clarity" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Add comment" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("SubjectView: criteria scored by hand", () => {
+  const FAILED = "The evaluation failed for this subject: score each criterion by hand.";
+
+  it("an invalid level offers Edit only, never Accept", async () => {
+    mount(subjectView({ criteria: [criterion({ current: "invalid" }), criterion({ id: "pace", name: "Pace" })] }));
+    expect(await screen.findByRole("button", { name: "Edit Clarity" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Accept Clarity" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Accept Pace" })).toBeTruthy();
+    expect(screen.queryByText(FAILED)).toBeNull();
+  });
+
+  it("a failed evaluation says so and offers Edit only on every criterion", async () => {
+    mount(subjectView({ criteria: [criterion(), criterion({ id: "pace", name: "Pace" })] }), undefined, "kamal", false);
+    expect(await screen.findByText(FAILED)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Edit Clarity" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Edit Pace" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Accept (Clarity|Pace)$/ })).toBeNull();
   });
 });
 
