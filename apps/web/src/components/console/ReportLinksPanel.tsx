@@ -36,6 +36,10 @@ function statusOf(link: ReportLink | null): string {
   return `Link expired on ${day(link.expiresAt)}`;
 }
 
+const LINK_ALLOWS = "Before release the link lets the player rate themselves. After release it shows their report and lets them respond.";
+const RELEASE_WARNING = "Releasing a report closes self-rating for that player. Check that everyone has rated first.";
+const RESOLVE_NOTE = "A facilitator's reason for resolving a dispute is shown to the participant.";
+
 export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPanelProps) {
   const headingId = useId();
   const [data, setData] = useState<ReportLinksView | null>(null);
@@ -169,6 +173,10 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
   }, [shown]);
 
   const ready = data?.state === "ready";
+  // Control gives a draft role its counts and a released role null. When the counts cannot be read (players is null) a null row could be
+  // either, so it is shown as unknown and the warning is kept: better a needless warning than a missing one.
+  const progressReadable = data !== null && data.players !== null;
+  const anyDraft = data !== null && ready && data.roles.some((r) => r.selfRated !== null || !progressReadable);
   return (
     <section className="card stack" aria-labelledby={headingId}>
       <h2 className="s" id={headingId}>
@@ -221,18 +229,34 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
         </div>
       ) : null}
 
+      {data !== null && data.players !== null ? (
+        <p className="small">
+          {data.players.rated} of {data.players.total} players have rated
+        </p>
+      ) : null}
+      <p className="small muted">{LINK_ALLOWS}</p>
+      <p className="small muted">{RESOLVE_NOTE}</p>
+      {anyDraft ? <p className="banner warn">{RELEASE_WARNING}</p> : null}
+
       {data?.state === "not_ready" ? <p className="banner warn">{REPORT_NOT_READY}</p> : null}
       {shown !== null ? <p className="small muted">Copy or dismiss the link above first.</p> : null}
 
       {data !== null && data.roles.length > 0 ? (
         <ul className="codes" ref={list}>
-          {data.roles.map(({ role, link }) => {
+          {data.roles.map(({ role, link, selfRated }) => {
             const label = roleLabel(role);
             const live = link !== null && link.active;
             return (
               <li className="code-row" key={role} data-role-row={role}>
                 <h3 className="code-role">{label}</h3>
                 <span>{statusOf(link)}</span>
+                {selfRated !== null ? (
+                  <span className="small">
+                    Rated {selfRated.rated} of {selfRated.total} criteria
+                  </span>
+                ) : ready && !progressReadable ? (
+                  <span className="small muted">Rating progress not available</span>
+                ) : null}
                 {link !== null && !link.revoked ? (
                   <span className="small muted">{link.lastUsedAt === undefined ? "Not opened yet" : `Last opened ${when(link.lastUsedAt)}`}</span>
                 ) : null}

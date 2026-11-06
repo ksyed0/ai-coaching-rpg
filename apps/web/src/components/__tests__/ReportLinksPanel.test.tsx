@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { parseReportLinks } from "../../lib/console-api";
 import { ReportLinksPanel } from "../console/ReportLinksPanel";
 import { SessionConsole } from "../console/SessionConsole";
 import { FakeClock, FakeEventSource, fakeFetch, fakeTimer, ok, readiness, refused } from "../../lib/__tests__/fakes";
@@ -257,5 +258,79 @@ describe("SessionConsole and the report links panel", () => {
   it("is shown once the session has ended", async () => {
     mountConsole(readiness({ launcherStatus: "ended", status: "ended" }));
     expect(await screen.findByRole("heading", { name: "Participant reports" })).toBeTruthy();
+  });
+});
+
+describe("ReportLinksPanel: who has rated", () => {
+  const WARN = "Releasing a report closes self-rating for that player. Check that everyone has rated first.";
+  const ALLOWS = "Before release the link lets the player rate themselves. After release it shows their report and lets them respond.";
+  const RESOLVE = "A facilitator's reason for resolving a dispute is shown to the participant.";
+  const DRAFTS = { state: "ready", players: { rated: 1, total: 2 }, roles: [
+    { role: "delivery_lead", credential: null, selfRated: { rated: 3, total: 5 } },
+    { role: "account_manager", credential: cred(), selfRated: { rated: 0, total: 5 } },
+    { role: "sales_lead", credential: cred({ lastUsedAt: 1_700_000_500_000 }), selfRated: null },
+  ] };
+
+  it('draft roles are listed with "Rated k of n criteria"; the header shows "x of y players have rated"', async () => {
+    mount(DRAFTS);
+    expect(await screen.findByText("Rated 3 of 5 criteria")).toBeTruthy();
+    expect(screen.getByText("Rated 0 of 5 criteria")).toBeTruthy();
+    expect(screen.getByText("1 of 2 players have rated")).toBeTruthy();
+    expect(screen.getByText(/^Last opened /)).toBeTruthy();
+  });
+
+  it('selfRated:null with unreadable progress shows "Rating progress not available"; readable progress leaves released roles alone', async () => {
+    const { unmount } = mount({ state: "ready", players: null, roles: [{ role: "delivery_lead", credential: null, selfRated: null }] });
+    expect(await screen.findByText("Rating progress not available")).toBeTruthy();
+    expect(screen.queryByText(/players have rated/)).toBeNull();
+    unmount();
+    mount({ state: "ready", players: { rated: 0, total: 0 }, roles: [{ role: "delivery_lead", credential: null, selfRated: null }] });
+    await screen.findByText("Delivery lead");
+    expect(screen.queryByText("Rating progress not available")).toBeNull();
+  });
+
+  it("a warning says releasing closes self-rating, shown only while any role is a draft", async () => {
+    const { unmount } = mount(DRAFTS);
+    expect(await screen.findByText(WARN)).toBeTruthy();
+    unmount();
+    mount({ state: "ready", players: { rated: 0, total: 0 }, roles: [{ role: "delivery_lead", credential: null, selfRated: null }] });
+    await screen.findByText("Delivery lead");
+    expect(screen.queryByText(WARN)).toBeNull();
+  });
+
+  it("copy says the link works for rating before release and for responses after; the resolve reason is shown to the participant", async () => {
+    mount(DRAFTS);
+    expect(await screen.findByText(ALLOWS)).toBeTruthy();
+    expect(screen.getByText(RESOLVE)).toBeTruthy();
+  });
+
+  it("issue on a draft role still shows the token once", async () => {
+    mount(DRAFTS, { [BASE]: () => ({ status: 200, body: ok({ role: "delivery_lead", token: TOKEN, credential: cred() }) }) });
+    fireEvent.click(await screen.findByRole("button", { name: "Issue link for Delivery lead" }));
+    const input = (await screen.findByLabelText(/link for Delivery lead/i, { selector: "input" })) as HTMLInputElement;
+    expect(input.value).toBe(LINK);
+    fireEvent.click(screen.getByRole("button", { name: "I have copied the link" }));
+    expect(document.body.innerHTML).not.toContain("SECRETsecret");
+  });
+});
+
+describe("parseReportLinks: rating progress", () => {
+  const base = (over: Record<string, unknown>) => ({ state: "ready", roles: [{ role: "a", credential: null, selfRated: { rated: 1, total: 2 } }], ...over });
+  it("carries well-formed selfRated and players", () => {
+    const v = parseReportLinks(base({ players: { rated: 1, total: 3 } }));
+    expect(v?.players).toEqual({ rated: 1, total: 3 });
+    expect(v?.roles[0]?.selfRated).toEqual({ rated: 1, total: 2 });
+  });
+  it.each([
+    [{ rated: -1, total: 2 }], [{ rated: 1.5, total: 2 }], [{ rated: 3, total: 2 }], [{ rated: "1", total: 2 }], [{ rated: 1 }], ["x"], [[]], [NaN],
+  ])("treats malformed %j as null without throwing", (bad) => {
+    const v = parseReportLinks({ state: "ready", players: bad, roles: [{ role: "a", credential: null, selfRated: bad }] });
+    expect(v?.players).toBeNull();
+    expect(v?.roles[0]?.selfRated).toBeNull();
+  });
+  it("treats absent fields as null", () => {
+    const v = parseReportLinks({ state: "ready", roles: [{ role: "a", credential: null }] });
+    expect(v?.players).toBeNull();
+    expect(v?.roles[0]?.selfRated).toBeNull();
   });
 });

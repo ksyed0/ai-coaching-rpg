@@ -162,8 +162,12 @@ export function failureText(r: Extract<ApiResult, { ok: false }>): string {
 // ---- participant report links (console) ----
 
 export type ReportLink = { role: string; createdAt: number; expiresAt: number; lastUsedAt?: number; active: boolean; revoked: boolean };
-export type ReportLinkRole = { role: string; link: ReportLink | null };
-export type ReportLinksView = { state: "ready" | "not_ready" | "unavailable"; roles: ReportLinkRole[] };
+/** Criteria a draft player has rated out of all criteria. */
+export type RatedCount = { rated: number; total: number };
+/** `selfRated` is null for a released role and when the counts cannot be read. */
+export type ReportLinkRole = { role: string; link: ReportLink | null; selfRated: RatedCount | null };
+/** `players` is null when the counts cannot be read. */
+export type ReportLinksView = { state: "ready" | "not_ready" | "unavailable"; players: RatedCount | null; roles: ReportLinkRole[] };
 
 /** The fixed sentence for a session with nothing released yet (the same words the control service uses). */
 export const REPORT_NOT_READY =
@@ -185,6 +189,14 @@ function parseReportLink(role: string, v: unknown): ReportLink | null {
   };
 }
 
+function parseCount(v: unknown): RatedCount | null {
+  const o = obj(v);
+  if (!o) return null;
+  const { rated, total } = o;
+  if (typeof rated !== "number" || typeof total !== "number" || !Number.isInteger(rated) || !Number.isInteger(total)) return null;
+  return rated >= 0 && rated <= total ? { rated, total } : null;
+}
+
 export function parseReportLinks(v: unknown): ReportLinksView | null {
   const o = obj(v);
   if (!o) return null;
@@ -194,9 +206,9 @@ export function parseReportLinks(v: unknown): ReportLinksView | null {
   for (const x of Array.isArray(o.roles) ? o.roles : []) {
     const r = obj(x);
     if (!r || typeof r.role !== "string") continue;
-    roles.push({ role: r.role, link: r.credential === null || r.credential === undefined ? null : parseReportLink(r.role, r.credential) });
+    roles.push({ role: r.role, link: r.credential === null || r.credential === undefined ? null : parseReportLink(r.role, r.credential), selfRated: parseCount(r.selfRated) });
   }
-  return { state, roles };
+  return { state, players: parseCount(o.players), roles };
 }
 
 /** The one-time token from an issue or reissue answer; null when the answer is not shaped like one. */
