@@ -15,7 +15,7 @@ import { SHARE_SECTION, npcIntro } from "../agents/npc-prompt.js";
 import { earnedCheckOf } from "../agents/gm-prompt.js";
 import { parseGmReply } from "../agents/gm-parse.js";
 import { releaseNote } from "./release-note.js";
-import { sanitizeAlert } from "./live-evidence.js";
+import { sanitizeAlert } from "../run-summary/index.js";
 import { fallbackReason, isFallbackReply } from "./provenance.js";
 import { scrubText } from "./report.js";
 import { buildShowcaseReport, clip, formatAiSummary, type ShowcaseReport } from "./showcase-report.js";

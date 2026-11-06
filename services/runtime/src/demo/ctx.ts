@@ -7,7 +7,7 @@ import type { LiveEvidence } from "./live-evidence.js";
 import type { Narrator } from "./narrator.js";
 import type { ProviderKind } from "./provenance.js";
 import type { Transcript } from "./transcript.js";
-import { alertsForReply } from "./live-evidence.js";
+import { alertsForReply } from "../run-summary/index.js";
 import { isFallbackReply } from "./provenance.js";
 import { isPlausibleJoinCode } from "../cli/join-code.js";
 
