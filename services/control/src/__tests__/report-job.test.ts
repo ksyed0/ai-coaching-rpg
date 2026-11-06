@@ -394,6 +394,23 @@ describe("ReportJobService", () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
+  it("isActive is true from the moment a start reserves the slot, before the preflight finishes (a second tab refused as already_running must see evaluating)", async () => {
+    const svc = make();
+    expect(svc.isActive(id)).toBe(false);
+    const first = svc.start(id, { confirmedCalls: 8, by: "k" }); // reserves the slot synchronously, then awaits the preflight
+    expect(svc.isActive(id)).toBe(true);
+    expect(await svc.start(id, { confirmedCalls: 8, by: "k" })).toEqual({ status: 409, code: "already_running" });
+    expect(svc.isActive(id)).toBe(true); // the refused caller reloads now and must read evaluating
+    expect((await first).status).toBe(200);
+    expect(svc.isActive(OTHER)).toBe(false);
+  });
+
+  it("isActive is false again when a start is refused in the preflight", async () => {
+    const svc = make();
+    expect(await svc.start(id, { confirmedCalls: 7, by: "k" })).toEqual({ status: 409, code: "confirm_mismatch" });
+    expect(svc.isActive(id)).toBe(false);
+  });
+
   it("isActive holds from the spawn until onDone settles, though the job already reads done", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
