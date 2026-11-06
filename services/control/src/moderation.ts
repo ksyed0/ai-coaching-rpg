@@ -1,17 +1,22 @@
 import { constants } from "node:fs";
 import { lstat, open as openFile } from "node:fs/promises";
 import path from "node:path";
-import { isSafeId, isValidSessionId } from "@acr/events";
+import { isFileSafeId, isSafeId, isValidSessionId } from "@acr/events";
 import {
   acceptCriterion,
   acceptSummary,
+  amendSubject,
   commentOn,
   editScore,
   editSummary,
+  exportReport,
   moderationStatus,
   openFacilitatorReview,
+  releaseSubjects,
+  resolveDispute,
   subjectView,
   toModResult,
+  withdrawSubject,
   type Base,
   type ExpectLevel,
   type ModerationCode,
@@ -52,6 +57,12 @@ export type ModOutcome<T> =
 export type EditBody = { criterion: string; level: 1 | 2 | 3 | 4 | null; reason: string; rationale?: string; expect: ExpectLevel };
 export type AcceptBody = { criterion?: string; summary?: true };
 export type CommentBody = { text: string; criterion?: string; feedback?: boolean };
+export type ReleaseBody = { subjects: string[] };
+export type ReasonBody = { reason: string };
+export type ResolveBody = { seq: number; outcome: "upheld" | "amended" | "declined"; reason: string };
+export type ExportBody = { subject: string; audience: "facilitator" | `participant:${string}` };
+/** At most this many subjects in one release (a session has a handful of players and the group). */
+export const RELEASE_MAX_SUBJECTS = 50;
 export type EditSummaryBody = { reason: string; strengths?: string[]; developments?: string[]; actions?: { lo: string; text: string }[] };
 
 /** The typed name: the `--by` rule (a safe id, the one definition in @acr/events) with room for the `-console` suffix inside the chain's 64 characters. */
@@ -198,7 +209,7 @@ export class ModerationService {
   }
 
   /** A write: name, session and live review first, then the call under the lock retry. */
-  private write(id: string, name: unknown, run: (b: Base) => Promise<void>): Promise<ModOutcome<void>> {
+  private write<T = void>(id: string, name: unknown, run: (b: Base) => Promise<T>): Promise<ModOutcome<T>> {
     return this.guard(async () => {
       const by = this.author(name);
       await this.known(id);
@@ -309,5 +320,36 @@ export class ModerationService {
       ...(body?.developments !== undefined ? { developments: body.developments } : {}),
       ...(body?.actions !== undefined ? { actions: body.actions } : {}),
     }));
+  }
+
+  /** Releases the listed subjects, all or nothing. An explicit non-empty list only: there is no "all". */
+  release(id: string, body: ReleaseBody, name: string): Promise<ModOutcome<{ released: string[]; groupTableStale: boolean }>> {
+    const list = body?.subjects;
+    if (!Array.isArray(list) || list.length < 1 || list.length > RELEASE_MAX_SUBJECTS || !list.every((s) => typeof s === "string" && isFileSafeId(s)))
+      return Promise.resolve(INVALID);
+    return this.write(id, name, (b) => releaseSubjects({ ...b, subjects: list }));
+  }
+
+  /** Reopens a released report for edits; a reason is required. */
+  amend(id: string, subject: string, body: ReasonBody, name: string): Promise<ModOutcome<void>> {
+    return this.write(id, name, (b) => amendSubject({ ...b, subject, reason: body?.reason }));
+  }
+
+  /** Takes a released report back; a reason is required. */
+  withdraw(id: string, subject: string, body: ReasonBody, name: string): Promise<ModOutcome<{ groupTableStale: boolean }>> {
+    return this.write(id, name, (b) => withdrawSubject({ ...b, subject, reason: body?.reason }));
+  }
+
+  /** Closes a dispute by the response number the status shows. */
+  resolve(id: string, body: ResolveBody, name: string): Promise<ModOutcome<void>> {
+    return this.write(id, name, (b) => resolveDispute({ ...b, seq: body?.seq, outcome: body?.outcome, reason: body?.reason }));
+  }
+
+  /**
+   * The audience's Markdown for one subject (destination `console-download`): the export event is written first, nothing is written
+   * to the reports folder, and no file header is set here (the web service builds the download).
+   */
+  export(id: string, body: ExportBody, name: string): Promise<ModOutcome<{ fileName: string; markdown: string }>> {
+    return this.write(id, name, (b) => exportReport({ ...b, subject: body?.subject, audience: body?.audience }));
   }
 }
