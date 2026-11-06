@@ -169,7 +169,7 @@ export type ReportLinkRole = { role: string; link: ReportLink | null; selfRated:
 /** `players` is null when the counts cannot be read. */
 export type ReportLinksView = { state: "ready" | "not_ready" | "unavailable"; players: RatedCount | null; roles: ReportLinkRole[] };
 
-/** The fixed sentence for a session with nothing released yet (the same words the control service uses). */
+/** The fixed sentence for a session with nothing released yet (the same words the control service uses: NOT_READY in services/control/src/reports.ts, also listed in KNOWN_CONFLICTS in report-handlers.ts). */
 export const REPORT_NOT_READY =
   "No reports are ready for this session yet. Run evaluate and moderate open, from the terminal (see the guide).";
 export const REPORT_UNAVAILABLE = "The reports for this session cannot be read. Check them with moderate status.";

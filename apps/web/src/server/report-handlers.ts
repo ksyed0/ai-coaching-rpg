@@ -30,7 +30,7 @@ const READ_CRED_ROLE = "*report-read-cred";
 const MAX_TOKEN_CHARS = 64;
 const MAX_ENTER_BODY_BYTES = 512;
 
-/** The control service's fixed conflict sentences (reports.ts, report-access.ts). Anything else is shown as the generic one. */
+/** The control service's fixed conflict sentences (NOT_READY and NO_REPORT in services/control/src/reports.ts are copied here word for word; change both). Anything else is shown as the generic one. */
 const KNOWN_CONFLICTS: ReadonlySet<string> = new Set([
   "A link is already active for this role.",
   "No reports are ready for this session yet. Run evaluate and moderate open, from the terminal (see the guide).",
@@ -178,12 +178,16 @@ const MAX_RESPONSE_BODY_BYTES = 16 * 1024;
 const RATING_KEYS: readonly string[] = ["ratings"];
 const RESPONSE_KEYS: readonly string[] = ["criterion", "text", "dispute"];
 
-/** Fixed sentences for each refusal. Control's own text is never shown. */
+/**
+ * Fixed sentences for each refusal. Control's own text is never shown. Note: the page does not show these; it branches on the HTTP status and
+ * `data.state` and uses MESSAGES (apps/web/src/lib/messages.ts). They are the envelope's `error.message` for other API clients only.
+ */
 const WRITE_SENTENCES: Record<string, string> = {
   closed: "This report is closed, so it can no longer be changed.",
   not_released: "This report is not open for changes yet.",
   withdrawn: "This report was withdrawn.",
   too_many: "There are too many responses already.",
+  // The page's old_schema sentence is MESSAGES.reportOldSchema, the same wording as WRITE_OLD_SCHEMA in services/control/src/participant-writes.ts; this one is not shown.
   old_schema: "This report was made by an older version and cannot take changes.",
   invalid: "That could not be saved. Check what you entered.",
   busy: "The report is busy. Try again in a moment.",

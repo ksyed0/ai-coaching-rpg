@@ -34,6 +34,7 @@ export const MESSAGES = {
   reportRetry: "We could not load your report. Try again.",
   reportThrottled: "Too many requests. Wait a minute and try again.",
   reportClosed: "Ratings for this review are closed.",
+  // Same wording as WRITE_OLD_SCHEMA in services/control/src/participant-writes.ts: change both together.
   reportOldSchema: "This review was opened before online ratings were available. Your facilitator can take your rating or response in the terminal.",
   // The self-rating form (SelfRatingForm).
   ratingsIntro: "Rate yourself on each criterion. Your report appears once the facilitator releases it.",

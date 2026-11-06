@@ -8,6 +8,7 @@ export const WRITE_CLOSED = "Ratings are closed for this report. Your facilitato
 export const WRITE_NOT_RELEASED = "This report has not been released, so there is nothing to respond to yet.";
 export const WRITE_WITHDRAWN = "This report was withdrawn, so it cannot take a response.";
 export const WRITE_TOO_MANY = "You have reached the limit for this report. Your facilitator can take anything further in the terminal.";
+// Same wording as MESSAGES.reportOldSchema in apps/web/src/lib/messages.ts: change both together.
 export const WRITE_OLD_SCHEMA = "This review was opened before online ratings were available. Your facilitator can take your rating or response in the terminal.";
 export const WRITE_BUSY = "The review is busy right now. Try again in a moment.";
 export const WRITE_INVALID = "That could not be saved. Check what you entered and try again.";

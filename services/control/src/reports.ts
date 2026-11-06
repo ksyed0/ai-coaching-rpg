@@ -5,6 +5,7 @@ import type { ReportAccessStore, ReportCredential } from "./report-access.js";
 import { ControlError } from "./supervisor.js";
 
 /** Fixed sentences: no path, id or role is ever part of them. */
+// NOT_READY is copied word for word in apps/web/src/lib/console-api.ts (REPORT_NOT_READY) and in KNOWN_CONFLICTS in apps/web/src/server/report-handlers.ts, together with NO_REPORT: change all copies together.
 export const NOT_READY = "No reports are ready for this session yet. Run evaluate and moderate open, from the terminal (see the guide).";
 export const NO_REPORT = "There is no report to link for this role.";
 export const REPORTS_UNREADABLE = "The reports for this session cannot be read. Check them with moderate status.";

@@ -52,6 +52,7 @@ describe("links", () => {
     const l = await svc.links(w.sessionId);
     expect(l.roles.map((r) => r.role)).toContain("alice");
     expect(l.roles.find((r) => r.role === "alice")!.credential).not.toBeNull();
+    expect(l.roles.find((r) => r.role === "alice")!.draft).toBe(false);
   });
   it("does not list a revoked or expired credential as the role's link", async () => {
     await svc.issue(w.sessionId, "alice");
