@@ -28,6 +28,12 @@ export type JobOutcome =
 export const PROGRESS_MAX = 50;
 /** EVAL_TIMEOUT_MS when the environment does not set a usable one (the evaluator's own default). */
 export const DEFAULT_EVAL_TIMEOUT_MS = 180_000;
+/** The evaluator's accepted range for one call's timeout and its NPC reply timeout (`parseTimeoutEnv`), and the NPC reply default. */
+const MIN_CALL_MS = 500;
+const MAX_CALL_MS = 600_000;
+const DEFAULT_NPC_REPLY_MS = 20_000;
+/** The largest delay `setTimeout` accepts; a longer one fires at once. */
+export const MAX_TIMER_MS = 2 ** 31 - 1;
 /** How long a signalled child may take before SIGKILL, and how long shutdown waits after that. */
 export const KILL_GRACE_MS = 5_000;
 /** The most of the child's stdout that is kept (its JSON summary is small) and the longest stderr line looked at. */
@@ -52,7 +58,7 @@ export function progressLine(raw: string): string | null {
 
 type Persisted = { state: Exclude<JobState, "idle">; reason?: JobReason; startedAt: number | null; outputDir: string | null; modelCalls: number | null };
 type Job = Persisted & { progress: string[] };
-type Active = { id: string; child: EvalChild; cancelTimeout: () => void; exited: Promise<void>; by: string };
+type Active = { id: string; child: EvalChild; cancelTimeout: () => void; exited: Promise<void>; by: string; /** Set the moment the child exits: a cancel or shutdown after that must not relabel the finished run. */ hasExited: boolean };
 
 const defaultSetTimer: SetTimer = (fn, ms) => {
   const t = setTimeout(fn, ms);
@@ -114,6 +120,8 @@ export class ReportJobService {
     onDone?: (id: string, outputDir: string, by: string) => Promise<void>;
     /** Test hook for the run timeout and the kill grace. */
     setTimer?: SetTimer;
+    /** Receives fixed, path-free lines only. */
+    log?: (m: string) => void;
   }) {
     this.spawnFn = o.spawn ?? nodeEvalSpawn;
     this.now = o.now ?? Date.now;
@@ -218,14 +226,15 @@ export class ReportJobService {
     child.stdout.on("error", () => {});
     child.stderr.on("error", () => {});
 
-    const timeoutMs = bound * this.evalTimeoutMs() + this.o.config.evaluateMarginMs;
+    const timeoutMs = Math.min(bound * this.callTimeoutMs() + this.o.config.evaluateMarginMs, MAX_TIMER_MS);
     let exitResolve!: () => void;
     const exited = new Promise<void>((r) => { exitResolve = r; });
-    const active: Active = { id, child, by, exited, cancelTimeout: () => {} };
+    const active: Active = { id, child, by, exited, cancelTimeout: () => {}, hasExited: false };
     active.cancelTimeout = this.setTimer(() => { this.stop(active, "timeout"); }, timeoutMs);
     this.active = active;
 
     child.onExit((code) => {
+      active.hasExited = true;
       active.cancelTimeout();
       void this.finish(active, job, code, overflow ? null : stdout).finally(() => {
         if (this.active === active) this.active = null;
@@ -234,13 +243,22 @@ export class ReportJobService {
     });
   }
 
-  private evalTimeoutMs(): number {
-    const raw = this.parentEnv.EVAL_TIMEOUT_MS;
-    return raw !== undefined && /^[0-9]{1,10}$/.test(raw) && Number(raw) > 0 ? Number(raw) : DEFAULT_EVAL_TIMEOUT_MS;
+  /**
+   * One evaluator call's deadline as the evaluator computes it: max(EVAL_TIMEOUT_MS, NPC_REPLY_TIMEOUT_MS), each within 500..600000
+   * (a value outside the range is clamped, one that is not a whole number falls back to its default).
+   */
+  private callTimeoutMs(): number {
+    const read = (name: string, fallback: number): number => {
+      const raw = (this.parentEnv[name] ?? "").trim();
+      if (!/^[0-9]{1,15}$/.test(raw)) return fallback;
+      return Math.min(MAX_CALL_MS, Math.max(MIN_CALL_MS, Number(raw)));
+    };
+    return Math.max(read("EVAL_TIMEOUT_MS", DEFAULT_EVAL_TIMEOUT_MS), read("NPC_REPLY_TIMEOUT_MS", DEFAULT_NPC_REPLY_MS));
   }
 
   /** Signals the child (SIGTERM, then SIGKILL after the grace) and marks the job failed with `reason` at once. */
   private stop(active: Active, reason: JobReason): void {
+    if (active.hasExited) return;
     const job = this.jobs.get(active.id);
     if (job && job.state === "running") { job.state = "failed"; job.reason = reason; this.persist(); }
     active.child.kill("SIGTERM");
@@ -279,7 +297,7 @@ export class ReportJobService {
 
   /** The folder name when `dir` is a direct child of the reports folder and a complete candidate of this session; else null. */
   private async candidateName(id: string, dir: unknown): Promise<string | null> {
-    if (typeof dir !== "string" || !path.isAbsolute(dir)) return null;
+    if (typeof dir !== "string" || !path.isAbsolute(dir) || dir.split(/[\\/]/).includes("..")) return null;
     const resolved = path.resolve(dir);
     if (path.dirname(resolved) !== path.resolve(this.o.config.reportsDir)) return null;
     const name = path.basename(resolved);
@@ -291,7 +309,7 @@ export class ReportJobService {
   async cancel(id: string): Promise<JobOutcome> {
     if (!isValidSessionId(id) || !this.o.sessions.get(id)) return { status: 404 };
     const a = this.active;
-    if (a && a.id === id && this.jobs.get(id)?.state === "running") this.stop(a, "cancelled");
+    if (a && a.id === id && !a.hasExited && this.jobs.get(id)?.state === "running") this.stop(a, "cancelled");
     return { status: 200, value: this.status(id) };
   }
 
@@ -319,7 +337,7 @@ export class ReportJobService {
     if (this.closing) return this.closing;
     const a = this.active;
     if (!a) { this.closing = Promise.resolve(); return this.closing; }
-    this.stop(a, "interrupted");
+    this.stop(a, "interrupted"); // a no-op when the child has already exited: the run is finishing, only wait for it
     this.closing = new Promise<void>((resolve) => {
       const cancel = this.setTimer(resolve, 2 * KILL_GRACE_MS);
       void a.exited.then(() => { cancel(); resolve(); });
@@ -340,6 +358,7 @@ export class ReportJobService {
       chmodSync(tmp, 0o600);
       renameSync(tmp, this.file);
     } catch {
+      this.o.log?.("report job state could not be saved");
       try { rmSync(tmp, { force: true }); } catch { /* nothing to remove */ }
     }
   }

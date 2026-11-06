@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { loadScenario } from "@acr/script";
+import { openFacilitatorReview } from "@acr/runtime/moderation";
 import { listDraftCandidates } from "@acr/runtime/reports";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeClock } from "../../../runtime/src/engine/clock.js";
@@ -12,7 +13,7 @@ import { makeDraftDir } from "../../../runtime/src/review/__tests__/fixtures.js"
 import { CHILD_ENV_ALLOWLIST } from "../child-env.js";
 import { loadControlConfig, REPO_ROOT, type ControlConfig } from "../config.js";
 import { buildEvalChildEnv, nodeEvalSpawn, type EvalSpawnFn } from "../eval-child.js";
-import { ReportJobService } from "../report-job.js";
+import { MAX_TIMER_MS, ReportJobService } from "../report-job.js";
 import type { SetTimer } from "../supervisor.js";
 
 const SCENARIO = "friday-escalation";
@@ -94,7 +95,7 @@ const setTimer: SetTimer = (fn, ms) => {
   return () => { t.cancelled = true; };
 };
 const sessions = { get: (sid: string) => (ended.has(sid) ? { scenarioId: SCENARIO, ended: ended.get(sid)! } : undefined) };
-const PARENT = { PATH: "/bin", EVAL_TIMEOUT_MS: "1000", LAUNCHER_TOKEN: "x".repeat(40), NODE_OPTIONS: "--inspect", NODE_ENV: "test" };
+const PARENT = { PATH: "/bin", EVAL_TIMEOUT_MS: "1000", NPC_REPLY_TIMEOUT_MS: "500", LAUNCHER_TOKEN: "x".repeat(40), NODE_OPTIONS: "--inspect", NODE_ENV: "test" };
 
 function make(o: { onDone?: (id: string, outputDir: string, by: string) => Promise<void>; now?: () => number } = {}): ReportJobService {
   const svc = new ReportJobService({ config, sessions, spawn, parentEnv: PARENT, now: o.now ?? (() => 1_700_000_000_000), setTimer, ...(o.onDone ? { onDone: o.onDone } : {}) });
@@ -276,6 +277,96 @@ describe("ReportJobService", () => {
     expect(children[0]!.signals).toEqual(["SIGTERM", "SIGKILL"]);
     children[0]!.exit(null, "SIGKILL");
     expect(svc.status(id)).toMatchObject({ state: "failed", reason: "timeout" });
+  });
+
+  it("a cancel or shutdown after the child exited, before finish() completes, does not relabel the run", async () => {
+    const done = vi.fn(async () => {});
+    const svc = make({ onDone: done });
+    await svc.start(id, { confirmedCalls: 8, by: "k" });
+    const child = children[0]!;
+    const out = path.join(config.reportsDir, id);
+    await cp(draftDir, out, { recursive: true });
+    child.stdout.write(jsonFor(out));
+    child.exit(0); // finish() is now awaiting the folder check
+    const r = await svc.cancel(id);
+    expect(r).toMatchObject({ status: 200, value: { state: "running" } });
+    const closing = svc.shutdown();
+    expect(child.signals).toEqual([]);
+    await closing;
+    await vi.waitFor(() => expect(svc.status(id).state).toBe("done"));
+    expect(svc.status(id)).toMatchObject({ state: "done", outputDir: id });
+    expect(svc.status(id).reason).toBeUndefined();
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  it("the overall timeout clamps EVAL_TIMEOUT_MS to 500..600000, takes the max with NPC_REPLY_TIMEOUT_MS and stays below 2^31-1", async () => {
+    const cases: [Record<string, string>, number][] = [
+      [{ EVAL_TIMEOUT_MS: "5", NPC_REPLY_TIMEOUT_MS: "500" }, 8 * 500 + 500], // below the range: 500
+      [{ EVAL_TIMEOUT_MS: "99999999999" }, 8 * 600_000 + 500], // above: 600000
+      [{ EVAL_TIMEOUT_MS: "1000", NPC_REPLY_TIMEOUT_MS: "5000" }, 8 * 5000 + 500], // the NPC reply timeout wins
+      [{}, 8 * 180_000 + 500], // both unset: the evaluator's default
+      [{ EVAL_TIMEOUT_MS: "abc", NPC_REPLY_TIMEOUT_MS: "x" }, 8 * 180_000 + 500],
+    ];
+    for (const [env, expected] of cases) {
+      timers = [];
+      children = [];
+      const svc = new ReportJobService({ config, sessions, spawn, parentEnv: { PATH: "/bin", ...env }, setTimer, now: () => 1 });
+      services.push(svc);
+      await svc.start(id, { confirmedCalls: 8, by: "k" });
+      expect(timers[0]!.ms, JSON.stringify(env)).toBe(expected);
+      await svc.shutdown();
+    }
+    // the cap: a margin that would overflow setTimeout is cut to 2^31-1
+    timers = [];
+    const svc = new ReportJobService({ config: { ...config, evaluateMarginMs: 2 ** 31 } as ControlConfig, sessions, spawn, parentEnv: { PATH: "/bin", EVAL_TIMEOUT_MS: "600000" }, setTimer, now: () => 1 });
+    services.push(svc);
+    await svc.start(id, { confirmedCalls: 8, by: "k" });
+    expect(timers[0]!.ms).toBe(MAX_TIMER_MS);
+  });
+
+  it("a persist failure logs one fixed line without a path", async () => {
+    const blocker = path.join(dataDir, "blocker");
+    await writeFile(blocker, "x"); // a file where the data folder should be: mkdir fails
+    const lines: string[] = [];
+    const svc = new ReportJobService({
+      config: { ...config, dataDir: path.join(blocker, "sub") } as ControlConfig, sessions, spawn, parentEnv: PARENT, setTimer, now: () => 1, log: (m) => lines.push(m),
+    });
+    services.push(svc);
+    await svc.start(id, { confirmedCalls: 8, by: "k" });
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) {
+      expect(l).toBe("report job state could not be saved");
+      expect(l).not.toContain(dataDir);
+    }
+  });
+
+  it("a dir with .. in the child's JSON is refused even when it resolves to a candidate", async () => {
+    onSpawn = async (c) => {
+      const out = path.join(config.reportsDir, id);
+      await cp(draftDir, out, { recursive: true });
+      c.stdout.write(jsonFor(`${config.reportsDir}${path.sep}other${path.sep}..${path.sep}${id}`));
+      c.exit(0);
+    };
+    const done = vi.fn(async () => {});
+    const svc = make({ onDone: done });
+    await svc.start(id, { confirmedCalls: 8, by: "k" });
+    await vi.waitFor(() => expect(svc.status(id).state).toBe("failed"));
+    expect(svc.status(id)).toMatchObject({ reason: "error", outputDir: null });
+    expect(done).not.toHaveBeenCalled();
+  });
+
+  it("a folder with a review that is incomplete is already_evaluated", async () => {
+    const out = path.join(config.reportsDir, id);
+    await cp(draftDir, out, { recursive: true });
+    const sessionLogText = await readFile(path.join(config.sessionsDir, `${id}.jsonl`), "utf8");
+    await openFacilitatorReview({ dir: out, by: "kamal-console", now: () => 1_900_000_000_000, sessionLogText, codesDir: config.sessionsDir });
+    await unlink(path.join(out, "group.json"));
+    const found = (await listDraftCandidates(config.reportsDir, id))[0]!;
+    expect(found).toMatchObject({ hasReview: true, complete: false });
+    const svc = make();
+    expect(await svc.preflight(id)).toEqual({ ok: false, code: "already_evaluated" });
+    expect(await svc.start(id, { confirmedCalls: 8, by: "k" })).toEqual({ status: 409, code: "already_evaluated" });
+    expect(calls).toHaveLength(0);
   });
 
   it("on exit 0 onDone is called once with outputDir and by; if onDone throws the state is done and the overview reads ready_to_open", async () => {

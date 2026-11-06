@@ -83,6 +83,17 @@ function toOutcome<T>(r: ModResult<T>): ModOutcome<T> {
   }
 }
 
+/** Throws unless `file` is a regular file (never a symbolic link) of at most `cap` bytes. */
+async function checkRegular(file: string, cap: number): Promise<void> {
+  const fh = await openFile(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const st = await fh.stat();
+    if (!st.isFile() || st.size > cap) throw new Error("not usable");
+  } finally {
+    await fh.close();
+  }
+}
+
 /** A regular file (never a symbolic link), at most `cap` bytes, as UTF-8; throws otherwise. */
 async function readRegular(file: string, cap: number): Promise<string> {
   const fh = await openFile(file, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -135,8 +146,10 @@ export class ModerationService {
   /** 404 unless the id is a valid session id with a session log on disk. */
   private async known(id: string): Promise<void> {
     if (typeof id !== "string" || !isValidSessionId(id)) throw new Answer(NOT_FOUND);
-    try { await lstat(this.logPath(id)); }
+    let st;
+    try { st = await lstat(this.logPath(id)); }
     catch (e) { throw new Answer((e as NodeJS.ErrnoException).code === "ENOENT" ? NOT_FOUND : UNAVAILABLE); }
+    if (!st.isFile()) throw new Answer(NOT_FOUND); // a symbolic link or a folder is no session log
   }
 
   private author(name: unknown): string {
@@ -226,7 +239,9 @@ export class ModerationService {
   /** The run summary of the session's log; null when the log or its scenario folder cannot be read. */
   private async summary(id: string): Promise<RunSummary | null> {
     const folder = this.o.jobs.scenarioFolderOf(id);
-    return folder === null ? null : runSummaryFromLog(this.logPath(id), folder, this.o.secrets);
+    if (folder === null) return null;
+    try { await checkRegular(this.logPath(id), SESSION_LOG_CAP); } catch { return null; } // the same no-follow, capped rule as `open`
+    return runSummaryFromLog(this.logPath(id), folder, this.o.secrets);
   }
 
   /** Opens the review of the session's complete, unopened draft, bound to its session log and join-code record. */

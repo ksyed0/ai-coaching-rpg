@@ -32,7 +32,7 @@ describe("control sources and the runtime", () => {
     for (const other of ["@acr/runtime/review", "@acr/runtime", "@acr/runtime/participant/write", "@acr/runtime/src/review/store.js"]) expect(ALLOWED).not.toContain(other);
   });
 
-  it("no control source outside __tests__ imports @acr/runtime other than the allowed subpaths (players, reports)", () => {
+  it("no control source outside __tests__ imports @acr/runtime other than the five allowed subpaths (moderation, participant, players, reports, run-summary)", () => {
     const files = sources(SRC);
     expect(files.length).toBeGreaterThan(5);
     for (const f of files) {

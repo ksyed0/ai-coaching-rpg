@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, cp, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -194,6 +194,32 @@ describe("ModerationService, part A", () => {
     expect(await rec(svc.accept(id, "alice", { criterion }, "priya"))).toEqual({ status: 503, code: "unavailable" });
     expect(await rec(svc.open(id, "priya"))).toEqual({ status: 503, code: "unavailable" });
     expect(await rec(svc.overview(id))).toEqual({ status: 503, code: "unavailable" });
+  });
+
+  it("a valid review.opened followed by a bad line is 503 unavailable for subject and edit", async () => {
+    const dir = await opened();
+    const { criterion, expect: cur } = await firstCriterion();
+    await appendFile(path.join(dir, "review.jsonl"), "{ not json\n");
+    expect(await rec(svc.subject(id, "alice"))).toEqual({ status: 503, code: "unavailable" });
+    expect(await rec(svc.edit(id, "alice", { criterion, level: 2, reason: "r", expect: cur as "1" }, "priya"))).toEqual({ status: 503, code: "unavailable" });
+  });
+
+  it("a symbolic link as the session log is 404, never followed", async () => {
+    await opened();
+    const real = path.join(dataDir, "real.jsonl");
+    await cp(logFile(), real);
+    await unlink(logFile());
+    await symlink(real, logFile());
+    expect(await rec(svc.overview(id))).toEqual({ status: 404 });
+    expect(await rec(svc.subject(id, "alice"))).toEqual({ status: 404 });
+    expect(await rec(svc.open(id, "priya"))).toEqual({ status: 404 });
+  });
+
+  it("the in_review summary is null when the registry does not know the session", async () => {
+    await opened();
+    ended.delete(id);
+    const o = await rec(svc.overview(id));
+    expect(o).toMatchObject({ status: 200, value: { stage: "in_review", summary: null } });
   });
 
   it("open reads the session log and the codes record and returns the subject count", async () => {
