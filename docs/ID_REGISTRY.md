@@ -4,9 +4,9 @@
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
-| TASK         | TASK-0102             | TASK-0101         |
-| AC           | AC-0373               | AC-0372           |
-| TC           | TC-0135               | TC-0134           |
+| TASK         | TASK-0103             | TASK-0102         |
+| AC           | AC-0379               | AC-0378           |
+| TC           | TC-0141               | TC-0140           |
 | BUG          | BUG-0029              | BUG-0028          |
 | L            | L-0034                | L-0033            |
 
@@ -77,3 +77,5 @@ Assigned 2026-11-05 (slice 2c-1 close): BUG-0025 (forged-cookie read failures sh
 Assigned 2026-11-06 (slice 2c-2, PR 1): AC-0369 (US-0063: capacity bounds), AC-0370 (US-0063: no write attempt begins after a revoke or reissue has returned), AC-0371 (US-0063: rating progress in `moderate status` and the console) and AC-0372 (US-0063: old-schema refusal); TC-0127 (AC-0331, AC-0335: fold and forging), TC-0128 (AC-0332: blind read), TC-0129 (AC-0333: lock and retry), TC-0130 (AC-0334: text and export), TC-0131 (AC-0369, AC-0370: capacity and revoke) and TC-0132 (AC-0371, AC-0372: progress and old schema). TASK-0092 is reused (no new TASK; next free stays TASK-0101). The next AC is AC-0373, the next TC is TC-0133.
 
 Assigned 2026-11-06 (slice 2c-2, PR 2): TC-0133 (AC-0331 to AC-0335, AC-0370 to AC-0372: end to end and Axe for ratings and responses) and TC-0134 (AC-0332 to AC-0335, AC-0371: page and console cases: SelfRatingForm, ComparisonTable, ResponsesList, ResponseForm, ReportLinksPanel and the BFF write routes); TASK-0101 (US-0063: browser, PR 2). No new AC. Slice 2c-2 is complete; the next AC is AC-0373, the next TC is TC-0135, the next TASK is TASK-0102, the next BUG is BUG-0029 and the next L is L-0034.
+
+Assigned 2026-11-06 (slice 2c-3, PR A, US-0064): AC-0373 (no evaluate over a draft or review, no orphan reuse), AC-0374 (the model spend is confirmed, a stale confirmation refused), AC-0375 (release takes an explicit list; empty or `all` refused), AC-0376 (export is a `POST` that records first, nothing written to disk), AC-0377 (resolve a dispute in the browser) and AC-0378 (a stale edit keeps the typed text), in the order of spec section 9; AC-0375 to AC-0377 are part B. TC-0135 (AC-0336, AC-0339: run summary and call bound), TC-0136 (AC-0337, AC-0378: moderation library), TC-0137 (AC-0336, AC-0373, AC-0374: evaluate job), TC-0138 (AC-0337, AC-0373, AC-0378: moderation service and control routes), TC-0139 (AC-0336, AC-0337, AC-0339, AC-0374, AC-0378: console panel and BFF routes) and TC-0140 (AC-0336, AC-0337, AC-0339, AC-0373, AC-0378: end to end and Axe). TASK-0093 (part A) is reused; TASK-0102 is new (US-0064 part B, release and close-out). The next AC is AC-0379, the next TC is TC-0141, the next TASK is TASK-0103.

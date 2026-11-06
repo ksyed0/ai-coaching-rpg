@@ -59,7 +59,12 @@ function fold(
   try {
     return currentView(drafts, events);
   } catch (e) {
-    if (e instanceof ReviewIllegalError) throw onIllegal(e.message);
+    if (e instanceof ReviewIllegalError) {
+      const err = onIllegal(e.message);
+      if (e.code !== undefined && err instanceof ReviewRefusedError)
+        err.code = e.code;
+      throw err;
+    }
     // Any other error is never echoed (it may quote a payload). Events already on disk that break the fold are damage;
     // on new entries it is a refusal, and nothing is written.
     if (malformedIsCorrupt)
@@ -162,6 +167,7 @@ export async function applyCommand(
       if (other !== null)
         throw new ReviewRefusedError(
           `another review of this session (${safeName(other)}) already has a release that was not superseded; finish \`pnpm moderate supersede <old> <new>\` and release from the new directory, or keep working in ${safeName(other)}`,
+          "superseded",
         );
     }
     if (loaded.events.length + entries.length > LIMITS.events)
@@ -200,6 +206,7 @@ export async function openReview(dir: string, meta: OpenMeta): Promise<Loaded> {
     if (released !== null)
       throw new ReviewRefusedError(
         `an earlier evaluation of this session (${released}) was already released; use \`pnpm moderate supersede <old> <new>\` to move on`,
+        "superseded",
       );
     if (!isSafeId(meta.by))
       throw new ReviewRefusedError(

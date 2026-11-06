@@ -6,7 +6,7 @@ import {
   type LoResult,
 } from "../evaluator/aggregate.js";
 import type { DraftCriterion, DraftSubject, Drafts } from "./draft.js";
-import { ReviewIllegalError } from "./errors.js";
+import { ReviewIllegalError, type ModerationCode } from "./errors.js";
 import { releaseProblems } from "./gate.js";
 import { sha256 } from "./hash.js";
 import { parsePrincipal } from "./policy.js";
@@ -350,9 +350,10 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   if (!first || first.type !== "review.opened")
     throw new ReviewIllegalError("the log does not start with review.opened");
   checkOpened(first as unknown as Record<string, unknown>);
-  const ill = (e: ReviewEvent, m: string): never => {
+  const ill = (e: ReviewEvent, m: string, code?: ModerationCode): never => {
     throw new ReviewIllegalError(
       `event ${typeof e.seq === "number" ? e.seq : "?"} (${typeof e.type === "string" ? e.type.slice(0, 40) : "?"}): ${m}`,
+      code,
     );
   };
   const subjects = new Map<string, SubjectView>(
@@ -360,14 +361,14 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   );
   const subj = (e: ReviewEvent, id: unknown): SubjectView =>
     (typeof id === "string" ? subjects.get(id) : undefined) ??
-    ill(e, "unknown subject");
+    ill(e, "unknown subject", "unknown_subject");
   const crit = (e: ReviewEvent, sv: SubjectView, id: unknown): CriterionView =>
     (typeof id === "string"
       ? sv.criteria.find((c) => c.id === id)
-      : undefined) ?? ill(e, "unknown criterion");
+      : undefined) ?? ill(e, "unknown criterion", "unknown_criterion");
   const editable = (e: ReviewEvent, sv: SubjectView): void => {
     if (sv.state === "released" || sv.state === "withdrawn")
-      ill(e, `${sv.id} is ${sv.state}; amend it first`);
+      ill(e, `${sv.id} is ${sv.state}; amend it first`, "not_editable");
   };
   const facilitator = (e: ReviewEvent): string =>
     e.actor.kind === "facilitator"
@@ -461,7 +462,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
       continue;
     }
     if (superseded !== null)
-      ill(e, "the review was superseded and is read-only");
+      ill(e, "the review was superseded and is read-only", "superseded");
     // Every actor, not only the opener's: the log on disk is untrusted, and `by` is rendered and compared later.
     if (!actorOk(e.actor)) ill(e, "the actor is not valid");
     if (
@@ -593,7 +594,11 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
             ill(e, `${sv.id} is ${sv.state}`);
           const problems = releaseProblems(sv);
           if (problems.length)
-            ill(e, `${sv.id} cannot be released: ${problems.join("; ")}`);
+            ill(
+              e,
+              `${sv.id} cannot be released: ${problems.join("; ")}`,
+              "blocked",
+            );
         }
         // Order matters: (1) mark released and clear the group's tableStale, (2) snapshot the players,
         // (3) only then build the group table from those snapshots, so it sees the players released in this event.

@@ -1,4 +1,4 @@
-import { CLIENT_ID_MAX_CHARS, isScenarioId, isValidSessionId } from "@acr/events";
+import { CLIENT_ID_MAX_CHARS, isFileSafeId, isSafeId, isScenarioId, isValidSessionId } from "@acr/events";
 
 // The BFF's client for the control service (services/control: loopback HTTP, header `x-service-token`, envelope {success, data, error}).
 // Every failure becomes a LauncherError whose `reason` is one word from a closed set. The server's own message text is never passed on
@@ -23,12 +23,29 @@ export type LauncherReason =
   | "ai_budget"
   | "ai_absent"
   | "ai_expired"
-  | "busy";
+  | "busy"
+  // The facilitator's evaluate and review calls (US-0064): control's closed codes, one word each.
+  | "invalid"
+  | "not_ended"
+  | "already_evaluated"
+  | "already_running"
+  | "too_many_running"
+  | "confirm_mismatch"
+  | "orphan"
+  | "no_review"
+  | "unknown_criterion"
+  | "stale"
+  | "blocked"
+  | "not_released"
+  | "not_editable"
+  | "superseded"
+  | "needs_amend"
+  | "refused";
 
 /** A failed call to the control service. The message repeats only the reason word. */
 export class LauncherError extends Error {
   /** `detail`: the control service's own sentence, kept only for the report-link calls (the caller checks it against a closed list). */
-  constructor(readonly reason: LauncherReason, readonly detail?: string) {
+  constructor(readonly reason: LauncherReason, readonly detail?: string, /** The subject ids of a `blocked` refusal (safe ids only). */ readonly blocked?: string[]) {
     super(`launcher: ${reason}`);
     this.name = "LauncherError";
   }
@@ -98,6 +115,10 @@ const DEFAULT_TIMEOUT_MS = 5_000;
 const DEFAULT_LONG_TIMEOUT_MS = 120_000;
 /** A participant write waits out control's retry window and its per-session queue. */
 const WRITE_TIMEOUT_MS = 15_000;
+/** The evaluate and review calls wait out control's lock retries (about 1.5 s) and its per-session queue. */
+const REPORT_CALL_TIMEOUT_MS = 15_000;
+/** The most subject ids kept from a `blocked` refusal. */
+const MAX_BLOCKED = 64;
 const CONFLICT_STATES: ReadonlySet<string> = new Set(["closed", "not_released", "withdrawn", "too_many", "old_schema"]);
 /** Far above any real answer. The body is buffered whole (`res.text()`) before this is checked, so it bounds what we parse, not what we read; the control service is a trusted internal service. */
 const MAX_RESPONSE_CHARS = 1024 * 1024;
@@ -135,6 +156,22 @@ const BY_CODE: Record<string, LauncherReason> = {
   ai_absent: "ai_absent",
   ai_expired: "ai_expired",
   busy: "busy",
+  invalid: "invalid",
+  not_ended: "not_ended",
+  already_evaluated: "already_evaluated",
+  already_running: "already_running",
+  too_many_running: "too_many_running",
+  confirm_mismatch: "confirm_mismatch",
+  orphan: "orphan",
+  no_review: "no_review",
+  unknown_criterion: "unknown_criterion",
+  stale: "stale",
+  blocked: "blocked",
+  not_released: "not_released",
+  not_editable: "not_editable",
+  superseded: "superseded",
+  needs_amend: "needs_amend",
+  refused: "refused",
 };
 /** Used only when the answer has no readable error envelope. */
 const BY_STATUS: Record<number, LauncherReason> = {
@@ -257,6 +294,138 @@ function toReportLink(v: unknown): ReportLinkInfo {
 function toIssued(d: unknown): IssuedReportLink {
   if (!isObject(d) || !isText(d.token)) return bad();
   return { credential: toReportLink(d.credential), token: d.token };
+}
+
+// ---- the facilitator's evaluate and review (US-0064) ----
+
+export type ReportJobState = "idle" | "running" | "done" | "failed";
+export type ReportJobReason = "interrupted" | "timeout" | "cancelled" | "error";
+/** The job as the browser may see it: control's `outputDir` (a folder name on the server) is checked and then dropped here. */
+export type ReportJob = { state: ReportJobState; reason?: ReportJobReason; startedAt: number | null; progress: string[]; modelCalls: number | null };
+export type ReportStage = "not_ended" | "not_evaluated" | "evaluating" | "failed" | "ready_to_open" | "in_review";
+export type SubjectState = "draft" | "released" | "amending" | "withdrawn";
+export type SubjectStatusRow = {
+  id: string; state: SubjectState; version: number | null; criteriaTotal: number; openCriteria: string[]; summaryStale: boolean; tableStale: boolean;
+  evaluationOk: boolean;
+  /** Criteria release requires to be scored by hand (an evaluation that failed, or an invalid level): accepting them does not unblock it. */
+  scoreByHand: string[];
+  selfRated: number; openDisputes: { seq: number; role: string; criterion: string | null }[];
+};
+export type ReportRunSummary = {
+  npcReplies: number; fallbackReplies: number; scenesEndedByGm: number;
+  byCharacter: { roleId: string; name: string; replies: number; fallbackReplies: number }[];
+  alerts: { seq: number; level: "info" | "warning"; role: string | null; fallback: boolean; reason: string; replySeq: number | null }[];
+};
+export type ReportOverview = { stage: ReportStage; job: ReportJob; confirm: { upTo: number } | null; orphan: boolean; summary: ReportRunSummary | null; subjects: SubjectStatusRow[] };
+export type CriterionLevel = 1 | 2 | 3 | 4 | null;
+export type SubjectView = {
+  id: string; state: SubjectState;
+  criteria: { id: string; name: string; current: CriterionLevel | "invalid"; status: "needs_review" | "accepted" | "edited" | "clear"; rationale: string; evidence: { quote: string; scene?: string }[]; flags: string[]; selfLevel?: CriterionLevel }[];
+  summary: { strengths: string[]; developments: string[]; actions: { lo: string; text: string }[] };
+  objectives: { id: string; label: string }[];
+  comments: { visibility: "internal" | "feedback"; text: string; criterion?: string }[];
+  responses: { seq: number; role: string; text: string; criterion?: string; dispute: boolean; resolution?: { outcome: string; reason: string } }[];
+  versions: number[];
+};
+export type ReportEditInput = { criterion: string; level: CriterionLevel; reason: string; rationale?: string; expect: "1" | "2" | "3" | "4" | "na" | "invalid"; by: string };
+export type ReportAcceptInput = { criterion?: string; summary?: true; by: string };
+export type ReportCommentInput = { text: string; criterion?: string; feedback?: boolean; by: string };
+export type ReportEditSummaryInput = { reason: string; strengths?: string[]; developments?: string[]; actions?: { lo: string; text: string }[]; by: string };
+
+const JOB_STATES: readonly string[] = ["idle", "running", "done", "failed"];
+const JOB_REASONS: readonly string[] = ["interrupted", "timeout", "cancelled", "error"];
+const STAGES: readonly string[] = ["not_ended", "not_evaluated", "evaluating", "failed", "ready_to_open", "in_review"];
+const SUBJECT_STATES: readonly string[] = ["draft", "released", "amending", "withdrawn"];
+const CRITERION_STATUSES: readonly string[] = ["needs_review", "accepted", "edited", "clear"];
+const VISIBILITIES: readonly string[] = ["internal", "feedback"];
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
+/** Control keeps the newest 50 progress lines (PROGRESS_MAX in services/control/src/report-job.ts), each a short fixed sentence. */
+const MAX_PROGRESS = 50;
+const MAX_PROGRESS_CHARS = 200;
+const isProgress = (v: unknown): v is string[] => isStrings(v) && v.length <= MAX_PROGRESS && v.every((l) => l.length <= MAX_PROGRESS_CHARS);
+const isFileIds = (v: unknown): v is string[] => isStrings(v) && v.every(isFileSafeId);
+const isLevel = (v: unknown): v is CriterionLevel => v === null || v === 1 || v === 2 || v === 3 || v === 4;
+const list = <T,>(v: unknown, pick: (e: unknown) => T): T[] => (Array.isArray(v) ? v.map(pick) : bad());
+const orNull = <T,>(v: unknown, pick: (e: unknown) => T): T | null => (v === null ? null : pick(v));
+
+function toJob(v: unknown): ReportJob {
+  if (!isObject(v) || !isStr(v.state) || !JOB_STATES.includes(v.state) || !(v.startedAt === null || isTime(v.startedAt)) || !isProgress(v.progress)) return bad();
+  if (!(v.modelCalls === null || isCount(v.modelCalls)) || !(v.outputDir === null || (isStr(v.outputDir) && /^[A-Za-z0-9_-]{1,128}$/.test(v.outputDir)))) return bad();
+  if (v.reason !== undefined && (!isStr(v.reason) || !JOB_REASONS.includes(v.reason))) return bad();
+  return {
+    state: v.state as ReportJobState, startedAt: v.startedAt, progress: v.progress, modelCalls: v.modelCalls,
+    ...(v.reason !== undefined && { reason: v.reason as ReportJobReason }),
+  };
+}
+function toSubjectStatus(v: unknown): SubjectStatusRow {
+  if (!isObject(v) || !isStr(v.id) || !isFileSafeId(v.id) || !isStr(v.state) || !SUBJECT_STATES.includes(v.state)) return bad();
+  if (!(v.version === null || isCount(v.version)) || !isCount(v.criteriaTotal) || !isFileIds(v.openCriteria) || !isCount(v.selfRated)) return bad();
+  if (typeof v.summaryStale !== "boolean" || typeof v.tableStale !== "boolean" || typeof v.evaluationOk !== "boolean" || !isFileIds(v.scoreByHand)) return bad();
+  return {
+    id: v.id, state: v.state as SubjectState, version: v.version, criteriaTotal: v.criteriaTotal, openCriteria: v.openCriteria,
+    summaryStale: v.summaryStale, tableStale: v.tableStale, evaluationOk: v.evaluationOk, scoreByHand: v.scoreByHand, selfRated: v.selfRated,
+    openDisputes: list(v.openDisputes, (d) => (isObject(d) && isCount(d.seq) && isStr(d.role) && (d.criterion === null || isStr(d.criterion)) ? { seq: d.seq, role: d.role, criterion: d.criterion } : bad())),
+  };
+}
+function toRunSummary(v: unknown): ReportRunSummary {
+  if (!isObject(v) || !isCount(v.npcReplies) || !isCount(v.fallbackReplies) || !isCount(v.scenesEndedByGm)) return bad();
+  return {
+    npcReplies: v.npcReplies, fallbackReplies: v.fallbackReplies, scenesEndedByGm: v.scenesEndedByGm,
+    byCharacter: list(v.byCharacter, (c) => (isObject(c) && isStr(c.roleId) && isStr(c.name) && isCount(c.replies) && isCount(c.fallbackReplies) ? { roleId: c.roleId, name: c.name, replies: c.replies, fallbackReplies: c.fallbackReplies } : bad())),
+    alerts: list(v.alerts, (a) =>
+      isObject(a) && isCount(a.seq) && (a.level === "info" || a.level === "warning") && (a.role === null || isStr(a.role)) && typeof a.fallback === "boolean" && isStr(a.reason) && (a.replySeq === null || isCount(a.replySeq))
+        ? { seq: a.seq, level: a.level, role: a.role, fallback: a.fallback, reason: a.reason, replySeq: a.replySeq }
+        : bad()),
+  };
+}
+function toOverview(v: unknown): ReportOverview {
+  if (!isObject(v) || !isStr(v.stage) || !STAGES.includes(v.stage) || typeof v.orphan !== "boolean") return bad();
+  return {
+    stage: v.stage as ReportStage, job: toJob(v.job), orphan: v.orphan,
+    confirm: orNull(v.confirm, (c) => (isObject(c) && isCount(c.upTo) ? { upTo: c.upTo } : bad())),
+    summary: orNull(v.summary, toRunSummary),
+    subjects: list(v.subjects, toSubjectStatus),
+  };
+}
+function toSubjectView(v: unknown): SubjectView {
+  if (!isObject(v) || !isStr(v.id) || !isFileSafeId(v.id) || !isStr(v.state) || !SUBJECT_STATES.includes(v.state) || !isObject(v.summary)) return bad();
+  const sm = v.summary;
+  if (!isStrings(sm.strengths) || !isStrings(sm.developments) || !Array.isArray(v.versions) || !v.versions.every(isCount)) return bad();
+  return {
+    id: v.id, state: v.state as SubjectState,
+    criteria: list(v.criteria, (c) => {
+      if (!isObject(c) || !isStr(c.id) || !isFileSafeId(c.id) || !isStr(c.name) || !(isLevel(c.current) || c.current === "invalid") || !isStr(c.status) || !CRITERION_STATUSES.includes(c.status)) return bad();
+      if (!isStr(c.rationale) || !isStrings(c.flags) || !(c.selfLevel === undefined || isLevel(c.selfLevel))) return bad();
+      return {
+        id: c.id, name: c.name, current: c.current, status: c.status as SubjectView["criteria"][number]["status"], rationale: c.rationale, flags: c.flags,
+        evidence: list(c.evidence, (e) => (isObject(e) && isStr(e.quote) && (e.scene === undefined || isStr(e.scene)) ? { quote: e.quote, ...(e.scene !== undefined && { scene: e.scene }) } : bad())),
+        ...(c.selfLevel !== undefined && { selfLevel: c.selfLevel }),
+      };
+    }),
+    summary: { strengths: sm.strengths, developments: sm.developments, actions: list(sm.actions, (a) => (isObject(a) && isStr(a.lo) && isStr(a.text) ? { lo: a.lo, text: a.text } : bad())) },
+    objectives: list(v.objectives, (o) => (isObject(o) && isStr(o.id) && isStr(o.label) ? { id: o.id, label: o.label } : bad())),
+    comments: list(v.comments, (c) =>
+      isObject(c) && isStr(c.visibility) && VISIBILITIES.includes(c.visibility) && isStr(c.text) && (c.criterion === undefined || isStr(c.criterion))
+        ? { visibility: c.visibility as "internal" | "feedback", text: c.text, ...(c.criterion !== undefined && { criterion: c.criterion }) }
+        : bad()),
+    responses: list(v.responses, (r) => {
+      if (!isObject(r) || !isCount(r.seq) || !isStr(r.role) || !isStr(r.text) || typeof r.dispute !== "boolean" || !(r.criterion === undefined || isStr(r.criterion))) return bad();
+      if (r.resolution !== undefined && !(isObject(r.resolution) && isStr(r.resolution.outcome) && isStr(r.resolution.reason))) return bad();
+      const res = r.resolution as { outcome: string; reason: string } | undefined;
+      return {
+        seq: r.seq, role: r.role, text: r.text, dispute: r.dispute,
+        ...(r.criterion !== undefined && { criterion: r.criterion }),
+        ...(res !== undefined && { resolution: { outcome: res.outcome, reason: res.reason } }),
+      };
+    }),
+    versions: v.versions,
+  };
+}
+/** The subject ids of a `blocked` refusal: safe ids only, at most MAX_BLOCKED; anything else is dropped. */
+function toBlocked(data: unknown): string[] | undefined {
+  if (!isObject(data) || !Array.isArray(data.blocked)) return undefined;
+  return data.blocked.filter((x): x is string => isStr(x) && isSafeId(x)).slice(0, MAX_BLOCKED);
 }
 
 export type LauncherOptions = {
@@ -565,6 +734,60 @@ export class LauncherClient {
     throw new LauncherError(status === 504 ? "timeout" : "failed");
   }
 
+  // ---- the facilitator's evaluate and review (US-0064) ----
+
+  async reportOverview(id: string): Promise<ReportOverview> {
+    return toOverview(await this.reportCall("GET", id, ""));
+  }
+  async reportEvaluate(id: string, input: { confirmedCalls: number; by: string }): Promise<ReportJob> {
+    return toJob(await this.reportCall("POST", id, "/evaluate", { confirmedCalls: input.confirmedCalls, by: input.by }));
+  }
+  async reportCancel(id: string): Promise<ReportJob> {
+    return toJob(await this.reportCall("POST", id, "/evaluate/cancel", {}));
+  }
+  async reportOpen(id: string, by: string): Promise<{ subjects: number }> {
+    const d = await this.reportCall("POST", id, "/open", { by });
+    if (!isObject(d) || !isCount(d.subjects)) return bad();
+    return { subjects: d.subjects };
+  }
+  /** The subject view alone gets the larger report cap. */
+  async reportSubject(id: string, subject: string): Promise<SubjectView> {
+    return toSubjectView(await this.reportCall("GET", id, this.subjectPath(subject, ""), undefined, MAX_REPORT_RESPONSE_CHARS));
+  }
+  async reportEdit(id: string, subject: string, b: ReportEditInput): Promise<void> {
+    await this.reportWrite(id, this.subjectPath(subject, "/edit"), {
+      criterion: b.criterion, level: b.level, reason: b.reason, ...(b.rationale !== undefined && { rationale: b.rationale }), expect: b.expect, by: b.by,
+    });
+  }
+  async reportAccept(id: string, subject: string, b: ReportAcceptInput): Promise<void> {
+    await this.reportWrite(id, this.subjectPath(subject, "/accept"), {
+      ...(b.criterion !== undefined && { criterion: b.criterion }), ...(b.summary !== undefined && { summary: b.summary }), by: b.by,
+    });
+  }
+  async reportComment(id: string, subject: string, b: ReportCommentInput): Promise<void> {
+    await this.reportWrite(id, this.subjectPath(subject, "/comment"), {
+      text: b.text, ...(b.criterion !== undefined && { criterion: b.criterion }), ...(b.feedback !== undefined && { feedback: b.feedback }), by: b.by,
+    });
+  }
+  async reportEditSummary(id: string, subject: string, b: ReportEditSummaryInput): Promise<void> {
+    await this.reportWrite(id, this.subjectPath(subject, "/edit-summary"), {
+      reason: b.reason, ...(b.strengths !== undefined && { strengths: b.strengths }), ...(b.developments !== undefined && { developments: b.developments }),
+      ...(b.actions !== undefined && { actions: b.actions.map((a) => ({ lo: a.lo, text: a.text })) }), by: b.by,
+    });
+  }
+
+  private async reportWrite(id: string, tail: string, body: unknown): Promise<void> {
+    if (!isObject(await this.reportCall("POST", id, tail, body))) bad();
+  }
+  private reportCall(method: "GET" | "POST", id: string, tail: string, body?: unknown, maxChars?: number): Promise<unknown> {
+    return this.call(method, `/sessions/${this.id(id)}/report${tail}`, body, Math.max(this.timeoutMs, REPORT_CALL_TIMEOUT_MS), maxChars === undefined ? {} : { maxChars });
+  }
+  /** A subject is `group` or a role id; anything else never reaches the network. */
+  private subjectPath(subject: string, leaf: string): string {
+    if (subject !== "group" && !isId(subject)) throw new LauncherError("not_found");
+    return `/subjects/${encodeURIComponent(subject)}${leaf}`;
+  }
+
   private linkPath(id: string, role: string, leaf: string): string {
     if (!isId(role)) throw new LauncherError("not_found");
     return `/sessions/${this.id(id)}/report-links/${encodeURIComponent(role)}${leaf}`;
@@ -620,7 +843,9 @@ export class LauncherClient {
     const err = e && isObject(e.error) ? e.error : undefined;
     if (err && typeof err.code === "string") {
       const detail = o.detail && typeof err.message === "string" && err.message.length <= MAX_DETAIL_CHARS ? err.message : undefined;
-      throw new LauncherError(Object.hasOwn(BY_CODE, err.code) ? BY_CODE[err.code]! : "failed", detail);
+      const reason = Object.hasOwn(BY_CODE, err.code) ? BY_CODE[err.code]! : "failed";
+      const blocked = reason === "blocked" ? toBlocked(e?.data) : undefined;
+      throw new LauncherError(reason, detail, blocked);
     }
     throw new LauncherError(BY_STATUS[status] ?? "failed");
   }

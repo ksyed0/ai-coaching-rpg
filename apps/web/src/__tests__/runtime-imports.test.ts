@@ -45,4 +45,22 @@ describe("web sources and the runtime", () => {
     const hits = files.filter((f) => violations(readFileSync(f, "utf8")).length > 0);
     expect(hits).toEqual([]);
   });
+
+  it("the facilitator report handlers and their routes are covered, and the handlers import neither the runtime nor the file system", () => {
+    const files = sources(SRC);
+    const handlers = files.filter((f) => /[\\/]console-report-[^\\/]*\.ts$/.test(f));
+    expect(handlers.map((f) => f.slice(SRC.length + 1))).toEqual(expect.arrayContaining([join("server", "console-report-handlers.ts")]));
+    const routes = files.filter((f) => f.includes(join("console", "sessions", "[id]", "report") + "/") || f.includes(join("console", "sessions", "[id]", "report") + "\\"));
+    expect(routes).toHaveLength(9);
+    const fsSpec = (spec: string): boolean => /^(node:)?fs(\/|$)/.test(spec);
+    expect(fsSpec("node:fs")).toBe(true);
+    expect(fsSpec("fs/promises")).toBe(true);
+    expect(fsSpec("node:fs/promises")).toBe(true);
+    expect(fsSpec("node:crypto")).toBe(false);
+    for (const f of [...handlers, ...routes]) {
+      const specs = specifiers(readFileSync(f, "utf8"));
+      expect([f, specs.filter(reachesRuntime)]).toEqual([f, []]);
+      expect([f, specs.filter(fsSpec)]).toEqual([f, []]);
+    }
+  });
 });

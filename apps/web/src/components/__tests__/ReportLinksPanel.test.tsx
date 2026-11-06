@@ -14,7 +14,7 @@ afterEach(() => {
 
 const SID = "abcd1234efgh5678";
 const BASE = `/api/v1/console/sessions/${SID}/report-links`;
-const NOT_READY = "No reports are ready for this session yet. Run evaluate and moderate open, from the terminal (see the guide).";
+const NOT_READY = "No reports are ready for this session yet. Evaluate it from the Report panel of its console.";
 const TOKEN = "AbCdEfGh.SECRETsecretSECRETsecret";
 const LINK = `${window.location.origin}/report/enter#${TOKEN}`;
 

@@ -2,6 +2,7 @@ import { access, constants } from "node:fs/promises";
 import { submitResponse, submitSelfRatings, type RatingInput, type ResponseInput } from "@acr/runtime/participant";
 import type { ControlConfig } from "./config.js";
 import { isCredentialId, type ReportAccessStore } from "./report-access.js";
+import { LOCK_ATTEMPTS as ATTEMPTS, lockBackoffMs } from "./retry.js";
 
 /** Fixed sentences: no id, path or role is ever part of them. */
 export const WRITE_CLOSED = "Ratings are closed for this report. Your facilitator can tell you what is possible now.";
@@ -21,9 +22,6 @@ export const NOT_WRITABLE_LOG = "reports directory is not writable: web ratings 
 const LOG_EVERY_MS = 60_000;
 const WINDOW_MS = 10 * 60_000;
 const MAX_WRITES = 20;
-const ATTEMPTS = 5;
-const BASE_DELAY_MS = 100;
-const JITTER = 0.25;
 
 export type WriteCode = "closed" | "not_released" | "withdrawn" | "too_many" | "old_schema" | "invalid" | "busy" | "unavailable" | "throttled";
 export type WriteOutcome =
@@ -131,7 +129,7 @@ export function createParticipantWriteService(d: {
           r = await run({ reportsDir: config.reportsDir, sessionId, role: look.credential.role, credentialId, now, secrets });
         } catch { r = { kind: "unavailable" }; }
         if (r.kind === "busy" && attempt < ATTEMPTS) {
-          await sleep(BASE_DELAY_MS * 2 ** (attempt - 1) * (1 - JITTER + random() * 2 * JITTER));
+          await sleep(lockBackoffMs(attempt, random));
           continue;
         }
         if (r.kind === "ok") { count(credentialId, t); return { status: 200, wrote: r.wrote }; }
