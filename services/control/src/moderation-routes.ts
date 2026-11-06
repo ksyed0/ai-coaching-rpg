@@ -48,7 +48,7 @@ const ResolveBody = z.strictObject({
 });
 const ExportBody = z.strictObject({
   subject: CriterionId,
-  audience: z.union([z.literal("facilitator"), z.string().regex(/^participant:[A-Za-z0-9_-]{1,64}$/).transform((a) => a as `participant:${string}`)]),
+  audience: z.union([z.literal("facilitator"), z.string().refine((a) => a.startsWith("participant:") && isSafeId(a.slice("participant:".length))).transform((a) => a as `participant:${string}`)]),
   by: By,
 });
 
