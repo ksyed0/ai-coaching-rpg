@@ -34,6 +34,7 @@ export type LauncherReason =
   | "orphan"
   | "no_review"
   | "unknown_criterion"
+  | "unknown_subject"
   | "stale"
   | "blocked"
   | "not_released"
@@ -165,6 +166,7 @@ const BY_CODE: Record<string, LauncherReason> = {
   orphan: "orphan",
   no_review: "no_review",
   unknown_criterion: "unknown_criterion",
+  unknown_subject: "unknown_subject",
   stale: "stale",
   blocked: "blocked",
   not_released: "not_released",

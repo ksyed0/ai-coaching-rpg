@@ -113,6 +113,27 @@ describe("console report handlers, part B", () => {
     expect((await handleConsoleReportExport(exportReq({ subject: "alice", audience: "facilitator", by: "priya", path: "/etc" }), deps)).status).toBe(400);
   });
 
+  it("export audience: participant: with an empty, slashed or 65-character id is 400 before control; a 64-character id is forwarded", async () => {
+    for (const audience of ["participant:", "participant:a/b", `participant:${"a".repeat(65)}`]) {
+      const r = await handleConsoleReportExport(exportReq({ subject: "alice", audience, by: "priya" }), deps);
+      expect([audience.slice(0, 20), r.status]).toEqual([audience.slice(0, 20), 400]);
+    }
+    expect(sent).toEqual([]);
+    answer = () => good(EXPORT_OK);
+    const long = `participant:${"a".repeat(64)}`;
+    expect((await handleConsoleReportExport(exportReq({ subject: "alice", audience: long, by: "priya" }), deps)).status).toBe(200);
+    expect(sent[0]!.body).toEqual({ subject: "alice", audience: long, by: "priya" });
+  });
+
+  it("an unknown subject is 404 with its own fixed sentence; an unknown session keeps the session sentence", async () => {
+    answer = () => env(404, { success: false, data: null, error: { code: "unknown_subject" } });
+    let r = await handleConsoleReportAmend(post("/subjects/alice/amend", { reason: "r", by: "priya" }), deps);
+    expect([r.status, (await json(r)).error]).toEqual([404, { code: "unknown_subject", message: "That report was not found. Reload the page." }]);
+    answer = () => refused(404, "not_found");
+    r = await handleConsoleReportAmend(post("/subjects/alice/amend", { reason: "r", by: "priya" }), deps);
+    expect([r.status, (await json(r)).error]).toEqual([404, { code: "not_found", message: "That session was not found." }]);
+  });
+
   it("a bad fileName is replaced by report.md", async () => {
     for (const bad of ['report-a".md', "../report-a.md", "report-a.md\r\nX: y", "report-.md", "notes.md", "report-a.txt", "report-" + "a".repeat(65) + ".md", 7, null]) {
       answer = () => good({ fileName: bad, markdown: "m" });

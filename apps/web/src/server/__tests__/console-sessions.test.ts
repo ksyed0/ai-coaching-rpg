@@ -1130,6 +1130,7 @@ describe("console session API", () => {
       orphan: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       no_review: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       unknown_criterion: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
+      unknown_subject: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       stale: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       blocked: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
       not_released: [502, "launcher_unavailable", "The session service is not reachable. Try again."],

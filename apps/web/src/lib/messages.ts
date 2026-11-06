@@ -110,6 +110,8 @@ export const REPORT_REFUSALS = {
   orphan: "A report folder for this session is damaged. See the rollback notes to remove it, then evaluate again.",
   no_review: "The review has not been opened yet. Open it first.",
   unknown_criterion: "That criterion is not in this report.",
+  // 404 from control with this code: the session is known, the subject is not in its review (an unknown session is the plain 404)
+  unknown_subject: "That report was not found. Reload the page.",
   stale: "Someone changed this. Reload the level and try again.",
   blocked: "Some reports still have open items. Resolve them, then try again.",
   not_released: "That report has not been released.",

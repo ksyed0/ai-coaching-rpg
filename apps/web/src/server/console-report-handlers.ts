@@ -25,7 +25,7 @@ const WRITE_ROLE = "*console-report-write";
 const NAME = /^[A-Za-z0-9_-]{1,56}$/;
 
 const CLOSED: ReadonlySet<string> = new Set([
-  // no unknown_subject: control answers an unknown subject 404, as an unknown session
+  // no unknown_subject: control answers it 404 (with that code), and so does the BFF, with its own sentence
   "not_ended", "already_evaluated", "already_running", "too_many_running", "confirm_mismatch", "orphan", "no_review", "unknown_criterion",
   "stale", "blocked", "not_released", "not_editable", "superseded", "needs_amend", "refused",
 ]);
@@ -49,6 +49,7 @@ export function reportFailure(err: unknown): Response {
   switch (err.reason) {
     case "invalid": return say(400, "invalid");
     case "not_found": return notFound();
+    case "unknown_subject": return say(404, "unknown_subject");
     case "busy": return say(503, "busy", { headers: { "Retry-After": "2" } });
     case "unavailable": return say(503, "unavailable");
     case "timeout": return say(504, "timeout");
@@ -303,7 +304,9 @@ function downloadName(v: unknown): string {
   const m = typeof v === "string" ? /^report-([A-Za-z0-9_-]+)\.md$/.exec(v) : null;
   return m !== null && isSafeId(m[1]!) ? (v as string) : "report.md";
 }
-const AUDIENCE = /^participant:[A-Za-z0-9_-]{1,64}$/;
+const PARTICIPANT = "participant:";
+/** `facilitator`, or `participant:` and a safe id (the one rule in @acr/events, as control checks it). */
+const isAudience = (a: string): boolean => a === "facilitator" || (a.startsWith(PARTICIPANT) && isSafeId(a.slice(PARTICIPANT.length)));
 
 /**
  * POST .../report/export { subject, audience, by }: the BFF builds the attachment itself from control's { fileName, markdown } with exactly four
@@ -313,7 +316,7 @@ export const handleConsoleReportExport = (req: Request, deps: Deps): Promise<Res
   if (req.method !== "POST") return Promise.resolve(notFound());
   return write(req, deps, {
     keys: ["subject", "audience"], subject: false, named: true,
-    valid: (b) => isStr(b.subject) && isFileSafeId(b.subject) && isStr(b.audience) && (b.audience === "facilitator" || AUDIENCE.test(b.audience)),
+    valid: (b) => isStr(b.subject) && isFileSafeId(b.subject) && isStr(b.audience) && isAudience(b.audience),
     send: (d, id, _s, b, by) => d.launcher.reportExport(id, { subject: b.subject as string, audience: b.audience as string, by }),
     build: (data) => {
       const f = data as { fileName: string; markdown: string };
