@@ -177,3 +177,71 @@ describe("print rules", () => {
     expect(block).toMatch(/background:\s*none\s*!important/);
   });
 });
+
+describe("ReportView released sections and states", () => {
+  const OWN = {
+    criteria: [{ id: "c1", name: "Listening", score: 3, level_label: "Proficient" }],
+    self: { c1: { level: 2, label: "Developing", note: "<img src=x onerror=alert(1)>" } },
+    responses: [{ criterion: "c1", text: "I disagree", dispute: true, resolution: { outcome: "upheld", reason: "Evidence stands" } }],
+  };
+  const full = () => json(200, { success: true, error: null, data: { state: "released", availableUntil: UNTIL, view: { kind: "released", own: OWN, group: null, markdown: { own: "Report text", group: null } } } });
+
+  it("renders the report, then the table, the responses and the form, in order", async () => {
+    const { container } = render(<ReportView fetch={(async () => full()) as unknown as typeof fetch} />);
+    await screen.findByRole("heading", { name: "Your report" });
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.getByText("1 of 50 used")).toBeTruthy();
+    expect(screen.getByText(/Outcome: upheld/)).toBeTruthy();
+    expect(screen.getByLabelText("About")).toBeTruthy();
+    const order = ["report-own", "report-compare", "report-responses", "respond-h"].map((id) => container.querySelector(`#${id}`)!);
+    for (let i = 1; i < order.length; i++) expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector("pre.report-text")!.textContent).toBe("Report text");
+  });
+
+  it("forms are no-print; the printout has the report, table and responses", async () => {
+    const { container } = render(<ReportView fetch={(async () => full()) as unknown as typeof fetch} />);
+    await screen.findByRole("heading", { name: "Your report" });
+    expect(screen.getByLabelText("About").closest("form")!.classList.contains("no-print")).toBe(true);
+    expect(screen.getByRole("button", { name: "Print" }).closest(".no-print")).toBeTruthy();
+    for (const id of ["report-own", "report-compare", "report-responses"]) expect(container.querySelector(`#${id}`)!.closest(".no-print")).toBeNull();
+    const css = readFileSync(join(__dirname, "..", "..", "lib", "app.css"), "utf8");
+    expect(/@media print\s*\{([\s\S]*?)\n\}/.exec(css)?.[1]).toMatch(/\.no-print/);
+  });
+
+  it("a sent response replaces the page with the returned view", async () => {
+    const after = json(200, { success: true, error: null, data: { state: "released", availableUntil: UNTIL, view: { own: { ...OWN, responses: [...OWN.responses, { text: "Second", dispute: false }] }, markdown: { own: "Report text", group: null } } } });
+    const fetchFn = vi.fn().mockResolvedValueOnce(full()).mockResolvedValueOnce(after);
+    render(<ReportView fetch={fetchFn as unknown as typeof fetch} />);
+    await screen.findByRole("heading", { name: "Your report" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Your response" }), { target: { value: "Second" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send" })); });
+    await screen.findByText("2 of 50 used");
+  });
+
+  it("a refused link from the response form shows the refused state", async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(full()).mockResolvedValueOnce(fail(404, "not_found"));
+    render(<ReportView fetch={fetchFn as unknown as typeof fetch} />);
+    await screen.findByRole("heading", { name: "Your report" });
+    fireEvent.change(screen.getByRole("textbox", { name: "Your response" }), { target: { value: "x" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Send" })); });
+    await waitFor(() => expect(status()).toBe("This link no longer works. Ask your facilitator for a new one."));
+  });
+
+  it("closed, old_schema, throttled, not_released and retry states each show their own sentence and a retry only where it helps", async () => {
+    const cases: [() => Promise<Response>, string, boolean][] = [
+      [async () => json(200, { success: true, error: null, data: { state: "closed" } }), "Ratings for this review are closed.", false],
+      [async () => json(200, { success: true, error: null, data: { state: "old_schema" } }), "This review was opened before online ratings were available. Your facilitator can take your rating or response in the terminal.", false],
+      [async () => json(200, { success: true, error: null, data: { state: "not_released" } }), "Your report is not available right now. Ask your facilitator.", false],
+      [async () => fail(429, "rate_limited"), "Too many requests. Wait a minute and try again.", true],
+      [async () => fail(503, "unavailable"), "We could not load your report. Try again.", true],
+      [async () => fail(404, "not_found"), "This link no longer works. Ask your facilitator for a new one.", false],
+    ];
+    for (const [r, copy, retry] of cases) {
+      const u = render(<ReportView fetch={vi.fn(r) as unknown as typeof fetch} />);
+      await waitFor(() => expect(status()).toBe(copy));
+      expect(screen.queryByRole("button", { name: "Try again" }) !== null).toBe(retry);
+      u.unmount();
+    }
+  });
+});

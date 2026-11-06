@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getJson } from "../lib/api";
 import { MESSAGES } from "../lib/messages";
+import { comparisonRows, type ComparisonRow } from "../lib/report-compare";
+import { ComparisonTable } from "./ComparisonTable";
+import { ResponseForm } from "./ResponseForm";
+import { ResponsesList, parseResponses, type ResponseItem } from "./ResponsesList";
 import { SelfRatingForm, type RatingForm } from "./SelfRatingForm";
 
 // The participant's released report. The text arrives already scrubbed and rendered to markdown by the runtime; it is shown here as
@@ -11,7 +15,7 @@ import { SelfRatingForm, type RatingForm } from "./SelfRatingForm";
 export type ReportViewProps = { fetch?: typeof fetch };
 type Model =
   | { kind: "loading" }
-  | { kind: "report"; own: string; group: string | null; until: string | null }
+  | { kind: "report"; own: string; group: string | null; until: string | null; rows: ComparisonRow[]; responses: ResponseItem[]; criteria: { id: string; name: string }[] }
   | { kind: "form"; form: RatingForm }
   | { kind: "not_released" | "closed" | "old_schema" | "refused" | "retry" | "throttled" };
 
@@ -38,6 +42,12 @@ function parseForm(d: Record<string, unknown>): RatingForm | null {
   return { criteria, scale, existing };
 }
 
+/** The criteria (id, name) of the structured report, for the response form's select; malformed entries are skipped. */
+function criteriaOf(own: unknown): { id: string; name: string }[] {
+  if (!isObj(own) || !Array.isArray(own.criteria)) return [];
+  return own.criteria.flatMap((c) => (isObj(c) && typeof c.id === "string" && typeof c.name === "string" ? [{ id: c.id, name: c.name }] : []));
+}
+
 function parse(data: unknown): Model {
   if (!isObj(data)) return { kind: "retry" };
   if (data.state === "not_released") return { kind: "not_released" };
@@ -49,8 +59,13 @@ function parse(data: unknown): Model {
   }
   const md = isObj(data.view) && isObj(data.view.markdown) ? data.view.markdown : null;
   if (data.state !== "released" || md === null || typeof md.own !== "string") return { kind: "retry" };
+  const structured = isObj(data.view) ? data.view.own : undefined;
+  const criteria = criteriaOf(structured);
   return {
     kind: "report",
+    rows: comparisonRows(structured),
+    criteria,
+    responses: parseResponses(isObj(structured) ? structured.responses : undefined, criteria),
     own: md.own,
     group: typeof md.group === "string" ? md.group : null,
     until: typeof data.availableUntil === "string" ? data.availableUntil : null,
@@ -115,6 +130,15 @@ export function ReportView({ fetch: fetchImpl }: ReportViewProps) {
                 <pre className="report-text">{model.group}</pre>
               </section>
             ) : null}
+            <ComparisonTable rows={model.rows} />
+            <ResponsesList items={model.responses} />
+            <ResponseForm
+              criteria={model.criteria}
+              used={model.responses.length}
+              fetch={fetchImpl}
+              onSent={(v) => setModel(parse(v))}
+              onRefused={() => setModel({ kind: "refused" })}
+            />
             <p className="no-print"><button className="btn" type="button" onClick={() => window.print()}>Print</button></p>
           </>
         ) : model.kind === "form" ? (
