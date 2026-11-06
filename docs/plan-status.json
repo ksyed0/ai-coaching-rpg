@@ -2786,7 +2786,7 @@
         },
         {
           "id": "AC-0369",
-          "text": "capacity is bounded: at most 50 ratings per submit, 10 times the criteria in ratings per review, 50 responses per report, text of at most 1,500 characters (UTF-16 bound 3,000 at the door), per-route body caps (16 KB responses, 64 KB self-ratings, 4 KB elsewhere) and at most 20 counted writes per credential in 10 minutes with a Retry-After (built in slice 2c-2 PR 1; TC-0131)",
+          "text": "capacity is bounded: at most 50 ratings per submit, 10 times the criteria in ratings per role in a review, 50 responses per report, text of at most 1,500 characters (UTF-16 bound 3,000 at the door), per-route body caps (16 KB responses, 64 KB self-ratings, 4 KB elsewhere) and at most 20 counted writes per credential in 10 minutes with a Retry-After (built in slice 2c-2 PR 1; TC-0131)",
           "done": false
         },
         {
@@ -6843,9 +6843,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-06T05:25:27.528Z",
-  "commitSha": "af7f185",
-  "buildNumber": "540",
+  "generatedAt": "2026-11-06T05:38:48.249Z",
+  "commitSha": "55376ce",
+  "buildNumber": "542",
   "branch": "feature/EPIC-0002-US-0063-participant-report",
   "sessionTimeline": [
     {
@@ -7077,7 +7077,7 @@
   "completion": {
     "likelyDate": "May 19",
     "rangeStart": "Nov 15",
-    "rangeEnd": "Nov 20",
+    "rangeEnd": "Nov 21",
     "velocityWeeks": 5,
     "storiesPerWeek": 0.4,
     "pointsPerWeek": 1.6
@@ -7085,7 +7085,7 @@
   "trends": {
     "dates": [
       "2026-10-03T02:24:51.406Z",
-      "2026-11-06T05:25:27.644Z"
+      "2026-11-06T05:38:48.389Z"
     ],
     "doneCounts": [
       0,

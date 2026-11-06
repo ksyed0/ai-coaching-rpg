@@ -287,7 +287,7 @@ Rollback trigger: a participant write lands under the wrong role, the control se
 ### Rolling back
 
 1. **Roll back only before any `/2` review is opened.** Check first: `grep -l '"acr.review/2"' <reports dir>/*/review.jsonl` finds none.
-2. **If a `/2` review is already open,** restore the reviews from a backup taken before the first `moderate open` of this build, or keep the new build and switch the write routes off by redeploying the control service without them. Do not edit `review.jsonl` by hand: it is hash-chained.
+2. **If a `/2` review is already open,** restore the reviews from a backup taken before the first `moderate open` of this build, or keep the new build and take the write routes off with a code change (revert the `participantWrites` wiring in the control service's `main.ts` and redeploy; there is no switch or flag for it). Do not edit `review.jsonl` by hand: it is hash-chained.
 3. Redeploy the previous control service and runtime together; no data migration. **Smoke test:** `pnpm moderate status` reads every review folder.
 
 ### Rolling forward again
