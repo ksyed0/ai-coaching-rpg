@@ -22,7 +22,8 @@ export type LauncherReason =
   | "ai_busy"
   | "ai_budget"
   | "ai_absent"
-  | "ai_expired";
+  | "ai_expired"
+  | "busy";
 
 /** A failed call to the control service. The message repeats only the reason word. */
 export class LauncherError extends Error {
@@ -60,10 +61,30 @@ const REASONS: readonly string[] = ["model_failed", "timeout", "unusable", "budg
 /** A report link as the console may see it: never the credential id, the token or the secret. */
 export type ReportLinkInfo = { role: string; createdAt: number; expiresAt: number; revokedAt?: number; lastUsedAt?: number };
 export type ReportLinksState = "ready" | "not_ready" | "unavailable";
-export type ReportLinkRow = { role: string; credential: ReportLinkInfo | null };
+/** How many criteria a draft player has rated; null for a released role and when the counts cannot be read. */
+export type SelfRated = { rated: number; total: number };
+export type ReportLinkRow = { role: string; credential: ReportLinkInfo | null; selfRated: SelfRated | null; draft: boolean };
+/** Players with at least one rating out of draft players; null when the counts cannot be read. */
+export type PlayersSummary = SelfRated;
 export type IssuedReportLink = { credential: ReportLinkInfo; token: string };
 export type ReportExchange = { credentialId: string; sessionId: string; role: string; expiresAt: number };
-export type ReportRead = { state: "released"; view: Record<string, unknown> } | { state: "not_released" };
+/** The blind self-assessment form of a draft report (the fields of the runtime's `FormResult` form kind). */
+export type SelfAssessForm = {
+  criteria: { id: string; name: string }[];
+  scale: { level: number; label: string; meaning: string }[];
+  existing: Record<string, { level: 1 | 2 | 3 | 4 | "na"; note?: string }>;
+};
+export type ReportRead =
+  | { state: "released"; view: Record<string, unknown> }
+  | ({ state: "self_assess" } & SelfAssessForm)
+  | { state: "not_released" }
+  | { state: "closed" }
+  | { state: "old_schema" };
+/** A participant write's outcome (ratings or a response): a closed set read from control's status and `error.code`, never its text. */
+export type WriteState = "closed" | "not_released" | "withdrawn" | "too_many" | "old_schema" | "invalid" | "busy" | "too_large";
+export type WriteOutcome = { state: "ok" } | { state: WriteState } | { state: "throttled"; retryAfterMs: number };
+export type RatingInput = { criterion: string; level: unknown; note?: string };
+export type ResponseInput = { criterion?: string; text: string; dispute?: boolean };
 export type CreatedSession = {
   sessionId: string;
   status: "running";
@@ -75,6 +96,9 @@ export type CreatedSession = {
 const DEFAULT_TIMEOUT_MS = 5_000;
 /** A create against a hung child can take the child's ready timeout plus two grace periods (ruling R10). */
 const DEFAULT_LONG_TIMEOUT_MS = 120_000;
+/** A participant write waits out control's retry window and its per-session queue. */
+const WRITE_TIMEOUT_MS = 15_000;
+const CONFLICT_STATES: ReadonlySet<string> = new Set(["closed", "not_released", "withdrawn", "too_many", "old_schema"]);
 /** Far above any real answer. The body is buffered whole (`res.text()`) before this is checked, so it bounds what we parse, not what we read; the control service is a trusted internal service. */
 const MAX_RESPONSE_CHARS = 1024 * 1024;
 /**
@@ -110,6 +134,7 @@ const BY_CODE: Record<string, LauncherReason> = {
   ai_budget: "ai_budget",
   ai_absent: "ai_absent",
   ai_expired: "ai_expired",
+  busy: "busy",
 };
 /** Used only when the answer has no readable error envelope. */
 const BY_STATUS: Record<number, LauncherReason> = {
@@ -190,6 +215,31 @@ function toIntent(v: unknown): IntentEntry | null {
 }
 
 const isTime = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+const isCount = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+function toCount(v: unknown): SelfRated {
+  if (!isObject(v) || !isCount(v.rated) || !isCount(v.total)) return bad();
+  return { rated: v.rated, total: v.total };
+}
+
+/** The form fields of a self_assess answer, picked field by field; anything that does not fit fails closed. */
+function toForm(d: Record<string, unknown>): SelfAssessForm {
+  if (!Array.isArray(d.criteria) || !Array.isArray(d.scale) || !isObject(d.existing)) return bad();
+  const criteria = d.criteria.map((c) => (isObject(c) && isText(c.id) && typeof c.name === "string" ? { id: c.id, name: c.name } : bad()));
+  const scale = d.scale.map((c) =>
+    isObject(c) && typeof c.level === "number" && Number.isFinite(c.level) && typeof c.label === "string" && typeof c.meaning === "string"
+      ? { level: c.level, label: c.label, meaning: c.meaning }
+      : bad(),
+  );
+  // Control (and the runtime) store Not observed as `level: null`; the page's own form type calls it "na". A literal "na" is accepted too.
+  const entries = Object.entries(d.existing).map(([k, v]) => {
+    if (!isObject(v) || !(v.level === 1 || v.level === 2 || v.level === 3 || v.level === 4 || v.level === "na" || v.level === null)) return bad();
+    if (v.note !== undefined && typeof v.note !== "string") return bad();
+    return [k, { level: v.level === null ? ("na" as const) : v.level, ...(v.note !== undefined ? { note: v.note } : {}) }] as const;
+  });
+  const existing: SelfAssessForm["existing"] = Object.fromEntries(entries); // own keys only; a key such as __proto__ stays a plain data key
+  return { criteria, scale, existing };
+}
 
 /** Picked field by field, so the credential's id (and anything else) is dropped here and can never be forwarded by mistake. */
 function toReportLink(v: unknown): ReportLinkInfo {
@@ -406,13 +456,18 @@ export class LauncherClient {
 
   // ---- report links (US-0062) ----
 
-  async reportLinks(id: string): Promise<{ state: ReportLinksState; roles: ReportLinkRow[] }> {
+  async reportLinks(id: string): Promise<{ state: ReportLinksState; players: PlayersSummary | null; roles: ReportLinkRow[] }> {
     const d = await this.call("GET", `/sessions/${this.id(id)}/report-links`, undefined, this.timeoutMs);
     if (!isObject(d) || !Array.isArray(d.roles)) return bad();
     if (d.state !== "ready" && d.state !== "not_ready" && d.state !== "unavailable") return bad();
     return {
       state: d.state,
-      roles: d.roles.map((r) => (isObject(r) && isId(r.role) ? { role: r.role, credential: r.credential === null ? null : toReportLink(r.credential) } : bad())),
+      players: d.players === null || d.players === undefined ? null : toCount(d.players),
+      roles: d.roles.map((r) =>
+        isObject(r) && isId(r.role)
+          ? { role: r.role, credential: r.credential === null ? null : toReportLink(r.credential), selfRated: r.selfRated === null || r.selfRated === undefined ? null : toCount(r.selfRated), draft: r.draft === true }
+          : bad(),
+      ),
     };
   }
 
@@ -444,8 +499,70 @@ export class LauncherClient {
     const d = await this.call("GET", `/sessions/${this.id(id)}/reports/${encodeURIComponent(credentialId)}`, undefined, this.timeoutMs, { maxChars: MAX_REPORT_RESPONSE_CHARS });
     if (!isObject(d)) return bad();
     if (d.state === "not_released") return { state: "not_released" };
+    if (d.state === "closed") return { state: "closed" };
+    if (d.state === "old_schema") return { state: "old_schema" };
     if (d.state === "released" && isObject(d.view)) return { state: "released", view: d.view };
+    if (d.state === "self_assess") return { state: "self_assess", ...toForm(d) };
     return bad();
+  }
+
+  /** Saves a participant's self-ratings. Control's status and code decide the outcome; its message is never read. */
+  async rateReport(id: string, credentialId: string, ratings: RatingInput[]): Promise<WriteOutcome> {
+    return this.write("PUT", id, credentialId, "self-ratings", { ratings });
+  }
+
+  /** Saves a participant's response (optionally a dispute of one criterion). */
+  async respondReport(id: string, credentialId: string, input: ResponseInput): Promise<WriteOutcome> {
+    return this.write("POST", id, credentialId, "responses", input);
+  }
+
+  private async write(method: "PUT" | "POST", id: string, credentialId: string, leaf: string, body: unknown): Promise<WriteOutcome> {
+    if (typeof credentialId !== "string" || !CREDENTIAL_ID.test(credentialId)) throw new LauncherError("not_found");
+    const path = `/sessions/${this.id(id)}/reports/${encodeURIComponent(credentialId)}/${leaf}`;
+    const signal = AbortSignal.timeout(Math.max(this.timeoutMs, WRITE_TIMEOUT_MS));
+    let status: number;
+    let text: string;
+    let retryAfter: string | null;
+    try {
+      const res = await this.fetchFn(new URL(path, this.base).toString(), {
+        method,
+        signal,
+        redirect: "error",
+        headers: { "x-service-token": this.token, Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      status = res.status;
+      retryAfter = res.headers.get("Retry-After");
+      text = await res.text();
+    } catch {
+      throw new LauncherError(signal.aborted ? "timeout" : "unavailable");
+    }
+    if (text.length > MAX_RESPONSE_CHARS) throw new LauncherError("failed");
+    let env: unknown;
+    try {
+      env = JSON.parse(text);
+    } catch {
+      env = undefined;
+    }
+    const e = isObject(env) ? env : undefined;
+    if (status >= 200 && status < 300) {
+      if (e?.success !== true) throw new LauncherError("failed");
+      return { state: "ok" };
+    }
+    const err = e && isObject(e.error) ? e.error : undefined;
+    const code = err && typeof err.code === "string" ? err.code : undefined;
+    if (status === 400) return { state: "invalid" };
+    if (status === 413) return { state: "too_large" };
+    if (status === 404) throw new LauncherError("not_found");
+    if (status === 429) {
+      const secs = retryAfter !== null && /^\d{1,6}$/.test(retryAfter.trim()) ? Number(retryAfter.trim()) : 1;
+      return { state: "throttled", retryAfterMs: Math.max(1, secs) * 1000 };
+    }
+    if (status === 409 && code !== undefined && CONFLICT_STATES.has(code)) return { state: code as WriteState };
+    if (status === 503 && code === "busy") return { state: "busy" };
+    if (status === 503) throw new LauncherError("unavailable");
+    if (status === 401) throw new LauncherError("unauthorized");
+    throw new LauncherError(status === 504 ? "timeout" : "failed");
   }
 
   private linkPath(id: string, role: string, leaf: string): string {

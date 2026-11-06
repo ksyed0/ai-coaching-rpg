@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { selfRatingProgress } from "../index.js";
+import { listDraftPlayerRoles, selfRatingProgress } from "../index.js";
 import { loadReview } from "../../review/store.js";
 import { withReviewLock } from "../../review/review-log.js";
 import { REVIEW_FILE } from "../../review/types.js";
@@ -81,5 +81,13 @@ describe("selfRatingProgress", () => {
       const r = await selfRatingProgress(env!.root, env!.sessionId);
       expect(r.kind).toBe("ok");
     });
+  });
+});
+
+describe("listDraftPlayerRoles", () => {
+  it("lists the draft human roles, sorted, and null when nothing resolves", async () => {
+    env = await liveReview();
+    expect(await listDraftPlayerRoles(env.root, env.sessionId)).toEqual(["alice", "bob"]);
+    expect(await listDraftPlayerRoles(env.root, "other-session")).toBeNull();
   });
 });

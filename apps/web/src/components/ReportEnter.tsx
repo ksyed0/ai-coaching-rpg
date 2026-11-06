@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { postJson } from "../lib/api";
+import { clearDraft } from "../lib/report-draft";
 import { MESSAGES } from "../lib/messages";
 
 // Opens a report link. The token is in the URL fragment (never sent to a server by the browser): this reads it once, removes it from the
@@ -44,6 +45,8 @@ export function ReportEnter({ fetch: fetchImpl, navigate = replaceWith }: Report
       if (!alive()) return;
       if (o === "done") {
         // The token has done its job: drop it (and the finished request) before leaving, so nothing here holds it any longer.
+        // A link was really entered (not a bare visit): the new link must never show another link's draft.
+        if (token !== undefined && token !== "") clearDraft();
         token = undefined;
         inFlight = null;
         navigate("/report"); // stays "opening": the page is going away

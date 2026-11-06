@@ -32,9 +32,13 @@ describe("source rules", () => {
     expect(hits).toEqual([]);
   });
 
-  it("the browser code never touches the cookie (it is HttpOnly) or storage", () => {
-    const hits = clientSide.filter((p) => /document\.cookie|localStorage|sessionStorage/.test(read(p))).map(rel);
+  it("the browser code never touches the cookie (it is HttpOnly) or storage, except the one report draft module", () => {
+    const hits = clientSide.filter((p) => /document\.cookie|localStorage|sessionStorage/.test(read(p)) && rel(p) !== "lib/report-draft.ts").map(rel);
     expect(hits).toEqual([]);
+    // The one exception holds the unsent self-ratings in sessionStorage only: never the cookie or localStorage.
+    const draft = clientSide.filter((p) => rel(p) === "lib/report-draft.ts").map(read).join("");
+    expect(draft).toMatch(/sessionStorage/);
+    expect(draft).not.toMatch(/document\.cookie|localStorage/);
   });
 
   it("pages, components and styles load no third-party resource", () => {

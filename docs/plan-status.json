@@ -2707,7 +2707,7 @@
       "acs": [
         {
           "id": "AC-0327",
-          "text": "the facilitator issues a link for a released report from the console; the credential is 128 bits from a CSPRNG, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in one report-access.json under the control data directory (0600, atomic, outside every review folder) (store and service built in slice 2c-1 PR 1, TC-0121; the console button in PR 2, TC-0125 and TC-0126)",
+          "text": "the facilitator issues a link for a draft or a released report from the console (a link for a draft report lets the participant rate themselves before release; amended in slice 2c-2 PR 2, a withdrawn report still gets none); the credential is 128 bits from a CSPRNG, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in one report-access.json under the control data directory (0600, atomic, outside every review folder) (store and service built in slice 2c-1 PR 1, TC-0121; the console button in PR 2, TC-0125 and TC-0126)",
           "done": true
         },
         {
@@ -2756,53 +2756,53 @@
       "title": "As a participant, I want to rate myself and respond to my released report in the browser, so that I can take part in the review.",
       "priority": "High",
       "estimate": "L",
-      "status": "Planned",
-      "branch": "feature/EPIC-0002-US-0063-participant-report",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0063-participant-report (slice 2c-2 PR 1); feature/EPIC-0002-US-0063-participant-report-ui (PR 2)",
       "acs": [
         {
           "id": "AC-0331",
-          "text": "a versioned actor kind participant_session is accepted only for self-assess, respond (including marking a dispute) and reading the own released report; resolve stays a facilitator action; REVIEW_SCHEMA is bumped and the fold and write checks accept the new kind (runtime part built in slice 2c-2 PR 1: `acr.review/2`, the actor, the fold and `isEventShape`, TC-0127; the reading of the own report in the browser is PR 2)",
-          "done": false
+          "text": "a versioned actor kind participant_session is accepted only for self-assess, respond (including marking a dispute) and reading the own released report; resolve stays a facilitator action; REVIEW_SCHEMA is bumped and the fold and write checks accept the new kind (runtime part built in slice 2c-2 PR 1: `acr.review/2`, the actor, the fold and `isEventShape`, TC-0127; the reading of the own report in the browser built in PR 2, TC-0133)",
+          "done": true
         },
         {
           "id": "AC-0332",
-          "text": "the report page shows levels with evidence, the calibration stamp, the self-rating column and a response box, and works after the runtime has exited",
-          "done": false
+          "text": "the report page shows the blind self-rating form before release (criterion names and the generic scale only, no evaluator level, rationale or evidence) and, after release, the report with levels and evidence, the calibration stamp, a comparison table of the evaluator's level beside the participant's own rating, the participant's responses with any outcome and reason, and a response form (with a dispute flag); it works after the runtime has exited (built in slice 2c-2 PR 1 for the data side, TC-0128, and PR 2 for the page, TC-0128, TC-0133, TC-0134)",
+          "done": true
         },
         {
           "id": "AC-0333",
-          "text": "a held review.lock is retried with backoff and the participant sees try again (lock distinction, retry with backoff and the `busy` answer built in slice 2c-2 PR 1, TC-0129; \"try again\" on the page is PR 2)",
-          "done": false
+          "text": "a held review.lock is retried with backoff and the participant sees try again (lock distinction, retry with backoff and the `busy` answer built in slice 2c-2 PR 1, TC-0129; \"Busy, try again\" on the page built in PR 2, TC-0133, TC-0134)",
+          "done": true
         },
         {
           "id": "AC-0334",
-          "text": "responses and names are scrubbed and escaped in the page, exports strip Markdown link and image syntax, and the threat model records the unkeyed chain and the control service as the only web writer",
-          "done": false
+          "text": "responses and names are scrubbed and escaped in the page, exports strip Markdown link and image syntax, and the threat model records the unkeyed chain and the control service as the only web writer (scrub and export built in slice 2c-2 PR 1, TC-0130; escaping in the page, TC-0134; docs/THREAT_MODEL.md \"Participant ratings and responses\" in PR 2)",
+          "done": true
         },
         {
           "id": "AC-0335",
-          "text": "tests cover forging, cross-role access and the CLI attested path still working (runtime and control parts built in slice 2c-2 PR 1, TC-0127: the role comes from the credential, a body naming a role is 400, every refusal is the neutral 404; the browser and BFF part is PR 2)",
-          "done": false
+          "text": "tests cover forging, cross-role access and the CLI attested path still working (runtime and control parts built in slice 2c-2 PR 1, TC-0127: the role comes from the credential, a body naming a role is 400, every refusal is the neutral 404; the browser and BFF part built in PR 2: BFF write routes refuse cross-site writes and take the role only from the sealed cookie, TC-0134, TC-0133)",
+          "done": true
         },
         {
           "id": "AC-0369",
           "text": "capacity is bounded: at most 50 ratings per submit, 10 times the criteria in ratings per role in a review, 50 responses per report, text of at most 1,500 characters (UTF-16 bound 3,000 at the door), per-route body caps (16 KB responses, 64 KB self-ratings, 4 KB elsewhere) and at most 20 counted writes per credential in 10 minutes with a Retry-After (built in slice 2c-2 PR 1; TC-0131)",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0370",
-          "text": "no write attempt begins after a revoke or reissue has returned (the credential is re-checked before every attempt); an attempt already past its credential check may complete (control side built in slice 2c-2 PR 1; TC-0131)",
-          "done": false
+          "text": "no write attempt begins after a revoke or reissue has returned (the credential is re-checked before every attempt); an attempt already past its credential check may complete (control side built in slice 2c-2 PR 1; TC-0131; in a browser a revoke and a reissue while a cookie exists refuse the next write, TC-0133; docs/THREAT_MODEL.md)",
+          "done": true
         },
         {
           "id": "AC-0371",
-          "text": "the rating progress of each role (and of each players-count) shows in `moderate status` and, in PR 2, in the console (`moderate status` built in slice 2c-2 PR 1; TC-0132)",
-          "done": false
+          "text": "the rating progress of each role (and of each players-count) shows in `moderate status` and in the console (`moderate status` built in slice 2c-2 PR 1, TC-0132; the console panel, which lists draft roles with \"Rated k of n criteria\" and \"x of y players have rated\", in PR 2, TC-0134, TC-0133)",
+          "done": true
         },
         {
           "id": "AC-0372",
-          "text": "a review opened before `acr.review/2` refuses web ratings and responses with a fixed old-schema sentence that points to the terminal, and a build that does not know `/2` cannot read a `/2` review (docs/ROLLBACK.md) (refusal built in slice 2c-2 PR 1; TC-0132)",
-          "done": false
+          "text": "a review opened before `acr.review/2` refuses web ratings and responses with a fixed old-schema sentence that points to the terminal, and a build that does not know `/2` cannot read a `/2` review (docs/ROLLBACK.md) (refusal built in slice 2c-2 PR 1; TC-0132; the page shows it in PR 2, TC-0133, TC-0134)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -3784,12 +3784,22 @@
     {
       "id": "TASK-0092",
       "storyId": "US-0063",
-      "title": "Actor kind, report page, self-assess and respond routes",
+      "title": "Actor kind, participant module and control write routes",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "In Progress",
-      "branch": "feature/EPIC-0002-US-0063-participant-report",
-      "notes": "Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). Inputs from slice 2c-1 (US-0062, done): the credential id lives only in the sealed `__Host-scenecoach-report` cookie and the control path, so the participant actor is `{ role, credentialId }` resolved by the control service; the report page already renders all text escaped and has the states, print view and throttles to extend; control refuses store trouble with a 503 (never the neutral 404), which the new routes must keep; a held `review.lock` is retried with backoff and answers try again. Open follow-ups that touch this area: BUG-0027, BUG-0028. Slice 2c-2 PR 1 (no browser) is done: review schema `acr.review/2` and the `participant_session` actor, `ReviewBusyError`, `@acr/runtime/participant` (blind form, self-ratings, responses, progress, caps), the supersede carry, the control write routes (`PUT /sessions/:id/reports/:credentialId/self-ratings`, `POST .../responses`) with per-route body caps, the throttle, the retry and the revoke re-check, the start-up writability check, and rating progress in `moderate status`. PR 2 (the browser: link rule, read states, BFF routes, page, console panel, Playwright and Axe, threat model) is still to do, so the story and AC-0331 to AC-0335 stay open. Plan docs/superpowers/plans/2026-11-05-slice-2c-2-participant-actions.md."
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0063-participant-report (slice 2c-2 PR 1)",
+      "notes": "Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). Inputs from slice 2c-1 (US-0062, done): the credential id lives only in the sealed `__Host-scenecoach-report` cookie and the control path, so the participant actor is `{ role, credentialId }` resolved by the control service; the report page already renders all text escaped and has the states, print view and throttles to extend; control refuses store trouble with a 503 (never the neutral 404), which the new routes must keep; a held `review.lock` is retried with backoff and answers try again. Open follow-ups that touch this area: BUG-0027, BUG-0028. Slice 2c-2 PR 1 (no browser) is done: review schema `acr.review/2` and the `participant_session` actor, `ReviewBusyError`, `@acr/runtime/participant` (blind form, self-ratings, responses, progress, caps), the supersede carry, the control write routes (`PUT /sessions/:id/reports/:credentialId/self-ratings`, `POST .../responses`) with per-route body caps, the throttle, the retry and the revoke re-check, the start-up writability check, and rating progress in `moderate status`. PR 2 (the browser) is TASK-0101. Plan docs/superpowers/plans/2026-11-05-slice-2c-2-participant-actions.md."
+    },
+    {
+      "id": "TASK-0101",
+      "storyId": "US-0063",
+      "title": "Browser: BFF routes, page, console panel, e2e and Axe",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0063-participant-report-ui",
+      "notes": "Slice 2c-2 PR 2 (same plan, stacked on feature/EPIC-0002-US-0063-participant-report). The link rule (a draft role can be linked, a withdrawn one cannot), the new control read states (draft form, closed, old_schema, not_released, busy) with `KNOWN_CONFLICTS`, the BFF `PUT /api/v1/report/self-ratings` and `POST /api/v1/report/responses` (cross-site writes refused before any throttle, per-credential write throttle, role from the sealed cookie only), the report page (blind self-rating form with browser drafts, comparison table, responses list, response form), the console Participant reports panel with draft rows and rating progress, the Playwright and Axe tests (TC-0133, TC-0134) and docs/THREAT_MODEL.md \"Participant ratings and responses\". Deployment: the control service now writes to the reports directory (README, Settings). Plan docs/superpowers/plans/2026-11-05-slice-2c-2-participant-actions.md."
     },
     {
       "id": "TASK-0093",
@@ -5112,6 +5122,26 @@
       "type": "Regression",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0133",
+      "title": "A participant rates with the runtime exited, sees the report, table and forms after release, and revoke and reissue refuse the next write (Playwright, with Axe)",
+      "relatedStory": "US-0063",
+      "relatedTask": "TASK-0101",
+      "relatedAC": "AC-0331, AC-0332, AC-0333, AC-0334, AC-0335, AC-0370, AC-0371, AC-0372",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0134",
+      "title": "The self-rating form, comparison table, responses, response form, console panel and BFF write routes behave as specified",
+      "relatedStory": "US-0063",
+      "relatedTask": "TASK-0101",
+      "relatedAC": "AC-0332, AC-0333, AC-0334, AC-0335, AC-0371",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -5832,7 +5862,7 @@
       "outputTokens": 0
     },
     "US-0063": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 1600,
       "costUsd": 12.299788,
       "inputTokens": 0,
       "outputTokens": 0
@@ -6843,10 +6873,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-06T05:38:48.249Z",
-  "commitSha": "55376ce",
-  "buildNumber": "542",
-  "branch": "feature/EPIC-0002-US-0063-participant-report",
+  "generatedAt": "2026-11-06T07:06:42.368Z",
+  "commitSha": "b8e3593",
+  "buildNumber": "556",
+  "branch": "feature/EPIC-0002-US-0063-participant-report-ui",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6988,9 +7018,9 @@
     }
   },
   "budget": {
-    "totalBudget": 807.5862000000001,
+    "totalBudget": 806.6862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 6452.200000000001,
+    "totalProjected": 8051.300000000001,
     "percentUsed": 99,
     "burnRate": 0,
     "daysRemaining": null,
@@ -7016,6 +7046,14 @@
         "percentUsed": 100
       },
       {
+        "id": "EPIC-0002",
+        "title": "Slice 2 — web lobby, session view and reconnect",
+        "budget": 185.39682000000005,
+        "spent": 184.49682000000004,
+        "remaining": 0.9000000000000057,
+        "percentUsed": 100
+      },
+      {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
         "budget": 172.19703200000004,
@@ -7030,14 +7068,6 @@
         "spent": 184.49682000000004,
         "remaining": 0,
         "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0002",
-        "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 186.29682000000005,
-        "spent": 184.49682000000004,
-        "remaining": 1.8000000000000114,
-        "percentUsed": 99
       },
       {
         "id": "EPIC-0007",
@@ -7075,57 +7105,68 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "May 19",
-    "rangeStart": "Nov 15",
-    "rangeEnd": "Nov 21",
+    "likelyDate": "May 16",
+    "rangeStart": "Jan 26",
+    "rangeEnd": "Sep 5",
     "velocityWeeks": 5,
-    "storiesPerWeek": 0.4,
-    "pointsPerWeek": 1.6
+    "storiesPerWeek": 0.6,
+    "pointsPerWeek": 2.7
   },
   "trends": {
     "dates": [
       "2026-10-03T02:24:51.406Z",
-      "2026-11-06T05:38:48.389Z"
+      "2026-11-06T05:38:48.389Z",
+      "2026-11-06T07:06:42.489Z"
     ],
     "doneCounts": [
       0,
-      2
+      2,
+      3
     ],
     "totalStories": [
       13,
+      65,
       65
     ],
     "aiCosts": [
       54.2322,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
       null,
       null
     ],
     "velocity": [
       0,
-      8
+      8,
+      13
     ],
     "openBugs": [
       0,
+      4,
       4
     ],
     "atRisk": [
+      0,
       0,
       0
     ],
     "inputTokens": [
       3089930,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
       5997518
     ],
     "avgRisk": [
       1.0999999999999999,
-      1.1380952380952383
+      1.1380952380952383,
+      1.1387096774193552
     ],
     "velocityByWeek": {
       "labels": [
@@ -7134,11 +7175,11 @@
       ],
       "points": [
         0,
-        8
+        13
       ],
       "rollingAvg": [
         0,
-        4
+        6.5
       ]
     }
   }

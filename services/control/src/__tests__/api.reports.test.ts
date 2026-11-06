@@ -84,7 +84,7 @@ describe("console routes", () => {
     const p = await boot(svc);
     let r = await call(p, "GET", links());
     expect(r.status).toBe(200);
-    expect(r.json.data).toEqual({ state: "ready", roles: [{ role: "alice", credential: null }, { role: "bob", credential: null }] });
+    expect(r.json.data).toEqual({ state: "ready", players: { rated: 0, total: 0 }, roles: [{ role: "alice", credential: null, selfRated: null, draft: false }, { role: "bob", credential: null, selfRated: null, draft: false }] });
     r = await call(p, "POST", links(), { body: { role: "alice" } });
     expect(r.status).toBe(200);
     const first = r.json.data.token as string;
@@ -110,7 +110,7 @@ describe("console routes", () => {
     r = await call(p2, "POST", links(), { body: { role: "alice" } });
     expect([r.status, r.json.error.message]).toEqual([409, NOT_READY]);
     expect(r.text).not.toContain(w.root);
-    expect((await call(p2, "GET", links())).json.data).toEqual({ state: "not_ready", roles: [] });
+    expect((await call(p2, "GET", links())).json.data).toEqual({ state: "not_ready", players: null, roles: [] });
   });
   it("says the reports cannot be read (503, not the evaluate hint) when the reader is unavailable", async () => {
     await w.corrupt();

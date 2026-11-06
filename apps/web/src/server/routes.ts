@@ -8,7 +8,7 @@ import { handleConsoleAiIntents, handleConsoleAiPrompt, handleConsoleAiRoles } f
 import { handleConsoleCommand, handleConsoleFacts } from "./console-command";
 import { handleConsoleStream } from "./console-stream";
 import {
-  handleConsoleReportLinkAction, handleConsoleReportLinks, handleConsoleReportLinksIssue, handleReportEnter, handleReportGet,
+  handleConsoleReportLinkAction, handleConsoleReportLinks, handleConsoleReportLinksIssue, handleReportEnter, handleReportGet, handleReportRate, handleReportRespond,
 } from "./report-handlers";
 import { consoleSessionFromToken } from "./console-session";
 import { fail } from "./envelope";
@@ -32,6 +32,9 @@ const CONSOLE_GLOBAL_THROTTLE = { max: 20, windowMs: 600_000, blockMs: 300_000 }
 /** Report reads per address: a rate limit, generous for a person reloading a page (more than 60 in 60 s block that address for 60 s). */
 const REPORT_READ_THROTTLE = { max: 60, windowMs: 60_000, blockMs: 60_000 };
 
+/** Participant writes per credential: more than 30 in 60 s block that credential's writes for 60 s. */
+const REPORT_WRITE_THROTTLE = { max: 30, windowMs: 60_000, blockMs: 60_000 };
+
 export function createDeps(env: Record<string, string | undefined>): Deps {
   const config = loadConfig(env);
   const now = () => Date.now();
@@ -48,6 +51,7 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     // of LOGIN (never out of a signed-in console) for CONSOLE_GLOBAL_THROTTLE.blockMs at a time.
     consoleGlobalThrottle: new JoinThrottle({ ...CONSOLE_GLOBAL_THROTTLE, now }),
     reportThrottle: new JoinThrottle({ ...REPORT_READ_THROTTLE, now }),
+    reportWriteThrottle: new JoinThrottle({ ...REPORT_WRITE_THROTTLE, now }),
     // Failed report-link tokens: the join's limits, in a table of their own.
     reportEnterThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
     facilitatorBudget: new FacilitatorBudget(),
@@ -133,6 +137,8 @@ export const consoleAiIntentsPOST = route(handleConsoleAiIntents);
 export const consoleAiPromptPOST = route(handleConsoleAiPrompt);
 export const reportEnterPOST = route(handleReportEnter);
 export const reportGET = route(handleReportGet);
+export const reportRatePUT = route(handleReportRate);
+export const reportRespondPOST = route(handleReportRespond);
 export const consoleReportLinksGET = route(handleConsoleReportLinks);
 export const consoleReportLinksPOST = route(handleConsoleReportLinksIssue);
 export const consoleReportLinkActionPOST = route(handleConsoleReportLinkAction);

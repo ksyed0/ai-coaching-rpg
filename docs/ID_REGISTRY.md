@@ -4,9 +4,9 @@
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0009             | EPIC-0008         |
 | US           | US-0066               | US-0065           |
-| TASK         | TASK-0101             | TASK-0100         |
+| TASK         | TASK-0102             | TASK-0101         |
 | AC           | AC-0373               | AC-0372           |
-| TC           | TC-0133               | TC-0132           |
+| TC           | TC-0135               | TC-0134           |
 | BUG          | BUG-0029              | BUG-0028          |
 | L            | L-0034                | L-0033            |
 
@@ -75,3 +75,5 @@ Assigned 2026-11-05 (slice 2c-1, PR 2): AC-0367 (US-0062: opening a report link 
 Assigned 2026-11-05 (slice 2c-1 close): BUG-0025 (forged-cookie read failures share the enter throttle table), BUG-0026 (`ws-server.roster.test.ts` flake), BUG-0027 (conflict sentences duplicated between control and web) and BUG-0028 (slice 2c-1 test and cleanup gaps), all open. L-0032 and L-0033 were added at the same close.
 
 Assigned 2026-11-06 (slice 2c-2, PR 1): AC-0369 (US-0063: capacity bounds), AC-0370 (US-0063: no write attempt begins after a revoke or reissue has returned), AC-0371 (US-0063: rating progress in `moderate status` and the console) and AC-0372 (US-0063: old-schema refusal); TC-0127 (AC-0331, AC-0335: fold and forging), TC-0128 (AC-0332: blind read), TC-0129 (AC-0333: lock and retry), TC-0130 (AC-0334: text and export), TC-0131 (AC-0369, AC-0370: capacity and revoke) and TC-0132 (AC-0371, AC-0372: progress and old schema). TASK-0092 is reused (no new TASK; next free stays TASK-0101). The next AC is AC-0373, the next TC is TC-0133.
+
+Assigned 2026-11-06 (slice 2c-2, PR 2): TC-0133 (AC-0331 to AC-0335, AC-0370 to AC-0372: end to end and Axe for ratings and responses) and TC-0134 (AC-0332 to AC-0335, AC-0371: page and console cases: SelfRatingForm, ComparisonTable, ResponsesList, ResponseForm, ReportLinksPanel and the BFF write routes); TASK-0101 (US-0063: browser, PR 2). No new AC. Slice 2c-2 is complete; the next AC is AC-0373, the next TC is TC-0135, the next TASK is TASK-0102, the next BUG is BUG-0029 and the next L is L-0034.

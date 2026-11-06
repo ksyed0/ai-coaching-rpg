@@ -25,8 +25,31 @@ export const REFUSED = "This link no longer works. Ask your facilitator for a ne
  * which the mock models cannot score; the review folders are the same shape an operator's `evaluate` + `moderate` leave.
  */
 export function seedReports(stack: LauncherStack, sessionId: string): Promise<void> {
+  return runSeeder(stack, sessionId, []);
+}
+
+/** What the draft seed puts in bob's evaluator draft (same strings as seed-report-folders.ts): they must never reach a draft player's page. */
+export const CANARY_LEVEL = "Canary-Level-Zebra";
+export const CANARY_RATIONALE = "Canary-Rationale-Quokka";
+/** The facilitator's reason the e2e gives the `resolve` step (it is shown to the participant). */
+export const RESOLVE_REASON = "Reason-Canary-Walrus: the evidence supports the original level.";
+
+/** One live review: alice released, bob still a draft, with recognisable evaluator strings in bob's draft. */
+export function seedDraft(stack: LauncherStack, sessionId: string): Promise<void> {
+  return runSeeder(stack, sessionId, ["draft"]);
+}
+/** The facilitator releases one player's report (the runtime's own moderate function, run in a child process). */
+export function releaseRole(stack: LauncherStack, sessionId: string, role = "bob"): Promise<void> {
+  return runSeeder(stack, sessionId, ["release", role]);
+}
+/** The facilitator resolves the player's open dispute as `outcome`, with `reason` shown to the participant. */
+export function resolveDispute(stack: LauncherStack, sessionId: string, outcome: "upheld" | "declined", reason: string, role = "bob"): Promise<void> {
+  return runSeeder(stack, sessionId, ["resolve", role, outcome, reason]);
+}
+
+function runSeeder(stack: LauncherStack, sessionId: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child: ChildProcess = spawn(TSX, [SEED, path.join(stack.dataDir, "reports"), sessionId], {
+    const child: ChildProcess = spawn(TSX, [SEED, path.join(stack.dataDir, "reports"), sessionId, ...args], {
       cwd: path.join(REPO_ROOT, "services", "control"),
       stdio: ["ignore", "pipe", "pipe"],
       env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", NO_COLOR: "1" } as unknown as NodeJS.ProcessEnv,

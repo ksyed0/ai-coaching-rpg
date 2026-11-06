@@ -27,7 +27,7 @@ export type ControlConfig = {
   intentsDir: string;
   /** US-0060: the live AI players' settings (PLAYER_MODEL, AI_PLAYER_*, NPC_* timeouts); parsed once, refused with the rest. */
   aiPlayer: AiPlayerSettings;
-  /** EPIC-0002: `<dataDir>/reports`, where the moderate CLI writes review folders (read-only to this service). */
+  /** EPIC-0002: `<dataDir>/reports`, where the moderate CLI writes review folders (the moderate CLI creates them; this service also appends the participants' review events there). */
   reportsDir: string;
   /** EPIC-0002: `<dataDir>/report-access.json`, the hashed report-link credentials (outside every review folder). */
   reportAccessFile: string;
