@@ -1,7 +1,7 @@
 import { constants } from "node:fs";
 import { lstat, open as openFile } from "node:fs/promises";
 import path from "node:path";
-import { isValidSessionId } from "@acr/events";
+import { isSafeId, isValidSessionId } from "@acr/events";
 import {
   acceptCriterion,
   acceptSummary,
@@ -54,9 +54,9 @@ export type AcceptBody = { criterion?: string; summary?: true };
 export type CommentBody = { text: string; criterion?: string; feedback?: boolean };
 export type EditSummaryBody = { reason: string; strengths?: string[]; developments?: string[]; actions?: { lo: string; text: string }[] };
 
-/** The typed name: the `--by` rule with room for the `-console` suffix inside the chain's 64 characters. */
-const NAME = /^[A-Za-z0-9_-]{1,56}$/;
-export const isConsoleName = (name: unknown): name is string => typeof name === "string" && NAME.test(name);
+/** The typed name: the `--by` rule (a safe id, the one definition in @acr/events) with room for the `-console` suffix inside the chain's 64 characters. */
+const NAME_MAX = 56;
+export const isConsoleName = (name: unknown): name is string => typeof name === "string" && name.length <= NAME_MAX && isSafeId(name);
 export const AUTHOR_SUFFIX = "-console";
 /** The session log `open` binds to, capped as `pnpm moderate open --session-log` reads it. */
 const SESSION_LOG_CAP = 64 * 1024 * 1024;
@@ -154,7 +154,7 @@ export class ModerationService {
   }
 
   private author(name: unknown): string {
-    if (typeof name !== "string" || !NAME.test(name)) throw new Answer(INVALID);
+    if (!isConsoleName(name)) throw new Answer(INVALID);
     return `${name}${AUTHOR_SUFFIX}`;
   }
 
