@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, open, readdir, readFile, rm, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
@@ -133,6 +133,17 @@ afterEach(async () => {
   for (const s of services.splice(0)) await s.shutdown();
   await rm(dataDir, { recursive: true, force: true });
 });
+
+/** Mode and text from ONE open handle, so the check and the read cannot see two different files. */
+async function snapshot(file: string): Promise<{ mode: number; text: string }> {
+  const fh = await open(file, "r");
+  try {
+    const st = await fh.stat();
+    return { mode: st.mode & 0o777, text: await fh.readFile("utf8") };
+  } finally {
+    await fh.close();
+  }
+}
 
 describe("ReportJobService", () => {
   it("start spawns node --import tsx <abs evaluator/main.ts> <abs log> --scenario <abs dir> --out <reportsDir> --json - with cwd the repo root", async () => {
@@ -404,16 +415,18 @@ describe("ReportJobService", () => {
     const file = path.join(dataDir, "report-jobs.json");
     const svc = make();
     await svc.start(id, { confirmedCalls: 8, by: "k" });
-    const saved = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+    const first = await snapshot(file);
+    const saved = JSON.parse(first.text) as Record<string, unknown>;
     expect(saved[id]).toEqual({ state: "running", startedAt: 1_700_000_000_000, outputDir: null, modelCalls: null });
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect(first.mode).toBe(0o600);
     expect((await readdir(dataDir)).filter((n) => n.includes(".tmp"))).toEqual([]);
 
     // a restart: the persisted running job is interrupted
     const after = make();
     expect(after.status(id)).toMatchObject({ state: "failed", reason: "interrupted", startedAt: 1_700_000_000_000, outputDir: null, modelCalls: null });
-    expect(JSON.parse(await readFile(file, "utf8"))[id]).toMatchObject({ state: "failed", reason: "interrupted" });
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    const second = await snapshot(file);
+    expect(JSON.parse(second.text)[id]).toMatchObject({ state: "failed", reason: "interrupted" });
+    expect(second.mode).toBe(0o600);
 
     // a done job keeps its outputDir and modelCalls across a restart; junk entries are dropped
     await writeFile(file, JSON.stringify({ [id]: { state: "done", startedAt: 5, outputDir: id, modelCalls: 3 }, "../x": { state: "running" }, [OTHER]: { state: "weird" } }));
