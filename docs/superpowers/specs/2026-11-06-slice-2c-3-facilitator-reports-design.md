@@ -136,3 +136,5 @@ PR A ships alone and is useful (the facilitator evaluates and reviews in the bro
 Settled by the Opus review (2026-11-06): the ended log stays at `<sessionsDir>/<id>.jsonl`; the call bound is the formula in section 3; the run summary separates cleanly and the Game Master signal exists. Still open, settled in the plan's Task 1: whether the scripted evaluator scores an e2e-played session.
 
 Each has a named fallback above; none changes the design if it fails.
+
+**Finding (Task 1, 2026-11-06):** `MODEL_PROVIDER=mock` evaluate exits 0 with one JSON document and an absolute `dir` on a real e2e `endedSession` log, but scores no role: the e2e players never speak, so every role and the group report `insufficient_evidence` (0 utterances, at least 2 needed) and `modelCalls` is 0. The e2e therefore seeds the draft folder with `seedDraft` (the section 8 fallback applies); the evaluate path keeps its unit and service coverage.
