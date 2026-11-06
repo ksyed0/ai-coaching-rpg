@@ -384,6 +384,29 @@ describe("report routes, part B (release, resolve, export, amend, withdraw)", ()
     for (const fn of Object.values(f.moderation)) expect(fn).not.toHaveBeenCalled();
   });
 
+  it("export audience: participant: with an empty, slashed or 65-character id is 400; a 64-character id is accepted", async () => {
+    const { port, f } = await boot({ f: withB() });
+    for (const audience of ["participant:", "participant:a/b", `participant:${"a".repeat(65)}`]) {
+      const x = await call(port, "POST", R("/export"), { body: { subject: "alice", audience, ...BY } });
+      expect([audience.slice(0, 20), x.status, x.json.error.code]).toEqual([audience.slice(0, 20), 400, "invalid"]);
+    }
+    expect(f.moderation.export).not.toHaveBeenCalled();
+    const long = `participant:${"a".repeat(64)}`;
+    const x = await call(port, "POST", R("/export"), { body: { subject: "alice", audience: long, ...BY } });
+    expect(x.status).toBe(200);
+    expect(f.moderation.export).toHaveBeenCalledWith(ID, { subject: "alice", audience: long }, "priya");
+  });
+
+  it("an unknown subject is 404 with the code unknown_subject; an unknown session stays a plain not_found", async () => {
+    const { port, f } = await boot({ f: withB() });
+    f.moderation.amend!.mockResolvedValueOnce({ status: 404, code: "unknown_subject" });
+    let x = await call(port, "POST", R("/subjects/alice/amend"), { body: { reason: "Fix.", ...BY } });
+    expect([x.status, x.json.error]).toEqual([404, { code: "unknown_subject" }]);
+    f.moderation.amend!.mockResolvedValueOnce({ status: 404 });
+    x = await call(port, "POST", R("/subjects/alice/amend"), { body: { reason: "Fix.", ...BY } });
+    expect([x.status, x.json.error.code]).toEqual([404, "not_found"]);
+  });
+
   it("without a moderation service every part B route is 404", async () => {
     const { port } = await boot({ moderation: false });
     for (const r of PART_B) expect([r.name, (await call(port, "POST", r.path, { body: r.body })).status]).toEqual([r.name, 404]);

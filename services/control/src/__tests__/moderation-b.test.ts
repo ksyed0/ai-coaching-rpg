@@ -99,7 +99,7 @@ describe("ModerationService, part B", () => {
 
   it("release answers released and groupTableStale; an unknown subject is 404; released twice is 409 not_editable", async () => {
     await ready("alice");
-    expect(await release(["nobody"])).toEqual({ status: 404 });
+    expect(await release(["nobody"])).toEqual({ status: 404, code: "unknown_subject" });
     expect(await release(["alice"])).toEqual({ status: 200, value: { released: ["alice"], groupTableStale: false } });
     expect(await release(["alice"])).toEqual({ status: 409, code: "not_editable" });
   });
@@ -135,7 +135,7 @@ describe("ModerationService, part B", () => {
     await release(["alice", "group"]);
     expect(await svc.amend(id, "alice", { reason: "" }, "priya")).toEqual({ status: 400, code: "invalid" });
     expect(await svc.withdraw(id, "alice", {} as never, "priya")).toEqual({ status: 400, code: "invalid" });
-    expect(await svc.withdraw(id, "nobody", { reason: "x" }, "priya")).toEqual({ status: 404 });
+    expect(await svc.withdraw(id, "nobody", { reason: "x" }, "priya")).toEqual({ status: 404, code: "unknown_subject" });
     expect(await svc.withdraw(id, "alice", { reason: "gone" }, "priya")).toEqual({ status: 200, value: { groupTableStale: true } });
   });
 

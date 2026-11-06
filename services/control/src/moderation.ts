@@ -48,7 +48,8 @@ export type Overview = {
 type Refusal = Exclude<ModerationCode, "busy" | "invalid" | "unavailable" | "unknown_subject">;
 export type ModOutcome<T> =
   | { status: 200; value: T }
-  | { status: 404 }
+  /** No `code`: an unknown session. `unknown_subject`: the session is known, the subject is not in its review. */
+  | { status: 404; code?: "unknown_subject" }
   | { status: 400; code: "invalid" }
   | { status: 409; code: Refusal; detail?: string[] }
   | { status: 503; code: "busy"; retryAfterMs: number }
@@ -90,7 +91,7 @@ function toOutcome<T>(r: ModResult<T>): ModOutcome<T> {
     case "invalid": return INVALID;
     case "busy": return { status: 503, code: "busy", retryAfterMs: BUSY_RETRY_AFTER_MS };
     case "unavailable": return UNAVAILABLE;
-    case "unknown_subject": return NOT_FOUND;
+    case "unknown_subject": return { status: 404, code: "unknown_subject" };
     default: return { status: 409, code: r.code, ...(r.detail ? { detail: r.detail } : {}) };
   }
 }

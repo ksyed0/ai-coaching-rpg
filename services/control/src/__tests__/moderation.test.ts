@@ -244,8 +244,8 @@ describe("ModerationService, part A", () => {
     expect(await rec(svc.overview("../etc"))).toEqual({ status: 404 });
     expect(await rec(svc.subject("s-no-such-session", "alice"))).toEqual({ status: 404 });
     expect(await rec(svc.open("s-no-such-session", "priya"))).toEqual({ status: 404 });
-    expect(await rec(svc.subject(id, "zed"))).toEqual({ status: 404 });
-    expect(await rec(svc.accept(id, "zed", { summary: true }, "priya"))).toEqual({ status: 404 });
+    expect(await rec(svc.subject(id, "zed"))).toEqual({ status: 404, code: "unknown_subject" });
+    expect(await rec(svc.accept(id, "zed", { summary: true }, "priya"))).toEqual({ status: 404, code: "unknown_subject" });
   });
 
   it("overview is not_evaluated with no candidate, evaluating while the job runs, ready_to_open for a complete unopened draft, in_review once opened, orphan true for a broken candidate, and carries summary and subjects only in_review", async () => {

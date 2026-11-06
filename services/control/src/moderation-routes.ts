@@ -58,7 +58,8 @@ const notFound = (): never => { throw new HttpError(404, "not_found", "Not found
 function respond<T>(res: ServerResponse, o: ModOutcome<T> | JobOutcome): void {
   switch (o.status) {
     case 200: ok(res, (o.value as unknown) ?? {}); return;
-    case 404: return notFound();
+    // an unknown subject keeps its own closed code (no message) so the console can say which thing was not found
+    case 404: if ("code" in o && o.code === "unknown_subject") { failClosed(res, 404, "unknown_subject"); return; } return notFound();
     case 400: fail(res, 400, o.code, BAD_REQUEST); return;
     case 409: failClosed(res, 409, o.code, "detail" in o && o.code === "blocked" && o.detail ? { blocked: o.detail.filter(isSafeId) } : null); return;
     default:
