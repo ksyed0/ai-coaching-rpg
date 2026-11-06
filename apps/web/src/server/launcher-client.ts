@@ -300,7 +300,8 @@ function toIssued(d: unknown): IssuedReportLink {
 
 export type ReportJobState = "idle" | "running" | "done" | "failed";
 export type ReportJobReason = "interrupted" | "timeout" | "cancelled" | "error";
-export type ReportJob = { state: ReportJobState; reason?: ReportJobReason; startedAt: number | null; progress: string[]; modelCalls: number | null; outputDir: string | null };
+/** The job as the browser may see it: control's `outputDir` (a folder name on the server) is checked and then dropped here. */
+export type ReportJob = { state: ReportJobState; reason?: ReportJobReason; startedAt: number | null; progress: string[]; modelCalls: number | null };
 export type ReportStage = "not_ended" | "not_evaluated" | "evaluating" | "failed" | "ready_to_open" | "in_review";
 export type SubjectState = "draft" | "released" | "amending" | "withdrawn";
 export type SubjectStatusRow = {
@@ -336,22 +337,27 @@ const CRITERION_STATUSES: readonly string[] = ["needs_review", "accepted", "edit
 const VISIBILITIES: readonly string[] = ["internal", "feedback"];
 const isStr = (v: unknown): v is string => typeof v === "string";
 const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
+/** Control keeps the newest 50 progress lines (PROGRESS_MAX in services/control/src/report-job.ts), each a short fixed sentence. */
+const MAX_PROGRESS = 50;
+const MAX_PROGRESS_CHARS = 200;
+const isProgress = (v: unknown): v is string[] => isStrings(v) && v.length <= MAX_PROGRESS && v.every((l) => l.length <= MAX_PROGRESS_CHARS);
+const isFileIds = (v: unknown): v is string[] => isStrings(v) && v.every(isFileSafeId);
 const isLevel = (v: unknown): v is CriterionLevel => v === null || v === 1 || v === 2 || v === 3 || v === 4;
 const list = <T,>(v: unknown, pick: (e: unknown) => T): T[] => (Array.isArray(v) ? v.map(pick) : bad());
 const orNull = <T,>(v: unknown, pick: (e: unknown) => T): T | null => (v === null ? null : pick(v));
 
 function toJob(v: unknown): ReportJob {
-  if (!isObject(v) || !isStr(v.state) || !JOB_STATES.includes(v.state) || !(v.startedAt === null || isTime(v.startedAt)) || !isStrings(v.progress)) return bad();
+  if (!isObject(v) || !isStr(v.state) || !JOB_STATES.includes(v.state) || !(v.startedAt === null || isTime(v.startedAt)) || !isProgress(v.progress)) return bad();
   if (!(v.modelCalls === null || isCount(v.modelCalls)) || !(v.outputDir === null || (isStr(v.outputDir) && /^[A-Za-z0-9_-]{1,128}$/.test(v.outputDir)))) return bad();
   if (v.reason !== undefined && (!isStr(v.reason) || !JOB_REASONS.includes(v.reason))) return bad();
   return {
-    state: v.state as ReportJobState, startedAt: v.startedAt, progress: v.progress, modelCalls: v.modelCalls, outputDir: v.outputDir,
+    state: v.state as ReportJobState, startedAt: v.startedAt, progress: v.progress, modelCalls: v.modelCalls,
     ...(v.reason !== undefined && { reason: v.reason as ReportJobReason }),
   };
 }
 function toSubjectStatus(v: unknown): SubjectStatusRow {
   if (!isObject(v) || !isStr(v.id) || !isFileSafeId(v.id) || !isStr(v.state) || !SUBJECT_STATES.includes(v.state)) return bad();
-  if (!(v.version === null || isCount(v.version)) || !isCount(v.criteriaTotal) || !isStrings(v.openCriteria) || !isCount(v.selfRated)) return bad();
+  if (!(v.version === null || isCount(v.version)) || !isCount(v.criteriaTotal) || !isFileIds(v.openCriteria) || !isCount(v.selfRated)) return bad();
   if (typeof v.summaryStale !== "boolean" || typeof v.tableStale !== "boolean" || typeof v.evaluationOk !== "boolean") return bad();
   return {
     id: v.id, state: v.state as SubjectState, version: v.version, criteriaTotal: v.criteriaTotal, openCriteria: v.openCriteria,
@@ -380,13 +386,13 @@ function toOverview(v: unknown): ReportOverview {
   };
 }
 function toSubjectView(v: unknown): SubjectView {
-  if (!isObject(v) || !isStr(v.id) || !isStr(v.state) || !SUBJECT_STATES.includes(v.state) || !isObject(v.summary)) return bad();
+  if (!isObject(v) || !isStr(v.id) || !isFileSafeId(v.id) || !isStr(v.state) || !SUBJECT_STATES.includes(v.state) || !isObject(v.summary)) return bad();
   const sm = v.summary;
   if (!isStrings(sm.strengths) || !isStrings(sm.developments) || !Array.isArray(v.versions) || !v.versions.every(isCount)) return bad();
   return {
     id: v.id, state: v.state as SubjectState,
     criteria: list(v.criteria, (c) => {
-      if (!isObject(c) || !isStr(c.id) || !isStr(c.name) || !(isLevel(c.current) || c.current === "invalid") || !isStr(c.status) || !CRITERION_STATUSES.includes(c.status)) return bad();
+      if (!isObject(c) || !isStr(c.id) || !isFileSafeId(c.id) || !isStr(c.name) || !(isLevel(c.current) || c.current === "invalid") || !isStr(c.status) || !CRITERION_STATUSES.includes(c.status)) return bad();
       if (!isStr(c.rationale) || !isStrings(c.flags) || !(c.selfLevel === undefined || isLevel(c.selfLevel))) return bad();
       return {
         id: c.id, name: c.name, current: c.current, status: c.status as SubjectView["criteria"][number]["status"], rationale: c.rationale, flags: c.flags,

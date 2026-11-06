@@ -106,11 +106,11 @@ export const REPORT_REFUSALS = {
   already_running: "An evaluation is already running for this session.",
   too_many_running: "Another session is being evaluated. Wait for it to finish, then try again.",
   confirm_mismatch: "The number of model calls changed. Reload the panel and confirm the new number.",
-  no_review: "There is no report to open for this session yet.",
+  no_review: "The review has not been opened yet. Open it first.",
   unknown_subject: "That player or group is not in this report.",
   unknown_criterion: "That criterion is not in this report.",
   stale: "Someone changed this. Reload the level and try again.",
-  blocked: "Some players are not ready for this yet. Finish what is open for them, then try again.",
+  blocked: "Some reports still have open items. Resolve them, then try again.",
   not_released: "That report has not been released.",
   not_editable: "This report can no longer be edited.",
   superseded: "A newer review replaced this one. Reload the page.",
@@ -121,7 +121,7 @@ export const REPORT_REFUSALS = {
   payload_too_large: "That is too large to save.",
   busy: "The report is busy. Try again in a moment.",
   unavailable: "The report is unavailable. Try again.",
-  timeout: "The report service took too long to answer. Try again.",
+  timeout: "The report service took too long to answer. Reload to see whether it was saved, then try again.",
   generic: "That action is not possible right now.",
 } as const;
 export type ReportRefusal = keyof typeof REPORT_REFUSALS;

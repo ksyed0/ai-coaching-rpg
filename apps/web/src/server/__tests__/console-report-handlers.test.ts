@@ -263,7 +263,8 @@ describe("console report handlers", () => {
   it("reads: the overview and the subject view are parsed and sent on field by field", async () => {
     answer = () => good({ ...OVERVIEW, port: 4321, extra: "dropped" });
     const o = await json(await handleConsoleReportOverview(get(""), deps));
-    expect(o.data).toEqual(OVERVIEW);
+    const { outputDir: _dropped, ...browserJob } = JOB;
+    expect(o.data).toEqual({ ...OVERVIEW, job: browserJob });
     expect(sent[0]!.url).toBe(`${config.launcherUrl}/sessions/${SID}/report`);
     answer = () => good({ ...VIEW, secret: "dropped" });
     const v = await json(await handleConsoleReportSubject(get("/subjects/alice"), deps));
@@ -315,5 +316,44 @@ describe("console report handlers", () => {
     delete (deps as { launcher?: unknown }).launcher;
     expect((await handleConsoleReportOpen(post("/open", { by: "priya" }), deps)).status).toBe(503);
     expect((await handleConsoleReportOverview(get(""), deps)).status).toBe(503);
+  });
+});
+
+describe("console report: clearer sentences and tighter parsers", () => {
+  it("the timeout, blocked and no_review sentences say what to do next", () => {
+    expect(REPORT_REFUSALS.timeout).toBe("The report service took too long to answer. Reload to see whether it was saved, then try again.");
+    expect(REPORT_REFUSALS.blocked).toBe("Some reports still have open items. Resolve them, then try again.");
+    expect(REPORT_REFUSALS.no_review).toBe("The review has not been opened yet. Open it first.");
+  });
+
+  it("the browser never receives the job's output folder", async () => {
+    answer = () => good({ ...OVERVIEW, job: { ...JOB, state: "done", modelCalls: 4, outputDir: "s-0123456789abcdef-2" } });
+    const o = (await json(await handleConsoleReportOverview(get(""), deps))).data as { job: Record<string, unknown> };
+    expect(o.job).toEqual({ state: "done", startedAt: null, progress: [], modelCalls: 4 });
+    expect(JSON.stringify(o)).not.toContain("0123456789abcdef-2");
+    answer = () => good({ ...JOB, state: "running", outputDir: "s-0123456789abcdef-2" });
+    const e = (await json(await handleConsoleReportEvaluate(post("/evaluate", { confirmedCalls: 8, by: "priya" }), deps))).data as Record<string, unknown>;
+    expect("outputDir" in e).toBe(false);
+  });
+
+  it("the job's progress is at most 50 lines of bounded length (fails closed beyond)", async () => {
+    answer = () => good({ ...OVERVIEW, job: { ...JOB, progress: Array.from({ length: 50 }, () => "evaluating alice") } });
+    expect((await handleConsoleReportOverview(get(""), deps)).status).toBe(200);
+    for (const progress of [Array.from({ length: 51 }, () => "evaluating alice"), ["x".repeat(201)]]) {
+      answer = () => good({ ...OVERVIEW, job: { ...JOB, progress } });
+      expect((await handleConsoleReportOverview(get(""), deps)).status).toBe(502);
+    }
+  });
+
+  it("subject ids, criterion ids and open criteria must be file-safe ids (fails closed)", async () => {
+    const ROW = { id: "alice", state: "draft", version: 1, criteriaTotal: 2, openCriteria: ["clarity"], summaryStale: false, tableStale: false, evaluationOk: true, selfRated: 0, openDisputes: [] };
+    answer = () => good({ ...OVERVIEW, subjects: [ROW] });
+    expect((await handleConsoleReportOverview(get(""), deps)).status).toBe(200);
+    answer = () => good({ ...OVERVIEW, subjects: [{ ...ROW, openCriteria: ["Bad Id"] }] });
+    expect((await handleConsoleReportOverview(get(""), deps)).status).toBe(502);
+    for (const v of [{ ...VIEW, id: "../alice" }, { ...VIEW, criteria: [{ ...VIEW.criteria[0]!, id: "<b>" }] }]) {
+      answer = () => good(v);
+      expect((await handleConsoleReportSubject(get("/subjects/alice"), deps)).status).toBe(502);
+    }
   });
 });
