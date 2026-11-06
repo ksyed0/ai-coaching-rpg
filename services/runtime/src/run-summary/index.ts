@@ -2,4 +2,4 @@
 export { ALERT_CHARS, alertsForReply, collectRunSummary, sanitizeAlert } from "./evidence.js";
 export type { AlertEvidence, CharacterEvidence, RunSummary } from "./evidence.js";
 export { evaluationCallBound } from "./bound.js";
-export { runSummaryFromLog } from "./log.js";
+export { evaluationCallBoundFromLog, runSummaryFromLog } from "./log.js";

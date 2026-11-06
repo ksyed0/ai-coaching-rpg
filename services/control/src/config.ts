@@ -33,6 +33,8 @@ export type ControlConfig = {
   reportAccessFile: string;
   /** EPIC-0002: how long a report link lives, in days (1 to 365). */
   reportAccessDays: number;
+  /** EPIC-0002: added to `bound × EVAL_TIMEOUT_MS` for the overall timeout of one evaluate run, in ms (0 to 3600000). */
+  evaluateMarginMs: number;
 };
 
 const TOKEN_MIN_CHARS = 32;
@@ -96,6 +98,7 @@ export function loadControlConfig(env: NodeJS.ProcessEnv): ControlConfig {
   const readyTimeoutMs = whole("CONTROL_READY_TIMEOUT_MS", 30_000, 1000, 600_000);
 
   const reportAccessDays = whole("REPORT_ACCESS_DAYS", 90, 1, 365);
+  const evaluateMarginMs = whole("REPORT_EVALUATE_MARGIN_MS", 120_000, 0, 3_600_000);
 
   const ai = parseAiPlayerSettings(env);
   if (!ai.ok) problems.push(...ai.errors);
@@ -106,5 +109,6 @@ export function loadControlConfig(env: NodeJS.ProcessEnv): ControlConfig {
     sessionsDir: path.join(dataDir, "sessions"), listFile: path.join(dataDir, "sessions.json"),
     scenariosDir, logDir, graceMs, readyTimeoutMs, intentsDir: path.join(dataDir, "intents"), aiPlayer: ai.settings,
     reportsDir: path.join(dataDir, "reports"), reportAccessFile: path.join(dataDir, "report-access.json"), reportAccessDays,
+    evaluateMarginMs,
   };
 }
