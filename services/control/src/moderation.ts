@@ -29,7 +29,10 @@ export type Stage = "not_ended" | "not_evaluated" | "evaluating" | "failed" | "r
 export type Overview = {
   stage: Stage;
   job: JobStatus;
-  /** The evaluation call bound, only in `not_evaluated` (the request must confirm exactly this number). */
+  /**
+   * The evaluation call bound whenever a run may start (`not_evaluated`, or `failed` without a complete draft) and no orphan folder
+   * is left; null otherwise. The start request must confirm exactly this number.
+   */
   confirm: { upTo: number } | null;
   orphan: boolean;
   /** Only `in_review`. */
@@ -214,8 +217,9 @@ export class ModerationService {
       if (f.unopened.length > 0) return ok({ ...base, stage: "ready_to_open", orphan });
       const pre = await jobs.preflight(id);
       if (!pre.ok) return pre.code === "not_ended" ? ok({ ...base, stage: "not_ended", orphan }) : UNAVAILABLE;
-      if (job.state === "failed") return ok({ ...base, stage: "failed", orphan });
-      return ok({ ...base, stage: "not_evaluated", orphan, confirm: { upTo: pre.upTo } });
+      // the bound is offered whenever a run may start, a failed one included (a retry), but not while an orphan folder is left
+      const confirm = orphan ? null : { upTo: pre.upTo };
+      return ok({ ...base, stage: job.state === "failed" ? "failed" : "not_evaluated", orphan, confirm });
     });
   }
 

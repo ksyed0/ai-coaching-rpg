@@ -243,7 +243,7 @@ describe("ModerationService, part A", () => {
     children[0]!.exit(1);
     await new Promise((r) => setTimeout(r, 20));
     v = await stageOf();
-    expect(v).toMatchObject({ stage: "failed", confirm: null, summary: null, subjects: [], job: { state: "failed" } });
+    expect(v).toMatchObject({ stage: "failed", confirm: { upTo }, summary: null, subjects: [], job: { state: "failed" } });
 
     await placeDraft();
     v = await stageOf();
@@ -272,11 +272,21 @@ describe("ModerationService, part A", () => {
     expect(o).toMatchObject({ status: 200, value: { stage: "not_evaluated", orphan: true, summary: null, subjects: [] } });
   });
 
-  it("overview.confirm.upTo equals the bound only in not_evaluated", async () => {
+  it("overview.confirm.upTo equals the bound only in not_evaluated and failed-without-draft", async () => {
     const pre = await jobs.preflight(id);
     if (!pre.ok) throw new Error("preflight");
     const o = await rec(svc.overview(id));
     expect(o).toMatchObject({ status: 200, value: { stage: "not_evaluated", confirm: { upTo: pre.upTo } } });
+    expect(await jobs.start(id, { confirmedCalls: pre.upTo, by: "priya-console" })).toMatchObject({ status: 200 });
+    expect(await rec(svc.overview(id))).toMatchObject({ status: 200, value: { stage: "evaluating", confirm: null } });
+    children[0]!.exit(1);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(await rec(svc.overview(id))).toMatchObject({ status: 200, value: { stage: "failed", confirm: { upTo: pre.upTo } } });
+    // an orphan folder left behind: no bound (the folder must be removed by hand first)
+    await mkdir(path.join(config.reportsDir, `${id}-2`));
+    await writeFile(path.join(config.reportsDir, `${id}-2`, "alice.json"), "{");
+    expect(await rec(svc.overview(id))).toMatchObject({ status: 200, value: { stage: "failed", orphan: true, confirm: null } });
+    await rm(path.join(config.reportsDir, `${id}-2`), { recursive: true });
     ended.set(id, false);
     expect(await rec(svc.overview(id))).toMatchObject({ status: 200, value: { stage: "not_ended", confirm: null } });
     ended.set(id, true);
