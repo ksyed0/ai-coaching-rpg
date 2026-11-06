@@ -22,7 +22,7 @@ export type Preflight = { ok: true; upTo: number } | { ok: false; code: "not_end
 export type JobOutcome =
   | { status: 200; value: JobStatus }
   | { status: 404 }
-  | { status: 409; code: "not_ended" | "already_evaluated" | "already_running" | "confirm_mismatch" | "too_many_running" };
+  | { status: 409; code: "not_ended" | "already_evaluated" | "already_running" | "confirm_mismatch" | "too_many_running" | "orphan" };
 
 /** Progress lines kept per job (the newest). */
 export const PROGRESS_MAX = 50;
@@ -178,6 +178,8 @@ export class ReportJobService {
       const pre = await this.preflight(id);
       if (!pre.ok) return { status: 409, code: pre.code };
       if (o.confirmedCalls !== pre.upTo) return { status: 409, code: "confirm_mismatch" };
+      // never beside a damaged folder: it is removed by hand first (ROLLBACK.md), so a run never writes `<id>-N` next to an orphan
+      if (await this.orphan(id)) return { status: 409, code: "orphan" };
       if (this.closing) return { status: 409, code: "too_many_running" };
       this.launch(id, entry.scenarioId, pre.upTo, o.by);
       return { status: 200, value: this.status(id) };
@@ -278,7 +280,8 @@ export class ReportJobService {
     if (code === 0 && job.outputDir !== null) {
       job.state = "done";
       this.persist();
-      // The overview reads `ready_to_open` when this fails (a complete draft without a review): the job itself is done.
+      // `active` is held until this settles, so the overview reads `evaluating` (isActive) while the review opens; it reads
+      // `ready_to_open` afterwards only when this failed (a complete draft without a review): the job itself is done.
       try { await this.o.onDone?.(active.id, job.outputDir, active.by); } catch { /* offered again as Open */ }
       return;
     }
@@ -311,6 +314,14 @@ export class ReportJobService {
     const a = this.active;
     if (a && a.id === id && !a.hasExited && this.jobs.get(id)?.state === "running") this.stop(a, "cancelled");
     return { status: 200, value: this.status(id) };
+  }
+
+  /**
+   * True while the service still holds this session's run: from the spawn until the run is fully settled, the automatic open after a
+   * successful run (`onDone`) included. The job may already read `done` in that window; the overview still answers `evaluating`.
+   */
+  isActive(id: string): boolean {
+    return this.active?.id === id;
   }
 
   status(id: string): JobStatus {

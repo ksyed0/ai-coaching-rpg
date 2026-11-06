@@ -6,7 +6,10 @@ import { isConsoleName, type ModOutcome, type ModerationService } from "./modera
 import { RoleIdSchema } from "./protocol.js";
 import type { JobOutcome, ReportJobService } from "./report-job.js";
 
-/** The free-text routes (a comment, a rewritten summary) may carry more than the 4 KB of every other route. */
+/**
+ * The free-text routes (an edit's reason and rationale, a comment, a rewritten summary) may carry more than the 4 KB of every other
+ * route: an edit alone may hold 2,000 characters, about 6 KB in CJK.
+ */
 export const MAX_TEXT_BODY_BYTES = 16 * 1024;
 const REPORT_UNAVAILABLE = "The report is unavailable. Try again.";
 const BUSY = "The report is busy. Try again.";
@@ -124,7 +127,7 @@ async function route(seg: string[], method: string, req: IncomingMessage, res: S
     if (isRead) { respond(res, await moderation.subject(id, subject)); return true; }
     switch (seg[5]) {
       case "edit": {
-        const b = parse(EditBody, await jsonBody(req));
+        const b = parse(EditBody, await jsonBody(req, MAX_TEXT_BODY_BYTES));
         respond(res, await moderation.edit(id, subject, {
           criterion: b.criterion, level: b.level, reason: b.reason, expect: b.expect, ...(b.rationale !== undefined ? { rationale: b.rationale } : {}),
         }, b.by));

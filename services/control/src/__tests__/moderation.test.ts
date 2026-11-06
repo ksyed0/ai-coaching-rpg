@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { loadScenario } from "@acr/script";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeClock } from "../../../runtime/src/engine/clock.js";
 import { JsonlEventLog } from "../../../runtime/src/engine/event-log.js";
 import { writeJoinCodesFile } from "../../../runtime/src/engine/join-code-file.js";
@@ -289,6 +289,35 @@ describe("ModerationService, part A", () => {
     await writeFile(path.join(config.reportsDir, `${id}-2`, "alice.json"), "{");
     v = await stageOf();
     expect(v).toMatchObject({ stage: "in_review", orphan: true });
+  });
+
+  it("while the automatic open after a run is still in flight the overview reads evaluating, not ready_to_open; once it settles, in_review", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let opening = false;
+    let svc2: ModerationService | undefined;
+    const sessions = { get: (sid: string) => (ended.has(sid) ? { scenarioId: SCENARIO, ended: ended.get(sid)! } : undefined) };
+    const jobs2 = new ReportJobService({
+      config, sessions, spawn, setTimer, parentEnv: { PATH: "/bin" }, now: () => 1_700_000_000_000,
+      onDone: async (sid, _out, by) => { opening = true; await gate; await svc2!.open(sid, by); },
+    });
+    svc2 = new ModerationService({ config, jobs: jobs2, secrets: [], now: fixedClock(1_900_000_000_000), sleep: async () => {}, random: () => 0.5 });
+    try {
+      const pre = await jobs2.preflight(id);
+      if (!pre.ok) throw new Error("preflight");
+      expect(await jobs2.start(id, { confirmedCalls: pre.upTo, by: "priya" })).toMatchObject({ status: 200 });
+      const out = await placeDraft();
+      children.at(-1)!.stdout.write(`${JSON.stringify({ ok: true, dir: out, modelCalls: 5 })}\n`);
+      children.at(-1)!.exit(0);
+      await vi.waitFor(() => expect(opening).toBe(true));
+      expect(jobs2.status(id).state).toBe("done");
+      expect(await rec(svc2.overview(id))).toMatchObject({ status: 200, value: { stage: "evaluating", confirm: null } });
+      release();
+      await vi.waitFor(async () => expect(await svc2!.overview(id)).toMatchObject({ status: 200, value: { stage: "in_review" } }));
+    } finally {
+      release();
+      await jobs2.shutdown();
+    }
   });
 
   it("an orphan alone still reads not_evaluated, with orphan true", async () => {

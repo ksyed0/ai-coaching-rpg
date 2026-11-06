@@ -221,7 +221,8 @@ export class ModerationService {
       const base = { job, confirm: null, summary: null, subjects: [] as SubjectStatus[] };
       const orphan = await jobs.orphan(id);
       const ok = (v: Overview): ModOutcome<Overview> => ({ status: 200, value: v });
-      if (job.state === "running") return ok({ ...base, stage: "evaluating", orphan });
+      // the run counts until the service lets go of it, the automatic open after a successful run included (the job may read done)
+      if (job.state === "running" || jobs.isActive(id)) return ok({ ...base, stage: "evaluating", orphan });
       const f = await this.folders(id);
       if (f.live !== null) {
         const s = await toModResult(() => moderationStatus(f.live!));

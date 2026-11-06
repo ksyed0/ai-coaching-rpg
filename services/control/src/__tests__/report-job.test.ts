@@ -383,6 +383,23 @@ describe("ReportJobService", () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
+  it("isActive holds from the spawn until onDone settles, though the job already reads done", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const done = vi.fn(() => gate);
+    const svc = make({ onDone: done });
+    expect(svc.isActive(id)).toBe(false);
+    onSpawn = (c) => { void succeed()(c); };
+    await svc.start(id, { confirmedCalls: 8, by: "priya" });
+    expect(svc.isActive(id)).toBe(true);
+    expect(svc.isActive(OTHER)).toBe(false);
+    await vi.waitFor(() => expect(done).toHaveBeenCalledTimes(1));
+    expect(svc.status(id).state).toBe("done");
+    expect(svc.isActive(id)).toBe(true);
+    release();
+    await vi.waitFor(() => expect(svc.isActive(id)).toBe(false));
+  });
+
   it("a persisted running state (report-jobs.json, 0600, atomic, with outputDir and modelCalls) becomes failed/interrupted on construction", async () => {
     const file = path.join(dataDir, "report-jobs.json");
     const svc = make();
@@ -438,6 +455,21 @@ describe("ReportJobService", () => {
     // never reused: it is not an evaluated session, a new run writes a fresh folder
     expect(await svc.preflight(id)).toEqual({ ok: true, upTo: 8 });
     expect(await svc.orphan("s-unknown")).toBe(false);
+  });
+
+  it("start is 409 orphan while an orphan folder is left, even with the right confirmedCalls, and spawns nothing", async () => {
+    const svc = make();
+    const broken = path.join(config.reportsDir, id);
+    await cp(draftDir, broken, { recursive: true });
+    await unlink(path.join(broken, "group.json"));
+    expect(await svc.start(id, { confirmedCalls: 8, by: "k" })).toEqual({ status: 409, code: "orphan" });
+    expect(calls).toHaveLength(0);
+    expect(svc.status(id).state).toBe("idle");
+    expect(await readdir(config.reportsDir)).toEqual([id]); // no `<id>-2` beside it
+    // once it is removed by hand, the run may start
+    await rm(broken, { recursive: true });
+    expect(await svc.start(id, { confirmedCalls: 8, by: "k" })).toMatchObject({ status: 200 });
+    expect(calls).toHaveLength(1);
   });
 });
 

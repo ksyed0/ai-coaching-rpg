@@ -119,13 +119,13 @@ describe("report routes", () => {
     expect(f.moderation.comment).not.toHaveBeenCalled();
   });
 
-  it("a body over the cap is 413 with the fixed sentence (4 KB, and 16 KB for comment and edit-summary)", async () => {
+  it("a body over the cap is 413 with the fixed sentence (4 KB, and 16 KB for edit, comment and edit-summary)", async () => {
     const { port, f } = await boot();
     const big = (n: number): string => "x".repeat(n);
     const cases: [string, string, unknown][] = [
       ["POST", R("/evaluate"), { confirmedCalls: 8, by: "p", pad: big(5000) }],
       ["POST", R("/open"), { by: "p", pad: big(5000) }],
-      ["POST", R("/subjects/alice/edit"), { ...EDIT, reason: big(5000) }],
+      ["POST", R("/subjects/alice/edit"), { ...EDIT, reason: big(17 * 1024) }],
       ["POST", R("/subjects/alice/accept"), { summary: true, by: "p", pad: big(5000) }],
       ["POST", R("/subjects/alice/comment"), { text: big(17 * 1024), by: "p" }],
       ["POST", R("/subjects/alice/edit-summary"), { reason: big(17 * 1024), by: "p" }],
@@ -137,8 +137,11 @@ describe("report routes", () => {
     // between 4 KB and 16 KB: the free-text routes accept it, the others do not
     expect((await call(port, "POST", R("/subjects/alice/comment"), { body: { text: big(10 * 1024), by: "p" } })).status).toBe(200);
     expect((await call(port, "POST", R("/subjects/alice/edit-summary"), { body: { reason: big(10 * 1024), by: "p" } })).status).toBe(200);
-    expect((await call(port, "POST", R("/subjects/alice/edit"), { body: { ...EDIT, reason: big(10 * 1024) } })).status).toBe(413);
-    expect(f.moderation.edit).not.toHaveBeenCalled();
+    // an edit's reason (500) and rationale (1,500 characters) in CJK are about 6 KB: the edit route takes the 16 KB cap too
+    const cjk = (n: number): string => "\u8a55".repeat(n);
+    expect((await call(port, "POST", R("/subjects/alice/edit"), { body: { ...EDIT, reason: cjk(500), rationale: cjk(1500) } })).status).toBe(200);
+    expect((await call(port, "POST", R("/subjects/alice/accept"), { body: { summary: true, by: "p", pad: big(5000) } })).status).toBe(413);
+    expect(f.moderation.edit).toHaveBeenCalledTimes(1);
     expect(f.jobs.start).not.toHaveBeenCalled();
   });
 
@@ -208,6 +211,9 @@ describe("report routes", () => {
     expect([x.status, x.json]).toEqual([409, { success: false, data: null, error: { code: "already_running" } }]);
     f.moderation.open!.mockResolvedValueOnce({ status: 409, code: "no_review" });
     expect((await call(port, "POST", R("/open"), { body: { by: "p" } })).json.error).toEqual({ code: "no_review" });
+    f.jobs.start!.mockResolvedValueOnce({ status: 409, code: "orphan" });
+    x = await call(port, "POST", R("/evaluate"), { body: { confirmedCalls: 8, by: "p" } });
+    expect([x.status, x.json]).toEqual([409, { success: false, data: null, error: { code: "orphan" } }]);
   });
 
   it("503 busy sets Retry-After from retryAfterMs; unavailable has a fixed sentence; 400 invalid and 404 map", async () => {
