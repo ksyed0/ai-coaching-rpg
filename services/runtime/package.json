@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./moderation": "./src/moderation/index.ts",
     "./participant": "./src/participant/index.ts",
     "./players": "./src/players/index.ts",
     "./reports": "./src/reports/index.ts",
