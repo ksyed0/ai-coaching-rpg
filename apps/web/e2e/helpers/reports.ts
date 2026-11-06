@@ -47,6 +47,14 @@ export function resolveDispute(stack: LauncherStack, sessionId: string, outcome:
   return runSeeder(stack, sessionId, ["resolve", role, outcome, reason]);
 }
 
+/**
+ * The terminal's own facilitator export of `subject` (`pnpm moderate export <dir> <subject> --for facilitator --to <dest>`, in a child
+ * process): the oracle the console's download is compared with. It records its own `report.exported` event (destination `dest`'s name).
+ */
+export function exportWithTerminal(stack: LauncherStack, sessionId: string, subject: string, dest: string): Promise<void> {
+  return runSeeder(stack, sessionId, ["export", subject, dest]);
+}
+
 function runSeeder(stack: LauncherStack, sessionId: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child: ChildProcess = spawn(TSX, [SEED, path.join(stack.dataDir, "reports"), sessionId, ...args], {
@@ -63,7 +71,9 @@ function runSeeder(stack: LauncherStack, sessionId: string, args: string[]): Pro
 }
 
 /** A session that has been started by three joined players and ended by the facilitator (the console page is open on it). */
-export async function endedSession(browser: Browser, stack: LauncherStack, width = 1280): Promise<{ fac: Page; sessionId: string }> {
+export async function endedSession(
+  browser: Browser, stack: LauncherStack, width = 1280, whileRunning?: () => Promise<void>,
+): Promise<{ fac: Page; sessionId: string }> {
   const fac = await facilitator(browser, stack.baseUrl, stack.facilitatorSecret, width);
   const { sessionId, codes } = await createSession(fac, stack.baseUrl);
   const seated = [];
@@ -73,6 +83,7 @@ export async function endedSession(browser: Browser, stack: LauncherStack, width
   await fac.getByRole("button", { name: "Start", exact: true }).click();
   const controls = fac.getByRole("region", { name: "Facilitator controls" });
   await expect(controls.getByRole("button", { name: /^(Pause|Resume)$/ })).toBeEnabled();
+  await whileRunning?.();
   await controls.getByRole("button", { name: "End session", exact: true }).click();
   const dialog = fac.getByRole("dialog");
   await dialog.getByRole("button", { name: "End session", exact: true }).click();

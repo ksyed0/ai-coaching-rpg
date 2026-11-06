@@ -1,6 +1,7 @@
 // Run under tsx by apps/web/e2e/helpers/reports.ts (the web app and its specs never import the runtime; the runtime's own fixtures
 // are the honest way to get a released review folder). Not a test: vitest only collects *.test.ts.
-// Usage: tsx seed-report-folders.ts <reportsDir> <sessionId> [released | draft | release <role> | resolve <role> <outcome> <reason>]
+// Usage: tsx seed-report-folders.ts <reportsDir> <sessionId> [released | draft | release <role> | resolve <role> <outcome> <reason> |
+//        export <subject> <destDir>]
 //
 // released (the default) writes what an operator's `evaluate` and `moderate` leave under <CONTROL_DATA_DIR>/reports:
 //   <id>    a first run, opened, every item accepted and released (alice and bob), then SUPERSEDED by
@@ -12,6 +13,7 @@
 // release. The same strings are declared in apps/web/e2e/helpers/reports.ts.
 //   release <role>   releases that role's report in the draft review (a facilitator releasing mid-test).
 //   resolve <role> <outcome> <reason>   resolves that role's first open dispute with the facilitator's reason.
+//   export <subject> <destDir>   the terminal's facilitator export of that subject into a new directory (the console e2e's oracle).
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { evaluateSession } from "../../../runtime/src/evaluator/evaluate.js";
@@ -117,8 +119,16 @@ async function resolveDispute(role: string | undefined, outcome: string | undefi
   console.log(`resolved dispute #${open.seq}`);
 }
 
+async function exportFacilitator(subject: string | undefined, dest: string | undefined): Promise<void> {
+  if (!subject || !dest) throw new Error("export needs a subject and a destination");
+  const dir = await onlyDir();
+  await ok(["export", path.relative(reportsDir!, dir), subject, "--for", "facilitator", "--to", dest, "--by", "kamal"]);
+  console.log(`exported ${subject}`);
+}
+
 if (mode === "released") await seedReleased();
 else if (mode === "draft") await seedDraft();
 else if (mode === "release") await releaseRole(rest[0]);
 else if (mode === "resolve") await resolveDispute(rest[0], rest[1], rest[2]);
+else if (mode === "export") await exportFacilitator(rest[0], rest[1]);
 else throw new Error(`unknown mode ${mode}`);

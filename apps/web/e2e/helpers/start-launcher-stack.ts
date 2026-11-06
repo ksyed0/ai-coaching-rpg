@@ -43,6 +43,8 @@ export type LauncherStack = {
    * loudly instead of passing without a crash. Resolves once the control service lists the session as `stopped`.
    */
   crashRuntimes(): Promise<void>;
+  /** How many session runtimes run now (processes of the control service's group whose command line holds the runtime entry). */
+  runtimeCount(): Promise<number>;
   /** Stops everything and removes the temp dir. */
   stop(): Promise<void>;
 };
@@ -253,6 +255,7 @@ export async function startLauncherStack(
         next = await startNext(port, nextEnv, baseUrl, out);
       },
       crashRuntimes: () => crashRuntimesOf(control, controlUrl, serviceToken),
+      runtimeCount: async () => (control.pid === undefined ? 0 : (await runtimePids(control.pid)).length),
       stop: cleanup,
     };
   } catch (e) {
