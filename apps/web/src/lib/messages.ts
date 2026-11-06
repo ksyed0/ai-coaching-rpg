@@ -125,3 +125,34 @@ export const REPORT_REFUSALS = {
   generic: "That action is not possible right now.",
 } as const;
 export type ReportRefusal = keyof typeof REPORT_REFUSALS;
+
+/** The facilitator's Report panel (components/console/report): its own fixed sentences. Control's text is never shown. */
+export const REPORT_CONSOLE = {
+  nameLabel: "Your name for the review record",
+  nameRule: "Use letters, digits, underscore or hyphen, up to 56 characters.",
+  nameBad: "That name cannot be used.",
+  nameNeeded: "Type your name above to evaluate or change the review.",
+  ready: "Evaluate this session to draft a report for each player and the group.",
+  running: "Evaluating… This panel updates by itself.",
+  started: "The evaluation has started.",
+  cancelled: "The evaluation was cancelled.",
+  opened: "The review is open.",
+  failed: {
+    interrupted: "The evaluation stopped because the control service restarted. Evaluate again.",
+    timeout: "The evaluation took too long and was stopped. Evaluate again.",
+    cancelled: "The evaluation was cancelled. Money already spent on model calls is not refunded.",
+    error: "The evaluation failed. Evaluate again.",
+  },
+  readyToOpen: "The reports are drafted, but the review is not open yet.",
+  done: "The reports are drafted and the review is open.",
+  doneCalls: (n: number) => ` The evaluation made ${n} model calls.`,
+  // The ROLLBACK step in docs: remove the damaged folder by hand. Control never reuses it.
+  orphan: "A report folder for this session is damaged. See the rollback notes to remove it, then evaluate again.",
+  confirmTitle: "Evaluate this session?",
+  confirmCalls: (n: number) => `This sends the session transcript to the model and makes up to ${n} model calls.`,
+  confirmNoRefund: "Cancelling a running evaluation does not refund money already spent on model calls.",
+  confirmAuthor: (name: string) => `Recorded as: ${name}`,
+  saved: "Saved.",
+  throttled: "Too many changes. Wait a minute and try again.",
+  unreadable: "The report could not be read. Try again.",
+} as const;
