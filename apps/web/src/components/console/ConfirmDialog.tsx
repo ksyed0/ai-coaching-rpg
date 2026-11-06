@@ -31,6 +31,8 @@ export type ConfirmDialogProps = {
   tone?: "danger" | "primary";
   /** Where focus goes on close when the opener is gone, hidden or disabled: a message element (`tabIndex={-1}`), see `focusFallback`. */
   fallbackFocus?: () => HTMLElement | null;
+  /** True while the confirm action is not possible yet (a required reason is empty, an item still blocks); Cancel stays live. */
+  confirmDisabled?: boolean;
 };
 
 /** Marks a message element that can take focus when a dialog's opener cannot: `data-focus-fallback="<name>"` plus `tabIndex={-1}`. */
@@ -94,6 +96,7 @@ export function ConfirmDialog({
   describeBody = false,
   tone = "danger",
   fallbackFocus,
+  confirmDisabled = false,
 }: ConfirmDialogProps) {
   const id = useId();
   const root = useRef<HTMLDivElement>(null);
@@ -187,7 +190,7 @@ export function ConfirmDialog({
           <button
             className={tone === "primary" ? "btn pri" : "btn danger"}
             type="button"
-            disabled={pending}
+            disabled={pending || confirmDisabled}
             onClick={onConfirm}
           >
             {confirmLabel}

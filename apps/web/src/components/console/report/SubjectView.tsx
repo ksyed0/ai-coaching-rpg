@@ -8,16 +8,20 @@ import {
   fetchReportSubject,
   parseReportSubject,
   reportFailureText,
+  resolveDispute,
   type ReportSubjectDetail,
+  type ResolveOutcome,
 } from "../../../lib/console-api";
 import type { ApiResult } from "../../../lib/api";
 import { REPORT_CONSOLE } from "../../../lib/messages";
 import { CriterionRow, type EditInput } from "./CriterionRow";
+import { ResolveDisputePanel } from "./ResolveDisputePanel";
 import { subjectLabel } from "./SubjectList";
 
-// One subject's report for the facilitator: the criteria (levels with edit and accept), the summary (accept), the comments so far and a
-// comment box. Every write carries the typed name; without a valid one nothing is enabled. A refusal is one fixed sentence; what was typed
-// stays (a stale edit or a refused comment loses nothing). Every string from the report is rendered as a React text node.
+// One subject's report for the facilitator: the criteria (levels with edit and accept), the summary (accept), the comments so far, the
+// participant's open disputes (resolve) and a comment box. Every write carries the typed name; without a valid one nothing is enabled. A
+// refusal is one fixed sentence; what was typed stays (a stale edit or a refused comment loses nothing). Every string from the report is
+// rendered as a React text node.
 
 export type SubjectViewProps = {
   sessionId: string;
@@ -90,6 +94,7 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = false, 
   const by = author ?? "";
   const edit = (criterion: string) => (input: EditInput) => run(editCriterion(sessionId, subject, { criterion, ...input, by }, fetchImpl), true);
   const accept = (criterion: string) => void run(acceptItem(sessionId, subject, { criterion, by }, fetchImpl));
+  const resolve = (seq: number, outcome: ResolveOutcome, reason: string) => run(resolveDispute(sessionId, { seq, outcome, reason, by }, fetchImpl), true);
   async function sendComment() {
     if (!canWrite || comment.trim() === "") return;
     const refusal = await run(commentOn(sessionId, subject, { text: comment, ...(about !== "" ? { criterion: about } : {}), ...(feedback ? { feedback: true as const } : {}), by }, fetchImpl));
@@ -176,6 +181,8 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = false, 
               </ul>
             </div>
           ) : null}
+
+          <ResolveDisputePanel responses={view.responses} versions={view.versions} canWrite={canWrite} pending={pending} criterionName={nameOf} onResolve={resolve} />
         </>
       )}
 

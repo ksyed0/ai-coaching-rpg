@@ -18,9 +18,22 @@ export const subjectLabel = (id: string): string => (id === "group" ? "Group" : 
 export const openItems = (r: ReportSubjectRow): number =>
   new Set([...r.openCriteria, ...r.scoreByHand]).size + r.openDisputes + (r.summaryStale ? 1 : 0) + (r.tableStale ? 1 : 0);
 
-export type SubjectListProps = { subjects: ReportSubjectRow[]; selected: string | null; onSelect: (id: string) => void };
+/**
+ * The actions after release, per subject state: released has Amend, Withdraw and Export; amending has Release (its edit tools are in the
+ * subject view, opened by Review); withdrawn has none (control exports only a released report). Every action needs the typed name.
+ */
+export type SubjectActions = {
+  canWrite: boolean;
+  pending: boolean;
+  onAmend: (id: string, opener: HTMLElement) => void;
+  onWithdraw: (id: string, opener: HTMLElement) => void;
+  onExport: (id: string) => void;
+  onRelease: (id: string, opener: HTMLElement) => void;
+};
 
-export function SubjectList({ subjects, selected, onSelect }: SubjectListProps) {
+export type SubjectListProps = { subjects: ReportSubjectRow[]; selected: string | null; onSelect: (id: string) => void; actions?: SubjectActions };
+
+export function SubjectList({ subjects, selected, onSelect, actions }: SubjectListProps) {
   return (
     <ul className="codes report-subjects">
       {subjects.map((r) => {
@@ -34,9 +47,35 @@ export function SubjectList({ subjects, selected, onSelect }: SubjectListProps) 
             <button className="btn" type="button" aria-label={`Review ${label}`} aria-pressed={selected === r.id} onClick={() => onSelect(r.id)}>
               Review
             </button>
+            {actions !== undefined ? <RowActions row={r} label={label} actions={actions} /> : null}
           </li>
         );
       })}
     </ul>
   );
+}
+
+function RowActions({ row: r, label, actions: a }: { row: ReportSubjectRow; label: string; actions: SubjectActions }) {
+  const off = !a.canWrite || a.pending;
+  if (r.state === "released")
+    return (
+      <>
+        <button className="btn" type="button" disabled={off} aria-label={`Amend ${label}`} onClick={(e) => a.onAmend(r.id, e.currentTarget)}>
+          Amend…
+        </button>
+        <button className="btn danger" type="button" disabled={off} aria-label={`Withdraw ${label}`} onClick={(e) => a.onWithdraw(r.id, e.currentTarget)}>
+          Withdraw…
+        </button>
+        <button className="btn" type="button" disabled={off} aria-label={`Export ${label}`} onClick={() => a.onExport(r.id)}>
+          Export
+        </button>
+      </>
+    );
+  if (r.state === "amending")
+    return (
+      <button className="btn" type="button" disabled={off} aria-label={`Release ${label}`} onClick={(e) => a.onRelease(r.id, e.currentTarget)}>
+        Release…
+      </button>
+    );
+  return null;
 }

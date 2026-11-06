@@ -173,3 +173,6 @@ table.compare th, table.compare td { border: 1px solid var(--line, #ccc); paddin
 .report-progress { max-height: 12em; overflow-y: auto; padding: 8px 10px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
 .report-criterion { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .report-criterion:last-child { border-bottom: 0; }
+/* Part B: the release dialog's subjects sit apart; the release bar and export menu use the card and field styles above. */
+.report-release-list > li { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.report-release-list > li:last-child { padding-bottom: 0; border-bottom: 0; }
