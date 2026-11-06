@@ -30,3 +30,25 @@ export async function selfRatingProgress(
     return { kind: "unavailable" };
   }
 }
+
+/**
+ * The human player roles with a draft report in the live review, sorted; null when no review resolves or it cannot be read. A plain
+ * read of the review that does not depend on the rating counts, so a link list can still name draft roles when counting fails.
+ */
+export async function listDraftPlayerRoles(
+  reportsDir: string,
+  sessionId: string,
+): Promise<string[] | null> {
+  try {
+    const st = await reviewStatus(reportsDir, sessionId);
+    if (st.kind !== "found") return null;
+    const l = await loadReview(st.dir);
+    if (l.view.opened.session.id !== sessionId) return null;
+    return [...l.view.subjects.values()]
+      .filter((s) => s.kind === "participant" && s.state === "draft")
+      .map((s) => s.id)
+      .sort();
+  } catch {
+    return null;
+  }
+}

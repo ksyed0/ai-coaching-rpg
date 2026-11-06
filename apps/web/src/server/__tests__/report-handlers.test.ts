@@ -24,7 +24,7 @@ const CRED_ID = "AbCdEfGhIjK";
 const TOKEN = "AbCdEfGhIjK.0123456789abcdefghijkl";
 const EXPIRES = T0 + 86_400_000;
 const CONFLICT_SENTENCE = "A link is already active for this role.";
-const NOT_READY_SENTENCE = "No reports are ready for this session yet. Run evaluate, then moderate open and release, from the terminal (see the guide).";
+const NOT_READY_SENTENCE = "No reports are ready for this session yet. Run evaluate and moderate open, from the terminal (see the guide).";
 
 const config: Config = {
   runtimeUrl: "ws://127.0.0.1:1",
@@ -59,7 +59,7 @@ type Launcher = Record<
 const SAFE_CRED = { role: "ana", createdAt: 1, expiresAt: EXPIRES, lastUsedAt: 5 };
 function fakeLauncher(): Launcher {
   return {
-    reportLinks: vi.fn(async () => ({ state: "ready", roles: [{ role: "ana", credential: SAFE_CRED }, { role: "bo", credential: null }] })),
+    reportLinks: vi.fn(async () => ({ state: "ready", players: null, roles: [{ role: "ana", credential: SAFE_CRED, selfRated: null }, { role: "bo", credential: null, selfRated: null }] })),
     issueReportLink: vi.fn(async () => ({ credential: SAFE_CRED, token: TOKEN })),
     reissueReportLink: vi.fn(async () => ({ credential: SAFE_CRED, token: TOKEN })),
     revokeReportLink: vi.fn(async () => true),
@@ -416,10 +416,11 @@ describe("console report-link routes", () => {
   it("the list drops credential ids and gives booleans", async () => {
     launcher.reportLinks.mockResolvedValue({
       state: "ready",
+      players: { rated: 1, total: 2 },
       roles: [
-        { role: "ana", credential: { ...SAFE_CRED, id: CRED_ID } },
-        { role: "bo", credential: { role: "bo", createdAt: 1, expiresAt: T0 - 1, revokedAt: 2 } },
-        { role: "cy", credential: null },
+        { role: "ana", credential: { ...SAFE_CRED, id: CRED_ID }, selfRated: null },
+        { role: "bo", credential: { role: "bo", createdAt: 1, expiresAt: T0 - 1, revokedAt: 2 }, selfRated: { rated: 1, total: 4 } },
+        { role: "cy", credential: null, selfRated: null },
       ],
     });
     const res = await handleConsoleReportLinks(consoleReq("", "GET"), deps);
@@ -428,10 +429,11 @@ describe("console report-link routes", () => {
     expect(p.text).not.toContain(CRED_ID);
     expect(p.json.data).toEqual({
       state: "ready",
+      players: { rated: 1, total: 2 },
       roles: [
-        { role: "ana", credential: { role: "ana", createdAt: 1, expiresAt: EXPIRES, lastUsedAt: 5, active: true, revoked: false } },
-        { role: "bo", credential: { role: "bo", createdAt: 1, expiresAt: T0 - 1, active: false, revoked: true } },
-        { role: "cy", credential: null },
+        { role: "ana", credential: { role: "ana", createdAt: 1, expiresAt: EXPIRES, lastUsedAt: 5, active: true, revoked: false }, selfRated: null },
+        { role: "bo", credential: { role: "bo", createdAt: 1, expiresAt: T0 - 1, active: false, revoked: true }, selfRated: { rated: 1, total: 4 } },
+        { role: "cy", credential: null, selfRated: null },
       ],
     });
     expectPrivate(res);
@@ -480,6 +482,23 @@ describe("console report-link routes", () => {
     expect(p.text).not.toContain("/srv");
     launcher.issueReportLink.mockRejectedValue(new LauncherError("conflict"));
     expect((await handleConsoleReportLinksIssue(consoleReq("", "POST", { role: "ana" }), deps)).status).toBe(409);
+  });
+
+  it("the console shows the not-ready and no-report sentences; a stale sentence becomes the generic one", async () => {
+    const NO_REPORT_SENTENCE = "There is no report to link for this role.";
+    for (const sentence of [NOT_READY_SENTENCE, NO_REPORT_SENTENCE]) {
+      launcher.issueReportLink.mockRejectedValue(new LauncherError("conflict", sentence));
+      const p = await parts(await handleConsoleReportLinksIssue(consoleReq("", "POST", { role: "ana" }), deps));
+      expect([p.status, p.json.error.message]).toEqual([409, sentence]);
+    }
+    for (const stale of [
+      "No reports are ready for this session yet. Run evaluate, then moderate open and release, from the terminal (see the guide).",
+      "There is no released report to link for this role.",
+    ]) {
+      launcher.issueReportLink.mockRejectedValue(new LauncherError("conflict", stale));
+      const p = await parts(await handleConsoleReportLinksIssue(consoleReq("", "POST", { role: "ana" }), deps));
+      expect([p.status, p.json.error.message]).toEqual([409, "That action is not possible right now."]);
+    }
   });
 
   it("control unavailable is 503; not found is 404", async () => {

@@ -1,5 +1,5 @@
 export { readSelfAssessForm } from "./form.js";
-export { selfRatingProgress } from "./progress.js";
+export { listDraftPlayerRoles, selfRatingProgress } from "./progress.js";
 export { submitSelfRatings, submitResponse } from "./write.js";
 export type {
   FormResult,

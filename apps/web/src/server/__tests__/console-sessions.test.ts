@@ -1119,6 +1119,7 @@ describe("console session API", () => {
       ai_budget: [409, "ai_budget", "The AI players have used this session's model budget. They stay silent."],
       ai_absent: [409, "ai_absent", "The AI player is not connected right now."],
       ai_expired: [409, "ai_expired", "The prompt took too long to confirm. Try again."],
+      busy: [502, "launcher_unavailable", "The session service is not reachable. Try again."],
     };
     for (const [reason, [status, code, message]] of Object.entries(
       expected,

@@ -33,8 +33,8 @@ const MAX_ENTER_BODY_BYTES = 512;
 /** The control service's fixed conflict sentences (reports.ts, report-access.ts). Anything else is shown as the generic one. */
 const KNOWN_CONFLICTS: ReadonlySet<string> = new Set([
   "A link is already active for this role.",
-  "No reports are ready for this session yet. Run evaluate, then moderate open and release, from the terminal (see the guide).",
-  "There is no released report to link for this role.",
+  "No reports are ready for this session yet. Run evaluate and moderate open, from the terminal (see the guide).",
+  "There is no report to link for this role.",
 ]);
 const GENERIC_CONFLICT = "That action is not possible right now.";
 const UNAVAILABLE = "The report is unavailable. Try again.";
@@ -220,7 +220,7 @@ export function handleConsoleReportLinks(req: Request, deps: Deps): Promise<Resp
     try {
       const now = deps.now();
       const links = await deps.launcher.reportLinks(id);
-      return priv(ok({ state: links.state, roles: links.roles.map((r) => ({ role: r.role, credential: r.credential === null ? null : linkDto(r.credential, now) })) }));
+      return priv(ok({ state: links.state, players: links.players, roles: links.roles.map((r) => ({ role: r.role, credential: r.credential === null ? null : linkDto(r.credential, now), selfRated: r.selfRated })) }));
     } catch (err) {
       return reportFailure(err);
     }

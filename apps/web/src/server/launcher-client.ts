@@ -22,7 +22,8 @@ export type LauncherReason =
   | "ai_busy"
   | "ai_budget"
   | "ai_absent"
-  | "ai_expired";
+  | "ai_expired"
+  | "busy";
 
 /** A failed call to the control service. The message repeats only the reason word. */
 export class LauncherError extends Error {
@@ -60,10 +61,25 @@ const REASONS: readonly string[] = ["model_failed", "timeout", "unusable", "budg
 /** A report link as the console may see it: never the credential id, the token or the secret. */
 export type ReportLinkInfo = { role: string; createdAt: number; expiresAt: number; revokedAt?: number; lastUsedAt?: number };
 export type ReportLinksState = "ready" | "not_ready" | "unavailable";
-export type ReportLinkRow = { role: string; credential: ReportLinkInfo | null };
+/** How many criteria a draft player has rated; null for a released role and when the counts cannot be read. */
+export type SelfRated = { rated: number; total: number };
+export type ReportLinkRow = { role: string; credential: ReportLinkInfo | null; selfRated: SelfRated | null };
+/** Players with at least one rating out of draft players; null when the counts cannot be read. */
+export type PlayersSummary = SelfRated;
 export type IssuedReportLink = { credential: ReportLinkInfo; token: string };
 export type ReportExchange = { credentialId: string; sessionId: string; role: string; expiresAt: number };
-export type ReportRead = { state: "released"; view: Record<string, unknown> } | { state: "not_released" };
+/** The blind self-assessment form of a draft report (the fields of the runtime's `FormResult` form kind). */
+export type SelfAssessForm = {
+  criteria: { id: string; name: string }[];
+  scale: { level: number; label: string; meaning: string }[];
+  existing: Record<string, { level: 1 | 2 | 3 | 4 | "na"; note?: string }>;
+};
+export type ReportRead =
+  | { state: "released"; view: Record<string, unknown> }
+  | ({ state: "self_assess" } & SelfAssessForm)
+  | { state: "not_released" }
+  | { state: "closed" }
+  | { state: "old_schema" };
 export type CreatedSession = {
   sessionId: string;
   status: "running";
@@ -110,6 +126,7 @@ const BY_CODE: Record<string, LauncherReason> = {
   ai_budget: "ai_budget",
   ai_absent: "ai_absent",
   ai_expired: "ai_expired",
+  busy: "busy",
 };
 /** Used only when the answer has no readable error envelope. */
 const BY_STATUS: Record<number, LauncherReason> = {
@@ -190,6 +207,30 @@ function toIntent(v: unknown): IntentEntry | null {
 }
 
 const isTime = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+const isCount = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+function toCount(v: unknown): SelfRated {
+  if (!isObject(v) || !isCount(v.rated) || !isCount(v.total)) return bad();
+  return { rated: v.rated, total: v.total };
+}
+
+/** The form fields of a self_assess answer, picked field by field; anything that does not fit fails closed. */
+function toForm(d: Record<string, unknown>): SelfAssessForm {
+  if (!Array.isArray(d.criteria) || !Array.isArray(d.scale) || !isObject(d.existing)) return bad();
+  const criteria = d.criteria.map((c) => (isObject(c) && isText(c.id) && typeof c.name === "string" ? { id: c.id, name: c.name } : bad()));
+  const scale = d.scale.map((c) =>
+    isObject(c) && typeof c.level === "number" && Number.isFinite(c.level) && typeof c.label === "string" && typeof c.meaning === "string"
+      ? { level: c.level, label: c.label, meaning: c.meaning }
+      : bad(),
+  );
+  const existing: SelfAssessForm["existing"] = {};
+  for (const [k, v] of Object.entries(d.existing)) {
+    if (!isObject(v) || !(v.level === 1 || v.level === 2 || v.level === 3 || v.level === 4 || v.level === "na")) return bad();
+    if (v.note !== undefined && typeof v.note !== "string") return bad();
+    existing[k] = { level: v.level, ...(v.note !== undefined ? { note: v.note } : {}) };
+  }
+  return { criteria, scale, existing };
+}
 
 /** Picked field by field, so the credential's id (and anything else) is dropped here and can never be forwarded by mistake. */
 function toReportLink(v: unknown): ReportLinkInfo {
@@ -406,13 +447,18 @@ export class LauncherClient {
 
   // ---- report links (US-0062) ----
 
-  async reportLinks(id: string): Promise<{ state: ReportLinksState; roles: ReportLinkRow[] }> {
+  async reportLinks(id: string): Promise<{ state: ReportLinksState; players: PlayersSummary | null; roles: ReportLinkRow[] }> {
     const d = await this.call("GET", `/sessions/${this.id(id)}/report-links`, undefined, this.timeoutMs);
     if (!isObject(d) || !Array.isArray(d.roles)) return bad();
     if (d.state !== "ready" && d.state !== "not_ready" && d.state !== "unavailable") return bad();
     return {
       state: d.state,
-      roles: d.roles.map((r) => (isObject(r) && isId(r.role) ? { role: r.role, credential: r.credential === null ? null : toReportLink(r.credential) } : bad())),
+      players: d.players === null || d.players === undefined ? null : toCount(d.players),
+      roles: d.roles.map((r) =>
+        isObject(r) && isId(r.role)
+          ? { role: r.role, credential: r.credential === null ? null : toReportLink(r.credential), selfRated: r.selfRated === null || r.selfRated === undefined ? null : toCount(r.selfRated) }
+          : bad(),
+      ),
     };
   }
 
@@ -444,7 +490,10 @@ export class LauncherClient {
     const d = await this.call("GET", `/sessions/${this.id(id)}/reports/${encodeURIComponent(credentialId)}`, undefined, this.timeoutMs, { maxChars: MAX_REPORT_RESPONSE_CHARS });
     if (!isObject(d)) return bad();
     if (d.state === "not_released") return { state: "not_released" };
+    if (d.state === "closed") return { state: "closed" };
+    if (d.state === "old_schema") return { state: "old_schema" };
     if (d.state === "released" && isObject(d.view)) return { state: "released", view: d.view };
+    if (d.state === "self_assess") return { state: "self_assess", ...toForm(d) };
     return bad();
   }
 

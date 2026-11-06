@@ -651,11 +651,18 @@ describe("LauncherClient report links", () => {
   const CRED = { id: "AbCdEfGhIjK", sessionId: SID, role: "ana", createdAt: 1, expiresAt: 2, lastUsedAt: 1 };
 
   it("reportLinks: GET and the credential id is dropped", async () => {
-    const f = fakeFetch(() => reply(envelope({ state: "ready", roles: [{ role: "ana", credential: CRED }, { role: "bo", credential: null }] })));
+    const f = fakeFetch(() => reply(envelope({ state: "ready", players: { rated: 1, total: 2 }, roles: [{ role: "ana", credential: CRED, selfRated: { rated: 2, total: 5 } }, { role: "bo", credential: null, selfRated: null }] })));
     const out = await client(f.fetch).reportLinks(SID);
     expect(f.calls[0]).toMatchObject({ url: `${BASE}/sessions/${SID}/report-links`, method: "GET" });
-    expect(out).toEqual({ state: "ready", roles: [{ role: "ana", credential: { role: "ana", createdAt: 1, expiresAt: 2, lastUsedAt: 1 } }, { role: "bo", credential: null }] });
+    expect(out).toEqual({ state: "ready", players: { rated: 1, total: 2 }, roles: [{ role: "ana", credential: { role: "ana", createdAt: 1, expiresAt: 2, lastUsedAt: 1 }, selfRated: { rated: 2, total: 5 } }, { role: "bo", credential: null, selfRated: null }] });
     expect(JSON.stringify(out)).not.toContain("AbCdEfGhIjK");
+  });
+
+  it("reportLinks: players and selfRated may be null, and a malformed count is reason failed", async () => {
+    const f = fakeFetch(() => reply(envelope({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: null }] })));
+    expect(await client(f.fetch).reportLinks(SID)).toEqual({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: null }] });
+    const g = fakeFetch(() => reply(envelope({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: { rated: "2", total: 5 } }] })));
+    expect((await reasonOf(client(g.fetch).reportLinks(SID))).reason).toBe("failed");
   });
 
   it("reportLinks: a malformed answer is reason failed", async () => {
@@ -716,6 +723,33 @@ describe("LauncherClient report links", () => {
     expect(await client(g.fetch).readReport(SID, "AbCdEfGhIjK")).toEqual({ state: "not_released" });
     expect((await reasonOf(client(g.fetch).readReport(SID, "a/b"))).reason).toBe("not_found");
     expect(g.calls).toHaveLength(1);
+  });
+
+  it("readReport parses all five states and fails closed on anything else", async () => {
+    const form = {
+      criteria: [{ id: "listening", name: "Listening" }],
+      scale: [{ level: 1, label: "Low", meaning: "m" }],
+      existing: { listening: { level: 3, note: "ok" }, discovery: { level: "na" } },
+    };
+    const read = (data: unknown) => client(fakeFetch(() => reply(envelope(data))).fetch).readReport(SID, "AbCdEfGhIjK");
+    expect(await read({ state: "self_assess", ...form, extra: "dropped" })).toEqual({ state: "self_assess", ...form });
+    expect(await read({ state: "released", view: { kind: "released" } })).toEqual({ state: "released", view: { kind: "released" } });
+    expect(await read({ state: "not_released" })).toEqual({ state: "not_released" });
+    expect(await read({ state: "closed" })).toEqual({ state: "closed" });
+    expect(await read({ state: "old_schema" })).toEqual({ state: "old_schema" });
+    for (const odd of [
+      { state: "weird" }, { state: "released" }, { state: "self_assess" }, { state: "self_assess", ...form, criteria: [{ id: 1 }] },
+      { state: "self_assess", ...form, existing: { a: { level: 9 } } }, { state: "self_assess", ...form, scale: "x" }, {},
+    ]) {
+      expect((await reasonOf(read(odd))).reason, JSON.stringify(odd)).toBe("failed");
+    }
+  });
+
+  it("busy is a known LauncherReason and the server text never passes through", async () => {
+    const f = fakeFetch(() => reply(errorEnvelope("busy", "SECRET"), 503));
+    const r = await reasonOf(client(f.fetch).readReport(SID, "AbCdEfGhIjK"));
+    expect(r.reason).toBe("busy");
+    expect(r.text).not.toContain("SECRET");
   });
 
   it("readReport accepts a 2 MiB released report; the general cap (1 MiB) still applies to every other call", async () => {

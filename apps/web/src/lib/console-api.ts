@@ -167,7 +167,7 @@ export type ReportLinksView = { state: "ready" | "not_ready" | "unavailable"; ro
 
 /** The fixed sentence for a session with nothing released yet (the same words the control service uses). */
 export const REPORT_NOT_READY =
-  "No reports are ready for this session yet. Run evaluate, then moderate open and release, from the terminal (see the guide).";
+  "No reports are ready for this session yet. Run evaluate and moderate open, from the terminal (see the guide).";
 export const REPORT_UNAVAILABLE = "The reports for this session cannot be read. Check them with moderate status.";
 
 const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);

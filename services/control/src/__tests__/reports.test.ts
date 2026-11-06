@@ -1,15 +1,31 @@
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { collectSecrets } from "@acr/runtime/reports";
 import { writeFile } from "node:fs/promises";
+import path from "node:path";
+import { writeReports } from "../../../runtime/src/evaluator/report-write.js";
+import { sampleEvaluation } from "../../../runtime/src/evaluator/__tests__/fixtures.js";
+import { fixedClock, makeFold } from "../../../runtime/src/review/__tests__/fixtures.js";
+import { sealEntries } from "../../../runtime/src/review/review-log.js";
+import { loadReview, supersedeReview } from "../../../runtime/src/review/store.js";
+import { REVIEW_FILE, ZERO_HASH, type Entry } from "../../../runtime/src/review/types.js";
+import { WRITE_OLD_SCHEMA, createParticipantWriteService } from "../participant-writes.js";
 import { ReportAccessStore } from "../report-access.js";
 import { NO_REPORT, NOT_READY, REPORTS_UNREADABLE, REPORT_UNAVAILABLE, createReportService, type ReportService } from "../reports.js";
 import { ControlError } from "../supervisor.js";
 import { makeReportWorld, type ReportWorld } from "./report-fixture.js";
 
+// Lets one test make the progress read unavailable while everything else in the runtime stays real.
+let progressDown = false;
+vi.mock("@acr/runtime/participant", async (orig) => {
+  const m = await orig<typeof import("@acr/runtime/participant")>();
+  return { ...m, selfRatingProgress: (...a: Parameters<typeof m.selfRatingProgress>) => (progressDown ? Promise.resolve({ kind: "unavailable" as const }) : m.selfRatingProgress(...a)) };
+});
+
 let w: ReportWorld;
 let svc: ReportService;
 beforeEach(async () => {
+  progressDown = false;
   w = await makeReportWorld();
   svc = createReportService({ config: w.config, store: w.store, secrets: collectSecrets({}), now: () => w.clock.t });
 });
@@ -23,12 +39,12 @@ const store_list = (world: ReportWorld) => world.store.list(world.sessionId);
 
 describe("links", () => {
   it("is ready with the released roles and their live credential", async () => {
-    expect(await svc.links(w.sessionId)).toEqual({ state: "ready", roles: [{ role: "alice", credential: null }, { role: "bob", credential: null }] });
+    expect(await svc.links(w.sessionId)).toEqual({ state: "ready", players: { rated: 0, total: 0 }, roles: [{ role: "alice", credential: null, selfRated: null }, { role: "bob", credential: null, selfRated: null }] });
     const { credential } = await svc.issue(w.sessionId, "alice");
-    expect((await svc.links(w.sessionId)).roles[0]).toEqual({ role: "alice", credential });
+    expect((await svc.links(w.sessionId)).roles[0]).toEqual({ role: "alice", credential, selfRated: null });
   });
   it("is not ready when no review resolves", async () => {
-    expect(await svc.links("other-session")).toEqual({ state: "not_ready", roles: [] });
+    expect(await svc.links("other-session")).toEqual({ state: "not_ready", players: null, roles: [] });
   });
   it("keeps a role with a live link listed after its report is withdrawn, so it can be revoked", async () => {
     await svc.issue(w.sessionId, "alice");
@@ -48,11 +64,11 @@ describe("links", () => {
 });
 
 describe("issue and reissue", () => {
-  it("refuses a role that is not released, with the fixed sentence and no id echoed", async () => {
+  it("refuses a role that has no report, with the fixed sentence and no id echoed", async () => {
     for (const role of ["mallory", "group"]) {
       const r = await refusal(svc.issue(w.sessionId, role));
       expect(r).toEqual({ code: "conflict", message: NO_REPORT });
-      expect(NO_REPORT).toBe("There is no released report to link for this role.");
+      expect(NO_REPORT).toBe("There is no report to link for this role.");
       expect(r!.message).not.toContain(role);
       expect(await refusal(svc.reissue(w.sessionId, role))).toEqual({ code: "conflict", message: NO_REPORT });
     }
@@ -60,15 +76,9 @@ describe("issue and reissue", () => {
   it("refuses when nothing resolves, with the fixed sentence and no path or id", async () => {
     const r = await refusal(svc.issue("other-session", "alice"));
     expect(r).toEqual({ code: "conflict", message: NOT_READY });
-    expect(NOT_READY).toBe("No reports are ready for this session yet. Run evaluate, then moderate open and release, from the terminal (see the guide).");
+    expect(NOT_READY).toBe("No reports are ready for this session yet. Run evaluate and moderate open, from the terminal (see the guide).");
     expect(r!.message).not.toContain(w.root);
     expect(await refusal(svc.reissue("other-session", "alice"))).toEqual({ code: "conflict", message: NOT_READY });
-  });
-  it("refuses when the review is a draft (nothing released)", async () => {
-    await w.cleanup();
-    w = await makeReportWorld({ release: false });
-    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t });
-    expect(await refusal(svc.issue(w.sessionId, "alice"))).toEqual({ code: "conflict", message: NO_REPORT });
   });
   it("an AI role named in the group draft cannot get a link and is never listed", async () => {
     await w.cleanup();
@@ -231,7 +241,7 @@ describe("storage and reader failures", () => {
     svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, log: (m) => logs.push(m) });
     expect(await refusal(svc.issue(w.sessionId, "alice"))).toEqual({ code: "unavailable", message: REPORTS_UNREADABLE });
     expect(await refusal(svc.reissue(w.sessionId, "alice"))).toEqual({ code: "unavailable", message: REPORTS_UNREADABLE });
-    expect(await svc.links(w.sessionId)).toEqual({ state: "unavailable", roles: [] });
+    expect(await svc.links(w.sessionId)).toEqual({ state: "unavailable", players: null, roles: [] });
     expect(logs).toEqual(["report reader unavailable"]);
     expect(await refusal(svc.issue("other-session", "alice"))).toEqual({ code: "conflict", message: NOT_READY });
     expect(REPORTS_UNREADABLE).toBe("The reports for this session cannot be read. Check them with moderate status.");
@@ -242,5 +252,148 @@ describe("storage and reader failures", () => {
     const l = await svc.links(w.sessionId);
     expect(l.state).toBe("unavailable");
     expect(l.roles.map((r) => r.role)).toEqual(["alice"]);
+  });
+});
+
+// ---- draft reports (slice 2c-2) ----
+const draftWorld = async (opts: Parameters<typeof makeReportWorld>[0] = {}) => {
+  await w.cleanup();
+  w = await makeReportWorld({ release: false, ...opts });
+  svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t });
+};
+/** Re-seals the live review with its opener's schema replaced, so a released review can be made a /1 one. */
+const asSchema1 = async (): Promise<void> => {
+  const l = await loadReview(w.dir);
+  const entries = l.events.map((e): Entry => ({ actor: e.actor, body: e, ...(e.carriedFrom ? { carriedFrom: e.carriedFrom } : {}) }));
+  const first = entries[0]!.body as { schema: string };
+  entries[0] = { ...entries[0]!, body: { ...first, schema: "acr.review/1" } as never };
+  const sealed = sealEntries([], ZERO_HASH, entries, fixedClock());
+  await writeFile(path.join(w.dir, REVIEW_FILE), sealed.map((e) => `${JSON.stringify(e)}\n`).join(""));
+};
+const rate = (role: string, spec: string) => w.run(["self-assess", w.rel, "--role", role, "--rate", spec, "--by", "kamal"]);
+
+describe("draft reports: the link rule", () => {
+  it("a draft human player can be issued, reissued and revoked", async () => {
+    await draftWorld();
+    const a = await svc.issue(w.sessionId, "alice");
+    const b = await svc.reissue(w.sessionId, "alice");
+    expect(b.token).not.toBe(a.token);
+    expect(await svc.revoke(w.sessionId, "alice")).toBe(true);
+    expect((await svc.reissue(w.sessionId, "bob")).credential.role).toBe("bob");
+  });
+  it("a withdrawn one cannot be issued or reissued but can be revoked", async () => {
+    const { credential } = await svc.issue(w.sessionId, "alice");
+    await w.run(["withdraw", w.rel, "alice", "--reason", "wrong", "--by", "kamal"]);
+    expect(await refusal(svc.reissue(w.sessionId, "alice"))).toEqual({ code: "conflict", message: NO_REPORT });
+    expect(await svc.revoke(w.sessionId, "alice")).toBe(true);
+    expect(await refusal(svc.issue(w.sessionId, "alice"))).toEqual({ code: "conflict", message: NO_REPORT });
+    expect(credential.role).toBe("alice");
+  });
+  it("an AI role never gets a link, in a draft review either", async () => {
+    await draftWorld({ aiRoles: ["ai1"] });
+    expect(await refusal(svc.issue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: NO_REPORT });
+    expect(await refusal(svc.reissue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: NO_REPORT });
+    expect((await svc.links(w.sessionId)).roles.map((r) => r.role)).toEqual(["alice", "bob"]);
+  });
+  it("the group and an unknown role are refused", async () => {
+    await draftWorld();
+    for (const role of ["group", "mallory"]) expect(await refusal(svc.issue(w.sessionId, role))).toEqual({ code: "conflict", message: NO_REPORT });
+  });
+});
+
+describe("draft reports: read states", () => {
+  it("gives self_assess with the form for a draft", async () => {
+    await draftWorld();
+    const { credential } = await svc.issue(w.sessionId, "alice");
+    await rate("alice", "listening=3");
+    const r = await svc.read(w.sessionId, credential.id);
+    if (r.status !== 200 || r.body.state !== "self_assess") throw new Error("expected self_assess");
+    expect(r.body.criteria.length).toBeGreaterThan(0);
+    expect(r.body.scale.length).toBeGreaterThan(0);
+    expect(r.body.existing).toMatchObject({ listening: { level: 3 } });
+    expect(JSON.stringify(r.body)).not.toContain(credential.id);
+  });
+  it("gives released for a released report", async () => {
+    const { credential } = await svc.issue(w.sessionId, "alice");
+    const r = await svc.read(w.sessionId, credential.id);
+    expect(r.status === 200 && r.body.state).toBe("released");
+  });
+  it("gives closed for a draft whose self-rating was closed by a supersede", async () => {
+    const { credential } = await svc.issue(w.sessionId, "alice");
+    const next = await writeReports(await sampleEvaluation(), { outDir: w.root, evaluator: { provider: "scripted mock", scripted: true, rubricHash: "h1", variant: "v1" } });
+    await supersedeReview(w.dir, next.dir, { by: "kamal", now: fixedClock() });
+    expect((await loadReview(next.dir)).view.subjects.get("alice")!.selfClosed).toBe(true);
+    expect(await svc.read(w.sessionId, credential.id)).toEqual({ status: 200, body: { state: "closed" } });
+    // links still lists that draft as a normal draft
+    expect((await svc.links(w.sessionId)).roles.map((r) => r.role)).toEqual(["alice", "bob"]);
+  });
+  it("gives old_schema for a draft in a /1 review", async () => {
+    await draftWorld();
+    const { credential } = await svc.issue(w.sessionId, "alice");
+    const l = await loadReview(w.dir);
+    await writeFile(path.join(w.dir, REVIEW_FILE), makeFold(l.drafts, { schema: "acr.review/1" }).log().map((e) => `${JSON.stringify(e)}\n`).join(""));
+    expect(await svc.read(w.sessionId, credential.id)).toEqual({ status: 200, body: { state: "old_schema" } });
+  });
+  it("gives not_released for a withdrawn report", async () => {
+    const { credential } = await svc.issue(w.sessionId, "alice");
+    await w.run(["withdraw", w.rel, "alice", "--reason", "wrong", "--by", "kamal"]);
+    expect(await svc.read(w.sessionId, credential.id)).toEqual({ status: 200, body: { state: "not_released" } });
+  });
+  it("a released /1 review still reads released and a write to it answers old_schema", async () => {
+    const { credential } = await svc.issue(w.sessionId, "alice");
+    await asSchema1();
+    expect((await loadReview(w.dir)).view.opened.schema).toBe("acr.review/1");
+    const r = await svc.read(w.sessionId, credential.id);
+    expect(r.status === 200 && r.body.state).toBe("released");
+    const writes = createParticipantWriteService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, sleep: async () => {}, random: () => 0.5 });
+    expect(await writes.respond(w.sessionId, credential.id, { text: "fair" })).toMatchObject({ status: 409, code: "old_schema", message: WRITE_OLD_SCHEMA });
+  });
+  it("a corrupt review is still 503", async () => {
+    await draftWorld();
+    const { credential } = await svc.issue(w.sessionId, "alice");
+    await w.corrupt();
+    expect(await svc.read(w.sessionId, credential.id)).toEqual({ status: 503 });
+  });
+});
+
+describe("draft reports: links", () => {
+  it("lists draft and released roles with selfRated and the players summary", async () => {
+    await draftWorld();
+    await rate("alice", "listening=3");
+    await rate("alice", "discovery=na");
+    const l = await svc.links(w.sessionId);
+    const total = (await loadReview(w.dir)).view.subjects.get("alice")!.criteria.length;
+    expect(l).toEqual({
+      state: "ready",
+      players: { rated: 1, total: 2 },
+      roles: [{ role: "alice", credential: null, selfRated: { rated: 2, total } }, { role: "bob", credential: null, selfRated: { rated: 0, total } }],
+    });
+  });
+  it("a released role has selfRated null while a draft one has its counts", async () => {
+    await w.cleanup();
+    w = await makeReportWorld({ release: false });
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t });
+    expect((await w.run(["release", w.rel, "alice", "--by", "kamal"])).code).toBe(0);
+    const l = await svc.links(w.sessionId);
+    expect(l.roles.find((r) => r.role === "alice")!.selfRated).toBeNull();
+    expect(l.roles.find((r) => r.role === "bob")!.selfRated).toMatchObject({ rated: 0 });
+    expect(l.players).toEqual({ rated: 0, total: 1 });
+  });
+  it("when progress is unavailable the draft roles are still listed with selfRated null and links never fails", async () => {
+    await draftWorld();
+    progressDown = true;
+    const l = await svc.links(w.sessionId);
+    expect(l).toEqual({ state: "ready", players: null, roles: [{ role: "alice", credential: null, selfRated: null }, { role: "bob", credential: null, selfRated: null }] });
+  });
+});
+
+describe("sentences mirrored in the web app", () => {
+  it("the panel's not-ready sentence and the BFF's known conflicts equal control's NOT_READY and NO_REPORT", () => {
+    const web = path.resolve(__dirname, "../../../../apps/web/src");
+    const panel = readFileSync(path.join(web, "lib/console-api.ts"), "utf8");
+    const handlers = readFileSync(path.join(web, "server/report-handlers.ts"), "utf8");
+    expect(panel).toContain(JSON.stringify(NOT_READY));
+    expect(handlers).toContain(JSON.stringify(NOT_READY));
+    expect(handlers).toContain(JSON.stringify(NO_REPORT));
   });
 });
