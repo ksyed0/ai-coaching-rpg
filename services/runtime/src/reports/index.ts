@@ -95,9 +95,6 @@ async function locate(reportsDir: string, sessionId: string): Promise<Located> {
   }
 }
 
-/** The evaluation call bound of a recorded session, for the control service's evaluate job (control may import only this subpath). */
-export { evaluationCallBoundFromLog } from "../run-summary/log.js";
-
 export type DraftCandidate = {
   name: string;
   dir: string;

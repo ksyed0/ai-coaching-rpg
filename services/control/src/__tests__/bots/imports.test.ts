@@ -19,7 +19,7 @@ export function specifiers(text: string): string[] {
 }
 
 /** The only runtime subpaths control may import; anything else (review store, engine internals) stays out. */
-const ALLOWED = ["@acr/runtime/participant", "@acr/runtime/players", "@acr/runtime/reports"];
+const ALLOWED = ["@acr/runtime/moderation", "@acr/runtime/participant", "@acr/runtime/players", "@acr/runtime/reports", "@acr/runtime/run-summary"];
 
 describe("control sources and the runtime", () => {
   it("the checker sees every import form", () => {
@@ -27,8 +27,8 @@ describe("control sources and the runtime", () => {
     expect(specifiers(fixture)).toEqual(["@acr/runtime/x", "@acr/runtime/y", "@acr/runtime/z", "@acr/runtime/t", "@acr/runtime/u", "@acr/runtime/v"]);
   });
 
-  it("the allowed list is exactly participant, players and reports (any other @acr/runtime subpath fails the guard)", () => {
-    expect(ALLOWED).toEqual(["@acr/runtime/participant", "@acr/runtime/players", "@acr/runtime/reports"]);
+  it("the allowed list is exactly moderation, participant, players, reports and run-summary (any other @acr/runtime subpath fails the guard)", () => {
+    expect(ALLOWED).toEqual(["@acr/runtime/moderation", "@acr/runtime/participant", "@acr/runtime/players", "@acr/runtime/reports", "@acr/runtime/run-summary"]);
     for (const other of ["@acr/runtime/review", "@acr/runtime", "@acr/runtime/participant/write", "@acr/runtime/src/review/store.js"]) expect(ALLOWED).not.toContain(other);
   });
 

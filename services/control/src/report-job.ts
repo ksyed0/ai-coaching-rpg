@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { isSafeId, isValidSessionId } from "@acr/events";
-import { evaluationCallBoundFromLog, listDraftCandidates } from "@acr/runtime/reports";
+import { listDraftCandidates } from "@acr/runtime/reports";
+import { evaluationCallBoundFromLog } from "@acr/runtime/run-summary";
 import type { ControlConfig } from "./config.js";
 import { REPO_ROOT } from "./config.js";
 import { buildEvalChildEnv, EVALUATOR_ENTRY, nodeEvalSpawn, type EvalChild, type EvalSpawnFn } from "./eval-child.js";
@@ -144,6 +145,13 @@ export class ReportJobService {
     const upTo = await evaluationCallBoundFromLog(this.logPath(id), this.scenarioFolder(entry.scenarioId));
     if (upTo === null) throw new Error("the session cannot be evaluated");
     return { ok: true, upTo };
+  }
+
+  /** The scenario folder of a known session (from the session registry, never from a request); null when unknown or not usable. */
+  scenarioFolderOf(id: string): string | null {
+    const entry = isValidSessionId(id) ? this.o.sessions.get(id) : undefined;
+    if (!entry) return null;
+    try { return this.scenarioFolder(entry.scenarioId); } catch { return null; }
   }
 
   private scenarioFolder(scenarioId: string): string {
