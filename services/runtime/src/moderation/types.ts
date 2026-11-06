@@ -19,6 +19,8 @@ export type SubjectStatus = {
   summaryStale: boolean;
   tableStale: boolean;
   evaluationOk: boolean;
+  /** Criteria release requires to be scored by hand (`scoreByHand`): accepting them does not unblock it. */
+  scoreByHand: string[];
   selfRated: number;
   openDisputes: { seq: number; role: string; criterion: string | null }[];
 };

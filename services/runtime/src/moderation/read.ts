@@ -9,6 +9,7 @@ import type {
 import { cleanLine } from "../review/cli-util.js";
 import { ReviewRefusedError } from "../review/errors.js";
 import type { SubjectView } from "../review/fold.js";
+import { scoreByHand } from "../review/gate.js";
 import { loadReview, type Loaded } from "../review/store.js";
 import { viewReport } from "../review/view.js";
 import type {
@@ -30,6 +31,7 @@ function subjectStatus(sv: SubjectView): SubjectStatus {
     summaryStale: sv.summaryStale,
     tableStale: sv.tableStale,
     evaluationOk: sv.evaluationOk,
+    scoreByHand: scoreByHand(sv),
     selfRated: sv.criteria.filter((c) => c.self).length,
     openDisputes: sv.responses
       .filter((r) => r.dispute && !r.resolution)

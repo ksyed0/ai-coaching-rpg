@@ -47,6 +47,17 @@ describe("listDraftCandidates", () => {
     expect(r[0]!.complete).toBe(true);
   });
 
+  it("a review opened for another session, copied into a <id>-2 folder, is not this session's review", async () => {
+    const run = makeRunner(root);
+    await run(["open", path.relative(root, dir), "--by", "kamal"]);
+    const other = "s-another-session-id";
+    await cp(dir, path.join(root, `${other}-2`), { recursive: true });
+    const r = await listDraftCandidates(root, other);
+    expect(r).toEqual([{ name: `${other}-2`, dir: path.join(root, `${other}-2`), hasReview: false, complete: false }]);
+    // its own session still sees it as opened
+    expect((await listDraftCandidates(root, id))[0]!.hasReview).toBe(true);
+  });
+
   it("never throws: a missing reports dir or invalid id is an empty list", async () => {
     expect(await listDraftCandidates(path.join(root, "nope"), id)).toEqual([]);
     expect(await listDraftCandidates(root, "../x")).toEqual([]);

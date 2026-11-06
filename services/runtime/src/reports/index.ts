@@ -104,7 +104,7 @@ export type DraftCandidate = {
 
 /**
  * The session's report folders (`<id>`, `<id>-2`..`-99`; real directories only), opened or not, sorted by name. `hasReview` means the
- * folder's log starts with `review.opened`; `complete` means its drafts load and belong to this session. Never throws.
+ * folder's log starts with `review.opened` for this session; `complete` means its drafts load and belong to this session. Never throws.
  */
 export async function listDraftCandidates(
   reportsDir: string,
@@ -122,7 +122,9 @@ export async function listDraftCandidates(
       const dir = path.join(reportsDir, name);
       let hasReview = false;
       try {
-        hasReview = (await readReview(dir)).events[0]?.type === "review.opened";
+        // as `locate` reads it: an opened review bound to THIS session (a foreign review copied into `<id>-2` is not its review)
+        const first = (await readReview(dir)).events[0];
+        hasReview = first?.type === "review.opened" && first.session.id === sessionId;
       } catch {
         hasReview = false;
       }

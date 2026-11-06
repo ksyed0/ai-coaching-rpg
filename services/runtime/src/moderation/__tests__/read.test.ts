@@ -47,6 +47,7 @@ describe("moderation reads", () => {
         summaryStale: false,
         tableStale: false,
         evaluationOk: sv.evaluationOk,
+        scoreByHand: [],
         selfRated: 0,
         openDisputes: [],
       });
