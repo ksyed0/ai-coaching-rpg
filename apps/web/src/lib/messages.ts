@@ -49,6 +49,7 @@ export const MESSAGES = {
   ratingsUnavailable: "We could not save your ratings. Try again.",
   ratingsThrottledWait: (seconds: number) => `Too many saves. Wait ${seconds} seconds and try again.`,
   ratingsThrottled: "Too many saves. Wait a minute and try again.",
+  ratingsChooseLevel: (names: string[]) => `Choose a rating or Not observed for: ${names.join(", ")}.`,
   ratingsErrorTitle: "Your ratings were not saved",
   generic: "Something went wrong. Try again.",
   badLink: "This join link is incomplete. Open the link your facilitator gave you.",

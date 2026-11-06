@@ -203,4 +203,40 @@ describe("SelfRatingForm", () => {
     expect(container.querySelector("img")).toBeNull();
     expect((within(group("Listening")).getByRole("textbox") as HTMLTextAreaElement).value).toBe(evil);
   });
+
+  it("a note without a level blocks the save: no request, draft and note kept, summary names the criterion and takes focus", async () => {
+    const { fetchFn, onSaved } = setup();
+    fireEvent.change(within(group("Framing")).getByRole("textbox"), { target: { value: "only a note" } });
+    await save();
+    const a = await screen.findByRole("alert");
+    expect(a.textContent).toContain("Choose a rating or Not observed for: Framing.");
+    await waitFor(() => expect(document.activeElement).toBe(a));
+    expect(fetchFn).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(JSON.parse(stored()!).ratings.c2.note).toBe("only a note");
+    expect((within(group("Framing")).getByRole("textbox") as HTMLTextAreaElement).value).toBe("only a note");
+    pick("Framing", /Developing/);
+    await save();
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(body(fetchFn)).toEqual({ ratings: [{ criterion: "c2", level: 2, note: "only a note" }] });
+  });
+
+  it("a partial draft falls back per criterion to the server's rating, and an untouched server rating is not sent", async () => {
+    sessionStorage.setItem(KEY, JSON.stringify({ ratings: { c1: { level: 4, note: "from draft" } } }));
+    const { fetchFn } = setup({ form: { ...FORM, existing: { c2: { level: 3, note: "from server" } } } });
+    expect((within(group("Listening")).getByRole("radio", { name: /Exemplary/ }) as HTMLInputElement).checked).toBe(true);
+    expect((within(group("Framing")).getByRole("radio", { name: /Proficient/ }) as HTMLInputElement).checked).toBe(true);
+    expect((within(group("Framing")).getByRole("textbox") as HTMLTextAreaElement).value).toBe("from server");
+    await save();
+    expect(body(fetchFn)).toEqual({ ratings: [{ criterion: "c1", level: 4, note: "from draft" }] });
+  });
+
+  it("ids like constructor and __proto__ do not pick up inherited values", () => {
+    const form = { criteria: [{ id: "constructor", name: "Ctor" }, { id: "__proto__", name: "Proto" }], scale: FORM.scale, existing: {} };
+    setup({ form });
+    for (const n of ["Ctor", "Proto"]) {
+      expect(within(group(n)).getAllByRole("radio").every((r) => !(r as HTMLInputElement).checked)).toBe(true);
+      expect((within(group(n)).getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+    }
+  });
 });

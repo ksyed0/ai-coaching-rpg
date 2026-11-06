@@ -30,18 +30,21 @@ const isLevel = (v: unknown): v is 1 | 2 | 3 | 4 => v === 1 || v === 2 || v === 
 const clip = (s: string) => { const cp = Array.from(s); return cp.length > MAX_NOTE ? cp.slice(0, MAX_NOTE).join("") : s; };
 const count = (s: string) => Array.from(s).length;
 
-/** The draft if there is one (for the criteria shown), else the participant's own ratings from the server. */
-function initial(form: RatingForm): Ratings {
+const own = <T,>(o: Record<string, T> | undefined, k: string): T | undefined => (o !== undefined && Object.hasOwn(o, k) ? o[k] : undefined);
+
+/** Per criterion: the draft's value if it has one, else the participant's own rating from the server, else empty. `touched` = the draft's keys. */
+function initial(form: RatingForm): { ratings: Ratings; touched: Set<string> } {
   const draft = loadDraft();
-  const out: Ratings = {};
+  const ratings: Ratings = {};
+  const touched = new Set<string>();
   for (const c of form.criteria) {
-    const d = draft?.ratings[c.id];
-    const e = form.existing[c.id];
-    if (d) out[c.id] = { level: d.level, note: clip(d.note) };
-    else if (draft === null && e) out[c.id] = { level: e.level === "na" ? "na" : isLevel(e.level) ? e.level : null, note: clip(e.note ?? "") };
-    else out[c.id] = { level: null, note: "" };
+    const d = own(draft?.ratings, c.id);
+    const e = own(form.existing, c.id);
+    if (d) { ratings[c.id] = { level: d.level, note: clip(d.note) }; touched.add(c.id); }
+    else if (e) ratings[c.id] = { level: e.level === "na" ? "na" : isLevel(e.level) ? e.level : null, note: clip(e.note ?? "") };
+    else ratings[c.id] = { level: null, note: "" };
   }
-  return out;
+  return { ratings, touched };
 }
 
 function failureText(r: { status: number; data?: unknown; retryAfter?: number }): string {
@@ -55,7 +58,9 @@ function failureText(r: { status: number; data?: unknown; retryAfter?: number })
 }
 
 export function SelfRatingForm({ form, fetch: fetchImpl, onSaved, onRefused }: SelfRatingFormProps) {
-  const [ratings, setRatings] = useState<Ratings>(() => initial(form));
+  const [start] = useState(() => initial(form));
+  const [ratings, setRatings] = useState<Ratings>(start.ratings);
+  const touched = useRef<Set<string>>(start.touched); // only these are sent and stored; server-prefilled ones the participant left alone are not
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
   const summary = useRef<HTMLDivElement>(null);
@@ -68,15 +73,23 @@ export function SelfRatingForm({ form, fetch: fetchImpl, onSaved, onRefused }: S
     const next: Ratings = { ...ratings, [id]: { ...(ratings[id] ?? { level: null, note: "" }), ...patch } };
     setRatings(next);
     setNotice((n) => (n?.kind === "saved" ? null : n));
-    if (!closed.current) saveDraft({ ratings: next }); // written only after the participant touches a field
+    touched.current.add(id);
+    // Written only after the participant touches a field, and only for touched criteria.
+    if (!closed.current) saveDraft({ ratings: Object.fromEntries(Object.entries(next).filter(([k]) => touched.current.has(k))) });
   };
 
   async function submit(e: { preventDefault(): void }) {
     e.preventDefault();
     if (saving) return;
+    // A note without a level is not sent (a null level means Not observed, which they never chose): the save is blocked, nothing is lost.
+    const noteOnly = form.criteria.filter((c) => touched.current.has(c.id) && ratings[c.id]?.level === null && (ratings[c.id]?.note ?? "") !== "");
+    if (noteOnly.length > 0) {
+      setNotice({ kind: "error", text: MESSAGES.ratingsChooseLevel(noteOnly.map((c) => c.name)) });
+      return;
+    }
     const payload = form.criteria.flatMap((c) => {
       const r = ratings[c.id];
-      if (!r || r.level === null) return []; // untouched: omitted
+      if (!r || r.level === null || !touched.current.has(c.id)) return []; // untouched: omitted
       return [{ criterion: c.id, level: r.level === "na" ? null : r.level, ...(r.note !== "" ? { note: r.note } : {}) }];
     });
     setSaving(true);
