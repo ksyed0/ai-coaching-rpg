@@ -198,7 +198,7 @@ describe("console report handlers", () => {
     expect(JSON.parse(text).error).toEqual({ code: "stale", message: "Someone changed this. Reload the level and try again." });
     expect(text).not.toContain("TEXT FROM CONTROL");
     expect(text).not.toContain("/srv");
-    expect([...res.headers.keys()].some((k) => /^x-control|retry-after/i.test(k))).toBe(false);
+    expect([...res.headers.keys()].some((k) => /^(?:x-control|retry-after)/i.test(k))).toBe(false);
   });
 
   it("blocked carries safe subject ids only", async () => {
