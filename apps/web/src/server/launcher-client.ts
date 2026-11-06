@@ -80,6 +80,11 @@ export type ReportRead =
   | { state: "not_released" }
   | { state: "closed" }
   | { state: "old_schema" };
+/** A participant write's outcome (ratings or a response): a closed set read from control's status and `error.code`, never its text. */
+export type WriteState = "closed" | "not_released" | "withdrawn" | "too_many" | "old_schema" | "invalid" | "busy" | "too_large";
+export type WriteOutcome = { state: "ok" } | { state: WriteState } | { state: "throttled"; retryAfterMs: number };
+export type RatingInput = { criterion: string; level: unknown; note?: string };
+export type ResponseInput = { criterion?: string; text: string; dispute?: boolean };
 export type CreatedSession = {
   sessionId: string;
   status: "running";
@@ -91,6 +96,9 @@ export type CreatedSession = {
 const DEFAULT_TIMEOUT_MS = 5_000;
 /** A create against a hung child can take the child's ready timeout plus two grace periods (ruling R10). */
 const DEFAULT_LONG_TIMEOUT_MS = 120_000;
+/** A participant write waits out control's retry window and its per-session queue. */
+const WRITE_TIMEOUT_MS = 15_000;
+const CONFLICT_STATES: ReadonlySet<string> = new Set(["closed", "not_released", "withdrawn", "too_many", "old_schema"]);
 /** Far above any real answer. The body is buffered whole (`res.text()`) before this is checked, so it bounds what we parse, not what we read; the control service is a trusted internal service. */
 const MAX_RESPONSE_CHARS = 1024 * 1024;
 /**
@@ -495,6 +503,65 @@ export class LauncherClient {
     if (d.state === "released" && isObject(d.view)) return { state: "released", view: d.view };
     if (d.state === "self_assess") return { state: "self_assess", ...toForm(d) };
     return bad();
+  }
+
+  /** Saves a participant's self-ratings. Control's status and code decide the outcome; its message is never read. */
+  async rateReport(id: string, credentialId: string, ratings: RatingInput[]): Promise<WriteOutcome> {
+    return this.write("PUT", id, credentialId, "self-ratings", { ratings });
+  }
+
+  /** Saves a participant's response (optionally a dispute of one criterion). */
+  async respondReport(id: string, credentialId: string, input: ResponseInput): Promise<WriteOutcome> {
+    return this.write("POST", id, credentialId, "responses", input);
+  }
+
+  private async write(method: "PUT" | "POST", id: string, credentialId: string, leaf: string, body: unknown): Promise<WriteOutcome> {
+    if (typeof credentialId !== "string" || !CREDENTIAL_ID.test(credentialId)) throw new LauncherError("not_found");
+    const path = `/sessions/${this.id(id)}/reports/${encodeURIComponent(credentialId)}/${leaf}`;
+    const signal = AbortSignal.timeout(Math.max(this.timeoutMs, WRITE_TIMEOUT_MS));
+    let status: number;
+    let text: string;
+    let retryAfter: string | null;
+    try {
+      const res = await this.fetchFn(new URL(path, this.base).toString(), {
+        method,
+        signal,
+        redirect: "error",
+        headers: { "x-service-token": this.token, Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      status = res.status;
+      retryAfter = res.headers.get("Retry-After");
+      text = await res.text();
+    } catch {
+      throw new LauncherError(signal.aborted ? "timeout" : "unavailable");
+    }
+    if (text.length > MAX_RESPONSE_CHARS) throw new LauncherError("failed");
+    let env: unknown;
+    try {
+      env = JSON.parse(text);
+    } catch {
+      env = undefined;
+    }
+    const e = isObject(env) ? env : undefined;
+    if (status >= 200 && status < 300) {
+      if (e?.success !== true) throw new LauncherError("failed");
+      return { state: "ok" };
+    }
+    const err = e && isObject(e.error) ? e.error : undefined;
+    const code = err && typeof err.code === "string" ? err.code : undefined;
+    if (status === 400) return { state: "invalid" };
+    if (status === 413) return { state: "too_large" };
+    if (status === 404) throw new LauncherError("not_found");
+    if (status === 429) {
+      const secs = retryAfter !== null && /^\d{1,6}$/.test(retryAfter.trim()) ? Number(retryAfter.trim()) : 1;
+      return { state: "throttled", retryAfterMs: Math.max(1, secs) * 1000 };
+    }
+    if (status === 409 && code !== undefined && CONFLICT_STATES.has(code)) return { state: code as WriteState };
+    if (status === 503 && code === "busy") return { state: "busy" };
+    if (status === 503) throw new LauncherError("unavailable");
+    if (status === 401) throw new LauncherError("unauthorized");
+    throw new LauncherError(status === 504 ? "timeout" : "failed");
   }
 
   private linkPath(id: string, role: string, leaf: string): string {

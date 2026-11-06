@@ -762,3 +762,68 @@ describe("LauncherClient report links", () => {
     expect((await reasonOf(client(h.fetch).readReport(SID, "AbCdEfGhIjK"))).reason).toBe("failed");
   });
 });
+
+describe("LauncherClient participant writes", () => {
+  const RATINGS = [{ criterion: "c1", level: 3 }];
+  const CRED = "AbCdEfGhIjK";
+  const url = `${BASE}/sessions/${SID}/reports/${CRED}`;
+  const err = (status: number, code: string, headers: Record<string, string> = {}) =>
+    new Response(JSON.stringify(errorEnvelope(code, "SECRET control text")), { status, headers: { "Content-Type": "application/json", ...headers } });
+
+  it("rateReport: PUT self-ratings and respondReport: POST responses, ok on 200", async () => {
+    const f = fakeFetch(() => reply(envelope({ wrote: 1 })));
+    expect(await client(f.fetch).rateReport(SID, CRED, RATINGS)).toEqual({ state: "ok" });
+    expect(await client(f.fetch).respondReport(SID, CRED, { text: "hi", dispute: true })).toEqual({ state: "ok" });
+    expect(f.calls[0]).toMatchObject({ url: `${url}/self-ratings`, method: "PUT", body: JSON.stringify({ ratings: RATINGS }) });
+    expect(f.calls[1]).toMatchObject({ url: `${url}/responses`, method: "POST", body: JSON.stringify({ text: "hi", dispute: true }) });
+  });
+
+  it("maps status and code to the closed union and never uses the message", async () => {
+    const table: [number, string, unknown][] = [
+      [409, "closed", { state: "closed" }],
+      [409, "not_released", { state: "not_released" }],
+      [409, "withdrawn", { state: "withdrawn" }],
+      [409, "too_many", { state: "too_many" }],
+      [409, "old_schema", { state: "old_schema" }],
+      [400, "bad_request", { state: "invalid" }],
+      [400, "invalid", { state: "invalid" }],
+      [413, "payload_too_large", { state: "too_large" }],
+      [503, "busy", { state: "busy" }],
+    ];
+    for (const [status, code, want] of table) {
+      const f = fakeFetch(() => err(status, code));
+      const out = await client(f.fetch).rateReport(SID, CRED, RATINGS);
+      expect(out).toEqual(want);
+      expect(JSON.stringify(out)).not.toContain("SECRET");
+    }
+  });
+
+  it("429 reads Retry-After seconds into retryAfterMs (not capacity)", async () => {
+    const f = fakeFetch(() => err(429, "throttled", { "Retry-After": "7" }));
+    expect(await client(f.fetch).respondReport(SID, CRED, { text: "x" })).toEqual({ state: "throttled", retryAfterMs: 7000 });
+    const g = fakeFetch(() => err(429, "throttled"));
+    expect(await client(g.fetch).respondReport(SID, CRED, { text: "x" })).toEqual({ state: "throttled", retryAfterMs: 1000 });
+  });
+
+  it("404 throws not_found and 503 unavailable throws unavailable", async () => {
+    expect((await reasonOf(client(fakeFetch(() => err(404, "not_found")).fetch).rateReport(SID, CRED, RATINGS))).reason).toBe("not_found");
+    const r = await reasonOf(client(fakeFetch(() => err(503, "unavailable")).fetch).rateReport(SID, CRED, RATINGS));
+    expect(r.reason).toBe("unavailable");
+    expect(r.text).not.toContain("SECRET");
+  });
+
+  it("a credential id that is not base64url never reaches the network", async () => {
+    const f = fakeFetch(() => reply(envelope({})));
+    expect((await reasonOf(client(f.fetch).rateReport(SID, "../x", RATINGS))).reason).toBe("not_found");
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it("allows about 15 s for a write while other calls keep the default", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    const f = fakeFetch(() => reply(envelope({ wrote: 1 })));
+    await client(f.fetch).rateReport(SID, CRED, RATINGS);
+    expect(spy).toHaveBeenLastCalledWith(15_000);
+    await client(f.fetch).scenarios().catch(() => {});
+    expect(spy).toHaveBeenLastCalledWith(5_000);
+  });
+});

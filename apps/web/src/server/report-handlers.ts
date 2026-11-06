@@ -3,7 +3,7 @@ import { guard, isId, readBody, sessionIdOf, failure } from "./console-sessions"
 import { fail, ok } from "./envelope";
 import { checkFetchSite, checkOrigin, requestAddress } from "./guards";
 import type { Deps } from "./handlers";
-import { LauncherError, type ReportLinkInfo } from "./launcher-client";
+import { LauncherError, type ReportLinkInfo, type WriteOutcome } from "./launcher-client";
 import { seal, unseal } from "./seal";
 
 // Participant report links. A participant opens a link (token in the URL fragment), the page POSTs the token to /report/enter, and the
@@ -168,6 +168,134 @@ export function handleReportGet(req: Request, deps: Deps): Promise<Response> {
     }
   });
 }
+
+// ---- participant writes ----
+
+/** The write throttle's role slot (in the per-credential table, `reportWriteThrottle`): 30 writes in 60 s per credential. */
+const WRITE_CRED_ROLE = "*report-write-cred";
+const MAX_RATINGS_BODY_BYTES = 64 * 1024;
+const MAX_RESPONSE_BODY_BYTES = 16 * 1024;
+const RATING_KEYS: readonly string[] = ["ratings"];
+const RESPONSE_KEYS: readonly string[] = ["criterion", "text", "dispute"];
+
+/** Fixed sentences for each refusal. Control's own text is never shown. */
+const WRITE_SENTENCES: Record<string, string> = {
+  closed: "This report is closed, so it can no longer be changed.",
+  not_released: "This report is not open for changes yet.",
+  withdrawn: "This report was withdrawn.",
+  too_many: "There are too many responses already.",
+  old_schema: "This report was made by an older version and cannot take changes.",
+  invalid: "That could not be saved. Check what you entered.",
+  busy: "The report is busy. Try again in a moment.",
+};
+
+/** The body as text, or "too_big" once it passes the cap (the rest is not read). */
+async function readCapped(req: Request, maxBytes: number): Promise<string | "too_big" | null> {
+  if (!req.body) return "";
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel();
+        return "too_big";
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+function writeAnswer(out: WriteOutcome): Response | null {
+  switch (out.state) {
+    case "ok":
+      return null;
+    case "throttled":
+      return throttled(out.retryAfterMs);
+    case "invalid":
+      return priv(fail(400, "invalid", WRITE_SENTENCES.invalid!, undefined, { state: "invalid" }));
+    case "busy":
+      return priv(fail(503, "busy", WRITE_SENTENCES.busy!, { headers: { "Retry-After": "2" } }, { state: "busy" }));
+    case "too_large":
+      return priv(fail(413, "payload_too_large", "That is too large to save.", undefined, { state: "too_large" }));
+    default:
+      return priv(fail(409, "conflict", WRITE_SENTENCES[out.state]!, undefined, { state: out.state }));
+  }
+}
+
+type WriteKind = "rate" | "respond";
+
+function handleReportWrite(req: Request, deps: Deps, kind: WriteKind): Promise<Response> {
+  return safely(async () => {
+    if (!checkOrigin(req, deps.config.publicOrigin) || !checkFetchSite(req)) return forbidden();
+    const address = requestAddress(req);
+    if (address === null) return badRequest();
+    const failures = deps.reportEnterThrottle;
+    const blocked = failures.blockedForMs(address, READ_FAIL_ROLE);
+    if (blocked > 0) return throttled(blocked);
+    const token = readCookie(req);
+    const c = token === null ? null : unseal<unknown>(token, deps.config.cookieKeys, deps.now(), "rpt");
+    if (!isReportCookie(c)) {
+      failures.fail(address, READ_FAIL_ROLE);
+      return neutral();
+    }
+    const writes = deps.reportWriteThrottle;
+    const credBlocked = writes.blockedForMs(c.credentialId, WRITE_CRED_ROLE);
+    if (credBlocked > 0) return throttled(credBlocked);
+    writes.fail(c.credentialId, WRITE_CRED_ROLE);
+    const justBlocked = writes.blockedForMs(c.credentialId, WRITE_CRED_ROLE);
+    if (justBlocked > 0) return throttled(justBlocked);
+
+    const type = (req.headers.get("Content-Type") ?? "").split(";")[0]!.trim().toLowerCase();
+    if (type !== "application/json") return badRequest();
+    const text = await readCapped(req, kind === "rate" ? MAX_RATINGS_BODY_BYTES : MAX_RESPONSE_BODY_BYTES);
+    if (text === "too_big") return priv(fail(413, "payload_too_large", "That is too large to save.", undefined, { state: "too_large" }));
+    if (text === null) return badRequest();
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return badRequest();
+    }
+    if (typeof body !== "object" || body === null || Array.isArray(body)) return badRequest();
+    const b = body as Record<string, unknown>;
+    // Any key beyond the route's own (a `role` above all) is refused: the role comes from the sealed cookie, never from the body.
+    if (!Object.keys(b).every((k) => (kind === "rate" ? RATING_KEYS : RESPONSE_KEYS).includes(k))) return badRequest();
+    if (kind === "rate" ? !Array.isArray(b.ratings) : typeof b.text !== "string") return badRequest();
+    if (!deps.launcher) return unavailable();
+
+    let outcome: WriteOutcome;
+    try {
+      outcome =
+        kind === "rate"
+          ? await deps.launcher.rateReport(c.sessionId, c.credentialId, b.ratings as never)
+          : await deps.launcher.respondReport(c.sessionId, c.credentialId, b as never);
+    } catch (err) {
+      if (err instanceof LauncherError && err.reason === "not_found") return neutral({ "Set-Cookie": CLEAR_COOKIE });
+      return unavailable();
+    }
+    const refused = writeAnswer(outcome);
+    if (refused) return refused;
+    try {
+      const read = await deps.launcher.readReport(c.sessionId, c.credentialId);
+      return priv(ok({ ...read, availableUntil: new Date(c.expiresAt).toISOString() }));
+    } catch {
+      // The write is saved; only the fresh view is missing.
+      return priv(ok({ saved: true, state: "retry" }));
+    }
+  });
+}
+
+/** PUT /api/v1/report/self-ratings { ratings } */
+export const handleReportRate = (req: Request, deps: Deps): Promise<Response> => handleReportWrite(req, deps, "rate");
+/** POST /api/v1/report/responses { criterion?, text, dispute? } */
+export const handleReportRespond = (req: Request, deps: Deps): Promise<Response> => handleReportWrite(req, deps, "respond");
 
 // ---- console routes ----
 

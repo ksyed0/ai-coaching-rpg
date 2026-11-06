@@ -113,6 +113,7 @@ function makeDeps(session: (id: string) => Promise<SessionInfo>) {
     consoleThrottle: throttle(),
     consoleGlobalThrottle: throttle(),
     reportThrottle: throttle(),
+    reportWriteThrottle: throttle(),
     reportEnterThrottle: throttle(),
     hub,
     facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }),
