@@ -137,3 +137,12 @@ describe("SubjectView: recovering from a stale edit", () => {
     expect(f.calls.filter((c) => c.init.method === "POST")[1]!.body).toEqual({ criterion: "clarity", level: 4, reason: "Heard it twice.", expect: "2", by: "kamal" });
   });
 });
+
+describe("SubjectView: evaluationOk fails closed", () => {
+  it("without evaluationOk the view treats the evaluation as failed: hand scoring, no Accept", async () => {
+    const f = fakeFetch((url) => (url === PATH ? { status: 200, body: ok(subjectView()) } : { status: 404, body: refused("not_found", "x") }));
+    render(<SubjectView sessionId={SID} subject="account_manager" author="kamal" fetch={f.fetch} />);
+    expect(await screen.findByText("The evaluation failed for this subject: score each criterion by hand.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Accept Clarity" })).toBeNull();
+  });
+});

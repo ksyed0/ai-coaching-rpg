@@ -123,7 +123,7 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
           {overview.stage === "in_review" && selected !== null ? (
             <SubjectView
               key={selected} sessionId={sessionId} subject={selected} author={author}
-              evaluationOk={overview.subjects.find((s) => s.id === selected)?.evaluationOk ?? true} {...(fetchImpl ? { fetch: fetchImpl } : {})} onChanged={() => void load()} />
+              evaluationOk={overview.subjects.find((s) => s.id === selected)?.evaluationOk ?? false} {...(fetchImpl ? { fetch: fetchImpl } : {})} onChanged={() => void load()} />
           ) : null}
         </>
       )}

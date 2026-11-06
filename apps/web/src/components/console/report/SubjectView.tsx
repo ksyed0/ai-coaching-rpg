@@ -24,14 +24,17 @@ export type SubjectViewProps = {
   subject: string;
   /** The valid typed name, or null (then every write is disabled). */
   author: string | null;
-  /** False when the evaluation of this subject failed (from the subject list): every criterion is scored by hand, none accepted. */
+  /**
+   * False when the evaluation of this subject failed (from the subject list): every criterion is scored by hand, none accepted. Missing
+   * means unknown, which fails closed (scored by hand).
+   */
   evaluationOk?: boolean;
   fetch?: typeof fetch;
   /** After a successful write (the panel refreshes its subject list). */
   onChanged?: () => void;
 };
 
-export function SubjectView({ sessionId, subject, author, evaluationOk = true, fetch: fetchImpl, onChanged }: SubjectViewProps) {
+export function SubjectView({ sessionId, subject, author, evaluationOk = false, fetch: fetchImpl, onChanged }: SubjectViewProps) {
   const id = useId();
   const [view, setView] = useState<ReportSubjectDetail | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
