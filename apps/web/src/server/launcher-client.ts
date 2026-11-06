@@ -63,7 +63,7 @@ export type ReportLinkInfo = { role: string; createdAt: number; expiresAt: numbe
 export type ReportLinksState = "ready" | "not_ready" | "unavailable";
 /** How many criteria a draft player has rated; null for a released role and when the counts cannot be read. */
 export type SelfRated = { rated: number; total: number };
-export type ReportLinkRow = { role: string; credential: ReportLinkInfo | null; selfRated: SelfRated | null };
+export type ReportLinkRow = { role: string; credential: ReportLinkInfo | null; selfRated: SelfRated | null; draft: boolean };
 /** Players with at least one rating out of draft players; null when the counts cannot be read. */
 export type PlayersSummary = SelfRated;
 export type IssuedReportLink = { credential: ReportLinkInfo; token: string };
@@ -464,7 +464,7 @@ export class LauncherClient {
       players: d.players === null || d.players === undefined ? null : toCount(d.players),
       roles: d.roles.map((r) =>
         isObject(r) && isId(r.role)
-          ? { role: r.role, credential: r.credential === null ? null : toReportLink(r.credential), selfRated: r.selfRated === null || r.selfRated === undefined ? null : toCount(r.selfRated) }
+          ? { role: r.role, credential: r.credential === null ? null : toReportLink(r.credential), selfRated: r.selfRated === null || r.selfRated === undefined ? null : toCount(r.selfRated), draft: r.draft === true }
           : bad(),
       ),
     };

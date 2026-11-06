@@ -173,10 +173,7 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
   }, [shown]);
 
   const ready = data?.state === "ready";
-  // Control gives a draft role its counts and a released role null. When the counts cannot be read (players is null) a null row could be
-  // either, so it is shown as unknown and the warning is kept: better a needless warning than a missing one.
-  const progressReadable = data !== null && data.players !== null;
-  const anyDraft = data !== null && ready && data.roles.some((r) => r.selfRated !== null || !progressReadable);
+  const anyDraft = data !== null && ready && data.roles.some((r) => r.draft);
   return (
     <section className="card stack" aria-labelledby={headingId}>
       <h2 className="s" id={headingId}>
@@ -243,18 +240,18 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
 
       {data !== null && data.roles.length > 0 ? (
         <ul className="codes" ref={list}>
-          {data.roles.map(({ role, link, selfRated }) => {
+          {data.roles.map(({ role, link, selfRated, draft }) => {
             const label = roleLabel(role);
             const live = link !== null && link.active;
             return (
               <li className="code-row" key={role} data-role-row={role}>
                 <h3 className="code-role">{label}</h3>
                 <span>{statusOf(link)}</span>
-                {selfRated !== null ? (
+                {draft && selfRated !== null ? (
                   <span className="small">
                     Rated {selfRated.rated} of {selfRated.total} criteria
                   </span>
-                ) : ready && !progressReadable ? (
+                ) : draft ? (
                   <span className="small muted">Rating progress not available</span>
                 ) : null}
                 {link !== null && !link.revoked ? (

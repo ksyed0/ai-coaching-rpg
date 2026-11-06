@@ -39,9 +39,9 @@ const store_list = (world: ReportWorld) => world.store.list(world.sessionId);
 
 describe("links", () => {
   it("is ready with the released roles and their live credential", async () => {
-    expect(await svc.links(w.sessionId)).toEqual({ state: "ready", players: { rated: 0, total: 0 }, roles: [{ role: "alice", credential: null, selfRated: null }, { role: "bob", credential: null, selfRated: null }] });
+    expect(await svc.links(w.sessionId)).toEqual({ state: "ready", players: { rated: 0, total: 0 }, roles: [{ role: "alice", credential: null, selfRated: null, draft: false }, { role: "bob", credential: null, selfRated: null, draft: false }] });
     const { credential } = await svc.issue(w.sessionId, "alice");
-    expect((await svc.links(w.sessionId)).roles[0]).toEqual({ role: "alice", credential, selfRated: null });
+    expect((await svc.links(w.sessionId)).roles[0]).toEqual({ role: "alice", credential, selfRated: null, draft: false });
   });
   it("is not ready when no review resolves", async () => {
     expect(await svc.links("other-session")).toEqual({ state: "not_ready", players: null, roles: [] });
@@ -366,7 +366,7 @@ describe("draft reports: links", () => {
     expect(l).toEqual({
       state: "ready",
       players: { rated: 1, total: 2 },
-      roles: [{ role: "alice", credential: null, selfRated: { rated: 2, total } }, { role: "bob", credential: null, selfRated: { rated: 0, total } }],
+      roles: [{ role: "alice", credential: null, selfRated: { rated: 2, total }, draft: true }, { role: "bob", credential: null, selfRated: { rated: 0, total }, draft: true }],
     });
   });
   it("a released role has selfRated null while a draft one has its counts", async () => {
@@ -383,7 +383,18 @@ describe("draft reports: links", () => {
     await draftWorld();
     progressDown = true;
     const l = await svc.links(w.sessionId);
-    expect(l).toEqual({ state: "ready", players: null, roles: [{ role: "alice", credential: null, selfRated: null }, { role: "bob", credential: null, selfRated: null }] });
+    expect(l).toEqual({ state: "ready", players: null, roles: [{ role: "alice", credential: null, selfRated: null, draft: true }, { role: "bob", credential: null, selfRated: null, draft: true }] });
+  });
+  it("a released role is draft:false and a draft one draft:true, with progress readable and unreadable", async () => {
+    await w.cleanup();
+    w = await makeReportWorld({ release: false });
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t });
+    expect((await w.run(["release", w.rel, "alice", "--by", "kamal"])).code).toBe(0);
+    for (const down of [false, true]) {
+      progressDown = down;
+      const l = await svc.links(w.sessionId);
+      expect(l.roles.map((r) => [r.role, r.draft])).toEqual([["alice", false], ["bob", true]]);
+    }
   });
 });
 

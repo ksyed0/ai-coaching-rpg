@@ -418,9 +418,9 @@ describe("console report-link routes", () => {
       state: "ready",
       players: { rated: 1, total: 2 },
       roles: [
-        { role: "ana", credential: { ...SAFE_CRED, id: CRED_ID }, selfRated: null },
-        { role: "bo", credential: { role: "bo", createdAt: 1, expiresAt: T0 - 1, revokedAt: 2 }, selfRated: { rated: 1, total: 4 } },
-        { role: "cy", credential: null, selfRated: null },
+        { role: "ana", credential: { ...SAFE_CRED, id: CRED_ID }, selfRated: null, draft: false },
+        { role: "bo", credential: { role: "bo", createdAt: 1, expiresAt: T0 - 1, revokedAt: 2 }, selfRated: { rated: 1, total: 4 }, draft: true },
+        { role: "cy", credential: null, selfRated: null, draft: true },
       ],
     });
     const res = await handleConsoleReportLinks(consoleReq("", "GET"), deps);
@@ -431,9 +431,9 @@ describe("console report-link routes", () => {
       state: "ready",
       players: { rated: 1, total: 2 },
       roles: [
-        { role: "ana", credential: { role: "ana", createdAt: 1, expiresAt: EXPIRES, lastUsedAt: 5, active: true, revoked: false }, selfRated: null },
-        { role: "bo", credential: { role: "bo", createdAt: 1, expiresAt: T0 - 1, active: false, revoked: true }, selfRated: { rated: 1, total: 4 } },
-        { role: "cy", credential: null, selfRated: null },
+        { role: "ana", credential: { role: "ana", createdAt: 1, expiresAt: EXPIRES, lastUsedAt: 5, active: true, revoked: false }, selfRated: null, draft: false },
+        { role: "bo", credential: { role: "bo", createdAt: 1, expiresAt: T0 - 1, active: false, revoked: true }, selfRated: { rated: 1, total: 4 }, draft: true },
+        { role: "cy", credential: null, selfRated: null, draft: true },
       ],
     });
     expectPrivate(res);

@@ -84,7 +84,7 @@ describe("console routes", () => {
     const p = await boot(svc);
     let r = await call(p, "GET", links());
     expect(r.status).toBe(200);
-    expect(r.json.data).toEqual({ state: "ready", players: { rated: 0, total: 0 }, roles: [{ role: "alice", credential: null, selfRated: null }, { role: "bob", credential: null, selfRated: null }] });
+    expect(r.json.data).toEqual({ state: "ready", players: { rated: 0, total: 0 }, roles: [{ role: "alice", credential: null, selfRated: null, draft: false }, { role: "bob", credential: null, selfRated: null, draft: false }] });
     r = await call(p, "POST", links(), { body: { role: "alice" } });
     expect(r.status).toBe(200);
     const first = r.json.data.token as string;

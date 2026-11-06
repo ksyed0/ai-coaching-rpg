@@ -25,7 +25,7 @@ export type ReportService = {
     state: LinksState;
     /** Players with at least one rating out of draft players; null when the counts cannot be read. */
     players: { rated: number; total: number } | null;
-    roles: { role: string; credential: ReportCredential | null; selfRated: { rated: number; total: number } | null }[];
+    roles: { role: string; credential: ReportCredential | null; selfRated: { rated: number; total: number } | null; draft: boolean }[];
   }>;
   issue(sessionId: string, role: string): Promise<{ credential: ReportCredential; token: string }>;
   reissue(sessionId: string, role: string): Promise<{ credential: ReportCredential; token: string }>;
@@ -93,7 +93,7 @@ export function createReportService(d: { config: ControlConfig; store: ReportAcc
       // A role with a live link stays listed even when its report was withdrawn, so the facilitator can still revoke it.
       const roles = [...new Set([...released, ...drafts, ...liveBy.keys()])].sort();
       const players = rows === null ? null : { rated: [...rows.values()].filter((x) => x.rated > 0).length, total: rows.size };
-      return { state, players, roles: roles.map((role) => ({ role, credential: liveBy.get(role) ?? null, selfRated: rows?.get(role) ?? null })) };
+      return { state, players, roles: roles.map((role) => ({ role, credential: liveBy.get(role) ?? null, selfRated: rows?.get(role) ?? null, draft: drafts.includes(role) })) };
     },
     async issue(sessionId, role) {
       await requireLinkable(sessionId, role);

@@ -651,16 +651,16 @@ describe("LauncherClient report links", () => {
   const CRED = { id: "AbCdEfGhIjK", sessionId: SID, role: "ana", createdAt: 1, expiresAt: 2, lastUsedAt: 1 };
 
   it("reportLinks: GET and the credential id is dropped", async () => {
-    const f = fakeFetch(() => reply(envelope({ state: "ready", players: { rated: 1, total: 2 }, roles: [{ role: "ana", credential: CRED, selfRated: { rated: 2, total: 5 } }, { role: "bo", credential: null, selfRated: null }] })));
+    const f = fakeFetch(() => reply(envelope({ state: "ready", players: { rated: 1, total: 2 }, roles: [{ role: "ana", credential: CRED, selfRated: { rated: 2, total: 5 }, draft: true }, { role: "bo", credential: null, selfRated: null, draft: false }] })));
     const out = await client(f.fetch).reportLinks(SID);
     expect(f.calls[0]).toMatchObject({ url: `${BASE}/sessions/${SID}/report-links`, method: "GET" });
-    expect(out).toEqual({ state: "ready", players: { rated: 1, total: 2 }, roles: [{ role: "ana", credential: { role: "ana", createdAt: 1, expiresAt: 2, lastUsedAt: 1 }, selfRated: { rated: 2, total: 5 } }, { role: "bo", credential: null, selfRated: null }] });
+    expect(out).toEqual({ state: "ready", players: { rated: 1, total: 2 }, roles: [{ role: "ana", credential: { role: "ana", createdAt: 1, expiresAt: 2, lastUsedAt: 1 }, selfRated: { rated: 2, total: 5 }, draft: true }, { role: "bo", credential: null, selfRated: null, draft: false }] });
     expect(JSON.stringify(out)).not.toContain("AbCdEfGhIjK");
   });
 
   it("reportLinks: players and selfRated may be null, and a malformed count is reason failed", async () => {
     const f = fakeFetch(() => reply(envelope({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: null }] })));
-    expect(await client(f.fetch).reportLinks(SID)).toEqual({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: null }] });
+    expect(await client(f.fetch).reportLinks(SID)).toEqual({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: null, draft: false }] });
     const g = fakeFetch(() => reply(envelope({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: { rated: "2", total: 5 } }] })));
     expect((await reasonOf(client(g.fetch).reportLinks(SID))).reason).toBe("failed");
   });

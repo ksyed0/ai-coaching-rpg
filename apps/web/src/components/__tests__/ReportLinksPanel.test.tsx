@@ -266,9 +266,9 @@ describe("ReportLinksPanel: who has rated", () => {
   const ALLOWS = "Before release the link lets the player rate themselves. After release it shows their report and lets them respond.";
   const RESOLVE = "A facilitator's reason for resolving a dispute is shown to the participant.";
   const DRAFTS = { state: "ready", players: { rated: 1, total: 2 }, roles: [
-    { role: "delivery_lead", credential: null, selfRated: { rated: 3, total: 5 } },
-    { role: "account_manager", credential: cred(), selfRated: { rated: 0, total: 5 } },
-    { role: "sales_lead", credential: cred({ lastUsedAt: 1_700_000_500_000 }), selfRated: null },
+    { role: "delivery_lead", credential: null, selfRated: { rated: 3, total: 5 }, draft: true },
+    { role: "account_manager", credential: cred(), selfRated: { rated: 0, total: 5 }, draft: true },
+    { role: "sales_lead", credential: cred({ lastUsedAt: 1_700_000_500_000 }), selfRated: null, draft: false },
   ] };
 
   it('draft roles are listed with "Rated k of n criteria"; the header shows "x of y players have rated"', async () => {
@@ -279,21 +279,25 @@ describe("ReportLinksPanel: who has rated", () => {
     expect(screen.getByText(/^Last opened /)).toBeTruthy();
   });
 
-  it('selfRated:null with unreadable progress shows "Rating progress not available"; readable progress leaves released roles alone', async () => {
-    const { unmount } = mount({ state: "ready", players: null, roles: [{ role: "delivery_lead", credential: null, selfRated: null }] });
+  it('a draft with unreadable progress shows "Rating progress not available" and the warning; a selfClosed draft looks like any draft', async () => {
+    mount({ state: "ready", players: null, roles: [{ role: "delivery_lead", credential: null, selfRated: null, draft: true }] });
     expect(await screen.findByText("Rating progress not available")).toBeTruthy();
+    expect(screen.getByText(WARN)).toBeTruthy();
     expect(screen.queryByText(/players have rated/)).toBeNull();
-    unmount();
-    mount({ state: "ready", players: { rated: 0, total: 0 }, roles: [{ role: "delivery_lead", credential: null, selfRated: null }] });
+  });
+
+  it("a released role with unreadable progress shows no unknown text and no warning", async () => {
+    mount({ state: "ready", players: null, roles: [{ role: "delivery_lead", credential: null, selfRated: null, draft: false }] });
     await screen.findByText("Delivery lead");
     expect(screen.queryByText("Rating progress not available")).toBeNull();
+    expect(screen.queryByText(WARN)).toBeNull();
   });
 
   it("a warning says releasing closes self-rating, shown only while any role is a draft", async () => {
     const { unmount } = mount(DRAFTS);
     expect(await screen.findByText(WARN)).toBeTruthy();
     unmount();
-    mount({ state: "ready", players: { rated: 0, total: 0 }, roles: [{ role: "delivery_lead", credential: null, selfRated: null }] });
+    mount({ state: "ready", players: { rated: 0, total: 0 }, roles: [{ role: "delivery_lead", credential: null, selfRated: null, draft: false }] });
     await screen.findByText("Delivery lead");
     expect(screen.queryByText(WARN)).toBeNull();
   });
@@ -315,6 +319,10 @@ describe("ReportLinksPanel: who has rated", () => {
 });
 
 describe("parseReportLinks: rating progress", () => {
+  it("draft is true only for exactly true", () => {
+    const d = (draft: unknown) => parseReportLinks({ state: "ready", roles: [{ role: "a", credential: null, draft }] })?.roles[0]?.draft;
+    expect([d(true), d(false), d("true"), d(1), d(undefined)]).toEqual([true, false, false, false, false]);
+  });
   const base = (over: Record<string, unknown>) => ({ state: "ready", roles: [{ role: "a", credential: null, selfRated: { rated: 1, total: 2 } }], ...over });
   it("carries well-formed selfRated and players", () => {
     const v = parseReportLinks(base({ players: { rated: 1, total: 3 } }));

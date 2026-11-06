@@ -348,7 +348,7 @@ export function handleConsoleReportLinks(req: Request, deps: Deps): Promise<Resp
     try {
       const now = deps.now();
       const links = await deps.launcher.reportLinks(id);
-      return priv(ok({ state: links.state, players: links.players, roles: links.roles.map((r) => ({ role: r.role, credential: r.credential === null ? null : linkDto(r.credential, now), selfRated: r.selfRated })) }));
+      return priv(ok({ state: links.state, players: links.players, roles: links.roles.map((r) => ({ role: r.role, credential: r.credential === null ? null : linkDto(r.credential, now), selfRated: r.selfRated, draft: r.draft })) }));
     } catch (err) {
       return reportFailure(err);
     }
