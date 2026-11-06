@@ -311,7 +311,7 @@ Rollback trigger: an evaluate started from the console spends when it should not
 
 ### Removing an orphan report folder by hand
 
-The Report panel says "A report folder for this session is damaged" when a folder for the session has an incomplete draft set (or drafts that do not load) and no review: what a hard kill during the evaluator's brief write can leave. Control never reuses, deletes or evaluates over it, so Evaluate is not offered until it is gone.
+The Report panel says "A report folder for this session is damaged" when a folder for the session has an incomplete draft set (or drafts that do not load) and no review: what a hard kill during the evaluator's brief write can leave. Control never reuses, deletes or evaluates beside it: Evaluate is not offered until it is gone, and a start sent anyway is refused (`orphan`, the same sentence) before anything runs.
 
 1. Make sure no evaluate is running for that session (the panel does not say "Evaluating…"); if one is, Cancel it or wait.
 2. Find the folder: `ls "$CONTROL_DATA_DIR/reports" | grep '^<session id>'` lists `<session id>` and any `<session id>-N`. The orphan is the one **without** a `review.jsonl`. **Never remove a folder that has a `review.jsonl`**: that is a review (it is hash-chained and may hold released reports and participants' ratings).
