@@ -89,3 +89,31 @@ describe("SubjectView", () => {
     expect((screen.getByRole("button", { name: "Add comment" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+describe("SubjectView: recovering from a stale edit", () => {
+  it("after a stale refusal and a reload with a changed level, Save sends the new expect and still carries the typed reason", async () => {
+    let current: unknown = subjectView();
+    let stale = true;
+    const f = fakeFetch((url, body) => {
+      if (body !== undefined) return stale ? { status: 409, body: refused("stale", "x") } : { status: 200, body: ok({}) };
+      return url === PATH ? { status: 200, body: ok(current) } : { status: 404, body: refused("not_found", "x") };
+    });
+    render(<SubjectView sessionId={SID} subject="account_manager" author="kamal" fetch={f.fetch} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Edit Clarity" }));
+    fireEvent.change(screen.getByLabelText("Comment"), { target: { value: "Check the second scene." } });
+    fireEvent.change(screen.getByLabelText("New level"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Reason (required)"), { target: { value: "Heard it twice." } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText(STALE)).toBeTruthy();
+    // someone else set level 2 meanwhile; the facilitator reloads
+    current = subjectView({ criteria: [criterion({ current: 2, status: "edited" })] });
+    stale = false;
+    fireEvent.click(screen.getByRole("button", { name: "Reload the levels" }));
+    expect(await screen.findByText("Now level 2: your save replaces it.")).toBeTruthy();
+    expect((screen.getByLabelText("Reason (required)") as HTMLTextAreaElement).value).toBe("Heard it twice.");
+    expect((screen.getByLabelText("Comment") as HTMLTextAreaElement).value).toBe("Check the second scene.");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(f.calls.filter((c) => c.init.method === "POST")).toHaveLength(2));
+    expect(f.calls.filter((c) => c.init.method === "POST")[1]!.body).toEqual({ criterion: "clarity", level: 4, reason: "Heard it twice.", expect: "2", by: "kamal" });
+  });
+});

@@ -106,3 +106,30 @@ describe("SessionConsole and the report panel", () => {
     expect(g.calls.some((c) => c.url.endsWith("/report"))).toBe(false);
   });
 });
+
+describe("ReportPanel: polling through a failed read, and progress announced", () => {
+  it("a failed poll while evaluating keeps polling, and the next one recovers", async () => {
+    let fail = false;
+    const running = overview({ stage: "evaluating", confirm: null, job: job({ state: "running", startedAt: 1, progress: ["evaluating the team"] }) });
+    const m = mount(running, (url, body) => (url === BASE && body === undefined && fail ? { status: 503, body: refused("unavailable", "x") } : undefined));
+    expect(await screen.findByText("evaluating the team")).toBeTruthy();
+    await waitFor(() => expect(m.timer.pending).toBe(1));
+    fail = true;
+    await act(async () => m.timer.fire());
+    await waitFor(() => expect(reads(m)).toBe(2));
+    expect(await screen.findByText("The report is unavailable. Try again.")).toBeTruthy();
+    await waitFor(() => expect(m.timer.pending).toBe(1));
+    fail = false;
+    m.set(inReview());
+    await act(async () => m.timer.fire());
+    expect(await screen.findByText(/the review is open/)).toBeTruthy();
+    expect(m.timer.pending).toBe(0);
+  });
+
+  it("the progress list is a polite live region that announces additions", async () => {
+    mount(overview({ stage: "evaluating", confirm: null, job: job({ state: "running", startedAt: 1, progress: ["evaluating the team"] }) }));
+    const list = (await screen.findByText("evaluating the team")).closest("ol")!;
+    expect(list.getAttribute("aria-live")).toBe("polite");
+    expect(list.getAttribute("aria-relevant")).toBe("additions");
+  });
+});

@@ -1,11 +1,13 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { expectOf, type ReportCriterion, type ReportExpect, type ReportLevel } from "../../../lib/console-api";
 
 // One criterion: its level, review status, the participant's own rating, the rationale, the evidence and any flags, all as text; Accept;
 // and Edit, an inline form whose reason is required. The edit names the level the form showed (`expect`) so two tabs cannot overwrite
-// each other. A refused save keeps everything typed (a stale refusal included) and shows the fixed sentence.
+// each other. A refused save keeps everything typed (a stale refusal included) and shows the fixed sentence. When a reload brings a new
+// level while the form is open, the form now expects THAT level (so the next Save can succeed), keeps what was typed, and says which
+// level the save now replaces.
 
 const STATUS: Record<ReportCriterion["status"], string> = { needs_review: "Needs review", accepted: "Accepted", edited: "Edited", clear: "Clear" };
 export const levelText = (l: ReportLevel | "invalid"): string => (l === null ? "Not observed" : l === "invalid" ? "No valid level" : `Level ${l}`);
@@ -28,6 +30,13 @@ export function CriterionRow({ criterion: c, canWrite, pending, onEdit, onAccept
   const [form, setForm] = useState<{ expect: ReportExpect; level: string; reason: string; rationale: string } | null>(null);
   const [error, setError] = useState("");
   const shown = expectOf(c.current);
+  const [replacing, setReplacing] = useState<string | null>(null);
+  useEffect(() => {
+    setForm((f) => (f === null || f.expect === shown ? f : { ...f, expect: shown }));
+    setReplacing((r) => (form === null ? r : `Now ${levelText(c.current).toLowerCase()}: your save replaces it.`));
+    // only on a change of the level shown
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown]);
   const ready = form !== null && form.level !== "" && form.reason.trim() !== "" && canWrite && !pending;
 
   async function save() {
@@ -36,7 +45,10 @@ export function CriterionRow({ criterion: c, canWrite, pending, onEdit, onAccept
     const refusal = await onEdit({
       level: toLevel(form.level), reason: form.reason, expect: form.expect, ...(form.rationale.trim() !== "" ? { rationale: form.rationale } : {}),
     });
-    if (refusal === null) setForm(null);
+    if (refusal === null) {
+      setForm(null);
+      setReplacing(null);
+    }
     else setError(refusal);
   }
 
@@ -77,13 +89,14 @@ export function CriterionRow({ criterion: c, canWrite, pending, onEdit, onAccept
           ) : null}
           <button
             className="btn" type="button" disabled={!canWrite || pending} aria-label={`Edit ${c.name}`}
-            onClick={() => { setError(""); setForm({ expect: shown, level: shown === "invalid" ? "" : shown, reason: "", rationale: "" }); }}
+            onClick={() => { setError(""); setReplacing(null); setForm({ expect: shown, level: shown === "invalid" ? "" : shown, reason: "", rationale: "" }); }}
           >
             Edit
           </button>
         </div>
       ) : (
         <div className="card soft stack">
+          {replacing !== null ? <p className="banner warn">{replacing}</p> : null}
           <div className="field">
             <label htmlFor={`${id}-level`}>New level</label>
             <select id={`${id}-level`} className="t" value={form.level} onChange={(e) => setForm({ ...form, level: e.target.value })}>
@@ -110,7 +123,7 @@ export function CriterionRow({ criterion: c, canWrite, pending, onEdit, onAccept
             <button className="btn pri" type="button" disabled={!ready} onClick={() => void save()}>
               Save
             </button>
-            <button className="btn" type="button" onClick={() => { setForm(null); setError(""); }}>
+            <button className="btn" type="button" onClick={() => { setForm(null); setError(""); setReplacing(null); }}>
               Cancel
             </button>
           </div>

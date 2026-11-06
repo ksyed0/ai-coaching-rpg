@@ -21,8 +21,9 @@ import { SubjectList } from "./SubjectList";
 import { SubjectView } from "./SubjectView";
 
 // The Report panel of an ended session (US-0064, spec section 6): the typed author name, the evaluate card, the run summary, the subject
-// list and one subject's view. The overview is polled every 2 s only while the stage is `evaluating` (the timer is injected so tests never
-// sleep). Progress and refusals are announced on one polite status line; every refusal is a fixed sentence.
+// list and one subject's view. The overview is polled every 2 s only while the last known stage is `evaluating`, a failed read included
+// (the timer is injected so tests never sleep). Evaluate progress is announced by the card's own polite progress list; action results and
+// refusals by the panel's polite status line. Every refusal is a fixed sentence.
 
 export const POLL_MS = 2_000;
 
@@ -37,6 +38,8 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
   const [confirm, setConfirm] = useState<{ opener: HTMLElement } | null>(null);
   const [pending, setPending] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  /** Counts finished reads, a failed one included, so the poll is rescheduled after every answer. */
+  const [reads, setReads] = useState(0);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -48,6 +51,7 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
   const load = useCallback(async () => {
     const r = await fetchReportOverview(sessionId, fetchImpl);
     if (!alive.current) return;
+    setReads((n) => n + 1);
     if (!r.ok) {
       setLoadError(reportFailureText(r));
       return;
@@ -61,11 +65,12 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
     void load();
   }, [load]);
 
-  // One poll after each answer, and only while the evaluation runs; a new answer (or leaving the page) cancels the one scheduled.
+  // One poll after each answer (a failed or unreadable one too), and only while the last known stage is `evaluating`; a new answer (or
+  // leaving the page) cancels the one scheduled.
   useEffect(() => {
     if (overview?.stage !== "evaluating") return;
     return setTimer(() => void load(), POLL_MS);
-  }, [overview, load, setTimer]);
+  }, [overview, reads, load, setTimer]);
 
   const author = isAuthorName(name) ? name : null;
 
