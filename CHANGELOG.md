@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+- The console's export menu now offers every view the server allows (EPIC-0002, BUG-0033). For the group report and the index you can export the view each player sees (without the other players' results) as well as the facilitator's, and a report that is being amended can be exported in the player's view, which is its last released version (the menu says so). Each view is named by its report and who it is for. The Report panel no longer lets an older answer replace a newer one, and retries a failed read once by itself before showing "Try again" (BUG-0032). After Cancel or Save in the Summary editor or a criterion's edit form, focus returns to the button that opened it.
+
 ## [0.2.0] - 2026-11-06
 
 Second tagged release. It completes EPIC-0002 with slice 2c: participant report links and report pages (slice 2c-1), participant self-ratings and responses with review schema `acr.review/2` (slice 2c-2), evaluate, review, release, amend, withdraw, resolve and export from the facilitator console (slice 2c-3), and the close-out of slice 2c-4: no report links for AI roles, the console Summary editor, the web link id in `pnpm moderate status` and console fixes. Deploy the control service before the web app; see docs/ROLLBACK.md.

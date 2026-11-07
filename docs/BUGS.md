@@ -374,12 +374,12 @@ BUG-0028: Slice 2c-1 test and cleanup gaps: seeded e2e folders, thin Axe coverag
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Open
-Fix Branch: none yet
+Status: In Progress
+Fix Branch: bugfix/BUG-0034-participant-path (parts 2 and 4), bugfix/BUG-0032-console-report (part 3)
 Lesson Encoded: No
 ```
 
-Left open by the slice 2c-1 reviews, none blocking. (1) The Playwright test seeds its review folders with the runtime's `moderate` functions (`services/control/src/__tests__/seed-report-folders.ts`, which also reaches into runtime test fixtures and seeds `alice` and `bob`, not the session's seated roles) instead of running a real `evaluate`. (2) Axe covers the report and refused states and the console panel, but not the throttled and not-released states or `/report/enter`. (3) `ReportLinksPanel` keeps "Revoked" and "Link expired" branches that the real API never produces, because control lists only live credentials. (4) The `ReportView` retry has no unmount guard (harmless in React 18). Fix: move the seeder under `services/runtime` and use the session's roles; add the Axe states; drop or feed the dead branches.
+Left open by the slice 2c-1 reviews, none blocking. (1) The Playwright test seeds its review folders with the runtime's `moderate` functions (`services/control/src/__tests__/seed-report-folders.ts`, which also reaches into runtime test fixtures and seeds `alice` and `bob`, not the session's seated roles) instead of running a real `evaluate`. Remaining: move the seeder under `services/runtime/src/__tests__` and have it take the session's player roles. (2) and (4) (Axe for `/report/enter`; an unmount guard on the `ReportView` retry) are fixed on `bugfix/BUG-0034-participant-path`. (3) Done on `bugfix/BUG-0032-console-report`: the "Revoked" branch of `ReportLinksPanel` could never show, because control lists only live credentials (`revokedAt === undefined` and not expired, services/control/src/reports.ts) and issue and reissue return a newly minted one, so `link.revoked` was always false. The branch is gone, and so is `revoked` from the BFF's `linkDto` and the console's `ReportLink`, which are internal to the web app (no wire change with control); `active` is still false for a credential with `revokedAt`. "Link expired" can still show, at the expiry instant or with clock skew between the control and web hosts (the BFF judges `active` by its own clock), so it stays, with a component test for a human row and one for an AI row ("AI player", no Issue, Reissue or Revoke), and a BFF test for a credential at its expiry instant.
 
 ```
 BUG-0029: A response resent after a BFF timeout is stored twice when another response landed in between
@@ -422,24 +422,28 @@ BUG-0032: Overview answers can arrive out of order, and a failed overview read (
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (8e1abad)
+Fix Branch: bugfix/BUG-0032-console-report
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). The Report panel (apps/web/src/components/console/report/ReportPanel.tsx) reads the overview when it mounts, again after each of its own writes, and polls it only while the stage is `evaluating`; it does not refresh on focus. Two reads in flight (a write's refresh beside a poll, or two quick writes) can answer in the wrong order, and `load` keeps whichever answers last, so an older overview can replace a newer one until the next read. Before the fix, a failed read was retried by itself only while the stage was `evaluating` (the poll): any other failed read, not only the first, showed the fixed sentence with a "Try again" button and waited for a click, so a transient 503 needed one (the first read is the worst case: nothing is shown until then). Fix: tag each read with a sequence number and ignore an answer older than the newest one applied; retry a failed read outside `evaluating` once after a short delay.
+
+Fixed: each overview read takes a number when it is sent, and an answer older than the newest one applied is ignored (it still reschedules the poll). Outside `evaluating`, a failed or unreadable read is retried once after `RETRY_MS` (3 s) through the panel's injected timer; if the retry fails too, the fixed sentence and "Try again" stay, and nothing more is scheduled until the next read. While `evaluating` the 2 s poll already retries. Component tests answer two reads in reverse order, and cover a retry that recovers and one that fails (TC-0154).
 
 ```
 BUG-0033: The export menu has no participant view of the group or index, and no export of an amending subject
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (6145096)
+Fix Branch: bugfix/BUG-0032-console-report
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). `ExportMenu` (apps/web/src/components/console/report/ExportMenu.tsx) lists only released subjects (and the index once the group is released); for a player's report it already offers that player's own view, but for the group and the index it offers only the facilitator's view. The export route already accepts `participant:<role>` for every subject (services/control/src/moderation-routes.ts), and the runtime's export gate (`exportGate` and `canView`) allows (1) a participant's view of the group or the index, with peers' results removed, and (2) a participant's export of an AMENDING subject, which is its last released version (a facilitator export of an amending subject is refused as `not_released`). Drafts are never exported. Fix: in `ExportMenu`, offer a participant view of the group and the index (choosing which participant), and list an amending subject for the participant's view only, with a line that says it is the released version; reuse the existing route.
+
+Fixed: the menu now lists released and amending subjects (and the index once the group is one of them), and for each offers exactly the views the export gate allows (`viewsOf` in ExportMenu.tsx): the facilitator's view of a released subject only; a player's own report for that player; and, for the group and the index, every player subject of the review, whatever that player's own state (the gate only checks that the role is a player of the review; a draft player's group view simply has no row of their own). An amending subject has only the participant views and the line "This report is being amended. Its export is the last released version, in a participant's view only." Each view's name states the report and who it is for (for example "Group report, as Account manager sees it (without the other players' results)"). The route, the request body and the BFF's file names are unchanged (TC-0154).
 
 ```
 BUG-0034: Edits made while a save is in flight are lost when the draft clears
