@@ -184,6 +184,11 @@ export const REPORT_CONSOLE = {
   amendToChange: "Amend the report to change it.",
   amendFirst: "To resolve it as amended, amend the report and release the new version first.",
   exported: (fileName: string) => `Downloaded ${fileName}.`,
+  // BUG-0033: each export view names the report and who it is for (components/console/report/ExportMenu.tsx).
+  exportFacilitatorView: (report: string) => `${report}, the facilitator's view`,
+  exportPlayerView: (report: string, player: string) => `${report}, as ${player} sees it`,
+  exportPlayerGroupView: (report: string, player: string) => `${report}, as ${player} sees it (without the other players' results)`,
+  exportAmending: "This report is being amended. Its export is the last released version, in a participant's view only.",
   // US-0066: editing the summary (components/console/report/SummaryEditor.tsx). The limits are the BFF's and control's.
   summaryEdit: "Edit the summary",
   summaryReplaces: "Saving replaces the whole summary: a line you remove is deleted. One entry per line.",
