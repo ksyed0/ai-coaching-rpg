@@ -6,8 +6,9 @@ import { ReportView } from "../ReportView";
 // AC-0380: the "(AI player)" marker inside a group quote reaches the page, and so the print view (the same DOM, window.print()).
 afterEach(() => { cleanup(); vi.restoreAllMocks(); sessionStorage.clear(); });
 
-const QUOTE = '- "a phased module costs about three person-weeks" (bob (AI player), line #6, scene 1)';
-const SCRIPT_QUOTE = '- "<script>alert(1)</script>" (bob (AI player), line #6, scene 1)';
+// The shape the runtime renderer writes (evaluator/report-md.ts): `- Scene N, time (line #seq, role (AI player)): "quote"`.
+const QUOTE = '- Scene 1, 00:02:10 (line #6, bob (AI player)): "a phased module costs about three person-weeks"';
+const SCRIPT_QUOTE = '- Scene 1, 00:02:10 (line #6, bob (AI player)): "<script>alert(1)</script>"';
 const released = (group: string) =>
   new Response(JSON.stringify({ success: true, error: null, data: { state: "released", availableUntil: "2027-02-03T10:30:00.000Z", view: { kind: "released", own: {}, group: null, markdown: { own: "Own report", group } } } }), { status: 200, headers: { "Content-Type": "application/json" } });
 const show = async (group: string) => {
@@ -21,7 +22,7 @@ describe("ReportView with an AI player quote", () => {
     await show(QUOTE);
     const el = screen.getByText(/\(AI player\)/);
     expect(el.tagName).toBe("PRE");
-    expect(el.textContent).toContain("bob (AI player), line #6");
+    expect(el.textContent).toContain("(line #6, bob (AI player))");
   });
 
   it("the quote is not inside a .no-print element", async () => {

@@ -47,14 +47,28 @@ describe("moderate status shows the web link behind a self-rating (AC-0383)", ()
     const crits = (await loadReview(dir)).view.subjects
       .get("alice")!
       .criteria.map((c) => c.id);
+    expect(crits.length).toBeGreaterThanOrEqual(3); // the third rating must land on a criterion of its own
     await apply(() => [
       rate(web("alice", LINK_A), crits[0]!),
       rate(web("alice", LINK_B), crits[1]!),
-      rate(web("alice", LINK_A), crits[2] ?? crits[0]!),
+      rate(web("alice", LINK_A), crits[2]!),
     ]);
     const line = await aliceLine();
     expect(line).toMatch(/^ {2}alice: rated \d+ of \d+ criteria via web link AAAAAAAA, BBBBBBBB$/);
     expect(line).not.toContain(LINK_A);
+  });
+
+  it("prints a link id once when two criteria were rated through the same link (the dedupe)", async () => {
+    const crits = (await loadReview(dir)).view.subjects
+      .get("alice")!
+      .criteria.map((c) => c.id);
+    await apply(() => [
+      rate(web("alice", LINK_A), crits[0]!),
+      rate(web("alice", LINK_A), crits[1]!),
+    ]);
+    const line = await aliceLine();
+    expect(line).toMatch(/^ {2}alice: rated 2 of \d+ criteria via web link AAAAAAAA$/);
+    expect(line.match(/AAAAAAAA/g)).toHaveLength(1);
   });
 
   it('appends " via web link <id>" to an open dispute from a web link', async () => {
