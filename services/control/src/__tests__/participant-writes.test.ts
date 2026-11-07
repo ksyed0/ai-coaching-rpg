@@ -7,8 +7,9 @@ import { withReviewLock } from "../../../runtime/src/review/review-log.js";
 import { loadReview } from "../../../runtime/src/review/store.js";
 import { makeFold } from "../../../runtime/src/review/__tests__/fixtures.js";
 import { REVIEW_FILE } from "../../../runtime/src/review/types.js";
+import { REPORT_SENTENCES } from "@acr/events";
 import {
-  WRITE_BUSY, WRITE_CLOSED, WRITE_INVALID, WRITE_NOT_RELEASED, WRITE_OLD_SCHEMA, WRITE_THROTTLED, WRITE_TOO_MANY, WRITE_WITHDRAWN,
+  WRITE_BUSY, WRITE_CLOSED, WRITE_INVALID, WRITE_LINK_FULL, WRITE_NOT_RELEASED, WRITE_OLD_SCHEMA, WRITE_THROTTLED, WRITE_TOO_MANY, WRITE_WITHDRAWN,
   createParticipantWriteService, warnIfReportsNotWritable, type WriteOutcome,
 } from "../participant-writes.js";
 import { makeReportWorld, type ReportWorld } from "./report-fixture.js";
@@ -155,8 +156,27 @@ describe("outcome mapping", () => {
     expect((await events()).length).toBe(0);
   });
 
+  it("BUG-0030: a link past its 25 responses is 409 link_full with the shared sentence, uncounted by the throttle; a reissued link has a fresh budget", async () => {
+    await open();
+    const svc = mk();
+    const c = await cred("alice");
+    for (let i = 0; i < 25; i++) {
+      expect(await svc.respond(w.sessionId, c.id, { text: `r${i}` })).toEqual({ status: 200, wrote: true });
+      w.clock.t += MIN; // stay under the 20-per-10-minutes throttle
+    }
+    const full = await svc.respond(w.sessionId, c.id, { text: "r25" });
+    expect(full).toEqual({ status: 409, code: "link_full", message: WRITE_LINK_FULL });
+    expect(WRITE_LINK_FULL).toBe(REPORT_SENTENCES.linkFull);
+    // a 409 is not counted: many refusals in a row never become a 429
+    for (let i = 0; i < 25; i++) expect(await svc.respond(w.sessionId, c.id, { text: `again${i}` })).toMatchObject({ status: 409, code: "link_full" });
+    const fresh = (await w.store.reissue(w.sessionId, "alice")).credential;
+    expect(await svc.respond(w.sessionId, fresh.id, { text: "r25" })).toEqual({ status: 200, wrote: true });
+    // the old link is dead now: the neutral 404, not link_full
+    NEUTRAL_404(await svc.respond(w.sessionId, c.id, { text: "r26" }));
+  });
+
   it("no fixed sentence carries an id, a path or a role", () => {
-    for (const s of [WRITE_CLOSED, WRITE_NOT_RELEASED, WRITE_WITHDRAWN, WRITE_TOO_MANY, WRITE_OLD_SCHEMA, WRITE_BUSY, WRITE_INVALID, WRITE_THROTTLED]) {
+    for (const s of [WRITE_CLOSED, WRITE_NOT_RELEASED, WRITE_WITHDRAWN, WRITE_TOO_MANY, WRITE_LINK_FULL, WRITE_OLD_SCHEMA, WRITE_BUSY, WRITE_INVALID, WRITE_THROTTLED]) {
       expect(s.length).toBeGreaterThan(10);
       expect(s).not.toMatch(/alice|bob|\/|[A-Za-z0-9_-]{11}\./);
     }

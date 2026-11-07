@@ -116,6 +116,7 @@ function makeDeps(session: (id: string) => Promise<SessionInfo>) {
     reportWriteThrottle: throttle(),
     consoleReportThrottle: throttle(),
     reportEnterThrottle: throttle(),
+    reportReadFailThrottle: throttle(),
     hub,
     facilitatorBudget: new FacilitatorBudget(), facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now: Date.now }),
     launcher: { session: sessionFn } as unknown as LauncherClient,

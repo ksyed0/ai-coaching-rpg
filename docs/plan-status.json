@@ -2966,6 +2966,40 @@
       ]
     },
     {
+      "id": "US-0069",
+      "epicId": "EPIC-0002",
+      "title": "As a facilitator, I want to hide a participant response from the released report, so that an abusive or mistaken response can be removed without deleting the record.",
+      "priority": "Low",
+      "estimate": "M",
+      "status": "Planned",
+      "branch": "feature/EPIC-0002-US-0069-hide-response",
+      "acs": [
+        {
+          "id": "AC-0392",
+          "text": "the console offers a hide action on a response, and hiding it records an event in the review log with who hid it, when and why (a required reason)",
+          "done": false
+        },
+        {
+          "id": "AC-0393",
+          "text": "a hidden response never appears in a participant or facilitator export or on the participant's page, and the facilitator's review shows it as \"hidden by facilitator\"",
+          "done": false
+        },
+        {
+          "id": "AC-0394",
+          "text": "the audit log keeps the original text: hiding never rewrites or deletes the `response.added` event",
+          "done": false
+        },
+        {
+          "id": "AC-0395",
+          "text": "a hidden response still counts toward BOTH response caps, the per-link cap (25, counted from the `response.added` events) and the per-role cap (50, today `sv.responses.length` in the fold's list), so hiding never refunds a budget; a hide that removes a response from the fold's list must keep it in the per-role count",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0063"
+      ]
+    },
+    {
       "id": "US-0067",
       "epicId": "EPIC-0009",
       "title": "As a participant, I want to use the product and play scenarios in my own language, so that language is not a barrier to coaching practice.",
@@ -5522,6 +5556,36 @@
       "type": "Regression",
       "status": "Pass",
       "defect": "BUG-0032, BUG-0033"
+    },
+    {
+      "id": "TC-0155",
+      "title": "A valid report cookie is unsealed before the per-address failure throttle, so forged cookies never block a valid reader or writer",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "relatedAC": "AC-0368",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "BUG-0025"
+    },
+    {
+      "id": "TC-0156",
+      "title": "A resend identical to any earlier unresolved response of the role is not stored twice; a resolved dispute or edited text is stored",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0369",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "BUG-0029"
+    },
+    {
+      "id": "TC-0157",
+      "title": "One report link writes at most 25 responses, is refused with a notice to ask for a new link, and a reissued link has a fresh budget",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0369",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "BUG-0030"
     }
   ],
   "bugs": [
@@ -5819,9 +5883,9 @@
       "severity": "Low",
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
-      "status": "Open",
-      "fixBranch": "none yet",
-      "lessonEncoded": "No",
+      "status": "Fixed (6453541)",
+      "fixBranch": "bugfix/BUG-0025-throttle-resend-link-cap",
+      "lessonEncoded": "Yes — see docs/LESSONS.md",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
     },
@@ -5867,8 +5931,8 @@
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Open",
-      "fixBranch": "none yet",
+      "status": "Fixed (c10a07a)",
+      "fixBranch": "bugfix/BUG-0025-throttle-resend-link-cap",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5879,8 +5943,8 @@
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Open",
-      "fixBranch": "none yet",
+      "status": "Fixed (c10a07a, 86984be)",
+      "fixBranch": "bugfix/BUG-0025-throttle-resend-link-cap",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5891,8 +5955,8 @@
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Open",
-      "fixBranch": "none yet",
+      "status": "Closed",
+      "fixBranch": "none (closed as documented)",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5937,409 +6001,415 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0066": {
       "projectedUsd": 800,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0068": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0069": {
+      "projectedUsd": 0.9,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 11.75715,
+      "costUsd": 11.586757,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -7098,6 +7168,13 @@
       "openCriticalBug": false,
       "isAtRisk": true
     },
+    "US-0069": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
     "US-0067": {
       "missingTCs": true,
       "noBranch": false,
@@ -7426,11 +7503,19 @@
       "context": "",
       "date": "2026-11-06",
       "bugIds": []
+    },
+    {
+      "id": "L-0036",
+      "title": "Check the credential before charging an address throttle",
+      "rule": "When a request carries an authenticated credential (a sealed AES-GCM cookie, a signed token), verify it FIRST and send a valid one straight to its own per-credential budget; consult and charge the per-address failure throttle only when verification fails. A per-address block checked before the credential lets junk from one person behind a shared address (a workshop NAT) lock out every valid holder behind it, and protects nothing, because a forger cannot produce a credential that verifies. Keep each failure class in its own throttle table, so a flood of one kind cannot saturate the table another route needs.\n_Learned in BUG-0025: the report read and write routes checked the address block before unsealing the cookie, in the same table as the enter route, so forged cookies could answer 429 to valid readers and, once the table was saturated, to valid enters._",
+      "context": "",
+      "date": "2026-11-07",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T06:10:28.952Z",
-  "commitSha": "29a7ff4",
-  "buildNumber": "546",
+  "generatedAt": "2026-11-07T06:10:35.271Z",
+  "commitSha": "b87a2dd",
+  "buildNumber": "547",
   "branch": "bugfix/BUG-0028-e2e-seeder",
   "sessionTimeline": [
     {
@@ -7573,9 +7658,9 @@
     }
   },
   "budget": {
-    "totalBudget": 807.5862000000001,
+    "totalBudget": 808.4862,
     "totalSpent": 799.4862,
-    "totalProjected": 12052.2,
+    "totalProjected": 12053.1,
     "percentUsed": 99,
     "burnRate": 17.98837588888889,
     "daysRemaining": 0,
@@ -7595,56 +7680,56 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 164.60009999999997,
-        "spent": 164.60009999999997,
+        "budget": 162.21459800000005,
+        "spent": 162.21459800000005,
         "remaining": 0,
-        "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0002",
-        "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 200.77154999999996,
-        "spent": 199.87154999999996,
-        "remaining": 0.9000000000000057,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 164.60009999999997,
-        "spent": 164.60009999999997,
+        "budget": 162.21459800000005,
+        "spent": 162.21459800000005,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 176.35724999999996,
-        "spent": 176.35724999999996,
+        "budget": 173.80135500000006,
+        "spent": 173.80135500000006,
         "remaining": 0,
         "percentUsed": 100
       },
       {
+        "id": "EPIC-0002",
+        "title": "Slice 2 — web lobby, session view and reconnect",
+        "budget": 210.3616260000001,
+        "spent": 208.56162600000008,
+        "remaining": 1.8000000000000114,
+        "percentUsed": 99
+      },
+      {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 50.6286,
-        "spent": 47.0286,
+        "budget": 49.947028,
+        "spent": 46.347028,
         "remaining": 3.6000000000000014,
         "percentUsed": 93
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 37.971450000000004,
-        "spent": 35.27145,
+        "budget": 37.460271000000006,
+        "spent": 34.760271,
         "remaining": 2.700000000000003,
         "percentUsed": 93
       },
       {
         "id": "EPIC-0009",
         "title": "Multilingual support",
-        "budget": 12.65715,
-        "spent": 11.75715,
+        "budget": 12.486757,
+        "spent": 11.586757,
         "remaining": 0.9000000000000004,
         "percentUsed": 93
       },
@@ -7668,9 +7753,9 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Aug 17",
-    "rangeStart": "Jun 21",
-    "rangeEnd": "Oct 13",
+    "likelyDate": "Aug 21",
+    "rangeStart": "Jun 25",
+    "rangeEnd": "Oct 17",
     "velocityWeeks": 6,
     "storiesPerWeek": 1.1,
     "pointsPerWeek": 5.1
@@ -7747,7 +7832,7 @@
       "2026-11-07T03:36:27.689Z",
       "2026-11-07T04:48:10.882Z",
       "2026-11-07T05:31:12.484Z",
-      "2026-11-07T06:10:29.035Z"
+      "2026-11-07T06:10:35.381Z"
     ],
     "doneCounts": [
       0,
@@ -7893,7 +7978,7 @@
       68,
       68,
       69,
-      68
+      69
     ],
     "aiCosts": [
       23.621356666666664,
@@ -8185,7 +8270,7 @@
       10,
       7,
       4,
-      4
+      1
     ],
     "atRisk": [
       0,
@@ -8477,7 +8562,7 @@
       1.1338709677419356,
       1.1338709677419356,
       1.1333333333333335,
-      1.1338709677419356
+      1.1333333333333335
     ],
     "velocityByWeek": {
       "labels": [

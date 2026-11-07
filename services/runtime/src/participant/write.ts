@@ -26,9 +26,19 @@ type Refusal =
   | "not_released"
   | "withdrawn"
   | "too_many"
+  | "link_full"
   | "invalid"
   | "old_schema"
   | "none";
+
+/**
+ * The most responses one report link (one credential id) may write (BUG-0030). Half of the per-role cap (LIMITS.responses, 50), so a
+ * forwarded link can use up at most half of its owner's slots; revoke and reissue gives the new link a fresh budget, and the per-role
+ * cap still bounds the total. Counted from the review log's `response.added` events whose `participant_session` actor carries this
+ * credential id (carried copies included: they were written through the same link). Checked on a web write only, never by the fold,
+ * so a log that already holds more stays readable.
+ */
+export const RESPONSES_PER_LINK = 25;
 type Outcome = { k: "ok"; wrote: number } | { k: Refusal };
 
 /** The live review dir for a valid session id and role, else null (the caller answers `none`/`unavailable`). */
@@ -151,7 +161,12 @@ export async function submitSelfRatings(
       }));
     });
     if (outcome.k === "ok") return { kind: "ok", wrote: outcome.wrote };
-    if (outcome.k === "not_released" || outcome.k === "withdrawn")
+    // `link_full` is a response refusal only; a self-rating never sets it, so it is read as `closed` for completeness.
+    if (
+      outcome.k === "not_released" ||
+      outcome.k === "withdrawn" ||
+      outcome.k === "link_full"
+    )
       return { kind: "closed" };
     return { kind: outcome.k };
   } catch (e) {
@@ -199,18 +214,34 @@ export async function submitResponse(
         outcome = { k: "invalid" };
         return [];
       }
-      const last = sv.responses.at(-1);
+      // BUG-0029: a resend (for example after a BFF timeout) is a no-op when ANY earlier response of this role is identical (same
+      // criterion, cleaned text and dispute flag) and unresolved. Only a dispute can be resolved (`dispute.resolved`), so an identical
+      // comment is always a no-op, and the same dispute may be raised again once its earlier copy has a resolution.
       if (
-        last &&
-        last.criterion === c.criterion &&
-        last.text === text &&
-        last.dispute === dispute
+        sv.responses.some(
+          (r) =>
+            r.resolution === null &&
+            r.criterion === c.criterion &&
+            r.text === text &&
+            r.dispute === dispute,
+        )
       ) {
         outcome = { k: "ok", wrote: 0 };
         return [];
       }
+      // The role's cap first: when both are reached a new link would not help.
       if (sv.responses.length >= LIMITS.responses) {
         outcome = { k: "too_many" };
+        return [];
+      }
+      const byLink = l.events.filter(
+        (e) =>
+          e.type === "response.added" &&
+          e.actor.kind === "participant_session" &&
+          e.actor.credentialId === c.credentialId,
+      ).length;
+      if (byLink >= RESPONSES_PER_LINK) {
+        outcome = { k: "link_full" };
         return [];
       }
       outcome = { k: "ok", wrote: 1 };
