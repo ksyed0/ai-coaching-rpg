@@ -16,6 +16,7 @@ import type { ApiResult } from "../../../lib/api";
 import { REPORT_CONSOLE } from "../../../lib/messages";
 import { CriterionRow, type EditInput } from "./CriterionRow";
 import { ResolveDisputePanel } from "./ResolveDisputePanel";
+import { SummaryEditor } from "./SummaryEditor";
 import { subjectLabel } from "./SubjectList";
 
 // One subject's report for the facilitator: the criteria (levels with edit and accept), the summary (accept), the comments so far, the
@@ -116,6 +117,12 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = false, 
       setFeedback(false);
     }
   }
+  /** The summary editor saved: the same follow-up as any other write (the status line, the panel, a fresh read). */
+  async function summaryEdited() {
+    setMessage(REPORT_CONSOLE.saved);
+    onChanged?.();
+    await load();
+  }
   /** Edits and acceptances are refused on a released or withdrawn report (`not_editable`): amend it first. Comments and resolves are not. */
   const editable = view !== null && (view.state === "draft" || view.state === "amending");
   const nameOf = (criterion: string) => view?.criteria.find((c) => c.id === criterion)?.name ?? criterion;
@@ -184,6 +191,7 @@ export function SubjectView({ sessionId, subject, author, evaluationOk = false, 
                 </button>
               </div>
             ) : null}
+            <SummaryEditor sessionId={sessionId} subject={subject} author={author} summary={view.summary} editable={editable} fetch={fetchImpl} onChanged={() => void summaryEdited()} />
           </div>
 
           {view.comments.length > 0 ? (

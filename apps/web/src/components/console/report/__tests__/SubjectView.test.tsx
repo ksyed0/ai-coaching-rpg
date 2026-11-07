@@ -146,3 +146,24 @@ describe("SubjectView: evaluationOk fails closed", () => {
     expect(screen.queryByRole("button", { name: "Accept Clarity" })).toBeNull();
   });
 });
+
+describe("SubjectView summary editor", () => {
+  it("mounts the summary editor under the criteria of an editable subject, and reads the subject again after a save", async () => {
+    const f = mount(subjectView());
+    fireEvent.click(await screen.findByRole("button", { name: "Edit the summary" }));
+    expect((screen.getByLabelText("Strengths (one per line)") as HTMLTextAreaElement).value).toBe("Clear");
+    fireEvent.change(screen.getByLabelText("Reason for the change (required)"), { target: { value: "Checked." } });
+    const reads = () => f.calls.filter((c) => c.init.method === "GET").length;
+    const before = reads();
+    fireEvent.click(screen.getByRole("button", { name: "Save the summary" }));
+    await waitFor(() => expect(reads()).toBe(before + 1));
+    expect(posts(f)[0]).toMatchObject({ url: `${PATH}/edit-summary`, body: { reason: "Checked.", strengths: ["Clear"], developments: [], actions: [], by: "kamal" } });
+    expect(screen.getByText("Saved.")).toBeTruthy();
+  });
+
+  it("has no summary editor on a released subject", async () => {
+    mount(subjectView({ state: "released" }));
+    expect(await screen.findByRole("heading", { name: "Clarity" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Edit the summary" })).toBeNull();
+  });
+});
