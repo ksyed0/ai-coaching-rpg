@@ -362,25 +362,26 @@ BUG-0027: The conflict sentences are copied between the control service and the 
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Open
-Fix Branch: none yet
+Status: Fixed (e637b95)
+Fix Branch: bugfix/BUG-0034-participant-path
 Lesson Encoded: No
 ```
 
 `KNOWN_CONFLICTS` in `apps/web/src/server/report-handlers.ts` repeats the fixed sentences of `services/control/src/reports.ts` and `report-access.ts`, because the web package must not import the control service or the runtime. If control rewords one, the console silently falls back to its generic sentence. Fix: a test that reads the sentences from both sources (a small shared constants file under `packages/events` is the allowed route) and fails when they differ.
+
+Fixed: the sentences are defined once as `REPORT_SENTENCES` in `packages/events/src/report-sentences.ts` and imported by the control service (`reports.ts`, `report-access.ts`, `api.ts`, `moderation-routes.ts`), the BFF (`KNOWN_CONFLICTS`, `report-handlers.ts`) and the console (`console-api.ts`, `messages.ts`). There were more copies than the entry said (the control `CONFLICT` sentence, the 503 "report is unavailable" sentence in three more places, and the console's refusal table). One test, `apps/web/src/lib/__tests__/report-sentences.test.ts`, checks the words, the BFF's known conflicts, the console constants and that no consumer declares the words again as a literal. The e2e spec keeps its own literals as an independent check. The words did not change.
 
 ```
 BUG-0028: Slice 2c-1 test and cleanup gaps: seeded e2e folders, thin Axe coverage, dead console branches
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Open
-Fix Branch: none yet
+Status: In Progress
+Fix Branch: bugfix/BUG-0034-participant-path
 Lesson Encoded: No
 ```
 
-Left open by the slice 2c-1 reviews, none blocking. (1) The Playwright test seeds its review folders with the runtime's `moderate` functions (`services/control/src/__tests__/seed-report-folders.ts`, which also reaches into runtime test fixtures and seeds `alice` and `bob`, not the session's seated roles) instead of running a real `evaluate`. (2) Axe covers the report and refused states and the console panel, but not the throttled and not-released states or `/report/enter`. (3) `ReportLinksPanel` keeps "Revoked" and "Link expired" branches that the real API never produces, because control lists only live credentials. (4) The `ReportView` retry has no unmount guard (harmless in React 18). Fix: move the seeder under `services/runtime` and use the session's roles; add the Axe states; drop or feed the dead branches.
-
+Left open by the slice 2c-1 reviews, none blocking. (1) The Playwright test seeds its review folders with the runtime's `moderate` functions (`services/control/src/__tests__/seed-report-folders.ts`, which also reaches into runtime test fixtures and seeds `alice` and `bob`, not the session's seated roles) instead of running a real `evaluate`; so the "human role in the same review" of `report-ai-role.spec.ts` is `bob`, a fixture role that is not a seat. Remaining: move the seeder under `services/runtime/src/__tests__` and have it take the session's player roles. (2) Done (839925f): the throttled and not-released states of `/report` were already covered by Axe (since #106); `/report/enter` (opening, throttled, retry and refused) is now covered in `apps/web/e2e/axe.spec.ts`. (3) Remaining: `ReportLinksPanel` keeps a "Revoked" branch that can never show, because control lists only live credentials (`revokedAt === undefined` and not expired), so `link.revoked` is always false; drop it, and `revoked` from `linkDto`, which is internal to the web app. "Link expired" can still show, at the expiry instant or with clock skew between the control and web hosts (the BFF recomputes `active` with its own clock), so keep it, and add a test for it and for the AI-row variant. (4) Done (17d7955): the `ReportView` retry had no unmount guard (harmless in React 19, which no longer warns); it now uses a `mounted` ref, with a test that counts state updates after unmount.
 ```
 BUG-0029: A response resent after a BFF timeout is stored twice when another response landed in between
 Severity: Low
@@ -446,9 +447,11 @@ BUG-0034: Edits made while a save is in flight are lost when the draft clears
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (8ade287)
+Fix Branch: bugfix/BUG-0034-participant-path
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). In the participant's self-rating form, a save clears the browser draft when it succeeds. If the participant types in a box after pressing Save but before the answer arrives, the newer text is cleared with the draft. Fix: remember what was sent and clear the stored draft only if the form still equals it, or mark the form dirty again on any change during the save, with a component test that types between send and answer. (The console's Summary editor avoids the same race by disabling its boxes while a save is in flight.)
+
+Fixed: the form counts its edits. The newer text stayed on screen, but its stored draft was cleared, it was never sent and the form said "Saved". Now a save that finishes after a newer change keeps the stored draft and says "Your latest changes have not been sent yet. Press Save again to send them." The inputs stay enabled (a disabled box would lose focus). A component test holds the request, edits during the save, releases it and checks the draft and the message. After a save that overlapped an edit the whole draft is kept, which is harmless: the kept entries equal what the server stores, and the next Save resends them idempotently. The same PR trims the note sent for a rated criterion (a note of only spaces is now omitted, bcf5172).

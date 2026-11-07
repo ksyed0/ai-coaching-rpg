@@ -1,4 +1,4 @@
-import { isValidSessionId } from "@acr/events";
+import { isValidSessionId, REPORT_SENTENCES } from "@acr/events";
 import { guard, isId, readBody, sessionIdOf, failure } from "./console-sessions";
 import { fail, ok } from "./envelope";
 import { checkFetchSite, checkOrigin, requestAddress } from "./guards";
@@ -30,15 +30,15 @@ const READ_CRED_ROLE = "*report-read-cred";
 const MAX_TOKEN_CHARS = 64;
 const MAX_ENTER_BODY_BYTES = 512;
 
-/** The control service's fixed conflict sentences (NOT_READY, NO_REPORT and AI_LINK_REFUSED in services/control/src/reports.ts are copied here word for word; change both). Anything else is shown as the generic one. */
-const KNOWN_CONFLICTS: ReadonlySet<string> = new Set([
-  "A link is already active for this role.",
-  "AI players do not get report links.",
-  "No reports are ready for this session yet. Evaluate it from the Report panel of its console.",
-  "There is no report to link for this role.",
+/** The control service's fixed conflict sentences, shared through @acr/events. Anything else is shown as the generic one. */
+export const KNOWN_CONFLICTS: ReadonlySet<string> = new Set([
+  REPORT_SENTENCES.linkAlreadyActive,
+  REPORT_SENTENCES.aiLinkRefused,
+  REPORT_SENTENCES.notReady,
+  REPORT_SENTENCES.noReport,
 ]);
 const GENERIC_CONFLICT = "That action is not possible right now.";
-const UNAVAILABLE = "The report is unavailable. Try again.";
+const UNAVAILABLE = REPORT_SENTENCES.reportUnavailable;
 
 /** Every response of this module carries the no-referrer policy (the envelope already sets no-store). */
 const priv = (res: Response): Response => {

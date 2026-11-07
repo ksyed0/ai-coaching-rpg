@@ -3,3 +3,4 @@ export * from "./events.js";
 export * from "./state.js";
 export * from "./ids.js";
 export * from "./player-view.js";
+export * from "./report-sentences.js";
