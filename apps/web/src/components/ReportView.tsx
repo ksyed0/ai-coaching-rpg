@@ -91,6 +91,8 @@ export function ReportView({ fetch: fetchImpl }: ReportViewProps) {
     else setModel({ kind: "retry" });
   }, [fetchImpl]);
 
+  const mounted = useRef(true); // the guard for Try again, which outlives the effect below
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []); // StrictMode re-runs effects
   useEffect(() => {
     let live = true;
     void load(() => live);
@@ -99,7 +101,7 @@ export function ReportView({ fetch: fetchImpl }: ReportViewProps) {
 
   useEffect(() => { if (model.kind !== "loading") heading.current?.focus(); }, [model.kind]);
 
-  const retry = () => { setModel({ kind: "loading" }); void load(() => true); };
+  const retry = () => { setModel({ kind: "loading" }); void load(() => mounted.current); };
   const note: Record<string, string> = {
     loading: MESSAGES.reportLoading,
     not_released: MESSAGES.reportNotReleased,
