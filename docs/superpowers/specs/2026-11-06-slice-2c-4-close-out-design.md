@@ -94,3 +94,4 @@ Ids are taken from `docs/ID_REGISTRY.md` when the plan files them. Existing: **A
 - Whether an AI session can be seeded cheaply for the optional e2e (section 6).
 - Whether the Blob URL revoke delay is already fixed (4.2).
 - The story id and title for PR 2, and whether the new acceptance criteria sit under it or under US-0060.
+- Settled in the plan (revision 2): log-only AI-role source with a memo; no subject-list AI row pending owner sign-off; CLI work is the fold's `via` and `status`; AC-0379 to AC-0381 under US-0060, AC-0382 to AC-0384 under US-0066.

@@ -1818,6 +1818,9 @@ Acceptance Criteria:
   - [x] AC-0361: a live AI player speaks only when a human or AI character has finished, after a quiet-time nudge while a human is connected, or when prompted; never reacts to another AI player; keeps a minimum gap and a per-scene cap; skips a failed, late or unusable turn with a facilitator alert and never a canned line; drops a reply produced for an earlier scene, a pause, the end or an old connection; and all bots of a session share one model-call budget (turn-policy, live, bot and bot-host tests; the bot engine is built in slice 2b-3b PR 1; TC-0106) Engine built in 2b-3b PR 1; since PR 2 bots run in real sessions and the replies dropped by a pause or a runtime kill and the shared budget after a restart are verified against a real runtime (TC-0107). "When prompted" is Prompt AI player, built in 2b-3b PR 3 and verified end to end through the BFF (ai-players.spec.ts) and in the control tests (bot-host.prompt, bot); the facilitator alert on a skipped, late or unusable turn is one code path for every trigger (bot.test.ts alerts, and the budget alert on a prompted turn in bot-host.prompt). TC-0112.
   - [x] AC-0362: the control service keeps every AI player's join code in memory only: create, restart, reissue-all and a timed-out AI-role change never return an AI role's code to the web server, a single-role reissue or remove of an AI role is refused, AI roles are refused under a consent notice that does not mention AI players, the bots rejoin after a runtime restart with their codes and after a control-service restart with one reissue each, and the shared budget survives both (supervisor.bots, supervisor.bots.integration, supervisor.ai-roles, api, bots.real, main.ai-notice, ai-roles.runtime and console-ai tests; TC-0107. The budget survives only approximately: it is rebuilt from the AI utterances in the log and can only under-count. Known gaps: M-1, no headroom of 8 bots against 8 sockets per key, the generic start_failed for more than 12 player roles, docs/THREAT_MODEL.md "Reachable AI seats")
   - [x] AC-0363: the facilitator can prompt an AI player with an optional private hint of at most 300 characters; the turn is reserved first, the prompt is logged without the hint, the turn runs only after the log succeeded, it skips the gap, nudge and scene cap but counts against the session's budget, and the hint reaches only the model and the facilitator-only intent log (session-engine, ws-server.ai-roles, bot-host.prompt, bot, api, console-ai-prompt, AiPlayersPanel tests and ai-players.spec.ts; TC-0112. A reservation lasts 15 s by ruling (the hub waits 10 s for the ack); aiCalls counts +1 per prompt_ai, so a prompted line counts twice after a restart and a skipped policy turn leaves no trace. Residual risk: a participant can talk an AI player into revealing its role's private facts, docs/THREAT_MODEL.md "Prompt AI player and the toggle")
+  - [ ] AC-0379: an AI role is refused a report link, fail-closed, with the fixed sentence (slice 2c-4 PR 1: the guard and the reader/wiring; TC-0145 Task 3 guard, TC-0146 Task 3 reader/wiring)
+  - [ ] AC-0380: a released report's "(AI player)" labels are present on the report page, the print view and the facilitator export (slice 2c-4 PR 1; TC-0147 Task 1)
+  - [ ] AC-0381: `links()` keeps an AI role with a live credential revocable, and an old control answer without the flag still renders (slice 2c-4 PR 1; TC-0148 Tasks 4 and 5, TC-0149 Task 6)
 ```
 
 ```
@@ -1963,4 +1966,35 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0002-US-0064-report-release-web (stacked on feature/EPIC-0002-US-0064-report-moderation-web)
 Notes: Slice 2c-3 part B (PR B), same spec and plan as TASK-0093. `release` with an explicit list of subjects (empty and `all` refused), `amend` and `withdraw` with a required reason, `resolve` (upheld, amended after an amend, declined), `export` as a `POST` that records the event first and returns the Markdown as an attachment (`console-download`, nothing written to disk); the release bar and dialogs that name each subject's audience from the visibility policy; the part B e2e (release, the participant reads with the runtime gone, amend, withdraw, resolve, export) with Axe on the dialogs; the README terminal steps for release, amend, withdraw and export replaced; the close-out docs. Covers AC-0337 (rest), AC-0338, AC-0340, AC-0375 to AC-0377. Carried from part A: release refusal codes (`unknown_subject` for unknown ids, `not_editable` for non-draft or amending subjects, `blocked` only for gate problems). Built: the part B moderation operations (`@acr/runtime/moderation`), the control and BFF routes, the console release bar, dialogs, row actions, dispute panel and export menu, the e2e and Axe (TC-0141 to TC-0144), the README console steps and the close-out docs. Not built: a console control for edit-summary (the terminal still has it). Deploy or restart the control service before the web app (`scoreByHand` is a required answer field).
+```
+
+```
+US-0066 (EPIC-0002): As a facilitator, I want the small EPIC-0002 close-out gaps fixed, so that the web client ships without known loose ends.
+Priority: Medium
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0002-US-0066-close-out-polish
+Dependencies: US-0060, US-0064
+Acceptance Criteria:
+  - [ ] AC-0382: a facilitator can edit a participant's summary in the console (slice 2c-4 PR 2; TC-0150 Task 11)
+  - [ ] AC-0383: `moderate status` shows the first 8 characters of a web link id (slice 2c-4 PR 2; TC-0151 Task 7)
+  - [ ] AC-0384: the in-scope minors are fixed with tests and the rest are filed (slice 2c-4 PR 2; TC-0152 Tasks 8 to 10)
+```
+
+```
+TASK-0103 (US-0060): Slice 2c-4 PR 1: AI-role report-link guarantees and "(AI player)" labels
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0060-ai-role-guarantees
+Notes: Spec docs/superpowers/specs/2026-11-06-slice-2c-4-close-out-design.md; plan docs/superpowers/plans/2026-11-06-slice-2c-4-close-out.md. Covers AC-0379 to AC-0381 (TC-0145 to TC-0149). Closes AC-0321 and AC-0322 for the web report pages and downloads.
+```
+
+```
+TASK-0104 (US-0066): Slice 2c-4 PR 2: close-out polish
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0066-close-out-polish
+Notes: Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC-0152): console edit-summary, the 8-character link id in `moderate status`, and the in-scope minors.
 ```
