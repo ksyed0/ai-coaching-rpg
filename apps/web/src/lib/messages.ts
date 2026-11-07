@@ -184,4 +184,16 @@ export const REPORT_CONSOLE = {
   amendToChange: "Amend the report to change it.",
   amendFirst: "To resolve it as amended, amend the report and release the new version first.",
   exported: (fileName: string) => `Downloaded ${fileName}.`,
+  // US-0066: editing the summary (components/console/report/SummaryEditor.tsx). The limits are the BFF's and control's.
+  summaryEdit: "Edit the summary",
+  summaryReplaces: "Saving replaces the whole summary: a line you remove is deleted. One entry per line.",
+  strengthsLabel: "Strengths (one per line)",
+  developmentsLabel: "Points to develop (one per line)",
+  actionsLabel: "Actions (one per line, as LO-ID: text)",
+  summaryReasonLabel: "Reason for the change (required)",
+  summaryActionLine: "Start each action line with a learning objective id and a colon, then the action, for example LO-1: Ask about the budget.",
+  summaryEmpty: "Add at least one strength, point to develop or action: the summary cannot be empty.",
+  summaryTooMany: "Each list can have at most 50 entries.",
+  summaryTooLong: "Each entry can be at most 400 characters.",
+  summaryTooLarge: "The summary is too large to save. Shorten it, then try again.",
 } as const;
