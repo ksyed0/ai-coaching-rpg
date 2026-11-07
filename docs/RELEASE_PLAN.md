@@ -69,6 +69,14 @@ Status: Planned
 Dependencies: EPIC-0002
 ```
 
+```
+EPIC-0009: Multilingual support
+Description: The product is English at MVP. This epic adds language support, starting with French (Canada) as set out in docs/PRODUCT_SPEC.md (Localisation row), and covers UI strings, scenario content, AI character and Game Master behaviour, evaluator output and reports. The design must decide how translated scenario content is authored and reviewed. Model quality per language needs a calibration pass: the evaluator calibration (EPIC-0005) is English-only today.
+Release Target: Release 2.x
+Status: Planned
+Dependencies: EPIC-0002
+```
+
 ## User stories and tasks
 
 ```
@@ -1997,4 +2005,18 @@ Assignee: Agent
 Status: To Do
 Branch: feature/EPIC-0002-US-0066-close-out-polish
 Notes: Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC-0152): console edit-summary, the 8-character link id in `moderate status`, and the in-scope minors.
+```
+
+```
+US-0067 (EPIC-0009): As a participant, I want to use the product and play scenarios in my own language, so that language is not a barrier to coaching practice.
+Priority: Medium
+Estimate: XL
+Status: Planned
+Branch: feature/EPIC-0009-US-0067-multilingual-support
+Dependencies: US-0066
+Acceptance Criteria:
+  - [ ] AC-0385: the web UI strings come from per-language message catalogues, with a language chosen per user or per session and a documented fallback to English for any missing string; no string is hard-coded in a component
+  - [ ] AC-0386: scenarios and their rubrics can carry translations; an AI character speaks and a Game Master judges in the session language; the evaluator reports quote the original-language lines with a note of the report language
+  - [ ] AC-0387: French (Canada) is delivered first as the proving language; right-to-left and other scripts are explicitly out of scope until a later story
+  - [ ] AC-0388: dates, numbers, names and the accessibility labels follow the chosen language; the language of a session is recorded in the session log so reports and replays stay consistent
 ```
