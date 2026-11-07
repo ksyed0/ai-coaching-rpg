@@ -2967,7 +2967,7 @@
         }
       ],
       "dependencies": [
-        "US-0066"
+        "EPIC-0002"
       ]
     }
   ],
@@ -7208,9 +7208,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T01:26:14.163Z",
-  "commitSha": "8fca979",
-  "buildNumber": "553",
+  "generatedAt": "2026-11-07T01:26:34.959Z",
+  "commitSha": "d1f4ef3",
+  "buildNumber": "554",
   "branch": "feature/EPIC-0002-US-0066-close-out-polish",
   "sessionTimeline": [
     {
@@ -7521,7 +7521,7 @@
       "2026-11-05T23:24:56.057Z",
       "2026-11-05T23:39:58.694Z",
       "2026-11-07T00:39:13.799Z",
-      "2026-11-07T01:26:14.240Z"
+      "2026-11-07T01:26:35.024Z"
     ],
     "doneCounts": [
       0,

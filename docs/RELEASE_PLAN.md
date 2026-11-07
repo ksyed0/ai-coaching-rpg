@@ -2013,7 +2013,7 @@ Priority: Medium
 Estimate: XL
 Status: Planned
 Branch: feature/EPIC-0009-US-0067-multilingual-support
-Dependencies: US-0066
+Dependencies: EPIC-0002
 Acceptance Criteria:
   - [ ] AC-0385: the web UI strings come from per-language message catalogues, with a language chosen per user or per session and a documented fallback to English for any missing string; no string is hard-coded in a component
   - [ ] AC-0386: scenarios and their rubrics can carry translations; an AI character speaks and a Game Master judges in the session language; the evaluator reports quote the original-language lines with a note of the report language
