@@ -380,3 +380,75 @@ Lesson Encoded: No
 ```
 
 Left open by the slice 2c-1 reviews, none blocking. (1) The Playwright test seeds its review folders with the runtime's `moderate` functions (`services/control/src/__tests__/seed-report-folders.ts`, which also reaches into runtime test fixtures and seeds `alice` and `bob`, not the session's seated roles) instead of running a real `evaluate`. (2) Axe covers the report and refused states and the console panel, but not the throttled and not-released states or `/report/enter`. (3) `ReportLinksPanel` keeps "Revoked" and "Link expired" branches that the real API never produces, because control lists only live credentials. (4) The `ReportView` retry has no unmount guard (harmless in React 18). Fix: move the seeder under `services/runtime` and use the session's roles; add the Axe states; drop or feed the dead branches.
+
+```
+BUG-0029: A response resent after a BFF timeout can be stored twice, up to the 50 cap
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). `POST /api/v1/report/responses` has no idempotency key. If the BFF times out after control has already recorded a response, the participant sees an error, sends again, and the review holds the same text twice; the per-credential cap of 50 responses is the only limit. Harmless to the scores (a response is a note, not a rating) but noisy in the report and the export. Fix: a client-generated key on the request that control stores with the event and checks before appending. This is a wire change (an optional field first, then required), so it needs its own slice and the usual control-before-web deploy order.
+
+```
+BUG-0030: A forwarded report link can use up its owner's 50 response slots, and a response is not redacted
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). A report link is a bearer credential. Anyone who holds a forwarded link can post responses as its owner until the owner's 50 response slots are gone, and the owner cannot add one. There is also no redaction of a response after it is filed (the facilitator can resolve a dispute, not remove the text). This is a design decision, not a code slip: options are a lower cap per sitting, a facilitator "hide this response" event, or a per-link write cap with a notice. Revoking and reissuing the link already stops the abuse for future writes. Decide with the owner before building; record the choice in `docs/THREAT_MODEL.md`.
+
+```
+BUG-0031: Reviews opened before schema `/2` cannot take web writes
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). A review folder created by an older evaluator carries the earlier schema version. Control answers `old_schema` for a participant's self-rating or response on it, and the console has no way to upgrade it, so the only route is the terminal and a fresh `evaluate`. Reads still work. Fix: a one-off migration (a `moderate migrate` command that rewrites the review header and replays the log under the new schema), with a test on a fixture of the old folder. Not needed for any review created from now on.
+
+```
+BUG-0032: Overview answers can arrive out of order, and the first overview read never retries
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). The Report panel refreshes the moderation overview after each write and on focus. Two requests in flight can answer in the wrong order, so an older overview can replace a newer one until the next refresh. The first read after opening the panel is not retried when it fails, so a transient 503 leaves the panel on its error line until the facilitator reloads. Fix: tag each request with a sequence number and ignore a stale answer; retry the first read once or twice with the same back-off as the report page.
+
+```
+BUG-0033: The export menu has no entries for the participant view or an amending participant's export
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). The terminal's `moderate export` can produce the participant-view export and an export of a subject that is amending. The console's export menu offers only the facilitator export of a released or draft subject. Fix: add the two entries to `ExportMenu`, using the existing export route with the audience it already accepts, with a dialog line that names the audience as the release dialog does.
+
+```
+BUG-0034: Edits made while a save is in flight are lost when the draft clears
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). In the participant's self-rating form, a save clears the browser draft when it succeeds. If the participant types in a box after pressing Save but before the answer arrives, the newer text is cleared with the draft. Fix: remember what was sent and clear the stored draft only if the form still equals it, or mark the form dirty again on any change during the save, with a component test that types between send and answer.
