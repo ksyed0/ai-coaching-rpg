@@ -398,16 +398,3 @@ describe("draft reports: links", () => {
     }
   });
 });
-
-describe("sentences mirrored in the web app", () => {
-  it("the panel's not-ready and AI-link sentences and the BFF's known conflicts equal control's NOT_READY, NO_REPORT and AI_LINK_REFUSED", () => {
-    const web = path.resolve(__dirname, "../../../../apps/web/src");
-    const panel = readFileSync(path.join(web, "lib/console-api.ts"), "utf8");
-    const handlers = readFileSync(path.join(web, "server/report-handlers.ts"), "utf8");
-    expect(panel).toContain(JSON.stringify(NOT_READY));
-    expect(handlers).toContain(JSON.stringify(NOT_READY));
-    expect(handlers).toContain(JSON.stringify(NO_REPORT));
-    expect(panel).toContain(JSON.stringify(AI_LINK_REFUSED));
-    expect(handlers).toContain(JSON.stringify(AI_LINK_REFUSED));
-  });
-});

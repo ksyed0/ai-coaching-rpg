@@ -1,3 +1,5 @@
+import { REPORT_SENTENCES } from "@acr/events";
+
 // Every sentence the participant pages show of their own. Runtime text (lines, names, brief, facts, the notice) is shown as text
 // elsewhere; the server's error text is shown only for the action answers, which the BFF writes itself (handlers.ts).
 
@@ -126,7 +128,7 @@ export const REPORT_REFUSALS = {
   invalid_name: "Use letters, digits, underscore or hyphen, up to 56 characters.",
   payload_too_large: "That is too large to save.",
   busy: "The report is busy. Try again in a moment.",
-  unavailable: "The report is unavailable. Try again.",
+  unavailable: REPORT_SENTENCES.reportUnavailable,
   timeout: "The report service took too long to answer. Reload to see whether it was saved, then try again.",
   generic: "That action is not possible right now.",
 } as const;
