@@ -2,7 +2,7 @@
 
 AGENTS.md section 20: every deployment has a rollback plan written before it starts. Nothing in this repository is deployed to a shared environment yet (the runtime runs on the operator's machine, from `./run.sh` or Docker Compose); this file records what a rollback has to handle, release by release, so the plan exists before the first deployment.
 
-All sections below ship in release 0.1.0 (tag `v0.1.0`, 2026-11-05), the first tagged release. To go back to an earlier state, check out the commit a section names; there is no earlier tag.
+The sections from slice 2a to BUG-0023 ship in release 0.1.0 (tag `v0.1.0`, 2026-11-05), the first tagged release; the sections from slice 2c-1 on ship in release 0.2.0 (tag `v0.2.0`, 2026-11-06), whose deploy order and rollback are summarised in [Release 0.2.0](#release-020-deploy-order-and-rollback) at the end. To go back to 0.1.0, redeploy tag `v0.1.0`; to go back to an earlier state, check out the commit a section names.
 
 ## EPIC-0002 slice 2a: participant web client (US-0052 to US-0056, US-0065)
 
@@ -220,6 +220,30 @@ Rollback trigger: the evaluator refuses a log it should read, a report is wrongl
 ### Rolling forward again
 Redeploy this slice. Re-run `pnpm evaluate` for the sessions with AI players whose reports were written by the older evaluator.
 
+## EPIC-0002 slice 2c-1: participant report access (US-0062)
+
+```
+Release: 0.2.0 (feature/EPIC-0002-US-0062-report-access, PR 1; feature/EPIC-0002-US-0062-report-pages, PR 2; merged by their pull requests)
+Date: not deployed
+Rollback trigger: a participant link opens someone else's report or a revoked link still opens, the control service refuses to start on the new setting, the console panel breaks an ended session's page, or the report routes must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **One new file:** `<CONTROL_DATA_DIR>/report-access.json` (mode 0600; salted hashes of the links, no token), created on the first issue. **Older builds ignore it:** nothing before this slice reads or lists the control data directory for it, and it sits outside every review folder, so the review tool and `pnpm moderate` are not affected. Leaving it in place is safe; deleting it makes every issued link stop working (the holders see "This link no longer works").
+- **One new setting:** `REPORT_ACCESS_DAYS` (a whole number 1 to 365, default 90; an invalid value stops the control service at start naming the variable). An older control service does not read it and does not complain about it being set.
+- **New routes:** the control service gains `/sessions/:id/report-links...`, `/report-access/exchange` and `/sessions/:id/reports/:credentialId`; the web app gains `/report`, `/report/enter`, `/api/v1/report` and `/api/v1/report/enter` and the console `report-links` routes. **Older builds have no `/report` routes:** a link already given to a participant opens a "not found" page, and the console shows no Participant reports panel. Nothing else in a session depends on them.
+- **No change to the log, the review folders or any report.** The reader is read-only (`@acr/runtime/reports`); the new runtime export is an addition. The cookie `__Host-scenecoach-report` is new; a rolled-back web app ignores it and it expires by itself (or clear it by hand).
+
+### Rolling back
+
+1. Redeploy the previous web app and control service together (the control service's routes and the web app's go as a pair); no data migration.
+2. **Links already issued:** they stop working with the rollback (no `/report` page). Tell participants who were sent a link. If the rollback is because a link may have leaked, do not wait for the rollback: revoke it in the console (it takes effect at once), or move `report-access.json` aside to end every link.
+3. **Smoke test:** the console opens an ended session without the panel; `pnpm demo --web` passes W-01 to W-08.
+
+### Rolling forward again
+Redeploy this slice. Put `report-access.json` back if it was moved aside (links not yet expired work again); otherwise reissue the links in the console.
+
 ## BUG-0023: whispers kept in the player snapshot and labelled Private
 
 ```
@@ -246,3 +270,144 @@ Rollback trigger: a player or the console shows a whisper that is not theirs, or
 
 ### Rolling forward again
 Redeploy this fix. Nothing to restore.
+
+## US-0063: review schema `acr.review/2` and participant ratings (slice 2c-2)
+
+```
+Release: 0.2.0 (feature/EPIC-0002-US-0063-participant-report, PR 1 and PR 2)
+Date: not deployed
+Rollback trigger: a participant write lands under the wrong role, the control service refuses to start, `moderate` cannot read a review it opened, or the write routes must go for any other reason.
+```
+
+### What changes on disk and in the log
+
+- **A new review schema.** `moderate open` now writes `acr.review/2`, and a participant's rating or response is an event with the actor kind `participant_session`. **A build that does not know `acr.review/2` cannot read any `/2` review:** `moderate`, `export` and the report reader all refuse it, so every `/2` review becomes unreadable (the folder is not damaged). `/1` reviews are unchanged and a new build still reads them.
+- **New routes.** The control service gains `PUT /sessions/:id/reports/:credentialId/self-ratings` and `POST .../responses`. An older control service answers 404 to both. Nothing else depends on them in PR 1 (the browser is PR 2).
+
+### Rolling back
+
+1. **Roll back only before any `/2` review is opened.** Check first: `grep -l '"acr.review/2"' <reports dir>/*/review.jsonl` finds none.
+2. **If a `/2` review is already open,** restore the reviews from a backup taken before the first `moderate open` of this build, or keep the new build and take the write routes off with a code change (revert the `participantWrites` wiring in the control service's `main.ts` and redeploy; there is no switch or flag for it). Do not edit `review.jsonl` by hand: it is hash-chained.
+3. Redeploy the previous control service and runtime together; no data migration. **Smoke test:** `pnpm moderate status` reads every review folder.
+
+### Rolling forward again
+Redeploy this slice. A review opened by the older build is `/1` and answers old-schema to web writes; the facilitator takes the rating in the terminal, or re-runs `moderate open` for a new review.
+
+## US-0064: evaluate and review from the console (slice 2c-3 part A)
+
+```
+Release: 0.2.0 (feature/EPIC-0002-US-0064-report-moderation-web, PR A)
+Date: not deployed
+Rollback trigger: an evaluate started from the console spends when it should not (a second run, a run nobody confirmed), a console edit lands in the wrong review or under the wrong name, the Report panel breaks an ended session's page, or the report routes must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No schema change.** Reviews are still `acr.review/2`; a console write is an ordinary facilitator event whose `by` is `<name>-console`. `pnpm moderate` reads and continues a review opened or edited from the console, and a build without the console routes reads it too.
+- **Evaluate writes what `pnpm evaluate --out "$CONTROL_DATA_DIR/reports"` writes:** a `<session id>` folder (or `<id>-N`) under `<CONTROL_DATA_DIR>/reports`, which control then opens with the typed name. Nothing else is written there.
+- **One new file:** `<CONTROL_DATA_DIR>/report-jobs.json` (mode 0600, written atomically): per session the job state, start time, folder name and model-call count, never a key. Older builds ignore it. Deleting it while no evaluate runs loses only the panel's "failed" and "model calls" lines; the drafts and reviews are untouched.
+- **One new setting:** `REPORT_EVALUATE_MARGIN_MS` (0 to 3600000, default 120000; `.env.example`). An older control service does not read it.
+- **New routes:** control `/sessions/:id/report...` (overview, evaluate, cancel, open, subject view, edit, accept, comment, edit-summary) and the web app's `/api/v1/console/sessions/:id/report...`. The console's "No reports are ready" sentence now points to the Report panel.
+
+### Removing an orphan report folder by hand
+
+The Report panel says "A report folder for this session is damaged" when a folder for the session has an incomplete draft set (or drafts that do not load) and no review: what a hard kill during the evaluator's brief write can leave. Control never reuses, deletes or evaluates beside it: Evaluate is not offered until it is gone, and a start sent anyway is refused (`orphan`, the same sentence) before anything runs.
+
+1. Make sure no evaluate is running for that session (the panel does not say "Evaluating…"); if one is, Cancel it or wait.
+2. Find the folder: `ls "$CONTROL_DATA_DIR/reports" | grep '^<session id>'` lists `<session id>` and any `<session id>-N`. The orphan is the one **without** a `review.jsonl`. **Never remove a folder that has a `review.jsonl`**: that is a review (it is hash-chained and may hold released reports and participants' ratings).
+3. Move it out of the reports directory rather than deleting it, for example `mkdir -p "$CONTROL_DATA_DIR/orphans" && mv "$CONTROL_DATA_DIR/reports/<folder>" "$CONTROL_DATA_DIR/orphans/"`. Delete the moved copy later, once nobody needs it.
+4. Reload the console page: the panel offers Evaluate again (no restart is needed; the overview is read per request).
+
+### Rolling back
+
+1. **Wait for, or cancel, any evaluate that is running** (stopping the control service kills the child: the run is lost, already-spent model calls are not refunded, and a kill during the write can leave an orphan folder; see above).
+2. Redeploy the previous web app and control service together; no data migration. **A build without these routes** has no Report panel (the console shows the participant links panel only, and the old "evaluate and moderate in the terminal" sentence again); the BFF and control answer 404 to the report routes. Reviews opened or edited from the console stay valid and are continued with `pnpm moderate` in `$CONTROL_DATA_DIR/reports/<session id>` (the `-console` names stay in their history). A draft that evaluate wrote but did not open is opened with `pnpm moderate open`. `report-jobs.json` and `REPORT_EVALUATE_MARGIN_MS` are ignored.
+3. **Smoke test:** the console opens an ended session without the Report panel; `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads a review opened from the console.
+
+### Rolling forward again
+Redeploy this slice. The panel reads the reviews and drafts on disk as they are (one opened in the terminal shows as in review); `report-jobs.json` is picked up again, a job it records as running reads as interrupted.
+
+## US-0064: release, amend, withdraw, resolve and export from the console (slice 2c-3 part B)
+
+```
+Release: 0.2.0 (feature/EPIC-0002-US-0064-report-release-web, PR B, stacked on PR A)
+Date: not deployed
+Rollback trigger: a console release, amend or withdraw changes a subject nobody named, a release ignores the gate, a resolve shows the wrong reason to a participant, an export is served without its event or writes to the server's disk, or the part B routes must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No schema change and no new file or setting.** Release, amend, withdraw and resolve are the same `acr.review/2` events `pnpm moderate` writes, with `by` `<name>-console`. An export appends one `report.exported` event (destination `console-download`) to `review.jsonl` and writes no file anywhere on the server.
+- **New routes:** control `POST /sessions/:id/report/release`, `.../resolve`, `.../export`, `.../subjects/:subject/amend` and `.../withdraw`, and the same five under the web app's `/api/v1/console/sessions/:id/report`.
+- **Deploy order: control before web.** Part A's last fix made `scoreByHand` a required field of control's overview and subject answers, and the web app fails closed (the panel says the report could not be read) when it is missing. Deploy or restart the control service first, then the web app; roll back in the opposite order (web first).
+
+### Rolling back part B
+
+1. Redeploy the web app and control service of PR A (web first, then control); no data migration. The Report panel stays (evaluate, open, edit, accept, comment), without the release bar, the row actions, the dialogs, the dispute panel or the export menu; the part B routes answer 404.
+2. **Everything part B did in the browser is still possible in the terminal:** `pnpm moderate release|amend|withdraw|resolve|export <dir> ...` in `$CONTROL_DATA_DIR/reports/<session id>` (see README). Events written from the console, `report.exported` with `console-download` included, stay valid: the `-console` actors remain ordinary facilitator actors, and the terminal reads and continues the review.
+3. **Smoke test:** `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads a review released from the console; a participant's link still opens the released report (the participant pages are slice 2c-1 and 2c-2, not part B).
+
+### Rolling forward again
+Redeploy this slice (control first). The panel reads the review on disk as it is, including releases, amendments and withdrawals made in the terminal meanwhile.
+
+## US-0060: AI-role report-link guarantees (slice 2c-4 PR 1)
+
+```
+Release: 0.2.0 (feature/EPIC-0002-US-0060-ai-role-guarantees, PR #113)
+Date: not deployed
+Rollback trigger: the guard refuses a human role's link, issue or reissue answers 503 for a session whose log and scenario are intact, the link list marks the wrong role "AI player", or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No schema change, no new file and no new setting.** The guard reads the session log and the scenario that already exist. Nothing is written.
+- **One optional field on the wire:** control's `GET /sessions/:id/report-links` rows may carry `ai: true`; the web server's launcher client, the console BFF's link handler and `parseReportLinks` pass it on only when exactly `true`. A missing flag means "not AI".
+- **New refusal:** issue and reissue answer 409 "AI players do not get report links." for an AI role, and 503 "reports cannot be read" when the session log or its scenario cannot be read or is inconsistent.
+- **Deploy order: control before web, as for slice 2c-3.** The new `aiRoles` dependency of the control service is required in code, but it is wired in `main.ts`, so a deployed control service always has it.
+
+### Rolling back
+
+1. **Control alone is safe to roll back.** Because `ai` is optional, the new web app keeps working against the older control service: the link list shows Issue or Reissue for every role (no "AI player" label) and the guard is gone, so an AI role listed in a hand-edited review could be issued a link again. Evaluate and release do not list AI roles as subjects, so this only matters for a hand-edited review.
+2. **Web alone is safe to roll back too:** the older web app ignores the `ai` flag it does not know, and the control guard still refuses. The older web app's `KNOWN_CONFLICTS` lacks the new sentence and its panel still shows Issue and Reissue for an AI role, so a refusal reads "That action is not possible right now."; the rollback is still safe.
+3. To roll back both, redeploy web first, then control (the opposite of the deploy order). No data migration.
+4. **Smoke test:** open the console of an ended session with an AI player and a released report: the AI role gets no link (the guard's sentence on a direct issue), a human role is issued one and its link opens the report.
+
+### Rolling forward again
+
+Redeploy control first, then web. A scenario folder that was edited or removed while this slice was out of service makes issue answer 503 for the sessions it belongs to (see THREAT_MODEL "AI roles in the credential path"); restore the folder.
+
+## US-0066: Summary editor, web link id and console fixes (slice 2c-4 PR 2)
+
+```
+Release: 0.2.0 (feature/EPIC-0002-US-0066-close-out-polish, PR #115)
+Date: not deployed
+Rollback trigger: a summary saved from the console lands on the wrong subject or drops entries, `pnpm moderate status` shows more than the 8-character link id, the release dialog offers a subject it should block, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No schema change, no new file, no new setting and no new route.** The Summary editor uses the existing edit-summary route of slice 2c-3 part A; what it writes is the same `acr.review/2` event `pnpm moderate edit-summary` writes, with `by` `<name>-console`. The `via` link id is computed when the review is read and printed by `pnpm moderate status`; it is not written to disk and not sent over the moderation read wire.
+- **The rest is console behaviour only:** Withdraw on an amending row, a subject with no status row treated as blocked in the release dialog, and a whitespace-only note no longer blocking the self-rating form.
+
+### Rolling back
+
+1. Redeploy the web app of slice 2c-4 PR 1 (and, for `moderate status`, the runtime package of PR 1); no data migration. The Report panel loses **Edit the summary** (a summary is still edited with `pnpm moderate edit-summary` in the terminal) and the console fixes. Summaries saved from the console stay valid and are read by every `acr.review/2` build.
+2. The control service is not changed by this PR, so it does not need to move.
+3. **Smoke test:** open an ended session's Report panel and a draft subject (no Edit the summary button); `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads the review.
+
+### Rolling forward again
+Redeploy this slice. Summaries edited in the terminal meanwhile are shown pre-filled in the editor as they are.
+
+## Release 0.2.0: deploy order and rollback
+
+```
+Release: 0.2.0 (tag `v0.2.0`, from release/0.2.0; slices 2c-1 to 2c-4, PRs #102 to #115 into develop)
+Date: not deployed
+Rollback trigger: any trigger of the sections from slice 2c-1 on, or the release must go back to 0.1.0 for any other reason.
+```
+
+- **Deploy order: the control service before the web app.** Since slice 2c-3 part A the web app fails closed when control's overview or subject answer lacks `scoreByHand`, so a 0.2.0 web app needs a 0.2.0 control service. Deploy or restart control first, check it answers, then deploy the web app. **Roll back in the reverse order: the web app first, then the control service.**
+- **Control alone back to slice 2c-3 is safe:** the `ai` flag on control's report-link list is optional, and a 0.2.0 web app treats a missing flag as "not AI" (see [slice 2c-4 PR 1](#us-0060-ai-role-report-link-guarantees-slice-2c-4-pr-1)); only the AI-role link guard is lost.
+- **Going back to 0.1.0 makes every `acr.review/2` review unreadable.** 0.2.0's `moderate open` writes `acr.review/2` (see [US-0063](#us-0063-review-schema-acrreview2-and-participant-ratings-slice-2c-2)); a 0.1.0 build refuses any `/2` review in `moderate`, `export` and the report reader (the folders are not damaged). Before rolling back to 0.1.0, check `grep -l '"acr.review/2"' "$CONTROL_DATA_DIR"/reports/*/review.jsonl`; if it finds any, restore the reviews from a backup taken before the first `moderate open` of 0.2.0, or stay on 0.2.0 and roll back only the part that misbehaves. Do not edit `review.jsonl` by hand: it is hash-chained.
+- **Report links issued under 0.2.0 stop working on 0.1.0** (it has no `/report` routes); tell the participants who were sent one. `report-access.json`, `report-jobs.json`, `REPORT_ACCESS_DAYS` and `REPORT_EVALUATE_MARGIN_MS` are ignored by 0.1.0 and can be left in place.
+- **Smoke test after a deploy:** the console opens an ended session with its Report panel and Participant reports panel; `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads a review; a released report opens through its link. **After a rollback to 0.1.0:** the console opens an ended session without either panel, and `pnpm demo --web` passes W-01 to W-08.

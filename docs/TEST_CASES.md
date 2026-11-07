@@ -1867,3 +1867,497 @@ Actual Result: As expected, 2026-11-05: 4 files, 49 tests passed (re-run for thi
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2b-3c, PR 2. The golden test is also green after every commit of both PRs.
+
+## US-0062: report access
+
+TC-0121: The report-access credential is 128 bits, stored hashed, with an expiry, in one private file
+Related Story: US-0062
+Related Task: TASK-0091
+Related AC: AC-0327
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/report-access.test.ts src/__tests__/config.test.ts` (the token is `<id>.<secret>` from the system's random generator; the file holds the id, a salt and a hash and never the token or the secret; the file is mode 0600, written atomically and read without following links; expiry is `REPORT_ACCESS_DAYS` days, default 90, valid 1 to 365; a revoke is never undone by a `lastUsedAt` touch; an unreadable or malformed file fails closed and is never replaced; `check` with a different expected session answers null and leaves the file byte-identical).
+Expected Result: All tests pass; no test finds a token, secret or hash in the file, a result or a message.
+Actual Result: As expected, 2026-11-05: 2 files, 45 tests passed.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 1. The console button that issues a link is PR 2, so AC-0327 stays open.
+
+TC-0122: The report service and its API issue only for released roles and refuse everything else with one neutral answer
+Related Story: US-0062
+Related Task: TASK-0091
+Related AC: AC-0329, AC-0330, AC-0366
+Type: Regression
+Preconditions: As TC-0110; the tests build a real released review folder in a temporary directory.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/reports.test.ts src/__tests__/api.reports.test.ts` (issue, reissue and revoke, revoke also for a session no longer listed; a corrupt store file is 503 on exchange and read and a failed lastUsedAt write still answers 200; an unreadable reader is 503 "cannot be read" and `links` state unavailable; a role that is not released, an AI role named only in the group draft and a session with nothing ready are refused with the fixed sentences; an unknown, wrong-secret, revoked, expired, malformed and cross-session token or id gets identical bytes; a read re-checks the credential each time, a withdrawn report reads as not released, a corrupt review is 503, and a wrong-session read does not change `lastUsedAt`; no log line holds a token, id, role or path).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-05: 2 files, 41 tests passed (re-run after the review fixes).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 1. The browser routes and the cookie are PR 2, so AC-0329, AC-0330 and AC-0366 stay open.
+
+TC-0123: The reader of released reports is read-only and follows a re-run, and the control service imports only the allowed runtime subpaths
+Related Story: US-0062
+Related Task: TASK-0091
+Related AC: AC-0365
+Type: Regression
+Preconditions: As TC-0110.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/reports` (the reader resolves the single live review folder, skips a superseded one and a symbolic-link folder, lists released roles, returns a scrubbed view, gives `unavailable` for a changed or unreadable file and a plain outcome, never a throw, when a folder moves mid-read; run 20 times in a row on 2026-11-05, stable).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/bots/imports.test.ts` (control source outside `__tests__` imports `@acr/runtime` only through the `players` and `reports` subpaths).
+Expected Result: Both commands pass.
+Actual Result: As expected, 2026-11-05: step 1 2 files, 18 tests passed; step 2 1 file, 2 tests passed.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 1.
+
+TC-0124: The BFF report routes and the participant pages keep the token out of logs, address bar and referrer, and refuse as one
+Related Story: US-0062
+Related Task: TASK-0100
+Related AC: AC-0330, AC-0367, AC-0368
+Type: Regression
+Preconditions: As TC-0110.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/report-handlers.test.ts src/components/__tests__/ReportEnter.test.tsx src/components/__tests__/ReportView.test.tsx` (the enter route checks Origin and Fetch-Metadata before the throttle and before any control call; the cookie has the exact attributes and a Max-Age equal to the time left; refusals are byte-equal; the sixth failure from one address blocks it, reads that fail before control count per address while valid reads count per credential (60 a minute; twenty credentials behind one address are all served), and a blocked address gets 429 `rate_limited` with Retry-After while a refused token stays the neutral 404; a read without, with a tampered or with a wrong-purpose cookie is the neutral 404; a control 404 clears the cookie and a 503 does not; every response has no-store and no-referrer; no console call receives the token; the page removes the fragment through `history.replaceState` before the request, posts the token once under StrictMode, drops it after success, treats a new non-empty fragment as a new attempt, shows the exact copy for every state, renders markup as text, and `pre.report-text` is `pre-wrap` with `overflow-wrap: anywhere`; the print rule hides the header and the Print button).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-05: 3 files, see the PR for the count after the review fixes; the new ReportEnter tests (token dropped after success, hashchange) fail against the previous component.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 2.
+
+TC-0125: The console Participant reports panel issues, reissues and revokes links and shows a new link once
+Related Story: US-0062
+Related Task: TASK-0100
+Related AC: AC-0327, AC-0328, AC-0368
+Type: Regression
+Preconditions: As TC-0110.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/ReportLinksPanel.test.tsx` (a row per role with its status, expiry and last-opened time; Issue, Reissue behind a confirmation that says the old link stops working at once, Revoke behind a confirmation and reachable whenever a link exists; the link is shown once in the component's state, with Copy and a fallback selection, and the other buttons wait until it is dismissed; focus moves to the link's Copy button and back to the role's button; the not-ready, unavailable and failure sentences; no credential id or token in the list).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-05: 1 file, 18 tests passed.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 2.
+
+TC-0126: A participant opens a report link in a fresh browser, and revoke and reissue take effect at once (Playwright, with Axe)
+Related Story: US-0062
+Related Task: TASK-0100
+Related AC: AC-0328, AC-0329, AC-0330, AC-0365, AC-0366, AC-0367, AC-0368
+Type: Integration
+Preconditions: As TC-0110, plus the Playwright browser (`PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed) and `next build --webpack` done in `apps/web`. Each test starts the real control service (mock models, temporary data directory) and `next start` in launcher mode.
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test report-access axe`.
+  2. The first test signs in, creates a session, seats three players, starts and ends it, then seeds `<data dir>/reports/<session>` (a first run, released, then superseded) and `<session>-2` (a re-run with one changed strength line, released) with the runtime's own `moderate` functions. It issues a link for a role, opens it in a fresh browser context and checks that the re-run's text shows (not the old text), "Available until" shows, the address bar has no fragment, Back does not return to the link page, the real headers of /report and /report/enter are no-store and no-referrer, and neither the control service nor next start printed the token. It revokes in the console and reloads `/report` in the same browser (refused copy), issues again, reissues, and checks that the superseded link is refused in another fresh context and the reissued one opens.
+  3. The second test, with JavaScript disabled, opens `/report/enter#x`: the server's HTML carries the no-script sentence and no request to `/api/` is made. Six bad tokens from one address are each refused; the seventh attempt shows "Too many attempts. Wait a minute and try again."
+  4. The third test runs Axe (serious and critical, WCAG 2 A and AA) on the console panel (list, and with a link shown), `/report` (report and refused) at 1280 and 400 px in light and dark, with no horizontal scroll.
+Expected Result: All pass, zero violations.
+Actual Result: As expected, 2026-11-05: report-access and axe.spec.ts, 5 tests passed in 48.8 s.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-1, PR 2. The review folders are seeded, not produced by a real `evaluate` of the e2e session (the mock models cannot score a real session). The no-script check reads the server's HTML because Chromium's script-disabled emulation keeps `<noscript>` hidden. The bad-token count is six, not five, before the block: the join's rule is "more than 5 failures".
+
+TC-0127: A participant_session actor is accepted only for self.rated and response.added, and a forged role or a facilitator command is refused
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0331, AC-0335
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/review/__tests__/fold-participant-session.test.ts src/review/__tests__/store.test.ts src/review/__tests__/review-log.test.ts src/review/__tests__/cli-self.test.ts` (the actor is accepted for `self.rated` and `response.added` only, in a `/2` review only, with `v` 1 and the role of the event; refused for every other event type, in a `/1` review, for another `v` and for a role mismatch; `/1` logs still load; a web event round-trips through `isEventShape`; a log that mixes attested CLI events and web events folds; the CLI attested path still works).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/participant-writes.test.ts src/__tests__/api.participant.test.ts` (the role is always taken from the live credential; a body with a `role` key or any unknown key is 400; a credential for one role cannot write for another; an unknown, revoked, expired, other-session or malformed credential id is the same neutral 404).
+Expected Result: All tests pass; no event carries a role that did not come from a credential.
+Actual Result: As expected, 2026-11-06: runtime 4 files, 77 tests (step 1); control 2 files, 32 tests (step 2), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1. The browser and BFF part of AC-0335 is PR 2, so AC-0331 and AC-0335 stay open. Closed in PR 2 (TC-0133, TC-0134).
+
+TC-0128: The self-assessment form is blind: it carries no evaluator level, rationale or evidence
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0332
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/form.test.ts src/reports/__tests__/reports.test.ts` (the form's keys are exactly `criteria`, `scale` and `existing`; canaries planted in the evaluator's rationale and evidence appear nowhere in it; no level is tied to a criterion other than the role's own; the reader still carries what the released report shows).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: runtime 2 files, 29 tests, all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1 (the data side). The page that shows the form is PR 2, so AC-0332 stays open. Closed in PR 2 (TC-0133, TC-0134).
+
+TC-0129: A held review.lock is retried with backoff and answers busy, and a concurrent CLI command leaves a valid chain
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0333
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/write.test.ts src/review/__tests__/review-log.test.ts` (a held lock is `ReviewBusyError`, told apart from other failures).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/participant-writes.test.ts src/__tests__/api.participant.test.ts` (up to five attempts with an injected sleep and jitter, then a 503 with code `busy` and a fixed sentence; a concurrent `moderate` command leaves a valid hash chain; a revoke between two attempts writes nothing; writes of one session run one at a time).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: runtime 2 files, 47 tests (step 1); control 2 files, 32 tests (step 2), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1. "Try again" on the page is PR 2, so AC-0333 stays open. Closed in PR 2 (TC-0133, TC-0134).
+
+TC-0130: Participant text is scrubbed on write and exports neutralise link and image syntax
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0334
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/write.test.ts src/review/__tests__/export-participant-text.test.ts` (notes and responses are cleaned and counted in code points, a note that grows past the limit when scrubbed is refused, secrets are removed; Markdown link and image syntax in notes and responses is neutralised in the exports).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: runtime 2 files, 33 tests, all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1 (the write and export sides). The escaping in the page and the threat-model section are PR 2, so AC-0334 stays open. Closed in PR 2 (TC-0133, TC-0134).
+
+TC-0131: Capacity is bounded, and no write attempt begins after a revoke or reissue has returned
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0369, AC-0370
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/write.test.ts` (an unchanged resubmit writes nothing, and is still `ok` with 0 written when CLI-attested writes already pushed the role past the cap; the cap of 10 times the criteria per role and the cap of 50 responses per report are reached one write at a time; a duplicate criterion in one submit is invalid).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/participant-writes.test.ts src/__tests__/api.participant.test.ts` (20 counted writes per credential in 10 minutes, then 429 with `Retry-After`, and the table is swept; the credential is re-checked before every attempt, so a revoke or reissue that has returned stops the next attempt; two simultaneous identical responses give two 200 answers (`wrote` true, then false) and one event (`participant-writes.test.ts`); a body of 51 ratings is 400 (`api.participant.test.ts`); a 7-criterion body fits the 64 KB cap, the real service writes every fixture criterion with full-length CJK notes, and a 1,500-emoji response is written (200, `wrote: true`) against a released review; one byte over the 64 KB or 16 KB cap is 413 with the fixed sentence; other routes still cap at 4 KB).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: runtime 1 file, 31 tests (step 1); control 2 files, 32 tests (step 2), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1. An attempt already past its credential check may complete: a check inside the review lock would need an async hook in `applyCommand` and is out of scope (recorded in the spec).
+
+TC-0132: Rating progress shows in moderate status, and a review opened before /2 refuses web writes with the old-schema sentence
+Related Story: US-0063
+Related Task: TASK-0092
+Related AC: AC-0371, AC-0372
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/progress.test.ts src/participant/__tests__/write.test.ts` (the count of rated and total criteria per role, and `unavailable` for the whole call when the log cannot be read or belongs to another session; a `/1` review answers `old_schema` and writes nothing). From `services/runtime` also `pnpm exec vitest run src/review/__tests__/cli-self.test.ts` (the `moderate status` test prints "rated k of n criteria" per draft player and "x of y players have rated").
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/participant-writes.test.ts` (a review re-sealed as `acr.review/1` makes both the rating and the response answer 409 `old_schema` with the fixed sentence that points to the terminal and no id or path, and nothing is written).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: runtime 3 files, 59 tests (step 1); control 1 file, 21 tests (step 2), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 1. The console column is PR 2, so AC-0371 stays open. Closed in PR 2 (TC-0133, TC-0134).
+
+TC-0133: A participant rates with the runtime exited, sees the report, table and forms after release, and revoke and reissue refuse the next write (Playwright, with Axe)
+Related Story: US-0063
+Related Task: TASK-0101
+Related AC: AC-0331, AC-0332, AC-0333, AC-0334, AC-0335, AC-0370, AC-0371, AC-0372
+Type: Integration
+Preconditions: As TC-0126 (the Playwright browser, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed, and `next build --webpack` done in `apps/web`; build first, because the stacks run `next start` against that build). Each test starts the real control service (mock models, temporary data directory) and `next start` in launcher mode. The review folders are seeded with the runtime's own `moderate` functions as `/2` reviews (`services/control/src/__tests__/seed-report-folders.ts`, which also has `release` and `resolve` sub-commands), with a recognisable evaluator level and rationale planted in the draft.
+Steps:
+  1. From `apps/web`: `pnpm exec next build --webpack`, then `pnpm exec playwright test e2e/report-access.spec.ts e2e/axe.spec.ts --trace off`.
+  2. (a) `a draft player rates with the runtime exited and never sees the evaluator; release, then the table and form appear; a dispute is resolved and its reason shows`: the console lists the draft role ("Rated 0 of 3 criteria") with the release warning; the facilitator issues a link for the draft; the participant opens it in a fresh browser, rates three criteria with a note, saves, reloads (the saved ratings and note come back), chooses "Not observed" for one criterion, saves and reloads (it is still checked: control's real `null` level passes the BFF parser), restores that rating, and finds neither the planted level nor the planted rationale in the page text, the page HTML or any response body; the console then shows "Rated 3 of 3 criteria"; after release the page shows "Your report", the comparison table (evaluator's level beside the participant's rating), no Save button and the response form ("0 of 50 used"); a response and a dispute raise the count to 2 of 50; after the facilitator resolves the dispute and the page is reloaded, "Outcome: upheld" and the facilitator's reason show; a 1,500-character unbroken response leaves no horizontal scroll at 400 px. The response bodies are all read before the canary check, and a recorded body must be the `GET /api/v1/report` JSON with `self_assess`.
+  3. (b) `revoke while the participant's cookie exists`: after a revoke, Save answers 404, the page shows the refused sentence, the form is gone, the cookie and the browser draft are cleared. (c) `reissue mid-rating`: the old tab's Save answers 404 and is refused (cookie and draft cleared); the new link, opened in the same browser, shows the earlier saved rating and note and no unsaved choice. (d) `a stale form after release`: Save answers 409, the page says the ratings are closed, what was typed stays in the form, the cookie stays, and after a reload the closed rating was never written ("Not rated").
+  4. (e) and (f) are the Axe specs: `Axe: the self-rating form, its busy error, and the released page with the table, responses and forms; and the console panel with a draft row` and `Axe: the closed, old_schema, throttled and not_released states of /report`, each at 1280 and 400 px in light and dark (serious and critical, WCAG 2 A and AA, no horizontal scroll). The 2c-1 specs in the same files (TC-0126) are run too.
+Expected Result: All pass, zero violations.
+Actual Result: As expected, 2026-11-06 (re-run after the review fixes; the same 11 tests): `report-access.spec.ts` and `axe.spec.ts`, 11 tests passed in 3.8 min (7 in report-access.spec.ts: 3 from TC-0126 and the 4 above; 4 in axe.spec.ts: 2 earlier and the 2 above), on the installed Chromium 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE` after a fresh `next build --webpack`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 2. The busy, closed, old_schema, throttled and not_released pages are produced by intercepting the BFF's answer in the browser with the fixed body control would give (a held review lock, a different seeded log or a burst of reads is hard to produce through the real stack); those states are covered against the real services by TC-0129, TC-0132 and the unit tests of TC-0134. The planted level is the draft's level label, so after release only the rationale appears (it is the real detector for a leak before release). The seeder's `release` and `resolve` assume one review folder per session.
+
+TC-0134: The self-rating form, comparison table, responses, response form, console panel and BFF write routes behave as specified
+Related Story: US-0063
+Related Task: TASK-0101
+Related AC: AC-0332, AC-0333, AC-0334, AC-0335, AC-0371
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/SelfRatingForm.test.tsx src/components/__tests__/ComparisonTable.test.tsx src/components/__tests__/ResponsesList.test.tsx src/components/__tests__/ResponseForm.test.tsx src/components/__tests__/ReportView.test.tsx src/components/__tests__/ReportEnter.test.tsx src/lib/__tests__/report-compare.test.ts src/lib/__tests__/report-draft.test.ts` (the form shows criterion names and the generic scale only; unsaved choices live in `sessionStorage` per tab, survive a reload, clear on save and on a refused link, and storage failure degrades to a working form; a note typed without a level blocks the save with an inline error and keeps what was typed; a partial draft falls back per criterion to the saved rating; saving, busy, closed and old-schema states; the comparison table puts the evaluator's level beside the participant's rating; responses and the response form (one criterion or none, the disagreement flag, "n of 50 used", a double click sends once); participant text, including markup, is shown escaped; ReportEnter clears an old draft).
+  2. From `apps/web`: `pnpm exec vitest run src/components/__tests__/ReportLinksPanel.test.tsx src/server/__tests__/report-writes.test.ts src/server/__tests__/report-handlers.test.ts src/server/__tests__/launcher-client.test.ts` (the console panel lists draft roles with "Rated k of n criteria" and "x of y players have rated", shows "not available" for an unknown count only on a draft row, warns that releasing closes self-rating and tells a draft row from a released one; the BFF write routes refuse a cross-site request (Origin and Fetch-Metadata) before any throttle accounting, need a JSON content type, cap the body at 64 KB and 16 KB, refuse a body with a `role` or any other unknown key, take the credential only from the sealed cookie, count writes per credential and failures per address, clear the cookie only on a 404 and keep it on a 503 or `busy`, answer 409 with a fixed sentence per state and re-read the view after a write).
+  3. From `services/control`: `pnpm exec vitest run src/__tests__/reports.test.ts src/__tests__/api.reports.test.ts` (a draft role can be linked and a withdrawn role cannot; the draft read returns the blind form and the progress; a released `/1` review still reads `released`; `draft` is carried on each link row). From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/progress.test.ts`.
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: step 1, 8 files, 77 tests; step 2, 4 files, 159 tests; step 3, control 2 files, 56 tests, runtime 1 file, 5 tests, all passing. Full runs the same day: runtime 220 files, 4226 passed and 1 skipped; control 32 files, 541 passed; web 73 files, 1193 passed.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-2, PR 2. The end-to-end behaviour is TC-0133; the control and runtime write side is TC-0127 to TC-0132.
+
+TC-0135: The run summary and the evaluation call bound come from one shared module, and the demo keeps its narration
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0336, AC-0339
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/run-summary/__tests__/evidence.test.ts src/run-summary/__tests__/bound.test.ts src/run-summary/__tests__/bound-log.test.ts src/demo/__tests__/live-evidence.test.ts` (the moved pure evidence collector: scenes the Game Master ended, fallback against real replies per character, facilitator alerts with sanitised reasons and no code, token or fact text; `evaluationCallBound` is 2 x (human players + 1) with a group rubric, adds no group call without group criteria and excludes AI-filled roles; `evaluationCallBoundFromLog` reads the log, scenario and rubrics and is null for a missing log, a missing scenario or invalid rubrics; `runSummaryFromLog` is null for a missing log or scenario and reads a recorded log; the demo test keeps only its narration).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: runtime 4 files, 72 tests (62, 5, 3 and 2), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. The panel that shows the summary is TC-0139 and TC-0140. The bound is an upper bound: the evaluator skips the group call below its minimum of utterances.
+
+TC-0136: The moderation library (part A) reads a review for the console and writes open, edit, accept, comment and edit-summary through the review lock
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0337, AC-0378
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/moderation/__tests__/read.test.ts src/moderation/__tests__/result.test.ts src/moderation/__tests__/write-a.test.ts` (status per subject with open criteria, open disputes, `evaluationOk` and `tableStale`; the subject view carries only its listed fields, with control characters and secrets stripped; an unknown subject is `unknown_subject`; `toModResult` maps busy, usage, coded and plain refusals and corrupt logs in a fixed order; `editScore` with a matching `expect` writes `score.edited`, a stale `expect` is `stale` and leaves the file bytes unchanged; accept, comment (feedback visible to the participant only after release) and edit-summary append events that `loadReview` verifies; a held lock is `ReviewBusyError`).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: runtime 3 files, 11 tests (3, 1 and 7), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. Release, amend, withdraw, resolve and export are part B (TASK-0102). These tests prove the library refuses a stale edit; that the page keeps the typed text is TC-0139 and TC-0140.
+
+TC-0137: The evaluate job runs one sanitised child, is confirmed, guarded against repeats, cancellable and bounded in time
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0336, AC-0373, AC-0374
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed (the child is a fake in these tests).
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/report-job.test.ts` (the argv, cwd and absolute paths of the spawn; a second start is `already_running` and another session's is `too_many_running`; a session with a complete draft or a review, an incomplete review included, is `already_evaluated` and spawns nothing; not ended is `not_ended`; a different `confirmedCalls` is `confirm_mismatch`; a start beside an orphan folder, even with the right `confirmedCalls`, is 409 `orphan` and spawns nothing; `isActive` holds from the spawn until `onDone` settles, though the job already reads done; the output folder is read from the child's JSON and must be a candidate name, `..` refused; progress keeps only allowlisted lines, at most 50; `buildEvalChildEnv` holds nothing outside the allowlist and no `NODE_OPTIONS`; cancel and the overall timeout (clamped per-call timeout, max with `NPC_REPLY_TIMEOUT_MS`, below 2^31-1) kill the child; a cancel after exit does not relabel the run; a persist failure logs one fixed line; on exit 0 `onDone` is called once, and if it throws the overview reads `ready_to_open`; a persisted running state becomes `failed (interrupted)`; shutdown kills the child; a late complete draft is `ready_to_open`, not orphan; an orphan is a candidate whose drafts do not load; `REPORT_EVALUATE_MARGIN_MS` defaults to 120000 within 0 to 3600000; the real spawn wrapper passes exactly the given env).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/main.test.ts` (the report routes are wired and the evaluate child gets the `.env`-merged environment; `close()` stops a running job). From `services/runtime`: `pnpm exec vitest run src/reports/__tests__/candidates.test.ts src/evaluator/__tests__/main-env.test.ts` (the draft-candidate lookup lists `<id>` and `<id>-2`, not `<id>-100`, a symlink or another session, tells complete from incomplete and opened from unopened, does not count a review opened for another session as this session's, and never throws; the evaluator does not read the repo `.env` when `NO_DOTENV=1`).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: control 1 file, 25 tests (step 1); control 1 file, 12 tests, runtime 2 files, 8 tests (6 and 2) (step 2), all passing (after the whole-branch review fix wave).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. The real evaluate child is run once end to end in TC-0140 (the two-tab double click), on a log the mock evaluator cannot score; scoring is not proven end to end (Task 1 finding).
+
+TC-0138: The moderation service and the control report routes give closed results, cap bodies, require expect and attribute writes to <name>-console
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0337, AC-0373, AC-0378
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/moderation.test.ts` (the actor is `<cleaned name>-console` and the event passes `loadReview`; a name with a space or over 56 characters is `invalid`; a stale `expect` is 409 `stale` and keeps the log bytes; a busy lock is retried 5 times with the injected sleep, then 503 `busy`; a corrupt log, or a valid `review.opened` followed by a bad line, is 503 `unavailable`; a symlinked session log is 404 and never followed; open returns the subject count; the overview's stages (not_evaluated, evaluating, ready_to_open, in_review, orphan), `evaluating` and not `ready_to_open` while the automatic open after a run is still in flight, and `confirm.upTo` only when a run may start; no outcome carries a path or a review-layer message).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/moderation-routes.test.ts src/__tests__/participant-writes.test.ts src/__tests__/bots/imports.test.ts` (every route answers with its service and 404s without it; a bad session, subject or criterion id is 404 before the body is read; 413 over 4 KB, 16 KB for edit, comment and edit-summary (an edit of 500 plus 1,500 CJK characters passes); unknown keys, wrong types and non-JSON are one 400 `invalid`; edit without `expect` is 400; an invalid name for evaluate starts nothing; a 409 carries only the closed code, `orphan` included; busy sets `Retry-After`; `GET evaluate` is 404; the service token is checked first; the shared lock retry still serves the participant writes; the import guard lists the allowed runtime subpaths).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: control 1 file, 15 tests (step 1); control 3 files, 38 tests (14, 21 and 3) (step 2), all passing (after the whole-branch review fix wave).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. `edit-summary` has a control and BFF route but no console control in part A.
+
+TC-0139: The console Report panel and the BFF report routes behave as specified
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0336, AC-0337, AC-0339, AC-0374, AC-0378
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report` (the evaluate card's states, failed and orphan sentences included; the confirmation shows "up to N model calls" from the server's bound, says cancelling does not refund, and sends N back unchanged with the typed name; polling only while evaluating, and a failed poll keeps polling; the progress list and status line are polite live regions; refusals are the fixed sentence for their code; the run summary, alerts and comments are text, `<b>` stays literal; the subject list shows each subject's own state and open items, criteria to score by hand counted once each (so an accepted failed evaluation or invalid level never reads "No open items"); a subject whose evaluation failed says so and offers Edit but no Accept, and so does an invalid level; the progress list is in the page, empty, before its first line; Save waits for a reason; a stale edit keeps the typed reason and comment and shows the stale sentence, and after a reload Save sends the new `expect`; writes stay disabled without a valid name; the name rule refuses "Kamal Syed"; the field works when storage is blocked; the panel shows above the participant links only once the session has ended).
+  2. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-report-handlers.test.ts src/__tests__/runtime-imports.test.ts src/__tests__/source-rules.test.ts` (a write without the console cookie is 401; a cross-site write is refused before the throttle counts it; the typed name is forwarded as `by` and nothing from the cookie; bodies that do not fit the route are refused; every closed control code is its own fixed sentence, `orphan` included; `unknown_subject` (answered 404 by control) has no sentence and reads as generic; an unknown code is the generic sentence; busy, unavailable and not found are fixed and control's `Retry-After` is not copied; the 15 s control timeout is 504; over the cap is 413 (16 KB for edit, comment and edit-summary); 61 writes a minute are throttled; the answers are parsed field by field and fail closed on an unknown level, an unsafe id (in `scoreByHand` too) or too much progress; `evaluationOk` and `scoreByHand` reach the browser; the job's folder is never sent; the report handlers import neither the runtime nor the file system; the author field may use `sessionStorage` only).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: step 1, 4 files, 26 tests; step 2, 3 files, 32 tests (21, 4 and 7), all passing (after the whole-branch review fix wave).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. The browser behaviour against the real services is TC-0140.
+
+TC-0140: The facilitator reviews a seeded draft in the browser, a stale second tab keeps its text, and a two-tab double click on Evaluate runs one job (Playwright, with Axe)
+Related Story: US-0064
+Related Task: TASK-0093
+Related AC: AC-0336, AC-0337, AC-0339, AC-0373, AC-0378
+Type: Integration
+Preconditions: As TC-0133 (the Playwright browser, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed, and `next build --webpack` done in `apps/web` first). Each test starts the real control service (`MODEL_PROVIDER=mock`, temporary data directory) and `next start` in launcher mode. The review test seeds the draft with `seedDraft` (the runtime's own evaluate and moderate functions: one opened review, alice released, bob a draft) because the e2e's players never speak and the mock evaluator scores nothing on that log (spec section 11, Task 1 finding).
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test report-moderation axe --trace off`.
+  2. (a) `review in the browser: the seeded draft opens with the run summary and subjects; edit, a stale second tab keeps its text, accept, comment`: before the seed the panel offers Evaluate; after it the stage is in_review (the seed opens the review), with "How the run went" and Review buttons for Alice (Released), Bob (Draft) and Group; tab A saves Discovery at level 3 with a reason; tab B, whose open form still expects level 2, gets the stale sentence while its level choice, reason, rationale and comment stay; Reload keeps the form and says the save now replaces level 3; the edit leaves bob one open item, Accept the summary closes it; a comment with `<b>` shows as literal text.
+  3. (b) `two tabs click Evaluate at once: one job runs, the other is refused, and a later evaluate is already_evaluated`: both tabs confirm "up to 8 model calls" together; exactly one says the evaluation has started and the other gets already running (or already has a draft); the real mock evaluate child finishes and control opens the review; the reports folder holds exactly one folder, `<session id>`; a later evaluate request from the page is 409 `already_evaluated` and adds no folder.
+  4. (c) `Axe: the Report panel ready to evaluate, with a refused name, the evaluate confirmation, in review with the subject list, and a subject view with an open edit form`: each at 1280 and 400 px in light and dark (serious and critical, WCAG 2 A and AA, no horizontal scroll). The four earlier Axe specs in `axe.spec.ts` are run too.
+Expected Result: All pass, zero violations.
+Actual Result: As expected, 2026-11-06: 7 tests passed in 1.6 min after the whole-branch review fix wave (earlier: 1.7 min) (2 in `report-moderation.spec.ts`; 5 in `axe.spec.ts`: 4 earlier and the 1 above), on the installed Chromium headless shell 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE` after a fresh `next build --webpack`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part A. Not covered end to end: a real evaluate that scores (the seeded draft stands in; scoring keeps its evaluator tests), the `evaluating` card with progress and Cancel, the failed and orphan states (unit tests in TC-0137 and TC-0139), the `ready_to_open` stage and its Open the review button (unit and service tests only, TC-0138 and TC-0139: the seed and the real child both open the review themselves), a subject whose evaluation failed (unit tests, TC-0139), and Axe on the running card. The double click proves the one-job guard with the real child and the real routes; which of `already_running` and `already_evaluated` the second tab gets depends on timing, and both are accepted.
+
+TC-0141: The moderation library (part B) releases an explicit list through the gate, requires reasons, resolves disputes and exports with the event first
+Related Story: US-0064
+Related Task: TASK-0102
+Related AC: AC-0337, AC-0375, AC-0376, AC-0377
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/moderation/__tests__/write-b.test.ts` (release with an empty list is a usage error and writes nothing; an open criterion throws `blocked` with that subject's id and leaves the log bytes unchanged; an unknown subject is `unknown_subject` and an already released one `not_editable`; two subjects release in one write and `groupTableStale` is reported; withdraw and amend require a reason; withdrawing a player after the group was released reports `groupTableStale`; resolve as `amended` before an amend is `needs_amend`; an export of a draft is `not_released` and appends nothing; a facilitator export of an amending subject and a participant export of another role's report are refused; an export appends exactly one `report.exported` event with destination `console-download` and a participant audience gets no facilitator-only text; the reports directory listing is unchanged apart from `review.jsonl`).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: runtime 1 file, 12 tests, all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part B. These are the same gate and fold the terminal's `pnpm moderate` uses (`review/gate.ts`, `review/fold.ts`); the terminal's own release, amend, withdraw, resolve and export tests are unchanged.
+
+TC-0142: The moderation service and the control report routes (part B) give closed results, cap bodies, refuse an `all` release and serve export as JSON with no file written
+Related Story: US-0064
+Related Task: TASK-0102
+Related AC: AC-0337, AC-0375, AC-0376, AC-0377
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/moderation-b.test.ts` (release with an empty list or an unsafe id is 400 and writes nothing; an open item is 409 `blocked` with the ids and nothing written; release answers `released` and `groupTableStale`, an unknown subject is 404 and a second release 409 `not_editable`; every part B event is by `<name>-console` and a bad name is 400; amend and withdraw need a reason; resolve: `amended` before an amend is `needs_amend`, declined closes the dispute, a missing response is `refused`; export of a draft, and a facilitator export of an amending subject, are `not_released` and write nothing; export returns `{ fileName, markdown }`, writes the event first and nothing to the reports folder; a `participant:alice` export of the group has no `bob` column while the facilitator's has; a superseded review is `superseded` for a write and `refused` for a participant export).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/moderation-routes.test.ts src/__tests__/moderation.test.ts` (the part B describe: every route answers 200 and passes the typed fields; `{subjects: []}` and `{all: true}` are 400 before the service is called; strict bodies (an unknown key, a bad enum, `seq` or audience, a missing reason are 400); ids and the session are checked before the body is read, wrong methods and unknown paths are 404; without a moderation service every part B route is 404; 4 KB for release and export and 16 KB for amend, withdraw and resolve, over is 413; a blocked release carries only safe ids and no text; export is `POST` only and answers JSON with no attachment headers. The part A tests of both files still pass).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: step 1, 1 file, 10 tests; step 2, 2 files, 38 tests (22 in moderation-routes, 8 of them part B; 16 in moderation), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part B. The routes test uses a fake service; the service test runs the real review library on a fixture draft.
+
+TC-0143: The console's release bar, dialogs, row actions, dispute panel and export menu, and the BFF's part B routes, behave as specified
+Related Story: US-0064
+Related Task: TASK-0102
+Related AC: AC-0337, AC-0338, AC-0375, AC-0376, AC-0377
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report/__tests__/release.test.tsx src/components/console/report/__tests__/after-release.test.tsx src/components/console/report/__tests__/ReportPanel.test.tsx src/components/console/report/__tests__/SubjectView.test.tsx src/lib/__tests__/report-audience.test.ts` (the release dialog names each subject and its audience and lists what blocks it, and its confirm is disabled while anything blocks; "Release everything" sends the full list, never an `all` flag; the amend and withdraw dialogs name the subject and audience, withdraw says it cannot be undone, and both require a reason; the dispute panel offers Amended only after an amend has been released (a dispute carried from a superseded review is not offered it); export posts, saves the returned text and shows the fixed sentence on a refusal; a stale or busy refusal keeps the typed reason; the group-table hint after a release or withdraw; released and withdrawn subjects show no Edit or Accept; a missing `evaluationOk` reads as failed; the audience wording equals `POLICY` in `services/runtime/src/review/policy.ts`, version 1).
+  2. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-report-handlers-b.test.ts src/__tests__/runtime-imports.test.ts` (the five part B routes check the cookie, then Origin and Fetch-Metadata, then the throttle; release refuses an `all` key and an empty list; caps; export builds the attachment itself with `Content-Disposition: attachment; filename="report-<subject>.md"`, `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`, and a bad file name becomes `report.md`; the route count and the import guard).
+Expected Result: All tests pass.
+Actual Result: As expected, 2026-11-06: step 1, 5 files, 40 tests (6, 14, 9, 9 and 2); step 2, 2 files, 11 tests (7 and 4), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part B. The summary text has no console control (edit-summary has control and BFF routes only; the terminal has the command), so nothing here tests one.
+
+TC-0144: Release in the browser, the participant reads it with the runtime gone, a dispute is resolved, amend and re-release, withdraw and export (Playwright, with Axe)
+Related Story: US-0064
+Related Task: TASK-0102
+Related AC: AC-0337, AC-0338, AC-0340, AC-0375, AC-0376, AC-0377
+Type: Integration
+Preconditions: As TC-0140 (the Playwright browser, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed, `next build --webpack` in `apps/web` first; the real control service with `MODEL_PROVIDER=mock` and `next start` in launcher mode). The draft is seeded with `seedDraft` (one opened review, every item accepted, alice released, bob and the group drafts) for the reason given in TC-0140.
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test report-moderation report-release axe --trace off`.
+  2. (a) `release in the browser, the participant reads it with the runtime gone, a dispute is resolved, amend and re-release, withdraw, export` (`report-release.spec.ts`):
+     - while the session runs, the runtime count finds its process (the positive control for the exit check below);
+     - the release bar offers bob and the group, not alice (released, with Amend, Withdraw and Export);
+     - a blocked release: tab A's dialog for bob names "Bob", "Bob (the participant this report is about)" and "The facilitator"; tab B's edit then makes bob's summary stale; A's confirm gets "Some reports still have open items. Resolve them, then try again." and "Blocked: Bob", the dialog now lists the open item with Release disabled, and `review.jsonl` gains no `report.released`;
+     - a same-origin release with `{all: true}` and one with `{subjects: []}` are 400, and nothing is released;
+     - bob's stale summary is accepted (the group's draft has none to accept), then "Release everything" names Bob and Group with their audiences (the group's from the policy) and releases both ("Released: Bob, Group.");
+     - once the runtime count is 0, bob's link is issued in the console and opened in a fresh browser context: the report shows, and the group report holds no `` | `alice` | `` column, while the facilitator's export of the group does;
+     - bob files a dispute on Listening; in bob's view the console lists it ("About Listening"), offers Upheld and Declined only, resolves it as upheld with a reason; after a reload the participant sees "Outcome: upheld" and the reason;
+     - Amend names Bob and his audience and is disabled until a reason is typed; bob is Amending while the participant still sees a report; Discovery is edited, the summary accepted, the row's Release re-releases bob ("Released: Bob."), and the participant's table shows the new level;
+     - Withdraw the group says "Withdrawing cannot be undone.", "It is no longer shown to:" and the group audience, is disabled until a reason is typed, and withdraws it; the participant's page no longer has a group report;
+     - the row's Export for bob preselects bob and the facilitator view; two downloads (`report-bob.md`) each equal the terminal's `pnpm moderate export <dir> bob --for facilitator` Markdown, the `console-download` events for bob go 1 then 2, and the reports folder's file list is the same before and after.
+  3. (b) `Axe: the release, amend and withdraw dialogs, the open-dispute panel and the export menu` (`axe.spec.ts`): bob released by the terminal function, a dispute filed from his page; bob's view with the open dispute and the export menu, then each dialog (opened and cancelled), each at 1280 and 400 px in light and dark (serious and critical, WCAG 2 A and AA, no horizontal scroll). The part A specs of both files are run too.
+Expected Result: All pass, zero violations.
+Actual Result: As expected, 2026-11-06: `report-moderation report-release axe` 9 tests passed in 2.2 min (2 in `report-moderation.spec.ts`, 1 in `report-release.spec.ts`, 6 in `axe.spec.ts`: 5 earlier and the 1 above); the whole suite (`playwright test --trace off`) 50 passed in 8.0 min; on the installed Chromium headless shell 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE` after a fresh `next build --webpack`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-3 part B. What this does not prove: a real evaluate that scores (the seed stands in; the real evaluate child runs end to end only in TC-0140's one-job check); the summary edit (no console control); a refused amend, withdraw or resolve in the browser (unit tests, TC-0143); the participant export view and the index export in the browser (unit and service tests, TC-0142, TC-0143); Amended as a resolve outcome in the browser (unit tests). "Runtime gone" is the control service having stopped the ended session's runtime process (the end grace), checked by process list, not a crash.
+
+TC-0145: Issue and reissue of a report link refuse an AI role with the fixed sentence, after the review check and fail-closed, and revoke still works
+Related Story: US-0060
+Related Task: TASK-0103
+Related AC: AC-0379, AC-0322
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/reports.ai-roles.test.ts` (issue and reissue of a role that has a draft but is listed in `aiRoles` answer 409 "AI players do not get report links." and mint nothing; a null `aiRoles`, a throw and a non-list each answer the 503 "reports cannot be read" for both; a session with no review still answers "not ready" when `aiRoles` is null; a human role with a draft is issued a link; roles named `__proto__` and `constructor` are not AI unless listed; revoke still works for an AI role with a live credential; the `links()` rows are in TC-0148; an unreadable review combined with an AI-listed role answers the 503, not the AI sentence, which pins the guard order).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: 1 file, 21 tests (10 for the guard, 11 for `links()`), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 1. The guard comes after `reviewStatus`, so the review check still decides "not ready" first. The `links()` flag and memo tests in the same file are part of TC-0148.
+
+TC-0146: The AI-role reader returns null for anything it cannot trust, and the control service wires it fail-closed
+Related Story: US-0060
+Related Task: TASK-0103
+Related AC: AC-0379, AC-0322
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/run-summary/__tests__/ai-roles-from-log.test.ts` (`aiRolesFromLog` returns the roles of a log with `aiRoles`, `[]` when none are recorded, and null for an inconsistent record (a non-player role), two `session.started` events, a missing log and a missing scenario folder).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/ai-roles.test.ts` (`aiRolesFor` returns the roles of a valid ended session and null for a missing or empty log, two `session.started`, a missing scenario folder, a corrupt `sessions.json`, an invalid session id and a session not in the list).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: step 1, 1 file, 6 tests; step 2, 1 file, 8 tests, all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 1. Null means "cannot tell", which the guard turns into the 503. Because the set is checked against the current scenario, an edited or removed scenario folder makes issue answer 503 for that session (THREAT_MODEL, "AI roles in the credential path").
+
+TC-0147: The "(AI player)" label of a quote survives the released report page, its print view and the facilitator export
+Related Story: US-0060
+Related Task: TASK-0103
+Related AC: AC-0380, AC-0321
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/ReportView.ai-label.test.tsx` (the label renders as text in a quote, is not inside a `.no-print` element, and a `<script>` variant renders as literal text and creates no element).
+  2. From `services/runtime`: `pnpm exec vitest run src/reports/__tests__/ai-label-export.test.ts` (a released group report holding an `ai: true` quote keeps the "(AI player)" marker in `readReleasedView` Markdown and in the `exportReport` output).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: step 1, 1 file, 3 tests; step 2, 1 file, 2 tests, all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 1. Tests only: no source change was needed, the labels already survive release and export.
+
+TC-0148: The `ai` flag reaches the console as an optional field, the link list shows "AI player" without Issue or Reissue, and an AI role is never a moderation subject
+Related Story: US-0060
+Related Task: TASK-0103
+Related AC: AC-0381, AC-0322
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/reports.ai-roles.test.ts` (the `links()` describe: an AI role with a live credential is listed `ai: true`, one without a credential is omitted, human rows are unchanged, a null or throwing `aiRoles` marks nothing and hides nothing, `aiRoles` is not called when there is no review and no live credential, is read once per session, is not cached when null, the memo holds at most 64 sessions and drops the oldest, and issue and reissue never use the memo).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/moderation.ai-role-absent.test.ts` (the moderation overview has no `ai1` subject and exporting `ai1` is refused).
+  3. From `apps/web`: `pnpm exec vitest run src/components/__tests__/ReportLinksPanel.ai.test.tsx src/lib/__tests__/console-api.report-links-ai.test.ts src/server/__tests__/launcher-client.test.ts src/server/__tests__/report-handlers.test.ts` (the panel shows "AI player" for an AI role, offers only Revoke while a link is live and no button otherwise, human rows are unchanged; `parseReportLinks`, the launcher client and the BFF handler keep `ai` only when exactly `true`).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: step 1, the 11 `links()` tests are in the 21 of TC-0145; step 2, 1 file, 2 tests; step 3, 4 files, 121 tests (3 and 2 in the two new files; 1 new in launcher-client and 2 new in report-handlers among the existing ones), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 1. A missing flag, "yes" or any value other than `true` is not AI, so an older control service still renders (docs/ROLLBACK.md). Not covered: a revoked or expired AI credential row in the panel (deferred minor).
+
+TC-0149: An AI role is refused a report link in the browser while a human role in the same review is issued one (Playwright)
+Related Story: US-0060
+Related Task: TASK-0103
+Related AC: AC-0381, AC-0322
+Type: Integration
+Preconditions: As TC-0140 (the Playwright browser, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed, `next build --webpack` in `apps/web` first; the real control service with `MODEL_PROVIDER=mock` and `next start` in launcher mode). The review is seeded with `seedDraft` (alice released, bob a draft) because the mock models cannot score the e2e session.
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test report-ai-role --trace off`.
+  2. `report-ai-role.spec.ts`: Tech lead is made an AI player in the real lobby before Start, the two humans join, the session starts and ends, and the review is seeded; the console's issue route refuses the AI role with "AI players do not get report links." (and not "There is no report to link for this role.", which shows the guard is what refuses), while a link for a human role of the same review is issued.
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: `report-ai-role` 1 test passed (5.7 s); with `report-moderation report-release report-access ai-players axe` 23 passed in 3.3 min on the installed Chromium headless shell 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE`, after a fresh `next build --webpack`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 1. Not proven end to end: the "AI player" label on the link row, because that row exists only for an AI role with a stale live credential, which the guard prevents (TC-0148 covers it with unit tests).
+
+TC-0150: A facilitator edits a participant's summary in the console: pre-filled boxes, a required reason, fixed refusals, and nothing dropped
+Related Story: US-0066
+Related Task: TASK-0104
+Related AC: AC-0382
+Type: Integration
+Preconditions: As TC-0110 for the unit steps (a checkout with dependencies installed; no model key and no browser). For step 3 as TC-0140 (the Playwright browser, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed, `next build --webpack` in `apps/web` first; the real control service with `MODEL_PROVIDER=mock` and `next start` in launcher mode; the review is seeded with `seedDraft`).
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report/__tests__/SummaryEditor.test.tsx` (the boxes open pre-filled with the current strengths, developments and actions, an action is `LO-ID: text` split at the first colon, a reason is required, an empty summary, an action line without an id, more than 50 entries, an entry over 400 characters and a body over 16 KB and a reason over 500 characters are refused before any send with one fixed sentence, while exactly 50 entries, a 16384-byte body and a 500-character reason are sent; an untouched box re-sends its entries, a removed line is deleted, a server refusal keeps what was typed, every string renders as text, the opener is disabled without a name and Save without a reason, the boxes are disabled while a save is in flight, an entry with a line break in any of the three lists makes the editor unavailable with a fixed sentence pointing to `pnpm moderate edit-summary`, and the labels and error line have accessible names).
+  2. From `apps/web`: `pnpm exec vitest run src/lib/__tests__/console-api.edit-summary.test.ts src/components/console/report/__tests__/SubjectView.test.tsx` (`editSummary` posts the three lists and the reason and returns the parsed refusal sentence on a 4xx; the editor is mounted under the criteria of an editable subject, the subject is read again after a save, and a released subject has no editor).
+  3. From `apps/web`: `pnpm exec playwright test report-moderation axe --trace off`. `report-moderation.spec.ts`: bob's boxes open pre-filled, one strength is added and saved, every earlier strength is still there. `axe.spec.ts`: Axe on the summary editor open and on its error line, light and dark and at phone width.
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06 (re-run after the review fixes): step 1, 1 file, 16 tests; step 2, 2 files, 13 tests (2 in console-api.edit-summary, 11 in SubjectView of which 2 are new); step 3, `report-moderation axe --trace off` 8 passed in 1.6 min on the installed Chromium headless shell 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE`, after a fresh `next build --webpack` (before the fixes it was part of the 23 passed of `report-moderation report-release report-access ai-players report-ai-role axe` in 3.4 min).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 2. No server change: the route and its 16 KB cap already existed. An entry that contains a line break can exist: `moderate edit-summary --strength $'a\nb'` keeps it (`cleanText` normalises `\r\n` but keeps `\n`), and the console's copy keeps it too. One-per-line boxes would split such an entry silently (a strength or development into two entries; an action line `LO-1: x` followed by `Note: y` into a second action with `lo` "Note", which the server accepts when the draft lists no objectives), so the editor is not offered for such a summary and says to use the terminal. Not testable in the browser: the pre-filled text is the console's display copy (`cleanLine` in services/runtime/src/moderation/read.ts strips hidden characters, shows secrets as [redacted] and shortens home and temp paths to ~ and <tmp>), so an untouched save of an entry that held any of these stores the display form; the client cannot detect it and there is no guard. Last write wins on the server (no compare-and-set).
+
+TC-0151: `moderate status` shows the first 8 characters of a web link id, a short or missing id does not crash it, and the id never crosses the wire
+Related Story: US-0066
+Related Task: TASK-0104
+Related AC: AC-0383
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/review/__tests__/cli-status-web.test.ts` (the draft player's "rated N of M criteria" line and an open dispute end with ` via web link <id>` in 8 characters, a facilitator-attested rating shows nothing, an id shorter than 8 characters prints whole and does not crash, several links are listed once each).
+  2. From `services/runtime`: `pnpm exec vitest run src/review/__tests__/fold-participant-session.test.ts` (a `self.rated` and a `response.added` from a web link record `via` as the 8-character id, a facilitator-attested one has `via: null`, `shortLinkId` keeps ids of 8 characters or fewer whole).
+  3. From `services/runtime`: `pnpm exec vitest run src/moderation/__tests__/read.test.ts` (the moderation status and subject view map their fields explicitly, so `via` never reaches the web).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: 3 files, 25 tests (4, 17 of which 5 are new, and 4 of which 1 is new), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 2, Deviation 1: there is no `history` command and `who()` is left alone, so the id appears in `moderate status` only. See docs/THREAT_MODEL.md "Credential ids in terminal output". Not covered: the ids are collected in criterion order, not log order, and the distinct-ids test cannot fail if the dedupe were removed for a fixture with fewer than 3 criteria; `via` shows only on the "rated N of M" line (draft players) and on open disputes.
+
+TC-0152: The in-scope console minors are fixed, and the part B route codes 409 and 503 are pinned
+Related Story: US-0066
+Related Task: TASK-0104
+Related AC: AC-0384
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed. The Axe fixture change (the throttled state uses `rate_limited`) is exercised by the Playwright run of TC-0150 step 3.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report/__tests__/after-release.test.tsx src/components/console/report/__tests__/release.test.tsx` (an amending row offers Withdraw, a released row still offers Amend and Withdraw, a withdrawn row offers neither; a subject with no status row is blocked and the release dialog lists it with `REPORT_CONSOLE.blockerMissing`).
+  2. From `apps/web`: `pnpm exec vitest run src/components/__tests__/SelfRatingForm.test.tsx` (a whitespace-only note with no level is not blocking and is not sent; a real note with no level still blocks).
+  3. From `services/control`: `pnpm exec vitest run src/__tests__/moderation-routes.part-b-codes.test.ts` (the 409 and 503 codes of the part B release, amend, withdraw, resolve and export routes).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: step 1, 2 files, 32 tests (25 and 7, of which 4 are new); step 2, 1 file, 23 tests (2 new); step 3, 1 file, 25 tests (all new, from 3 `it` blocks that loop over the codes).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 2. Fixed in the same PR: the unused `REPORT_CONSOLE.resolved` was deleted. Not covered: the `refused` (409) code for release, amend and withdraw, which `toModResult` maps from any uncoded refusal, and that the route forwards the parsed body to the service; a whitespace-only note on an already rated criterion is still sent untrimmed (the server accepts it). The other minors are filed as BUG-0029 to BUG-0034.

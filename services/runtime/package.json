@@ -1,11 +1,15 @@
 {
   "name": "@acr/runtime",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "private": true,
   "type": "module",
   "exports": {
-    "./players": "./src/players/index.ts"
+    "./moderation": "./src/moderation/index.ts",
+    "./participant": "./src/participant/index.ts",
+    "./players": "./src/players/index.ts",
+    "./reports": "./src/reports/index.ts",
+    "./run-summary": "./src/run-summary/index.ts"
   },
   "scripts": {
     "dev": "tsx watch src/main.ts",

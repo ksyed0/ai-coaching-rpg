@@ -13,9 +13,9 @@
     {
       "id": "EPIC-0002",
       "title": "Slice 2 — web lobby, session view and reconnect",
-      "description": "Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064).",
+      "description": "Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064, with the slice 2c-4 close-out US-0066).",
       "releaseTarget": "MVP",
-      "status": "In Progress",
+      "status": "Complete",
       "startDate": null,
       "doneDate": null,
       "dependencies": [
@@ -87,6 +87,18 @@
       "title": "Multi-client service and subdomain provisioning",
       "description": "Run the product for several client organisations from one deployment. Each client (tenant) gets its own address, either a subdomain such as epam.scenecoach.ai or a path such as scenecoach.ai/epam (to be decided in the design), its own scenarios, sessions, codes and reports kept apart from other clients, and light branding. An administrator provisions a client without a code change.",
       "releaseTarget": "Release 1.x",
+      "status": "Planned",
+      "startDate": null,
+      "doneDate": null,
+      "dependencies": [
+        "EPIC-0002"
+      ]
+    },
+    {
+      "id": "EPIC-0009",
+      "title": "Multilingual support",
+      "description": "The product is English at MVP. This epic adds language support, starting with French (Canada) as set out in docs/PRODUCT_SPEC.md (Localisation row), and covers UI strings, scenario content, AI character and Game Master behaviour, evaluator output and reports. The design must decide how translated scenario content is authored and reviewed. Model quality per language needs a calibration pass: the evaluator calibration (EPIC-0005) is English-only today.",
+      "releaseTarget": "Release 2.x",
       "status": "Planned",
       "startDate": null,
       "doneDate": null,
@@ -2588,7 +2600,7 @@
       "title": "As a facilitator, I want to fill a player role with an AI player until I start the session, so that a no-show does not stop the session.",
       "priority": "High",
       "estimate": "L",
-      "status": "In Progress",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0060-ai-role-record (slice 2b-3a PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels); slice 2b-3b: feature/EPIC-0002-US-0060-bot-engine (PR 1), feature/EPIC-0002-US-0060-ai-seats-reachable (PR 2), feature/EPIC-0002-US-0060-ai-toggle-prompt (PR 3)",
       "acs": [
         {
@@ -2613,13 +2625,13 @@
         },
         {
           "id": "AC-0321",
-          "text": "AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c)",
-          "done": false
+          "text": "AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c; web report pages and downloads built in slice 2c-4 PR 1: the \"(AI player)\" label survives the report page, print view and export (TC-0147) and an AI role is labelled in the console link list (TC-0148); AC-0321 is now complete, except that Deviation 3 (no AI row in the console subject list) is awaiting owner sign-off; if the owner wants the row it is an optional overview field plus a row component)",
+          "done": true
         },
         {
           "id": "AC-0322",
-          "text": "an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored (2b-3c and 2c read state.aiRoles from the log, which 2b-3a records; evaluator part built in 2b-3c (no individual report, no self-assessment, index row AI player, not scored; TC-0118: Tasks 11, 12, 14); report-access credentials in 2c)",
-          "done": false
+          "text": "an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored (2b-3c and 2c read state.aiRoles from the log, which 2b-3a records; evaluator part built in 2b-3c (no individual report, no self-assessment, index row AI player, not scored; TC-0118: Tasks 11, 12, 14); report-access credentials in 2c; report-access credentials built in slice 2c-4 PR 1: issue and reissue refuse an AI role, fail-closed (TC-0145, TC-0146), an AI role is never a moderation subject (TC-0148) and the browser shows the refusal (TC-0149); AC-0322 is now complete)",
+          "done": true
         },
         {
           "id": "AC-0358",
@@ -2649,6 +2661,21 @@
         {
           "id": "AC-0363",
           "text": "the facilitator can prompt an AI player with an optional private hint of at most 300 characters; the turn is reserved first, the prompt is logged without the hint, the turn runs only after the log succeeded, it skips the gap, nudge and scene cap but counts against the session's budget, and the hint reaches only the model and the facilitator-only intent log (session-engine, ws-server.ai-roles, bot-host.prompt, bot, api, console-ai-prompt, AiPlayersPanel tests and ai-players.spec.ts; TC-0112. A reservation lasts 15 s by ruling (the hub waits 10 s for the ack); aiCalls counts +1 per prompt_ai, so a prompted line counts twice after a restart and a skipped policy turn leaves no trace. Residual risk: a participant can talk an AI player into revealing its role's private facts, docs/THREAT_MODEL.md \"Prompt AI player and the toggle\")",
+          "done": true
+        },
+        {
+          "id": "AC-0379",
+          "text": "an AI role is refused a report link, fail-closed, with the fixed sentence (slice 2c-4 PR 1: the guard and the reader/wiring; TC-0145 Task 3 guard, TC-0146 Task 3 reader/wiring; built and tested: services/control/src/__tests__/reports.ai-roles.test.ts, services/runtime/src/run-summary/__tests__/ai-roles-from-log.test.ts, services/control/src/__tests__/ai-roles.test.ts)",
+          "done": true
+        },
+        {
+          "id": "AC-0380",
+          "text": "a released report's \"(AI player)\" labels are present on the report page, the print view and the facilitator export (slice 2c-4 PR 1; TC-0147 Task 1; built and tested: apps/web/src/components/__tests__/ReportView.ai-label.test.tsx, services/runtime/src/reports/__tests__/ai-label-export.test.ts)",
+          "done": true
+        },
+        {
+          "id": "AC-0381",
+          "text": "`links()` keeps an AI role with a live credential revocable, and an old control answer without the flag still renders (slice 2c-4 PR 1; TC-0148 Tasks 4 and 5, TC-0149 Task 6; built and tested: services/control/src/__tests__/reports.ai-roles.test.ts, apps/web/src/components/__tests__/ReportLinksPanel.ai.test.tsx, apps/web/src/lib/__tests__/console-api.report-links-ai.test.ts, apps/web/e2e/report-ai-role.spec.ts)",
           "done": true
         }
       ],
@@ -2702,28 +2729,48 @@
       "title": "As a participant, I want to read my report after the session has ended, so that I do not depend on the session still running.",
       "priority": "High",
       "estimate": "L",
-      "status": "Planned",
-      "branch": "feature/EPIC-0002-US-0062-report-access",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0062-report-access (slice 2c-1 PR 1); feature/EPIC-0002-US-0062-report-pages (PR 2)",
       "acs": [
         {
           "id": "AC-0327",
-          "text": "releasing a report issues a 128-bit report-access credential, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in access.json beside the review directory (0600, atomic, outside the review log)",
-          "done": false
+          "text": "the facilitator issues a link for a draft or a released report from the console (a link for a draft report lets the participant rate themselves before release; amended in slice 2c-2 PR 2, a withdrawn report still gets none); the credential is 128 bits from a CSPRNG, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in one report-access.json under the control data directory (0600, atomic, outside every review folder) (store and service built in slice 2c-1 PR 1, TC-0121; the console button in PR 2, TC-0125 and TC-0126)",
+          "done": true
         },
         {
           "id": "AC-0328",
-          "text": "the console shows the report link with the credential once, and the facilitator can revoke or reissue it",
-          "done": false
+          "text": "the console shows the report link (/report/enter#token) with the credential once, and the facilitator can revoke or reissue it (reissue asks for confirmation and says the old link stops working at once) (built in slice 2c-1 PR 2; TC-0125 for the panel, TC-0126 for the whole flow in a browser)",
+          "done": true
         },
         {
           "id": "AC-0329",
-          "text": "the control service verifies the credential and serves released views without a live runtime, tied to the session in the credential",
-          "done": false
+          "text": "the control service verifies the credential and serves released views without a live runtime, tied to the session in the credential (service and API in PR 1, TC-0122; the browser side in PR 2, TC-0124 and TC-0126: the report is read from the reports folder by the control service alone, after the session has ended)",
+          "done": true
         },
         {
           "id": "AC-0330",
-          "text": "a cross-role or cross-session request and an expired or revoked credential are refused with one neutral response",
-          "done": false
+          "text": "a cross-role or cross-session request and an expired or revoked credential are refused with one neutral response (control side TC-0122; the BFF and the pages in PR 2, TC-0124 and TC-0126)",
+          "done": true
+        },
+        {
+          "id": "AC-0365",
+          "text": "the reader of released reports is read-only (`@acr/runtime/reports`, nothing in it writes), resolves the single live review folder including a re-run's `<id>-2`, and the control service imports only the allowed runtime subpaths (built in slice 2c-1 PR 1; TC-0123; TC-0126 seeds a superseded first run and a live `-2` and sees the re-run's text)",
+          "done": true
+        },
+        {
+          "id": "AC-0366",
+          "text": "a revoke or reissue ends reads at once even for a holder of a live cookie (every read re-checks the credential), and a read with the wrong session answers 404 without touching lastUsedAt (control side TC-0122; browser side TC-0126: revoke in the console, reload /report in the same browser, refused; reissue, the old link refused and the new one works)",
+          "done": true
+        },
+        {
+          "id": "AC-0367",
+          "text": "opening a report link keeps the token out of every server log, `Referer` and the address bar: the fragment is removed before anything is awaited, posted once (also under React StrictMode), dropped after the exchange, and with script blocked the page says so and sends nothing (built in slice 2c-1 PR 2; TC-0124, TC-0126)",
+          "done": true
+        },
+        {
+          "id": "AC-0368",
+          "text": "the enter route refuses a forged cross-site POST before the throttle, answers a blocked address 429 `rate_limited` with Retry-After (a refused token stays the neutral 404), and /report, /report/enter and every report response carry no-store and no-referrer; the console DTO never carries a credential id (built in slice 2c-1 PR 2; TC-0124, TC-0125, TC-0126; docs/THREAT_MODEL.md \"Report access\")",
+          "done": true
         }
       ],
       "dependencies": [
@@ -2736,33 +2783,53 @@
       "title": "As a participant, I want to rate myself and respond to my released report in the browser, so that I can take part in the review.",
       "priority": "High",
       "estimate": "L",
-      "status": "Planned",
-      "branch": "feature/EPIC-0002-US-0063-participant-report",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0063-participant-report (slice 2c-2 PR 1); feature/EPIC-0002-US-0063-participant-report-ui (PR 2)",
       "acs": [
         {
           "id": "AC-0331",
-          "text": "a versioned actor kind participant_session is accepted only for self-assess, respond (including marking a dispute) and reading the own released report; resolve stays a facilitator action; REVIEW_SCHEMA is bumped and the fold and write checks accept the new kind",
-          "done": false
+          "text": "a versioned actor kind participant_session is accepted only for self-assess, respond (including marking a dispute) and reading the own released report; resolve stays a facilitator action; REVIEW_SCHEMA is bumped and the fold and write checks accept the new kind (runtime part built in slice 2c-2 PR 1: `acr.review/2`, the actor, the fold and `isEventShape`, TC-0127; the reading of the own report in the browser built in PR 2, TC-0133)",
+          "done": true
         },
         {
           "id": "AC-0332",
-          "text": "the report page shows levels with evidence, the calibration stamp, the self-rating column and a response box, and works after the runtime has exited",
-          "done": false
+          "text": "the report page shows the blind self-rating form before release (criterion names and the generic scale only, no evaluator level, rationale or evidence) and, after release, the report with levels and evidence, the calibration stamp, a comparison table of the evaluator's level beside the participant's own rating, the participant's responses with any outcome and reason, and a response form (with a dispute flag); it works after the runtime has exited (built in slice 2c-2 PR 1 for the data side, TC-0128, and PR 2 for the page, TC-0128, TC-0133, TC-0134)",
+          "done": true
         },
         {
           "id": "AC-0333",
-          "text": "a held review.lock is retried with backoff and the participant sees try again",
-          "done": false
+          "text": "a held review.lock is retried with backoff and the participant sees try again (lock distinction, retry with backoff and the `busy` answer built in slice 2c-2 PR 1, TC-0129; \"Busy, try again\" on the page built in PR 2, TC-0133, TC-0134)",
+          "done": true
         },
         {
           "id": "AC-0334",
-          "text": "responses and names are scrubbed and escaped in the page, exports strip Markdown link and image syntax, and the threat model records the unkeyed chain and the control service as the only web writer",
-          "done": false
+          "text": "responses and names are scrubbed and escaped in the page, exports strip Markdown link and image syntax, and the threat model records the unkeyed chain and the control service as the only web writer (scrub and export built in slice 2c-2 PR 1, TC-0130; escaping in the page, TC-0134; docs/THREAT_MODEL.md \"Participant ratings and responses\" in PR 2)",
+          "done": true
         },
         {
           "id": "AC-0335",
-          "text": "tests cover forging, cross-role access and the CLI attested path still working",
-          "done": false
+          "text": "tests cover forging, cross-role access and the CLI attested path still working (runtime and control parts built in slice 2c-2 PR 1, TC-0127: the role comes from the credential, a body naming a role is 400, every refusal is the neutral 404; the browser and BFF part built in PR 2: BFF write routes refuse cross-site writes and take the role only from the sealed cookie, TC-0134, TC-0133)",
+          "done": true
+        },
+        {
+          "id": "AC-0369",
+          "text": "capacity is bounded: at most 50 ratings per submit, 10 times the criteria in ratings per role in a review, 50 responses per report, text of at most 1,500 characters (UTF-16 bound 3,000 at the door), per-route body caps (16 KB responses, 64 KB self-ratings, 4 KB elsewhere) and at most 20 counted writes per credential in 10 minutes with a Retry-After (built in slice 2c-2 PR 1; TC-0131)",
+          "done": true
+        },
+        {
+          "id": "AC-0370",
+          "text": "no write attempt begins after a revoke or reissue has returned (the credential is re-checked before every attempt); an attempt already past its credential check may complete (control side built in slice 2c-2 PR 1; TC-0131; in a browser a revoke and a reissue while a cookie exists refuse the next write, TC-0133; docs/THREAT_MODEL.md)",
+          "done": true
+        },
+        {
+          "id": "AC-0371",
+          "text": "the rating progress of each role (and of each players-count) shows in `moderate status` and in the console (`moderate status` built in slice 2c-2 PR 1, TC-0132; the console panel, which lists draft roles with \"Rated k of n criteria\" and \"x of y players have rated\", in PR 2, TC-0134, TC-0133)",
+          "done": true
+        },
+        {
+          "id": "AC-0372",
+          "text": "a review opened before `acr.review/2` refuses web ratings and responses with a fixed old-schema sentence that points to the terminal, and a build that does not know `/2` cannot read a `/2` review (docs/ROLLBACK.md) (refusal built in slice 2c-2 PR 1; TC-0132; the page shows it in PR 2, TC-0133, TC-0134)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -2775,38 +2842,132 @@
       "title": "As a facilitator, I want to evaluate, moderate and release reports in the browser, so that I can finish the whole programme in one place.",
       "priority": "High",
       "estimate": "XL",
-      "status": "Planned",
-      "branch": "feature/EPIC-0002-US-0064-report-moderation-web",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0064-report-moderation-web (part A), feature/EPIC-0002-US-0064-report-release-web (part B)",
       "acs": [
         {
           "id": "AC-0336",
-          "text": "the control service runs evaluate and moderate open on the facilitator behalf and the console shows the run summary and per-person status",
-          "done": false
+          "text": "the control service runs evaluate and moderate open on the facilitator behalf and the console shows the run summary and per-person status (built in slice 2c-3 part A: `ReportJobService` runs the evaluate CLI as a child and opens the review with the typed name, the Report panel shows the run summary and each subject's own state and open items; TC-0135, TC-0137, TC-0139, TC-0140)",
+          "done": true
         },
         {
           "id": "AC-0337",
-          "text": "the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate",
-          "done": false
+          "text": "the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate (edit levels, accept, comment and edit-summary built in part A, TC-0136, TC-0138 to TC-0140; release, amend, withdraw, resolve and export in part B over the same library and gate, TC-0141 to TC-0144; the export download equals the terminal's export in TC-0144; edit-summary has control and BFF routes but no console control, so the summary text is edited with `pnpm moderate edit-summary`)",
+          "done": true
         },
         {
           "id": "AC-0338",
-          "text": "release, amend and withdraw show a confirmation that names the subject and audience, and an agent never performs them without the owner naming the subjects",
-          "done": false
+          "text": "release, amend and withdraw show a confirmation that names the subject and audience, and an agent never performs them without the owner naming the subjects (part B: the dialogs name each subject and its audience from the visibility policy, release takes only an explicit list; TC-0143, TC-0144)",
+          "done": true
         },
         {
           "id": "AC-0339",
-          "text": "the run summary shows scenes ended by the Game Master, fallback counts and alerts before release",
-          "done": false
+          "text": "the run summary shows scenes ended by the Game Master, fallback counts and alerts before release (built in slice 2c-3 part A: the shared `@acr/runtime/run-summary` module and the panel's \"How the run went\", shown from the moment the review is open; TC-0135, TC-0139, TC-0140)",
+          "done": true
         },
         {
           "id": "AC-0340",
-          "text": "an end-to-end test evaluates and releases a report and its owner reads it after the runtime has exited",
-          "done": false
+          "text": "an end-to-end test evaluates and releases a report and its owner reads it after the runtime has exited (part B, TC-0144: released in the console, then read in a fresh browser once the session's runtime process is gone; the draft is seeded with the runtime's own evaluate functions, the spec section 8 fallback, because the e2e's players never speak and the mock evaluator scores nothing on that log (Task 1 finding); a real evaluate run is covered end to end only as the one-job guard in TC-0140)",
+          "done": true
+        },
+        {
+          "id": "AC-0373",
+          "text": "the control service refuses to evaluate a session that already has a draft or review, and never reuses an orphan directory (slice 2c-3 part A; TC-0137, TC-0140)",
+          "done": true
+        },
+        {
+          "id": "AC-0374",
+          "text": "the facilitator confirms the model spend before evaluate runs, and a stale confirmation is refused (slice 2c-3 part A; TC-0137, TC-0139)",
+          "done": true
+        },
+        {
+          "id": "AC-0375",
+          "text": "release takes an explicit list of subjects; an empty list or `all` is refused by the server (part B; TC-0141 to TC-0144)",
+          "done": true
+        },
+        {
+          "id": "AC-0376",
+          "text": "export is a `POST` that records the export before serving the file, and nothing is written to the server's disk (part B; TC-0141 to TC-0144)",
+          "done": true
+        },
+        {
+          "id": "AC-0377",
+          "text": "the facilitator can resolve a participant's dispute in the browser (part B; TC-0141, TC-0143, TC-0144)",
+          "done": true
+        },
+        {
+          "id": "AC-0378",
+          "text": "a stale edit keeps the facilitator's typed text (slice 2c-3 part A; TC-0138, TC-0139, TC-0140)",
+          "done": true
         }
       ],
       "dependencies": [
         "US-0062",
         "US-0059"
+      ]
+    },
+    {
+      "id": "US-0066",
+      "epicId": "EPIC-0002",
+      "title": "As a facilitator, I want the small EPIC-0002 close-out gaps fixed, so that the web client ships without known loose ends.",
+      "priority": "Medium",
+      "estimate": "M",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0066-close-out-polish",
+      "acs": [
+        {
+          "id": "AC-0382",
+          "text": "a facilitator can edit a participant's summary in the console (slice 2c-4 PR 2; TC-0150 Task 11; built and tested: apps/web/src/components/console/report/__tests__/SummaryEditor.test.tsx, apps/web/src/components/console/report/__tests__/SubjectView.test.tsx, apps/web/src/lib/__tests__/console-api.edit-summary.test.ts, e2e steps in apps/web/e2e/report-moderation.spec.ts and axe.spec.ts)",
+          "done": true
+        },
+        {
+          "id": "AC-0383",
+          "text": "`moderate status` shows the first 8 characters of a web link id (slice 2c-4 PR 2; TC-0151 Task 7; built and tested: services/runtime/src/review/__tests__/cli-status-web.test.ts, services/runtime/src/review/__tests__/fold-participant-session.test.ts, services/runtime/src/moderation/__tests__/read.test.ts; there is no `history` command, so the fold carries the id as `via` and `moderate status` prints it)",
+          "done": true
+        },
+        {
+          "id": "AC-0384",
+          "text": "the in-scope minors are fixed with tests and the rest are filed (slice 2c-4 PR 2; TC-0152 Tasks 8 to 10; fixed and tested: Withdraw on an amending row, a subject with no status row is blocked, a whitespace-only note, route tests for the part B 409 and 503 codes in services/control/src/__tests__/moderation-routes.part-b-codes.test.ts; filed: BUG-0029 to BUG-0034)",
+          "done": true
+        }
+      ],
+      "dependencies": [
+        "US-0060",
+        "US-0064"
+      ]
+    },
+    {
+      "id": "US-0067",
+      "epicId": "EPIC-0009",
+      "title": "As a participant, I want to use the product and play scenarios in my own language, so that language is not a barrier to coaching practice.",
+      "priority": "Medium",
+      "estimate": "XL",
+      "status": "Planned",
+      "branch": "feature/EPIC-0009-US-0067-multilingual-support",
+      "acs": [
+        {
+          "id": "AC-0385",
+          "text": "the web UI strings come from per-language message catalogues, with a language chosen per user or per session and a documented fallback to English for any missing string; no string is hard-coded in a component",
+          "done": false
+        },
+        {
+          "id": "AC-0386",
+          "text": "scenarios and their rubrics can carry translations; an AI character speaks and a Game Master judges in the session language; the evaluator reports quote the original-language lines with a note of the report language",
+          "done": false
+        },
+        {
+          "id": "AC-0387",
+          "text": "French (Canada) is delivered first as the proving language; right-to-left and other scripts are explicitly out of scope until a later story",
+          "done": false
+        },
+        {
+          "id": "AC-0388",
+          "text": "dates, numbers, names and the accessibility labels follow the chosen language; the language of a session is recorded in the session log so reports and replays stay consistent",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "EPIC-0002"
       ]
     }
   ],
@@ -3727,19 +3888,39 @@
       "title": "Report-access credential and control-service report API",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0062-report-access",
-      "notes": "Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "notes": "Spec section 5.8; slice 2c-1 plan docs/superpowers/plans/2026-11-05-slice-2c-1-report-access.md. PR 1 (control side) built the hashed credential store, the control-service report links and read API and the read-only runtime reader (TC-0121 to TC-0123). Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+    },
+    {
+      "id": "TASK-0100",
+      "storyId": "US-0062",
+      "title": "Report pages, BFF report routes and console link panel",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0062-report-pages",
+      "notes": "Slice 2c-1 PR 2 (same plan). The BFF exchange and read routes with the sealed `__Host-scenecoach-report` cookie, /report/enter and /report, the console Participant reports panel, the Playwright and Axe tests (TC-0124 to TC-0126) and docs/THREAT_MODEL.md \"Report access\". TASK-0092 was already taken by US-0063, so this slice uses TASK-0100."
     },
     {
       "id": "TASK-0092",
       "storyId": "US-0063",
-      "title": "Actor kind, report page, self-assess and respond routes",
+      "title": "Actor kind, participant module and control write routes",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
-      "branch": "feature/EPIC-0002-US-0063-participant-report",
-      "notes": "Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0063-participant-report (slice 2c-2 PR 1)",
+      "notes": "Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). Inputs from slice 2c-1 (US-0062, done): the credential id lives only in the sealed `__Host-scenecoach-report` cookie and the control path, so the participant actor is `{ role, credentialId }` resolved by the control service; the report page already renders all text escaped and has the states, print view and throttles to extend; control refuses store trouble with a 503 (never the neutral 404), which the new routes must keep; a held `review.lock` is retried with backoff and answers try again. Open follow-ups that touch this area: BUG-0027, BUG-0028. Slice 2c-2 PR 1 (no browser) is done: review schema `acr.review/2` and the `participant_session` actor, `ReviewBusyError`, `@acr/runtime/participant` (blind form, self-ratings, responses, progress, caps), the supersede carry, the control write routes (`PUT /sessions/:id/reports/:credentialId/self-ratings`, `POST .../responses`) with per-route body caps, the throttle, the retry and the revoke re-check, the start-up writability check, and rating progress in `moderate status`. PR 2 (the browser) is TASK-0101. Plan docs/superpowers/plans/2026-11-05-slice-2c-2-participant-actions.md."
+    },
+    {
+      "id": "TASK-0101",
+      "storyId": "US-0063",
+      "title": "Browser: BFF routes, page, console panel, e2e and Axe",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0063-participant-report-ui",
+      "notes": "Slice 2c-2 PR 2 (same plan, stacked on feature/EPIC-0002-US-0063-participant-report). The link rule (a draft role can be linked, a withdrawn one cannot), the new control read states (draft form, closed, old_schema, not_released, busy) with `KNOWN_CONFLICTS`, the BFF `PUT /api/v1/report/self-ratings` and `POST /api/v1/report/responses` (cross-site writes refused before any throttle, per-credential write throttle, role from the sealed cookie only), the report page (blind self-rating form with browser drafts, comparison table, responses list, response form), the console Participant reports panel with draft rows and rating progress, the Playwright and Axe tests (TC-0133, TC-0134) and docs/THREAT_MODEL.md \"Participant ratings and responses\". Deployment: the control service now writes to the reports directory (README, Settings). Plan docs/superpowers/plans/2026-11-05-slice-2c-2-participant-actions.md."
     },
     {
       "id": "TASK-0093",
@@ -3747,9 +3928,39 @@
       "title": "Browser moderation over the review store and the run summary",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0064-report-moderation-web",
-      "notes": "Spec sections 5.8 and 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md."
+      "notes": "Spec docs/superpowers/specs/2026-11-06-slice-2c-3-facilitator-reports-design.md (addendum to sections 5.8 and 7 of docs/superpowers/specs/2026-10-26-web-client-design.md); plan docs/superpowers/plans/2026-11-06-slice-2c-3-facilitator-reports.md. Slice 2c-3 part A (PR A, this task) is built: the shared run-summary module (demo refactor) and the call bound, the draft-candidate lookup in `@acr/runtime/reports`, `@acr/runtime/moderation` (open, edit with `expect`, accept, comment, edit-summary, closed results), the control service's `ReportJobService` (evaluate as a child with a sanitised environment, one run across the service, confirmation, repeat guard, cancel, overall timeout, interrupted and orphan states) and `ModerationService` with the control routes, the BFF routes under `/api/v1/console/sessions/:id/report`, the console Report panel (author name, evaluate card and confirmation, run summary, subject list, subject view), the part A e2e and Axe, and docs/THREAT_MODEL.md \"Facilitator moderation\". The fixed \"reports are not ready\" message now points to the Report panel. Release, amend, withdraw, resolve and export followed in part B (TASK-0102)."
+    },
+    {
+      "id": "TASK-0102",
+      "storyId": "US-0064",
+      "title": "Browser release and close-out: release, amend, withdraw, resolve and export",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0064-report-release-web (stacked on feature/EPIC-0002-US-0064-report-moderation-web)",
+      "notes": "Slice 2c-3 part B (PR B), same spec and plan as TASK-0093. `release` with an explicit list of subjects (empty and `all` refused), `amend` and `withdraw` with a required reason, `resolve` (upheld, amended after an amend, declined), `export` as a `POST` that records the event first and returns the Markdown as an attachment (`console-download`, nothing written to disk); the release bar and dialogs that name each subject's audience from the visibility policy; the part B e2e (release, the participant reads with the runtime gone, amend, withdraw, resolve, export) with Axe on the dialogs; the README terminal steps for release, amend, withdraw and export replaced; the close-out docs. Covers AC-0337 (rest), AC-0338, AC-0340, AC-0375 to AC-0377. Carried from part A: release refusal codes (`unknown_subject` for unknown ids, `not_editable` for non-draft or amending subjects, `blocked` only for gate problems). Built: the part B moderation operations (`@acr/runtime/moderation`), the control and BFF routes, the console release bar, dialogs, row actions, dispute panel and export menu, the e2e and Axe (TC-0141 to TC-0144), the README console steps and the close-out docs. Not built: a console control for edit-summary (the terminal still has it). Deploy or restart the control service before the web app (`scoreByHand` is a required answer field)."
+    },
+    {
+      "id": "TASK-0103",
+      "storyId": "US-0060",
+      "title": "Slice 2c-4 PR 1: AI-role report-link guarantees and \"(AI player)\" labels",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0060-ai-role-guarantees",
+      "notes": "Spec docs/superpowers/specs/2026-11-06-slice-2c-4-close-out-design.md; plan docs/superpowers/plans/2026-11-06-slice-2c-4-close-out.md. Covers AC-0379 to AC-0381 (TC-0145 to TC-0149). Closes AC-0321 and AC-0322 for the web report pages and downloads."
+    },
+    {
+      "id": "TASK-0104",
+      "storyId": "US-0066",
+      "title": "Slice 2c-4 PR 2: close-out polish",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "Done",
+      "branch": "feature/EPIC-0002-US-0066-close-out-polish",
+      "notes": "Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC-0152): console edit-summary, the 8-character link id in `moderate status`, and the in-scope minors."
     }
   ],
   "testCases": [
@@ -4942,6 +5153,326 @@
       "type": "Regression",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0121",
+      "title": "The report-access credential is 128 bits, stored hashed, with an expiry, in one private file",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0091",
+      "relatedAC": "AC-0327",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0122",
+      "title": "The report service and its API issue only for released roles and refuse everything else with one neutral answer",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0091",
+      "relatedAC": "AC-0329, AC-0330, AC-0366",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0123",
+      "title": "The reader of released reports is read-only and follows a re-run, and the control service imports only the allowed runtime subpaths",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0091",
+      "relatedAC": "AC-0365",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0124",
+      "title": "The BFF report routes and the participant pages keep the token out of logs, address bar and referrer, and refuse as one",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "relatedAC": "AC-0330, AC-0367, AC-0368",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0125",
+      "title": "The console Participant reports panel issues, reissues and revokes links and shows a new link once",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "relatedAC": "AC-0327, AC-0328, AC-0368",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0126",
+      "title": "A participant opens a report link in a fresh browser, and revoke and reissue take effect at once (Playwright, with Axe)",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "relatedAC": "AC-0328, AC-0329, AC-0330, AC-0365, AC-0366, AC-0367, AC-0368",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0127",
+      "title": "A participant_session actor is accepted only for self.rated and response.added, and a forged role or a facilitator command is refused",
+      "relatedStory": "US-0063",
+      "relatedTask": "TASK-0092",
+      "relatedAC": "AC-0331, AC-0335",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0128",
+      "title": "The self-assessment form is blind: it carries no evaluator level, rationale or evidence",
+      "relatedStory": "US-0063",
+      "relatedTask": "TASK-0092",
+      "relatedAC": "AC-0332",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0129",
+      "title": "A held review.lock is retried with backoff and answers busy, and a concurrent CLI command leaves a valid chain",
+      "relatedStory": "US-0063",
+      "relatedTask": "TASK-0092",
+      "relatedAC": "AC-0333",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0130",
+      "title": "Participant text is scrubbed on write and exports neutralise link and image syntax",
+      "relatedStory": "US-0063",
+      "relatedTask": "TASK-0092",
+      "relatedAC": "AC-0334",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0131",
+      "title": "Capacity is bounded, and no write attempt begins after a revoke or reissue has returned",
+      "relatedStory": "US-0063",
+      "relatedTask": "TASK-0092",
+      "relatedAC": "AC-0369, AC-0370",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0132",
+      "title": "Rating progress shows in moderate status, and a review opened before /2 refuses web writes with the old-schema sentence",
+      "relatedStory": "US-0063",
+      "relatedTask": "TASK-0092",
+      "relatedAC": "AC-0371, AC-0372",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0133",
+      "title": "A participant rates with the runtime exited, sees the report, table and forms after release, and revoke and reissue refuse the next write (Playwright, with Axe)",
+      "relatedStory": "US-0063",
+      "relatedTask": "TASK-0101",
+      "relatedAC": "AC-0331, AC-0332, AC-0333, AC-0334, AC-0335, AC-0370, AC-0371, AC-0372",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0134",
+      "title": "The self-rating form, comparison table, responses, response form, console panel and BFF write routes behave as specified",
+      "relatedStory": "US-0063",
+      "relatedTask": "TASK-0101",
+      "relatedAC": "AC-0332, AC-0333, AC-0334, AC-0335, AC-0371",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0135",
+      "title": "The run summary and the evaluation call bound come from one shared module, and the demo keeps its narration",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0336, AC-0339",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0136",
+      "title": "The moderation library (part A) reads a review for the console and writes open, edit, accept, comment and edit-summary through the review lock",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0337, AC-0378",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0137",
+      "title": "The evaluate job runs one sanitised child, is confirmed, guarded against repeats, cancellable and bounded in time",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0336, AC-0373, AC-0374",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0138",
+      "title": "The moderation service and the control report routes give closed results, cap bodies, require expect and attribute writes to <name>-console",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0337, AC-0373, AC-0378",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0139",
+      "title": "The console Report panel and the BFF report routes behave as specified",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0336, AC-0337, AC-0339, AC-0374, AC-0378",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0140",
+      "title": "The facilitator reviews a seeded draft in the browser, a stale second tab keeps its text, and a two-tab double click on Evaluate runs one job (Playwright, with Axe)",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0093",
+      "relatedAC": "AC-0336, AC-0337, AC-0339, AC-0373, AC-0378",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0141",
+      "title": "The moderation library (part B) releases an explicit list through the gate, requires reasons, resolves disputes and exports with the event first",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0102",
+      "relatedAC": "AC-0337, AC-0375, AC-0376, AC-0377",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0142",
+      "title": "The moderation service and the control report routes (part B) give closed results, cap bodies, refuse an `all` release and serve export as JSON with no file written",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0102",
+      "relatedAC": "AC-0337, AC-0375, AC-0376, AC-0377",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0143",
+      "title": "The console's release bar, dialogs, row actions, dispute panel and export menu, and the BFF's part B routes, behave as specified",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0102",
+      "relatedAC": "AC-0337, AC-0338, AC-0375, AC-0376, AC-0377",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0144",
+      "title": "Release in the browser, the participant reads it with the runtime gone, a dispute is resolved, amend and re-release, withdraw and export (Playwright, with Axe)",
+      "relatedStory": "US-0064",
+      "relatedTask": "TASK-0102",
+      "relatedAC": "AC-0337, AC-0338, AC-0340, AC-0375, AC-0376, AC-0377",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0145",
+      "title": "Issue and reissue of a report link refuse an AI role with the fixed sentence, after the review check and fail-closed, and revoke still works",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0103",
+      "relatedAC": "AC-0379, AC-0322",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0146",
+      "title": "The AI-role reader returns null for anything it cannot trust, and the control service wires it fail-closed",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0103",
+      "relatedAC": "AC-0379, AC-0322",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0147",
+      "title": "The \"(AI player)\" label of a quote survives the released report page, its print view and the facilitator export",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0103",
+      "relatedAC": "AC-0380, AC-0321",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0148",
+      "title": "The `ai` flag reaches the console as an optional field, the link list shows \"AI player\" without Issue or Reissue, and an AI role is never a moderation subject",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0103",
+      "relatedAC": "AC-0381, AC-0322",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0149",
+      "title": "An AI role is refused a report link in the browser while a human role in the same review is issued one (Playwright)",
+      "relatedStory": "US-0060",
+      "relatedTask": "TASK-0103",
+      "relatedAC": "AC-0381, AC-0322",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0150",
+      "title": "A facilitator edits a participant's summary in the console: pre-filled boxes, a required reason, fixed refusals, and nothing dropped",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0382",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0151",
+      "title": "`moderate status` shows the first 8 characters of a web link id, a short or missing id does not crash it, and the id never crosses the wire",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0383",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0152",
+      "title": "The in-scope console minors are fixed, and the part B route codes 409 and 503 are pinned",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0384",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -5232,396 +5763,528 @@
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0025",
+      "title": "Forged-cookie read failures share the enter throttle table, so a saturated table reaches valid reads",
+      "severity": "Low",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0026",
+      "title": "`ws-server.roster.test.ts` (a superseded connection gets no roster frame) is flaky in full runtime runs",
+      "severity": "Low",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0027",
+      "title": "The conflict sentences are copied between the control service and the web server with no test that they stay equal",
+      "severity": "Low",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0028",
+      "title": "Slice 2c-1 test and cleanup gaps: seeded e2e folders, thin Axe coverage, dead console branches",
+      "severity": "Low",
+      "relatedStory": "US-0062",
+      "relatedTask": "TASK-0100",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0029",
+      "title": "A response resent after a BFF timeout is stored twice when another response landed in between",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0030",
+      "title": "A forwarded report link can use up its owner's 50 response slots, and a response is not redacted",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0031",
+      "title": "Reviews opened before schema `/2` cannot take web writes",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0032",
+      "title": "Overview answers can arrive out of order, and a failed first overview read waits for Try again",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0033",
+      "title": "The export menu has no participant view of the group or index, and no export of an amending subject",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0034",
+      "title": "Edits made while a save is in flight are lost when the draft clears",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
     }
   ],
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
-      "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "projectedUsd": 1600,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
-      "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "projectedUsd": 1600,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
+      "projectedUsd": 3200,
+      "costUsd": 11.93263,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0066": {
+      "projectedUsd": 800,
+      "costUsd": 11.93263,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 12.299788,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -5816,6 +6479,86 @@
         "projectedUsd": 400
       },
       "BUG-0024": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0025": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0026": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0027": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0028": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0029": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0030": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0031": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0032": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0033": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0034": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -6266,20 +7009,34 @@
       "isAtRisk": false
     },
     "US-0062": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0063": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0064": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
+    },
+    "US-0066": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
+    },
+    "US-0067": {
       "missingTCs": true,
       "noBranch": false,
       "failedTCNoBug": false,
@@ -6575,12 +7332,36 @@
       "context": "",
       "date": "2026-10-30",
       "bugIds": []
+    },
+    {
+      "id": "L-0032",
+      "title": "A directory that a loader reads in full must hold only what the loader owns",
+      "rule": "The review loaders (`loadDrafts`, `siblingReleased`, `moderate open`) read every `*.json` and `*.md` in a review folder and refuse anything unknown. Never put another feature's file there, even a credential or index file that \"belongs with the reports\". Keep it in a sibling location (the report-access store is one `report-access.json` under `CONTROL_DATA_DIR`). When a design says \"beside X\", check what reads X's directory before choosing the path.\n_Learned in the Opus review of the slice 2c-1 plan: a planned `access.json` inside `reports/<sessionId>/` would have made every later `moderate release` in that folder fail as corrupt (`review/draft.ts:334`, `review/store.ts:300`)._",
+      "context": "",
+      "date": "2026-11-05",
+      "bugIds": []
+    },
+    {
+      "id": "L-0033",
+      "title": "A rate limit keyed on the address alone locks out a room behind one NAT",
+      "rule": "Workshops put many participants behind one public address. Count only failures per address (and block with a 429 and `Retry-After`, never the same text as a refused credential), and limit successful requests per credential or session instead. A refusal text that is also what a throttle returns hides the real cause from the person who is blocked.\n_Learned in the final review of slice 2c-1 PR 2: the read route charged every read per address (60 a minute for the whole room), and a blocked enter looked like \"Not found\" to a participant with a valid link._",
+      "context": "",
+      "date": "2026-11-05",
+      "bugIds": []
+    },
+    {
+      "id": "L-0034",
+      "title": "A \"Reserved blocks\" paragraph in the ID registry marks every id it names as used",
+      "rule": "`tests/unit/id-registry.test.js` reads every id that appears in a \"Reserved blocks\" paragraph of `docs/ID_REGISTRY.md` as already used, so the next-available row must be beyond all of them. Never write a BUG or L id (even in a sentence saying none are reserved) in such a paragraph; say \"no new BUG or L ids are reserved\" without the numbers, and move the Next Available row of a sequence only when you file the item.\n_Learned in the slice 2c-4 plan: naming the next free BUG and L ids in the reservation paragraph made the registry test fail until the numbers were removed._",
+      "context": "",
+      "date": "2026-11-06",
+      "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-05T14:43:17.109Z",
-  "commitSha": "82706e1",
-  "buildNumber": "512",
-  "branch": "release/0.1.0",
+  "generatedAt": "2026-11-07T03:09:34.901Z",
+  "commitSha": "9ac4a28",
+  "buildNumber": "537",
+  "branch": "release/0.2.0",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -6652,9 +7433,9 @@
   "deltaSpend": 122.33,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "appName": "ai-coaching-rpg",
-  "appVersion": "0.1.0",
+  "appVersion": "0.2.0",
   "githubUrl": "",
   "agents": {
     "Conductor": {
@@ -6722,11 +7503,11 @@
     }
   },
   "budget": {
-    "totalBudget": 808.4862,
+    "totalBudget": 806.6862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 4853.1,
+    "totalProjected": 12051.300000000001,
     "percentUsed": 99,
-    "burnRate": 19.563133,
+    "burnRate": 17.98837588888889,
     "daysRemaining": 0,
     "projectedExhaustion": 0,
     "thresholds": [
@@ -6744,49 +7525,57 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 172.19703200000004,
-        "spent": 172.19703200000004,
-        "remaining": 0,
-        "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0005",
-        "title": "Slice 5 — evaluator and reports",
-        "budget": 172.19703200000004,
-        "spent": 172.19703200000004,
-        "remaining": 0,
-        "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0006",
-        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 184.49682000000004,
-        "spent": 184.49682000000004,
+        "budget": 167.05682,
+        "spent": 167.05682,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 187.19682000000003,
-        "spent": 184.49682000000004,
-        "remaining": 2.6999999999999886,
-        "percentUsed": 99
+        "budget": 190.92207999999997,
+        "spent": 190.92207999999997,
+        "remaining": 0,
+        "percentUsed": 100
+      },
+      {
+        "id": "EPIC-0005",
+        "title": "Slice 5 — evaluator and reports",
+        "budget": 167.05682,
+        "spent": 167.05682,
+        "remaining": 0,
+        "percentUsed": 100
+      },
+      {
+        "id": "EPIC-0006",
+        "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
+        "budget": 178.98944999999998,
+        "spent": 178.98944999999998,
+        "remaining": 0,
+        "percentUsed": 100
       },
       {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 52.799152,
-        "spent": 49.199152,
+        "budget": 51.33052,
+        "spent": 47.73052,
         "remaining": 3.6000000000000014,
         "percentUsed": 93
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 39.599364,
-        "spent": 36.899364,
+        "budget": 38.49789,
+        "spent": 35.797889999999995,
         "remaining": 2.700000000000003,
+        "percentUsed": 93
+      },
+      {
+        "id": "EPIC-0009",
+        "title": "Multilingual support",
+        "budget": 12.83263,
+        "spent": 11.93263,
+        "remaining": 0.9000000000000004,
         "percentUsed": 93
       },
       {
@@ -6808,7 +7597,14 @@
     ],
     "hasBudget": true
   },
-  "completion": null,
+  "completion": {
+    "likelyDate": "Aug 15",
+    "rangeStart": "Jun 19",
+    "rangeEnd": "Oct 10",
+    "velocityWeeks": 6,
+    "storiesPerWeek": 1.1,
+    "pointsPerWeek": 5.2
+  },
   "trends": {
     "dates": [
       "2026-09-28T18:11:23.806Z",
@@ -6869,7 +7665,15 @@
       "2026-11-04T21:12:37.282Z",
       "2026-11-05T01:26:05.061Z",
       "2026-11-05T02:43:13.491Z",
-      "2026-11-05T14:43:17.216Z"
+      "2026-11-05T14:43:17.216Z",
+      "2026-11-05T16:29:49.626Z",
+      "2026-11-05T22:26:16.924Z",
+      "2026-11-05T23:24:56.057Z",
+      "2026-11-05T23:39:58.694Z",
+      "2026-11-07T00:39:13.799Z",
+      "2026-11-07T01:26:35.024Z",
+      "2026-11-07T02:00:13.510Z",
+      "2026-11-07T03:09:35.100Z"
     ],
     "doneCounts": [
       0,
@@ -6930,7 +7734,15 @@
       0,
       0,
       1,
-      1
+      1,
+      1,
+      1,
+      2,
+      2,
+      4,
+      5,
+      6,
+      6
     ],
     "totalStories": [
       65,
@@ -6991,7 +7803,15 @@
       65,
       65,
       65,
-      65
+      65,
+      65,
+      65,
+      65,
+      65,
+      66,
+      67,
+      67,
+      67
     ],
     "aiCosts": [
       23.621356666666664,
@@ -7025,6 +7845,14 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -7113,6 +7941,14 @@
       null,
       null,
       null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
       null
     ],
     "velocity": [
@@ -7174,7 +8010,15 @@
       0,
       0,
       3,
-      3
+      3,
+      3,
+      3,
+      8,
+      8,
+      21,
+      26,
+      29,
+      29
     ],
     "openBugs": [
       1,
@@ -7235,9 +8079,25 @@
       0,
       0,
       0,
-      0
+      0,
+      0,
+      0,
+      0,
+      4,
+      4,
+      4,
+      10,
+      10
     ],
     "atRisk": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
       0,
       0,
       0,
@@ -7357,6 +8217,14 @@
       33019880,
       33019880,
       33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -7391,6 +8259,14 @@
       0,
       0,
       0,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -7479,7 +8355,15 @@
       1.136923076923077,
       1.1415384615384618,
       1.1375000000000002,
-      1.1375000000000002
+      1.1375000000000002,
+      1.1375000000000002,
+      1.1421875000000004,
+      1.1380952380952383,
+      1.1380952380952383,
+      1.1387096774193552,
+      1.1338709677419356,
+      1.134426229508197,
+      1.134426229508197
     ],
     "velocityByWeek": {
       "labels": [
@@ -7496,7 +8380,7 @@
         0,
         0,
         0,
-        3
+        29
       ],
       "rollingAvg": [
         0,
@@ -7504,7 +8388,7 @@
         0,
         0,
         0,
-        0.8
+        7.3
       ]
     }
   }

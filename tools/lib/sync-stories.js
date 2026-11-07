@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const { digits } = require('./safe-text');
 
 const ROOT = path.join(__dirname, '../..');
 
@@ -42,6 +43,7 @@ function classifyStoryChanges(stories, stateEntries, ghIssues) {
 }
 
 function writeStoryIssueNumber(storyId, issueNumber) {
+  const issueNo = digits(issueNumber);
   const planPath = path.join(ROOT, 'docs/RELEASE_PLAN.md');
   let content = fs.readFileSync(planPath, 'utf8');
   // Block-scoped: extract story block first
@@ -55,7 +57,7 @@ function writeStoryIssueNumber(storyId, issueNumber) {
   if (!branchRe.test(block)) return;
   const newBlock = block.replace(
     branchRe,
-    (_, indent, branchLine) => `${indent}${branchLine}${indent}GH Issue: #${issueNumber}\n`,
+    (_, indent, branchLine) => `${indent}${branchLine}${indent}GH Issue: #${issueNo}\n`,
   );
   content = content.slice(0, blockMatch.index) + newBlock + content.slice(blockMatch.index + block.length);
   fs.writeFileSync(planPath, content, 'utf8');

@@ -6,7 +6,7 @@ import {
   type LoResult,
 } from "../evaluator/aggregate.js";
 import type { DraftCriterion, DraftSubject, Drafts } from "./draft.js";
-import { ReviewIllegalError } from "./errors.js";
+import { ReviewIllegalError, type ModerationCode } from "./errors.js";
 import { releaseProblems } from "./gate.js";
 import { sha256 } from "./hash.js";
 import { parsePrincipal } from "./policy.js";
@@ -15,7 +15,8 @@ import {
   GROUP,
   LIMITS,
   POLICY_VERSION,
-  REVIEW_SCHEMA,
+  REVIEW_SCHEMAS,
+  isCredentialIdShape,
   CARRIED_MODERATION,
   CARRIED_PARTICIPANT,
   type Actor,
@@ -44,7 +45,8 @@ export type CriterionView = {
   rationale: string;
   rationaleEdits: { seq: number; reason: string; by: string }[];
   acceptedBy: string | null;
-  self: { level: Level; note?: string; seq: number } | null;
+  /** `via` is the short id of the web link that made the rating, null when the facilitator attested it. */
+  self: { level: Level; note?: string; seq: number; via: string | null } | null;
 };
 export type CommentView = {
   seq: number;
@@ -59,6 +61,8 @@ export type ResponseView = {
   criterion?: string;
   text: string;
   dispute: boolean;
+  /** The short id of the web link that made the response; null when the facilitator attested it. */
+  via: string | null;
   /**
    * The released version of THIS review the response answers (the latest at the time it was made); null for a response carried
    * from a superseded review, which answered a release of that review, not of this one.
@@ -135,7 +139,9 @@ export const who = (a: Actor): string =>
     ? a.by
     : a.kind === "participant"
       ? `${a.role} (attested by ${a.attestedBy})`
-      : "system";
+      : a.kind === "participant_session"
+        ? `${a.role} (web link ${a.credentialId})`
+        : "system";
 const levelOf = (c: DraftCriterion): CurrentLevel =>
   c.invalid ? "invalid" : c.score;
 const scoreOf = (l: CurrentLevel): CriterionScore =>
@@ -286,7 +292,8 @@ export function checkOpened(o: Record<string, unknown>): void {
   const a = o.actor as Record<string, unknown> | undefined;
   if (!a || a.kind !== "facilitator" || !isSafeId(a.by as string))
     bad("the opener must be a facilitator with a safe id");
-  if (o.schema !== REVIEW_SCHEMA) bad("unknown schema");
+  if (!(REVIEW_SCHEMAS as readonly unknown[]).includes(o.schema))
+    bad("unknown schema");
   if (o.policyVersion !== POLICY_VERSION) bad("unknown policy version");
   if (typeof o.legacy !== "boolean") bad("legacy must be true or false");
   const s = o.session;
@@ -326,12 +333,23 @@ export function checkOpened(o: Record<string, unknown>): void {
     bad("selfClosed must be a list of player ids");
 }
 
-/** An actor as the log may hold it: a facilitator with a safe id, a participant role attested by one, or the system. */
+/** The first 8 characters of a web link's credential id: enough to tell links apart in terminal output; the full id stays in the log. */
+export const shortLinkId = (id: string): string => id.slice(0, 8);
+const viaOf = (a: Actor): string | null =>
+  a.kind === "participant_session" ? shortLinkId(a.credentialId) : null;
+
+/** An actor as the log may hold it: a facilitator with a safe id, a participant role attested by one, a web-link participant session, or the system. */
 function actorOk(a: unknown): boolean {
   if (!isRec(a)) return false;
   if (a.kind === "facilitator") return isSafeId(a.by as string);
   if (a.kind === "participant")
     return isFileSafeId(a.role as string) && isSafeId(a.attestedBy as string);
+  if (a.kind === "participant_session")
+    return (
+      a.v === 1 &&
+      isFileSafeId(a.role as string) &&
+      isCredentialIdShape(a.credentialId)
+    );
   return a.kind === "system";
 }
 
@@ -340,9 +358,10 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   if (!first || first.type !== "review.opened")
     throw new ReviewIllegalError("the log does not start with review.opened");
   checkOpened(first as unknown as Record<string, unknown>);
-  const ill = (e: ReviewEvent, m: string): never => {
+  const ill = (e: ReviewEvent, m: string, code?: ModerationCode): never => {
     throw new ReviewIllegalError(
       `event ${typeof e.seq === "number" ? e.seq : "?"} (${typeof e.type === "string" ? e.type.slice(0, 40) : "?"}): ${m}`,
+      code,
     );
   };
   const subjects = new Map<string, SubjectView>(
@@ -350,14 +369,14 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   );
   const subj = (e: ReviewEvent, id: unknown): SubjectView =>
     (typeof id === "string" ? subjects.get(id) : undefined) ??
-    ill(e, "unknown subject");
+    ill(e, "unknown subject", "unknown_subject");
   const crit = (e: ReviewEvent, sv: SubjectView, id: unknown): CriterionView =>
     (typeof id === "string"
       ? sv.criteria.find((c) => c.id === id)
-      : undefined) ?? ill(e, "unknown criterion");
+      : undefined) ?? ill(e, "unknown criterion", "unknown_criterion");
   const editable = (e: ReviewEvent, sv: SubjectView): void => {
     if (sv.state === "released" || sv.state === "withdrawn")
-      ill(e, `${sv.id} is ${sv.state}; amend it first`);
+      ill(e, `${sv.id} is ${sv.state}; amend it first`, "not_editable");
   };
   const facilitator = (e: ReviewEvent): string =>
     e.actor.kind === "facilitator"
@@ -425,6 +444,14 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
   /** Participant-attested events: the actor is the subject's own role, vouched for by a facilitator. */
   const attested = (e: ReviewEvent, role: unknown): void => {
     const a = e.actor;
+    if (a.kind === "participant_session") {
+      // actorOk already checked v, role and credentialId; the opener must be /2 and the role the event's own
+      if (first.schema !== "acr.review/2")
+        ill(e, "this review was opened before online ratings were available");
+      if (typeof role !== "string" || a.role !== role)
+        ill(e, "a web link acts only for its own role");
+      return;
+    }
     if (
       a.kind !== "participant" ||
       typeof role !== "string" ||
@@ -443,9 +470,15 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
       continue;
     }
     if (superseded !== null)
-      ill(e, "the review was superseded and is read-only");
+      ill(e, "the review was superseded and is read-only", "superseded");
     // Every actor, not only the opener's: the log on disk is untrusted, and `by` is rendered and compared later.
     if (!actorOk(e.actor)) ill(e, "the actor is not valid");
+    if (
+      e.actor.kind === "participant_session" &&
+      e.type !== "self.rated" &&
+      e.type !== "response.added"
+    )
+      ill(e, "a web link can only rate or respond");
     const carried = e.carriedFrom !== undefined;
     if (carried) {
       if (!carrying) ill(e, "a carried event must directly follow the opener");
@@ -566,10 +599,14 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
         const svs = e.subjects.map((id) => subj(e, id));
         for (const sv of svs) {
           if (sv.state !== "draft" && sv.state !== "amending")
-            ill(e, `${sv.id} is ${sv.state}`);
+            ill(e, `${sv.id} is ${sv.state}`, "not_editable");
           const problems = releaseProblems(sv);
           if (problems.length)
-            ill(e, `${sv.id} cannot be released: ${problems.join("; ")}`);
+            ill(
+              e,
+              `${sv.id} cannot be released: ${problems.join("; ")}`,
+              "blocked",
+            );
         }
         // Order matters: (1) mark released and clear the group's tableStale, (2) snapshot the players,
         // (3) only then build the group table from those snapshots, so it sees the players released in this event.
@@ -599,6 +636,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ill(
             e,
             `${sv.id} is ${sv.state}; only a released report can be amended`,
+            "not_editable",
           );
         if (e.basedOn !== sv.versions.at(-1))
           ill(e, "basedOn is not the current version of the report");
@@ -613,6 +651,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ill(
             e,
             `${sv.id} is ${sv.state}; only a released report can be withdrawn`,
+            "not_editable",
           );
         sv.state = "withdrawn";
         // the group's frozen table still holds this player's row
@@ -692,6 +731,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           level: e.level,
           ...(e.note !== undefined ? { note: text(e, e.note) } : {}),
           seq: e.seq,
+          via: viaOf(e.actor),
         };
         break;
       }
@@ -721,6 +761,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ...(e.criterion !== undefined ? { criterion: e.criterion } : {}),
           text: text(e, e.text),
           dispute: e.dispute === true,
+          via: viaOf(e.actor),
           version: ver,
           carried,
           resolution: null,
@@ -750,6 +791,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ill(
             e,
             "amend the report and release the new version first, then resolve the dispute as amended",
+            "needs_amend",
           );
         found.r.resolution = {
           seq: e.seq,

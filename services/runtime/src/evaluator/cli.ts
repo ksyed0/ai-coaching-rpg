@@ -1,3 +1,4 @@
+import { secretValues } from "../secrets.js";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -32,8 +33,7 @@ export type EvaluateDeps = {
   signal?: AbortSignal; /** Test hook: use this provider instead of the configured one. */ provider?: Parameters<typeof evaluateSession>[0]["provider"];
 };
 
-const SECRETISH = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL)/i;
-export const secretValues = (env: NodeJS.ProcessEnv): string[] => Object.entries(env).filter(([k, v]) => SECRETISH.test(k) && typeof v === "string" && v.length >= 8).map(([, v]) => v as string);
+export { secretValues };
 
 /** Finds `scenarios/<dir>` whose scenario.yaml has this id. Reads small files only. */
 export async function findScenarioDir(repoRoot: string, scenarioId: string): Promise<string | null> {

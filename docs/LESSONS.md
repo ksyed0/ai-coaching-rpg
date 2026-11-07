@@ -248,3 +248,27 @@ _Learned at the close of slice 2b-1: the scanners reported `services/control/src
 **Rule:** If a multi-step operation broadcasts each event as it is persisted (start: `session.started`, the characters, `scene.entered`, the opening inject) but sets its "done" flag only after the last step, clients act on the early events while the flag is still false. A request they make in that window must wait for the operation in flight (and be refused only if it fails), not be refused by the flag. Test the window deterministically: hold the log's appends after the event the client acts on (a gated log), make the request, assert it is pending, then release; never rely on a slow disk or a sleep. When an E2E helper reports a refusal it should never see, look for this window on the server before blaming the test.
 _Learned when the Web E2E on PR #60 got `409 not_started` for a say sent after the page showed the scene: the runtime set `started` only after writing the opening inject (BUG-0009, open since the first Web E2E run and seen there as a missing transcript line)._
 **Date:** 2026-10-30
+
+## L-0032 — A directory that a loader reads in full must hold only what the loader owns
+
+@agent: all
+
+**Rule:** The review loaders (`loadDrafts`, `siblingReleased`, `moderate open`) read every `*.json` and `*.md` in a review folder and refuse anything unknown. Never put another feature's file there, even a credential or index file that "belongs with the reports". Keep it in a sibling location (the report-access store is one `report-access.json` under `CONTROL_DATA_DIR`). When a design says "beside X", check what reads X's directory before choosing the path.
+_Learned in the Opus review of the slice 2c-1 plan: a planned `access.json` inside `reports/<sessionId>/` would have made every later `moderate release` in that folder fail as corrupt (`review/draft.ts:334`, `review/store.ts:300`)._
+**Date:** 2026-11-05
+
+## L-0033 — A rate limit keyed on the address alone locks out a room behind one NAT
+
+@agent: all
+
+**Rule:** Workshops put many participants behind one public address. Count only failures per address (and block with a 429 and `Retry-After`, never the same text as a refused credential), and limit successful requests per credential or session instead. A refusal text that is also what a throttle returns hides the real cause from the person who is blocked.
+_Learned in the final review of slice 2c-1 PR 2: the read route charged every read per address (60 a minute for the whole room), and a blocked enter looked like "Not found" to a participant with a valid link._
+**Date:** 2026-11-05
+
+## L-0034 — A "Reserved blocks" paragraph in the ID registry marks every id it names as used
+
+@agent: all
+
+**Rule:** `tests/unit/id-registry.test.js` reads every id that appears in a "Reserved blocks" paragraph of `docs/ID_REGISTRY.md` as already used, so the next-available row must be beyond all of them. Never write a BUG or L id (even in a sentence saying none are reserved) in such a paragraph; say "no new BUG or L ids are reserved" without the numbers, and move the Next Available row of a sequence only when you file the item.
+_Learned in the slice 2c-4 plan: naming the next free BUG and L ids in the reservation paragraph made the registry test fail until the numbers were removed._
+**Date:** 2026-11-06

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   LauncherClient,
   LauncherError,
+  MAX_REPORT_RESPONSE_CHARS,
   type LauncherReason,
 } from "../launcher-client";
 
@@ -643,5 +644,203 @@ describe("LauncherClient AI turns", () => {
     const r = await reasonOf(client(f.fetch).reserveTurn(SID, "tech_lead"));
     expect(r.reason).toBe(code);
     expect(r.text).not.toContain("SECRET");
+  });
+});
+
+describe("LauncherClient report links", () => {
+  const CRED = { id: "AbCdEfGhIjK", sessionId: SID, role: "ana", createdAt: 1, expiresAt: 2, lastUsedAt: 1 };
+
+  it("reportLinks: GET and the credential id is dropped", async () => {
+    const f = fakeFetch(() => reply(envelope({ state: "ready", players: { rated: 1, total: 2 }, roles: [{ role: "ana", credential: CRED, selfRated: { rated: 2, total: 5 }, draft: true }, { role: "bo", credential: null, selfRated: null, draft: false }] })));
+    const out = await client(f.fetch).reportLinks(SID);
+    expect(f.calls[0]).toMatchObject({ url: `${BASE}/sessions/${SID}/report-links`, method: "GET" });
+    expect(out).toEqual({ state: "ready", players: { rated: 1, total: 2 }, roles: [{ role: "ana", credential: { role: "ana", createdAt: 1, expiresAt: 2, lastUsedAt: 1 }, selfRated: { rated: 2, total: 5 }, draft: true }, { role: "bo", credential: null, selfRated: null, draft: false }] });
+    expect(JSON.stringify(out)).not.toContain("AbCdEfGhIjK");
+  });
+
+  it('reportLinks: ai is kept only when exactly true ("yes" and a missing flag are dropped)', async () => {
+    const f = fakeFetch(() => reply(envelope({ state: "ready", players: null, roles: [{ role: "a", credential: null, ai: true }, { role: "b", credential: null, ai: "yes" }, { role: "c", credential: null }] })));
+    const out = await client(f.fetch).reportLinks(SID);
+    expect(out.roles.map((r) => ("ai" in r ? r.ai : "absent"))).toEqual([true, "absent", "absent"]);
+  });
+
+  it("reportLinks: players and selfRated may be null, and a malformed count is reason failed", async () => {
+    const f = fakeFetch(() => reply(envelope({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: null }] })));
+    expect(await client(f.fetch).reportLinks(SID)).toEqual({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: null, draft: false }] });
+    const g = fakeFetch(() => reply(envelope({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: { rated: "2", total: 5 } }] })));
+    expect((await reasonOf(client(g.fetch).reportLinks(SID))).reason).toBe("failed");
+  });
+
+  it("reportLinks: a malformed answer is reason failed", async () => {
+    const f = fakeFetch(() => reply(envelope({ state: "weird", roles: [] })));
+    expect((await reasonOf(client(f.fetch).reportLinks(SID))).reason).toBe("failed");
+  });
+
+  it("issueReportLink and reissueReportLink: POST, token returned, id dropped", async () => {
+    const f = fakeFetch(() => reply(envelope({ credential: CRED, token: "AbCdEfGhIjK.secret" })));
+    const c = client(f.fetch);
+    const a = await c.issueReportLink(SID, "ana");
+    const b = await c.reissueReportLink(SID, "ana");
+    expect(f.calls[0]).toMatchObject({ url: `${BASE}/sessions/${SID}/report-links`, method: "POST", body: JSON.stringify({ role: "ana" }) });
+    expect(f.calls[1]).toMatchObject({ url: `${BASE}/sessions/${SID}/report-links/ana/reissue`, method: "POST" });
+    expect(a.token).toBe("AbCdEfGhIjK.secret");
+    expect(b.credential).toEqual({ role: "ana", createdAt: 1, expiresAt: 2, lastUsedAt: 1 });
+  });
+
+  it("revokeReportLink: DELETE and the boolean", async () => {
+    const f = fakeFetch(() => reply(envelope({ revoked: true })));
+    expect(await client(f.fetch).revokeReportLink(SID, "ana")).toBe(true);
+    expect(f.calls[0]).toMatchObject({ url: `${BASE}/sessions/${SID}/report-links/ana`, method: "DELETE" });
+  });
+
+  it("a role that is not an id never reaches the network", async () => {
+    const f = fakeFetch(() => reply(envelope({ revoked: true })));
+    expect((await reasonOf(client(f.fetch).revokeReportLink(SID, "../x"))).reason).toBe("not_found");
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it("a conflict carries the control's sentence as detail, other reasons carry none", async () => {
+    const f = fakeFetch(() => reply(errorEnvelope("conflict", "A link is already active for this role."), 409));
+    try { await client(f.fetch).issueReportLink(SID, "ana"); throw new Error("no"); } catch (e) {
+      expect((e as LauncherError).reason).toBe("conflict");
+      expect((e as LauncherError).detail).toBe("A link is already active for this role.");
+    }
+    const g = fakeFetch(() => reply(errorEnvelope("conflict", "x".repeat(2000)), 409));
+    try { await client(g.fetch).issueReportLink(SID, "ana"); throw new Error("no"); } catch (e) {
+      expect((e as LauncherError).detail).toBeUndefined();
+    }
+  });
+
+  it("exchangeReportToken: POST { token }, shape checked", async () => {
+    const f = fakeFetch(() => reply(envelope({ credentialId: "AbCdEfGhIjK", sessionId: SID, role: "ana", expiresAt: 99, extra: 1 })));
+    expect(await client(f.fetch).exchangeReportToken("tok")).toEqual({ credentialId: "AbCdEfGhIjK", sessionId: SID, role: "ana", expiresAt: 99 });
+    expect(f.calls[0]).toMatchObject({ url: `${BASE}/report-access/exchange`, method: "POST", body: JSON.stringify({ token: "tok" }) });
+    const g = fakeFetch(() => reply(errorEnvelope("not_found", "Not found."), 404));
+    expect((await reasonOf(client(g.fetch).exchangeReportToken("tok"))).reason).toBe("not_found");
+    const h = fakeFetch(() => reply(envelope({ credentialId: 1 })));
+    expect((await reasonOf(client(h.fetch).exchangeReportToken("tok"))).reason).toBe("failed");
+  });
+
+  it("readReport: GET by session and credential id; released and not_released pass; a bad credential id never goes out", async () => {
+    const f = fakeFetch(() => reply(envelope({ state: "released", view: { kind: "released" } })));
+    expect(await client(f.fetch).readReport(SID, "AbCdEfGhIjK")).toEqual({ state: "released", view: { kind: "released" } });
+    expect(f.calls[0]).toMatchObject({ url: `${BASE}/sessions/${SID}/reports/AbCdEfGhIjK`, method: "GET" });
+    const g = fakeFetch(() => reply(envelope({ state: "not_released" })));
+    expect(await client(g.fetch).readReport(SID, "AbCdEfGhIjK")).toEqual({ state: "not_released" });
+    expect((await reasonOf(client(g.fetch).readReport(SID, "a/b"))).reason).toBe("not_found");
+    expect(g.calls).toHaveLength(1);
+  });
+
+  it("readReport parses all five states and fails closed on anything else", async () => {
+    const form = {
+      criteria: [{ id: "listening", name: "Listening" }],
+      scale: [{ level: 1, label: "Low", meaning: "m" }],
+      existing: { listening: { level: 3, note: "ok" }, discovery: { level: "na" } },
+    };
+    const read = (data: unknown) => client(fakeFetch(() => reply(envelope(data))).fetch).readReport(SID, "AbCdEfGhIjK");
+    expect(await read({ state: "self_assess", ...form, extra: "dropped" })).toEqual({ state: "self_assess", ...form });
+    expect(await read({ state: "released", view: { kind: "released" } })).toEqual({ state: "released", view: { kind: "released" } });
+    expect(await read({ state: "not_released" })).toEqual({ state: "not_released" });
+    expect(await read({ state: "closed" })).toEqual({ state: "closed" });
+    expect(await read({ state: "old_schema" })).toEqual({ state: "old_schema" });
+    for (const odd of [
+      { state: "weird" }, { state: "released" }, { state: "self_assess" }, { state: "self_assess", ...form, criteria: [{ id: 1 }] },
+      { state: "self_assess", ...form, existing: { a: { level: 9 } } }, { state: "self_assess", ...form, scale: "x" }, {},
+    ]) {
+      expect((await reasonOf(read(odd))).reason, JSON.stringify(odd)).toBe("failed");
+    }
+  });
+
+  it("a saved Not observed arrives from control as level null and parses to na; other odd levels still fail closed", async () => {
+    const form = { criteria: [{ id: "a", name: "A" }], scale: [{ level: 1, label: "Low", meaning: "m" }] };
+    const read = (existing: unknown) => client(fakeFetch(() => reply(envelope({ state: "self_assess", ...form, existing }))).fetch).readReport(SID, "AbCdEfGhIjK");
+    expect(await read({ a: { level: null } })).toEqual({ state: "self_assess", ...form, existing: { a: { level: "na" } } });
+    expect(await read({ a: { level: null, note: "n" } })).toEqual({ state: "self_assess", ...form, existing: { a: { level: "na", note: "n" } } });
+    expect(await read({ a: { level: "na" } })).toEqual({ state: "self_assess", ...form, existing: { a: { level: "na" } } });
+    for (const bad of [{ a: { level: 0 } }, { a: { level: "3" } }, { a: {} }, { a: { level: undefined } }]) {
+      expect((await reasonOf(read(bad))).reason, JSON.stringify(bad)).toBe("failed");
+    }
+  });
+
+  it("busy is a known LauncherReason and the server text never passes through", async () => {
+    const f = fakeFetch(() => reply(errorEnvelope("busy", "SECRET"), 503));
+    const r = await reasonOf(client(f.fetch).readReport(SID, "AbCdEfGhIjK"));
+    expect(r.reason).toBe("busy");
+    expect(r.text).not.toContain("SECRET");
+  });
+
+  it("readReport accepts a 2 MiB released report; the general cap (1 MiB) still applies to every other call", async () => {
+    const big = { state: "released", view: { markdown: { own: "x".repeat(2 * 1024 * 1024), group: null } } };
+    const f = fakeFetch(() => reply(envelope(big)));
+    expect((await client(f.fetch).readReport(SID, "AbCdEfGhIjK")).state).toBe("released");
+    const g = fakeFetch(() => reply(envelope({ state: "ready", roles: [], pad: "x".repeat(2 * 1024 * 1024) })));
+    expect((await reasonOf(client(g.fetch).reportLinks(SID))).reason).toBe("failed");
+    const h = fakeFetch(() => reply(envelope({ state: "released", view: { pad: "x".repeat(MAX_REPORT_RESPONSE_CHARS) } })));
+    expect((await reasonOf(client(h.fetch).readReport(SID, "AbCdEfGhIjK"))).reason).toBe("failed");
+  });
+});
+
+describe("LauncherClient participant writes", () => {
+  const RATINGS = [{ criterion: "c1", level: 3 }];
+  const CRED = "AbCdEfGhIjK";
+  const url = `${BASE}/sessions/${SID}/reports/${CRED}`;
+  const err = (status: number, code: string, headers: Record<string, string> = {}) =>
+    new Response(JSON.stringify(errorEnvelope(code, "SECRET control text")), { status, headers: { "Content-Type": "application/json", ...headers } });
+
+  it("rateReport: PUT self-ratings and respondReport: POST responses, ok on 200", async () => {
+    const f = fakeFetch(() => reply(envelope({ wrote: 1 })));
+    expect(await client(f.fetch).rateReport(SID, CRED, RATINGS)).toEqual({ state: "ok" });
+    expect(await client(f.fetch).respondReport(SID, CRED, { text: "hi", dispute: true })).toEqual({ state: "ok" });
+    expect(f.calls[0]).toMatchObject({ url: `${url}/self-ratings`, method: "PUT", body: JSON.stringify({ ratings: RATINGS }) });
+    expect(f.calls[1]).toMatchObject({ url: `${url}/responses`, method: "POST", body: JSON.stringify({ text: "hi", dispute: true }) });
+  });
+
+  it("maps status and code to the closed union and never uses the message", async () => {
+    const table: [number, string, unknown][] = [
+      [409, "closed", { state: "closed" }],
+      [409, "not_released", { state: "not_released" }],
+      [409, "withdrawn", { state: "withdrawn" }],
+      [409, "too_many", { state: "too_many" }],
+      [409, "old_schema", { state: "old_schema" }],
+      [400, "bad_request", { state: "invalid" }],
+      [400, "invalid", { state: "invalid" }],
+      [413, "payload_too_large", { state: "too_large" }],
+      [503, "busy", { state: "busy" }],
+    ];
+    for (const [status, code, want] of table) {
+      const f = fakeFetch(() => err(status, code));
+      const out = await client(f.fetch).rateReport(SID, CRED, RATINGS);
+      expect(out).toEqual(want);
+      expect(JSON.stringify(out)).not.toContain("SECRET");
+    }
+  });
+
+  it("429 reads Retry-After seconds into retryAfterMs (not capacity)", async () => {
+    const f = fakeFetch(() => err(429, "throttled", { "Retry-After": "7" }));
+    expect(await client(f.fetch).respondReport(SID, CRED, { text: "x" })).toEqual({ state: "throttled", retryAfterMs: 7000 });
+    const g = fakeFetch(() => err(429, "throttled"));
+    expect(await client(g.fetch).respondReport(SID, CRED, { text: "x" })).toEqual({ state: "throttled", retryAfterMs: 1000 });
+  });
+
+  it("404 throws not_found and 503 unavailable throws unavailable", async () => {
+    expect((await reasonOf(client(fakeFetch(() => err(404, "not_found")).fetch).rateReport(SID, CRED, RATINGS))).reason).toBe("not_found");
+    const r = await reasonOf(client(fakeFetch(() => err(503, "unavailable")).fetch).rateReport(SID, CRED, RATINGS));
+    expect(r.reason).toBe("unavailable");
+    expect(r.text).not.toContain("SECRET");
+  });
+
+  it("a credential id that is not base64url never reaches the network", async () => {
+    const f = fakeFetch(() => reply(envelope({})));
+    expect((await reasonOf(client(f.fetch).rateReport(SID, "../x", RATINGS))).reason).toBe("not_found");
+    expect(f.calls).toHaveLength(0);
+  });
+
+  it("allows about 15 s for a write while other calls keep the default", async () => {
+    const spy = vi.spyOn(AbortSignal, "timeout");
+    const f = fakeFetch(() => reply(envelope({ wrote: 1 })));
+    await client(f.fetch).rateReport(SID, CRED, RATINGS);
+    expect(spy).toHaveBeenLastCalledWith(15_000);
+    await client(f.fetch).scenarios().catch(() => {});
+    expect(spy).toHaveBeenLastCalledWith(5_000);
   });
 });

@@ -27,6 +27,7 @@ import {
   POLICY_VERSION,
   REVIEW_FILE,
   REVIEW_SCHEMA,
+  isCredentialIdShape,
   ZERO_HASH,
   CARRIED_MODERATION,
   CARRIED_PARTICIPANT,
@@ -58,7 +59,12 @@ function fold(
   try {
     return currentView(drafts, events);
   } catch (e) {
-    if (e instanceof ReviewIllegalError) throw onIllegal(e.message);
+    if (e instanceof ReviewIllegalError) {
+      const err = onIllegal(e.message);
+      if (e.code !== undefined && err instanceof ReviewRefusedError)
+        err.code = e.code;
+      throw err;
+    }
     // Any other error is never echoed (it may quote a payload). Events already on disk that break the fold are damage;
     // on new entries it is a refusal, and nothing is written.
     if (malformedIsCorrupt)
@@ -83,7 +89,11 @@ function checkActor(a: Entry["actor"]): void {
     (a.kind === "facilitator" && isSafeId(a.by)) ||
     (a.kind === "participant" &&
       isFileSafeId(a.role) &&
-      isSafeId(a.attestedBy));
+      isSafeId(a.attestedBy)) ||
+    (a.kind === "participant_session" &&
+      a.v === 1 &&
+      isFileSafeId(a.role) &&
+      isCredentialIdShape(a.credentialId));
   if (!ok)
     throw new ReviewRefusedError("the actor on this command is not valid");
 }
@@ -157,6 +167,7 @@ export async function applyCommand(
       if (other !== null)
         throw new ReviewRefusedError(
           `another review of this session (${safeName(other)}) already has a release that was not superseded; finish \`pnpm moderate supersede <old> <new>\` and release from the new directory, or keep working in ${safeName(other)}`,
+          "superseded",
         );
     }
     if (loaded.events.length + entries.length > LIMITS.events)
@@ -195,6 +206,7 @@ export async function openReview(dir: string, meta: OpenMeta): Promise<Loaded> {
     if (released !== null)
       throw new ReviewRefusedError(
         `an earlier evaluation of this session (${released}) was already released; use \`pnpm moderate supersede <old> <new>\` to move on`,
+        "superseded",
       );
     if (!isSafeId(meta.by))
       throw new ReviewRefusedError(
@@ -486,8 +498,20 @@ export async function supersedeReview(
       const hasCriterion = (role: string, id: string): boolean =>
         newDrafts.subjects.get(role)?.criteria.some((c) => c.id === id) ??
         false;
+      // A link holder may resubmit a self-rating many times: only the latest per role and criterion is carried, or a long run
+      // of saves could overflow the event limit of the new log. Superseded ratings are skipped INSIDE the loop, never filtered
+      // afterwards: newSeq is assigned in push order, so every carried dispute.resolved still points at the right response.
+      const latestSelf = new Map<string, number>();
+      for (const e of old.events)
+        if (e.type === "self.rated")
+          latestSelf.set(`${e.role}\0${e.criterion}`, e.seq);
       for (const e of old.events) {
         let body: Body | null = null;
+        if (
+          e.type === "self.rated" &&
+          latestSelf.get(`${e.role}\0${e.criterion}`) !== e.seq
+        )
+          continue; // an earlier rating of the same criterion, replaced by a later one
         if (CARRIED_MODERATION.has(e.type))
           body = identical.includes((e as { subject: string }).subject)
             ? stripEnvelope(e)
@@ -600,10 +624,17 @@ export async function supersedeReview(
             existing.events.length > 1 &&
             existing.events.slice(1).every((e) => e.carriedFrom === name) &&
             existing.events[0]!.type === "review.opened";
+          // an interrupted supersede from another version of this tool wrote an opener this version would not write
+          const otherVersion =
+            onlyCopies &&
+            (existing.events[0] as { schema?: unknown }).schema !==
+              (opened.body as { schema?: unknown }).schema;
           throw new ReviewRefusedError(
-            onlyCopies
-              ? "the new directory holds the copies of an interrupted supersede, but the earlier review changed since they were made (it was used while both were live); move the new directory's review.jsonl aside (it holds only copies) and run supersede again to copy the current state"
-              : "a review is already open on the new directory and it is not the copy of this earlier review left by an interrupted supersede; pick a directory with no review.jsonl, or move that file aside if it holds only copies",
+            otherVersion
+              ? "the new directory holds the copies of a supersede interrupted under another version of this tool; re-run supersede with the same version of the tool that began it to finish it, or move the new directory's review.jsonl aside (it holds only copies) and run supersede again"
+              : onlyCopies
+                ? "the new directory holds the copies of an interrupted supersede, but the earlier review changed since they were made (it was used while both were live); move the new directory's review.jsonl aside (it holds only copies) and run supersede again to copy the current state"
+                : "a review is already open on the new directory and it is not the copy of this earlier review left by an interrupted supersede; pick a directory with no review.jsonl, or move that file aside if it holds only copies",
           );
         }
         completed = true;

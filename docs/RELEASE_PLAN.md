@@ -14,10 +14,11 @@ Dependencies: None
 
 ```
 EPIC-0002: Slice 2 — web lobby, session view and reconnect
-Description: Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064).
+Description: Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064, with the slice 2c-4 close-out US-0066).
 Release Target: MVP
-Status: In Progress
+Status: Complete
 Dependencies: EPIC-0001
+Notes: Complete as of 2026-11-06 (slice 2c-4 PR 2, US-0066), pending the owner's sign-off on Deviation 3 of the slice 2c-4 plan: by default the console subject list gets no "AI player, not scored" row (an AI role is never a moderation subject and cannot be exported; "AI player" shows only on the link row of an AI role that still has a live credential).
 ```
 
 ```
@@ -65,6 +66,14 @@ Dependencies: EPIC-0002
 EPIC-0008: Multi-client service and subdomain provisioning
 Description: Run the product for several client organisations from one deployment. Each client (tenant) gets its own address, either a subdomain such as epam.scenecoach.ai or a path such as scenecoach.ai/epam (to be decided in the design), its own scenarios, sessions, codes and reports kept apart from other clients, and light branding. An administrator provisions a client without a code change.
 Release Target: Release 1.x
+Status: Planned
+Dependencies: EPIC-0002
+```
+
+```
+EPIC-0009: Multilingual support
+Description: The product is English at MVP. This epic adds language support, starting with French (Canada) as set out in docs/PRODUCT_SPEC.md (Localisation row), and covers UI strings, scenario content, AI character and Game Master behaviour, evaluator output and reports. The design must decide how translated scenario content is authored and reviewed. Model quality per language needs a calibration pass: the evaluator calibration (EPIC-0005) is English-only today.
+Release Target: Release 2.x
 Status: Planned
 Dependencies: EPIC-0002
 ```
@@ -1802,7 +1811,7 @@ Notes: PR 1 (merged as #82; bot engine, no route) is the shared players/ module 
 US-0060 (EPIC-0002): As a facilitator, I want to fill a player role with an AI player until I start the session, so that a no-show does not stop the session.
 Priority: High
 Estimate: L
-Status: In Progress
+Status: Done
 Branch: feature/EPIC-0002-US-0060-ai-role-record (slice 2b-3a PR 1; PR 2 and PR 3 use feature/EPIC-0002-US-0060-ai-role-gate and feature/EPIC-0002-US-0060-ai-role-labels); slice 2b-3b: feature/EPIC-0002-US-0060-bot-engine (PR 1), feature/EPIC-0002-US-0060-ai-seats-reachable (PR 2), feature/EPIC-0002-US-0060-ai-toggle-prompt (PR 3)
 Dependencies: US-0058, US-0059
 Acceptance Criteria:
@@ -1810,14 +1819,17 @@ Acceptance Criteria:
   - [x] AC-0318: switching a joined human to AI asks for confirmation and revokes their credential and consent; switching back stops the bot and issues a new code once (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b; PR 2 built the routes and the bot stop on switching back, PR 3 built the confirmation for a joined human (danger tone, naming the person), the new code shown once on switching back and the removal of an AI role's code from the one-time panels; TC-0111: unit tests supervisor.ai-roles, Readiness, NewSessionForm, console-confirm; end to end ai-players.spec.ts)
   - [x] AC-0319: the player bot code moves from demo/ to a shared module used by the demo and the control service, with its own PLAYER_MODEL and PLAYER_TEMPERATURE settings (built in slice 2b-3b PR 1: services/runtime/src/players/, exported as @acr/runtime/players, with a boundary test; the settings are parsed by parseAiPlayerSettings and read by the control service from PR 2 on; players, hint, live, settings tests and the demo suite; TC-0105)
   - [x] AC-0320: session.started records aiRoles, AI roles skip consent, and the start gate counts human seats and connected AI bots separately (runtime part built in 2b-3a (aiRoles recorded, AI seats skip consent, the gate checks humans and bots apart; TC-0102); the console shows the counts in 2b-3b PR 2: readiness splits `missing` humans from `aiWaiting` bots and Start waits for both, checked against a real runtime and a real bot; TC-0108. Setting AI roles needs the API until PR 3 adds the toggle, which is AC-0317)
-  - [ ] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c)
-  - [ ] AC-0322: an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored (2b-3c and 2c read state.aiRoles from the log, which 2b-3a records; evaluator part built in 2b-3c (no individual report, no self-assessment, index row AI player, not scored; TC-0118: Tasks 11, 12, 14); report-access credentials in 2c)
+  - [x] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c; web report pages and downloads built in slice 2c-4 PR 1: the "(AI player)" label survives the report page, print view and export (TC-0147) and an AI role is labelled in the console link list (TC-0148); AC-0321 is now complete, except that Deviation 3 (no AI row in the console subject list) is awaiting owner sign-off; if the owner wants the row it is an optional overview field plus a row component)
+  - [x] AC-0322: an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored (2b-3c and 2c read state.aiRoles from the log, which 2b-3a records; evaluator part built in 2b-3c (no individual report, no self-assessment, index row AI player, not scored; TC-0118: Tasks 11, 12, 14); report-access credentials in 2c; report-access credentials built in slice 2c-4 PR 1: issue and reissue refuse an AI role, fail-closed (TC-0145, TC-0146), an AI role is never a moderation subject (TC-0148) and the browser shows the refusal (TC-0149); AC-0322 is now complete)
   - [x] AC-0358: session.started records aiRoles in scenario order (log format 3) only when a session has AI roles, other sessions keep format 2, the runtime reads formats 0 to 3 and refuses aiRoles in an older format, and the lobby's AI roles are kept in <id>.ai-roles.json beside the seat files across a managed restart (events state and player-copy tests, session-engine-restore.test.ts, session-store.ai-roles.test.ts; TC-0100)
   - [x] AC-0359: the control service can set the AI roles of a session before the start over the private IPC channel only; each changed role gets a new code in the same step, a switched human's credential and consent are revoked and their socket closed with 4004, and the change is refused after the start (set-ai-roles, parent-channel, main.ai-roles, protocol drift and supervisor.ai-roles tests; TC-0101)
   - [x] AC-0360: the default consent notice is v2, which says a participant's seat may be played by an AI player, and a started session whose players consented under v1 restarts on v2 with every consenting participant able to rejoin, a participant who took a seat over after a reissue included, and a different participant still refused (main.consent-v2.test.ts and the tests that used to pin v1; TC-0103)
   - [x] AC-0361: a live AI player speaks only when a human or AI character has finished, after a quiet-time nudge while a human is connected, or when prompted; never reacts to another AI player; keeps a minimum gap and a per-scene cap; skips a failed, late or unusable turn with a facilitator alert and never a canned line; drops a reply produced for an earlier scene, a pause, the end or an old connection; and all bots of a session share one model-call budget (turn-policy, live, bot and bot-host tests; the bot engine is built in slice 2b-3b PR 1; TC-0106) Engine built in 2b-3b PR 1; since PR 2 bots run in real sessions and the replies dropped by a pause or a runtime kill and the shared budget after a restart are verified against a real runtime (TC-0107). "When prompted" is Prompt AI player, built in 2b-3b PR 3 and verified end to end through the BFF (ai-players.spec.ts) and in the control tests (bot-host.prompt, bot); the facilitator alert on a skipped, late or unusable turn is one code path for every trigger (bot.test.ts alerts, and the budget alert on a prompted turn in bot-host.prompt). TC-0112.
   - [x] AC-0362: the control service keeps every AI player's join code in memory only: create, restart, reissue-all and a timed-out AI-role change never return an AI role's code to the web server, a single-role reissue or remove of an AI role is refused, AI roles are refused under a consent notice that does not mention AI players, the bots rejoin after a runtime restart with their codes and after a control-service restart with one reissue each, and the shared budget survives both (supervisor.bots, supervisor.bots.integration, supervisor.ai-roles, api, bots.real, main.ai-notice, ai-roles.runtime and console-ai tests; TC-0107. The budget survives only approximately: it is rebuilt from the AI utterances in the log and can only under-count. Known gaps: M-1, no headroom of 8 bots against 8 sockets per key, the generic start_failed for more than 12 player roles, docs/THREAT_MODEL.md "Reachable AI seats")
   - [x] AC-0363: the facilitator can prompt an AI player with an optional private hint of at most 300 characters; the turn is reserved first, the prompt is logged without the hint, the turn runs only after the log succeeded, it skips the gap, nudge and scene cap but counts against the session's budget, and the hint reaches only the model and the facilitator-only intent log (session-engine, ws-server.ai-roles, bot-host.prompt, bot, api, console-ai-prompt, AiPlayersPanel tests and ai-players.spec.ts; TC-0112. A reservation lasts 15 s by ruling (the hub waits 10 s for the ack); aiCalls counts +1 per prompt_ai, so a prompted line counts twice after a restart and a skipped policy turn leaves no trace. Residual risk: a participant can talk an AI player into revealing its role's private facts, docs/THREAT_MODEL.md "Prompt AI player and the toggle")
+  - [x] AC-0379: an AI role is refused a report link, fail-closed, with the fixed sentence (slice 2c-4 PR 1: the guard and the reader/wiring; TC-0145 Task 3 guard, TC-0146 Task 3 reader/wiring; built and tested: services/control/src/__tests__/reports.ai-roles.test.ts, services/runtime/src/run-summary/__tests__/ai-roles-from-log.test.ts, services/control/src/__tests__/ai-roles.test.ts)
+  - [x] AC-0380: a released report's "(AI player)" labels are present on the report page, the print view and the facilitator export (slice 2c-4 PR 1; TC-0147 Task 1; built and tested: apps/web/src/components/__tests__/ReportView.ai-label.test.tsx, services/runtime/src/reports/__tests__/ai-label-export.test.ts)
+  - [x] AC-0381: `links()` keeps an AI role with a live credential revocable, and an old control answer without the flag still renders (slice 2c-4 PR 1; TC-0148 Tasks 4 and 5, TC-0149 Task 6; built and tested: services/control/src/__tests__/reports.ai-roles.test.ts, apps/web/src/components/__tests__/ReportLinksPanel.ai.test.tsx, apps/web/src/lib/__tests__/console-api.report-links-ai.test.ts, apps/web/e2e/report-ai-role.spec.ts)
 ```
 
 ```
@@ -1857,69 +1869,155 @@ Notes: Plan docs/superpowers/plans/2026-11-04-slice-2b-3c-ai-group-score.md; PR 
 US-0062 (EPIC-0002): As a participant, I want to read my report after the session has ended, so that I do not depend on the session still running.
 Priority: High
 Estimate: L
-Status: Planned
-Branch: feature/EPIC-0002-US-0062-report-access
+Status: Done
+Branch: feature/EPIC-0002-US-0062-report-access (slice 2c-1 PR 1); feature/EPIC-0002-US-0062-report-pages (PR 2)
 Dependencies: US-0056
 Acceptance Criteria:
-  - [ ] AC-0327: releasing a report issues a 128-bit report-access credential, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in access.json beside the review directory (0600, atomic, outside the review log)
-  - [ ] AC-0328: the console shows the report link with the credential once, and the facilitator can revoke or reissue it
-  - [ ] AC-0329: the control service verifies the credential and serves released views without a live runtime, tied to the session in the credential
-  - [ ] AC-0330: a cross-role or cross-session request and an expired or revoked credential are refused with one neutral response
+  - [x] AC-0327: the facilitator issues a link for a draft or a released report from the console (a link for a draft report lets the participant rate themselves before release; amended in slice 2c-2 PR 2, a withdrawn report still gets none); the credential is 128 bits from a CSPRNG, stored hashed with an expiry (REPORT_ACCESS_DAYS, default 90) in one report-access.json under the control data directory (0600, atomic, outside every review folder) (store and service built in slice 2c-1 PR 1, TC-0121; the console button in PR 2, TC-0125 and TC-0126)
+  - [x] AC-0328: the console shows the report link (/report/enter#token) with the credential once, and the facilitator can revoke or reissue it (reissue asks for confirmation and says the old link stops working at once) (built in slice 2c-1 PR 2; TC-0125 for the panel, TC-0126 for the whole flow in a browser)
+  - [x] AC-0329: the control service verifies the credential and serves released views without a live runtime, tied to the session in the credential (service and API in PR 1, TC-0122; the browser side in PR 2, TC-0124 and TC-0126: the report is read from the reports folder by the control service alone, after the session has ended)
+  - [x] AC-0330: a cross-role or cross-session request and an expired or revoked credential are refused with one neutral response (control side TC-0122; the BFF and the pages in PR 2, TC-0124 and TC-0126)
+  - [x] AC-0365: the reader of released reports is read-only (`@acr/runtime/reports`, nothing in it writes), resolves the single live review folder including a re-run's `<id>-2`, and the control service imports only the allowed runtime subpaths (built in slice 2c-1 PR 1; TC-0123; TC-0126 seeds a superseded first run and a live `-2` and sees the re-run's text)
+  - [x] AC-0366: a revoke or reissue ends reads at once even for a holder of a live cookie (every read re-checks the credential), and a read with the wrong session answers 404 without touching lastUsedAt (control side TC-0122; browser side TC-0126: revoke in the console, reload /report in the same browser, refused; reissue, the old link refused and the new one works)
+  - [x] AC-0367: opening a report link keeps the token out of every server log, `Referer` and the address bar: the fragment is removed before anything is awaited, posted once (also under React StrictMode), dropped after the exchange, and with script blocked the page says so and sends nothing (built in slice 2c-1 PR 2; TC-0124, TC-0126)
+  - [x] AC-0368: the enter route refuses a forged cross-site POST before the throttle, answers a blocked address 429 `rate_limited` with Retry-After (a refused token stays the neutral 404), and /report, /report/enter and every report response carry no-store and no-referrer; the console DTO never carries a credential id (built in slice 2c-1 PR 2; TC-0124, TC-0125, TC-0126; docs/THREAT_MODEL.md "Report access")
 ```
 
 ```
 TASK-0091 (US-0062): Report-access credential and control-service report API
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0002-US-0062-report-access
-Notes: Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Spec section 5.8; slice 2c-1 plan docs/superpowers/plans/2026-11-05-slice-2c-1-report-access.md. PR 1 (control side) built the hashed credential store, the control-service report links and read API and the read-only runtime reader (TC-0121 to TC-0123). Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+```
+
+```
+TASK-0100 (US-0062): Report pages, BFF report routes and console link panel
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0062-report-pages
+Notes: Slice 2c-1 PR 2 (same plan). The BFF exchange and read routes with the sealed `__Host-scenecoach-report` cookie, /report/enter and /report, the console Participant reports panel, the Playwright and Axe tests (TC-0124 to TC-0126) and docs/THREAT_MODEL.md "Report access". TASK-0092 was already taken by US-0063, so this slice uses TASK-0100.
 ```
 
 ```
 US-0063 (EPIC-0002): As a participant, I want to rate myself and respond to my released report in the browser, so that I can take part in the review.
 Priority: High
 Estimate: L
-Status: Planned
-Branch: feature/EPIC-0002-US-0063-participant-report
+Status: Done
+Branch: feature/EPIC-0002-US-0063-participant-report (slice 2c-2 PR 1); feature/EPIC-0002-US-0063-participant-report-ui (PR 2)
 Dependencies: US-0062
 Acceptance Criteria:
-  - [ ] AC-0331: a versioned actor kind participant_session is accepted only for self-assess, respond (including marking a dispute) and reading the own released report; resolve stays a facilitator action; REVIEW_SCHEMA is bumped and the fold and write checks accept the new kind
-  - [ ] AC-0332: the report page shows levels with evidence, the calibration stamp, the self-rating column and a response box, and works after the runtime has exited
-  - [ ] AC-0333: a held review.lock is retried with backoff and the participant sees try again
-  - [ ] AC-0334: responses and names are scrubbed and escaped in the page, exports strip Markdown link and image syntax, and the threat model records the unkeyed chain and the control service as the only web writer
-  - [ ] AC-0335: tests cover forging, cross-role access and the CLI attested path still working
+  - [x] AC-0331: a versioned actor kind participant_session is accepted only for self-assess, respond (including marking a dispute) and reading the own released report; resolve stays a facilitator action; REVIEW_SCHEMA is bumped and the fold and write checks accept the new kind (runtime part built in slice 2c-2 PR 1: `acr.review/2`, the actor, the fold and `isEventShape`, TC-0127; the reading of the own report in the browser built in PR 2, TC-0133)
+  - [x] AC-0332: the report page shows the blind self-rating form before release (criterion names and the generic scale only, no evaluator level, rationale or evidence) and, after release, the report with levels and evidence, the calibration stamp, a comparison table of the evaluator's level beside the participant's own rating, the participant's responses with any outcome and reason, and a response form (with a dispute flag); it works after the runtime has exited (built in slice 2c-2 PR 1 for the data side, TC-0128, and PR 2 for the page, TC-0128, TC-0133, TC-0134)
+  - [x] AC-0333: a held review.lock is retried with backoff and the participant sees try again (lock distinction, retry with backoff and the `busy` answer built in slice 2c-2 PR 1, TC-0129; "Busy, try again" on the page built in PR 2, TC-0133, TC-0134)
+  - [x] AC-0334: responses and names are scrubbed and escaped in the page, exports strip Markdown link and image syntax, and the threat model records the unkeyed chain and the control service as the only web writer (scrub and export built in slice 2c-2 PR 1, TC-0130; escaping in the page, TC-0134; docs/THREAT_MODEL.md "Participant ratings and responses" in PR 2)
+  - [x] AC-0335: tests cover forging, cross-role access and the CLI attested path still working (runtime and control parts built in slice 2c-2 PR 1, TC-0127: the role comes from the credential, a body naming a role is 400, every refusal is the neutral 404; the browser and BFF part built in PR 2: BFF write routes refuse cross-site writes and take the role only from the sealed cookie, TC-0134, TC-0133)
+  - [x] AC-0369: capacity is bounded: at most 50 ratings per submit, 10 times the criteria in ratings per role in a review, 50 responses per report, text of at most 1,500 characters (UTF-16 bound 3,000 at the door), per-route body caps (16 KB responses, 64 KB self-ratings, 4 KB elsewhere) and at most 20 counted writes per credential in 10 minutes with a Retry-After (built in slice 2c-2 PR 1; TC-0131)
+  - [x] AC-0370: no write attempt begins after a revoke or reissue has returned (the credential is re-checked before every attempt); an attempt already past its credential check may complete (control side built in slice 2c-2 PR 1; TC-0131; in a browser a revoke and a reissue while a cookie exists refuse the next write, TC-0133; docs/THREAT_MODEL.md)
+  - [x] AC-0371: the rating progress of each role (and of each players-count) shows in `moderate status` and in the console (`moderate status` built in slice 2c-2 PR 1, TC-0132; the console panel, which lists draft roles with "Rated k of n criteria" and "x of y players have rated", in PR 2, TC-0134, TC-0133)
+  - [x] AC-0372: a review opened before `acr.review/2` refuses web ratings and responses with a fixed old-schema sentence that points to the terminal, and a build that does not know `/2` cannot read a `/2` review (docs/ROLLBACK.md) (refusal built in slice 2c-2 PR 1; TC-0132; the page shows it in PR 2, TC-0133, TC-0134)
 ```
 
 ```
-TASK-0092 (US-0063): Actor kind, report page, self-assess and respond routes
+TASK-0092 (US-0063): Actor kind, participant module and control write routes
 Type: Dev
 Assignee: Agent
-Status: To Do
-Branch: feature/EPIC-0002-US-0063-participant-report
-Notes: Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Status: Done
+Branch: feature/EPIC-0002-US-0063-participant-report (slice 2c-2 PR 1)
+Notes: Spec section 5.8. Spec docs/superpowers/specs/2026-10-26-web-client-design.md. Needs its own spec before a plan (brainstorm first). Inputs from slice 2c-1 (US-0062, done): the credential id lives only in the sealed `__Host-scenecoach-report` cookie and the control path, so the participant actor is `{ role, credentialId }` resolved by the control service; the report page already renders all text escaped and has the states, print view and throttles to extend; control refuses store trouble with a 503 (never the neutral 404), which the new routes must keep; a held `review.lock` is retried with backoff and answers try again. Open follow-ups that touch this area: BUG-0027, BUG-0028. Slice 2c-2 PR 1 (no browser) is done: review schema `acr.review/2` and the `participant_session` actor, `ReviewBusyError`, `@acr/runtime/participant` (blind form, self-ratings, responses, progress, caps), the supersede carry, the control write routes (`PUT /sessions/:id/reports/:credentialId/self-ratings`, `POST .../responses`) with per-route body caps, the throttle, the retry and the revoke re-check, the start-up writability check, and rating progress in `moderate status`. PR 2 (the browser) is TASK-0101. Plan docs/superpowers/plans/2026-11-05-slice-2c-2-participant-actions.md.
+```
+
+```
+TASK-0101 (US-0063): Browser: BFF routes, page, console panel, e2e and Axe
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0063-participant-report-ui
+Notes: Slice 2c-2 PR 2 (same plan, stacked on feature/EPIC-0002-US-0063-participant-report). The link rule (a draft role can be linked, a withdrawn one cannot), the new control read states (draft form, closed, old_schema, not_released, busy) with `KNOWN_CONFLICTS`, the BFF `PUT /api/v1/report/self-ratings` and `POST /api/v1/report/responses` (cross-site writes refused before any throttle, per-credential write throttle, role from the sealed cookie only), the report page (blind self-rating form with browser drafts, comparison table, responses list, response form), the console Participant reports panel with draft rows and rating progress, the Playwright and Axe tests (TC-0133, TC-0134) and docs/THREAT_MODEL.md "Participant ratings and responses". Deployment: the control service now writes to the reports directory (README, Settings). Plan docs/superpowers/plans/2026-11-05-slice-2c-2-participant-actions.md.
 ```
 
 ```
 US-0064 (EPIC-0002): As a facilitator, I want to evaluate, moderate and release reports in the browser, so that I can finish the whole programme in one place.
 Priority: High
 Estimate: XL
-Status: Planned
-Branch: feature/EPIC-0002-US-0064-report-moderation-web
+Status: Done
+Branch: feature/EPIC-0002-US-0064-report-moderation-web (part A), feature/EPIC-0002-US-0064-report-release-web (part B)
 Dependencies: US-0062, US-0059
 Acceptance Criteria:
-  - [ ] AC-0336: the control service runs evaluate and moderate open on the facilitator behalf and the console shows the run summary and per-person status
-  - [ ] AC-0337: the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate
-  - [ ] AC-0338: release, amend and withdraw show a confirmation that names the subject and audience, and an agent never performs them without the owner naming the subjects
-  - [ ] AC-0339: the run summary shows scenes ended by the Game Master, fallback counts and alerts before release
-  - [ ] AC-0340: an end-to-end test evaluates and releases a report and its owner reads it after the runtime has exited
+  - [x] AC-0336: the control service runs evaluate and moderate open on the facilitator behalf and the console shows the run summary and per-person status (built in slice 2c-3 part A: `ReportJobService` runs the evaluate CLI as a child and opens the review with the typed name, the Report panel shows the run summary and each subject's own state and open items; TC-0135, TC-0137, TC-0139, TC-0140)
+  - [x] AC-0337: the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate (edit levels, accept, comment and edit-summary built in part A, TC-0136, TC-0138 to TC-0140; release, amend, withdraw, resolve and export in part B over the same library and gate, TC-0141 to TC-0144; the export download equals the terminal's export in TC-0144; edit-summary has control and BFF routes but no console control, so the summary text is edited with `pnpm moderate edit-summary`)
+  - [x] AC-0338: release, amend and withdraw show a confirmation that names the subject and audience, and an agent never performs them without the owner naming the subjects (part B: the dialogs name each subject and its audience from the visibility policy, release takes only an explicit list; TC-0143, TC-0144)
+  - [x] AC-0339: the run summary shows scenes ended by the Game Master, fallback counts and alerts before release (built in slice 2c-3 part A: the shared `@acr/runtime/run-summary` module and the panel's "How the run went", shown from the moment the review is open; TC-0135, TC-0139, TC-0140)
+  - [x] AC-0340: an end-to-end test evaluates and releases a report and its owner reads it after the runtime has exited (part B, TC-0144: released in the console, then read in a fresh browser once the session's runtime process is gone; the draft is seeded with the runtime's own evaluate functions, the spec section 8 fallback, because the e2e's players never speak and the mock evaluator scores nothing on that log (Task 1 finding); a real evaluate run is covered end to end only as the one-job guard in TC-0140)
+  - [x] AC-0373: the control service refuses to evaluate a session that already has a draft or review, and never reuses an orphan directory (slice 2c-3 part A; TC-0137, TC-0140)
+  - [x] AC-0374: the facilitator confirms the model spend before evaluate runs, and a stale confirmation is refused (slice 2c-3 part A; TC-0137, TC-0139)
+  - [x] AC-0375: release takes an explicit list of subjects; an empty list or `all` is refused by the server (part B; TC-0141 to TC-0144)
+  - [x] AC-0376: export is a `POST` that records the export before serving the file, and nothing is written to the server's disk (part B; TC-0141 to TC-0144)
+  - [x] AC-0377: the facilitator can resolve a participant's dispute in the browser (part B; TC-0141, TC-0143, TC-0144)
+  - [x] AC-0378: a stale edit keeps the facilitator's typed text (slice 2c-3 part A; TC-0138, TC-0139, TC-0140)
 ```
 
 ```
 TASK-0093 (US-0064): Browser moderation over the review store and the run summary
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0002-US-0064-report-moderation-web
-Notes: Spec sections 5.8 and 7. Spec docs/superpowers/specs/2026-10-26-web-client-design.md.
+Notes: Spec docs/superpowers/specs/2026-11-06-slice-2c-3-facilitator-reports-design.md (addendum to sections 5.8 and 7 of docs/superpowers/specs/2026-10-26-web-client-design.md); plan docs/superpowers/plans/2026-11-06-slice-2c-3-facilitator-reports.md. Slice 2c-3 part A (PR A, this task) is built: the shared run-summary module (demo refactor) and the call bound, the draft-candidate lookup in `@acr/runtime/reports`, `@acr/runtime/moderation` (open, edit with `expect`, accept, comment, edit-summary, closed results), the control service's `ReportJobService` (evaluate as a child with a sanitised environment, one run across the service, confirmation, repeat guard, cancel, overall timeout, interrupted and orphan states) and `ModerationService` with the control routes, the BFF routes under `/api/v1/console/sessions/:id/report`, the console Report panel (author name, evaluate card and confirmation, run summary, subject list, subject view), the part A e2e and Axe, and docs/THREAT_MODEL.md "Facilitator moderation". The fixed "reports are not ready" message now points to the Report panel. Release, amend, withdraw, resolve and export followed in part B (TASK-0102).
+```
+
+```
+TASK-0102 (US-0064): Browser release and close-out: release, amend, withdraw, resolve and export
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0064-report-release-web (stacked on feature/EPIC-0002-US-0064-report-moderation-web)
+Notes: Slice 2c-3 part B (PR B), same spec and plan as TASK-0093. `release` with an explicit list of subjects (empty and `all` refused), `amend` and `withdraw` with a required reason, `resolve` (upheld, amended after an amend, declined), `export` as a `POST` that records the event first and returns the Markdown as an attachment (`console-download`, nothing written to disk); the release bar and dialogs that name each subject's audience from the visibility policy; the part B e2e (release, the participant reads with the runtime gone, amend, withdraw, resolve, export) with Axe on the dialogs; the README terminal steps for release, amend, withdraw and export replaced; the close-out docs. Covers AC-0337 (rest), AC-0338, AC-0340, AC-0375 to AC-0377. Carried from part A: release refusal codes (`unknown_subject` for unknown ids, `not_editable` for non-draft or amending subjects, `blocked` only for gate problems). Built: the part B moderation operations (`@acr/runtime/moderation`), the control and BFF routes, the console release bar, dialogs, row actions, dispute panel and export menu, the e2e and Axe (TC-0141 to TC-0144), the README console steps and the close-out docs. Not built: a console control for edit-summary (the terminal still has it). Deploy or restart the control service before the web app (`scoreByHand` is a required answer field).
+```
+
+```
+US-0066 (EPIC-0002): As a facilitator, I want the small EPIC-0002 close-out gaps fixed, so that the web client ships without known loose ends.
+Priority: Medium
+Estimate: M
+Status: Done
+Branch: feature/EPIC-0002-US-0066-close-out-polish
+Dependencies: US-0060, US-0064
+Acceptance Criteria:
+  - [x] AC-0382: a facilitator can edit a participant's summary in the console (slice 2c-4 PR 2; TC-0150 Task 11; built and tested: apps/web/src/components/console/report/__tests__/SummaryEditor.test.tsx, apps/web/src/components/console/report/__tests__/SubjectView.test.tsx, apps/web/src/lib/__tests__/console-api.edit-summary.test.ts, e2e steps in apps/web/e2e/report-moderation.spec.ts and axe.spec.ts)
+  - [x] AC-0383: `moderate status` shows the first 8 characters of a web link id (slice 2c-4 PR 2; TC-0151 Task 7; built and tested: services/runtime/src/review/__tests__/cli-status-web.test.ts, services/runtime/src/review/__tests__/fold-participant-session.test.ts, services/runtime/src/moderation/__tests__/read.test.ts; there is no `history` command, so the fold carries the id as `via` and `moderate status` prints it)
+  - [x] AC-0384: the in-scope minors are fixed with tests and the rest are filed (slice 2c-4 PR 2; TC-0152 Tasks 8 to 10; fixed and tested: Withdraw on an amending row, a subject with no status row is blocked, a whitespace-only note, route tests for the part B 409 and 503 codes in services/control/src/__tests__/moderation-routes.part-b-codes.test.ts; filed: BUG-0029 to BUG-0034)
+```
+
+```
+TASK-0103 (US-0060): Slice 2c-4 PR 1: AI-role report-link guarantees and "(AI player)" labels
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0060-ai-role-guarantees
+Notes: Spec docs/superpowers/specs/2026-11-06-slice-2c-4-close-out-design.md; plan docs/superpowers/plans/2026-11-06-slice-2c-4-close-out.md. Covers AC-0379 to AC-0381 (TC-0145 to TC-0149). Closes AC-0321 and AC-0322 for the web report pages and downloads.
+```
+
+```
+TASK-0104 (US-0066): Slice 2c-4 PR 2: close-out polish
+Type: Dev
+Assignee: Agent
+Status: Done
+Branch: feature/EPIC-0002-US-0066-close-out-polish
+Notes: Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC-0152): console edit-summary, the 8-character link id in `moderate status`, and the in-scope minors.
+```
+
+```
+US-0067 (EPIC-0009): As a participant, I want to use the product and play scenarios in my own language, so that language is not a barrier to coaching practice.
+Priority: Medium
+Estimate: XL
+Status: Planned
+Branch: feature/EPIC-0009-US-0067-multilingual-support
+Dependencies: EPIC-0002
+Acceptance Criteria:
+  - [ ] AC-0385: the web UI strings come from per-language message catalogues, with a language chosen per user or per session and a documented fallback to English for any missing string; no string is hard-coded in a component
+  - [ ] AC-0386: scenarios and their rubrics can carry translations; an AI character speaks and a Game Master judges in the session language; the evaluator reports quote the original-language lines with a note of the report language
+  - [ ] AC-0387: French (Canada) is delivered first as the proving language; right-to-left and other scripts are explicitly out of scope until a later story
+  - [ ] AC-0388: dates, numbers, names and the accessibility labels follow the chosen language; the language of a session is recorded in the session log so reports and replays stay consistent
 ```

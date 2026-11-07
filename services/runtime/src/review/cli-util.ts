@@ -11,7 +11,15 @@ export const facilitator = (c: Ctx): Actor => ({
   by: cleanBy(c.values.by),
 });
 export const need = <T>(v: T | undefined, what: string): T => {
-  if (v === undefined) throw new ReviewRefusedError(`unknown ${what}`);
+  if (v === undefined)
+    throw new ReviewRefusedError(
+      `unknown ${what}`,
+      what === "subject"
+        ? "unknown_subject"
+        : what === "criterion"
+          ? "unknown_criterion"
+          : undefined,
+    );
   return v;
 };
 /** A file name from the directory, safe to print: hidden characters stripped, markup and secrets scrubbed, at most 64 characters. */

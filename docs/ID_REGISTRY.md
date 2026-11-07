@@ -2,13 +2,13 @@
 
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
-| EPIC         | EPIC-0009             | EPIC-0008         |
-| US           | US-0066               | US-0065           |
-| TASK         | TASK-0100             | TASK-0099         |
-| AC           | AC-0365               | AC-0364           |
-| TC           | TC-0121               | TC-0120           |
-| BUG          | BUG-0025              | BUG-0024          |
-| L            | L-0032                | L-0031            |
+| EPIC         | EPIC-0010             | EPIC-0009         |
+| US           | US-0068               | US-0067           |
+| TASK         | TASK-0105             | TASK-0104         |
+| AC           | AC-0389               | AC-0388           |
+| TC           | TC-0153               | TC-0152           |
+| BUG          | BUG-0035              | BUG-0034          |
+| L            | L-0035                | L-0034            |
 
 Reserved blocks (2026-10-06): AC-0130..AC-0139 and TASK-0040..TASK-0042 US-0025; AC-0140..AC-0149 and TASK-0043..TASK-0045 US-0017; AC-0150..AC-0159 and TASK-0046..TASK-0048 US-0016; AC-0160..AC-0169 and TASK-0049..TASK-0051 US-0018. Free below the blocks: AC-0127..AC-0129 and TASK-0035..TASK-0039. Next/Last point past the reserved blocks; an id in a block that its story does not use stays unused (ids are never reassigned).
 
@@ -67,3 +67,21 @@ Assigned 2026-11-04 (bug fixes after slice 2b-3b): BUG-0024 (the stream hubs dro
 Assigned 2026-11-04 (slice 2b-3c, PR 1): TC-0114 (AC-0323). No new AC or TASK: the work is under TASK-0090 (next free AC stays AC-0364, next free TASK stays TASK-0100). PR 2 files its own (expected AC-0364 and TC-0115 onwards).
 
 Assigned 2026-11-05 (slice 2b-3c, PR 2): AC-0364 (US-0061: for a session without AI roles the evaluator's requests and reports are byte-identical to the build before the slice, and a log written before the option existed is scored with the option on); TC-0115 (AC-0324), TC-0116 (AC-0325), TC-0117 (AC-0326: the independent review record and its fixes), TC-0118 (AC-0322, evaluator part), TC-0119 (AC-0321, reports and exports) and TC-0120 (AC-0364). No new TASK: the work closes TASK-0090. Slice 2b-3c is complete; the next AC is AC-0365 and the next TC is TC-0121.
+
+Assigned 2026-11-05 (slice 2c-1, PR 1): AC-0365 (US-0062: the reader of released reports is read-only and follows a re-run folder) and AC-0366 (US-0062: a revoke or reissue ends reads at once, even for a holder of a live cookie, and a wrong-session read does not touch the credential); TC-0121 (AC-0327: the credential store), TC-0122 (AC-0329, AC-0330, AC-0366: the report service and its API) and TC-0123 (AC-0365: the runtime reader and the import boundary). TASK-0091 is reused (no new TASK; next free stays TASK-0100).
+
+Assigned 2026-11-05 (slice 2c-1, PR 2): AC-0367 (US-0062: opening a report link keeps the token out of logs, referrer and the address bar; no-script fallback) and AC-0368 (US-0062: forged cross-site enter refused before the throttle, a blocked address gets 429 with Retry-After while a refused token stays the neutral 404, no-store and no-referrer, no credential id in the console DTO); TC-0124 (AC-0330, AC-0367, AC-0368: BFF routes and pages), TC-0125 (AC-0327, AC-0328, AC-0368: console panel) and TC-0126 (end to end and Axe). TASK-0100 (TASK-0092 was already taken by US-0063). Slice 2c-1 is complete; the next AC is AC-0369, the next TC is TC-0127 and the next TASK is TASK-0101.
+
+Assigned 2026-11-05 (slice 2c-1 close): BUG-0025 (forged-cookie read failures share the enter throttle table), BUG-0026 (`ws-server.roster.test.ts` flake), BUG-0027 (conflict sentences duplicated between control and web) and BUG-0028 (slice 2c-1 test and cleanup gaps), all open. L-0032 and L-0033 were added at the same close.
+
+Assigned 2026-11-06 (slice 2c-2, PR 1): AC-0369 (US-0063: capacity bounds), AC-0370 (US-0063: no write attempt begins after a revoke or reissue has returned), AC-0371 (US-0063: rating progress in `moderate status` and the console) and AC-0372 (US-0063: old-schema refusal); TC-0127 (AC-0331, AC-0335: fold and forging), TC-0128 (AC-0332: blind read), TC-0129 (AC-0333: lock and retry), TC-0130 (AC-0334: text and export), TC-0131 (AC-0369, AC-0370: capacity and revoke) and TC-0132 (AC-0371, AC-0372: progress and old schema). TASK-0092 is reused (no new TASK; next free stays TASK-0101). The next AC is AC-0373, the next TC is TC-0133.
+
+Assigned 2026-11-06 (slice 2c-2, PR 2): TC-0133 (AC-0331 to AC-0335, AC-0370 to AC-0372: end to end and Axe for ratings and responses) and TC-0134 (AC-0332 to AC-0335, AC-0371: page and console cases: SelfRatingForm, ComparisonTable, ResponsesList, ResponseForm, ReportLinksPanel and the BFF write routes); TASK-0101 (US-0063: browser, PR 2). No new AC. Slice 2c-2 is complete; the next AC is AC-0373, the next TC is TC-0135, the next TASK is TASK-0102, the next BUG is BUG-0029 and the next L is L-0034.
+
+Assigned 2026-11-06 (slice 2c-3, PR A, US-0064): AC-0373 (no evaluate over a draft or review, no orphan reuse), AC-0374 (the model spend is confirmed, a stale confirmation refused), AC-0375 (release takes an explicit list; empty or `all` refused), AC-0376 (export is a `POST` that records first, nothing written to disk), AC-0377 (resolve a dispute in the browser) and AC-0378 (a stale edit keeps the typed text), in the order of spec section 9; AC-0375 to AC-0377 are part B. TC-0135 (AC-0336, AC-0339: run summary and call bound), TC-0136 (AC-0337, AC-0378: moderation library), TC-0137 (AC-0336, AC-0373, AC-0374: evaluate job), TC-0138 (AC-0337, AC-0373, AC-0378: moderation service and control routes), TC-0139 (AC-0336, AC-0337, AC-0339, AC-0374, AC-0378: console panel and BFF routes) and TC-0140 (AC-0336, AC-0337, AC-0339, AC-0373, AC-0378: end to end and Axe). TASK-0093 (part A) is reused; TASK-0102 is new (US-0064 part B, release and close-out). The next AC is AC-0379, the next TC is TC-0141, the next TASK is TASK-0103.
+
+Assigned 2026-11-06 (slice 2c-3, PR B, US-0064): TC-0141 (AC-0337, AC-0375 to AC-0377: the part B moderation library), TC-0142 (AC-0337, AC-0375 to AC-0377: the moderation service and the part B control routes), TC-0143 (AC-0337, AC-0338, AC-0375 to AC-0377: the console release bar, dialogs, dispute panel and export menu, and the BFF part B routes) and TC-0144 (AC-0337, AC-0338, AC-0340, AC-0375 to AC-0377: end to end and Axe). No new AC (AC-0375 to AC-0377 were filed by PR A) and no new TASK (TASK-0102 was filed by PR A). Slice 2c-3 is complete; the next AC is AC-0379, the next TC is TC-0145, the next TASK is TASK-0103, the next BUG is BUG-0029 and the next L is L-0034.
+
+Reserved blocks (2026-11-06, slice 2c-4): US-0066 (EPIC-0002 close-out polish); TASK-0103 (US-0060, PR 1) and TASK-0104 (US-0066, PR 2); AC-0379..AC-0381 under US-0060 and AC-0382..AC-0384 under US-0066; TC-0145..TC-0152 (TC-0145, TC-0146 AC-0379; TC-0147 AC-0380; TC-0148, TC-0149 AC-0381; TC-0150 AC-0382; TC-0151 AC-0383; TC-0152 AC-0384), filed when each task is built. Ids in a block that its story does not use stay unused. No new BUG or L ids are reserved.
+
+Reserved blocks (2026-11-06, multilingual backlog): EPIC-0009; US-0067; AC-0385..AC-0388 (all under US-0067). All Planned; test cases are filed when the story moves to In Progress. Ids in a block that its story does not use stay unused.

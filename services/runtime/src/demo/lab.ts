@@ -1,7 +1,7 @@
 import { Bot, isEvent, type Inbound } from "./bots.js";
 import { ensure } from "./checks.js";
 import { act, attempt, codeSecrets, connectBot, errCode, isJoinedMsg, npcRole, consentAfterJoin, playerJoin, sceneIds, utterancesOf, withTimeout, type Ctx, type Story, type Utter } from "./ctx.js";
-import { sanitizeAlert } from "./live-evidence.js";
+import { sanitizeAlert } from "../run-summary/index.js";
 import { LAB_FIRST_TOKEN_MS, LAB_HEARTBEAT_MS, startLabSystem } from "./harness.js";
 
 /** The server terminates a silent socket at the second heartbeat tick after its last answer, so a 3 period limit has room for scheduling slack. */

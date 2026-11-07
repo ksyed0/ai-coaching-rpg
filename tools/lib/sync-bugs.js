@@ -1,6 +1,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const { digits } = require('./safe-text');
 
 const ROOT = path.join(__dirname, '../..');
 
@@ -63,6 +64,7 @@ function classifyBugChanges(bugs, stateEntries, ghIssues, config) {
 }
 
 function writeBugIssueNumber(bugId, issueNumber) {
+  const issueNo = digits(issueNumber);
   const bugsPath = path.join(ROOT, 'docs/BUGS.md');
   let content = fs.readFileSync(bugsPath, 'utf8');
 
@@ -80,18 +82,23 @@ function writeBugIssueNumber(bugId, issueNumber) {
   if (!statusRe.test(block)) return;
   const newBlock = block.replace(
     statusRe,
-    (_, indent, statusLine) => `${indent}${statusLine}${indent}GH Issue: #${issueNumber}\n`,
+    (_, indent, statusLine) => `${indent}${statusLine}${indent}GH Issue: #${issueNo}\n`,
   );
   content = content.slice(0, blockMatch.index) + newBlock + content.slice(blockMatch.index + block.length);
   fs.writeFileSync(bugsPath, content, 'utf8');
 }
 
+const BUG_STATUSES = ['Open', 'In Progress', 'Fixed', 'Closed', 'Won\'t Fix'];
+
 function updateBugStatus(bugId, newStatus) {
+  // Only a status from the fixed list is ever written, taken from the list and not from the argument.
+  const status = BUG_STATUSES[BUG_STATUSES.indexOf(newStatus)];
+  if (status === undefined) throw new Error('unknown bug status');
   const bugsPath = path.join(ROOT, 'docs/BUGS.md');
   let content = fs.readFileSync(bugsPath, 'utf8');
   content = content.replace(
     new RegExp(`(^${bugId}:[^\\n]+\\n[\\s\\S]*?)(Status:\\s*\\S+)`, 'm'),
-    `$1Status: ${newStatus}`,
+    `$1Status: ${status}`,
   );
   fs.writeFileSync(bugsPath, content, 'utf8');
 }

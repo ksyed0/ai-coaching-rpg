@@ -9,6 +9,8 @@ import { focusFallback } from "./ConfirmDialog";
 import { ConsoleControls } from "./ConsoleControls";
 import { LiveView } from "./LiveView";
 import { Readiness, type SessionStatus } from "./Readiness";
+import { ReportLinksPanel } from "./ReportLinksPanel";
+import { ReportPanel } from "./report/ReportPanel";
 
 // One session on /console/<id>: the readiness view (lobby) until the session is running or Start succeeded, then the live view (live).
 // This component alone owns the stream's final message: it is shown once, above both views, and survives a return to the lobby.
@@ -49,7 +51,10 @@ export function SessionConsole({ sessionId, deps = {} }: SessionConsoleProps) {
     if (at === null || at === document.body) focusFallback("final")()?.focus();
   }, [endedFinal]);
 
+  // The session has ended (the stream said so, or the readiness poll did): the Report panel and the participant report links become available.
+  const [polledEnded, setPolledEnded] = useState(false);
   const onState = (s: { launcherStatus: string; status: SessionStatus | null }) => {
+    setPolledEnded(s.launcherStatus === "ended" || s.status === "ended");
     if (s.status === "running") setMode("live");
     else if (s.launcherStatus === "running" && final?.kind === "stopped") setDismissed(final);
   };
@@ -74,6 +79,12 @@ export function SessionConsole({ sessionId, deps = {} }: SessionConsoleProps) {
         onState={onState}
         onStarted={() => setMode("live")}
       />
+      {endedFinal || polledEnded ? (
+        <>
+          <ReportPanel sessionId={sessionId} fetch={resolved.fetch} {...(deps.setTimer ? { setTimer: deps.setTimer } : {})} />
+          <ReportLinksPanel sessionId={sessionId} fetch={resolved.fetch} />
+        </>
+      ) : null}
       {mode === "live" ? (
         <LiveView
           ui={ui}

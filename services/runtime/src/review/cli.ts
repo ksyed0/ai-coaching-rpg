@@ -1,37 +1,43 @@
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { isSafeId } from "@acr/events";
 import { scrubText } from "../demo/report.js";
 import { secretValues } from "../evaluator/cli.js";
 import { buildMethod } from "../evaluator/method.js";
-import type {
-  GroupReport,
-  ParticipantReport,
-} from "../evaluator/report-model.js";
 import { readRegularCapped } from "../util/read-regular.js";
 import {
   ReviewCorruptError,
   ReviewRefusedError,
   ReviewUsageError,
 } from "./errors.js";
-import { loadDrafts } from "./draft.js";
-import { amendedSince } from "./fold.js";
-import { releaseProblems } from "./gate.js";
-import { sha256 } from "./hash.js";
-import { cleanLine, facilitator, need, shownName } from "./cli-util.js";
+import { cleanLine } from "./cli-util.js";
 import { exportHandler } from "./export.js";
 import {
   applyCommand,
   loadReview,
-  openReview,
-  readCodesRecord,
   supersedeReview,
   type Loaded,
 } from "./store.js";
-import { cleanBy, cleanText, isDraftFileName, parseLevel } from "./text.js";
-import { LIMITS, type Entry, type ReviewEvent } from "./types.js";
-import { renderSubjectMarkdown, viewReport } from "./view.js";
+import { cleanBy, cleanText, parseLevel } from "./text.js";
+import { LIMITS } from "./types.js";
+import { renderSubjectMarkdown } from "./view.js";
+import { facilitatorReport } from "../moderation/read.js";
+import type { ExpectLevel } from "../moderation/types.js";
+import {
+  acceptCriterion,
+  acceptSummary,
+  commentOn,
+  editScore,
+  editSummary,
+  openReviewLoaded,
+} from "../moderation/write.js";
+import {
+  amendSubject,
+  releaseRefusal,
+  releaseWith,
+  resolveDispute,
+  withdrawSubject,
+} from "../moderation/write-b.js";
 
 export const MODERATE_USAGE = [
   "usage: pnpm moderate <subcommand> <reports-dir> [options]",
@@ -49,7 +55,7 @@ export const MODERATE_USAGE = [
   "  supersede <old-dir> <new-dir> --by <name>                            move moderation of unchanged subjects to a re-run of a released session; the old review becomes read-only",
   "  self-assess <dir> --role <role> --list   |   self-assess <dir> --role <role> --rate <criterion>=<1|2|3|4|na>... [--note <text>] --by <facilitator>   blind self-rating before release (the facilitator attests)",
   "  respond <dir> --role <role> --text <text> [--criterion <id>] [--dispute] --by <facilitator>   a participant's response after release; --dispute puts it on the facilitator's list",
-  "  resolve <dir> <response-number> --outcome upheld|amended|declined --reason <text> --by <name>   close a dispute (`amended` needs an amend of that report first)",
+  "  resolve <dir> <response-number> --outcome upheld|amended|declined --reason <text> --by <name>   close a dispute; the reason is shown to the participant (`amended` needs an amend of that report first)",
   "exit codes: 0 done, 1 refused (fix and retry), 2 usage error or a damaged review/draft file",
   "A subject is a player role or `group`. Free text is stored after hidden characters are stripped and secrets scrubbed.",
 ].join("\n");
@@ -138,35 +144,21 @@ const ARITY: Record<string, number> = {
   respond: 0,
   resolve: 1,
 };
-/** The refusal text of `release`. The top-level error is cut at 400 characters, so keep whole (capped) lines and say how many were left out. */
-export function releaseRefusal(problems: string[]): string {
-  const shown: string[] = [];
-  let len = 60; // "refused: nothing was released:" plus the line markers and the "... and N more" tail
-  for (const raw of problems) {
-    const p = raw.length > 110 ? `${raw.slice(0, 107)}...` : raw;
-    if (shown.length > 0 && len + p.length + 5 > 340) break;
-    shown.push(p);
-    len += p.length + 5;
-  }
-  const more = problems.length - shown.length;
-  return `nothing was released:\n  ${shown.join("\n  ")}${more > 0 ? `\n  ... and ${more} more; run status for the full list` : ""}`;
-}
+// `releaseRefusal` moved to the moderation module (part B); re-exported so `pnpm moderate` and its tests keep the one text.
+export { releaseRefusal };
 /** The hint printed when a release or withdrawal left the released group's per-role table out of date. */
-const staleHint = (before: Loaded, after: Loaded): string | null => {
-  const b = before.view.subjects.get("group");
-  const a = after.view.subjects.get("group");
-  return a?.tableStale && !b?.tableStale
-    ? "the group's per-role table is now out of date; amend and re-release the group to refresh it"
-    : null;
-};
+const STALE_HINT =
+  "the group's per-role table is now out of date; amend and re-release the group to refresh it";
 const lvl = (l: unknown): string => (l === null ? "na" : String(l));
 
-function statusLines(l: Loaded): string[] {
+export function statusLines(l: Loaded): string[] {
   const out: string[] = [];
   if (l.view.superseded)
     out.push(
       `This review is superseded by ${l.view.superseded} and is read-only.`,
     );
+  let drafts = 0,
+    haveRated = 0;
   for (const sv of l.view.subjects.values()) {
     const open = sv.criteria.filter((c) => c.status === "needs_review");
     out.push(
@@ -176,11 +168,22 @@ function statusLines(l: Loaded): string[] {
       out.push(`  needs review: ${c.id} (currently ${lvl(c.current)})`);
     const rated = sv.criteria.filter((c) => c.self).length;
     if (rated > 0) out.push(`  ${rated} self-rating(s)`);
+    if (sv.id !== "group" && sv.state === "draft") {
+      drafts++;
+      if (rated > 0) haveRated++;
+      const links = [
+        ...new Set(sv.criteria.flatMap((c) => (c.self?.via ? [c.self.via] : []))),
+      ];
+      out.push(
+        `  ${sv.id}: rated ${rated} of ${sv.criteria.length} criteria${links.length ? ` via web link ${links.join(", ")}` : ""}`,
+      );
+    }
     for (const r of sv.responses.filter((x) => x.dispute && !x.resolution))
       out.push(
-        `  open dispute: #${r.seq} by ${r.role}${r.criterion ? ` on ${r.criterion}` : ""}`,
+        `  open dispute: #${r.seq} by ${r.role}${r.criterion ? ` on ${r.criterion}` : ""}${r.via ? ` via web link ${r.via}` : ""}`,
       );
   }
+  if (drafts > 0) out.push(`${haveRated} of ${drafts} players have rated`);
   return out;
 }
 
@@ -199,24 +202,16 @@ export const HANDLERS: Record<string, Handler> = {
         throw new ReviewUsageError("--session-log cannot be read");
       }
     }
-    const d = await loadDrafts(c.dir);
-    // openReview would refuse a stray file with an unnamed message; name it (sanitised, bounded) so the facilitator can act.
-    for (const name of Object.keys(d.files)) {
-      if (!isDraftFileName(name))
-        throw new ReviewRefusedError(
-          `${shownName(name)} is not a generated report file; move it out of the reports directory and run open again`,
-        );
-    }
     const codesDir =
       typeof c.values["codes-dir"] === "string"
         ? path.resolve(c.base, c.values["codes-dir"])
         : path.resolve(c.base, "data/sessions");
-    const codes = await readCodesRecord(codesDir, d.sessionId);
-    const l = await openReview(c.dir, {
+    const l = await openReviewLoaded({
+      dir: c.dir,
       by,
       now: c.now,
       ...(sessionLogText !== undefined ? { sessionLogText } : {}),
-      codes,
+      codesDir,
     });
     c.out(
       `review opened for session ${l.view.opened.session.id}: ${l.view.subjects.size} subjects${l.view.opened.legacy ? " (legacy drafts: no structured flag codes)" : ""}. Next: pnpm moderate status <dir>`,
@@ -228,20 +223,11 @@ export const HANDLERS: Record<string, Handler> = {
     return 0;
   },
   async show(c) {
-    const l = await loadReview(c.dir);
-    const id = c.args[0];
-    const sv = id ? l.view.subjects.get(id) : undefined;
-    if (!id || !sv)
-      throw new ReviewRefusedError("unknown subject; run status to list them");
-    const draft = l.drafts.subjects.get(id)!.raw as unknown as
-      ParticipantReport | GroupReport;
+    const { report } = await facilitatorReport(c.dir, c.args[0] ?? "");
     // Multi-line Markdown: not passed through c.out (scrubText would flatten every line break). Per line: control and
     // hidden characters out (keeps \n and tab), then secrets and machine paths redacted, as scrubText does.
     c.raw(
-      renderSubjectMarkdown(
-        viewReport(draft, l.view, id, { audience: "facilitator" }),
-        c.secrets,
-      )
+      renderSubjectMarkdown(report, c.secrets)
         .split("\n")
         .map((line) => cleanLine(line, c.secrets))
         .join("\n")
@@ -253,64 +239,24 @@ export const HANDLERS: Record<string, Handler> = {
     const [subject, criterion] = c.args;
     if (!subject || !criterion)
       throw new ReviewUsageError("edit needs <subject> <criterion>");
-    const actor = facilitator(c);
+    const by = cleanBy(c.values.by);
     const to = parseLevel(c.values.level);
-    const reason = cleanText(
-      String(c.values.reason ?? ""),
-      LIMITS.reason,
-      "--reason",
-      c.secrets,
-    );
-    const rationale =
-      typeof c.values.rationale === "string"
-        ? cleanText(c.values.rationale, LIMITS.text, "--rationale", c.secrets)
-        : undefined;
-    const expect =
-      typeof c.values.expect === "string" ? c.values.expect : undefined;
-    if (
-      expect !== undefined &&
-      !["1", "2", "3", "4", "na", "invalid"].includes(expect)
-    )
-      throw new ReviewUsageError("--expect needs 1, 2, 3, 4, na or invalid");
-    await applyCommand(c.dir, c.now, (l) => {
-      const sv = need(l.view.subjects.get(subject), "subject");
-      const cv = need(
-        sv.criteria.find((x) => x.id === criterion),
-        "criterion",
-      );
-      if (
-        expect !== undefined &&
-        expect !== (cv.current === "invalid" ? "invalid" : lvl(cv.current))
-      )
-        throw new ReviewRefusedError(
-          `${criterion} is currently ${cv.current === "invalid" ? "invalid" : lvl(cv.current)}, not ${expect}; nothing was changed`,
-        );
-      const entries: Entry[] = [
-        {
-          actor,
-          body: {
-            type: "score.edited",
-            subject,
-            criterion,
-            from: cv.current,
-            to,
-            reason,
-          },
-        },
-      ];
-      if (rationale !== undefined)
-        entries.push({
-          actor,
-          body: {
-            type: "rationale.edited",
-            subject,
-            criterion,
-            fromHash: sha256(cv.rationale),
-            text: rationale,
-            reason,
-          },
-        });
-      return entries;
+    await editScore({
+      dir: c.dir,
+      by,
+      now: c.now,
+      secrets: c.secrets,
+      subject,
+      criterion,
+      level: to,
+      reason: String(c.values.reason ?? ""),
+      ...(typeof c.values.rationale === "string"
+        ? { rationale: c.values.rationale }
+        : {}),
+      // validated by editScore (after the reason and the rationale, as before)
+      ...(typeof c.values.expect === "string"
+        ? { expect: c.values.expect as ExpectLevel }
+        : {}),
     });
     c.out(`${subject} ${criterion} set to ${lvl(to)}`);
     return 0;
@@ -321,55 +267,44 @@ export const HANDLERS: Record<string, Handler> = {
       throw new ReviewUsageError(
         "accept needs <subject> and a <criterion> or --summary",
       );
-    const actor = facilitator(c);
+    const by = cleanBy(c.values.by);
     if (c.values.summary === true && criterion)
       throw new ReviewUsageError(
         "accept takes a <criterion> or --summary, not both",
       );
+    const base = { dir: c.dir, by, now: c.now, secrets: c.secrets };
     if (c.values.summary === true) {
-      await applyCommand(c.dir, c.now, () => [
-        { actor, body: { type: "summary.accepted", subject } },
-      ]);
+      await acceptSummary({ ...base, subject });
       c.out(`${subject} summary accepted`);
       return 0;
     }
     if (!criterion)
       throw new ReviewUsageError("accept needs a <criterion> or --summary");
-    await applyCommand(c.dir, c.now, () => [
-      { actor, body: { type: "score.accepted", subject, criterion } },
-    ]);
+    await acceptCriterion({ ...base, subject, criterion });
     c.out(`${subject} ${criterion} accepted`);
     return 0;
   },
   async comment(c) {
     const [subject] = c.args;
     if (!subject) throw new ReviewUsageError("comment needs <subject>");
-    const actor = facilitator(c);
-    const text = cleanText(
-      String(c.values.text ?? ""),
-      LIMITS.text,
-      "--text",
-      c.secrets,
-    );
-    const criterion =
-      typeof c.values.criterion === "string" ? c.values.criterion : undefined;
-    await applyCommand(c.dir, c.now, () => [
-      {
-        actor,
-        body: {
-          type: "comment.added",
-          subject,
-          ...(criterion !== undefined ? { criterion } : {}),
-          text,
-          visibility: c.values.feedback === true ? "feedback" : "internal",
-        },
-      },
-    ]);
+    const by = cleanBy(c.values.by);
+    await commentOn({
+      dir: c.dir,
+      by,
+      now: c.now,
+      secrets: c.secrets,
+      subject,
+      text: String(c.values.text ?? ""),
+      ...(typeof c.values.criterion === "string"
+        ? { criterion: c.values.criterion }
+        : {}),
+      feedback: c.values.feedback === true,
+    });
     c.out(`comment added to ${subject}`);
     return 0;
   },
   async release(c) {
-    const actor = facilitator(c);
+    const by = cleanBy(c.values.by);
     const all = c.values.all === true;
     if (all && c.args.length > 0)
       throw new ReviewUsageError(
@@ -377,64 +312,29 @@ export const HANDLERS: Record<string, Handler> = {
       );
     if (!all && c.args.length === 0)
       throw new ReviewUsageError("release needs <subject>... or --all");
-    let before!: Loaded;
-    const { appended, loaded } = await applyCommand(c.dir, c.now, (l) => {
-      before = l;
-      const ids = all
+    const base = { dir: c.dir, by, now: c.now, secrets: c.secrets };
+    const r = await releaseWith(base, (l) =>
+      all
         ? [...l.view.subjects.values()]
             .filter((s) => s.state === "draft" || s.state === "amending")
             .map((s) => s.id)
-        : [...new Set(c.args)];
-      if (ids.length === 0)
-        throw new ReviewRefusedError(
-          "nothing was released: no subject is waiting for release",
-        );
-      const problems: string[] = [];
-      for (const id of ids) {
-        const sv = l.view.subjects.get(id);
-        if (!sv) {
-          problems.push(`${shownName(id)}: unknown subject`);
-          continue;
-        }
-        if (sv.state !== "draft" && sv.state !== "amending") {
-          problems.push(`${id}: is ${sv.state}`);
-          continue;
-        }
-        for (const p of releaseProblems(sv)) problems.push(`${id}: ${p}`);
-      }
-      if (problems.length)
-        throw new ReviewRefusedError(releaseRefusal(problems));
-      return [{ actor, body: { type: "report.released", subjects: ids } }];
-    });
-    const e = appended[0] as Extract<ReviewEvent, { type: "report.released" }>;
-    c.out(`released ${e.subjects.join(", ")} as version ${e.seq}`);
-    const hint = staleHint(before, loaded);
-    if (hint) c.out(hint);
+        : [...new Set(c.args)],
+    );
+    c.out(`released ${r.released.join(", ")} as version ${r.version}`);
+    if (r.groupTableStale) c.out(STALE_HINT);
     return 0;
   },
   async amend(c) {
     const [subject] = c.args;
     if (!subject) throw new ReviewUsageError("amend needs <subject>");
-    const actor = facilitator(c);
-    const reason = cleanText(
-      String(c.values.reason ?? ""),
-      LIMITS.reason,
-      "--reason",
-      c.secrets,
-    );
-    await applyCommand(c.dir, c.now, (l) => {
-      const sv = need(l.view.subjects.get(subject), "subject");
-      return [
-        {
-          actor,
-          body: {
-            type: "report.amended",
-            subject,
-            reason,
-            basedOn: sv.versions.at(-1) ?? 0,
-          },
-        },
-      ];
+    const by = cleanBy(c.values.by);
+    await amendSubject({
+      dir: c.dir,
+      by,
+      now: c.now,
+      secrets: c.secrets,
+      subject,
+      reason: String(c.values.reason ?? ""),
     });
     c.out(`${subject} reopened for amendment`);
     return 0;
@@ -442,22 +342,17 @@ export const HANDLERS: Record<string, Handler> = {
   async withdraw(c) {
     const [subject] = c.args;
     if (!subject) throw new ReviewUsageError("withdraw needs <subject>");
-    const actor = facilitator(c);
-    const reason = cleanText(
-      String(c.values.reason ?? ""),
-      LIMITS.reason,
-      "--reason",
-      c.secrets,
-    );
-    let before!: Loaded;
-    const { loaded } = await applyCommand(c.dir, c.now, (l) => {
-      before = l;
-      need(l.view.subjects.get(subject), "subject");
-      return [{ actor, body: { type: "report.withdrawn", subject, reason } }];
+    const by = cleanBy(c.values.by);
+    const r = await withdrawSubject({
+      dir: c.dir,
+      by,
+      now: c.now,
+      secrets: c.secrets,
+      subject,
+      reason: String(c.values.reason ?? ""),
     });
     c.out(`${subject} withdrawn`);
-    const hint = staleHint(before, loaded);
-    if (hint) c.out(hint);
+    if (r.groupTableStale) c.out(STALE_HINT);
     return 0;
   },
   async "self-assess"(c) {
@@ -603,40 +498,17 @@ export const HANDLERS: Record<string, Handler> = {
         "resolve needs the response number shown by status",
       );
     const seq = Number(arg);
-    const actor = facilitator(c);
-    const reason = cleanText(
-      String(c.values.reason ?? ""),
-      LIMITS.reason,
-      "--reason",
-      c.secrets,
-    );
-    const outcome = c.values.outcome;
-    if (outcome !== "upheld" && outcome !== "amended" && outcome !== "declined")
-      throw new ReviewUsageError("--outcome needs upheld, amended or declined");
-    await applyCommand(c.dir, c.now, (l) => {
-      const found = [...l.view.subjects.values()]
-        .flatMap((sv) => sv.responses.map((r) => ({ sv, r })))
-        .find((x) => x.r.seq === seq);
-      if (!found)
-        throw new ReviewRefusedError(
-          "there is no response with that number; run status for the open disputes",
-        );
-      if (!found.r.dispute)
-        throw new ReviewRefusedError(
-          "that response is not a dispute, so there is nothing to resolve",
-        );
-      if (found.r.resolution)
-        throw new ReviewRefusedError("that dispute is already resolved");
-      if (outcome === "amended" && !amendedSince(found.sv, seq))
-        throw new ReviewRefusedError(
-          `${found.sv.id}'s report has no new released version since the response; run amend, make the change and release again, then resolve the dispute as amended`,
-        );
-      return [
-        {
-          actor,
-          body: { type: "dispute.resolved", response: seq, outcome, reason },
-        },
-      ];
+    const by = cleanBy(c.values.by);
+    // the reason is cleaned before the outcome is checked, as before
+    const outcome = c.values.outcome as "upheld" | "amended" | "declined";
+    await resolveDispute({
+      dir: c.dir,
+      by,
+      now: c.now,
+      secrets: c.secrets,
+      seq,
+      outcome,
+      reason: String(c.values.reason ?? ""),
     });
     c.out(`dispute #${seq} resolved: ${outcome}`);
     return 0;
@@ -674,59 +546,25 @@ export const HANDLERS: Record<string, Handler> = {
   async "edit-summary"(c) {
     const [subject] = c.args;
     if (!subject) throw new ReviewUsageError("edit-summary needs <subject>");
-    const actor = facilitator(c);
-    const reason = cleanText(
-      String(c.values.reason ?? ""),
-      LIMITS.reason,
-      "--reason",
-      c.secrets,
-    );
-    const items = (v: unknown, what: string): string[] =>
-      (Array.isArray(v) ? v : []).map((t) =>
-        cleanText(String(t), LIMITS.item, what, c.secrets),
-      );
-    const summary = {
-      strengths: items(c.values.strength, "--strength"),
-      development_points: items(c.values.development, "--development"),
-      // the 400-character cap applies to the action text, not to the `LO:` prefix plus the text
-      next_actions: (Array.isArray(c.values.action) ? c.values.action : []).map(
-        (raw) => {
-          const t = String(raw);
-          const i = t.indexOf(":");
-          if (i < 1) throw new ReviewUsageError("--action needs <lo>:<text>");
-          return {
-            lo: t.slice(0, i).trim(),
-            action: cleanText(
-              t.slice(i + 1),
-              LIMITS.item,
-              "--action",
-              c.secrets,
-            ),
-          };
-        },
-      ),
-    };
-    if (
-      !summary.strengths.length &&
-      !summary.development_points.length &&
-      !summary.next_actions.length
-    )
-      throw new ReviewUsageError(
-        "edit-summary needs at least one --strength, --development or --action; it replaces the whole summary",
-      );
-    await applyCommand(c.dir, c.now, (l) => {
-      const known = l.drafts.subjects.get(subject)?.objectives ?? [];
-      for (const a of summary.next_actions)
-        if (
-          !isSafeId(a.lo) ||
-          (known.length && !known.some((o) => o.id === a.lo))
-        )
-          throw new ReviewUsageError(
-            "--action needs the id of one of the report's learning objectives before the colon",
-          );
-      return [
-        { actor, body: { type: "summary.edited", subject, summary, reason } },
-      ];
+    const by = cleanBy(c.values.by);
+    const list = (v: unknown): string[] =>
+      (Array.isArray(v) ? v : []).map((t) => String(t));
+    await editSummary({
+      dir: c.dir,
+      by,
+      now: c.now,
+      secrets: c.secrets,
+      subject,
+      reason: String(c.values.reason ?? ""),
+      strengths: list(c.values.strength),
+      developments: list(c.values.development),
+      // `<lo>:<text>`; without a non-empty part before the colon, lo is "" and editSummary refuses it at the same point as before
+      actions: list(c.values.action).map((t) => {
+        const i = t.indexOf(":");
+        return i < 1
+          ? { lo: "", text: t }
+          : { lo: t.slice(0, i), text: t.slice(i + 1) };
+      }),
     });
     c.out(`${subject} summary replaced`);
     return 0;

@@ -2,7 +2,8 @@ import type { SessionEvent } from "@acr/events";
 import { renderEvent, renderJoined } from "../cli/render.js";
 import { isEvent, type Inbound } from "./bots.js";
 import { UNSAFE_CHARS, ensure, findMarkers } from "./checks.js";
-import { collectLiveEvidence, countText, sanitizeAlert } from "./live-evidence.js";
+import { collectLiveEvidence, countText } from "./live-evidence.js";
+import { sanitizeAlert } from "../run-summary/index.js";
 import {
   ROLE_PLAYERS, act, advanceTo, attempt, awaitNpc, codeFor, command, connectBot, errCode, consentAfterJoin, facilitatorJoin, got, isJoinedMsg,
   npcRole, playerJoin, playerRole, sceneIds, say, settle, utterancesByScene, withTimeout, type Ctx, type PlayerId, type Story,

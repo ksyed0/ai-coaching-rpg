@@ -332,3 +332,123 @@ Lesson Encoded: No
 Found in the review of the BUG-0017 fix. Both hubs ended the opening window (`SseWriter.endOpening`) before registering `conn.onFrame`, but the first `onFrame` flushes the replay queued in the connection synchronously, before anything can drain `out`. A complete replay can be up to 256 KiB of event JSON (`MAX_REPLAY_BYTES`, services/runtime/src/host/session-host.ts) plus about 30 bytes of SSE framing for each of up to 1,000 events, so after a joined frame already over the 64 KiB high-water mark the total passed the 256 KiB stall cap and the browser was dropped as slow on reconnect, and again on every retry. Affects `StreamHub` and `FacilitatorHub`.
 
 Fixed: both hubs now call `endOpening` right after the first `onFrame` registration, so the replay flush belongs to the opening; the cap applies from the first frame after it. Memory stays bounded: the exempt part is the joined frame (and reset) plus a replay the runtime caps at 256 KiB, written once per stream, and a reader that stalls afterwards is still dropped at the 256 KiB cap. A test per hub (a queued replay past the cap is delivered in order, then a stall ends the stream with `reconnecting`) fails without the change; `FakeConn` now flushes queued frames on the first `onFrame`, like `RuntimeConnection`.
+
+```
+BUG-0025: Forged-cookie read failures share the enter throttle table, so a saturated table reaches valid reads
+Severity: Low
+Related Story: US-0062
+Related Task: TASK-0100
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Found in the final review of slice 2c-1 PR 2. `GET /api/v1/report` counts reads that fail before control (no, forged, expired or wrong-purpose cookie) in `reportEnterThrottle` under `*report-read-fail`, the same table that `POST /api/v1/report/enter` uses. When that table is full of blocked addresses (about 10 000), `blockedForMs` answers 429 for every address without an entry, valid readers and valid enters included. Forged GETs have no Origin check and no body, so they fill it more cheaply than enter POSTs. Practical only with a spoofable `X-Forwarded-For` or a botnet, and the threat model's general fail-closed sentence covers it without saying it now reaches valid reads. Fix: give read failures their own throttle instance (one line in `routes.ts`) and say so in `docs/THREAT_MODEL.md`.
+
+```
+BUG-0026: `ws-server.roster.test.ts` (a superseded connection gets no roster frame) is flaky in full runtime runs
+Severity: Low
+Related Story: US-0062
+Related Task: TASK-0100
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Seen once in a full `@acr/runtime` run and once in five isolated runs during slice 2c-1, with no changed file touching it. It looks like a timing assumption in the test, but it has not been run against `develop` to confirm that it is not caused by this slice. Not related to US-0062 itself; filed there because it was found while closing the slice. Fix: reproduce with `vitest run --repeat` on `develop`, then replace the timing assumption with an event wait (see BUG-0020 for the same class).
+
+```
+BUG-0027: The conflict sentences are copied between the control service and the web server with no test that they stay equal
+Severity: Low
+Related Story: US-0062
+Related Task: TASK-0100
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+`KNOWN_CONFLICTS` in `apps/web/src/server/report-handlers.ts` repeats the fixed sentences of `services/control/src/reports.ts` and `report-access.ts`, because the web package must not import the control service or the runtime. If control rewords one, the console silently falls back to its generic sentence. Fix: a test that reads the sentences from both sources (a small shared constants file under `packages/events` is the allowed route) and fails when they differ.
+
+```
+BUG-0028: Slice 2c-1 test and cleanup gaps: seeded e2e folders, thin Axe coverage, dead console branches
+Severity: Low
+Related Story: US-0062
+Related Task: TASK-0100
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Left open by the slice 2c-1 reviews, none blocking. (1) The Playwright test seeds its review folders with the runtime's `moderate` functions (`services/control/src/__tests__/seed-report-folders.ts`, which also reaches into runtime test fixtures and seeds `alice` and `bob`, not the session's seated roles) instead of running a real `evaluate`. (2) Axe covers the report and refused states and the console panel, but not the throttled and not-released states or `/report/enter`. (3) `ReportLinksPanel` keeps "Revoked" and "Link expired" branches that the real API never produces, because control lists only live credentials. (4) The `ReportView` retry has no unmount guard (harmless in React 18). Fix: move the seeder under `services/runtime` and use the session's roles; add the Axe states; drop or feed the dead branches.
+
+```
+BUG-0029: A response resent after a BFF timeout is stored twice when another response landed in between
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). `POST /api/v1/report/responses` has no idempotency key. A plain resend is already safe: `addResponse` (services/runtime/src/participant/write.ts) ignores a response identical to the subject's LAST one (same criterion, text and dispute flag; answered `wrote: 0`). What is left: if the BFF times out after control has recorded response A, and another response B is recorded for the same role before A is resent (a second tab, or the participant sending something else first), the resend of A no longer matches the last response and A is stored twice. A resend with edited text is stored as a new response too, beside the original the participant believed lost. The cap of 50 responses is per role (LIMITS.responses on the subject), not per credential. Harmless to the scores (a response is a note, not a rating) but noisy in the report and the export. Fix: a client-generated key on the request that control stores with the event and checks before appending. This is a wire change (an optional field first, then required), so it needs its own slice and the usual control-before-web deploy order.
+
+```
+BUG-0030: A forwarded report link can use up its owner's 50 response slots, and a response is not redacted
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). A report link is a bearer credential. Anyone who holds a forwarded link can post responses as its owner until the owner's 50 response slots are gone, and the owner cannot add one. There is also no redaction of a response after it is filed (the facilitator can resolve a dispute, not remove the text). This is a design decision, not a code slip: options are a lower cap per sitting, a facilitator "hide this response" event, or a per-link write cap with a notice. Revoking and reissuing the link already stops the abuse for future writes. Decide with the owner before building; record the choice in `docs/THREAT_MODEL.md`.
+
+```
+BUG-0031: Reviews opened before schema `/2` cannot take web writes
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). A review opened before slice 2c-2 carries the schema `acr.review/1`: the schema is written by `moderate open` into the `review.opened` event (services/runtime/src/review/store.ts), not by the evaluator. Control answers `old_schema` for a participant's self-rating or response on it, with the sentence "This review was opened before online ratings were available. Your facilitator can take your rating or response in the terminal." (WRITE_OLD_SCHEMA, services/control/src/participant-writes.ts). The ways out today are to take the rating or response in the terminal (facilitator-attested), or to get a `/2` review by opening a new directory: `moderate open` refuses a directory that already holds a review ("a review is already open here"), so this means a re-run of `pnpm evaluate` into a new directory and `moderate open` on it, or `moderate supersede <old> <new>` once a version was released (supersede writes a new `review.opened` with the current schema and carries the moderation). The console offers none of these. Reads still work. Fix: a one-off migration (a `moderate migrate` command that rewrites the review header and replays the log under the new schema), with a test on a fixture of the old folder. Not needed for any review created from now on.
+
+```
+BUG-0032: Overview answers can arrive out of order, and a failed first overview read waits for Try again
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). The Report panel (apps/web/src/components/console/report/ReportPanel.tsx) reads the overview when it mounts, again after each of its own writes, and polls it only while the stage is `evaluating`; it does not refresh on focus. Two reads in flight (a write's refresh beside a poll, or two quick writes) can answer in the wrong order, and `load` keeps whichever answers last, so an older overview can replace a newer one until the next read. A failed read is not retried by itself: the panel shows the fixed sentence with a "Try again" button, so a transient 503 needs one click. Fix: tag each read with a sequence number and ignore an answer older than the newest one applied; optionally retry a failed first read once after a short delay.
+
+```
+BUG-0033: The export menu has no participant view of the group or index, and no export of an amending subject
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). `ExportMenu` (apps/web/src/components/console/report/ExportMenu.tsx) lists only released subjects (and the index once the group is released); for a player's report it already offers that player's own view, but for the group and the index it offers only the facilitator's view. The export route already accepts `participant:<role>` for every subject (services/control/src/moderation-routes.ts), and the runtime's export gate (`exportGate` and `canView`) allows (1) a participant's view of the group or the index, with peers' results removed, and (2) a participant's export of an AMENDING subject, which is its last released version (a facilitator export of an amending subject is refused as `not_released`). Drafts are never exported. Fix: in `ExportMenu`, offer a participant view of the group and the index (choosing which participant), and list an amending subject for the participant's view only, with a line that says it is the released version; reuse the existing route.
+
+```
+BUG-0034: Edits made while a save is in flight are lost when the draft clears
+Severity: Low
+Related Story: US-0066
+Related Task: TASK-0104
+Status: Open
+Fix Branch: none yet
+Lesson Encoded: No
+```
+
+Deferred from the slice 2c-4 review (spec section 4.3). In the participant's self-rating form, a save clears the browser draft when it succeeds. If the participant types in a box after pressing Save but before the answer arrives, the newer text is cleared with the draft. Fix: remember what was sent and clear the stored draft only if the form still equals it, or mark the form dirty again on any change during the save, with a component test that types between send and answer. (The console's Summary editor avoids the same race by disabling its boxes while a save is in flight.)

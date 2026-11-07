@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { rm } from "node:fs/promises";
 import { loadDrafts, type Drafts } from "../draft.js";
 import { currentView, type View } from "../fold.js";
-import { releaseProblems } from "../gate.js";
+import { releaseProblems, scoreByHand } from "../gate.js";
 import { sealEntries } from "../review-log.js";
 import { sha256 } from "../hash.js";
 import {
@@ -347,6 +347,20 @@ describe("releaseProblems and summary edits", () => {
     const p = releaseProblems(sv);
     expect(p[0]).toContain("score these by hand");
     expect(p[1]).toContain("summary");
+  });
+  it("scoreByHand: every criterion not yet edited when the evaluation failed (an acceptance does not count), else each invalid level", () => {
+    const open = aliceNeeds();
+    const accepted = fold(...open.map((criterion): Body => ({ type: "score.accepted", subject: "alice", criterion }))).subjects.get("alice")!;
+    expect(scoreByHand(accepted)).toEqual([]);
+    expect(releaseProblems(accepted)).toEqual([]);
+    accepted.evaluationOk = false;
+    expect(scoreByHand(accepted)).toEqual(accepted.criteria.map((c) => c.id));
+    expect(releaseProblems(accepted).join(" ")).toContain("score these by hand");
+    const sv = fold().subjects.get("alice")!;
+    sv.criteria[0]!.current = "invalid";
+    sv.criteria[0]!.status = "accepted";
+    expect(scoreByHand(sv)).toEqual([sv.criteria[0]!.id]);
+    expect(releaseProblems(sv).join(" ")).toContain(sv.criteria[0]!.id);
   });
   it("applies a valid summary edit and rejects a malformed one", () => {
     const summary = {
