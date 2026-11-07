@@ -1,3 +1,4 @@
+import { REPORT_SENTENCES } from "@acr/events";
 import { getJson, postForFile, postJson, type ApiResult } from "./api";
 import { MESSAGES, REPORT_CONSOLE, REPORT_REFUSALS, type ReportRefusal } from "./messages";
 
@@ -169,12 +170,11 @@ export type ReportLinkRole = { role: string; link: ReportLink | null; selfRated:
 /** `players` is null when the counts cannot be read. */
 export type ReportLinksView = { state: "ready" | "not_ready" | "unavailable"; players: RatedCount | null; roles: ReportLinkRole[] };
 
-/** The fixed sentence for a session with nothing released yet (the same words the control service uses: NOT_READY in services/control/src/reports.ts, also listed in KNOWN_CONFLICTS in report-handlers.ts). */
-export const REPORT_NOT_READY =
-  "No reports are ready for this session yet. Evaluate it from the Report panel of its console.";
-export const REPORT_UNAVAILABLE = "The reports for this session cannot be read. Check them with moderate status.";
-/** US-0060: the refusal for an AI role (AI_LINK_REFUSED in services/control/src/reports.ts, also listed in KNOWN_CONFLICTS in report-handlers.ts; change all copies together). */
-export const REPORT_AI_LINK_REFUSED = "AI players do not get report links.";
+/** The fixed sentences the control service also answers with; they are defined once in @acr/events. */
+export const REPORT_NOT_READY = REPORT_SENTENCES.notReady;
+export const REPORT_UNAVAILABLE = REPORT_SENTENCES.reportsUnreadable;
+/** US-0060: the refusal for an AI role. */
+export const REPORT_AI_LINK_REFUSED = REPORT_SENTENCES.aiLinkRefused;
 
 const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 

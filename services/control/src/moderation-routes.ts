@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { isFileSafeId, isSafeId } from "@acr/events";
+import { isFileSafeId, isSafeId, REPORT_SENTENCES } from "@acr/events";
 import { z } from "zod";
 import { BAD_REQUEST, fail, failClosed, HttpError, jsonBody, ok, parse } from "./http-util.js";
 import { isConsoleName, type ModOutcome, type ModerationService } from "./moderation.js";
@@ -11,7 +11,7 @@ import type { JobOutcome, ReportJobService } from "./report-job.js";
  * route: an edit alone may hold 2,000 characters, about 6 KB in CJK.
  */
 export const MAX_TEXT_BODY_BYTES = 16 * 1024;
-const REPORT_UNAVAILABLE = "The report is unavailable. Try again.";
+const REPORT_UNAVAILABLE = REPORT_SENTENCES.reportUnavailable;
 const BUSY = "The report is busy. Try again.";
 
 export type ReportRouteDeps = {

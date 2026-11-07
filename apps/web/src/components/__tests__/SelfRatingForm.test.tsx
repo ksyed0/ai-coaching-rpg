@@ -126,6 +126,66 @@ describe("SelfRatingForm", () => {
     expect(stored()).toBeNull();
   });
 
+  it("an edit typed while a save is in flight keeps the draft and is not reported as saved (BUG-0034)", async () => {
+    let release!: (r: Response) => void;
+    const { fetchFn, onSaved } = setup({ fetch: () => new Promise<Response>((r) => { release = r; }) });
+    pick("Listening", /Emerging/);
+    await save();
+    expect(body(fetchFn)).toEqual({ ratings: [{ criterion: "c1", level: 1 }] });
+    // The inputs stay enabled while the save is pending: the participant changes a rating and types a note.
+    pick("Listening", /Exemplary/);
+    fireEvent.change(within(group("Framing")).getByRole("textbox"), { target: { value: "typed during the save" } });
+    await act(async () => { release(json(200, okView)); });
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    const draft = JSON.parse(stored() ?? "null");
+    expect(draft.ratings.c1.level).toBe(4);
+    expect(draft.ratings.c2.note).toBe("typed during the save");
+    const status = screen.getByRole("status").textContent ?? "";
+    expect(status).not.toMatch(/ratings are saved/);
+    expect(status).toMatch(/not been sent yet/);
+    // The form still shows the newer text, and the next save sends it.
+    expect((within(group("Framing")).getByRole("textbox") as HTMLTextAreaElement).value).toBe("typed during the save");
+  });
+
+  it("after such a save, pressing Save again sends the newer edit and then clears the draft", async () => {
+    let release!: (r: Response) => void;
+    let n = 0;
+    const { fetchFn } = setup({ fetch: () => (n++ === 0 ? new Promise<Response>((r) => { release = r; }) : Promise.resolve(json(200, okView))) });
+    pick("Listening", /Emerging/);
+    await save();
+    pick("Listening", /Exemplary/);
+    await act(async () => { release(json(200, okView)); });
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/not been sent yet/));
+    await save();
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/ratings are saved/));
+    expect(JSON.parse((fetchFn.mock.calls[1]![1] as RequestInit).body as string)).toEqual({ ratings: [{ criterion: "c1", level: 4 }] });
+    expect(stored()).toBeNull();
+  });
+
+  it("an edit during a save that then fails (503) keeps the old unsaved values and the new ones, and shows the alert", async () => {
+    let release!: (r: Response) => void;
+    setup({ fetch: () => new Promise<Response>((r) => { release = r; }) });
+    pick("Listening", /Emerging/);
+    await save();
+    fireEvent.change(within(group("Framing")).getByRole("textbox"), { target: { value: "typed during the save" } });
+    pick("Framing", /Proficient/);
+    await act(async () => { release(failure(503, "busy")); });
+    expect((await screen.findByRole("alert")).textContent).toContain("Busy, try again");
+    const draft = JSON.parse(stored() ?? "null");
+    expect(draft.ratings.c1.level).toBe(1);
+    expect(draft.ratings.c2).toEqual({ level: 3, note: "typed during the save" });
+  });
+
+  it("a note of only spaces on a rated criterion is sent without a note, and a real note is sent trimmed", async () => {
+    const { fetchFn } = setup();
+    pick("Listening", /Proficient/);
+    fireEvent.change(within(group("Listening")).getByRole("textbox"), { target: { value: "   " } });
+    pick("Framing", /Emerging/);
+    fireEvent.change(within(group("Framing")).getByRole("textbox"), { target: { value: "  padded  " } });
+    await save();
+    expect(body(fetchFn)).toEqual({ ratings: [{ criterion: "c1", level: 3 }, { criterion: "c2", level: 1, note: "padded" }] });
+  });
+
   it("busy shows \"Busy, try again\" and keeps the draft (Review Focus 5)", async () => {
     const { onSaved } = setup({ fetch: async () => failure(503, "busy", { "Retry-After": "2" }) });
     pick("Listening", /Emerging/);

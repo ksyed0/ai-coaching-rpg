@@ -1,7 +1,7 @@
 import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import path from "node:path";
-import { isValidSessionId } from "@acr/events";
+import { isValidSessionId, REPORT_SENTENCES } from "@acr/events";
 import { RoleIdSchema } from "./protocol.js";
 import { ControlError } from "./supervisor.js";
 
@@ -30,7 +30,7 @@ const DAY_MS = 86_400_000;
 const MAX_BYTES = 8 * 1024 * 1024;
 const PRUNE_MS = 30 * DAY_MS;
 const UNAVAILABLE = "Report links are unavailable. Try again.";
-const CONFLICT = "A link is already active for this role.";
+const CONFLICT = REPORT_SENTENCES.linkAlreadyActive;
 const BAD = "Invalid session or role.";
 
 class Corrupt extends Error {}

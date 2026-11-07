@@ -5504,6 +5504,16 @@
       "defect": "None"
     },
     {
+      "id": "TC-0153",
+      "title": "A change typed during a self-rating save stays in the draft and is not reported as saved; a whitespace-only note is not sent; `/report/enter` passes Axe",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0384",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "BUG-0034"
+    },
+    {
       "id": "TC-0154",
       "title": "Console report regressions: overview answers out of order and one automatic retry (BUG-0032); every export view the gate allows (BUG-0033)",
       "relatedStory": "US-0066",
@@ -5833,8 +5843,8 @@
       "severity": "Low",
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
-      "status": "Open",
-      "fixBranch": "none yet",
+      "status": "Fixed (e637b95)",
+      "fixBranch": "bugfix/BUG-0034-participant-path",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5846,7 +5856,7 @@
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
       "status": "In Progress",
-      "fixBranch": "bugfix/BUG-0034-participant-path (parts 2 and 4), bugfix/BUG-0032-console-report (part 3)",
+      "fixBranch": "bugfix/BUG-0034-participant-path, bugfix/BUG-0032-console-report",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5917,8 +5927,8 @@
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Open",
-      "fixBranch": "none yet",
+      "status": "Fixed (8ade287)",
+      "fixBranch": "bugfix/BUG-0034-participant-path",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -7418,9 +7428,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T05:04:03.082Z",
-  "commitSha": "731ed52",
-  "buildNumber": "547",
+  "generatedAt": "2026-11-07T05:11:53.537Z",
+  "commitSha": "480a4af",
+  "buildNumber": "549",
   "branch": "bugfix/BUG-0032-console-report",
   "sessionTimeline": [
     {
@@ -7736,7 +7746,7 @@
       "2026-11-07T03:09:35.100Z",
       "2026-11-07T03:36:27.689Z",
       "2026-11-07T04:48:10.882Z",
-      "2026-11-07T05:04:03.214Z"
+      "2026-11-07T05:11:53.642Z"
     ],
     "doneCounts": [
       0,
@@ -8168,7 +8178,7 @@
       10,
       10,
       7,
-      7
+      5
     ],
     "atRisk": [
       0,

@@ -2360,7 +2360,23 @@ Expected Result: All pass.
 Actual Result: As expected, 2026-11-06: step 1, 2 files, 32 tests (25 and 7, of which 4 are new); step 2, 1 file, 23 tests (2 new); step 3, 1 file, 25 tests (all new, from 3 `it` blocks that loop over the codes).
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2c-4 PR 2. Fixed in the same PR: the unused `REPORT_CONSOLE.resolved` was deleted. Not covered: the `refused` (409) code for release, amend and withdraw, which `toModResult` maps from any uncoded refusal, and that the route forwards the parsed body to the service; a whitespace-only note on an already rated criterion is still sent untrimmed (the server accepts it). The other minors are filed as BUG-0029 to BUG-0034.
+Notes: Slice 2c-4 PR 2. Fixed in the same PR: the unused `REPORT_CONSOLE.resolved` was deleted. Not covered: the `refused` (409) code for release, amend and withdraw, which `toModResult` maps from any uncoded refusal, and that the route forwards the parsed body to the service; a whitespace-only note on an already rated criterion was sent untrimmed (the server accepts it); fixed in the bugfix/BUG-0034-participant-path branch (commit bcf5172, covered by TC-0153). The other minors are filed as BUG-0029 to BUG-0034.
+
+TC-0153: A change typed during a self-rating save stays in the draft and is not reported as saved; a whitespace-only note is not sent; `/report/enter` passes Axe
+Related Story: US-0066
+Related Task: TASK-0104
+Related AC: AC-0384
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key is needed for steps 1 and 2. Step 3 needs the built web app (`pnpm --filter @acr/web exec next build --webpack`) and a Chromium that Playwright can launch (`PLAYWRIGHT_CHROMIUM_EXECUTABLE` if the pinned one is missing).
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/SelfRatingForm.test.tsx` (the fetch is held; a rating and a note are changed while the save is pending; the fetch is released; the later edit is still in the stored draft, the status says "Your latest changes have not been sent yet. Press Save again to send them." and not that the ratings are saved; the next Save sends the edit and clears the draft; a save that fails with 503 after an edit keeps both the old unsaved and the new values and shows the alert; a note of only spaces on a rated criterion is posted without a note and a real note is posted trimmed).
+  2. From `apps/web`: `pnpm exec vitest run src/components/__tests__/ReportView.unmount.test.tsx` (an answer to Try again that arrives after the page is gone sets no state; BUG-0028 part 4).
+  3. From `apps/web`: `PLAYWRIGHT_CHROMIUM_EXECUTABLE=<chromium> pnpm exec playwright test axe --trace off` (the new case "Axe: /report/enter while opening, throttled, retry and refused" passes at 1280 and 400 px, light and dark; it is a new case of its own, not an addition to TC-0126 or TC-0073; BUG-0028 part 2).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: step 1, 1 file, 27 tests (4 new, of which 1 is the held-fetch test); step 2, 1 file, 1 test (new); step 3, the axe spec passes (7 cases, 1 new).
+Status: [x] Pass
+Defect Raised: BUG-0034
+Notes: Fixed in the bugfix/BUG-0034-participant-path branch (commits 8ade287 and bcf5172 for steps 1, 17d7955 for step 2 and 839925f for step 3). Mutation check: clearing the draft after every successful save makes the held-fetch test fail; guarding the retry with `() => true` makes step 2 fail. Not covered: a real browser edit during a save.
 
 TC-0154: Console report regressions: overview answers out of order and one automatic retry (BUG-0032); every export view the gate allows (BUG-0033)
 Related Story: US-0066

@@ -1,3 +1,4 @@
+import { REPORT_SENTENCES } from "@acr/events";
 import { listDraftPlayerRoles, readSelfAssessForm, selfRatingProgress, type FormResult } from "@acr/runtime/participant";
 import { listReleasedRoles, readReleasedView, reviewStatus, type ReleasedView } from "@acr/runtime/reports";
 import type { ControlConfig } from "./config.js";
@@ -5,14 +6,13 @@ import type { ReportAccessStore, ReportCredential } from "./report-access.js";
 import { ControlError } from "./supervisor.js";
 
 /** Fixed sentences: no path, id or role is ever part of them. */
-// NOT_READY is copied word for word in apps/web/src/lib/console-api.ts (REPORT_NOT_READY) and in KNOWN_CONFLICTS in apps/web/src/server/report-handlers.ts, together with NO_REPORT
-// and AI_LINK_REFUSED (REPORT_AI_LINK_REFUSED in console-api.ts): change all copies together.
-export const NOT_READY = "No reports are ready for this session yet. Evaluate it from the Report panel of its console.";
-export const NO_REPORT = "There is no report to link for this role.";
-export const REPORTS_UNREADABLE = "The reports for this session cannot be read. Check them with moderate status.";
-export const REPORT_UNAVAILABLE = "The report is unavailable. Try again.";
+// The words live in @acr/events (REPORT_SENTENCES), which the web server and console import too.
+export const NOT_READY = REPORT_SENTENCES.notReady;
+export const NO_REPORT = REPORT_SENTENCES.noReport;
+export const REPORTS_UNREADABLE = REPORT_SENTENCES.reportsUnreadable;
+export const REPORT_UNAVAILABLE = REPORT_SENTENCES.reportUnavailable;
 /** US-0060 (AC-0322). Not AI_ROLE_REFUSED: supervisor.ts has that name for a different sentence. */
-export const AI_LINK_REFUSED = "AI players do not get report links.";
+export const AI_LINK_REFUSED = REPORT_SENTENCES.aiLinkRefused;
 
 const LOG_EVERY_MS = 60_000;
 /** Sessions whose AI-role set links() remembers (display only, so a stale entry after a restart cannot mint anything); the oldest is dropped first. */

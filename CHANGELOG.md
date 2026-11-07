@@ -6,6 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 ## [Unreleased]
 
 ### Fixed
+- A change typed while the self-rating form is saving is no longer lost (EPIC-0002, BUG-0034). If you changed a rating or a note after pressing Save and before the answer came back, the form used to clear the saved draft and say "Saved" although the newer change had not been sent, so a reload lost it. The form now keeps the draft and says "Your latest changes have not been sent yet. Press Save again to send them."
 - The console's export menu now offers every view the server allows (EPIC-0002, BUG-0033). For the group report and the index you can export the view each player sees (without the other players' results) as well as the facilitator's, and a report that is being amended can be exported in the player's view, which is its last released version (the menu says so). Each view is named by its report and who it is for. The Report panel no longer lets an older answer replace a newer one (BUG-0032). When a read fails, the fixed sentence and "Try again" show at once; outside the evaluating stage the panel also retries the read once by itself after a few seconds, and if that fails too, "Try again" stays. After Cancel or Save in the Summary editor or a criterion's edit form, focus returns to the button that opened it.
 
 ## [0.2.0] - 2026-11-06

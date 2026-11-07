@@ -199,6 +199,43 @@ test("Axe: the closed, old_schema, throttled and not_released states of /report"
   }
 });
 
+test("Axe: /report/enter while opening, throttled, retry and refused", async ({ browser }) => {
+  test.setTimeout(300_000);
+  launcher = await startLauncherStack();
+  const ctx = await browser.newContext();
+  contexts.push(ctx);
+  const page = await ctx.newPage();
+
+  // The exchange is intercepted: the real stack would need a burst of bad tokens for throttled and a failing control service for retry.
+  // The first state is held open so the "Opening your report…" text is what Axe sees; it is then released with the throttled answer.
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  const answer = (status: number, body: unknown, headers: Record<string, string> = {}) => async (route: import("@playwright/test").Route) => {
+    await held;
+    await route.fulfill({ status, contentType: "application/json", headers, body: JSON.stringify(body) });
+  };
+  const fail = (code: string) => ({ success: false, data: null, error: { code, message: "" } });
+  await page.route("**/api/v1/report/enter", answer(429, fail("rate_limited"), { "Retry-After": "30" }));
+  await page.goto(`${launcher.baseUrl}/report/enter#opening.token`);
+  await expect(page.getByRole("status")).toHaveText("Opening your report…");
+  await checkAt(page, "/report/enter opening");
+  release();
+  await expect(page.getByRole("status")).toContainText(/Too many attempts/);
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+  await checkAt(page, "/report/enter throttled");
+  await page.unrouteAll();
+
+  for (const st of [{ name: "retry", status: 503, text: /We could not open the report/ }, { name: "refused", status: 404, text: /no longer works/ }]) {
+    await page.route("**/api/v1/report/enter", (route) =>
+      route.fulfill({ status: st.status, contentType: "application/json", body: JSON.stringify(fail(st.name)) }),
+    );
+    await page.goto(`${launcher.baseUrl}/report/enter#${st.name}.token`);
+    await expect(page.getByRole("status")).toContainText(st.text);
+    await checkAt(page, `/report/enter ${st.name}`);
+    await page.unrouteAll();
+  }
+});
+
 // ---- US-0064 part A: the console Report panel's states (launcher stack; the draft is seeded, see report-moderation.spec.ts) ----
 
 test("Axe: the Report panel ready to evaluate, with a refused name, the evaluate confirmation, in review with the subject list, a subject view with an open edit form, and the summary editor with its error line", async ({ browser }) => {
