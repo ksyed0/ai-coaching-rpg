@@ -2625,7 +2625,7 @@
         },
         {
           "id": "AC-0321",
-          "text": "AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c; web report pages and downloads built in slice 2c-4 PR 1: the \"(AI player)\" label survives the report page, print view and export (TC-0147) and an AI role is labelled in the console link list (TC-0148); AC-0321 is now complete, except that Deviation 3 (no AI row in the console subject list) is awaiting owner sign-off; if the owner wants the row it is an optional overview field plus a row component)",
+          "text": "AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c; web report pages and downloads built in slice 2c-4 PR 1: the \"(AI player)\" label survives the report page, print view and export (TC-0147) and an AI role is labelled in the console link list (TC-0148); AC-0321 is now complete; Deviation 3 (no AI row in the console subject list) was decided by the owner on 2026-11-06 as a follow-up, the row is filed as US-0068)",
           "done": true
         },
         {
@@ -2934,6 +2934,35 @@
       "dependencies": [
         "US-0060",
         "US-0064"
+      ]
+    },
+    {
+      "id": "US-0068",
+      "epicId": "EPIC-0002",
+      "title": "As a facilitator, I want the console report list to show which roles are AI players and not scored, so that I can see why they have no report.",
+      "priority": "Low",
+      "estimate": "S",
+      "status": "Planned",
+      "branch": "feature/EPIC-0002-US-0068-ai-player-row",
+      "acs": [
+        {
+          "id": "AC-0389",
+          "text": "the console report subject list shows one \"AI player, not scored\" row per AI-filled role, with no actions and no export entry",
+          "done": false
+        },
+        {
+          "id": "AC-0390",
+          "text": "the moderation overview carries the AI roles as an OPTIONAL field (control answer, BFF and browser parse), so an older control or an older web still works; control deploys before web",
+          "done": false
+        },
+        {
+          "id": "AC-0391",
+          "text": "the row text is accessible (the meaning is in words, not colour alone) and is covered by a unit test and an Axe check",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "US-0060"
       ]
     },
     {
@@ -5888,403 +5917,409 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0066": {
       "projectedUsd": 800,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0068": {
+      "projectedUsd": 0.9,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 11.93263,
+      "costUsd": 11.75715,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -7036,6 +7071,13 @@
       "openCriticalBug": false,
       "isAtRisk": false
     },
+    "US-0068": {
+      "missingTCs": true,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": true
+    },
     "US-0067": {
       "missingTCs": true,
       "noBranch": false,
@@ -7358,10 +7400,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T03:09:34.901Z",
-  "commitSha": "9ac4a28",
-  "buildNumber": "537",
-  "branch": "release/0.2.0",
+  "generatedAt": "2026-11-07T03:36:27.567Z",
+  "commitSha": "5a4212f",
+  "buildNumber": "539",
+  "branch": "HEAD",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7503,9 +7545,9 @@
     }
   },
   "budget": {
-    "totalBudget": 806.6862000000001,
+    "totalBudget": 807.5862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 12051.300000000001,
+    "totalProjected": 12052.2,
     "percentUsed": 99,
     "burnRate": 17.98837588888889,
     "daysRemaining": 0,
@@ -7525,56 +7567,56 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 167.05682,
-        "spent": 167.05682,
+        "budget": 164.60009999999997,
+        "spent": 164.60009999999997,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 190.92207999999997,
-        "spent": 190.92207999999997,
-        "remaining": 0,
+        "budget": 200.77154999999996,
+        "spent": 199.87154999999996,
+        "remaining": 0.9000000000000057,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 167.05682,
-        "spent": 167.05682,
+        "budget": 164.60009999999997,
+        "spent": 164.60009999999997,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 178.98944999999998,
-        "spent": 178.98944999999998,
+        "budget": 176.35724999999996,
+        "spent": 176.35724999999996,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 51.33052,
-        "spent": 47.73052,
+        "budget": 50.6286,
+        "spent": 47.0286,
         "remaining": 3.6000000000000014,
         "percentUsed": 93
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 38.49789,
-        "spent": 35.797889999999995,
+        "budget": 37.971450000000004,
+        "spent": 35.27145,
         "remaining": 2.700000000000003,
         "percentUsed": 93
       },
       {
         "id": "EPIC-0009",
         "title": "Multilingual support",
-        "budget": 12.83263,
-        "spent": 11.93263,
+        "budget": 12.65715,
+        "spent": 11.75715,
         "remaining": 0.9000000000000004,
         "percentUsed": 93
       },
@@ -7598,9 +7640,9 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Aug 15",
-    "rangeStart": "Jun 19",
-    "rangeEnd": "Oct 10",
+    "likelyDate": "Aug 16",
+    "rangeStart": "Jun 21",
+    "rangeEnd": "Oct 12",
     "velocityWeeks": 6,
     "storiesPerWeek": 1.1,
     "pointsPerWeek": 5.2
@@ -7673,7 +7715,8 @@
       "2026-11-07T00:39:13.799Z",
       "2026-11-07T01:26:35.024Z",
       "2026-11-07T02:00:13.510Z",
-      "2026-11-07T03:09:35.100Z"
+      "2026-11-07T03:09:35.100Z",
+      "2026-11-07T03:36:27.689Z"
     ],
     "doneCounts": [
       0,
@@ -7741,6 +7784,7 @@
       2,
       4,
       5,
+      6,
       6,
       6
     ],
@@ -7811,7 +7855,8 @@
       66,
       67,
       67,
-      67
+      67,
+      68
     ],
     "aiCosts": [
       23.621356666666664,
@@ -7845,6 +7890,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -7949,6 +7995,7 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
@@ -8017,6 +8064,7 @@
       8,
       21,
       26,
+      29,
       29,
       29
     ],
@@ -8087,9 +8135,11 @@
       4,
       4,
       10,
+      10,
       10
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -8225,6 +8275,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -8259,6 +8310,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -8363,7 +8415,8 @@
       1.1387096774193552,
       1.1338709677419356,
       1.134426229508197,
-      1.134426229508197
+      1.134426229508197,
+      1.1338709677419356
     ],
     "velocityByWeek": {
       "labels": [

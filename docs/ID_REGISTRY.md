@@ -3,9 +3,9 @@
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0010             | EPIC-0009         |
-| US           | US-0068               | US-0067           |
+| US           | US-0069               | US-0068           |
 | TASK         | TASK-0105             | TASK-0104         |
-| AC           | AC-0389               | AC-0388           |
+| AC           | AC-0392               | AC-0391           |
 | TC           | TC-0153               | TC-0152           |
 | BUG          | BUG-0035              | BUG-0034          |
 | L            | L-0035                | L-0034            |
@@ -85,3 +85,5 @@ Assigned 2026-11-06 (slice 2c-3, PR B, US-0064): TC-0141 (AC-0337, AC-0375 to AC
 Reserved blocks (2026-11-06, slice 2c-4): US-0066 (EPIC-0002 close-out polish); TASK-0103 (US-0060, PR 1) and TASK-0104 (US-0066, PR 2); AC-0379..AC-0381 under US-0060 and AC-0382..AC-0384 under US-0066; TC-0145..TC-0152 (TC-0145, TC-0146 AC-0379; TC-0147 AC-0380; TC-0148, TC-0149 AC-0381; TC-0150 AC-0382; TC-0151 AC-0383; TC-0152 AC-0384), filed when each task is built. Ids in a block that its story does not use stay unused. No new BUG or L ids are reserved.
 
 Reserved blocks (2026-11-06, multilingual backlog): EPIC-0009; US-0067; AC-0385..AC-0388 (all under US-0067). All Planned; test cases are filed when the story moves to In Progress. Ids in a block that its story does not use stay unused.
+
+Reserved blocks (2026-11-06, AI player row follow-up): US-0068; AC-0389..AC-0391 (all under US-0068). Planned; test cases are filed when the story moves to In Progress. Ids in a block that its story does not use stay unused.
