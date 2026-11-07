@@ -30,6 +30,18 @@ describe("ReportLinksPanel AI roles", () => {
     expect(screen.queryByRole("button", { name: /link for Delivery lead/ })).toBeNull();
   });
 
+  // Control lists an AI role only while it has a live link; the BFF judges `active` by its own clock, so at the expiry instant (or under
+  // clock skew) the row arrives expired. A revoked AI row cannot arrive (BUG-0028).
+  it("an ai role whose link expired shows AI player and Link expired, with no Issue, Reissue or Revoke", async () => {
+    const expiresAt = 1_700_000_900_000;
+    mount([{ role: "delivery_lead", credential: { ...cred, active: false, expiresAt }, ai: true }]);
+    expect(await screen.findByText("AI player")).toBeTruthy();
+    expect(screen.getByText(`Link expired on ${new Date(expiresAt).toLocaleDateString()}`)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Issue link/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Reissue link/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Revoke link/ })).toBeNull();
+  });
+
   it("a human role row is unchanged", async () => {
     mount([
       { role: "delivery_lead", credential: null },
