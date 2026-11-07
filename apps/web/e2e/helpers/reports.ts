@@ -9,8 +9,8 @@ import type { LauncherStack } from "./start-launcher-stack";
 // Shared steps of the report-access specs: an ended session, a released review (and a re-run) on disk, and the console panel's controls.
 
 const NAMES: Record<Player, string> = { delivery_lead: "Dana Lead", tech_lead: "Tomás Tech", account_manager: "Ama Accounts" };
-const TSX = path.join(REPO_ROOT, "services", "control", "node_modules", ".bin", "tsx");
-const SEED = path.join(REPO_ROOT, "services", "control", "src", "__tests__", "seed-report-folders.ts");
+const TSX = path.join(REPO_ROOT, "services", "runtime", "node_modules", ".bin", "tsx");
+const SEED = path.join(REPO_ROOT, "services", "runtime", "src", "__tests__", "seed-report-folders.ts");
 
 /** The text only the live re-run (`<id>-2`) of bob's report holds; the superseded first run says "Clear on effort." instead. */
 export const RERUN_TEXT = "Clear on effort and on the re-run.";
@@ -34,9 +34,13 @@ export const CANARY_RATIONALE = "Canary-Rationale-Quokka";
 /** The facilitator's reason the e2e gives the `resolve` step (it is shown to the participant). */
 export const RESOLVE_REASON = "Reason-Canary-Walrus: the evidence supports the original level.";
 
-/** One live review: alice released, bob still a draft, with recognisable evaluator strings in bob's draft. */
-export function seedDraft(stack: LauncherStack, sessionId: string): Promise<void> {
-  return runSeeder(stack, sessionId, ["draft"]);
+/**
+ * One live review: alice released, bob still a draft, with recognisable evaluator strings in bob's draft. With `roles` (BUG-0028) the
+ * fixture's alice and bob are renamed to the session's real seated humans `roles.released` and `roles.draft`, so a link can be issued
+ * to a seat; a role named in neither (an AI seat) is not a subject of the seed.
+ */
+export function seedDraft(stack: LauncherStack, sessionId: string, roles?: { released: Player; draft: Player }): Promise<void> {
+  return runSeeder(stack, sessionId, roles === undefined ? ["draft"] : ["draft", roles.released, roles.draft]);
 }
 /** The facilitator releases one player's report (the runtime's own moderate function, run in a child process). */
 export function releaseRole(stack: LauncherStack, sessionId: string, role = "bob"): Promise<void> {
@@ -58,7 +62,7 @@ export function exportWithTerminal(stack: LauncherStack, sessionId: string, subj
 function runSeeder(stack: LauncherStack, sessionId: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child: ChildProcess = spawn(TSX, [SEED, path.join(stack.dataDir, "reports"), sessionId, ...args], {
-      cwd: path.join(REPO_ROOT, "services", "control"),
+      cwd: path.join(REPO_ROOT, "services", "runtime"),
       stdio: ["ignore", "pipe", "pipe"],
       env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", NO_COLOR: "1" } as unknown as NodeJS.ProcessEnv,
     });

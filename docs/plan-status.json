@@ -5919,8 +5919,8 @@
       "severity": "Low",
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
-      "status": "In Progress",
-      "fixBranch": "bugfix/BUG-0034-participant-path, bugfix/BUG-0032-console-report",
+      "status": "Fixed",
+      "fixBranch": "bugfix/BUG-0034-participant-path, bugfix/BUG-0032-console-report, bugfix/BUG-0028-e2e-seeder",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -7513,9 +7513,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T06:20:12.495Z",
-  "commitSha": "e15a297",
-  "buildNumber": "544",
+  "generatedAt": "2026-11-07T06:30:08.150Z",
+  "commitSha": "a0fc400",
+  "buildNumber": "546",
   "branch": "docs/session-36-bugfix-series",
   "sessionTimeline": [
     {
@@ -7833,7 +7833,7 @@
       "2026-11-07T04:48:10.882Z",
       "2026-11-07T05:31:12.484Z",
       "2026-11-07T06:11:06.488Z",
-      "2026-11-07T06:20:12.609Z"
+      "2026-11-07T06:30:08.235Z"
     ],
     "doneCounts": [
       0,
@@ -8277,7 +8277,7 @@
       7,
       4,
       1,
-      2
+      1
     ],
     "atRisk": [
       0,
