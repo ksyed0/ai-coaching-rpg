@@ -350,12 +350,12 @@ BUG-0026: `ws-server.roster.test.ts` (a superseded connection gets no roster fra
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Open
-Fix Branch: none yet
-Lesson Encoded: No
+Status: Fixed
+Fix Branch: bugfix/BUG-0026-test-hygiene
+Lesson Encoded: Yes — see docs/LESSONS.md
 ```
 
-Seen once in a full `@acr/runtime` run and once in five isolated runs during slice 2c-1, with no changed file touching it. It looks like a timing assumption in the test, but it has not been run against `develop` to confirm that it is not caused by this slice. Not related to US-0062 itself; filed there because it was found while closing the slice. Fix: reproduce with `vitest run --repeat` on `develop`, then replace the timing assumption with an event wait (see BUG-0020 for the same class).
+Seen once in a full `@acr/runtime` run and once in five isolated runs during slice 2c-1. Reproduced on `develop`: 6 failures in 25 whole-file runs (none in `-t superseded` alone); `vitest run --repeat` does not exist here, so a shell loop of whole-file runs is the recipe. Cause: a race inside the test, not the server. When the first connection joins, the server sends its roster to the facilitator's socket and then to the first connection's own socket; the test waited only on the facilitator's frame and then read `before = first.c.inbox.length`, so the first connection's own join roster could land after `before` and be counted as a frame sent after the takeover. Fix: wait for the first connection's own join roster before taking `before`. Verified with 50 whole-file runs and no failures.
 
 ```
 BUG-0027: The conflict sentences are copied between the control service and the web server with no test that they stay equal
