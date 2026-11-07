@@ -92,7 +92,7 @@ export function SelfRatingForm({ form, fetch: fetchImpl, onSaved, onRefused }: S
     const payload = form.criteria.flatMap((c) => {
       const r = ratings[c.id];
       if (!r || r.level === null || !touched.current.has(c.id)) return []; // untouched: omitted
-      return [{ criterion: c.id, level: r.level === "na" ? null : r.level, ...(r.note !== "" ? { note: r.note } : {}) }];
+      return [{ criterion: c.id, level: r.level === "na" ? null : r.level, ...(r.note.trim() !== "" ? { note: r.note.trim() } : {}) }];
     });
     const sentEdits = edits.current;
     setSaving(true);

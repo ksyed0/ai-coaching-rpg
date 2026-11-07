@@ -162,6 +162,16 @@ describe("SelfRatingForm", () => {
     expect(stored()).toBeNull();
   });
 
+  it("a note of only spaces on a rated criterion is sent without a note, and a real note is sent trimmed", async () => {
+    const { fetchFn } = setup();
+    pick("Listening", /Proficient/);
+    fireEvent.change(within(group("Listening")).getByRole("textbox"), { target: { value: "   " } });
+    pick("Framing", /Emerging/);
+    fireEvent.change(within(group("Framing")).getByRole("textbox"), { target: { value: "  padded  " } });
+    await save();
+    expect(body(fetchFn)).toEqual({ ratings: [{ criterion: "c1", level: 3 }, { criterion: "c2", level: 1, note: "padded" }] });
+  });
+
   it("busy shows \"Busy, try again\" and keeps the draft (Review Focus 5)", async () => {
     const { onSaved } = setup({ fetch: async () => failure(503, "busy", { "Retry-After": "2" }) });
     pick("Listening", /Emerging/);
