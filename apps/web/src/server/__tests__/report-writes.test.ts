@@ -166,6 +166,7 @@ describe("participant write routes", () => {
       [{ state: "not_released" }, 409, "not_released"],
       [{ state: "withdrawn" }, 409, "withdrawn"],
       [{ state: "too_many" }, 409, "too_many"],
+      [{ state: "link_full" }, 409, "link_full"],
       [{ state: "old_schema" }, 409, "old_schema"],
       [{ state: "invalid" }, 400, "invalid"],
       [{ state: "too_large" }, 413, "too_large"],
@@ -184,6 +185,15 @@ describe("participant write routes", () => {
     const t = await handleReportRate(rateReq(), deps);
     expect(t.status).toBe(429);
     expect(t.headers.get("Retry-After")).toBe("5");
+    expect(launcher.readReport).not.toHaveBeenCalled();
+  });
+
+  it("BUG-0030: link_full is a 409 whose message is the shared sentence telling the participant to ask for a new link", async () => {
+    launcher.respondReport.mockResolvedValueOnce({ state: "link_full" });
+    const p = await parts(await handleReportRespond(respondReq(), deps));
+    expect(p.status).toBe(409);
+    expect(p.json.data).toEqual({ state: "link_full" });
+    expect(p.json.error).toEqual({ code: "conflict", message: "This link has reached its limit of 25 responses. Ask your facilitator for a new link to send more." });
     expect(launcher.readReport).not.toHaveBeenCalled();
   });
 

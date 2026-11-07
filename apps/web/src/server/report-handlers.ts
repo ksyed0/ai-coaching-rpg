@@ -199,6 +199,7 @@ const WRITE_SENTENCES: Record<string, string> = {
   not_released: "This report is not open for changes yet.",
   withdrawn: "This report was withdrawn.",
   too_many: "There are too many responses already.",
+  link_full: REPORT_SENTENCES.linkFull,
   // The page's old_schema sentence is MESSAGES.reportOldSchema, the same wording as WRITE_OLD_SCHEMA in services/control/src/participant-writes.ts; this one is not shown.
   old_schema: "This report was made by an older version and cannot take changes.",
   invalid: "That could not be saved. Check what you entered.",

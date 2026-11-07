@@ -13,4 +13,6 @@ export const REPORT_SENTENCES = {
   reportsUnreadable: "The reports for this session cannot be read. Check them with moderate status.",
   /** The report store or reader failed on a participant or facilitator call (503). */
   reportUnavailable: "The report is unavailable. Try again.",
+  /** BUG-0030: this link has written its 25 responses (409 `link_full`); a reissued link has a fresh budget. */
+  linkFull: "This link has reached its limit of 25 responses. Ask your facilitator for a new link to send more.",
 } as const;

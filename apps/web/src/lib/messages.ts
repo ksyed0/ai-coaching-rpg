@@ -79,6 +79,8 @@ export const MESSAGES = {
   respondSentReload: "Sent. Reload to see it.",
   respondBusy: "Busy, try again",
   respondTooMany: "You have used all 50 responses.",
+  /** BUG-0030: this link has written its 25 responses; the facilitator's reissue gives a new link a fresh budget. */
+  respondLinkFull: REPORT_SENTENCES.linkFull,
   respondClosed: "Responses are closed for this report.",
   respondTooLarge: "That is too large to send. Shorten what you wrote and try again.",
   respondInvalid: "Check what you wrote and try again.",

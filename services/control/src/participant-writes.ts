@@ -1,4 +1,5 @@
 import { access, constants } from "node:fs/promises";
+import { REPORT_SENTENCES } from "@acr/events";
 import { submitResponse, submitSelfRatings, type RatingInput, type ResponseInput } from "@acr/runtime/participant";
 import type { ControlConfig } from "./config.js";
 import { isCredentialId, type ReportAccessStore } from "./report-access.js";
@@ -9,6 +10,8 @@ export const WRITE_CLOSED = "Ratings are closed for this report. Your facilitato
 export const WRITE_NOT_RELEASED = "This report has not been released, so there is nothing to respond to yet.";
 export const WRITE_WITHDRAWN = "This report was withdrawn, so it cannot take a response.";
 export const WRITE_TOO_MANY = "You have reached the limit for this report. Your facilitator can take anything further in the terminal.";
+/** BUG-0030: this link (credential) has written its RESPONSES_PER_LINK responses; the shared sentence, also shown by the page. */
+export const WRITE_LINK_FULL = REPORT_SENTENCES.linkFull;
 // Same wording as MESSAGES.reportOldSchema in apps/web/src/lib/messages.ts: change both together.
 export const WRITE_OLD_SCHEMA = "This review was opened before online ratings were available. Your facilitator can take your rating or response in the terminal.";
 export const WRITE_BUSY = "The review is busy right now. Try again in a moment.";
@@ -23,7 +26,7 @@ const LOG_EVERY_MS = 60_000;
 const WINDOW_MS = 10 * 60_000;
 const MAX_WRITES = 20;
 
-export type WriteCode = "closed" | "not_released" | "withdrawn" | "too_many" | "old_schema" | "invalid" | "busy" | "unavailable" | "throttled";
+export type WriteCode = "closed" | "not_released" | "withdrawn" | "too_many" | "link_full" | "old_schema" | "invalid" | "busy" | "unavailable" | "throttled";
 export type WriteOutcome =
   | { status: 200; wrote: number | boolean }
   | { status: 400 | 404 | 409 | 429 | 503; code: WriteCode | "not_found"; message: string; retryAfterMs?: number };
@@ -41,6 +44,7 @@ const MESSAGES: Record<Exclude<WriteCode, "throttled">, { status: 400 | 409 | 50
   not_released: { status: 409, message: WRITE_NOT_RELEASED },
   withdrawn: { status: 409, message: WRITE_WITHDRAWN },
   too_many: { status: 409, message: WRITE_TOO_MANY },
+  link_full: { status: 409, message: WRITE_LINK_FULL },
   old_schema: { status: 409, message: WRITE_OLD_SCHEMA },
   invalid: { status: 400, message: WRITE_INVALID },
   busy: { status: 503, message: WRITE_BUSY },

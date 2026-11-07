@@ -801,6 +801,7 @@ describe("LauncherClient participant writes", () => {
       [409, "not_released", { state: "not_released" }],
       [409, "withdrawn", { state: "withdrawn" }],
       [409, "too_many", { state: "too_many" }],
+      [409, "link_full", { state: "link_full" }],
       [409, "old_schema", { state: "old_schema" }],
       [400, "bad_request", { state: "invalid" }],
       [400, "invalid", { state: "invalid" }],
