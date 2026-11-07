@@ -361,14 +361,14 @@ Rollback trigger: the guard refuses a human role's link, issue or reissue answer
 ### What changes on disk and in settings
 
 - **No schema change, no new file and no new setting.** The guard reads the session log and the scenario that already exist. Nothing is written.
-- **One optional field on the wire:** control's `GET /sessions/:id/reports` link rows may carry `ai: true`; the web server's launcher client, the console BFF's link handler and `parseReportLinks` pass it on only when exactly `true`. A missing flag means "not AI".
+- **One optional field on the wire:** control's `GET /sessions/:id/report-links` rows may carry `ai: true`; the web server's launcher client, the console BFF's link handler and `parseReportLinks` pass it on only when exactly `true`. A missing flag means "not AI".
 - **New refusal:** issue and reissue answer 409 "AI players do not get report links." for an AI role, and 503 "reports cannot be read" when the session log or its scenario cannot be read or is inconsistent.
 - **Deploy order: control before web, as for slice 2c-3.** The new `aiRoles` dependency of the control service is required in code, but it is wired in `main.ts`, so a deployed control service always has it.
 
 ### Rolling back
 
 1. **Control alone is safe to roll back.** Because `ai` is optional, the new web app keeps working against the older control service: the link list shows Issue or Reissue for every role (no "AI player" label) and the guard is gone, so an AI role listed in a hand-edited review could be issued a link again. Evaluate and release do not list AI roles as subjects, so this only matters for a hand-edited review.
-2. **Web alone is safe to roll back too:** the older web app ignores the `ai` flag it does not know, and the control guard still refuses.
+2. **Web alone is safe to roll back too:** the older web app ignores the `ai` flag it does not know, and the control guard still refuses. The older web app's `KNOWN_CONFLICTS` lacks the new sentence and its panel still shows Issue and Reissue for an AI role, so a refusal reads "That action is not possible right now."; the rollback is still safe.
 3. To roll back both, redeploy web first, then control (the opposite of the deploy order). No data migration.
 4. **Smoke test:** open the console of an ended session with an AI player and a released report: the AI role gets no link (the guard's sentence on a direct issue), a human role is issued one and its link opens the report.
 

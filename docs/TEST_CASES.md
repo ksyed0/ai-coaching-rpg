@@ -2246,9 +2246,9 @@ Related AC: AC-0379, AC-0322
 Type: Unit
 Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
 Steps:
-  1. From `services/control`: `pnpm exec vitest run src/__tests__/reports.ai-roles.test.ts` (issue and reissue of a role that has a draft but is listed in `aiRoles` answer 409 "AI players do not get report links." and mint nothing; a null `aiRoles`, a throw and a non-list each answer the 503 "reports cannot be read" for both; a session with no review still answers "not ready" when `aiRoles` is null; a human role with a draft is issued a link; roles named `__proto__` and `constructor` are not AI unless listed; revoke still works for an AI role with a live credential; the `links()` rows are in TC-0148).
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/reports.ai-roles.test.ts` (issue and reissue of a role that has a draft but is listed in `aiRoles` answer 409 "AI players do not get report links." and mint nothing; a null `aiRoles`, a throw and a non-list each answer the 503 "reports cannot be read" for both; a session with no review still answers "not ready" when `aiRoles` is null; a human role with a draft is issued a link; roles named `__proto__` and `constructor` are not AI unless listed; revoke still works for an AI role with a live credential; the `links()` rows are in TC-0148; an unreadable review combined with an AI-listed role answers the 503, not the AI sentence, which pins the guard order).
 Expected Result: All pass.
-Actual Result: As expected, 2026-11-06: 1 file, 20 tests (9 for the guard, 11 for `links()`), all passing.
+Actual Result: As expected, 2026-11-06: 1 file, 21 tests (10 for the guard, 11 for `links()`), all passing.
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2c-4 PR 1. The guard comes after `reviewStatus`, so the review check still decides "not ready" first. The `links()` flag and memo tests in the same file are part of TC-0148.
@@ -2294,7 +2294,7 @@ Steps:
   2. From `services/control`: `pnpm exec vitest run src/__tests__/moderation.ai-role-absent.test.ts` (the moderation overview has no `ai1` subject and exporting `ai1` is refused).
   3. From `apps/web`: `pnpm exec vitest run src/components/__tests__/ReportLinksPanel.ai.test.tsx src/lib/__tests__/console-api.report-links-ai.test.ts src/server/__tests__/launcher-client.test.ts src/server/__tests__/report-handlers.test.ts` (the panel shows "AI player" for an AI role, offers only Revoke while a link is live and no button otherwise, human rows are unchanged; `parseReportLinks`, the launcher client and the BFF handler keep `ai` only when exactly `true`).
 Expected Result: All pass.
-Actual Result: As expected, 2026-11-06: step 1, the 11 `links()` tests are in the 20 of TC-0145; step 2, 1 file, 2 tests; step 3, 4 files, 121 tests (3 and 2 in the two new files; 2 new in launcher-client and 1 new in report-handlers among the existing ones), all passing.
+Actual Result: As expected, 2026-11-06: step 1, the 11 `links()` tests are in the 21 of TC-0145; step 2, 1 file, 2 tests; step 3, 4 files, 121 tests (3 and 2 in the two new files; 1 new in launcher-client and 2 new in report-handlers among the existing ones), all passing.
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2c-4 PR 1. A missing flag, "yes" or any value other than `true` is not AI, so an older control service still renders (docs/ROLLBACK.md). Not covered: a revoked or expired AI credential row in the panel (deferred minor).
