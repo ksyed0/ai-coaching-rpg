@@ -186,7 +186,7 @@ test("Axe: the closed, old_schema, throttled and not_released states of /report"
     { name: "closed", status: 200, body: { success: true, data: { state: "closed" }, error: null }, text: /Ratings for this review are closed/ },
     { name: "old_schema", status: 200, body: { success: true, data: { state: "old_schema" }, error: null }, text: /opened before online ratings/ },
     { name: "not_released", status: 200, body: { success: true, data: { state: "not_released" }, error: null }, text: /not available right now/ },
-    { name: "throttled", status: 429, body: { success: false, data: null, error: { code: "throttled", message: "" } }, text: /Too many requests/ },
+    { name: "throttled", status: 429, body: { success: false, data: null, error: { code: "rate_limited", message: "" } }, text: /Too many requests/ },
   ];
   for (const st of states) {
     const handler = (route: import("@playwright/test").Route) =>

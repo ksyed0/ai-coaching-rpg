@@ -232,6 +232,24 @@ describe("SelfRatingForm", () => {
     expect(body(fetchFn)).toEqual({ ratings: [{ criterion: "c2", level: 2, note: "only a note" }] });
   });
 
+  it("a whitespace-only note with no level is not blocking and is not sent", async () => {
+    const { fetchFn, onSaved } = setup();
+    fireEvent.change(within(group("Framing")).getByRole("textbox"), { target: { value: "   " } });
+    pick("Listening", /Proficient/);
+    await save();
+    await waitFor(() => expect(onSaved).toHaveBeenCalled());
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(body(fetchFn)).toEqual({ ratings: [{ criterion: "c1", level: 3 }] });
+  });
+
+  it("a real note with no level still blocks", async () => {
+    const { fetchFn } = setup();
+    fireEvent.change(within(group("Framing")).getByRole("textbox"), { target: { value: " real note " } });
+    await save();
+    expect((await screen.findByRole("alert")).textContent).toContain("Choose a rating or Not observed for: Framing.");
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
   it("a partial draft falls back per criterion to the server's rating, and an untouched server rating is not sent", async () => {
     sessionStorage.setItem(KEY, JSON.stringify({ ratings: { c1: { level: 4, note: "from draft" } } }));
     const { fetchFn } = setup({ form: { ...FORM, existing: { c2: { level: 3, note: "from server" } } } });

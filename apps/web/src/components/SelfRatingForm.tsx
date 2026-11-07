@@ -82,7 +82,7 @@ export function SelfRatingForm({ form, fetch: fetchImpl, onSaved, onRefused }: S
     e.preventDefault();
     if (saving) return;
     // A note without a level is not sent (a null level means Not observed, which they never chose): the save is blocked, nothing is lost.
-    const noteOnly = form.criteria.filter((c) => touched.current.has(c.id) && ratings[c.id]?.level === null && (ratings[c.id]?.note ?? "") !== "");
+    const noteOnly = form.criteria.filter((c) => touched.current.has(c.id) && ratings[c.id]?.level === null && (ratings[c.id]?.note ?? "").trim() !== "");
     if (noteOnly.length > 0) {
       setNotice({ kind: "error", text: MESSAGES.ratingsChooseLevel(noteOnly.map((c) => c.name)) });
       return;
