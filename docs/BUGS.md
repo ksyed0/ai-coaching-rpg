@@ -103,7 +103,7 @@ BUG-0009: Web E2E "no horizontal scroll at 400 px" does not see its own say line
 Severity: Medium
 Related Story: US-0065
 Related Task: TASK-0085
-Status: Fixed (7ebdfc5; root-caused 2026-10-30)
+Status: Fixed (PR #60; root-caused 2026-10-30)
 Fix Branch: feature/EPIC-0002-US-0059-readiness (hardening: feature/EPIC-0002-US-0065-web-e2e, 5537920)
 Lesson Encoded: Yes (L-0031)
 ```
@@ -177,7 +177,7 @@ BUG-0014: CodeQL js/file-system-race alerts in the control service tests (stat a
 Severity: Low
 Related Story: US-0058
 Related Task: TASK-0087
-Status: Fixed (15bfed8)
+Status: Fixed (PR #60)
 Fix Branch: feature/EPIC-0002-US-0059-readiness
 Lesson Encoded: No (L-0003 and L-0017 already state the rule)
 ```
@@ -266,7 +266,7 @@ BUG-0020: The bot socket test "a second open after close() never overlaps" faile
 Severity: Low
 Related Story: US-0060
 Related Task: TASK-0099
-Status: Fixed (4551682 on feature/EPIC-0002-US-0060-ai-seats-reachable, squashed into #83)
+Status: Fixed (PR #83, branch feature/EPIC-0002-US-0060-ai-seats-reachable)
 Fix Branch: feature/EPIC-0002-US-0060-ai-seats-reachable
 Lesson Encoded: No
 ```
@@ -278,7 +278,7 @@ BUG-0021: After a control-service restart a lobby's AI roles can come back as hu
 Severity: Medium
 Related Story: US-0060
 Related Task: TASK-0099
-Status: Fixed (bb00195, de2f3b1 and 915472e on fix/bug-0021-ai-roles-after-control-restart)
+Status: Fixed (PR #87, branch fix/bug-0021-ai-roles-after-control-restart)
 Fix Branch: fix/bug-0021-ai-roles-after-control-restart
 Lesson Encoded: No
 ```
@@ -338,7 +338,7 @@ BUG-0025: Forged-cookie read failures share the enter throttle table, so a satur
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Fixed (6453541)
+Status: Fixed (PR #122)
 Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
 Lesson Encoded: Yes — see docs/LESSONS.md
 ```
@@ -352,7 +352,7 @@ BUG-0026: `ws-server.roster.test.ts` (a superseded connection gets no roster fra
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Fixed
+Status: Fixed (PR #119)
 Fix Branch: bugfix/BUG-0026-test-hygiene
 Lesson Encoded: Yes — see docs/LESSONS.md
 ```
@@ -364,7 +364,7 @@ BUG-0027: The conflict sentences are copied between the control service and the 
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Fixed (e637b95)
+Status: Fixed (PR #120)
 Fix Branch: bugfix/BUG-0034-participant-path
 Lesson Encoded: No
 ```
@@ -383,13 +383,13 @@ Fix Branch: bugfix/BUG-0034-participant-path, bugfix/BUG-0032-console-report, bu
 Lesson Encoded: No
 ```
 
-Left open by the slice 2c-1 reviews, none blocking. (1) Done (bugfix/BUG-0028-e2e-seeder): the Playwright test seeded its review folders with the runtime's `moderate` functions from `services/control/src/__tests__/seed-report-folders.ts`, which reached into runtime test fixtures and seeded `alice` and `bob`, not the session's seated roles, so the "human role in the same review" of `report-ai-role.spec.ts` was `bob`, a fixture role that is not a seat. The seeder now lives in `services/runtime/src/__tests__/seed-report-folders.ts` (its own package's fixtures; `SEED`, `tsx` and the working directory in `apps/web/e2e/helpers/reports.ts` follow), and `draft <releasedRole> <draftRole>` (`seedDraft(stack, id, { released, draft })`) renames the fixture's alice and bob in the scenario, the session log and the scripted answers before evaluating. `report-ai-role.spec.ts` seeds the two seated humans (Delivery lead released, Account manager a draft), checks that the link list holds exactly those two (the seed's subjects are exactly the two seated humans), runs with tracing off so a regressed guard's token cannot reach a CI trace, issues the contrast link to the seated Account manager, and its failure messages print the status and the body with any token redacted (minor f). Removing the AI guard still fails the spec at the refusal sentence, with no token printed. The seeder refuses a rename to a non-player id (`group`, `index`, `method`, `facilitator`, a prototype key or the fixture's `npc1`), maps only its own keys, and refuses extra arguments. By choice the other report specs (`report-access`, `report-moderation`, `report-release`, `axe`) keep the default fixture names: their assertions name Alice and Bob and none depends on a seat. Seeding instead of a real `evaluate` stays: the e2e players never speak, so the mock evaluator scores nothing (slice 2c-3 spec section 11). (2) Done (839925f): the throttled and not-released states of `/report` were already covered by Axe (since #106); `/report/enter` (opening, throttled, retry and refused) is now covered in `apps/web/e2e/axe.spec.ts`. (3) Done (f66b335): the "Revoked" branch of `ReportLinksPanel` could never show, because control lists only live credentials (`revokedAt === undefined` and not expired, services/control/src/reports.ts) and issue and reissue return a newly minted one, so `link.revoked` was always false. The branch is gone, and so is `revoked` from the BFF's `linkDto` and the console's `ReportLink`, which are internal to the web app (no wire change with control); `active` is still false for a credential with `revokedAt`. "Link expired" can still show, at the expiry instant or with clock skew between the control and web hosts (the BFF judges `active` by its own clock), so it stays, with a component test for a human row and one for an AI row ("AI player", no Issue, Reissue or Revoke), and a BFF test for a credential at its expiry instant. (4) Done (17d7955): the `ReportView` retry had no unmount guard (harmless in React 19, which no longer warns); it now uses a `mounted` ref, with a test that counts state updates after unmount.
+Left open by the slice 2c-1 reviews, none blocking. (1) Done (bugfix/BUG-0028-e2e-seeder): the Playwright test seeded its review folders with the runtime's `moderate` functions from `services/control/src/__tests__/seed-report-folders.ts`, which reached into runtime test fixtures and seeded `alice` and `bob`, not the session's seated roles, so the "human role in the same review" of `report-ai-role.spec.ts` was `bob`, a fixture role that is not a seat. The seeder now lives in `services/runtime/src/__tests__/seed-report-folders.ts` (its own package's fixtures; `SEED`, `tsx` and the working directory in `apps/web/e2e/helpers/reports.ts` follow), and `draft <releasedRole> <draftRole>` (`seedDraft(stack, id, { released, draft })`) renames the fixture's alice and bob in the scenario, the session log and the scripted answers before evaluating. `report-ai-role.spec.ts` seeds the two seated humans (Delivery lead released, Account manager a draft), checks that the link list holds exactly those two (the seed's subjects are exactly the two seated humans), runs with tracing off so a regressed guard's token cannot reach a CI trace, issues the contrast link to the seated Account manager, and its failure messages print the status and the body with any token redacted (minor f). Removing the AI guard still fails the spec at the refusal sentence, with no token printed. The seeder refuses a rename to a non-player id (`group`, `index`, `method`, `facilitator`, a prototype key or the fixture's `npc1`), maps only its own keys, and refuses extra arguments. By choice the other report specs (`report-access`, `report-moderation`, `report-release`, `axe`) keep the default fixture names: their assertions name Alice and Bob and none depends on a seat. Seeding instead of a real `evaluate` stays: the e2e players never speak, so the mock evaluator scores nothing (slice 2c-3 spec section 11). (2) Done (PR #120): the throttled and not-released states of `/report` were already covered by Axe (since #106); `/report/enter` (opening, throttled, retry and refused) is now covered in `apps/web/e2e/axe.spec.ts`. (3) Done (PR #121): the "Revoked" branch of `ReportLinksPanel` could never show, because control lists only live credentials (`revokedAt === undefined` and not expired, services/control/src/reports.ts) and issue and reissue return a newly minted one, so `link.revoked` was always false. The branch is gone, and so is `revoked` from the BFF's `linkDto` and the console's `ReportLink`, which are internal to the web app (no wire change with control); `active` is still false for a credential with `revokedAt`. "Link expired" can still show, at the expiry instant or with clock skew between the control and web hosts (the BFF judges `active` by its own clock), so it stays, with a component test for a human row and one for an AI row ("AI player", no Issue, Reissue or Revoke), and a BFF test for a credential at its expiry instant. (4) Done (PR #120): the `ReportView` retry had no unmount guard (harmless in React 19, which no longer warns); it now uses a `mounted` ref, with a test that counts state updates after unmount.
 ```
 BUG-0029: A response resent after a BFF timeout is stored twice when another response landed in between
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Fixed (c10a07a)
+Status: Fixed (PR #122)
 Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
 Lesson Encoded: No
 ```
@@ -403,7 +403,7 @@ BUG-0030: A forwarded report link can use up its owner's 50 response slots, and 
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Fixed (c10a07a, 86984be)
+Status: Fixed (PR #122)
 Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
 Lesson Encoded: No
 ```
@@ -431,7 +431,7 @@ BUG-0032: Overview answers can arrive out of order, and a failed overview read (
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Fixed (8e1abad)
+Status: Fixed (PR #121)
 Fix Branch: bugfix/BUG-0032-console-report
 Lesson Encoded: No
 ```
@@ -445,7 +445,7 @@ BUG-0033: The export menu has no participant view of the group or index, and no 
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Fixed (6145096)
+Status: Fixed (PR #121)
 Fix Branch: bugfix/BUG-0032-console-report
 Lesson Encoded: No
 ```
@@ -459,7 +459,7 @@ BUG-0034: Edits made while a save is in flight are lost when the draft clears
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Fixed (8ade287)
+Status: Fixed (PR #120)
 Fix Branch: bugfix/BUG-0034-participant-path
 Lesson Encoded: No
 ```

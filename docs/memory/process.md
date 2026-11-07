@@ -39,3 +39,9 @@ Commit state, update `progress.md`, `MEMORY.md`, `PROMPT_LOG.md` (redact secrets
 
 - Agent approval of ground-truth data: an agent may run `pnpm calibrate approve` only on the owner's explicit instruction naming the items; record it (`--by`, commit message, EVALUATOR.md Limits) and leave the owner review items unticked (AC-0191). Before trusting probe levels, have a reviewer grade the probes blind (before seeing the levels): the Friday set's audit found 0 full-level disagreements; keep this practice for ground-truth data.
 - Verify a captured artifact belongs to the run (L-0018). Scenario review checklist from US-0040: a pricing anchor for negotiation roles, role boundaries in the briefs, and no criterion the base scenario cannot exercise (stakeholder_management still has no probe).
+
+## Bug-fix series (Session 36, 2026-11-07)
+- Triage first (a read-only Opus pass that verifies each open bug against the code and sorts them into fix, owner decision and close), then one PR per cluster, each reviewed independently with a fix wave, squash-merged on green CI. Owner decisions are recorded in the PR descriptions, THREAT_MODEL and BUGS.
+- Deleting the base branch of a stacked PR closes the PR stacked on it (#114, replaced by #115): retarget the stacked PR before deleting the base. A squash merge strands every branch SHA, so BUG text cites PR numbers ("Fixed (PR #122)").
+- Parallel PRs that touch docs conflict in `docs/BUGS.md`, `docs/ID_REGISTRY.md`, `CHANGELOG.md` and `docs/plan-status.*`: `git merge origin/develop`, registry maximum, regenerate. Skipped TC ids are fine (the registry test allows gaps).
+- Root `PROMPT_LOG.md` has not been maintained since 2026-10-30 (summarised entries only); session close skips it and says so.
