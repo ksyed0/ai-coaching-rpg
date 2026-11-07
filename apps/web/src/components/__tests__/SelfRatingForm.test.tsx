@@ -162,6 +162,20 @@ describe("SelfRatingForm", () => {
     expect(stored()).toBeNull();
   });
 
+  it("an edit during a save that then fails (503) keeps the old unsaved values and the new ones, and shows the alert", async () => {
+    let release!: (r: Response) => void;
+    setup({ fetch: () => new Promise<Response>((r) => { release = r; }) });
+    pick("Listening", /Emerging/);
+    await save();
+    fireEvent.change(within(group("Framing")).getByRole("textbox"), { target: { value: "typed during the save" } });
+    pick("Framing", /Proficient/);
+    await act(async () => { release(failure(503, "busy")); });
+    expect((await screen.findByRole("alert")).textContent).toContain("Busy, try again");
+    const draft = JSON.parse(stored() ?? "null");
+    expect(draft.ratings.c1.level).toBe(1);
+    expect(draft.ratings.c2).toEqual({ level: 3, note: "typed during the save" });
+  });
+
   it("a note of only spaces on a rated criterion is sent without a note, and a real note is sent trimmed", async () => {
     const { fetchFn } = setup();
     pick("Listening", /Proficient/);

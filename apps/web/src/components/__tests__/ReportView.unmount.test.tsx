@@ -11,7 +11,9 @@ vi.mock("react", async (importOriginal) => {
     ...actual,
     useState: ((init: unknown) => {
       const [value, set] = actual.useState(init);
-      return [value, (next: unknown) => { if (calls.unmounted) calls.afterUnmount += 1; (set as (n: unknown) => void)(next); }];
+      const wrapped = actual.useRef<((next: unknown) => void) | null>(null); // one wrapper per hook call, so the setter keeps its identity
+      wrapped.current ??= (next: unknown) => { if (calls.unmounted) calls.afterUnmount += 1; (set as (n: unknown) => void)(next); };
+      return [value, wrapped.current];
     }) as typeof actual.useState,
   };
 });
