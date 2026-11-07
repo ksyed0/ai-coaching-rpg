@@ -99,7 +99,8 @@ export type ReportRead =
   | { state: "closed" }
   | { state: "old_schema" };
 /** A participant write's outcome (ratings or a response): a closed set read from control's status and `error.code`, never its text. */
-export type WriteState = "closed" | "not_released" | "withdrawn" | "too_many" | "old_schema" | "invalid" | "busy" | "too_large";
+/** `link_full`: this link has written its 25 responses (BUG-0030); a reissued link has a fresh budget. */
+export type WriteState = "closed" | "not_released" | "withdrawn" | "too_many" | "link_full" | "old_schema" | "invalid" | "busy" | "too_large";
 export type WriteOutcome = { state: "ok" } | { state: WriteState } | { state: "throttled"; retryAfterMs: number };
 export type RatingInput = { criterion: string; level: unknown; note?: string };
 export type ResponseInput = { criterion?: string; text: string; dispute?: boolean };
@@ -120,7 +121,7 @@ const WRITE_TIMEOUT_MS = 15_000;
 const REPORT_CALL_TIMEOUT_MS = 15_000;
 /** The most subject ids kept from a `blocked` refusal. */
 const MAX_BLOCKED = 64;
-const CONFLICT_STATES: ReadonlySet<string> = new Set(["closed", "not_released", "withdrawn", "too_many", "old_schema"]);
+const CONFLICT_STATES: ReadonlySet<string> = new Set(["closed", "not_released", "withdrawn", "too_many", "link_full", "old_schema"]);
 /** Far above any real answer. The body is buffered whole (`res.text()`) before this is checked, so it bounds what we parse, not what we read; the control service is a trusted internal service. */
 const MAX_RESPONSE_CHARS = 1024 * 1024;
 /**

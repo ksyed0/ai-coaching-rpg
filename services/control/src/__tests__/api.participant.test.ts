@@ -148,7 +148,7 @@ describe("participant write routes", () => {
   });
 
   it("maps outcomes: 409 and 400 keep code and message; 503 busy has code busy", async () => {
-    for (const [status, code, message] of [[409, "closed", "m1"], [400, "invalid", "m2"], [409, "old_schema", "m3"], [503, "busy", "The review is busy right now. Try again in a moment."], [503, "unavailable", "m5"]] as const) {
+    for (const [status, code, message] of [[409, "closed", "m1"], [400, "invalid", "m2"], [409, "old_schema", "m3"], [409, "link_full", "m4"], [503, "busy", "The review is busy right now. Try again in a moment."], [503, "unavailable", "m5"]] as const) {
       const { svc } = stub({ status, code, message });
       const p = await boot(svc);
       const r = await call(p, "POST", responsesPath(), { body: { text: "x" } });

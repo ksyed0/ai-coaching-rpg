@@ -338,12 +338,14 @@ BUG-0025: Forged-cookie read failures share the enter throttle table, so a satur
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Open
-Fix Branch: none yet
-Lesson Encoded: No
+Status: Fixed (6453541)
+Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
+Lesson Encoded: Yes — see docs/LESSONS.md
 ```
 
 Found in the final review of slice 2c-1 PR 2. `GET /api/v1/report` counts reads that fail before control (no, forged, expired or wrong-purpose cookie) in `reportEnterThrottle` under `*report-read-fail`, the same table that `POST /api/v1/report/enter` uses. When that table is full of blocked addresses (about 10 000), `blockedForMs` answers 429 for every address without an entry, valid readers and valid enters included. Forged GETs have no Origin check and no body, so they fill it more cheaply than enter POSTs. Practical only with a spoofable `X-Forwarded-For` or a botnet, and the threat model's general fail-closed sentence covers it without saying it now reaches valid reads. Fix: give read failures their own throttle instance (one line in `routes.ts`) and say so in `docs/THREAT_MODEL.md`.
+
+The entry's fix was incomplete: the write routes (`PUT /report/self-ratings`, `POST /report/responses`) charged the same table, and with a table of its own a valid cookie would still get 429, because the address block was checked BEFORE the cookie was unsealed. Fixed as the owner decided on 2026-11-07: the BFF unseals the cookie first; a valid cookie goes straight to its per-credential budget and never consults or charges the address table; only a failed unseal is checked (429 while blocked) and charged (the neutral 404). The failures moved to their own table, `reportReadFailThrottle` (routes.ts, the join's limits), so they can no longer saturate the enter table. Safe because the cookie is AES-256-GCM and cannot be forged. A valid cookie whose credential is gone still gets the byte-identical neutral 404 with the clearing `Set-Cookie`, and is not charged. Tests (TC-0155) cover a valid cookie from a blocked address, a flood of 200 forged cookies beside a valid reader, the revoked case, a saturated read-fail table beside a valid enter and read, and the write routes; a mutation that checks the block before the unseal fails 5 of them. `docs/THREAT_MODEL.md` ("The read route is throttled ...") states the new rule and what a forged flood can still do. Lesson L-0036.
 
 ```
 BUG-0026: `ws-server.roster.test.ts` (a superseded connection gets no roster frame) is flaky in full runtime runs
@@ -387,36 +389,42 @@ BUG-0029: A response resent after a BFF timeout is stored twice when another res
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (c10a07a)
+Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). `POST /api/v1/report/responses` has no idempotency key. A plain resend is already safe: `addResponse` (services/runtime/src/participant/write.ts) ignores a response identical to the subject's LAST one (same criterion, text and dispute flag; answered `wrote: 0`). What is left: if the BFF times out after control has recorded response A, and another response B is recorded for the same role before A is resent (a second tab, or the participant sending something else first), the resend of A no longer matches the last response and A is stored twice. A resend with edited text is stored as a new response too, beside the original the participant believed lost. The cap of 50 responses is per role (LIMITS.responses on the subject), not per credential. Harmless to the scores (a response is a note, not a rating) but noisy in the report and the export. Fix: a client-generated key on the request that control stores with the event and checks before appending. This is a wire change (an optional field first, then required), so it needs its own slice and the usual control-before-web deploy order.
+
+Fixed without a wire change, as the owner decided on 2026-11-07: `submitResponse` now ignores a response identical (same criterion, same cleaned text, same dispute flag) to ANY earlier unresolved response of the role, not only the last one, and answers it as before (`wrote: 0`; control 200 `{ wrote: false }`; the BFF and page treat it as a success). "Unresolved" is the fold's `resolution === null`: only a dispute can carry a `dispute.resolved`, so an identical comment is always a no-op, and the same dispute can be raised again once its earlier copy is resolved. Tests (TC-0156): A, then B, then a resend of A is ignored; a resend of A after A's dispute was resolved is stored; edited text, another criterion and another role are stored. Remaining: a deliberate identical repeat is silently a no-op, and a resend with edited text is still a new response; the client idempotency key described above remains the fix for the next wire version.
 
 ```
 BUG-0030: A forwarded report link can use up its owner's 50 response slots, and a response is not redacted
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (c10a07a, 86984be)
+Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). A report link is a bearer credential. Anyone who holds a forwarded link can post responses as its owner until the owner's 50 response slots are gone, and the owner cannot add one. There is also no redaction of a response after it is filed (the facilitator can resolve a dispute, not remove the text). This is a design decision, not a code slip: options are a lower cap per sitting, a facilitator "hide this response" event, or a per-link write cap with a notice. Revoking and reissuing the link already stops the abuse for future writes. Decide with the owner before building; record the choice in `docs/THREAT_MODEL.md`.
+
+Fixed with the owner's choice of 2026-11-07, a per-link cap with a notice: one link (one credential id) may write at most 25 responses (`RESPONSES_PER_LINK`, half of the per-role cap of 50, the only total limit before; the throttles bound only the rate), counted from the review log's `response.added` events whose `participant_session` actor carries the credential id. The 26th is refused 409 `link_full` with one shared sentence (`REPORT_SENTENCES.linkFull`) through runtime, control, the BFF and the page, which keeps the text, shows the sentence as a lasting notice ("... Ask your facilitator for a new link to send more.") and stops sending. A reissued link has a fresh budget; the per-role cap still applies and is checked first. Tests (TC-0157) at every layer. Remaining: a response is still not redacted (the participant's own text; documented in `docs/THREAT_MODEL.md`; the facilitator "hide response" story is US-0069), two reissued links can still use up the role's 50, and the console does not show that a link is at its cap (follow-up: it needs a new field from control's link list through the BFF to the panel).
 
 ```
 BUG-0031: Reviews opened before schema `/2` cannot take web writes
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Closed
+Fix Branch: none (closed as documented)
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). A review opened before slice 2c-2 carries the schema `acr.review/1`: the schema is written by `moderate open` into the `review.opened` event (services/runtime/src/review/store.ts), not by the evaluator. Control answers `old_schema` for a participant's self-rating or response on it, with the sentence "This review was opened before online ratings were available. Your facilitator can take your rating or response in the terminal." (WRITE_OLD_SCHEMA, services/control/src/participant-writes.ts). The ways out today are to take the rating or response in the terminal (facilitator-attested), or to get a `/2` review by opening a new directory: `moderate open` refuses a directory that already holds a review ("a review is already open here"), so this means a re-run of `pnpm evaluate` into a new directory and `moderate open` on it, or `moderate supersede <old> <new>` once a version was released (supersede writes a new `review.opened` with the current schema and carries the moderation). The console offers none of these. Reads still work. Fix: a one-off migration (a `moderate migrate` command that rewrites the review header and replays the log under the new schema), with a test on a fixture of the old folder. Not needed for any review created from now on.
+
+Closed as documented on 2026-11-07 (owner decision): nothing is deployed, so `/1` reviews exist only in local or development data from before slice 2c-2; workarounds exist (take the rating or response in the terminal, open a new directory with a re-run of `pnpm evaluate` and then `moderate open`, or `moderate supersede`); a migration would be large and risky (a schema rewrite and a log replay). Reopen as a story if real `/1` reviews must take web writes.
 
 ```
 BUG-0032: Overview answers can arrive out of order, and a failed overview read (outside evaluating) waits for Try again

@@ -56,6 +56,8 @@ export type ResponseResult =
         | "not_released"
         | "withdrawn"
         | "too_many"
+        /** This link (credential) has written RESPONSES_PER_LINK responses; a reissued link has a fresh budget (BUG-0030). */
+        | "link_full"
         | "invalid"
         | "busy"
         | "old_schema"
