@@ -376,8 +376,8 @@ BUG-0028: Slice 2c-1 test and cleanup gaps: seeded e2e folders, thin Axe coverag
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Open (parts 2 and 4 fixed on bugfix/BUG-0034-participant-path; parts 1 and 3 remain)
-Fix Branch: none yet
+Status: In Progress
+Fix Branch: bugfix/BUG-0034-participant-path
 Lesson Encoded: No
 ```
 
@@ -454,4 +454,4 @@ Lesson Encoded: No
 
 Deferred from the slice 2c-4 review (spec section 4.3). In the participant's self-rating form, a save clears the browser draft when it succeeds. If the participant types in a box after pressing Save but before the answer arrives, the newer text is cleared with the draft. Fix: remember what was sent and clear the stored draft only if the form still equals it, or mark the form dirty again on any change during the save, with a component test that types between send and answer. (The console's Summary editor avoids the same race by disabling its boxes while a save is in flight.)
 
-Fixed: the form counts its edits. The newer text stayed on screen, but its stored draft was cleared, it was never sent and the form said "Saved". Now a save that finishes after a newer change keeps the stored draft and says "Your latest changes have not been sent yet. Press Save again to send them." The inputs stay enabled (a disabled box would lose focus). A component test holds the request, edits during the save, releases it and checks the draft and the message. The same PR trims the note sent for a rated criterion (a note of only spaces is now omitted, bcf5172).
+Fixed: the form counts its edits. The newer text stayed on screen, but its stored draft was cleared, it was never sent and the form said "Saved". Now a save that finishes after a newer change keeps the stored draft and says "Your latest changes have not been sent yet. Press Save again to send them." The inputs stay enabled (a disabled box would lose focus). A component test holds the request, edits during the save, releases it and checks the draft and the message. After a save that overlapped an edit the whole draft is kept, which is harmless: the kept entries equal what the server stores, and the next Save resends them idempotently. The same PR trims the note sent for a rated criterion (a note of only spaces is now omitted, bcf5172).

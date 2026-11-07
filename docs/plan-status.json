@@ -5502,6 +5502,16 @@
       "type": "Unit",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0153",
+      "title": "A change typed during a self-rating save stays in the draft and is not reported as saved; a whitespace-only note is not sent; `/report/enter` passes Axe",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0384",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "BUG-0034"
     }
   ],
   "bugs": [
@@ -5835,8 +5845,8 @@
       "severity": "Low",
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
-      "status": "Open (parts 2 and 4 fixed on bugfix/BUG-0034-participant-path; parts 1 and 3 remain)",
-      "fixBranch": "none yet",
+      "status": "In Progress",
+      "fixBranch": "bugfix/BUG-0034-participant-path",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -7400,9 +7410,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T04:40:21.245Z",
-  "commitSha": "17d7955",
-  "buildNumber": "545",
+  "generatedAt": "2026-11-07T04:46:24.290Z",
+  "commitSha": "ac20a9c",
+  "buildNumber": "547",
   "branch": "bugfix/BUG-0034-participant-path",
   "sessionTimeline": [
     {
@@ -7717,7 +7727,7 @@
       "2026-11-07T02:00:13.510Z",
       "2026-11-07T03:09:35.100Z",
       "2026-11-07T03:36:27.689Z",
-      "2026-11-07T04:40:21.411Z"
+      "2026-11-07T04:46:24.382Z"
     ],
     "doneCounts": [
       0,
