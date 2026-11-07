@@ -1,4 +1,5 @@
 import { loadRubrics, loadScenario } from "@acr/script";
+import { aiRolesOf } from "../evaluator/ai-players.js";
 import { readSessionLog } from "../evaluator/log-reader.js";
 import { evaluationCallBound } from "./bound.js";
 import { collectRunSummary, type RunSummary } from "./evidence.js";
@@ -24,5 +25,17 @@ export async function evaluationCallBoundFromLog(logPath: string, scenarioDir: s
     const loaded = await loadRubrics(scenarioDir, scenario);
     if (loaded.errors.length > 0) return null;
     return evaluationCallBound(events, scenario, loaded.rubrics);
+  } catch { return null; }
+}
+
+/**
+ * The AI player roles of a recorded session, read from its log only (`aiRolesOf`), in scenario order; `[]` when the log records none.
+ * `null` when the log or the scenario cannot be read or the record is inconsistent. Never throws.
+ */
+export async function aiRolesFromLog(logPath: string, scenarioDir: string): Promise<string[] | null> {
+  try {
+    const [events, scenario] = await Promise.all([readSessionLog(logPath), loadScenario(scenarioDir)]);
+    const roles = aiRolesOf(events, scenario);
+    return roles === "invalid" ? null : roles;
   } catch { return null; }
 }
