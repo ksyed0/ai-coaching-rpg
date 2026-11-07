@@ -15,7 +15,7 @@
       "title": "Slice 2 — web lobby, session view and reconnect",
       "description": "Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064).",
       "releaseTarget": "MVP",
-      "status": "In Progress",
+      "status": "Complete",
       "startDate": null,
       "doneDate": null,
       "dependencies": [
@@ -2912,23 +2912,23 @@
       "title": "As a facilitator, I want the small EPIC-0002 close-out gaps fixed, so that the web client ships without known loose ends.",
       "priority": "Medium",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0066-close-out-polish",
       "acs": [
         {
           "id": "AC-0382",
-          "text": "a facilitator can edit a participant's summary in the console (slice 2c-4 PR 2; TC-0150 Task 11)",
-          "done": false
+          "text": "a facilitator can edit a participant's summary in the console (slice 2c-4 PR 2; TC-0150 Task 11; built and tested: apps/web/src/components/console/report/__tests__/SummaryEditor.test.tsx, apps/web/src/components/console/report/__tests__/SubjectView.test.tsx, apps/web/src/lib/__tests__/console-api.edit-summary.test.ts, e2e steps in apps/web/e2e/report-moderation.spec.ts and axe.spec.ts)",
+          "done": true
         },
         {
           "id": "AC-0383",
-          "text": "`moderate status` shows the first 8 characters of a web link id (slice 2c-4 PR 2; TC-0151 Task 7)",
-          "done": false
+          "text": "`moderate status` shows the first 8 characters of a web link id (slice 2c-4 PR 2; TC-0151 Task 7; built and tested: services/runtime/src/review/__tests__/cli-status-web.test.ts, services/runtime/src/review/__tests__/fold-participant-session.test.ts, services/runtime/src/moderation/__tests__/read.test.ts; there is no `history` command, so the fold carries the id as `via` and `moderate status` prints it)",
+          "done": true
         },
         {
           "id": "AC-0384",
-          "text": "the in-scope minors are fixed with tests and the rest are filed (slice 2c-4 PR 2; TC-0152 Tasks 8 to 10)",
-          "done": false
+          "text": "the in-scope minors are fixed with tests and the rest are filed (slice 2c-4 PR 2; TC-0152 Tasks 8 to 10; fixed and tested: Withdraw on an amending row, a subject with no status row is blocked, a whitespace-only note, route tests for the part B 409 and 503 codes in services/control/src/__tests__/moderation-routes.part-b-codes.test.ts; filed: BUG-0029 to BUG-0034)",
+          "done": true
         }
       ],
       "dependencies": [
@@ -3958,7 +3958,7 @@
       "title": "Slice 2c-4 PR 2: close-out polish",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0066-close-out-polish",
       "notes": "Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC-0152): console edit-summary, the 8-character link id in `moderate status`, and the in-scope minors."
     }
@@ -5443,6 +5443,36 @@
       "type": "Integration",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0150",
+      "title": "A facilitator edits a participant's summary in the console: pre-filled boxes, a required reason, fixed refusals, and nothing dropped",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0382",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0151",
+      "title": "`moderate status` shows the first 8 characters of a web link id, a short or missing id does not crash it, and the id never crosses the wire",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0383",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0152",
+      "title": "The in-scope console minors are fixed, and the part B route codes 409 and 503 are pinned",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0384",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -5776,6 +5806,78 @@
       "severity": "Low",
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0029",
+      "title": "A response resent after a BFF timeout can be stored twice, up to the 50 cap",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0030",
+      "title": "A forwarded report link can use up its owner's 50 response slots, and a response is not redacted",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0031",
+      "title": "Reviews opened before schema `/2` cannot take web writes",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0032",
+      "title": "Overview answers can arrive out of order, and the first overview read never retries",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0033",
+      "title": "The export menu has no entries for the participant view or an amending participant's export",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0034",
+      "title": "Edits made while a save is in flight are lost when the draft clears",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
       "status": "Open",
       "fixBranch": "none yet",
       "lessonEncoded": "No",
@@ -6175,7 +6277,7 @@
       "outputTokens": 0
     },
     "US-0066": {
-      "projectedUsd": 0.9,
+      "projectedUsd": 800,
       "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
@@ -6409,6 +6511,54 @@
         "projectedUsd": 400
       },
       "BUG-0028": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0029": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0030": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0031": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0032": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0033": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0034": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -6880,11 +7030,11 @@
       "isAtRisk": false
     },
     "US-0066": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0067": {
       "missingTCs": true,
@@ -7208,9 +7358,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T01:26:34.959Z",
-  "commitSha": "d1f4ef3",
-  "buildNumber": "554",
+  "generatedAt": "2026-11-07T01:47:28.081Z",
+  "commitSha": "eb2f4d3",
+  "buildNumber": "558",
   "branch": "feature/EPIC-0002-US-0066-close-out-polish",
   "sessionTimeline": [
     {
@@ -7353,9 +7503,9 @@
     }
   },
   "budget": {
-    "totalBudget": 807.5862000000001,
+    "totalBudget": 806.6862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 11252.2,
+    "totalProjected": 12051.300000000001,
     "percentUsed": 99,
     "burnRate": 17.98837588888889,
     "daysRemaining": 0,
@@ -7383,9 +7533,9 @@
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 191.82207999999997,
+        "budget": 190.92207999999997,
         "spent": 190.92207999999997,
-        "remaining": 0.9000000000000057,
+        "remaining": 0,
         "percentUsed": 100
       },
       {
@@ -7448,12 +7598,12 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Sep 20",
-    "rangeStart": "Jul 18",
-    "rangeEnd": "Nov 22",
+    "likelyDate": "Aug 14",
+    "rangeStart": "Jun 19",
+    "rangeEnd": "Oct 9",
     "velocityWeeks": 6,
-    "storiesPerWeek": 0.9,
-    "pointsPerWeek": 4.6
+    "storiesPerWeek": 1.1,
+    "pointsPerWeek": 5.2
   },
   "trends": {
     "dates": [
@@ -7521,7 +7671,8 @@
       "2026-11-05T23:24:56.057Z",
       "2026-11-05T23:39:58.694Z",
       "2026-11-07T00:39:13.799Z",
-      "2026-11-07T01:26:35.024Z"
+      "2026-11-07T01:26:35.024Z",
+      "2026-11-07T01:47:28.142Z"
     ],
     "doneCounts": [
       0,
@@ -7588,7 +7739,8 @@
       2,
       2,
       4,
-      5
+      5,
+      6
     ],
     "totalStories": [
       65,
@@ -7655,6 +7807,7 @@
       65,
       65,
       66,
+      67,
       67
     ],
     "aiCosts": [
@@ -7689,6 +7842,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -7789,6 +7943,7 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
@@ -7856,7 +8011,8 @@
       8,
       8,
       21,
-      26
+      26,
+      29
     ],
     "openBugs": [
       1,
@@ -7923,9 +8079,11 @@
       0,
       4,
       4,
-      4
+      4,
+      10
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -8057,6 +8215,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -8091,6 +8250,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -8191,7 +8351,8 @@
       1.1380952380952383,
       1.1380952380952383,
       1.1387096774193552,
-      1.1338709677419356
+      1.1338709677419356,
+      1.134426229508197
     ],
     "velocityByWeek": {
       "labels": [
@@ -8208,7 +8369,7 @@
         0,
         0,
         0,
-        26
+        29
       ],
       "rollingAvg": [
         0,
@@ -8216,7 +8377,7 @@
         0,
         0,
         0,
-        6.5
+        7.3
       ]
     }
   }

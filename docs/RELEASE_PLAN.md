@@ -16,7 +16,7 @@ Dependencies: None
 EPIC-0002: Slice 2 — web lobby, session view and reconnect
 Description: Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064).
 Release Target: MVP
-Status: In Progress
+Status: Complete
 Dependencies: EPIC-0001
 ```
 
@@ -1980,13 +1980,13 @@ Notes: Slice 2c-3 part B (PR B), same spec and plan as TASK-0093. `release` with
 US-0066 (EPIC-0002): As a facilitator, I want the small EPIC-0002 close-out gaps fixed, so that the web client ships without known loose ends.
 Priority: Medium
 Estimate: M
-Status: Planned
+Status: Done
 Branch: feature/EPIC-0002-US-0066-close-out-polish
 Dependencies: US-0060, US-0064
 Acceptance Criteria:
-  - [ ] AC-0382: a facilitator can edit a participant's summary in the console (slice 2c-4 PR 2; TC-0150 Task 11)
-  - [ ] AC-0383: `moderate status` shows the first 8 characters of a web link id (slice 2c-4 PR 2; TC-0151 Task 7)
-  - [ ] AC-0384: the in-scope minors are fixed with tests and the rest are filed (slice 2c-4 PR 2; TC-0152 Tasks 8 to 10)
+  - [x] AC-0382: a facilitator can edit a participant's summary in the console (slice 2c-4 PR 2; TC-0150 Task 11; built and tested: apps/web/src/components/console/report/__tests__/SummaryEditor.test.tsx, apps/web/src/components/console/report/__tests__/SubjectView.test.tsx, apps/web/src/lib/__tests__/console-api.edit-summary.test.ts, e2e steps in apps/web/e2e/report-moderation.spec.ts and axe.spec.ts)
+  - [x] AC-0383: `moderate status` shows the first 8 characters of a web link id (slice 2c-4 PR 2; TC-0151 Task 7; built and tested: services/runtime/src/review/__tests__/cli-status-web.test.ts, services/runtime/src/review/__tests__/fold-participant-session.test.ts, services/runtime/src/moderation/__tests__/read.test.ts; there is no `history` command, so the fold carries the id as `via` and `moderate status` prints it)
+  - [x] AC-0384: the in-scope minors are fixed with tests and the rest are filed (slice 2c-4 PR 2; TC-0152 Tasks 8 to 10; fixed and tested: Withdraw on an amending row, a subject with no status row is blocked, a whitespace-only note, route tests for the part B 409 and 503 codes in services/control/src/__tests__/moderation-routes.part-b-codes.test.ts; filed: BUG-0029 to BUG-0034)
 ```
 
 ```
@@ -2002,7 +2002,7 @@ Notes: Spec docs/superpowers/specs/2026-11-06-slice-2c-4-close-out-design.md; pl
 TASK-0104 (US-0066): Slice 2c-4 PR 2: close-out polish
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0002-US-0066-close-out-polish
 Notes: Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC-0152): console edit-summary, the 8-character link id in `moderate status`, and the in-scope minors.
 ```

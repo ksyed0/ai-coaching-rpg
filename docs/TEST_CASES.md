@@ -2313,3 +2313,51 @@ Actual Result: As expected, 2026-11-06: `report-ai-role` 1 test passed (5.7 s); 
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2c-4 PR 1. Not proven end to end: the "AI player" label on the link row, because that row exists only for an AI role with a stale live credential, which the guard prevents (TC-0148 covers it with unit tests).
+
+TC-0150: A facilitator edits a participant's summary in the console: pre-filled boxes, a required reason, fixed refusals, and nothing dropped
+Related Story: US-0066
+Related Task: TASK-0104
+Related AC: AC-0382
+Type: Integration
+Preconditions: As TC-0110 for the unit steps (a checkout with dependencies installed; no model key and no browser). For step 3 as TC-0140 (the Playwright browser, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed, `next build --webpack` in `apps/web` first; the real control service with `MODEL_PROVIDER=mock` and `next start` in launcher mode; the review is seeded with `seedDraft`).
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report/__tests__/SummaryEditor.test.tsx` (the boxes open pre-filled with the current strengths, developments and actions, an action is `LO-ID: text` split at the first colon, a reason is required, an empty summary, an action line without an id, more than 50 entries, an entry over 400 characters and a body over 16 KB are refused before any send with one fixed sentence, an untouched box re-sends its entries, a removed line is deleted, a server refusal keeps what was typed, every string renders as text, Save is disabled without a name and a reason, and the labels and error line have accessible names).
+  2. From `apps/web`: `pnpm exec vitest run src/lib/__tests__/console-api.edit-summary.test.ts src/components/console/report/__tests__/SubjectView.test.tsx` (`editSummary` posts the three lists and the reason and returns the parsed refusal sentence on a 4xx; the editor is mounted under the criteria of an editable subject, the subject is read again after a save, and a released subject has no editor).
+  3. From `apps/web`: `pnpm exec playwright test report-moderation axe --trace off`. `report-moderation.spec.ts`: bob's boxes open pre-filled, one strength is added and saved, every earlier strength is still there. `axe.spec.ts`: Axe on the summary editor open and on its error line, light and dark and at phone width.
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: step 1, 1 file, 11 tests; step 2, 2 files, 13 tests (2 in console-api.edit-summary, 11 in SubjectView of which 2 are new); step 3 is part of the 23 passed of `report-moderation report-release report-access ai-players report-ai-role axe --trace off` in 3.4 min on the installed Chromium headless shell 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE`, after a fresh `next build --webpack`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 2. No server change: the route and its 16 KB cap already existed. Not covered: the accepted-side boundaries (exactly 50 items, exactly 16384 bytes) and an existing entry that contains a newline (an untouched save refuses actions it cannot split; the evaluator and console cannot create one). Last write wins on the server (no compare-and-set).
+
+TC-0151: `moderate status` shows the first 8 characters of a web link id, a short or missing id does not crash it, and the id never crosses the wire
+Related Story: US-0066
+Related Task: TASK-0104
+Related AC: AC-0383
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/review/__tests__/cli-status-web.test.ts` (the draft player's "rated N of M criteria" line and an open dispute end with ` via web link <id>` in 8 characters, a facilitator-attested rating shows nothing, an id shorter than 8 characters prints whole and does not crash, several links are listed once each).
+  2. From `services/runtime`: `pnpm exec vitest run src/review/__tests__/fold-participant-session.test.ts` (a `self.rated` and a `response.added` from a web link record `via` as the 8-character id, a facilitator-attested one has `via: null`, `shortLinkId` keeps ids of 8 characters or fewer whole).
+  3. From `services/runtime`: `pnpm exec vitest run src/moderation/__tests__/read.test.ts` (the moderation status and subject view map their fields explicitly, so `via` never reaches the web).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: 3 files, 25 tests (4, 17 of which 5 are new, and 4 of which 1 is new), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 2, Deviation 1: there is no `history` command and `who()` is left alone, so the id appears in `moderate status` only. See docs/THREAT_MODEL.md "Credential ids in terminal output". Not covered: the ids are collected in criterion order, not log order, and the distinct-ids test cannot fail if the dedupe were removed for a fixture with fewer than 3 criteria; `via` shows only on the "rated N of M" line (draft players) and on open disputes.
+
+TC-0152: The in-scope console minors are fixed, and the part B route codes 409 and 503 are pinned
+Related Story: US-0066
+Related Task: TASK-0104
+Related AC: AC-0384
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed. The Axe fixture change (the throttled state uses `rate_limited`) is exercised by the Playwright run of TC-0150 step 3.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report/__tests__/after-release.test.tsx src/components/console/report/__tests__/release.test.tsx` (an amending row offers Withdraw, a released row still offers Amend and Withdraw, a withdrawn row offers neither; a subject with no status row is blocked and the release dialog lists it with `REPORT_CONSOLE.blockerMissing`).
+  2. From `apps/web`: `pnpm exec vitest run src/components/__tests__/SelfRatingForm.test.tsx` (a whitespace-only note with no level is not blocking and is not sent; a real note with no level still blocks).
+  3. From `services/control`: `pnpm exec vitest run src/__tests__/moderation-routes.part-b-codes.test.ts` (the 409 and 503 codes of the part B release, amend, withdraw, resolve and export routes).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: step 1, 2 files, 32 tests (25 and 7, of which 4 are new); step 2, 1 file, 23 tests (2 new); step 3, 1 file, 25 tests (all new, from 3 `it` blocks that loop over the codes).
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 2. Fixed in the same PR: the unused `REPORT_CONSOLE.resolved` was deleted. Not covered: the `refused` (409) code for release, amend and withdraw, which `toModResult` maps from any uncoded refusal, and that the route forwards the parsed body to the service; a whitespace-only note on an already rated criterion is still sent untrimmed (the server accepts it). The other minors are filed as BUG-0029 to BUG-0034.
