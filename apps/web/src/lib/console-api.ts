@@ -165,7 +165,7 @@ export type ReportLink = { role: string; createdAt: number; expiresAt: number; l
 /** Criteria a draft player has rated out of all criteria. */
 export type RatedCount = { rated: number; total: number };
 /** `draft`: the report is not released yet. `selfRated` is null for a released role and when the counts cannot be read. */
-export type ReportLinkRole = { role: string; link: ReportLink | null; selfRated: RatedCount | null; draft: boolean };
+export type ReportLinkRole = { role: string; link: ReportLink | null; selfRated: RatedCount | null; draft: boolean; ai: boolean };
 /** `players` is null when the counts cannot be read. */
 export type ReportLinksView = { state: "ready" | "not_ready" | "unavailable"; players: RatedCount | null; roles: ReportLinkRole[] };
 
@@ -208,7 +208,7 @@ export function parseReportLinks(v: unknown): ReportLinksView | null {
   for (const x of Array.isArray(o.roles) ? o.roles : []) {
     const r = obj(x);
     if (!r || typeof r.role !== "string") continue;
-    roles.push({ role: r.role, link: r.credential === null || r.credential === undefined ? null : parseReportLink(r.role, r.credential), selfRated: parseCount(r.selfRated), draft: r.draft === true });
+    roles.push({ role: r.role, link: r.credential === null || r.credential === undefined ? null : parseReportLink(r.role, r.credential), selfRated: parseCount(r.selfRated), draft: r.draft === true, ai: r.ai === true });
   }
   return { state, players: parseCount(o.players), roles };
 }

@@ -658,6 +658,12 @@ describe("LauncherClient report links", () => {
     expect(JSON.stringify(out)).not.toContain("AbCdEfGhIjK");
   });
 
+  it('reportLinks: ai is kept only when exactly true ("yes" and a missing flag are dropped)', async () => {
+    const f = fakeFetch(() => reply(envelope({ state: "ready", players: null, roles: [{ role: "a", credential: null, ai: true }, { role: "b", credential: null, ai: "yes" }, { role: "c", credential: null }] })));
+    const out = await client(f.fetch).reportLinks(SID);
+    expect(out.roles.map((r) => ("ai" in r ? r.ai : "absent"))).toEqual([true, "absent", "absent"]);
+  });
+
   it("reportLinks: players and selfRated may be null, and a malformed count is reason failed", async () => {
     const f = fakeFetch(() => reply(envelope({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: null }] })));
     expect(await client(f.fetch).reportLinks(SID)).toEqual({ state: "ready", players: null, roles: [{ role: "ana", credential: null, selfRated: null, draft: false }] });
