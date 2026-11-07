@@ -421,6 +421,8 @@ describe("console report-link routes", () => {
         { role: "ana", credential: { ...SAFE_CRED, id: CRED_ID }, selfRated: null, draft: false },
         { role: "bo", credential: { role: "bo", createdAt: 1, expiresAt: T0 - 1, revokedAt: 2 }, selfRated: { rated: 1, total: 4 }, draft: true },
         { role: "cy", credential: null, selfRated: null, draft: true },
+        // listed live by control, but at its expiry instant by this host's clock: not active
+        { role: "di", credential: { role: "di", createdAt: 1, expiresAt: T0 }, selfRated: null, draft: false },
       ],
     });
     const res = await handleConsoleReportLinks(consoleReq("", "GET"), deps);
@@ -431,9 +433,10 @@ describe("console report-link routes", () => {
       state: "ready",
       players: { rated: 1, total: 2 },
       roles: [
-        { role: "ana", credential: { role: "ana", createdAt: 1, expiresAt: EXPIRES, lastUsedAt: 5, active: true, revoked: false }, selfRated: null, draft: false },
-        { role: "bo", credential: { role: "bo", createdAt: 1, expiresAt: T0 - 1, active: false, revoked: true }, selfRated: { rated: 1, total: 4 }, draft: true },
+        { role: "ana", credential: { role: "ana", createdAt: 1, expiresAt: EXPIRES, lastUsedAt: 5, active: true }, selfRated: null, draft: false },
+        { role: "bo", credential: { role: "bo", createdAt: 1, expiresAt: T0 - 1, active: false }, selfRated: { rated: 1, total: 4 }, draft: true },
         { role: "cy", credential: null, selfRated: null, draft: true },
+        { role: "di", credential: { role: "di", createdAt: 1, expiresAt: T0, active: false }, selfRated: null, draft: false },
       ],
     });
     expectPrivate(res);
@@ -471,7 +474,7 @@ describe("console report-link routes", () => {
     const res = await handleConsoleReportLinksIssue(consoleReq("", "POST", { role: "ana" }), deps);
     const p = await parts(res);
     expect(p.status).toBe(200);
-    expect(p.json.data).toEqual({ role: "ana", token: TOKEN, credential: { role: "ana", createdAt: 1, expiresAt: EXPIRES, lastUsedAt: 5, active: true, revoked: false } });
+    expect(p.json.data).toEqual({ role: "ana", token: TOKEN, credential: { role: "ana", createdAt: 1, expiresAt: EXPIRES, lastUsedAt: 5, active: true } });
     expectPrivate(res);
     expect(launcher.issueReportLink).toHaveBeenCalledWith(SID, "ana");
     const cross = await handleConsoleReportLinksIssue(consoleReq("", "POST", { role: "ana" }, { headers: { Origin: "https://evil.example" } }), deps);

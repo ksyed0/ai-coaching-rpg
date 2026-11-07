@@ -19,7 +19,7 @@ const TOKEN = "AbCdEfGh.SECRETsecretSECRETsecret";
 const LINK = `${window.location.origin}/report/enter#${TOKEN}`;
 
 const cred = (over: Record<string, unknown> = {}) => ({
-  role: "x", createdAt: 1_700_000_000_000, expiresAt: 4_000_000_000_000, active: true, revoked: false, ...over,
+  role: "x", createdAt: 1_700_000_000_000, expiresAt: 4_000_000_000_000, active: true, ...over,
 });
 const view = (state: string, roles: unknown[]) => ({ state, roles });
 const READY = view("ready", [
@@ -56,11 +56,17 @@ describe("ReportLinksPanel", () => {
     expect(screen.queryByRole("button", { name: "Issue link for Account manager" })).toBeNull();
   });
 
-  it("shows a revoked link as Revoked with an Issue button", async () => {
-    mount(view("ready", [{ role: "delivery_lead", credential: cred({ active: false, revoked: true }) }]));
-    expect(await screen.findByText("Revoked")).toBeTruthy();
+  // BUG-0028: control lists only live links, but the BFF judges `active` by its own clock, so a link at its expiry instant (or under
+  // clock skew) arrives as not active. A revoked link never arrives, so there is no Revoked state.
+  it("shows a link that is no longer active as Link expired on <date>, with its last use, an Issue button and no Reissue or Revoke", async () => {
+    const expiresAt = 1_700_000_900_000;
+    mount(view("ready", [{ role: "delivery_lead", credential: cred({ active: false, expiresAt, lastUsedAt: 1_700_000_500_000 }) }]));
+    expect(await screen.findByText(`Link expired on ${new Date(expiresAt).toLocaleDateString()}`)).toBeTruthy();
+    expect(screen.getByText(/^Last opened /)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Issue link for Delivery lead" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Reissue link/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Revoke link/ })).toBeNull();
+    expect(screen.queryByText("Revoked")).toBeNull();
   });
 
   it("issues a link, shows it once as origin/report/enter#token in a read-only input, and copies it", async () => {

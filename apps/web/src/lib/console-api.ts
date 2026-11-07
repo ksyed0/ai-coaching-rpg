@@ -162,7 +162,7 @@ export function failureText(r: Extract<ApiResult, { ok: false }>): string {
 
 // ---- participant report links (console) ----
 
-export type ReportLink = { role: string; createdAt: number; expiresAt: number; lastUsedAt?: number; active: boolean; revoked: boolean };
+export type ReportLink = { role: string; createdAt: number; expiresAt: number; lastUsedAt?: number; active: boolean };
 /** Criteria a draft player has rated out of all criteria. */
 export type RatedCount = { rated: number; total: number };
 /** `draft`: the report is not released yet. `selfRated` is null for a released role and when the counts cannot be read. */
@@ -187,7 +187,6 @@ function parseReportLink(role: string, v: unknown): ReportLink | null {
     expiresAt: o.expiresAt,
     ...(num(o.lastUsedAt) ? { lastUsedAt: o.lastUsedAt } : {}),
     active: o.active === true,
-    revoked: o.revoked === true,
   };
 }
 

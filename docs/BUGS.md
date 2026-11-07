@@ -377,11 +377,11 @@ Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
 Status: In Progress
-Fix Branch: bugfix/BUG-0034-participant-path
+Fix Branch: bugfix/BUG-0034-participant-path, bugfix/BUG-0032-console-report
 Lesson Encoded: No
 ```
 
-Left open by the slice 2c-1 reviews, none blocking. (1) The Playwright test seeds its review folders with the runtime's `moderate` functions (`services/control/src/__tests__/seed-report-folders.ts`, which also reaches into runtime test fixtures and seeds `alice` and `bob`, not the session's seated roles) instead of running a real `evaluate`; so the "human role in the same review" of `report-ai-role.spec.ts` is `bob`, a fixture role that is not a seat. Remaining: move the seeder under `services/runtime/src/__tests__` and have it take the session's player roles. (2) Done (839925f): the throttled and not-released states of `/report` were already covered by Axe (since #106); `/report/enter` (opening, throttled, retry and refused) is now covered in `apps/web/e2e/axe.spec.ts`. (3) Remaining: `ReportLinksPanel` keeps a "Revoked" branch that can never show, because control lists only live credentials (`revokedAt === undefined` and not expired), so `link.revoked` is always false; drop it, and `revoked` from `linkDto`, which is internal to the web app. "Link expired" can still show, at the expiry instant or with clock skew between the control and web hosts (the BFF recomputes `active` with its own clock), so keep it, and add a test for it and for the AI-row variant. (4) Done (17d7955): the `ReportView` retry had no unmount guard (harmless in React 19, which no longer warns); it now uses a `mounted` ref, with a test that counts state updates after unmount.
+Left open by the slice 2c-1 reviews, none blocking. (1) The Playwright test seeds its review folders with the runtime's `moderate` functions (`services/control/src/__tests__/seed-report-folders.ts`, which also reaches into runtime test fixtures and seeds `alice` and `bob`, not the session's seated roles) instead of running a real `evaluate`; so the "human role in the same review" of `report-ai-role.spec.ts` is `bob`, a fixture role that is not a seat. Remaining: move the seeder under `services/runtime/src/__tests__` and have it take the session's player roles. (2) Done (839925f): the throttled and not-released states of `/report` were already covered by Axe (since #106); `/report/enter` (opening, throttled, retry and refused) is now covered in `apps/web/e2e/axe.spec.ts`. (3) Done (f66b335): the "Revoked" branch of `ReportLinksPanel` could never show, because control lists only live credentials (`revokedAt === undefined` and not expired, services/control/src/reports.ts) and issue and reissue return a newly minted one, so `link.revoked` was always false. The branch is gone, and so is `revoked` from the BFF's `linkDto` and the console's `ReportLink`, which are internal to the web app (no wire change with control); `active` is still false for a credential with `revokedAt`. "Link expired" can still show, at the expiry instant or with clock skew between the control and web hosts (the BFF judges `active` by its own clock), so it stays, with a component test for a human row and one for an AI row ("AI player", no Issue, Reissue or Revoke), and a BFF test for a credential at its expiry instant. (4) Done (17d7955): the `ReportView` retry had no unmount guard (harmless in React 19, which no longer warns); it now uses a `mounted` ref, with a test that counts state updates after unmount.
 ```
 BUG-0029: A response resent after a BFF timeout is stored twice when another response landed in between
 Severity: Low
@@ -419,28 +419,32 @@ Lesson Encoded: No
 Deferred from the slice 2c-4 review (spec section 4.3). A review opened before slice 2c-2 carries the schema `acr.review/1`: the schema is written by `moderate open` into the `review.opened` event (services/runtime/src/review/store.ts), not by the evaluator. Control answers `old_schema` for a participant's self-rating or response on it, with the sentence "This review was opened before online ratings were available. Your facilitator can take your rating or response in the terminal." (WRITE_OLD_SCHEMA, services/control/src/participant-writes.ts). The ways out today are to take the rating or response in the terminal (facilitator-attested), or to get a `/2` review by opening a new directory: `moderate open` refuses a directory that already holds a review ("a review is already open here"), so this means a re-run of `pnpm evaluate` into a new directory and `moderate open` on it, or `moderate supersede <old> <new>` once a version was released (supersede writes a new `review.opened` with the current schema and carries the moderation). The console offers none of these. Reads still work. Fix: a one-off migration (a `moderate migrate` command that rewrites the review header and replays the log under the new schema), with a test on a fixture of the old folder. Not needed for any review created from now on.
 
 ```
-BUG-0032: Overview answers can arrive out of order, and a failed first overview read waits for Try again
+BUG-0032: Overview answers can arrive out of order, and a failed overview read (outside evaluating) waits for Try again
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (8e1abad)
+Fix Branch: bugfix/BUG-0032-console-report
 Lesson Encoded: No
 ```
 
-Deferred from the slice 2c-4 review (spec section 4.3). The Report panel (apps/web/src/components/console/report/ReportPanel.tsx) reads the overview when it mounts, again after each of its own writes, and polls it only while the stage is `evaluating`; it does not refresh on focus. Two reads in flight (a write's refresh beside a poll, or two quick writes) can answer in the wrong order, and `load` keeps whichever answers last, so an older overview can replace a newer one until the next read. A failed read is not retried by itself: the panel shows the fixed sentence with a "Try again" button, so a transient 503 needs one click. Fix: tag each read with a sequence number and ignore an answer older than the newest one applied; optionally retry a failed first read once after a short delay.
+Deferred from the slice 2c-4 review (spec section 4.3). The Report panel (apps/web/src/components/console/report/ReportPanel.tsx) reads the overview when it mounts, again after each of its own writes, and polls it only while the stage is `evaluating`; it does not refresh on focus. Two reads in flight (a write's refresh beside a poll, or two quick writes) can answer in the wrong order, and `load` keeps whichever answers last, so an older overview can replace a newer one until the next read. Before the fix, a failed read was retried by itself only while the stage was `evaluating` (the poll): any other failed read, not only the first, showed the fixed sentence with a "Try again" button and waited for a click, so a transient 503 needed one (the first read is the worst case: nothing is shown until then). Fix: tag each read with a sequence number and ignore an answer older than the newest one applied; retry a failed read outside `evaluating` once after a short delay.
+
+Fixed: each overview read takes a number when it is sent, and an answer older than the newest one applied is ignored (it still reschedules the poll). Outside `evaluating`, a failed or unreadable read is retried once after `RETRY_MS` (3 s) through the panel's injected timer; if the retry fails too, the fixed sentence and "Try again" stay, and nothing more is scheduled until the next read. While `evaluating` the 2 s poll already retries. Component tests answer two reads in reverse order, and cover a retry that recovers and one that fails (TC-0154).
 
 ```
 BUG-0033: The export menu has no participant view of the group or index, and no export of an amending subject
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (6145096)
+Fix Branch: bugfix/BUG-0032-console-report
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). `ExportMenu` (apps/web/src/components/console/report/ExportMenu.tsx) lists only released subjects (and the index once the group is released); for a player's report it already offers that player's own view, but for the group and the index it offers only the facilitator's view. The export route already accepts `participant:<role>` for every subject (services/control/src/moderation-routes.ts), and the runtime's export gate (`exportGate` and `canView`) allows (1) a participant's view of the group or the index, with peers' results removed, and (2) a participant's export of an AMENDING subject, which is its last released version (a facilitator export of an amending subject is refused as `not_released`). Drafts are never exported. Fix: in `ExportMenu`, offer a participant view of the group and the index (choosing which participant), and list an amending subject for the participant's view only, with a line that says it is the released version; reuse the existing route.
+
+Fixed: the menu now lists released and amending subjects (and the index once the group is one of them), and for each offers exactly the views the export gate allows (`viewsOf` in ExportMenu.tsx): the facilitator's view of a released subject only; a player's own report for that player; and, for the group and the index, every player subject of the review, whatever that player's own state (the gate only checks that the role is a player of the review; a draft player's group view simply has no row of their own). An amending subject has only the participant views and the line "This report is being amended. Its export is the last released version, in a participant's view only." Each view's name states the report and who it is for (for example "Group report, as Account manager sees it (without the other players' results)"). The route, the request body and the BFF's file names are unchanged (TC-0154).
 
 ```
 BUG-0034: Edits made while a save is in flight are lost when the draft clears

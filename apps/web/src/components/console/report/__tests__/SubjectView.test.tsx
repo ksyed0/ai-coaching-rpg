@@ -147,6 +147,30 @@ describe("SubjectView: evaluationOk fails closed", () => {
   });
 });
 
+describe("SubjectView: focus returns to a criterion's Edit button (minor h)", () => {
+  it("Cancel and a successful Save return focus to Edit <criterion>; a refused Save keeps it in the form", async () => {
+    let refuse = true;
+    const f = mount(subjectView(), (url) => (url.endsWith("/edit") && refuse ? { status: 409, body: refused("stale", "x") } : { status: 200, body: ok({}) }));
+    const edit = () => screen.getByRole("button", { name: "Edit Clarity" });
+    (await screen.findByRole("button", { name: "Edit Clarity" })).focus();
+    fireEvent.click(edit());
+    screen.getByRole("button", { name: "Cancel" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(document.activeElement).toBe(edit());
+    fireEvent.click(edit());
+    fireEvent.change(screen.getByLabelText("Reason (required; shown to the participant)"), { target: { value: "Heard it twice." } });
+    const save = screen.getByRole("button", { name: "Save" });
+    save.focus();
+    fireEvent.click(save);
+    expect(await screen.findByText(STALE)).toBeTruthy();
+    expect(document.activeElement).toBe(save);
+    refuse = false;
+    fireEvent.click(save);
+    await waitFor(() => expect(posts(f)).toHaveLength(2));
+    await waitFor(() => expect(document.activeElement).toBe(edit()));
+  });
+});
+
 describe("SubjectView summary editor", () => {
   it("mounts the summary editor under the criteria of an editable subject, and reads the subject again after a save", async () => {
     const f = mount(subjectView());

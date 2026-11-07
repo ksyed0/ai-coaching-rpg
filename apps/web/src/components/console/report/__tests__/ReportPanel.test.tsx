@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FakeClock, FakeEventSource, fakeFetch, fakeTimer, ok, readiness, refused } from "../../../../lib/__tests__/fakes";
 import type { EventSourceCtor } from "../../../../lib/use-session";
 import { SessionConsole } from "../../SessionConsole";
-import { ReportPanel } from "../ReportPanel";
+import { REPORT_CONSOLE } from "../../../../lib/messages";
+import { RETRY_MS, ReportPanel } from "../ReportPanel";
 import { BASE, SID, inReview, job, overview, row, subjectView } from "./fixtures";
 
 beforeEach(() => {
@@ -141,6 +142,84 @@ describe("ReportPanel: polling through a failed read, and progress announced", (
     const list = (await screen.findByText("evaluating the team")).closest("ol")!;
     expect(list.getAttribute("aria-live")).toBe("polite");
     expect(list.getAttribute("aria-relevant")).toBe("additions");
+  });
+});
+
+/** A fetch whose overview reads (GET of BASE) wait until the test answers them, in any order; every other call answers ok({}). */
+function heldReads() {
+  const reads: ((a: { status: number; body: unknown }) => void)[] = [];
+  const calls: { url: string; method: string }[] = [];
+  const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+  const fetchImpl = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
+    const url = String(input);
+    const method = init.method ?? "GET";
+    calls.push({ url, method });
+    if (url === BASE && method === "GET") {
+      const a = await new Promise<{ status: number; body: unknown }>((r) => reads.push(r));
+      return json(a.status, a.body);
+    }
+    return json(200, ok({}));
+  }) as typeof fetch;
+  return { fetchImpl, reads, calls };
+}
+
+describe("ReportPanel (BUG-0032): answers out of order, and one automatic retry", () => {
+  it("an older overview answering after a newer one does not replace it", async () => {
+    const h = heldReads();
+    const timer = fakeTimer();
+    render(<ReportPanel sessionId={SID} fetch={h.fetchImpl} setTimer={timer.setTimer} />);
+    await waitFor(() => expect(h.reads).toHaveLength(1));
+    await act(async () => h.reads[0]!({ status: 200, body: ok(overview({ stage: "evaluating", confirm: null, job: job({ state: "running", startedAt: 1, progress: ["evaluating the team"] }) })) }));
+    expect(await screen.findByText("evaluating the team")).toBeTruthy();
+    // read 2: the poll; read 3: the refresh after Cancel. Both are in flight together.
+    await waitFor(() => expect(timer.pending).toBe(1));
+    await act(async () => timer.fire());
+    await waitFor(() => expect(h.reads).toHaveLength(2));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel evaluation" }));
+    await waitFor(() => expect(h.reads).toHaveLength(3));
+    // the newer read answers first, then the older one
+    await act(async () => h.reads[2]!({ status: 200, body: ok(overview()) }));
+    expect(await screen.findByRole("button", { name: "Evaluate…" })).toBeTruthy();
+    await act(async () => h.reads[1]!({ status: 200, body: ok(overview({ stage: "evaluating", confirm: null, job: job({ state: "running", startedAt: 1, progress: ["stale progress"] }) })) }));
+    expect(screen.queryByText("stale progress")).toBeNull();
+    expect(screen.getByRole("button", { name: "Evaluate…" })).toBeTruthy();
+    expect(screen.getByText(REPORT_CONSOLE.cancelled)).toBeTruthy();
+    // the stale answer schedules nothing: the newest known stage is not evaluating
+    expect(timer.pending).toBe(0);
+  });
+
+  it("a failed read outside evaluating is retried once on the injected timer, and the retry recovers", async () => {
+    let n = 0;
+    const m = mount(inReview(), (url, body) => (url === BASE && body === undefined && ++n === 1 ? { status: 503, body: refused("unavailable", "x") } : undefined));
+    expect(await screen.findByText("The report is unavailable. Try again.")).toBeTruthy();
+    await waitFor(() => expect(m.timer.pending).toBe(1));
+    expect(m.timer.delays).toEqual([RETRY_MS]);
+    expect(reads(m)).toBe(1);
+    await act(async () => m.timer.fire());
+    await waitFor(() => expect(reads(m)).toBe(2));
+    expect(await screen.findByRole("button", { name: "Review Account manager" })).toBeTruthy();
+    expect(screen.queryByText("The report is unavailable. Try again.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(m.timer.pending).toBe(0);
+  });
+
+  it("a failed retry stops there: the fixed sentence and Try again stay, and nothing more is scheduled", async () => {
+    let fail = true;
+    const m = mount(inReview(), (url, body) => (url === BASE && body === undefined && fail ? { status: 503, body: refused("unavailable", "x") } : undefined));
+    expect(await screen.findByText("The report is unavailable. Try again.")).toBeTruthy();
+    await waitFor(() => expect(m.timer.pending).toBe(1));
+    await act(async () => m.timer.fire());
+    await waitFor(() => expect(reads(m)).toBe(2));
+    expect(screen.getByText("The report is unavailable. Try again.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(m.timer.pending).toBe(0);
+    expect(m.timer.delays).toEqual([RETRY_MS]);
+    // the button still works
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("button", { name: "Review Account manager" })).toBeTruthy();
+    expect(reads(m)).toBe(3);
+    expect(m.timer.pending).toBe(0);
   });
 });
 
