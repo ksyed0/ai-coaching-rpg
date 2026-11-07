@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { submitResponse, submitSelfRatings, type SubmitCtx } from "../index.js";
+import { RESPONSES_PER_LINK, submitResponse, submitSelfRatings, type SubmitCtx } from "../index.js";
 import { loadReview } from "../../review/store.js";
 import { readReview, sealEntries, withReviewLock, writeEvents } from "../../review/review-log.js";
 import { makeFold, fixedClock } from "../../review/__tests__/fixtures.js";
@@ -478,18 +478,72 @@ describe("submitResponse", () => {
     });
   });
 
-  it("the 51st is too_many", async () => {
+  it("the 51st is too_many (the per-role cap still applies across reissued links)", async () => {
     env = await liveReview();
     await release(env, "alice");
-    for (let i = 0; i < 50; i++)
+    for (const cred of ["AAAAAAAAAAA", "BBBBBBBBBBA"])
+      for (let i = 0; i < 25; i++)
+        expect(
+          await submitResponse({ ...ctx(env), credentialId: cred, text: `${cred}${i}` }),
+        ).toEqual({ kind: "ok", wrote: true });
+    // a third, fresh link has its own budget left, but the role has none
+    expect(
+      await submitResponse({ ...ctx(env), credentialId: "CCCCCCCCCCA", text: "r51" }),
+    ).toEqual({ kind: "too_many" });
+    // a link at its own cap on a full role is told the role is full: a new link would not help
+    expect(await submitResponse({ ...ctx(env), text: "r52" })).toEqual({
+      kind: "too_many",
+    });
+    expect((await sv(env)).responses.length).toBe(50);
+  });
+
+  it("BUG-0030: one link takes at most RESPONSES_PER_LINK (25) responses, then link_full and nothing is written", async () => {
+    expect(RESPONSES_PER_LINK).toBe(25);
+    env = await liveReview();
+    await release(env, "alice");
+    for (let i = 0; i < 25; i++)
       expect(await submitResponse({ ...ctx(env), text: `r${i}` })).toEqual({
         kind: "ok",
         wrote: true,
       });
-    expect(await submitResponse({ ...ctx(env), text: "r51" })).toEqual({
-      kind: "too_many",
+    const len = await logLen(env);
+    expect(await submitResponse({ ...ctx(env), text: "r26" })).toEqual({
+      kind: "link_full",
     });
-    expect((await sv(env)).responses.length).toBe(50);
+    expect(
+      await submitResponse({ ...ctx(env), text: "r26", dispute: true }),
+    ).toEqual({ kind: "link_full" });
+    expect(await logLen(env)).toBe(len);
+    // an identical resend of a stored response is still the quiet no-op, not a refusal
+    expect(await submitResponse({ ...ctx(env), text: "r24" })).toEqual({
+      kind: "ok",
+      wrote: false,
+    });
+  });
+
+  it("BUG-0030: a reissued link (a new credential id) starts with a fresh budget; other links and attested responses do not count", async () => {
+    env = await liveReview();
+    await release(env, "alice");
+    // a facilitator-attested response and another link's responses are not this link's
+    expect(
+      (
+        await env.run(["respond", env.rel, "--role", "alice", "--text", "attested", "--by", "kamal"])
+      ).code,
+    ).toBe(0);
+    for (let i = 0; i < 3; i++)
+      await submitResponse({ ...ctx(env), credentialId: "BBBBBBBBBBA", text: `b${i}` });
+    for (let i = 0; i < 25; i++)
+      expect(await submitResponse({ ...ctx(env), text: `a${i}` })).toEqual({
+        kind: "ok",
+        wrote: true,
+      });
+    expect(await submitResponse({ ...ctx(env), text: "a25" })).toEqual({
+      kind: "link_full",
+    });
+    expect(
+      await submitResponse({ ...ctx(env), credentialId: "CCCCCCCCCCA", text: "a25" }),
+    ).toEqual({ kind: "ok", wrote: true });
+    expect((await sv(env)).responses.length).toBe(1 + 3 + 25 + 1);
   });
 
   it("an unknown criterion is invalid", async () => {
@@ -522,15 +576,62 @@ describe("submitResponse", () => {
     expect((await sv(env)).responses.length).toBe(1);
   });
 
-  it("only the most recent response counts for a duplicate", async () => {
+  it("BUG-0029: A, then B, then a resend of A is ignored (any earlier identical unresolved response, not only the last)", async () => {
     env = await liveReview();
     await release(env, "alice");
-    await submitResponse({ ...ctx(env), text: "a" });
-    await submitResponse({ ...ctx(env), text: "b" });
-    expect(await submitResponse({ ...ctx(env), text: "a" })).toEqual({
-      kind: "ok",
-      wrote: true,
-    });
+    const [a] = await crits(env);
+    await submitResponse({ ...ctx(env), criterion: a, text: "A", dispute: true });
+    await submitResponse({ ...ctx(env), text: "B" });
+    await submitResponse({ ...ctx(env), text: "C" });
+    const len = await logLen(env);
+    expect(
+      await submitResponse({ ...ctx(env), criterion: a, text: "A", dispute: true }),
+    ).toEqual({ kind: "ok", wrote: false });
+    // a non-dispute comment is never resolved, so its resend is ignored too, whichever link sends it
+    expect(
+      await submitResponse({ ...ctx(env), credentialId: "BBBBBBBBBBA", text: "B" }),
+    ).toEqual({ kind: "ok", wrote: false });
+    expect(await logLen(env)).toBe(len);
+    expect((await sv(env)).responses.map((r) => r.text)).toEqual(["A", "B", "C"]);
+  });
+
+  it("BUG-0029: a dispute whose resolution is recorded no longer blocks sending the same text again", async () => {
+    env = await liveReview();
+    await release(env, "alice");
+    const [a] = await crits(env);
+    await submitResponse({ ...ctx(env), criterion: a, text: "A", dispute: true });
+    await submitResponse({ ...ctx(env), text: "B" });
+    const seq = (await sv(env)).responses[0]!.seq;
+    expect(
+      (
+        await env.run(["resolve", env.rel, String(seq), "--outcome", "declined", "--reason", "no", "--by", "kamal"])
+      ).code,
+    ).toBe(0);
+    expect(
+      await submitResponse({ ...ctx(env), criterion: a, text: "A", dispute: true }),
+    ).toEqual({ kind: "ok", wrote: true });
+    const rs = (await sv(env)).responses;
+    expect(rs.map((r) => [r.text, r.resolution === null])).toEqual([
+      ["A", false],
+      ["B", true],
+      ["A", true],
+    ]);
+    // and the new, unresolved copy blocks a further resend
+    expect(
+      await submitResponse({ ...ctx(env), criterion: a, text: "A", dispute: true }),
+    ).toEqual({ kind: "ok", wrote: false });
+  });
+
+  it("BUG-0029: edited text, another criterion or another role is stored", async () => {
+    env = await liveReview();
+    await release(env, "alice", "bob");
+    const [a, b] = await crits(env);
+    await submitResponse({ ...ctx(env), criterion: a, text: "A" });
+    await submitResponse({ ...ctx(env), text: "B" });
+    expect(await submitResponse({ ...ctx(env), criterion: a, text: "A, edited" })).toEqual({ kind: "ok", wrote: true });
+    expect(await submitResponse({ ...ctx(env), criterion: b, text: "A" })).toEqual({ kind: "ok", wrote: true });
+    expect(await submitResponse({ ...ctx(env), text: "A" })).toEqual({ kind: "ok", wrote: true });
+    expect(await submitResponse({ ...ctx(env, "bob"), criterion: a, text: "A" })).toEqual({ kind: "ok", wrote: true });
   });
 
   it("empty text and text over 1,500 characters are invalid, not unavailable", async () => {
