@@ -116,6 +116,32 @@ describe("the typed reason survives a refusal", () => {
 });
 
 describe("SubjectList after release", () => {
+  const rowButtons = (state: "released" | "amending" | "withdrawn") => {
+    const o = parseReportOverview(inReview([row("account_manager", { state, version: 4 }), row("group")]))!;
+    const on = { onAmend: vi.fn(), onWithdraw: vi.fn(), onExport: vi.fn(), onRelease: vi.fn() };
+    render(<SubjectList subjects={o.subjects} selected={null} onSelect={() => {}} actions={{ canWrite: true, pending: false, ...on }} />);
+    const [li] = screen.getAllByRole("listitem");
+    const labels = within(li!).getAllByRole("button").map((b) => b.getAttribute("aria-label"));
+    cleanup();
+    return labels;
+  };
+
+  it("an amending row offers Withdraw", () => {
+    expect(rowButtons("amending")).toEqual(["Review Account manager", "Withdraw Account manager", "Release Account manager"]);
+  });
+
+  it("a released row still offers Amend and Withdraw", () => {
+    const labels = rowButtons("released");
+    expect(labels).toContain("Amend Account manager");
+    expect(labels).toContain("Withdraw Account manager");
+  });
+
+  it("a withdrawn row offers neither", () => {
+    const labels = rowButtons("withdrawn");
+    expect(labels).not.toContain("Amend Account manager");
+    expect(labels).not.toContain("Withdraw Account manager");
+  });
+
   it("offers Amend, Withdraw and Export on a released subject, Release on an amending one, and nothing on a withdrawn one", () => {
     const o = parseReportOverview(inReview([
       row("account_manager", { state: "released", version: 4 }),
@@ -128,7 +154,7 @@ describe("SubjectList after release", () => {
     const names = (li: HTMLElement) => within(li).getAllByRole("button").map((b) => b.getAttribute("aria-label"));
     const [am, sl, cl, gr] = screen.getAllByRole("listitem");
     expect(names(am!)).toEqual(["Review Account manager", "Amend Account manager", "Withdraw Account manager", "Export Account manager"]);
-    expect(names(sl!)).toEqual(["Review Sales lead", "Release Sales lead"]);
+    expect(names(sl!)).toEqual(["Review Sales lead", "Withdraw Sales lead", "Release Sales lead"]);
     expect(names(cl!)).toEqual(["Review Client"]);
     expect(names(gr!)).toEqual(["Review Group"]);
     fireEvent.click(screen.getByRole("button", { name: "Export Account manager" }));

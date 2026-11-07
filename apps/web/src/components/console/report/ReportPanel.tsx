@@ -225,7 +225,7 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
           <ReleaseDialog
             subjects={moderation.ids.map((id) => {
               const r = row(id);
-              return { id, audience: audienceOf(id), blockers: r === undefined ? [] : releaseBlockers(r) };
+              return { id, audience: audienceOf(id), blockers: r === undefined ? [REPORT_CONSOLE.blockerMissing] : releaseBlockers(r) };
             })}
             name={author} pending={pending} opener={moderation.opener} error={dialogError} blocked={blocked}
             onCancel={() => setModeration(null)}
