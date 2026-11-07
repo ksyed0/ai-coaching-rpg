@@ -216,6 +216,23 @@ describe("SummaryEditor", () => {
     await waitFor(() => expect(document.activeElement).toBe(opener()));
   });
 
+  it("the author name becoming invalid while the editor is open disables Save", () => {
+    const f = fakeFetch(() => ({ status: 200, body: ok({}) }));
+    const props = { sessionId: SID, subject: "account_manager", summary: CURRENT, editable: true, fetch: f.fetch };
+    const { rerender } = render(<SummaryEditor {...props} author="kamal" />);
+    open();
+    type(REPORT_CONSOLE.summaryReasonLabel, "A reason.");
+    expect(save().disabled).toBe(false);
+    rerender(<SummaryEditor {...props} author={null} />);
+    expect(save().disabled).toBe(true);
+    fireEvent.click(save());
+    expect(f.calls).toHaveLength(0);
+    // what was typed stays, and a valid name enables it again
+    expect(box(REPORT_CONSOLE.summaryReasonLabel).value).toBe("A reason.");
+    rerender(<SummaryEditor {...props} author="kamal" />);
+    expect(save().disabled).toBe(false);
+  });
+
   it("an entry with a line break in any list makes the editor unavailable, with a fixed sentence and no Save", () => {
     const withBreak: Summary[] = [
       { ...CURRENT, strengths: ["Clear plan", "Two\nlines"] },
