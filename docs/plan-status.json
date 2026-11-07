@@ -5823,8 +5823,8 @@
       "severity": "Low",
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
-      "status": "Open",
-      "fixBranch": "none yet",
+      "status": "Fixed (e637b95)",
+      "fixBranch": "bugfix/BUG-0034-participant-path",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5835,7 +5835,7 @@
       "severity": "Low",
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
-      "status": "Open",
+      "status": "Open (parts 2 and 4 fixed on bugfix/BUG-0034-participant-path; parts 1 and 3 remain)",
       "fixBranch": "none yet",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -5907,8 +5907,8 @@
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Open",
-      "fixBranch": "none yet",
+      "status": "Fixed (8ade287)",
+      "fixBranch": "bugfix/BUG-0034-participant-path",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -7400,10 +7400,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T03:36:27.567Z",
-  "commitSha": "5a4212f",
-  "buildNumber": "539",
-  "branch": "HEAD",
+  "generatedAt": "2026-11-07T04:40:21.245Z",
+  "commitSha": "17d7955",
+  "buildNumber": "545",
+  "branch": "bugfix/BUG-0034-participant-path",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7645,7 +7645,7 @@
     "rangeEnd": "Oct 12",
     "velocityWeeks": 6,
     "storiesPerWeek": 1.1,
-    "pointsPerWeek": 5.2
+    "pointsPerWeek": 5.1
   },
   "trends": {
     "dates": [
@@ -7716,7 +7716,8 @@
       "2026-11-07T01:26:35.024Z",
       "2026-11-07T02:00:13.510Z",
       "2026-11-07T03:09:35.100Z",
-      "2026-11-07T03:36:27.689Z"
+      "2026-11-07T03:36:27.689Z",
+      "2026-11-07T04:40:21.411Z"
     ],
     "doneCounts": [
       0,
@@ -7784,6 +7785,7 @@
       2,
       4,
       5,
+      6,
       6,
       6,
       6
@@ -7856,6 +7858,7 @@
       67,
       67,
       67,
+      68,
       68
     ],
     "aiCosts": [
@@ -7890,6 +7893,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -7996,6 +8000,7 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
@@ -8064,6 +8069,7 @@
       8,
       21,
       26,
+      29,
       29,
       29,
       29
@@ -8136,9 +8142,11 @@
       4,
       10,
       10,
-      10
+      10,
+      8
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -8276,6 +8284,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -8310,6 +8319,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -8416,6 +8426,7 @@
       1.1338709677419356,
       1.134426229508197,
       1.134426229508197,
+      1.1338709677419356,
       1.1338709677419356
     ],
     "velocityByWeek": {

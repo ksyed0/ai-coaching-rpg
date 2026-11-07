@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+- A change typed while the self-rating form is saving is no longer lost (EPIC-0002, BUG-0034). If you changed a rating or a note after pressing Save and before the answer came back, the form used to clear the saved draft and say "Saved" although the newer change had not been sent, so a reload lost it. The form now keeps the draft and says "Your latest changes have not been sent yet. Press Save again to send them."
+
 ## [0.2.0] - 2026-11-06
 
 Second tagged release. It completes EPIC-0002 with slice 2c: participant report links and report pages (slice 2c-1), participant self-ratings and responses with review schema `acr.review/2` (slice 2c-2), evaluate, review, release, amend, withdraw, resolve and export from the facilitator console (slice 2c-3), and the close-out of slice 2c-4: no report links for AI roles, the console Summary editor, the web link id in `pnpm moderate status` and console fixes. Deploy the control service before the web app; see docs/ROLLBACK.md.
