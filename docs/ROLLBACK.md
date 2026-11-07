@@ -349,3 +349,29 @@ Rollback trigger: a console release, amend or withdraw changes a subject nobody 
 
 ### Rolling forward again
 Redeploy this slice (control first). The panel reads the review on disk as it is, including releases, amendments and withdrawals made in the terminal meanwhile.
+
+## US-0060: AI-role report-link guarantees (slice 2c-4 PR 1)
+
+```
+Release: unreleased (feature/EPIC-0002-US-0060-ai-role-guarantees)
+Date: not deployed
+Rollback trigger: the guard refuses a human role's link, issue or reissue answers 503 for a session whose log and scenario are intact, the link list marks the wrong role "AI player", or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No schema change, no new file and no new setting.** The guard reads the session log and the scenario that already exist. Nothing is written.
+- **One optional field on the wire:** control's `GET /sessions/:id/reports` link rows may carry `ai: true`; the web server's launcher client, the console BFF's link handler and `parseReportLinks` pass it on only when exactly `true`. A missing flag means "not AI".
+- **New refusal:** issue and reissue answer 409 "AI players do not get report links." for an AI role, and 503 "reports cannot be read" when the session log or its scenario cannot be read or is inconsistent.
+- **Deploy order: control before web, as for slice 2c-3.** The new `aiRoles` dependency of the control service is required in code, but it is wired in `main.ts`, so a deployed control service always has it.
+
+### Rolling back
+
+1. **Control alone is safe to roll back.** Because `ai` is optional, the new web app keeps working against the older control service: the link list shows Issue or Reissue for every role (no "AI player" label) and the guard is gone, so an AI role listed in a hand-edited review could be issued a link again. Evaluate and release do not list AI roles as subjects, so this only matters for a hand-edited review.
+2. **Web alone is safe to roll back too:** the older web app ignores the `ai` flag it does not know, and the control guard still refuses.
+3. To roll back both, redeploy web first, then control (the opposite of the deploy order). No data migration.
+4. **Smoke test:** open the console of an ended session with an AI player and a released report: the AI role gets no link (the guard's sentence on a direct issue), a human role is issued one and its link opens the report.
+
+### Rolling forward again
+
+Redeploy control first, then web. A scenario folder that was edited or removed while this slice was out of service makes issue answer 503 for the sessions it belongs to (see THREAT_MODEL "AI roles in the credential path"); restore the folder.

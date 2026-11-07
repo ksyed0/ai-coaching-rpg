@@ -2238,3 +2238,78 @@ Actual Result: As expected, 2026-11-06: `report-moderation report-release axe` 9
 Status: [x] Pass
 Defect Raised: None
 Notes: Slice 2c-3 part B. What this does not prove: a real evaluate that scores (the seed stands in; the real evaluate child runs end to end only in TC-0140's one-job check); the summary edit (no console control); a refused amend, withdraw or resolve in the browser (unit tests, TC-0143); the participant export view and the index export in the browser (unit and service tests, TC-0142, TC-0143); Amended as a resolve outcome in the browser (unit tests). "Runtime gone" is the control service having stopped the ended session's runtime process (the end grace), checked by process list, not a crash.
+
+TC-0145: Issue and reissue of a report link refuse an AI role with the fixed sentence, after the review check and fail-closed, and revoke still works
+Related Story: US-0060
+Related Task: TASK-0103
+Related AC: AC-0379, AC-0322
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/reports.ai-roles.test.ts` (issue and reissue of a role that has a draft but is listed in `aiRoles` answer 409 "AI players do not get report links." and mint nothing; a null `aiRoles`, a throw and a non-list each answer the 503 "reports cannot be read" for both; a session with no review still answers "not ready" when `aiRoles` is null; a human role with a draft is issued a link; roles named `__proto__` and `constructor` are not AI unless listed; revoke still works for an AI role with a live credential; the `links()` rows are in TC-0148).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: 1 file, 20 tests (9 for the guard, 11 for `links()`), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 1. The guard comes after `reviewStatus`, so the review check still decides "not ready" first. The `links()` flag and memo tests in the same file are part of TC-0148.
+
+TC-0146: The AI-role reader returns null for anything it cannot trust, and the control service wires it fail-closed
+Related Story: US-0060
+Related Task: TASK-0103
+Related AC: AC-0379, AC-0322
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/run-summary/__tests__/ai-roles-from-log.test.ts` (`aiRolesFromLog` returns the roles of a log with `aiRoles`, `[]` when none are recorded, and null for an inconsistent record (a non-player role), two `session.started` events, a missing log and a missing scenario folder).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/ai-roles.test.ts` (`aiRolesFor` returns the roles of a valid ended session and null for a missing or empty log, two `session.started`, a missing scenario folder, a corrupt `sessions.json`, an invalid session id and a session not in the list).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: step 1, 1 file, 6 tests; step 2, 1 file, 8 tests, all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 1. Null means "cannot tell", which the guard turns into the 503. Because the set is checked against the current scenario, an edited or removed scenario folder makes issue answer 503 for that session (THREAT_MODEL, "AI roles in the credential path").
+
+TC-0147: The "(AI player)" label of a quote survives the released report page, its print view and the facilitator export
+Related Story: US-0060
+Related Task: TASK-0103
+Related AC: AC-0380, AC-0321
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/__tests__/ReportView.ai-label.test.tsx` (the label renders as text in a quote, is not inside a `.no-print` element, and a `<script>` variant renders as literal text and creates no element).
+  2. From `services/runtime`: `pnpm exec vitest run src/reports/__tests__/ai-label-export.test.ts` (a released group report holding an `ai: true` quote keeps the "(AI player)" marker in `readReleasedView` Markdown and in the `exportReport` output).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: step 1, 1 file, 3 tests; step 2, 1 file, 2 tests, all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 1. Tests only: no source change was needed, the labels already survive release and export.
+
+TC-0148: The `ai` flag reaches the console as an optional field, the link list shows "AI player" without Issue or Reissue, and an AI role is never a moderation subject
+Related Story: US-0060
+Related Task: TASK-0103
+Related AC: AC-0381, AC-0322
+Type: Unit
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/reports.ai-roles.test.ts` (the `links()` describe: an AI role with a live credential is listed `ai: true`, one without a credential is omitted, human rows are unchanged, a null or throwing `aiRoles` marks nothing and hides nothing, `aiRoles` is not called when there is no review and no live credential, is read once per session, is not cached when null, the memo holds at most 64 sessions and drops the oldest, and issue and reissue never use the memo).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/moderation.ai-role-absent.test.ts` (the moderation overview has no `ai1` subject and exporting `ai1` is refused).
+  3. From `apps/web`: `pnpm exec vitest run src/components/__tests__/ReportLinksPanel.ai.test.tsx src/lib/__tests__/console-api.report-links-ai.test.ts src/server/__tests__/launcher-client.test.ts src/server/__tests__/report-handlers.test.ts` (the panel shows "AI player" for an AI role, offers only Revoke while a link is live and no button otherwise, human rows are unchanged; `parseReportLinks`, the launcher client and the BFF handler keep `ai` only when exactly `true`).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: step 1, the 11 `links()` tests are in the 20 of TC-0145; step 2, 1 file, 2 tests; step 3, 4 files, 121 tests (3 and 2 in the two new files; 2 new in launcher-client and 1 new in report-handlers among the existing ones), all passing.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 1. A missing flag, "yes" or any value other than `true` is not AI, so an older control service still renders (docs/ROLLBACK.md). Not covered: a revoked or expired AI credential row in the panel (deferred minor).
+
+TC-0149: An AI role is refused a report link in the browser while a human role in the same review is issued one (Playwright)
+Related Story: US-0060
+Related Task: TASK-0103
+Related AC: AC-0381, AC-0322
+Type: Integration
+Preconditions: As TC-0140 (the Playwright browser, `PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned one is not installed, `next build --webpack` in `apps/web` first; the real control service with `MODEL_PROVIDER=mock` and `next start` in launcher mode). The review is seeded with `seedDraft` (alice released, bob a draft) because the mock models cannot score the e2e session.
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test report-ai-role --trace off`.
+  2. `report-ai-role.spec.ts`: Tech lead is made an AI player in the real lobby before Start, the two humans join, the session starts and ends, and the review is seeded; the console's issue route refuses the AI role with "AI players do not get report links." (and not "There is no report to link for this role.", which shows the guard is what refuses), while a link for a human role of the same review is issued.
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-06: `report-ai-role` 1 test passed (5.7 s); with `report-moderation report-release report-access ai-players axe` 23 passed in 3.3 min on the installed Chromium headless shell 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE`, after a fresh `next build --webpack`.
+Status: [x] Pass
+Defect Raised: None
+Notes: Slice 2c-4 PR 1. Not proven end to end: the "AI player" label on the link row, because that row exists only for an AI role with a stale live credential, which the guard prevents (TC-0148 covers it with unit tests).

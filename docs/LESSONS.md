@@ -265,3 +265,10 @@ _Learned in the Opus review of the slice 2c-1 plan: a planned `access.json` insi
 _Learned in the final review of slice 2c-1 PR 2: the read route charged every read per address (60 a minute for the whole room), and a blocked enter looked like "Not found" to a participant with a valid link._
 **Date:** 2026-11-05
 
+## L-0034 — A "Reserved blocks" paragraph in the ID registry marks every id it names as used
+
+@agent: all
+
+**Rule:** `tests/unit/id-registry.test.js` reads every id that appears in a "Reserved blocks" paragraph of `docs/ID_REGISTRY.md` as already used, so the next-available row must be beyond all of them. Never write a BUG or L id (even in a sentence saying none are reserved) in such a paragraph; say "no new BUG or L ids are reserved" without the numbers, and move the Next Available row of a sequence only when you file the item.
+_Learned in the slice 2c-4 plan: naming the next free BUG and L ids in the reservation paragraph made the registry test fail until the numbers were removed._
+**Date:** 2026-11-06
