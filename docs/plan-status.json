@@ -5919,8 +5919,8 @@
       "severity": "Low",
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
-      "status": "In Progress",
-      "fixBranch": "bugfix/BUG-0034-participant-path, bugfix/BUG-0032-console-report",
+      "status": "Fixed",
+      "fixBranch": "bugfix/BUG-0034-participant-path, bugfix/BUG-0032-console-report, bugfix/BUG-0028-e2e-seeder",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -7513,10 +7513,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T05:44:57.130Z",
-  "commitSha": "21b6777",
-  "buildNumber": "551",
-  "branch": "bugfix/BUG-0025-throttle-resend-link-cap",
+  "generatedAt": "2026-11-07T06:10:35.271Z",
+  "commitSha": "b87a2dd",
+  "buildNumber": "547",
+  "branch": "bugfix/BUG-0028-e2e-seeder",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7754,7 +7754,7 @@
   },
   "completion": {
     "likelyDate": "Aug 21",
-    "rangeStart": "Jun 24",
+    "rangeStart": "Jun 25",
     "rangeEnd": "Oct 17",
     "velocityWeeks": 6,
     "storiesPerWeek": 1.1,
@@ -7832,7 +7832,7 @@
       "2026-11-07T03:36:27.689Z",
       "2026-11-07T04:48:10.882Z",
       "2026-11-07T05:31:12.484Z",
-      "2026-11-07T05:44:57.218Z"
+      "2026-11-07T06:10:35.381Z"
     ],
     "doneCounts": [
       0,
@@ -8270,7 +8270,7 @@
       10,
       7,
       4,
-      2
+      1
     ],
     "atRisk": [
       0,

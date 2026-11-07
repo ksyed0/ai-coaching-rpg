@@ -1,7 +1,7 @@
 // Run under tsx by apps/web/e2e/helpers/reports.ts (the web app and its specs never import the runtime; the runtime's own fixtures
 // are the honest way to get a released review folder). Not a test: vitest only collects *.test.ts.
-// Usage: tsx seed-report-folders.ts <reportsDir> <sessionId> [released | draft | release <role> | resolve <role> <outcome> <reason> |
-//        export <subject> <destDir>]
+// Usage: tsx seed-report-folders.ts <reportsDir> <sessionId> [released | draft [<releasedRole> <draftRole>] | release <role> |
+//        resolve <role> <outcome> <reason> | export <subject> <destDir>]
 //
 // released (the default) writes what an operator's `evaluate` and `moderate` leave under <CONTROL_DATA_DIR>/reports:
 //   <id>    a first run, opened, every item accepted and released (alice and bob), then SUPERSEDED by
@@ -10,23 +10,27 @@
 //
 // draft writes ONE live /2 review where alice is released and bob is still a draft. Bob's draft carries recognisable evaluator
 // strings (CANARY_LEVEL as the level label, CANARY_RATIONALE in the rationale) so a spec can prove they never reach the page before
-// release. The same strings are declared in apps/web/e2e/helpers/reports.ts.
+// release. The same strings are declared in apps/web/e2e/helpers/reports.ts. With <releasedRole> <draftRole> (BUG-0028) the fixture's
+// alice and bob are renamed to those roles everywhere (scenario, session log and scripted answers) before evaluating, so the review's
+// subjects are the e2e session's real seated humans, and a role left out (an AI seat) is not a subject of the seed. A target must be a player id.
 //   release <role>   releases that role's report in the draft review (a facilitator releasing mid-test).
 //   resolve <role> <outcome> <reason>   resolves that role's first open dispute with the facilitator's reason.
 //   export <subject> <destDir>   the terminal's facilitator export of that subject into a new directory (the console e2e's oracle).
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { evaluateSession } from "../../../runtime/src/evaluator/evaluate.js";
-import { parseEvalConfig } from "../../../runtime/src/evaluator/config.js";
-import { writeReports } from "../../../runtime/src/evaluator/report-write.js";
+import { evaluateSession } from "../evaluator/evaluate.js";
+import { parseEvalConfig } from "../evaluator/config.js";
+import { isReservedRoleId } from "@acr/events";
+import { RESERVED_NAMES, writeReports } from "../evaluator/report-write.js";
 import {
+  sampleAnswers,
   sampleEvents,
   sampleProvider,
   sampleRubrics,
   sampleScenario,
-} from "../../../runtime/src/evaluator/__tests__/fixtures.js";
-import { makeRunner } from "../../../runtime/src/review/__tests__/fixtures.js";
-import { loadReview } from "../../../runtime/src/review/store.js";
+} from "../evaluator/__tests__/fixtures.js";
+import { makeRunner } from "../review/__tests__/fixtures.js";
+import { loadReview } from "../review/store.js";
 
 export const OLD_BOB = "Clear on effort.";
 export const NEW_BOB = "Clear on effort and on the re-run.";
@@ -40,9 +44,24 @@ const parsed = parseEvalConfig({});
 if (!parsed.ok) throw new Error("evaluator config");
 const cfg = parsed;
 
-async function draft(): Promise<string> {
-  const events = sampleEvents().map((e) => ({ ...e, sessionId }));
-  const result = await evaluateSession({ events, scenario: sampleScenario(), rubrics: sampleRubrics(), provider: sampleProvider(), config: cfg, nonce: "n" });
+/** Renames the fixture's player ids (alice, bob) wherever one is a whole string or an object key; nothing else changes. */
+function renamer(map: Record<string, string>): <T>(v: T) => T {
+  // Own keys only: a fixture string such as "constructor" or "toString" must never pick up an Object.prototype member.
+  const to = (k: string): string => (Object.hasOwn(map, k) ? map[k]! : k);
+  const walk = (v: unknown): unknown => {
+    if (typeof v === "string") return to(v);
+    if (Array.isArray(v)) return v.map(walk);
+    if (v !== null && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [to(k), walk(x)]));
+    return v;
+  };
+  return <T>(v: T) => walk(v) as T;
+}
+
+async function draft(map: Record<string, string> = {}): Promise<string> {
+  const rename = renamer(map);
+  const events = rename(sampleEvents()).map((e) => ({ ...e, sessionId }));
+  const provider = sampleProvider(rename(sampleAnswers));
+  const result = await evaluateSession({ events, scenario: rename(sampleScenario()), rubrics: sampleRubrics(), provider, config: cfg, nonce: "n" });
   const w = await writeReports(result, { outDir: reportsDir!, evaluator: { provider: "scripted mock", scripted: true, rubricHash: "h1", variant: "v1" } });
   return w.dir;
 }
@@ -86,9 +105,17 @@ async function onlyDir(): Promise<string> {
   return path.join(reportsDir!, names[0]!);
 }
 
-async function seedDraft(): Promise<void> {
-  const dir = await draft();
-  const bob = path.join(dir, "bob.json");
+async function seedDraft(releasedRole = "alice", draftRole = "bob"): Promise<void> {
+  const safe = /^[a-z][a-z0-9_]{0,63}$/;
+  if (!safe.test(releasedRole) || !safe.test(draftRole) || releasedRole === draftRole) throw new Error("draft needs two distinct role ids");
+  // A target must be a player id: not a report file name (group, index, method), the facilitator or a prototype key (the runtime's own
+  // rules), nor a non-player role of the fixture scenario (npc1), which would merge two roles.
+  const npcs = Object.values(sampleScenario().roles).filter((r) => r.type !== "player").map((r) => r.id);
+  for (const r of [releasedRole, draftRole]) {
+    if (RESERVED_NAMES.has(r) || isReservedRoleId(r) || npcs.includes(r)) throw new Error(`draft cannot name ${r}: it is not a player role`);
+  }
+  const dir = await draft({ alice: releasedRole, bob: draftRole });
+  const bob = path.join(dir, `${draftRole}.json`);
   const doc = JSON.parse(await readFile(bob, "utf8")) as { criteria: { level_label: string; rationale: string }[] };
   for (const c of doc.criteria) {
     c.level_label = CANARY_LEVEL;
@@ -98,8 +125,8 @@ async function seedDraft(): Promise<void> {
   const rel = path.relative(reportsDir!, dir);
   await ok(["open", rel, "--by", "kamal"]);
   await resolveAll(dir);
-  await ok(["release", rel, "alice", "--by", "kamal"]);
-  console.log(`seeded ${path.basename(dir)} (alice released, bob a draft)`);
+  await ok(["release", rel, releasedRole, "--by", "kamal"]);
+  console.log(`seeded ${path.basename(dir)} (${releasedRole} released, ${draftRole} a draft)`);
 }
 
 async function releaseRole(role: string | undefined): Promise<void> {
@@ -126,8 +153,15 @@ async function exportFacilitator(subject: string | undefined, dest: string | und
   console.log(`exported ${subject}`);
 }
 
+// Extra arguments are refused, never ignored (a typo must not seed something other than what was asked).
+const MAX_ARGS: Record<string, number> = { released: 0, draft: 2, release: 1, resolve: 3, export: 2 };
+if (Object.hasOwn(MAX_ARGS, mode) && rest.length > MAX_ARGS[mode]!) throw new Error(`${mode} takes at most ${MAX_ARGS[mode]} arguments`);
+
 if (mode === "released") await seedReleased();
-else if (mode === "draft") await seedDraft();
+else if (mode === "draft") {
+  if (rest.length === 1) throw new Error("draft takes both roles or neither");
+  await seedDraft(rest[0], rest[1]);
+}
 else if (mode === "release") await releaseRole(rest[0]);
 else if (mode === "resolve") await resolveDispute(rest[0], rest[1], rest[2]);
 else if (mode === "export") await exportFacilitator(rest[0], rest[1]);
