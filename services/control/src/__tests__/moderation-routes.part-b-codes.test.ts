@@ -52,13 +52,23 @@ afterEach(async () => {
 
 // route, code (the pairs `moderation-routes.test.ts` leaves out)
 const REFUSALS: [string, string][] = [
-  ["release", "no_review"], ["release", "not_editable"], ["release", "superseded"],
+  ["release", "no_review"], ["release", "not_editable"], ["release", "superseded"], ["release", "refused"],
   ["resolve", "no_review"], ["resolve", "refused"], ["resolve", "superseded"],
   ["export", "no_review"], ["export", "not_released"], ["export", "refused"], ["export", "superseded"],
-  ["amend", "no_review"], ["amend", "not_editable"],
-  ["withdraw", "no_review"], ["withdraw", "not_editable"], ["withdraw", "superseded"],
+  ["amend", "no_review"], ["amend", "not_editable"], ["amend", "refused"],
+  ["withdraw", "no_review"], ["withdraw", "not_editable"], ["withdraw", "superseded"], ["withdraw", "refused"],
 ];
 const ALL = ["release", "resolve", "export", "amend", "withdraw"];
+
+// What each route must hand its service call: the session id, then (for the two subject routes) the path subject, then the parsed body, then `by`.
+// Distinctive values, so a dropped or renamed field, or a swapped argument, fails the exact match.
+const FORWARDED: Record<string, { body: unknown; call: unknown[] }> = {
+  release: { body: { subjects: ["alice", "bob"], by: "priya" }, call: [ID, { subjects: ["alice", "bob"] }, "priya"] },
+  resolve: { body: { seq: 4, outcome: "amended", reason: "Because.", by: "dana" }, call: [ID, { seq: 4, outcome: "amended", reason: "Because." }, "dana"] },
+  export: { body: { subject: "bob", audience: "participant:alice", by: "eli" }, call: [ID, { subject: "bob", audience: "participant:alice" }, "eli"] },
+  amend: { body: { reason: "Fix it.", by: "fran" }, call: [ID, "bob", { reason: "Fix it." }, "fran"] },
+  withdraw: { body: { reason: "Gone now.", by: "gus" }, call: [ID, "bob", { reason: "Gone now." }, "gus"] },
+};
 
 describe("part B routes: 409 and 503 codes not reached by the neighbouring route tests", () => {
   it.each(REFUSALS)("%s answers 409 %s with only the closed code (detail text is dropped)", async (name, code) => {
@@ -85,5 +95,15 @@ describe("part B routes: 409 and 503 codes not reached by the neighbouring route
     expect([x.status, x.headers.get("retry-after"), x.json]).toEqual([
       503, null, { success: false, data: null, error: { code: "unavailable", message: "The report is unavailable. Try again." } },
     ]);
+  });
+
+  it.each(ALL)("%s forwards the session id, the path subject, the parsed body and the typed name to the service", async (name) => {
+    const { port, stub } = await boot({ status: 200, value: {} }, name);
+    const f = FORWARDED[name]!;
+    const route = ROUTES[name]!;
+    const x = await post(port, { ...route, path: route.path.replace("/alice/", "/bob/"), body: f.body });
+    expect(x.status).toBe(200);
+    expect(stub).toHaveBeenCalledTimes(1);
+    expect(stub.mock.calls[0]).toEqual(f.call);
   });
 });
