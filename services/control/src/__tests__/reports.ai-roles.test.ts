@@ -58,6 +58,13 @@ describe("the AI-role guard on issue and reissue", () => {
     }
     expect(await minted()).toBe(0);
   });
+  it("reviewStatus unavailable combined with an AI-listed role answers the 503 (reportsDown), not AI_LINK_REFUSED", async () => {
+    ai = ["alice"];
+    await w.corrupt();
+    expect(await refusal(svc.issue(w.sessionId, "alice"))).toEqual({ code: "unavailable", message: REPORTS_UNREADABLE });
+    expect(await refusal(svc.reissue(w.sessionId, "alice"))).toEqual({ code: "unavailable", message: REPORTS_UNREADABLE });
+    expect(await minted()).toBe(0);
+  });
   it("a lobby session with no review still answers NOT_READY, not 503, when aiRoles returns null", async () => {
     ai = null;
     expect(await refusal(svc.issue("other-session", "alice"))).toEqual({ code: "conflict", message: NOT_READY });
