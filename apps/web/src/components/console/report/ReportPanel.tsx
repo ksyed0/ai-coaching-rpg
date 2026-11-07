@@ -36,9 +36,13 @@ import { WithdrawDialog } from "./WithdrawDialog";
 // withdraw, release again) with their dialogs, and the export menu. A refused release, amend or withdraw keeps its dialog open with what
 // was typed and the fixed sentence (a `blocked` release lists the subjects the server named). The overview is polled every 2 s only while the last known stage is `evaluating`, a failed read included
 // (the timer is injected so tests never sleep). Evaluate progress is announced by the card's own polite progress list; action results and
-// refusals by the panel's polite status line. Every refusal is a fixed sentence.
+// refusals by the panel's polite status line. Every refusal is a fixed sentence. Each overview read is numbered: an answer older than
+// the newest one applied is ignored (BUG-0032). Outside `evaluating`, a failed read is retried once after RETRY_MS on the same injected
+// timer, then waits for Try again.
 
 export const POLL_MS = 2_000;
+/** The delay of the one automatic retry of a failed overview read outside `evaluating` (BUG-0032). */
+export const RETRY_MS = 3_000;
 
 export type ReportPanelProps = {
   sessionId: string;
@@ -70,6 +74,11 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
   const [exportFor, setExportFor] = useState<{ subject: string; n: number } | null>(null);
   /** Counts finished reads, a failed one included, so the poll is rescheduled after every answer. */
   const [reads, setReads] = useState(0);
+  /** A failed read that is not itself the retry: one automatic retry is due (BUG-0032). */
+  const [retryDue, setRetryDue] = useState(false);
+  /** The number of the last read sent, and of the newest read whose answer was applied (BUG-0032). */
+  const sent = useRef(0);
+  const applied = useRef(0);
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;
@@ -78,15 +87,20 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
     };
   }, []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (retry = false) => {
+    const mine = ++sent.current;
     const r = await fetchReportOverview(sessionId, fetchImpl);
     if (!alive.current) return;
     setReads((n) => n + 1);
+    // An answer older than one already applied is stale (a write's refresh beside a poll can answer in either order): ignored.
+    if (mine < applied.current) return;
+    applied.current = mine;
+    const parsed = r.ok ? parseReportOverview(r.data) : null;
+    setRetryDue(parsed === null && !retry);
     if (!r.ok) {
       setLoadError(reportFailureText(r));
       return;
     }
-    const parsed = parseReportOverview(r.data);
     setLoadError(parsed === null ? REPORT_CONSOLE.unreadable : null);
     if (parsed !== null) setOverview(parsed);
   }, [sessionId, fetchImpl]);
@@ -101,6 +115,16 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
     if (overview?.stage !== "evaluating") return;
     return setTimer(() => void load(), POLL_MS);
   }, [overview, reads, load, setTimer]);
+
+  // Outside `evaluating` (the poll covers that stage), a failed read is retried once after RETRY_MS; if the retry fails too, the
+  // fixed sentence and Try again stay.
+  useEffect(() => {
+    if (!retryDue || overview?.stage === "evaluating") return;
+    return setTimer(() => {
+      setRetryDue(false);
+      void load(true);
+    }, RETRY_MS);
+  }, [retryDue, overview, load, setTimer]);
 
   const author = isAuthorName(name) ? name : null;
 

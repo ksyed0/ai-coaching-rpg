@@ -78,6 +78,16 @@ export function SummaryEditor({ sessionId, subject, author, summary, editable, f
       alive.current = false;
     };
   }, []);
+  // When the form closes (Cancel or a successful Save), focus goes back to the button that opened it: the form's own buttons are gone.
+  const opener = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (draft !== null) wasOpen.current = true;
+    else if (wasOpen.current) {
+      wasOpen.current = false;
+      opener.current?.focus();
+    }
+  }, [draft]);
 
   if (!editable) return null;
   const broken = [...summary.strengths, ...summary.developments, ...summary.actions.map((a) => a.text)].some((t) => /[\r\n]/.test(t));
@@ -107,7 +117,7 @@ export function SummaryEditor({ sessionId, subject, author, summary, editable, f
   if (draft === null) {
     return (
       <div>
-        <button className="btn" type="button" disabled={author === null || pending} onClick={() => { setError(""); setDraft(draftOf(summary)); }}>
+        <button ref={opener} className="btn" type="button" disabled={author === null || pending} onClick={() => { setError(""); setDraft(draftOf(summary)); }}>
           {REPORT_CONSOLE.summaryEdit}
         </button>
       </div>

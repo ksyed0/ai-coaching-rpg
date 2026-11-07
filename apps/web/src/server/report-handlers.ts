@@ -309,16 +309,18 @@ export const handleReportRespond = (req: Request, deps: Deps): Promise<Response>
 
 // ---- console routes ----
 
-/** What the console may know about a link: dates and two booleans. Never the credential id or the token. */
+/**
+ * What the console may know about a link: dates and whether it is active (by this host's clock, so a link listed at its expiry instant,
+ * or under clock skew with control, shows as expired). Never the credential id or the token. No `revoked` flag (BUG-0028): control lists
+ * only live credentials and mints the ones it issues, so a revoked one never reaches the console; one would still read as not active.
+ */
 function linkDto(c: ReportLinkInfo, now: number) {
-  const revoked = c.revokedAt !== undefined;
   return {
     role: c.role,
     createdAt: c.createdAt,
     expiresAt: c.expiresAt,
     ...(c.lastUsedAt !== undefined && { lastUsedAt: c.lastUsedAt }),
-    active: !revoked && c.expiresAt > now,
-    revoked,
+    active: c.revokedAt === undefined && c.expiresAt > now,
   };
 }
 

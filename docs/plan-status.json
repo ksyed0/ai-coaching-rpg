@@ -5543,6 +5543,16 @@
       "defect": "BUG-0034"
     },
     {
+      "id": "TC-0154",
+      "title": "Console report regressions: overview answers out of order and one automatic retry (BUG-0032); every export view the gate allows (BUG-0033)",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0384",
+      "type": "Regression",
+      "status": "Pass",
+      "defect": "BUG-0032, BUG-0033"
+    },
+    {
       "id": "TC-0155",
       "title": "A valid report cookie is unsealed before the per-address failure throttle, so forged cookies never block a valid reader or writer",
       "relatedStory": "US-0062",
@@ -5905,7 +5915,7 @@
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
       "status": "In Progress",
-      "fixBranch": "bugfix/BUG-0034-participant-path",
+      "fixBranch": "bugfix/BUG-0034-participant-path, bugfix/BUG-0032-console-report",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5948,12 +5958,12 @@
     },
     {
       "id": "BUG-0032",
-      "title": "Overview answers can arrive out of order, and a failed first overview read waits for Try again",
+      "title": "Overview answers can arrive out of order, and a failed overview read (outside evaluating) waits for Try again",
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Open",
-      "fixBranch": "none yet",
+      "status": "Fixed (8e1abad)",
+      "fixBranch": "bugfix/BUG-0032-console-report",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -5964,8 +5974,8 @@
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Open",
-      "fixBranch": "none yet",
+      "status": "Fixed (6145096)",
+      "fixBranch": "bugfix/BUG-0032-console-report",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
@@ -7498,9 +7508,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T05:31:12.330Z",
-  "commitSha": "32af6e7",
-  "buildNumber": "546",
+  "generatedAt": "2026-11-07T05:43:35.428Z",
+  "commitSha": "5e3c12d",
+  "buildNumber": "547",
   "branch": "bugfix/BUG-0025-throttle-resend-link-cap",
   "sessionTimeline": [
     {
@@ -7816,7 +7826,8 @@
       "2026-11-07T03:09:35.100Z",
       "2026-11-07T03:36:27.689Z",
       "2026-11-07T04:48:10.882Z",
-      "2026-11-07T05:31:12.484Z"
+      "2026-11-07T05:31:12.484Z",
+      "2026-11-07T05:43:35.530Z"
     ],
     "doneCounts": [
       0,
@@ -7884,6 +7895,7 @@
       2,
       4,
       5,
+      6,
       6,
       6,
       6,
@@ -7960,6 +7972,7 @@
       67,
       68,
       68,
+      69,
       69
     ],
     "aiCosts": [
@@ -7994,6 +8007,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -8104,6 +8118,7 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
@@ -8172,6 +8187,7 @@
       8,
       21,
       26,
+      29,
       29,
       29,
       29,
@@ -8248,9 +8264,11 @@
       10,
       10,
       7,
-      4
+      4,
+      2
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -8392,6 +8410,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -8426,6 +8445,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -8536,6 +8556,7 @@
       1.134426229508197,
       1.1338709677419356,
       1.1338709677419356,
+      1.1333333333333335,
       1.1333333333333335
     ],
     "velocityByWeek": {

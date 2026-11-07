@@ -195,6 +195,44 @@ describe("SummaryEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("textbox", { name: REPORT_CONSOLE.strengthsLabel })).toBeNull();
   });
+  it("Cancel and a successful Save return focus to the Edit the summary button; a refused Save keeps it in the form", async () => {
+    const opener = () => screen.getByRole("button", { name: REPORT_CONSOLE.summaryEdit });
+    let refuse = true;
+    const { onChanged } = mount({ answer: () => (refuse ? { status: 400, body: refused("invalid", "x") } : { status: 200, body: ok({}) }) });
+    opener().focus();
+    open();
+    screen.getByRole("button", { name: "Cancel" }).focus();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(document.activeElement).toBe(opener());
+    open();
+    type(REPORT_CONSOLE.summaryReasonLabel, "Why.");
+    save().focus();
+    fireEvent.click(save());
+    await waitFor(() => expect(alertText()).toBe(REPORT_REFUSALS.invalid));
+    expect(document.activeElement).toBe(save());
+    refuse = false;
+    fireEvent.click(save());
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(document.activeElement).toBe(opener()));
+  });
+
+  it("the author name becoming invalid while the editor is open disables Save", () => {
+    const f = fakeFetch(() => ({ status: 200, body: ok({}) }));
+    const props = { sessionId: SID, subject: "account_manager", summary: CURRENT, editable: true, fetch: f.fetch };
+    const { rerender } = render(<SummaryEditor {...props} author="kamal" />);
+    open();
+    type(REPORT_CONSOLE.summaryReasonLabel, "A reason.");
+    expect(save().disabled).toBe(false);
+    rerender(<SummaryEditor {...props} author={null} />);
+    expect(save().disabled).toBe(true);
+    fireEvent.click(save());
+    expect(f.calls).toHaveLength(0);
+    // what was typed stays, and a valid name enables it again
+    expect(box(REPORT_CONSOLE.summaryReasonLabel).value).toBe("A reason.");
+    rerender(<SummaryEditor {...props} author="kamal" />);
+    expect(save().disabled).toBe(false);
+  });
+
   it("an entry with a line break in any list makes the editor unavailable, with a fixed sentence and no Save", () => {
     const withBreak: Summary[] = [
       { ...CURRENT, strengths: ["Clear plan", "Two\nlines"] },

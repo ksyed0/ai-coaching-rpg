@@ -236,8 +236,8 @@ describe("ExportMenu", () => {
     const ok200 = markdown(200, "# Report\n<script>x</script>", { "Content-Type": "text/markdown; charset=utf-8", "Content-Disposition": 'attachment; filename="report-account_manager.md"' });
     render(<ExportMenu sessionId={SID} subjects={subjects()} author="kamal" fetch={ok200.fetchImpl} save={save} />);
     const subject = screen.getByLabelText("Report to export") as HTMLSelectElement;
-    // released subjects and the index; an amending subject is not exported from the facilitator view
-    expect([...subject.options].map((o) => o.value)).toEqual(["account_manager", "group", "index"]);
+    // released and amending subjects, and the index (BUG-0033); which views each offers is tested below
+    expect([...subject.options].map((o) => o.value)).toEqual(["account_manager", "sales_lead", "group", "index"]);
     const audience = () => [...(screen.getByLabelText("View") as HTMLSelectElement).options].map((o) => o.value);
     expect(audience()).toEqual(["facilitator", "participant:account_manager"]);
     fireEvent.change(screen.getByLabelText("View"), { target: { value: "participant:account_manager" } });
@@ -248,9 +248,6 @@ describe("ExportMenu", () => {
     expect(ok200.calls[0]!.init.method).toBe("POST");
     expect(JSON.parse(ok200.calls[0]!.init.body as string)).toEqual({ subject: "account_manager", audience: "participant:account_manager", by: "kamal" });
     expect(await screen.findByText("Downloaded report-account_manager.md.")).toBeTruthy();
-    // the group and the index offer the facilitator view only
-    fireEvent.change(subject, { target: { value: "group" } });
-    expect(audience()).toEqual(["facilitator"]);
     cleanup();
 
     const save2 = vi.fn();
@@ -280,6 +277,99 @@ describe("ExportMenu", () => {
 
     render(<ExportMenu sessionId={SID} subjects={subjects()} author={null} fetch={html.fetchImpl} save={save2} />);
     expect((screen.getByRole("button", { name: "Download" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("ExportMenu (BUG-0033): exactly the views the export gate allows", () => {
+  // The runtime's exportGate (services/runtime/src/moderation/write-b.ts) and canView (review/policy.ts): the facilitator exports a
+  // RELEASED subject only (the index follows the group); `participant:<role>` needs <role> to be a player subject of the review (any
+  // state) and the subject (the group for the index) released or amending; a player's own report only for that player.
+  const rows = (...r: ReturnType<typeof row>[]) => parseReportOverview(inReview(r))!.subjects;
+  const options = (label: string) => [...(screen.getByLabelText(label) as HTMLSelectElement).options].map((o) => ({ value: o.value, name: o.textContent }));
+  const values = (label: string) => options(label).map((o) => o.value);
+  const pick = (s: string) => fireEvent.change(screen.getByLabelText("Report to export"), { target: { value: s } });
+  const okFile = (name: string) => {
+    const calls: RequestInit[] = [];
+    const fetchImpl = (async (_: RequestInfo | URL, init: RequestInit = {}) => {
+      calls.push(init);
+      return new Response("# R", { status: 200, headers: { "Content-Type": "text/markdown", "Content-Disposition": `attachment; filename="${name}"` } });
+    }) as typeof fetch;
+    return { fetchImpl, sent: () => calls.map((c) => JSON.parse(c.body as string) as unknown) };
+  };
+  const AMENDING_LINE = "This report is being amended. Its export is the last released version, in a participant's view only.";
+
+  it("the group and the index offer the facilitator's view and each player's view; a draft group offers neither", () => {
+    render(<ExportMenu sessionId={SID} author="kamal" subjects={rows(
+      row("account_manager", { state: "released", version: 4 }), row("sales_lead", { state: "draft" }), row("delivery_lead", { state: "withdrawn", version: 4 }), row("group", { state: "released", version: 4 }),
+    )} />);
+    // draft and withdrawn players are not exported themselves, but they are players of the review: the gate allows their view of the group
+    expect(values("Report to export")).toEqual(["account_manager", "group", "index"]);
+    pick("group");
+    expect(options("View")).toEqual([
+      { value: "facilitator", name: "Group report, the facilitator's view" },
+      { value: "participant:account_manager", name: "Group report, as Account manager sees it (without the other players' results)" },
+      { value: "participant:sales_lead", name: "Group report, as Sales lead sees it (without the other players' results)" },
+      { value: "participant:delivery_lead", name: "Group report, as Delivery lead sees it (without the other players' results)" },
+    ]);
+    pick("index");
+    expect(options("View")).toEqual([
+      { value: "facilitator", name: "Index of the reports, the facilitator's view" },
+      { value: "participant:account_manager", name: "Index of the reports, as Account manager sees it" },
+      { value: "participant:sales_lead", name: "Index of the reports, as Sales lead sees it" },
+      { value: "participant:delivery_lead", name: "Index of the reports, as Delivery lead sees it" },
+    ]);
+    pick("account_manager");
+    expect(options("View")).toEqual([
+      { value: "facilitator", name: "Account manager's report, the facilitator's view" },
+      { value: "participant:account_manager", name: "Account manager's report, as Account manager sees it" },
+    ]);
+    expect(screen.queryByText(AMENDING_LINE)).toBeNull();
+    cleanup();
+
+    render(<ExportMenu sessionId={SID} author="kamal" subjects={rows(row("account_manager", { state: "released", version: 4 }), row("group", { state: "draft" }))} />);
+    expect(values("Report to export")).toEqual(["account_manager"]);
+  });
+
+  it("an amending subject is listed with the participants' views only and a line saying it is the last released version", async () => {
+    const file = okFile("report-sales_lead.md");
+    const save = vi.fn();
+    render(<ExportMenu sessionId={SID} author="kamal" fetch={file.fetchImpl} save={save} subjects={rows(
+      row("account_manager", { state: "released", version: 4 }), row("sales_lead", { state: "amending", version: 5 }), row("group", { state: "amending", version: 4 }),
+    )} />);
+    expect(values("Report to export")).toEqual(["account_manager", "sales_lead", "group", "index"]);
+    pick("sales_lead");
+    expect(options("View")).toEqual([{ value: "participant:sales_lead", name: "Sales lead's report, as Sales lead sees it" }]);
+    expect(screen.getByText(AMENDING_LINE)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith("# R", "report-sales_lead.md"));
+    expect(file.sent()).toEqual([{ subject: "sales_lead", audience: "participant:sales_lead", by: "kamal" }]);
+    // an amending group: no facilitator view of it or of the index
+    for (const s of ["group", "index"]) {
+      pick(s);
+      expect(values("View")).toEqual(["participant:account_manager", "participant:sales_lead"]);
+      expect(screen.getByText(AMENDING_LINE)).toBeTruthy();
+    }
+    pick("account_manager");
+    expect(values("View")).toEqual(["facilitator", "participant:account_manager"]);
+    expect(screen.queryByText(AMENDING_LINE)).toBeNull();
+  });
+
+  it("a player's view of the group posts participant:<role> for the group, and the file name is the BFF's", async () => {
+    const file = okFile("report-group.md");
+    const save = vi.fn();
+    render(<ExportMenu sessionId={SID} author="kamal" fetch={file.fetchImpl} save={save} initial="group" subjects={rows(
+      row("account_manager", { state: "released", version: 4 }), row("sales_lead", { state: "released", version: 4 }), row("group", { state: "released", version: 4 }),
+    )} />);
+    expect((screen.getByLabelText("Report to export") as HTMLSelectElement).value).toBe("group");
+    expect((screen.getByLabelText("View") as HTMLSelectElement).value).toBe("facilitator");
+    fireEvent.change(screen.getByLabelText("View"), { target: { value: "participant:sales_lead" } });
+    fireEvent.click(screen.getByRole("button", { name: "Download" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith("# R", "report-group.md"));
+    expect(file.sent()).toEqual([{ subject: "group", audience: "participant:sales_lead", by: "kamal" }]);
+    expect(await screen.findByText("Downloaded report-group.md.")).toBeTruthy();
+    // changing the subject goes back to its first view
+    pick("index");
+    expect((screen.getByLabelText("View") as HTMLSelectElement).value).toBe("facilitator");
   });
 });
 

@@ -90,4 +90,4 @@ Reserved blocks (2026-11-06, AI player row follow-up): US-0068; AC-0389..AC-0391
 
 Reserved blocks (2026-11-07, hide response): US-0069; AC-0392..AC-0394 (all under US-0069). Planned; test cases are filed when the story moves to In Progress. Ids in a block that its story does not use stay unused.
 
-Assigned 2026-11-07 (bugfix/BUG-0025-throttle-resend-link-cap): TC-0155 (BUG-0025), TC-0156 (BUG-0029) and TC-0157 (BUG-0030), and the lesson on checking the credential before an address throttle. TC-0154 is left to the open bugfix/BUG-0032-console-report branch, which files it; it is not used here. No new BUG, TASK or AC beyond the hide-response block.
+Assigned 2026-11-07 (bugfix/BUG-0025-throttle-resend-link-cap): TC-0155 (BUG-0025), TC-0156 (BUG-0029) and TC-0157 (BUG-0030), and the lesson on checking the credential before an address throttle. TC-0154 was filed by bugfix/BUG-0032-console-report (#121, merged) and is not used here. No new BUG, TASK or AC beyond the hide-response block.

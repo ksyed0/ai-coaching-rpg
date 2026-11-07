@@ -2378,6 +2378,23 @@ Status: [x] Pass
 Defect Raised: BUG-0034
 Notes: Fixed in the bugfix/BUG-0034-participant-path branch (commits 8ade287 and bcf5172 for steps 1, 17d7955 for step 2 and 839925f for step 3). Mutation check: clearing the draft after every successful save makes the held-fetch test fail; guarding the retry with `() => true` makes step 2 fail. Not covered: a real browser edit during a save.
 
+TC-0154: Console report regressions: overview answers out of order and one automatic retry (BUG-0032); every export view the gate allows (BUG-0033)
+Related Story: US-0066
+Related Task: TASK-0104
+Related AC: AC-0384
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed for steps 1 to 3. Step 4 needs the Playwright Chromium headless shell.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report/__tests__/ReportPanel.test.tsx` (an older overview answering after a newer one does not replace it and schedules nothing; a failed read outside `evaluating` is retried once after `RETRY_MS` on the injected timer and the retry recovers; a failed retry leaves the fixed sentence and Try again, with nothing more scheduled; a failed poll while `evaluating` still polls, with no second timer).
+  2. From `apps/web`: `pnpm exec vitest run src/components/console/report/__tests__/after-release.test.tsx` (the export menu lists released and amending subjects and the index; the group and the index offer the facilitator's view of a released group and each player's view, a draft or withdrawn player included; an amending subject offers only the participant views, with the "last released version" line; a player's view of the group posts `participant:<role>` for the group and saves the BFF's file name; each view's name states the report and the audience).
+  3. From `apps/web`: `pnpm exec vitest run src/components/console/report/__tests__/SummaryEditor.test.tsx src/components/console/report/__tests__/SubjectView.test.tsx src/components/__tests__/ReportLinksPanel.test.tsx src/components/__tests__/ReportLinksPanel.ai.test.tsx src/server/__tests__/report-handlers.test.ts` (the same PR's minors: focus returns to the Edit button after Cancel or Save in the Summary editor and a criterion's edit form; an author name that becomes invalid while the Summary editor is open disables Save; "Link expired" for a human and an AI row, no "Revoked" state; the BFF marks a link at its expiry instant as not active).
+  4. From `apps/web`, after `pnpm exec next build --webpack`: `pnpm exec playwright test axe report-moderation report-release --trace off`.
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-07: step 1, 12 tests (3 new); step 2, 28 tests (3 new, 1 updated: it asserted the old, narrower lists); step 3, 5 files, 100 tests (SummaryEditor 18, SubjectView 12, ReportLinksPanel 36 with its `it.each` expanded, ReportLinksPanel.ai 4, report-handlers 30), of which 4 are new (SummaryEditor 2, SubjectView 1, the AI row 1); the Revoked test was replaced by the Link expired test, and one report-handlers test gained a credential at its expiry instant; step 4, 9 tests, all pass (the six Axe tests, which include the export menu, and the moderation and release flows).
+Status: [x] Pass
+Defect Raised: BUG-0032, BUG-0033
+Notes: Bug-fix series PR 3 (`bugfix/BUG-0032-console-report`). TC-0153 is filed by PR 2 (`bugfix/BUG-0034-participant-path`), so this PR takes TC-0154. The views of step 2 follow `exportGate` (services/runtime/src/moderation/write-b.ts) and `canView` (services/runtime/src/review/policy.ts), not the bug text: the gate allows a player's view of the group for any player subject of the review, so a draft or withdrawn player is offered too. Each key test was mutation-checked (the stale check, the retry, its once-only limit and its stage condition; each export rule; each focus call; the author guard; the expired branch and the BFF's expiry boundary).
+
 TC-0155: A valid report cookie is unsealed before the per-address failure throttle, so forged cookies never block a valid reader or writer
 Related Story: US-0062
 Related Task: TASK-0100
