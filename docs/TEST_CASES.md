@@ -2135,7 +2135,7 @@ Expected Result: All tests pass.
 Actual Result: As expected, 2026-11-06: control 1 file, 15 tests (step 1); control 3 files, 38 tests (14, 21 and 3) (step 2), all passing (after the whole-branch review fix wave).
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2c-3 part A. `edit-summary` has a control and BFF route but no console control in part A.
+Notes: Slice 2c-3 part A. `edit-summary` has a control and BFF route but no console control in part A (resolved in Session 36: the Summary editor came in slice 2c-4, TC-0152).
 
 TC-0139: The console Report panel and the BFF report routes behave as specified
 Related Story: US-0064
@@ -2211,7 +2211,7 @@ Expected Result: All tests pass.
 Actual Result: As expected, 2026-11-06: step 1, 5 files, 40 tests (6, 14, 9, 9 and 2); step 2, 2 files, 11 tests (7 and 4), all passing.
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2c-3 part B. The summary text has no console control (edit-summary has control and BFF routes only; the terminal has the command), so nothing here tests one.
+Notes: Slice 2c-3 part B. The summary text has no console control (edit-summary has control and BFF routes only; the terminal has the command), so nothing here tests one (resolved in Session 36: the Summary editor came in slice 2c-4, TC-0152).
 
 TC-0144: Release in the browser, the participant reads it with the runtime gone, a dispute is resolved, amend and re-release, withdraw and export (Playwright, with Axe)
 Related Story: US-0064
@@ -2237,7 +2237,7 @@ Expected Result: All pass, zero violations.
 Actual Result: As expected, 2026-11-06: `report-moderation report-release axe` 9 tests passed in 2.2 min (2 in `report-moderation.spec.ts`, 1 in `report-release.spec.ts`, 6 in `axe.spec.ts`: 5 earlier and the 1 above); the whole suite (`playwright test --trace off`) 50 passed in 8.0 min; on the installed Chromium headless shell 1223 through `PLAYWRIGHT_CHROMIUM_EXECUTABLE` after a fresh `next build --webpack`.
 Status: [x] Pass
 Defect Raised: None
-Notes: Slice 2c-3 part B. What this does not prove: a real evaluate that scores (the seed stands in; the real evaluate child runs end to end only in TC-0140's one-job check); the summary edit (no console control); a refused amend, withdraw or resolve in the browser (unit tests, TC-0143); the participant export view and the index export in the browser (unit and service tests, TC-0142, TC-0143); Amended as a resolve outcome in the browser (unit tests). "Runtime gone" is the control service having stopped the ended session's runtime process (the end grace), checked by process list, not a crash.
+Notes: Slice 2c-3 part B. What this does not prove: a real evaluate that scores (the seed stands in; the real evaluate child runs end to end only in TC-0140's one-job check); the summary edit (no console control then; the Summary editor came in slice 2c-4, TC-0152); a refused amend, withdraw or resolve in the browser (unit tests, TC-0143); the participant export view and the index export in the browser (unit and service tests, TC-0142, TC-0143); Amended as a resolve outcome in the browser (unit tests). "Runtime gone" is the control service having stopped the ended session's runtime process (the end grace), checked by process list, not a crash.
 
 TC-0145: Issue and reissue of a report link refuse an AI role with the fixed sentence, after the review check and fail-closed, and revoke still works
 Related Story: US-0060
