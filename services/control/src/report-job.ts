@@ -317,11 +317,13 @@ export class ReportJobService {
   }
 
   /**
-   * True while the service still holds this session's run: from the spawn until the run is fully settled, the automatic open after a
+   * True while the service still holds this session's run: from the moment a start reserves the slot, through the spawn, until the run is fully settled, the automatic open after a
    * successful run (`onDone`) included. The job may already read `done` in that window; the overview still answers `evaluating`.
    */
   isActive(id: string): boolean {
-    return this.active?.id === id;
+    // `starting` is the slot reserved by a start still in its preflight: a second caller refused as already_running reloads in this
+    // window and must read `evaluating` (and so keep polling), not a stale not_evaluated.
+    return this.active?.id === id || this.starting === id;
   }
 
   status(id: string): JobStatus {
