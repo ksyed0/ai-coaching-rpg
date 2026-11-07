@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeFetch, fakeTimer, ok, refused } from "../../../../lib/__tests__/fakes";
+import { REPORT_CONSOLE } from "../../../../lib/messages";
 import { ReleaseDialog } from "../ReleaseDialog";
 import { ReportPanel } from "../ReportPanel";
 import { BASE, SID, inReview, row } from "./fixtures";
@@ -131,6 +132,20 @@ describe("ReleaseBar and the release dialog in the panel", () => {
     expect(await within(dialog).findByText("Accept or edit the summary")).toBeTruthy();
     expect((within(dialog).getByRole("button", { name: "Release" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByText("SERVER TEXT")).toBeNull();
+  });
+
+  it("ReportPanel treats a subject with no status row as blocked and the release dialog lists it with the sentence REPORT_CONSOLE.blockerMissing", async () => {
+    const m = mount(inReview(subjects()), (url) => (url === `${BASE}/release` ? { status: 409, body: { ...refused("blocked", "SERVER TEXT"), data: { blocked: ["group"] } } } : undefined));
+    typeName("kamal");
+    const bar = await screen.findByRole("region", { name: "Release" });
+    fireEvent.click(within(bar).getByRole("button", { name: "Release everything…" }));
+    // the next overview no longer has a status row for the group
+    m.set(inReview([row("account_manager"), row("client", { openCriteria: ["pace"] }), row("sales_lead", { state: "amending", version: 5 }), row("delivery_lead", { state: "released", version: 4 })]));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Release" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText(REPORT_CONSOLE.blockerMissing)).toBeTruthy();
+    expect(REPORT_CONSOLE.blockerMissing).toBe("This report's status could not be read, so it cannot be released yet.");
+    expect((within(dialog).getByRole("button", { name: "Release" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("the group-table hint is shown after a release or withdraw leaves the released group's row stale", async () => {

@@ -19,7 +19,7 @@ export const openItems = (r: ReportSubjectRow): number =>
   new Set([...r.openCriteria, ...r.scoreByHand]).size + r.openDisputes + (r.summaryStale ? 1 : 0) + (r.tableStale ? 1 : 0);
 
 /**
- * The actions after release, per subject state: released has Amend, Withdraw and Export; amending has Release (its edit tools are in the
+ * The actions after release, per subject state: released has Amend, Withdraw and Export; amending has Withdraw and Release (its edit tools are in the
  * subject view, opened by Review); withdrawn has none (control exports only a released report). Every action needs the typed name.
  */
 export type SubjectActions = {
@@ -73,9 +73,14 @@ function RowActions({ row: r, label, actions: a }: { row: ReportSubjectRow; labe
     );
   if (r.state === "amending")
     return (
-      <button className="btn" type="button" disabled={off} aria-label={`Release ${label}`} onClick={(e) => a.onRelease(r.id, e.currentTarget)}>
-        Release…
-      </button>
+      <>
+        <button className="btn danger" type="button" disabled={off} aria-label={`Withdraw ${label}`} onClick={(e) => a.onWithdraw(r.id, e.currentTarget)}>
+          Withdraw…
+        </button>
+        <button className="btn" type="button" disabled={off} aria-label={`Release ${label}`} onClick={(e) => a.onRelease(r.id, e.currentTarget)}>
+          Release…
+        </button>
+      </>
     );
   return null;
 }

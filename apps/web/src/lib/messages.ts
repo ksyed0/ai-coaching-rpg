@@ -168,6 +168,7 @@ export const REPORT_CONSOLE = {
   stillOpen: "Still open, so it cannot be released yet:",
   blockedList: (labels: string) => `Blocked: ${labels}`,
   notReady: (items: string) => `Not ready: ${items}`,
+  blockerMissing: "This report's status could not be read, so it cannot be released yet.",
   needsReview: (criterion: string) => `Needs review: ${criterion}`,
   byHand: (criterion: string) => `Score by hand: ${criterion}`,
   summaryOpen: "Accept or edit the summary",
