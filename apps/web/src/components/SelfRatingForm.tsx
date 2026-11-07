@@ -24,7 +24,7 @@ export type SelfRatingFormProps = {
 
 const MAX_NOTE = 1500;
 type Ratings = Draft["ratings"];
-type Notice = { kind: "saved" | "error"; text: string } | null;
+type Notice = { kind: "saved" | "unsent" | "error"; text: string } | null;
 
 const isLevel = (v: unknown): v is 1 | 2 | 3 | 4 => v === 1 || v === 2 || v === 3 || v === 4;
 const clip = (s: string) => { const cp = Array.from(s); return cp.length > MAX_NOTE ? cp.slice(0, MAX_NOTE).join("") : s; };
@@ -60,6 +60,7 @@ function failureText(r: { status: number; data?: unknown; retryAfter?: number })
 export function SelfRatingForm({ form, fetch: fetchImpl, onSaved, onRefused }: SelfRatingFormProps) {
   const [start] = useState(() => initial(form));
   const [ratings, setRatings] = useState<Ratings>(start.ratings);
+  const edits = useRef(0); // counts every change; a save that finishes after a newer change must not clear the draft or claim to be saved
   const touched = useRef<Set<string>>(start.touched); // only these are sent and stored; server-prefilled ones the participant left alone are not
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
@@ -74,6 +75,7 @@ export function SelfRatingForm({ form, fetch: fetchImpl, onSaved, onRefused }: S
     setRatings(next);
     setNotice((n) => (n?.kind === "saved" ? null : n));
     touched.current.add(id);
+    edits.current += 1;
     // Written only after the participant touches a field, and only for touched criteria.
     if (!closed.current) saveDraft({ ratings: Object.fromEntries(Object.entries(next).filter(([k]) => touched.current.has(k))) });
   };
@@ -92,15 +94,23 @@ export function SelfRatingForm({ form, fetch: fetchImpl, onSaved, onRefused }: S
       if (!r || r.level === null || !touched.current.has(c.id)) return []; // untouched: omitted
       return [{ criterion: c.id, level: r.level === "na" ? null : r.level, ...(r.note !== "" ? { note: r.note } : {}) }];
     });
+    const sentEdits = edits.current;
     setSaving(true);
     setNotice(null);
     const res = await putJson("/api/v1/report/self-ratings", { ratings: payload }, fetchImpl);
     if (!alive.current) return;
     setSaving(false);
     if (res.ok) {
-      clearDraft();
+      // The inputs stay enabled during a save. If anything changed meanwhile, the stored draft already holds it (touch wrote it): keep it.
+      const changed = edits.current !== sentEdits;
+      if (!changed) clearDraft();
       // Saved, but the BFF's re-read failed: keep the form (as ResponseForm does) and ask for a reload instead of showing "could not load".
       const d = res.data;
+      if (changed) {
+        setNotice({ kind: "unsent", text: MESSAGES.ratingsNewerUnsent });
+        if (!(typeof d === "object" && d !== null && (d as { state?: unknown }).state === "retry")) onSaved(d);
+        return;
+      }
       if (typeof d === "object" && d !== null && (d as { state?: unknown }).state === "retry") {
         setNotice({ kind: "saved", text: MESSAGES.ratingsSavedReload });
         return;
@@ -156,7 +166,7 @@ export function SelfRatingForm({ form, fetch: fetchImpl, onSaved, onRefused }: S
           <p>{notice.text}</p>
         </div>
       ) : null}
-      <p role="status" className="muted">{saving ? MESSAGES.ratingsSaving : notice?.kind === "saved" ? notice.text : ""}</p>
+      <p role="status" className="muted">{saving ? MESSAGES.ratingsSaving : notice && notice.kind !== "error" ? notice.text : ""}</p>
       <p>
         <button className="btn pri" type="submit" disabled={saving} aria-busy={saving}>
           {saving ? MESSAGES.ratingsSaving : MESSAGES.ratingsSave}
