@@ -30,9 +30,10 @@ const READ_CRED_ROLE = "*report-read-cred";
 const MAX_TOKEN_CHARS = 64;
 const MAX_ENTER_BODY_BYTES = 512;
 
-/** The control service's fixed conflict sentences (NOT_READY and NO_REPORT in services/control/src/reports.ts are copied here word for word; change both). Anything else is shown as the generic one. */
+/** The control service's fixed conflict sentences (NOT_READY, NO_REPORT and AI_LINK_REFUSED in services/control/src/reports.ts are copied here word for word; change both). Anything else is shown as the generic one. */
 const KNOWN_CONFLICTS: ReadonlySet<string> = new Set([
   "A link is already active for this role.",
+  "AI players do not get report links.",
   "No reports are ready for this session yet. Evaluate it from the Report panel of its console.",
   "There is no report to link for this role.",
 ]);

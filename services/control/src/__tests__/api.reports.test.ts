@@ -46,7 +46,7 @@ async function call(port: number, method: string, path: string, o: { token?: str
 beforeEach(async () => {
   logs = [];
   w = await makeReportWorld();
-  svc = createReportService({ config: w.config, store: w.store, secrets: collectSecrets({}), now: () => w.clock.t });
+  svc = createReportService({ config: w.config, store: w.store, secrets: collectSecrets({}), now: () => w.clock.t, aiRoles: async () => [] });
 });
 afterEach(async () => {
   await Promise.all(servers.splice(0).map((s) => new Promise<void>((r) => { s.closeAllConnections(); s.close(() => r()); })));
@@ -106,7 +106,7 @@ describe("console routes", () => {
     let r = await call(p, "POST", links(), { body: { role: "mallory" } });
     expect([r.status, r.json.error.code, r.json.error.message]).toEqual([409, "conflict", NO_REPORT]);
     expect(r.text).not.toContain("mallory");
-    const p2 = await boot(createReportService({ config: { ...w.config, reportsDir: `${w.root}/nowhere` } as ControlConfig, store: w.store, secrets: [], now: () => w.clock.t }));
+    const p2 = await boot(createReportService({ config: { ...w.config, reportsDir: `${w.root}/nowhere` } as ControlConfig, store: w.store, secrets: [], now: () => w.clock.t, aiRoles: async () => [] }));
     r = await call(p2, "POST", links(), { body: { role: "alice" } });
     expect([r.status, r.json.error.message]).toEqual([409, NOT_READY]);
     expect(r.text).not.toContain(w.root);
