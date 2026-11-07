@@ -37,7 +37,7 @@ export const RESOLVE_REASON = "Reason-Canary-Walrus: the evidence supports the o
 /**
  * One live review: alice released, bob still a draft, with recognisable evaluator strings in bob's draft. With `roles` (BUG-0028) the
  * fixture's alice and bob are renamed to the session's real seated humans `roles.released` and `roles.draft`, so a link can be issued
- * to a seat; a role named in neither (an AI seat) is never a subject.
+ * to a seat; a role named in neither (an AI seat) is not a subject of the seed.
  */
 export function seedDraft(stack: LauncherStack, sessionId: string, roles?: { released: Player; draft: Player }): Promise<void> {
   return runSeeder(stack, sessionId, roles === undefined ? ["draft"] : ["draft", roles.released, roles.draft]);

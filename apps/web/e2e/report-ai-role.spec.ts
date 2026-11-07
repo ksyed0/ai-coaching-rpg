@@ -16,11 +16,14 @@ import { startLauncherStack, type LauncherStack } from "./helpers/start-launcher
 // with the review seeded for the two seated humans (`seedDraft` with roles: Delivery lead released, Account manager a draft; the mock
 // models cannot score the e2e session, so the fixture's alice and bob are renamed to those seats, BUG-0028), the console's issue route
 // refuses the AI role with the exact guard sentence. The guard sits after the review check and before the has-a-report check: without it
-// the AI role would get NO_REPORT (the mutation check in the task report shows exactly that). The seated Account manager's link is minted
+// the AI role would get NO_REPORT (commenting the guard out makes this spec fail on exactly that sentence). The seated Account manager's link is minted
 // in the same session, so the refusal is AI-specific, not a broken review. No failure message prints a token (`shown` redacts it), so
 // a regressed guard cannot leak a live link into the CI log. What it does not prove: the "AI player" label on
 // the link row. That row exists only for an AI role with a stale live credential, which cannot be produced end to end (the guard stops
 // it); the Task 3 control tests and Task 4 component tests cover it. Every wait is on an effect; no fixed sleep.
+
+// No trace for this file: a regressed guard would issue a real token, and a retained trace (uploaded by CI on failure) records bodies.
+test.use({ trace: "off" });
 
 const AI_LINK_REFUSED = "AI players do not get report links.";
 const NO_REPORT = "There is no report to link for this role.";
@@ -81,7 +84,8 @@ test("an AI role is refused a report link (AI players do not get report links.) 
     return { status: r.status(), body: (await r.json()) as Answer };
   };
 
-  // The seeded review's report roles are exactly the two seated humans: the AI seat is not a subject.
+  // The seed's subjects are exactly the two seated humans. (This does not prove the AI seat cannot be a subject: control's list drops an
+  // AI role without a live credential anyway.)
   const list = await fac.context().request.get(linksUrl, { headers });
   expect(list.status()).toBe(200);
   const listed = ((await list.json()) as { data: { roles: { role: string }[] } }).data.roles.map((r) => r.role);
