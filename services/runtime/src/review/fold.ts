@@ -45,7 +45,8 @@ export type CriterionView = {
   rationale: string;
   rationaleEdits: { seq: number; reason: string; by: string }[];
   acceptedBy: string | null;
-  self: { level: Level; note?: string; seq: number } | null;
+  /** `via` is the short id of the web link that made the rating, null when the facilitator attested it. */
+  self: { level: Level; note?: string; seq: number; via: string | null } | null;
 };
 export type CommentView = {
   seq: number;
@@ -60,6 +61,8 @@ export type ResponseView = {
   criterion?: string;
   text: string;
   dispute: boolean;
+  /** The short id of the web link that made the response; null when the facilitator attested it. */
+  via: string | null;
   /**
    * The released version of THIS review the response answers (the latest at the time it was made); null for a response carried
    * from a superseded review, which answered a release of that review, not of this one.
@@ -329,6 +332,11 @@ export function checkOpened(o: Record<string, unknown>): void {
   )
     bad("selfClosed must be a list of player ids");
 }
+
+/** The first 8 characters of a web link's credential id: enough to tell links apart in terminal output; the full id stays in the log. */
+export const shortLinkId = (id: string): string => id.slice(0, 8);
+const viaOf = (a: Actor): string | null =>
+  a.kind === "participant_session" ? shortLinkId(a.credentialId) : null;
 
 /** An actor as the log may hold it: a facilitator with a safe id, a participant role attested by one, a web-link participant session, or the system. */
 function actorOk(a: unknown): boolean {
@@ -723,6 +731,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           level: e.level,
           ...(e.note !== undefined ? { note: text(e, e.note) } : {}),
           seq: e.seq,
+          via: viaOf(e.actor),
         };
         break;
       }
@@ -752,6 +761,7 @@ export function currentView(drafts: Drafts, events: ReviewEvent[]): View {
           ...(e.criterion !== undefined ? { criterion: e.criterion } : {}),
           text: text(e, e.text),
           dispute: e.dispute === true,
+          via: viaOf(e.actor),
           version: ver,
           carried,
           resolution: null,

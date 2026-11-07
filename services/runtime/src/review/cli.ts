@@ -151,7 +151,7 @@ const STALE_HINT =
   "the group's per-role table is now out of date; amend and re-release the group to refresh it";
 const lvl = (l: unknown): string => (l === null ? "na" : String(l));
 
-function statusLines(l: Loaded): string[] {
+export function statusLines(l: Loaded): string[] {
   const out: string[] = [];
   if (l.view.superseded)
     out.push(
@@ -171,11 +171,16 @@ function statusLines(l: Loaded): string[] {
     if (sv.id !== "group" && sv.state === "draft") {
       drafts++;
       if (rated > 0) haveRated++;
-      out.push(`  ${sv.id}: rated ${rated} of ${sv.criteria.length} criteria`);
+      const links = [
+        ...new Set(sv.criteria.flatMap((c) => (c.self?.via ? [c.self.via] : []))),
+      ];
+      out.push(
+        `  ${sv.id}: rated ${rated} of ${sv.criteria.length} criteria${links.length ? ` via web link ${links.join(", ")}` : ""}`,
+      );
     }
     for (const r of sv.responses.filter((x) => x.dispute && !x.resolution))
       out.push(
-        `  open dispute: #${r.seq} by ${r.role}${r.criterion ? ` on ${r.criterion}` : ""}`,
+        `  open dispute: #${r.seq} by ${r.role}${r.criterion ? ` on ${r.criterion}` : ""}${r.via ? ` via web link ${r.via}` : ""}`,
       );
   }
   if (drafts > 0) out.push(`${haveRated} of ${drafts} players have rated`);
