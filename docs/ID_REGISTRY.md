@@ -2,12 +2,12 @@
 
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
-| EPIC         | EPIC-0009             | EPIC-0008         |
-| US           | US-0067               | US-0066           |
+| EPIC         | EPIC-0010             | EPIC-0009         |
+| US           | US-0068               | US-0067           |
 | TASK         | TASK-0105             | TASK-0104         |
-| AC           | AC-0385               | AC-0384           |
+| AC           | AC-0389               | AC-0388           |
 | TC           | TC-0153               | TC-0152           |
-| BUG          | BUG-0029              | BUG-0028          |
+| BUG          | BUG-0035              | BUG-0034          |
 | L            | L-0035                | L-0034            |
 
 Reserved blocks (2026-10-06): AC-0130..AC-0139 and TASK-0040..TASK-0042 US-0025; AC-0140..AC-0149 and TASK-0043..TASK-0045 US-0017; AC-0150..AC-0159 and TASK-0046..TASK-0048 US-0016; AC-0160..AC-0169 and TASK-0049..TASK-0051 US-0018. Free below the blocks: AC-0127..AC-0129 and TASK-0035..TASK-0039. Next/Last point past the reserved blocks; an id in a block that its story does not use stays unused (ids are never reassigned).
@@ -83,3 +83,5 @@ Assigned 2026-11-06 (slice 2c-3, PR A, US-0064): AC-0373 (no evaluate over a dra
 Assigned 2026-11-06 (slice 2c-3, PR B, US-0064): TC-0141 (AC-0337, AC-0375 to AC-0377: the part B moderation library), TC-0142 (AC-0337, AC-0375 to AC-0377: the moderation service and the part B control routes), TC-0143 (AC-0337, AC-0338, AC-0375 to AC-0377: the console release bar, dialogs, dispute panel and export menu, and the BFF part B routes) and TC-0144 (AC-0337, AC-0338, AC-0340, AC-0375 to AC-0377: end to end and Axe). No new AC (AC-0375 to AC-0377 were filed by PR A) and no new TASK (TASK-0102 was filed by PR A). Slice 2c-3 is complete; the next AC is AC-0379, the next TC is TC-0145, the next TASK is TASK-0103, the next BUG is BUG-0029 and the next L is L-0034.
 
 Reserved blocks (2026-11-06, slice 2c-4): US-0066 (EPIC-0002 close-out polish); TASK-0103 (US-0060, PR 1) and TASK-0104 (US-0066, PR 2); AC-0379..AC-0381 under US-0060 and AC-0382..AC-0384 under US-0066; TC-0145..TC-0152 (TC-0145, TC-0146 AC-0379; TC-0147 AC-0380; TC-0148, TC-0149 AC-0381; TC-0150 AC-0382; TC-0151 AC-0383; TC-0152 AC-0384), filed when each task is built. Ids in a block that its story does not use stay unused. No new BUG or L ids are reserved.
+
+Reserved blocks (2026-11-06, multilingual backlog): EPIC-0009; US-0067; AC-0385..AC-0388 (all under US-0067). All Planned; test cases are filed when the story moves to In Progress. Ids in a block that its story does not use stay unused.

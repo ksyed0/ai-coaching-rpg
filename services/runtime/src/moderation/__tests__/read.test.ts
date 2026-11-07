@@ -15,7 +15,8 @@ vi.mock("../../review/view.js", async (orig) => {
   };
 });
 import { ReviewRefusedError } from "../../review/errors.js";
-import { loadReview } from "../../review/store.js";
+import { applyCommand, loadReview } from "../../review/store.js";
+import { fixedClock, resolveBodies } from "../../review/__tests__/fixtures.js";
 import { moderationStatus, subjectView } from "../index.js";
 import { openedReview, releaseViaCli, type Env } from "./helpers.js";
 
@@ -94,6 +95,32 @@ describe("moderation reads", () => {
       { seq: expect.any(Number), role: "alice", criterion: crit },
     ]);
     expect(by("bob").openDisputes).toEqual([]);
+  });
+
+  it("a web link's short id (via) never crosses the wire: the read model maps explicitly (AC-0383)", async () => {
+    env = await openedReview();
+    const fac = { kind: "facilitator", by: "kamal" } as const;
+    const web = {
+      kind: "participant_session",
+      v: 1,
+      role: "alice",
+      credentialId: "AAAAAAAAAAA",
+    } as const;
+    const crit = (await loadReview(env.dir)).view.subjects.get("alice")!.criteria[0]!.id;
+    await applyCommand(env.dir, fixedClock(), (l) => [
+      { actor: web, body: { type: "self.rated", role: "alice", criterion: crit, level: 3 } },
+      ...resolveBodies(l.view, "alice").map((body) => ({ actor: fac, body })),
+      { actor: fac, body: { type: "report.released", subjects: ["alice"] } },
+      { actor: web, body: { type: "response.added", role: "alice", text: "I disagree", dispute: true } },
+    ]);
+    const l = await loadReview(env.dir);
+    expect(l.view.subjects.get("alice")!.responses[0]!.via).toBe("AAAAAAAA"); // the fold has it
+    const wire = JSON.stringify([
+      await moderationStatus(env.dir),
+      await subjectView(env.dir, "alice", []),
+    ]);
+    expect(wire).not.toContain('"via"');
+    expect(wire).not.toContain("AAAAAAAA");
   });
 
   it("subjectView returns only the listed fields (a JSON key check) and strips control characters and secrets", async () => {

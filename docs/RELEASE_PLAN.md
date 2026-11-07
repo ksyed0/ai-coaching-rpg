@@ -14,10 +14,11 @@ Dependencies: None
 
 ```
 EPIC-0002: Slice 2 — web lobby, session view and reconnect
-Description: Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064).
+Description: Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064, with the slice 2c-4 close-out US-0066).
 Release Target: MVP
-Status: In Progress
+Status: Complete
 Dependencies: EPIC-0001
+Notes: Complete as of 2026-11-06 (slice 2c-4 PR 2, US-0066), pending the owner's sign-off on Deviation 3 of the slice 2c-4 plan: by default the console subject list gets no "AI player, not scored" row (an AI role is never a moderation subject and cannot be exported; "AI player" shows only on the link row of an AI role that still has a live credential).
 ```
 
 ```
@@ -65,6 +66,14 @@ Dependencies: EPIC-0002
 EPIC-0008: Multi-client service and subdomain provisioning
 Description: Run the product for several client organisations from one deployment. Each client (tenant) gets its own address, either a subdomain such as epam.scenecoach.ai or a path such as scenecoach.ai/epam (to be decided in the design), its own scenarios, sessions, codes and reports kept apart from other clients, and light branding. An administrator provisions a client without a code change.
 Release Target: Release 1.x
+Status: Planned
+Dependencies: EPIC-0002
+```
+
+```
+EPIC-0009: Multilingual support
+Description: The product is English at MVP. This epic adds language support, starting with French (Canada) as set out in docs/PRODUCT_SPEC.md (Localisation row), and covers UI strings, scenario content, AI character and Game Master behaviour, evaluator output and reports. The design must decide how translated scenario content is authored and reviewed. Model quality per language needs a calibration pass: the evaluator calibration (EPIC-0005) is English-only today.
+Release Target: Release 2.x
 Status: Planned
 Dependencies: EPIC-0002
 ```
@@ -1972,13 +1981,13 @@ Notes: Slice 2c-3 part B (PR B), same spec and plan as TASK-0093. `release` with
 US-0066 (EPIC-0002): As a facilitator, I want the small EPIC-0002 close-out gaps fixed, so that the web client ships without known loose ends.
 Priority: Medium
 Estimate: M
-Status: Planned
+Status: Done
 Branch: feature/EPIC-0002-US-0066-close-out-polish
 Dependencies: US-0060, US-0064
 Acceptance Criteria:
-  - [ ] AC-0382: a facilitator can edit a participant's summary in the console (slice 2c-4 PR 2; TC-0150 Task 11)
-  - [ ] AC-0383: `moderate status` shows the first 8 characters of a web link id (slice 2c-4 PR 2; TC-0151 Task 7)
-  - [ ] AC-0384: the in-scope minors are fixed with tests and the rest are filed (slice 2c-4 PR 2; TC-0152 Tasks 8 to 10)
+  - [x] AC-0382: a facilitator can edit a participant's summary in the console (slice 2c-4 PR 2; TC-0150 Task 11; built and tested: apps/web/src/components/console/report/__tests__/SummaryEditor.test.tsx, apps/web/src/components/console/report/__tests__/SubjectView.test.tsx, apps/web/src/lib/__tests__/console-api.edit-summary.test.ts, e2e steps in apps/web/e2e/report-moderation.spec.ts and axe.spec.ts)
+  - [x] AC-0383: `moderate status` shows the first 8 characters of a web link id (slice 2c-4 PR 2; TC-0151 Task 7; built and tested: services/runtime/src/review/__tests__/cli-status-web.test.ts, services/runtime/src/review/__tests__/fold-participant-session.test.ts, services/runtime/src/moderation/__tests__/read.test.ts; there is no `history` command, so the fold carries the id as `via` and `moderate status` prints it)
+  - [x] AC-0384: the in-scope minors are fixed with tests and the rest are filed (slice 2c-4 PR 2; TC-0152 Tasks 8 to 10; fixed and tested: Withdraw on an amending row, a subject with no status row is blocked, a whitespace-only note, route tests for the part B 409 and 503 codes in services/control/src/__tests__/moderation-routes.part-b-codes.test.ts; filed: BUG-0029 to BUG-0034)
 ```
 
 ```
@@ -1994,7 +2003,21 @@ Notes: Spec docs/superpowers/specs/2026-11-06-slice-2c-4-close-out-design.md; pl
 TASK-0104 (US-0066): Slice 2c-4 PR 2: close-out polish
 Type: Dev
 Assignee: Agent
-Status: To Do
+Status: Done
 Branch: feature/EPIC-0002-US-0066-close-out-polish
 Notes: Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC-0152): console edit-summary, the 8-character link id in `moderate status`, and the in-scope minors.
+```
+
+```
+US-0067 (EPIC-0009): As a participant, I want to use the product and play scenarios in my own language, so that language is not a barrier to coaching practice.
+Priority: Medium
+Estimate: XL
+Status: Planned
+Branch: feature/EPIC-0009-US-0067-multilingual-support
+Dependencies: EPIC-0002
+Acceptance Criteria:
+  - [ ] AC-0385: the web UI strings come from per-language message catalogues, with a language chosen per user or per session and a documented fallback to English for any missing string; no string is hard-coded in a component
+  - [ ] AC-0386: scenarios and their rubrics can carry translations; an AI character speaks and a Game Master judges in the session language; the evaluator reports quote the original-language lines with a note of the report language
+  - [ ] AC-0387: French (Canada) is delivered first as the proving language; right-to-left and other scripts are explicitly out of scope until a later story
+  - [ ] AC-0388: dates, numbers, names and the accessibility labels follow the chosen language; the language of a session is recorded in the session log so reports and replays stay consistent
 ```

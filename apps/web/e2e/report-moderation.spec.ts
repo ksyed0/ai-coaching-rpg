@@ -115,6 +115,19 @@ test("review in the browser: the seeded draft opens with the run summary and sub
   await expect(comments.getByText("Good discovery; <b>keep</b> it up.", { exact: true })).toBeVisible();
   await expect(comments.getByText(/^Internal: $/)).toBeVisible();
   await expect(a.getByLabel("Comment")).toHaveValue("");
+
+  // Edit-summary (US-0066): the boxes open pre-filled with bob's summary; one strength is added and saved, and every existing strength
+  // is still there (the save replaces the whole summary, so an untouched entry is re-posted, never dropped).
+  const summaryBlock = a.locator(".report-subject").getByRole("heading", { name: "Summary", level: 4 }).locator("..");
+  await a.getByRole("button", { name: "Edit the summary" }).click();
+  const strengths = a.getByLabel("Strengths (one per line)");
+  const before = (await strengths.inputValue()).split("\n").map((l) => l.trim()).filter((l) => l !== "");
+  await strengths.fill([...before, "Listened before proposing."].join("\n"));
+  await a.getByLabel("Reason for the change (required)").fill("Added what I saw in the second scene.");
+  await a.getByRole("button", { name: "Save the summary" }).click();
+  await expect(summaryBlock.getByText("Strength: Listened before proposing.", { exact: true })).toBeVisible();
+  for (const s of before) await expect(summaryBlock.getByText(`Strength: ${s}`, { exact: true }).first()).toBeVisible();
+  await expect(a.getByLabel("Strengths (one per line)")).toHaveCount(0);
 });
 
 test("two tabs click Evaluate at once: one job runs, the other is refused, and a later evaluate is already_evaluated", async ({ browser }) => {

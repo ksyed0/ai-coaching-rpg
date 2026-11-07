@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { rm } from "node:fs/promises";
 import { loadDrafts, type Drafts } from "../draft.js";
 import { ReviewIllegalError } from "../errors.js";
-import { who } from "../fold.js";
+import { shortLinkId, who } from "../fold.js";
 import { isCredentialIdShape, type Actor, type Body, type Entry } from "../types.js";
 import { makeDraftDir, makeFold, resolveBodies } from "./fixtures.js";
 
@@ -163,5 +163,41 @@ describe("participant_session actor", () => {
     expect(isCredentialIdShape("AAAAAAAAAA+")).toBe(false);
     expect(isCredentialIdShape("AAAAAAAAAAB")).toBe(false); // non-canonical trailing bits
     expect(isCredentialIdShape(7)).toBe(false);
+  });
+});
+
+describe("via: the web link behind a self-rating or response (AC-0383)", () => {
+  it("a self.rated from a web link records via as the 8-character id", () => {
+    const v = f.foldE({ actor: f.web("alice", "AAAAAAAAAAA"), body: rated() });
+    expect(
+      v.subjects.get("alice")!.criteria.find((c) => c.id === "listening")!.self,
+    ).toMatchObject({ level: 3, via: "AAAAAAAA" });
+  });
+
+  it("a response.added from a web link records via too", () => {
+    const v = f.foldE(
+      ...releaseAlice(),
+      { actor: f.web("alice", "AAAAAAAAAAA"), body: respond() },
+    );
+    expect(v.subjects.get("alice")!.responses[0]!.via).toBe("AAAAAAAA");
+  });
+
+  it("a facilitator-attested self.rated has via null", () => {
+    const v = f.foldE({ actor: f.part("alice"), body: rated() });
+    expect(
+      v.subjects.get("alice")!.criteria.find((c) => c.id === "listening")!.self!.via,
+    ).toBeNull();
+  });
+
+  it("a facilitator-attested response has via null", () => {
+    const v = f.foldE(...releaseAlice(), { actor: f.part("alice"), body: respond() });
+    expect(v.subjects.get("alice")!.responses[0]!.via).toBeNull();
+  });
+
+  it("shortLinkId keeps ids of 8 characters or fewer whole", () => {
+    expect(shortLinkId("AAAAAAAAAAA")).toBe("AAAAAAAA");
+    expect(shortLinkId("12345678")).toBe("12345678");
+    expect(shortLinkId("abc")).toBe("abc");
+    expect(shortLinkId("")).toBe("");
   });
 });

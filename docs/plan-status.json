@@ -13,9 +13,9 @@
     {
       "id": "EPIC-0002",
       "title": "Slice 2 — web lobby, session view and reconnect",
-      "description": "Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064).",
+      "description": "Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064, with the slice 2c-4 close-out US-0066).",
       "releaseTarget": "MVP",
-      "status": "In Progress",
+      "status": "Complete",
       "startDate": null,
       "doneDate": null,
       "dependencies": [
@@ -87,6 +87,18 @@
       "title": "Multi-client service and subdomain provisioning",
       "description": "Run the product for several client organisations from one deployment. Each client (tenant) gets its own address, either a subdomain such as epam.scenecoach.ai or a path such as scenecoach.ai/epam (to be decided in the design), its own scenarios, sessions, codes and reports kept apart from other clients, and light branding. An administrator provisions a client without a code change.",
       "releaseTarget": "Release 1.x",
+      "status": "Planned",
+      "startDate": null,
+      "doneDate": null,
+      "dependencies": [
+        "EPIC-0002"
+      ]
+    },
+    {
+      "id": "EPIC-0009",
+      "title": "Multilingual support",
+      "description": "The product is English at MVP. This epic adds language support, starting with French (Canada) as set out in docs/PRODUCT_SPEC.md (Localisation row), and covers UI strings, scenario content, AI character and Game Master behaviour, evaluator output and reports. The design must decide how translated scenario content is authored and reviewed. Model quality per language needs a calibration pass: the evaluator calibration (EPIC-0005) is English-only today.",
+      "releaseTarget": "Release 2.x",
       "status": "Planned",
       "startDate": null,
       "doneDate": null,
@@ -2900,28 +2912,62 @@
       "title": "As a facilitator, I want the small EPIC-0002 close-out gaps fixed, so that the web client ships without known loose ends.",
       "priority": "Medium",
       "estimate": "M",
-      "status": "Planned",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0066-close-out-polish",
       "acs": [
         {
           "id": "AC-0382",
-          "text": "a facilitator can edit a participant's summary in the console (slice 2c-4 PR 2; TC-0150 Task 11)",
-          "done": false
+          "text": "a facilitator can edit a participant's summary in the console (slice 2c-4 PR 2; TC-0150 Task 11; built and tested: apps/web/src/components/console/report/__tests__/SummaryEditor.test.tsx, apps/web/src/components/console/report/__tests__/SubjectView.test.tsx, apps/web/src/lib/__tests__/console-api.edit-summary.test.ts, e2e steps in apps/web/e2e/report-moderation.spec.ts and axe.spec.ts)",
+          "done": true
         },
         {
           "id": "AC-0383",
-          "text": "`moderate status` shows the first 8 characters of a web link id (slice 2c-4 PR 2; TC-0151 Task 7)",
-          "done": false
+          "text": "`moderate status` shows the first 8 characters of a web link id (slice 2c-4 PR 2; TC-0151 Task 7; built and tested: services/runtime/src/review/__tests__/cli-status-web.test.ts, services/runtime/src/review/__tests__/fold-participant-session.test.ts, services/runtime/src/moderation/__tests__/read.test.ts; there is no `history` command, so the fold carries the id as `via` and `moderate status` prints it)",
+          "done": true
         },
         {
           "id": "AC-0384",
-          "text": "the in-scope minors are fixed with tests and the rest are filed (slice 2c-4 PR 2; TC-0152 Tasks 8 to 10)",
-          "done": false
+          "text": "the in-scope minors are fixed with tests and the rest are filed (slice 2c-4 PR 2; TC-0152 Tasks 8 to 10; fixed and tested: Withdraw on an amending row, a subject with no status row is blocked, a whitespace-only note, route tests for the part B 409 and 503 codes in services/control/src/__tests__/moderation-routes.part-b-codes.test.ts; filed: BUG-0029 to BUG-0034)",
+          "done": true
         }
       ],
       "dependencies": [
         "US-0060",
         "US-0064"
+      ]
+    },
+    {
+      "id": "US-0067",
+      "epicId": "EPIC-0009",
+      "title": "As a participant, I want to use the product and play scenarios in my own language, so that language is not a barrier to coaching practice.",
+      "priority": "Medium",
+      "estimate": "XL",
+      "status": "Planned",
+      "branch": "feature/EPIC-0009-US-0067-multilingual-support",
+      "acs": [
+        {
+          "id": "AC-0385",
+          "text": "the web UI strings come from per-language message catalogues, with a language chosen per user or per session and a documented fallback to English for any missing string; no string is hard-coded in a component",
+          "done": false
+        },
+        {
+          "id": "AC-0386",
+          "text": "scenarios and their rubrics can carry translations; an AI character speaks and a Game Master judges in the session language; the evaluator reports quote the original-language lines with a note of the report language",
+          "done": false
+        },
+        {
+          "id": "AC-0387",
+          "text": "French (Canada) is delivered first as the proving language; right-to-left and other scripts are explicitly out of scope until a later story",
+          "done": false
+        },
+        {
+          "id": "AC-0388",
+          "text": "dates, numbers, names and the accessibility labels follow the chosen language; the language of a session is recorded in the session log so reports and replays stay consistent",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "EPIC-0002"
       ]
     }
   ],
@@ -3912,7 +3958,7 @@
       "title": "Slice 2c-4 PR 2: close-out polish",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0066-close-out-polish",
       "notes": "Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC-0152): console edit-summary, the 8-character link id in `moderate status`, and the in-scope minors."
     }
@@ -5397,6 +5443,36 @@
       "type": "Integration",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0150",
+      "title": "A facilitator edits a participant's summary in the console: pre-filled boxes, a required reason, fixed refusals, and nothing dropped",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0382",
+      "type": "Integration",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0151",
+      "title": "`moderate status` shows the first 8 characters of a web link id, a short or missing id does not crash it, and the id never crosses the wire",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0383",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0152",
+      "title": "The in-scope console minors are fixed, and the part B route codes 409 and 503 are pinned",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "relatedAC": "AC-0384",
+      "type": "Unit",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -5735,402 +5811,480 @@
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
       "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0029",
+      "title": "A response resent after a BFF timeout is stored twice when another response landed in between",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0030",
+      "title": "A forwarded report link can use up its owner's 50 response slots, and a response is not redacted",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0031",
+      "title": "Reviews opened before schema `/2` cannot take web writes",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0032",
+      "title": "Overview answers can arrive out of order, and a failed first overview read waits for Try again",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0033",
+      "title": "The export menu has no participant view of the group or index, and no export of an amending subject",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
+    },
+    {
+      "id": "BUG-0034",
+      "title": "Edits made while a save is in flight are lost when the draft clears",
+      "severity": "Low",
+      "relatedStory": "US-0066",
+      "relatedTask": "TASK-0104",
+      "status": "Open",
+      "fixBranch": "none yet",
+      "lessonEncoded": "No",
+      "estimatedCostUsd": 0,
+      "ghIssueNumber": null
     }
   ],
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0066": {
+      "projectedUsd": 800,
+      "costUsd": 11.93263,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 12.113427,
+      "costUsd": 11.93263,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -6357,6 +6511,54 @@
         "projectedUsd": 400
       },
       "BUG-0028": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0029": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0030": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0031": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0032": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0033": {
+        "costUsd": 0,
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "sessions": 0,
+        "isEstimated": false,
+        "projectedUsd": 400
+      },
+      "BUG-0034": {
         "costUsd": 0,
         "inputTokens": 0,
         "outputTokens": 0,
@@ -6828,6 +7030,13 @@
       "isAtRisk": false
     },
     "US-0066": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
+    },
+    "US-0067": {
       "missingTCs": true,
       "noBranch": false,
       "failedTCNoBug": false,
@@ -7149,10 +7358,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T01:20:17.987Z",
-  "commitSha": "14b2835",
-  "buildNumber": "549",
-  "branch": "feature/EPIC-0002-US-0060-ai-role-guarantees",
+  "generatedAt": "2026-11-07T02:00:13.448Z",
+  "commitSha": "b0b7f20",
+  "buildNumber": "559",
+  "branch": "feature/EPIC-0002-US-0066-close-out-polish",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7296,7 +7505,7 @@
   "budget": {
     "totalBudget": 806.6862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 11251.300000000001,
+    "totalProjected": 12051.300000000001,
     "percentUsed": 99,
     "burnRate": 17.98837588888889,
     "daysRemaining": 0,
@@ -7316,49 +7525,57 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 169.587978,
-        "spent": 169.587978,
+        "budget": 167.05682,
+        "spent": 167.05682,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 194.714832,
-        "spent": 193.814832,
-        "remaining": 0.9000000000000057,
+        "budget": 190.92207999999997,
+        "spent": 190.92207999999997,
+        "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 169.587978,
-        "spent": 169.587978,
+        "budget": 167.05682,
+        "spent": 167.05682,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 181.701405,
-        "spent": 181.701405,
+        "budget": 178.98944999999998,
+        "spent": 178.98944999999998,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 52.053708,
-        "spent": 48.453708,
+        "budget": 51.33052,
+        "spent": 47.73052,
         "remaining": 3.6000000000000014,
         "percentUsed": 93
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 39.040281,
-        "spent": 36.340281,
+        "budget": 38.49789,
+        "spent": 35.797889999999995,
         "remaining": 2.700000000000003,
+        "percentUsed": 93
+      },
+      {
+        "id": "EPIC-0009",
+        "title": "Multilingual support",
+        "budget": 12.83263,
+        "spent": 11.93263,
+        "remaining": 0.9000000000000004,
         "percentUsed": 93
       },
       {
@@ -7381,12 +7598,12 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Sep 8",
-    "rangeStart": "Jul 9",
-    "rangeEnd": "Nov 8",
+    "likelyDate": "Aug 14",
+    "rangeStart": "Jun 19",
+    "rangeEnd": "Oct 9",
     "velocityWeeks": 6,
-    "storiesPerWeek": 0.9,
-    "pointsPerWeek": 4.6
+    "storiesPerWeek": 1.1,
+    "pointsPerWeek": 5.2
   },
   "trends": {
     "dates": [
@@ -7454,7 +7671,8 @@
       "2026-11-05T23:24:56.057Z",
       "2026-11-05T23:39:58.694Z",
       "2026-11-07T00:39:13.799Z",
-      "2026-11-07T01:20:18.051Z"
+      "2026-11-07T01:26:35.024Z",
+      "2026-11-07T02:00:13.510Z"
     ],
     "doneCounts": [
       0,
@@ -7521,7 +7739,8 @@
       2,
       2,
       4,
-      5
+      5,
+      6
     ],
     "totalStories": [
       65,
@@ -7588,7 +7807,8 @@
       65,
       65,
       66,
-      66
+      67,
+      67
     ],
     "aiCosts": [
       23.621356666666664,
@@ -7622,6 +7842,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -7722,6 +7943,7 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
@@ -7789,7 +8011,8 @@
       8,
       8,
       21,
-      26
+      26,
+      29
     ],
     "openBugs": [
       1,
@@ -7856,9 +8079,11 @@
       0,
       4,
       4,
-      4
+      4,
+      10
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -7990,6 +8215,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -8024,6 +8250,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -8124,6 +8351,7 @@
       1.1380952380952383,
       1.1380952380952383,
       1.1387096774193552,
+      1.1338709677419356,
       1.134426229508197
     ],
     "velocityByWeek": {
@@ -8141,7 +8369,7 @@
         0,
         0,
         0,
-        26
+        29
       ],
       "rollingAvg": [
         0,
@@ -8149,7 +8377,7 @@
         0,
         0,
         0,
-        6.5
+        7.3
       ]
     }
   }

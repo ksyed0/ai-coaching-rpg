@@ -400,6 +400,15 @@ export const acceptItem = (sessionId: string, subject: string, b: { criterion: s
   postJson(`${subjectPath(sessionId, subject)}/accept`, b, f);
 export const commentOn = (sessionId: string, subject: string, b: { text: string; criterion?: string; feedback?: true; by: string }, f?: typeof fetch) =>
   postJson(`${subjectPath(sessionId, subject)}/comment`, b, f);
+/** Replaces the WHOLE summary (a list sent empty is cleared), so all three lists are always sent. An action is `{ lo, text }`. */
+export const editSummary = (
+  sessionId: string, subject: string,
+  input: { reason: string; strengths: string[]; developments: string[]; actions: { lo: string; text: string }[]; by: string }, f?: typeof fetch,
+): Promise<ApiResult> =>
+  postJson(`${subjectPath(sessionId, subject)}/edit-summary`, {
+    reason: input.reason, strengths: input.strengths, developments: input.developments,
+    actions: input.actions.map((a) => ({ lo: a.lo, text: a.text })), by: input.by,
+  }, f);
 
 // ---- release and after (US-0064, part B) ----
 

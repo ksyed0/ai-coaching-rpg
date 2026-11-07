@@ -186,7 +186,7 @@ test("Axe: the closed, old_schema, throttled and not_released states of /report"
     { name: "closed", status: 200, body: { success: true, data: { state: "closed" }, error: null }, text: /Ratings for this review are closed/ },
     { name: "old_schema", status: 200, body: { success: true, data: { state: "old_schema" }, error: null }, text: /opened before online ratings/ },
     { name: "not_released", status: 200, body: { success: true, data: { state: "not_released" }, error: null }, text: /not available right now/ },
-    { name: "throttled", status: 429, body: { success: false, data: null, error: { code: "throttled", message: "" } }, text: /Too many requests/ },
+    { name: "throttled", status: 429, body: { success: false, data: null, error: { code: "rate_limited", message: "" } }, text: /Too many requests/ },
   ];
   for (const st of states) {
     const handler = (route: import("@playwright/test").Route) =>
@@ -201,7 +201,7 @@ test("Axe: the closed, old_schema, throttled and not_released states of /report"
 
 // ---- US-0064 part A: the console Report panel's states (launcher stack; the draft is seeded, see report-moderation.spec.ts) ----
 
-test("Axe: the Report panel ready to evaluate, with a refused name, the evaluate confirmation, in review with the subject list, and a subject view with an open edit form", async ({ browser }) => {
+test("Axe: the Report panel ready to evaluate, with a refused name, the evaluate confirmation, in review with the subject list, a subject view with an open edit form, and the summary editor with its error line", async ({ browser }) => {
   test.setTimeout(300_000);
   launcher = await startLauncherStack();
   const { fac, sessionId } = await endedSession(browser, launcher);
@@ -236,6 +236,16 @@ test("Axe: the Report panel ready to evaluate, with a refused name, the evaluate
   await report.getByRole("button", { name: "Edit Discovery" }).click();
   await expect(report.getByLabel("Reason (required; shown to the participant)")).toBeVisible();
   await checkAt(fac, "the subject view with an open edit form");
+
+  // US-0066: the summary editor, open with its boxes pre-filled, then with its error line showing (every box emptied: refused before sending).
+  await report.getByRole("button", { name: "Edit the summary" }).click();
+  await expect(report.getByLabel("Reason for the change (required)")).toBeVisible();
+  await checkAt(fac, "the subject view with the summary editor open");
+  for (const label of ["Strengths (one per line)", "Points to develop (one per line)", "Actions (one per line, as LO-ID: text)"]) await report.getByLabel(label).fill("");
+  await report.getByLabel("Reason for the change (required)").fill("Checking the empty rule.");
+  await report.getByRole("button", { name: "Save the summary" }).click();
+  await expect(report.getByRole("alert").filter({ hasText: "the summary cannot be empty" })).toBeVisible();
+  await checkAt(fac, "the summary editor with its error line");
 });
 
 // ---- US-0064 part B: the release, amend and withdraw dialogs, the dispute panel and the export menu (launcher stack, seeded draft) ----
