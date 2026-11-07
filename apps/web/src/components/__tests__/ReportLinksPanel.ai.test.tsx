@@ -8,7 +8,7 @@ afterEach(cleanup);
 
 const SID = "abcd1234efgh5678";
 const BASE = `/api/v1/console/sessions/${SID}/report-links`;
-const cred = { role: "x", createdAt: 1_700_000_000_000, expiresAt: 4_000_000_000_000, active: true, revoked: false };
+const cred = { role: "x", createdAt: 1_700_000_000_000, expiresAt: 4_000_000_000_000, active: true };
 
 function mount(roles: unknown[]) {
   const f = fakeFetch((url) => (url === BASE ? { status: 200, body: ok({ state: "ready", roles }) } : { status: 404, body: refused("not_found", "x") }));
