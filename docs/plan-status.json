@@ -2852,7 +2852,7 @@
         },
         {
           "id": "AC-0337",
-          "text": "the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate (edit levels, accept, comment and edit-summary built in part A, TC-0136, TC-0138 to TC-0140; release, amend, withdraw, resolve and export in part B over the same library and gate, TC-0141 to TC-0144; the export download equals the terminal's export in TC-0144; edit-summary has control and BFF routes but no console control, so the summary text is edited with `pnpm moderate edit-summary`)",
+          "text": "the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate (edit levels, accept, comment and edit-summary built in part A, TC-0136, TC-0138 to TC-0140; release, amend, withdraw, resolve and export in part B over the same library and gate, TC-0141 to TC-0144; the export download equals the terminal's export in TC-0144; edit-summary had control and BFF routes but no console control in part B; the Summary editor came in slice 2c-4, AC-0382)",
           "done": true
         },
         {
@@ -5691,7 +5691,7 @@
       "severity": "Medium",
       "relatedStory": "US-0065",
       "relatedTask": "TASK-0085",
-      "status": "Fixed (7ebdfc5; root-caused 2026-10-30)",
+      "status": "Fixed (PR #60; root-caused 2026-10-30)",
       "fixBranch": "feature/EPIC-0002-US-0059-readiness (hardening: feature/EPIC-0002-US-0065-web-e2e, 5537920)",
       "lessonEncoded": "Yes (L-0031)",
       "estimatedCostUsd": 0,
@@ -5751,7 +5751,7 @@
       "severity": "Low",
       "relatedStory": "US-0058",
       "relatedTask": "TASK-0087",
-      "status": "Fixed (15bfed8)",
+      "status": "Fixed (PR #60)",
       "fixBranch": "feature/EPIC-0002-US-0059-readiness",
       "lessonEncoded": "No (L-0003 and L-0017 already state the rule)",
       "estimatedCostUsd": 0,
@@ -5823,7 +5823,7 @@
       "severity": "Low",
       "relatedStory": "US-0060",
       "relatedTask": "TASK-0099",
-      "status": "Fixed (4551682 on feature/EPIC-0002-US-0060-ai-seats-reachable, squashed into #83)",
+      "status": "Fixed (PR #83, branch feature/EPIC-0002-US-0060-ai-seats-reachable)",
       "fixBranch": "feature/EPIC-0002-US-0060-ai-seats-reachable",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -5835,7 +5835,7 @@
       "severity": "Medium",
       "relatedStory": "US-0060",
       "relatedTask": "TASK-0099",
-      "status": "Fixed (bb00195, de2f3b1 and 915472e on fix/bug-0021-ai-roles-after-control-restart)",
+      "status": "Fixed (PR #87, branch fix/bug-0021-ai-roles-after-control-restart)",
       "fixBranch": "fix/bug-0021-ai-roles-after-control-restart",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -5883,7 +5883,7 @@
       "severity": "Low",
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
-      "status": "Fixed (6453541)",
+      "status": "Fixed (PR #122)",
       "fixBranch": "bugfix/BUG-0025-throttle-resend-link-cap",
       "lessonEncoded": "Yes — see docs/LESSONS.md",
       "estimatedCostUsd": 0,
@@ -5895,7 +5895,7 @@
       "severity": "Low",
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
-      "status": "Fixed",
+      "status": "Fixed (PR #119)",
       "fixBranch": "bugfix/BUG-0026-test-hygiene",
       "lessonEncoded": "Yes — see docs/LESSONS.md",
       "estimatedCostUsd": 0,
@@ -5907,7 +5907,7 @@
       "severity": "Low",
       "relatedStory": "US-0062",
       "relatedTask": "TASK-0100",
-      "status": "Fixed (e637b95)",
+      "status": "Fixed (PR #120)",
       "fixBranch": "bugfix/BUG-0034-participant-path",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -5931,7 +5931,7 @@
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Fixed (c10a07a)",
+      "status": "Fixed (PR #122)",
       "fixBranch": "bugfix/BUG-0025-throttle-resend-link-cap",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -5943,7 +5943,7 @@
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Fixed (c10a07a, 86984be)",
+      "status": "Fixed (PR #122)",
       "fixBranch": "bugfix/BUG-0025-throttle-resend-link-cap",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -5967,7 +5967,7 @@
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Fixed (8e1abad)",
+      "status": "Fixed (PR #121)",
       "fixBranch": "bugfix/BUG-0032-console-report",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -5979,7 +5979,7 @@
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Fixed (6145096)",
+      "status": "Fixed (PR #121)",
       "fixBranch": "bugfix/BUG-0032-console-report",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -5991,7 +5991,7 @@
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
-      "status": "Fixed (8ade287)",
+      "status": "Fixed (PR #120)",
       "fixBranch": "bugfix/BUG-0034-participant-path",
       "lessonEncoded": "No",
       "estimatedCostUsd": 0,
@@ -7513,10 +7513,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T05:44:57.130Z",
-  "commitSha": "21b6777",
-  "buildNumber": "551",
-  "branch": "bugfix/BUG-0025-throttle-resend-link-cap",
+  "generatedAt": "2026-11-07T06:20:12.495Z",
+  "commitSha": "e15a297",
+  "buildNumber": "544",
+  "branch": "docs/session-36-bugfix-series",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7754,8 +7754,8 @@
   },
   "completion": {
     "likelyDate": "Aug 21",
-    "rangeStart": "Jun 24",
-    "rangeEnd": "Oct 17",
+    "rangeStart": "Jun 25",
+    "rangeEnd": "Oct 18",
     "velocityWeeks": 6,
     "storiesPerWeek": 1.1,
     "pointsPerWeek": 5.1
@@ -7832,7 +7832,8 @@
       "2026-11-07T03:36:27.689Z",
       "2026-11-07T04:48:10.882Z",
       "2026-11-07T05:31:12.484Z",
-      "2026-11-07T05:44:57.218Z"
+      "2026-11-07T06:11:06.488Z",
+      "2026-11-07T06:20:12.609Z"
     ],
     "doneCounts": [
       0,
@@ -7900,6 +7901,7 @@
       2,
       4,
       5,
+      6,
       6,
       6,
       6,
@@ -7978,6 +7980,7 @@
       68,
       68,
       69,
+      69,
       69
     ],
     "aiCosts": [
@@ -8012,6 +8015,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -8124,6 +8128,7 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
@@ -8192,6 +8197,7 @@
       8,
       21,
       26,
+      29,
       29,
       29,
       29,
@@ -8270,9 +8276,11 @@
       10,
       7,
       4,
+      1,
       2
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -8416,6 +8424,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -8450,6 +8459,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -8561,6 +8571,7 @@
       1.134426229508197,
       1.1338709677419356,
       1.1338709677419356,
+      1.1333333333333335,
       1.1333333333333335,
       1.1333333333333335
     ],

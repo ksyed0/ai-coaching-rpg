@@ -103,7 +103,7 @@ BUG-0009: Web E2E "no horizontal scroll at 400 px" does not see its own say line
 Severity: Medium
 Related Story: US-0065
 Related Task: TASK-0085
-Status: Fixed (7ebdfc5; root-caused 2026-10-30)
+Status: Fixed (PR #60; root-caused 2026-10-30)
 Fix Branch: feature/EPIC-0002-US-0059-readiness (hardening: feature/EPIC-0002-US-0065-web-e2e, 5537920)
 Lesson Encoded: Yes (L-0031)
 ```
@@ -177,7 +177,7 @@ BUG-0014: CodeQL js/file-system-race alerts in the control service tests (stat a
 Severity: Low
 Related Story: US-0058
 Related Task: TASK-0087
-Status: Fixed (15bfed8)
+Status: Fixed (PR #60)
 Fix Branch: feature/EPIC-0002-US-0059-readiness
 Lesson Encoded: No (L-0003 and L-0017 already state the rule)
 ```
@@ -266,7 +266,7 @@ BUG-0020: The bot socket test "a second open after close() never overlaps" faile
 Severity: Low
 Related Story: US-0060
 Related Task: TASK-0099
-Status: Fixed (4551682 on feature/EPIC-0002-US-0060-ai-seats-reachable, squashed into #83)
+Status: Fixed (PR #83, branch feature/EPIC-0002-US-0060-ai-seats-reachable)
 Fix Branch: feature/EPIC-0002-US-0060-ai-seats-reachable
 Lesson Encoded: No
 ```
@@ -278,7 +278,7 @@ BUG-0021: After a control-service restart a lobby's AI roles can come back as hu
 Severity: Medium
 Related Story: US-0060
 Related Task: TASK-0099
-Status: Fixed (bb00195, de2f3b1 and 915472e on fix/bug-0021-ai-roles-after-control-restart)
+Status: Fixed (PR #87, branch fix/bug-0021-ai-roles-after-control-restart)
 Fix Branch: fix/bug-0021-ai-roles-after-control-restart
 Lesson Encoded: No
 ```
@@ -338,7 +338,7 @@ BUG-0025: Forged-cookie read failures share the enter throttle table, so a satur
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Fixed (6453541)
+Status: Fixed (PR #122)
 Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
 Lesson Encoded: Yes — see docs/LESSONS.md
 ```
@@ -352,7 +352,7 @@ BUG-0026: `ws-server.roster.test.ts` (a superseded connection gets no roster fra
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Fixed
+Status: Fixed (PR #119)
 Fix Branch: bugfix/BUG-0026-test-hygiene
 Lesson Encoded: Yes — see docs/LESSONS.md
 ```
@@ -364,7 +364,7 @@ BUG-0027: The conflict sentences are copied between the control service and the 
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Fixed (e637b95)
+Status: Fixed (PR #120)
 Fix Branch: bugfix/BUG-0034-participant-path
 Lesson Encoded: No
 ```
@@ -389,7 +389,7 @@ BUG-0029: A response resent after a BFF timeout is stored twice when another res
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Fixed (c10a07a)
+Status: Fixed (PR #122)
 Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
 Lesson Encoded: No
 ```
@@ -403,7 +403,7 @@ BUG-0030: A forwarded report link can use up its owner's 50 response slots, and 
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Fixed (c10a07a, 86984be)
+Status: Fixed (PR #122)
 Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
 Lesson Encoded: No
 ```
@@ -431,7 +431,7 @@ BUG-0032: Overview answers can arrive out of order, and a failed overview read (
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Fixed (8e1abad)
+Status: Fixed (PR #121)
 Fix Branch: bugfix/BUG-0032-console-report
 Lesson Encoded: No
 ```
@@ -445,7 +445,7 @@ BUG-0033: The export menu has no participant view of the group or index, and no 
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Fixed (6145096)
+Status: Fixed (PR #121)
 Fix Branch: bugfix/BUG-0032-console-report
 Lesson Encoded: No
 ```
@@ -459,7 +459,7 @@ BUG-0034: Edits made while a save is in flight are lost when the draft clears
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Fixed (8ade287)
+Status: Fixed (PR #120)
 Fix Branch: bugfix/BUG-0034-participant-path
 Lesson Encoded: No
 ```
