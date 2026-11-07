@@ -130,7 +130,8 @@ export function ExportMenu({ sessionId, subjects, author, initial, fetch: fetchI
       </div>
       <div className="field">
         <label htmlFor={`${id}-view`}>View</label>
-        <select id={`${id}-view`} className="t" value={view} onChange={(e) => setAudience(e.target.value as Audience)}>
+        {/* `?? ""` keeps the select controlled: `view` is undefined only when a subject has no allowed view (never offered). */}
+        <select id={`${id}-view`} className="t" value={view ?? ""} onChange={(e) => setAudience(e.target.value as Audience)}>
           {views.map((a) => (
             <option key={a} value={a}>
               {viewLabel(current, a)}
