@@ -14,6 +14,7 @@ import {
   type ReportLink,
   type ReportLinksView,
 } from "../../lib/console-api";
+import { MESSAGES } from "../../lib/messages";
 import { roleLabel } from "../../lib/names";
 import { ConfirmDialog, focusFallback } from "./ConfirmDialog";
 
@@ -240,12 +241,13 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
 
       {data !== null && data.roles.length > 0 ? (
         <ul className="codes" ref={list}>
-          {data.roles.map(({ role, link, selfRated, draft }) => {
+          {data.roles.map(({ role, link, selfRated, draft, ai }) => {
             const label = roleLabel(role);
             const live = link !== null && link.active;
             return (
               <li className="code-row" key={role} data-role-row={role}>
                 <h3 className="code-role">{label}</h3>
+                {ai ? <span className="small">{MESSAGES.reportAiPlayer}</span> : null}
                 <span>{statusOf(link)}</span>
                 {draft && selfRated !== null ? (
                   <span className="small">
@@ -257,12 +259,12 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
                 {link !== null && !link.revoked ? (
                   <span className="small muted">{link.lastUsedAt === undefined ? "Not opened yet" : `Last opened ${when(link.lastUsedAt)}`}</span>
                 ) : null}
-                {!live && ready ? (
+                {!live && ready && !ai ? (
                   <button className="btn" type="button" disabled={busy || shown !== null} aria-label={`Issue link for ${label}`} onClick={() => void issue(role)}>
                     Issue link
                   </button>
                 ) : null}
-                {live && ready ? (
+                {live && ready && !ai ? (
                   <button className="btn" type="button" disabled={busy || shown !== null} aria-label={`Reissue link for ${label}`} onClick={(e) => setConfirm({ kind: "reissue", role, opener: e.currentTarget })}>
                     Reissue
                   </button>

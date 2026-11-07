@@ -11,7 +11,7 @@ import { loadReview, supersedeReview } from "../../../runtime/src/review/store.j
 import { REVIEW_FILE, ZERO_HASH, type Entry } from "../../../runtime/src/review/types.js";
 import { WRITE_OLD_SCHEMA, createParticipantWriteService } from "../participant-writes.js";
 import { ReportAccessStore } from "../report-access.js";
-import { NO_REPORT, NOT_READY, REPORTS_UNREADABLE, REPORT_UNAVAILABLE, createReportService, type ReportService } from "../reports.js";
+import { AI_LINK_REFUSED, NO_REPORT, NOT_READY, REPORTS_UNREADABLE, REPORT_UNAVAILABLE, createReportService, type ReportService } from "../reports.js";
 import { ControlError } from "../supervisor.js";
 import { makeReportWorld, type ReportWorld } from "./report-fixture.js";
 
@@ -27,7 +27,7 @@ let svc: ReportService;
 beforeEach(async () => {
   progressDown = false;
   w = await makeReportWorld();
-  svc = createReportService({ config: w.config, store: w.store, secrets: collectSecrets({}), now: () => w.clock.t });
+  svc = createReportService({ config: w.config, store: w.store, secrets: collectSecrets({}), now: () => w.clock.t, aiRoles: async () => [] });
 });
 afterEach(async () => { await w.cleanup(); });
 
@@ -81,12 +81,12 @@ describe("issue and reissue", () => {
     expect(r!.message).not.toContain(w.root);
     expect(await refusal(svc.reissue("other-session", "alice"))).toEqual({ code: "conflict", message: NOT_READY });
   });
-  it("an AI role named in the group draft cannot get a link and is never listed", async () => {
+  it("an AI role named in the group draft cannot get a link and is never listed (AC-0322: refused explicitly, not for want of a report)", async () => {
     await w.cleanup();
     w = await makeReportWorld({ aiRoles: ["ai1"] });
-    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t });
-    expect(await refusal(svc.issue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: NO_REPORT });
-    expect(await refusal(svc.reissue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: NO_REPORT });
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, aiRoles: async () => ["ai1"] });
+    expect(await refusal(svc.issue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: AI_LINK_REFUSED });
+    expect(await refusal(svc.reissue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: AI_LINK_REFUSED });
     expect((await svc.links(w.sessionId)).roles.map((r) => r.role)).toEqual(["alice", "bob"]);
   });
   it("a second issue for a live pair is a conflict", async () => {
@@ -198,7 +198,7 @@ describe("read", () => {
 describe("storage and reader failures", () => {
   it("a corrupt store file is unavailable on exchange and read (file untouched), logged once a minute with a fixed line", async () => {
     const logs: string[] = [];
-    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, log: (m) => logs.push(m) });
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, log: (m) => logs.push(m), aiRoles: async () => [] });
     const { token, credential } = await svc.issue(w.sessionId, "alice");
     await writeFile(w.file, "garbage");
     const before = readFileSync(w.file);
@@ -213,7 +213,7 @@ describe("storage and reader failures", () => {
   });
   it("refusals for unknown, revoked and expired tokens stay null / 404 and log nothing", async () => {
     const logs: string[] = [];
-    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, log: (m) => logs.push(m) });
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, log: (m) => logs.push(m), aiRoles: async () => [] });
     const a = await svc.issue(w.sessionId, "alice");
     const b = await svc.issue(w.sessionId, "bob");
     expect(await svc.exchange(`${"B".repeat(11)}.${"C".repeat(22)}`)).toBeNull();
@@ -228,7 +228,7 @@ describe("storage and reader failures", () => {
   it("a failed lastUsedAt write does not refuse the read or the exchange", async () => {
     let fail = false;
     const store = new ReportAccessStore({ file: w.file, days: 90, now: () => w.clock.t }, { beforeWrite: async () => { if (fail) throw new Error("disk full"); } });
-    svc = createReportService({ config: w.config, store, secrets: [], now: () => w.clock.t });
+    svc = createReportService({ config: w.config, store, secrets: [], now: () => w.clock.t, aiRoles: async () => [] });
     const { token, credential } = await svc.issue(w.sessionId, "alice");
     fail = true;
     w.clock.t += 60 * 60_000;
@@ -239,7 +239,7 @@ describe("storage and reader failures", () => {
   it("an unreadable reader says so (fixed sentence, logged) instead of the evaluate hint; none still says the hint", async () => {
     const logs: string[] = [];
     await w.corrupt();
-    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, log: (m) => logs.push(m) });
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, log: (m) => logs.push(m), aiRoles: async () => [] });
     expect(await refusal(svc.issue(w.sessionId, "alice"))).toEqual({ code: "unavailable", message: REPORTS_UNREADABLE });
     expect(await refusal(svc.reissue(w.sessionId, "alice"))).toEqual({ code: "unavailable", message: REPORTS_UNREADABLE });
     expect(await svc.links(w.sessionId)).toEqual({ state: "unavailable", players: null, roles: [] });
@@ -257,10 +257,10 @@ describe("storage and reader failures", () => {
 });
 
 // ---- draft reports (slice 2c-2) ----
-const draftWorld = async (opts: Parameters<typeof makeReportWorld>[0] = {}) => {
+const draftWorld = async (opts: Parameters<typeof makeReportWorld>[0] = {}, ai: string[] = []) => {
   await w.cleanup();
   w = await makeReportWorld({ release: false, ...opts });
-  svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t });
+  svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, aiRoles: async () => ai });
 };
 /** Re-seals the live review with its opener's schema replaced, so a released review can be made a /1 one. */
 const asSchema1 = async (): Promise<void> => {
@@ -291,9 +291,9 @@ describe("draft reports: the link rule", () => {
     expect(credential.role).toBe("alice");
   });
   it("an AI role never gets a link, in a draft review either", async () => {
-    await draftWorld({ aiRoles: ["ai1"] });
-    expect(await refusal(svc.issue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: NO_REPORT });
-    expect(await refusal(svc.reissue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: NO_REPORT });
+    await draftWorld({ aiRoles: ["ai1"] }, ["ai1"]);
+    expect(await refusal(svc.issue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: AI_LINK_REFUSED });
+    expect(await refusal(svc.reissue(w.sessionId, "ai1"))).toEqual({ code: "conflict", message: AI_LINK_REFUSED });
     expect((await svc.links(w.sessionId)).roles.map((r) => r.role)).toEqual(["alice", "bob"]);
   });
   it("the group and an unknown role are refused", async () => {
@@ -373,7 +373,7 @@ describe("draft reports: links", () => {
   it("a released role has selfRated null while a draft one has its counts", async () => {
     await w.cleanup();
     w = await makeReportWorld({ release: false });
-    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t });
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, aiRoles: async () => [] });
     expect((await w.run(["release", w.rel, "alice", "--by", "kamal"])).code).toBe(0);
     const l = await svc.links(w.sessionId);
     expect(l.roles.find((r) => r.role === "alice")!.selfRated).toBeNull();
@@ -389,7 +389,7 @@ describe("draft reports: links", () => {
   it("a released role is draft:false and a draft one draft:true, with progress readable and unreadable", async () => {
     await w.cleanup();
     w = await makeReportWorld({ release: false });
-    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t });
+    svc = createReportService({ config: w.config, store: w.store, secrets: [], now: () => w.clock.t, aiRoles: async () => [] });
     expect((await w.run(["release", w.rel, "alice", "--by", "kamal"])).code).toBe(0);
     for (const down of [false, true]) {
       progressDown = down;
@@ -400,12 +400,14 @@ describe("draft reports: links", () => {
 });
 
 describe("sentences mirrored in the web app", () => {
-  it("the panel's not-ready sentence and the BFF's known conflicts equal control's NOT_READY and NO_REPORT", () => {
+  it("the panel's not-ready and AI-link sentences and the BFF's known conflicts equal control's NOT_READY, NO_REPORT and AI_LINK_REFUSED", () => {
     const web = path.resolve(__dirname, "../../../../apps/web/src");
     const panel = readFileSync(path.join(web, "lib/console-api.ts"), "utf8");
     const handlers = readFileSync(path.join(web, "server/report-handlers.ts"), "utf8");
     expect(panel).toContain(JSON.stringify(NOT_READY));
     expect(handlers).toContain(JSON.stringify(NOT_READY));
     expect(handlers).toContain(JSON.stringify(NO_REPORT));
+    expect(panel).toContain(JSON.stringify(AI_LINK_REFUSED));
+    expect(handlers).toContain(JSON.stringify(AI_LINK_REFUSED));
   });
 });

@@ -440,6 +440,33 @@ describe("console report-link routes", () => {
     expect(launcher.reportLinks).toHaveBeenCalledWith(SID);
   });
 
+  it("forwards ai: true", async () => {
+    launcher.reportLinks.mockResolvedValue({
+      state: "ready",
+      players: null,
+      roles: [{ role: "ana", credential: { ...SAFE_CRED, id: CRED_ID }, selfRated: null, draft: false, ai: true }],
+    });
+    const p = await parts(await handleConsoleReportLinks(consoleReq("", "GET"), deps));
+    expect(p.status).toBe(200);
+    expect((p.json.data as { roles: Record<string, unknown>[] }).roles[0]).toMatchObject({ role: "ana", ai: true });
+    expect(p.text).not.toContain(CRED_ID);
+  });
+
+  it('drops ai: "yes" and a missing flag', async () => {
+    launcher.reportLinks.mockResolvedValue({
+      state: "ready",
+      players: null,
+      roles: [
+        { role: "ana", credential: null, selfRated: null, draft: false, ai: "yes" },
+        { role: "bo", credential: null, selfRated: null, draft: false },
+      ] as never,
+    });
+    const p = await parts(await handleConsoleReportLinks(consoleReq("", "GET"), deps));
+    const roles = (p.json.data as { roles: Record<string, unknown>[] }).roles;
+    expect(roles).toHaveLength(2);
+    for (const r of roles) expect("ai" in r).toBe(false);
+  });
+
   it("issue returns the token once with a credential DTO that has no id; it needs the guards", async () => {
     const res = await handleConsoleReportLinksIssue(consoleReq("", "POST", { role: "ana" }), deps);
     const p = await parts(res);

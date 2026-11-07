@@ -6,6 +6,7 @@ import { collectSecrets } from "@acr/runtime/reports";
 import { loadScenario, type Scenario } from "@acr/script";
 import { BotHost } from "./bots/bot-host.js";
 import { IntentLog } from "./bots/intent-log.js";
+import { aiRolesFor } from "./ai-roles.js";
 import { createApi } from "./api.js";
 import type { EvalSpawnFn } from "./eval-child.js";
 import { ModerationService } from "./moderation.js";
@@ -70,7 +71,8 @@ export async function startControl(
   // ONE store for the whole service: two instances on one file would lose each other's updates, and a stale list could undo a revoke.
   const store = new ReportAccessStore({ file: config.reportAccessFile, days: config.reportAccessDays, now: Date.now });
   const secrets = collectSecrets(env);
-  const reports = createReportService({ config, store, secrets, now: Date.now, log });
+  // The AI-role guard reads each session's own log (US-0060); an unreadable set fails issue and reissue closed.
+  const reports = createReportService({ config, store, secrets, now: Date.now, log, aiRoles: (id) => aiRolesFor(config, list, id) });
   const participantWrites = createParticipantWriteService({
     config, store, secrets, now: Date.now, log, random: Math.random,
     sleep: (ms) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
