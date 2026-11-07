@@ -7,6 +7,8 @@ import { readReview, sealEntries, withReviewLock, writeEvents } from "../../revi
 import { makeFold, fixedClock } from "../../review/__tests__/fixtures.js";
 import { REVIEW_FILE } from "../../review/types.js";
 import { liveReview, type Env } from "./helpers.js";
+import { writeReports } from "../../evaluator/report-write.js";
+import { sampleEvaluation } from "../../evaluator/__tests__/fixtures.js";
 
 let env: Env | undefined;
 afterEach(async () => {
@@ -574,6 +576,34 @@ describe("submitResponse", () => {
       { kind: "ok", wrote: false },
     );
     expect((await sv(env)).responses.length).toBe(1);
+  });
+
+  it("BUG-0030: responses carried by a supersede keep their link's actor and count toward that link's cap in the new review", async () => {
+    env = await liveReview();
+    await release(env, "alice");
+    const N = 10;
+    for (let i = 0; i < N; i++)
+      expect(await submitResponse({ ...ctx(env), text: `old${i}` })).toEqual({ kind: "ok", wrote: true });
+    // a re-run of the same session, then supersede the old review into it
+    const w = await writeReports(await sampleEvaluation(), {
+      outDir: env.root,
+      evaluator: { provider: "scripted mock", scripted: true, rubricHash: "h1", variant: "v1" },
+    });
+    const rel2 = path.relative(env.root, w.dir);
+    expect((await env.run(["supersede", env.rel, rel2, "--by", "kamal"])).code).toBe(0);
+    const env2: Env = { ...env, dir: w.dir, rel: rel2 };
+    const carried = (await loadReview(env2.dir)).events.filter((e) => e.type === "response.added");
+    expect(carried).toHaveLength(N);
+    for (const e of carried) {
+      expect(e.carriedFrom).toBeDefined();
+      expect(e.actor).toEqual({ kind: "participant_session", v: 1, role: "alice", credentialId: "AAAAAAAAAAA" });
+    }
+    await release(env2, "alice");
+    for (let i = 0; i < 25 - N; i++)
+      expect(await submitResponse({ ...ctx(env2), text: `new${i}` })).toEqual({ kind: "ok", wrote: true });
+    expect(await submitResponse({ ...ctx(env2), text: "one too many" })).toEqual({ kind: "link_full" });
+    // a fresh link still writes in the new review
+    expect(await submitResponse({ ...ctx(env2), credentialId: "BBBBBBBBBBA", text: "one too many" })).toEqual({ kind: "ok", wrote: true });
   });
 
   it("BUG-0029: A, then B, then a resend of A is ignored (any earlier identical unresolved response, not only the last)", async () => {
