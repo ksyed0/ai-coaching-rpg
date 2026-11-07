@@ -7358,10 +7358,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T02:00:13.448Z",
-  "commitSha": "b0b7f20",
-  "buildNumber": "559",
-  "branch": "feature/EPIC-0002-US-0066-close-out-polish",
+  "generatedAt": "2026-11-07T03:09:34.901Z",
+  "commitSha": "9ac4a28",
+  "buildNumber": "537",
+  "branch": "release/0.2.0",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7433,9 +7433,9 @@
   "deltaSpend": 122.33,
   "projectName": "AI Coaching RPG",
   "tagline": "Script-driven multiplayer role-play training with AI counterparts.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "appName": "ai-coaching-rpg",
-  "appVersion": "0.1.0",
+  "appVersion": "0.2.0",
   "githubUrl": "",
   "agents": {
     "Conductor": {
@@ -7598,9 +7598,9 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Aug 14",
+    "likelyDate": "Aug 15",
     "rangeStart": "Jun 19",
-    "rangeEnd": "Oct 9",
+    "rangeEnd": "Oct 10",
     "velocityWeeks": 6,
     "storiesPerWeek": 1.1,
     "pointsPerWeek": 5.2
@@ -7672,7 +7672,8 @@
       "2026-11-05T23:39:58.694Z",
       "2026-11-07T00:39:13.799Z",
       "2026-11-07T01:26:35.024Z",
-      "2026-11-07T02:00:13.510Z"
+      "2026-11-07T02:00:13.510Z",
+      "2026-11-07T03:09:35.100Z"
     ],
     "doneCounts": [
       0,
@@ -7740,6 +7741,7 @@
       2,
       4,
       5,
+      6,
       6
     ],
     "totalStories": [
@@ -7808,6 +7810,7 @@
       65,
       66,
       67,
+      67,
       67
     ],
     "aiCosts": [
@@ -7842,6 +7845,7 @@
       661.3979866666666,
       685.0193433333333,
       708.6406999999999,
+      799.4862,
       799.4862,
       799.4862,
       799.4862,
@@ -7944,6 +7948,7 @@
       null,
       null,
       null,
+      null,
       null
     ],
     "velocity": [
@@ -8012,6 +8017,7 @@
       8,
       21,
       26,
+      29,
       29
     ],
     "openBugs": [
@@ -8080,9 +8086,11 @@
       4,
       4,
       4,
+      10,
       10
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -8216,6 +8224,7 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
@@ -8250,6 +8259,7 @@
       0,
       0,
       0,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -8352,6 +8362,7 @@
       1.1380952380952383,
       1.1387096774193552,
       1.1338709677419356,
+      1.134426229508197,
       1.134426229508197
     ],
     "velocityByWeek": {

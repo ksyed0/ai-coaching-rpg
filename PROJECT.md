@@ -93,6 +93,7 @@ Newest first. One line per release or operational event; the details are in [CHA
 
 | Date | Version | What | Rollback / notes |
 | --- | --- | --- | --- |
+| 2026-11-06 | v0.2.0 | Second release, prepared on `release/0.2.0` (not yet merged to `main` or tagged): EPIC-0002 slice 2c, participant report links and pages, self-ratings and responses (`acr.review/2`), evaluate, review, release, amend, withdraw, resolve and export in the console, no report links for AI roles, the Summary editor (#102 to #115). Includes the code-scanning fixes of #96. | Not deployed. Deploy the control service before the web app, roll back the web app first; going back to 0.1.0 makes `acr.review/2` reviews unreadable. See ROLLBACK.md "Release 0.2.0". |
 | 2026-11-05 | v0.1.0 | First tagged release: runtime and terminal client, participant web client, control service and facilitator console, live AI players and the group-score option, evaluator and moderation tools. Merge commit 9779300 on `main`. | Nothing is deployed to a shared environment yet; see ROLLBACK.md. 3b and 3c (AI players) roll back together. |
 | 2026-11-05 | (develop) | Code-scanning alerts 1 to 6 fixed in the sync tooling (#96); not in v0.1.0. | Reaches `main` with the next release. |
 
