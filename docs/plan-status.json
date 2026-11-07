@@ -13,7 +13,7 @@
     {
       "id": "EPIC-0002",
       "title": "Slice 2 — web lobby, session view and reconnect",
-      "description": "Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064).",
+      "description": "Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064, with the slice 2c-4 close-out US-0066).",
       "releaseTarget": "MVP",
       "status": "Complete",
       "startDate": null,
@@ -5814,7 +5814,7 @@
     },
     {
       "id": "BUG-0029",
-      "title": "A response resent after a BFF timeout can be stored twice, up to the 50 cap",
+      "title": "A response resent after a BFF timeout is stored twice when another response landed in between",
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
@@ -5850,7 +5850,7 @@
     },
     {
       "id": "BUG-0032",
-      "title": "Overview answers can arrive out of order, and the first overview read never retries",
+      "title": "Overview answers can arrive out of order, and a failed first overview read waits for Try again",
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
@@ -5862,7 +5862,7 @@
     },
     {
       "id": "BUG-0033",
-      "title": "The export menu has no entries for the participant view or an amending participant's export",
+      "title": "The export menu has no participant view of the group or index, and no export of an amending subject",
       "severity": "Low",
       "relatedStory": "US-0066",
       "relatedTask": "TASK-0104",
@@ -7358,9 +7358,9 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-07T01:47:28.081Z",
-  "commitSha": "eb2f4d3",
-  "buildNumber": "558",
+  "generatedAt": "2026-11-07T02:00:13.448Z",
+  "commitSha": "b0b7f20",
+  "buildNumber": "559",
   "branch": "feature/EPIC-0002-US-0066-close-out-polish",
   "sessionTimeline": [
     {
@@ -7672,7 +7672,7 @@
       "2026-11-05T23:39:58.694Z",
       "2026-11-07T00:39:13.799Z",
       "2026-11-07T01:26:35.024Z",
-      "2026-11-07T01:47:28.142Z"
+      "2026-11-07T02:00:13.510Z"
     ],
     "doneCounts": [
       0,

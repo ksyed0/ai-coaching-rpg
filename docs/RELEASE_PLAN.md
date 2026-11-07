@@ -14,10 +14,11 @@ Dependencies: None
 
 ```
 EPIC-0002: Slice 2 — web lobby, session view and reconnect
-Description: Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064).
+Description: Browser lobby with consent and role assignment, text session view, minimal facilitator console, replay-from-seq reconnect. Design: docs/superpowers/specs/2026-10-26-web-client-design.md, three slices: 2a platform and participant (US-0052..US-0056, US-0065), 2b facilitator console (US-0057..US-0061), 2c reports (US-0062..US-0064, with the slice 2c-4 close-out US-0066).
 Release Target: MVP
 Status: Complete
 Dependencies: EPIC-0001
+Notes: Complete as of 2026-11-06 (slice 2c-4 PR 2, US-0066), pending the owner's sign-off on Deviation 3 of the slice 2c-4 plan: by default the console subject list gets no "AI player, not scored" row (an AI role is never a moderation subject and cannot be exported; "AI player" shows only on the link row of an AI role that still has a live credential).
 ```
 
 ```

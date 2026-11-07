@@ -382,7 +382,7 @@ Lesson Encoded: No
 Left open by the slice 2c-1 reviews, none blocking. (1) The Playwright test seeds its review folders with the runtime's `moderate` functions (`services/control/src/__tests__/seed-report-folders.ts`, which also reaches into runtime test fixtures and seeds `alice` and `bob`, not the session's seated roles) instead of running a real `evaluate`. (2) Axe covers the report and refused states and the console panel, but not the throttled and not-released states or `/report/enter`. (3) `ReportLinksPanel` keeps "Revoked" and "Link expired" branches that the real API never produces, because control lists only live credentials. (4) The `ReportView` retry has no unmount guard (harmless in React 18). Fix: move the seeder under `services/runtime` and use the session's roles; add the Axe states; drop or feed the dead branches.
 
 ```
-BUG-0029: A response resent after a BFF timeout can be stored twice, up to the 50 cap
+BUG-0029: A response resent after a BFF timeout is stored twice when another response landed in between
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
@@ -391,7 +391,7 @@ Fix Branch: none yet
 Lesson Encoded: No
 ```
 
-Deferred from the slice 2c-4 review (spec section 4.3). `POST /api/v1/report/responses` has no idempotency key. If the BFF times out after control has already recorded a response, the participant sees an error, sends again, and the review holds the same text twice; the per-credential cap of 50 responses is the only limit. Harmless to the scores (a response is a note, not a rating) but noisy in the report and the export. Fix: a client-generated key on the request that control stores with the event and checks before appending. This is a wire change (an optional field first, then required), so it needs its own slice and the usual control-before-web deploy order.
+Deferred from the slice 2c-4 review (spec section 4.3). `POST /api/v1/report/responses` has no idempotency key. A plain resend is already safe: `addResponse` (services/runtime/src/participant/write.ts) ignores a response identical to the subject's LAST one (same criterion, text and dispute flag; answered `wrote: 0`). What is left: if the BFF times out after control has recorded response A, and another response B is recorded for the same role before A is resent (a second tab, or the participant sending something else first), the resend of A no longer matches the last response and A is stored twice. A resend with edited text is stored as a new response too, beside the original the participant believed lost. The cap of 50 responses is per role (LIMITS.responses on the subject), not per credential. Harmless to the scores (a response is a note, not a rating) but noisy in the report and the export. Fix: a client-generated key on the request that control stores with the event and checks before appending. This is a wire change (an optional field first, then required), so it needs its own slice and the usual control-before-web deploy order.
 
 ```
 BUG-0030: A forwarded report link can use up its owner's 50 response slots, and a response is not redacted
@@ -415,10 +415,10 @@ Fix Branch: none yet
 Lesson Encoded: No
 ```
 
-Deferred from the slice 2c-4 review (spec section 4.3). A review folder created by an older evaluator carries the earlier schema version. Control answers `old_schema` for a participant's self-rating or response on it, and the console has no way to upgrade it, so the only route is the terminal and a fresh `evaluate`. Reads still work. Fix: a one-off migration (a `moderate migrate` command that rewrites the review header and replays the log under the new schema), with a test on a fixture of the old folder. Not needed for any review created from now on.
+Deferred from the slice 2c-4 review (spec section 4.3). A review opened before slice 2c-2 carries the schema `acr.review/1`: the schema is written by `moderate open` into the `review.opened` event (services/runtime/src/review/store.ts), not by the evaluator. Control answers `old_schema` for a participant's self-rating or response on it, with the sentence "This review was opened before online ratings were available. Your facilitator can take your rating or response in the terminal." (WRITE_OLD_SCHEMA, services/control/src/participant-writes.ts). The ways out today are to take the rating or response in the terminal (facilitator-attested), or to get a `/2` review by opening a new directory: `moderate open` refuses a directory that already holds a review ("a review is already open here"), so this means a re-run of `pnpm evaluate` into a new directory and `moderate open` on it, or `moderate supersede <old> <new>` once a version was released (supersede writes a new `review.opened` with the current schema and carries the moderation). The console offers none of these. Reads still work. Fix: a one-off migration (a `moderate migrate` command that rewrites the review header and replays the log under the new schema), with a test on a fixture of the old folder. Not needed for any review created from now on.
 
 ```
-BUG-0032: Overview answers can arrive out of order, and the first overview read never retries
+BUG-0032: Overview answers can arrive out of order, and a failed first overview read waits for Try again
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
@@ -427,10 +427,10 @@ Fix Branch: none yet
 Lesson Encoded: No
 ```
 
-Deferred from the slice 2c-4 review (spec section 4.3). The Report panel refreshes the moderation overview after each write and on focus. Two requests in flight can answer in the wrong order, so an older overview can replace a newer one until the next refresh. The first read after opening the panel is not retried when it fails, so a transient 503 leaves the panel on its error line until the facilitator reloads. Fix: tag each request with a sequence number and ignore a stale answer; retry the first read once or twice with the same back-off as the report page.
+Deferred from the slice 2c-4 review (spec section 4.3). The Report panel (apps/web/src/components/console/report/ReportPanel.tsx) reads the overview when it mounts, again after each of its own writes, and polls it only while the stage is `evaluating`; it does not refresh on focus. Two reads in flight (a write's refresh beside a poll, or two quick writes) can answer in the wrong order, and `load` keeps whichever answers last, so an older overview can replace a newer one until the next read. A failed read is not retried by itself: the panel shows the fixed sentence with a "Try again" button, so a transient 503 needs one click. Fix: tag each read with a sequence number and ignore an answer older than the newest one applied; optionally retry a failed first read once after a short delay.
 
 ```
-BUG-0033: The export menu has no entries for the participant view or an amending participant's export
+BUG-0033: The export menu has no participant view of the group or index, and no export of an amending subject
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
@@ -439,7 +439,7 @@ Fix Branch: none yet
 Lesson Encoded: No
 ```
 
-Deferred from the slice 2c-4 review (spec section 4.3). The terminal's `moderate export` can produce the participant-view export and an export of a subject that is amending. The console's export menu offers only the facilitator export of a released or draft subject. Fix: add the two entries to `ExportMenu`, using the existing export route with the audience it already accepts, with a dialog line that names the audience as the release dialog does.
+Deferred from the slice 2c-4 review (spec section 4.3). `ExportMenu` (apps/web/src/components/console/report/ExportMenu.tsx) lists only released subjects (and the index once the group is released); for a player's report it already offers that player's own view, but for the group and the index it offers only the facilitator's view. The export route already accepts `participant:<role>` for every subject (services/control/src/moderation-routes.ts), and the runtime's export gate (`exportGate` and `canView`) allows (1) a participant's view of the group or the index, with peers' results removed, and (2) a participant's export of an AMENDING subject, which is its last released version (a facilitator export of an amending subject is refused as `not_released`). Drafts are never exported. Fix: in `ExportMenu`, offer a participant view of the group and the index (choosing which participant), and list an amending subject for the participant's view only, with a line that says it is the released version; reuse the existing route.
 
 ```
 BUG-0034: Edits made while a save is in flight are lost when the draft clears
@@ -451,4 +451,4 @@ Fix Branch: none yet
 Lesson Encoded: No
 ```
 
-Deferred from the slice 2c-4 review (spec section 4.3). In the participant's self-rating form, a save clears the browser draft when it succeeds. If the participant types in a box after pressing Save but before the answer arrives, the newer text is cleared with the draft. Fix: remember what was sent and clear the stored draft only if the form still equals it, or mark the form dirty again on any change during the save, with a component test that types between send and answer.
+Deferred from the slice 2c-4 review (spec section 4.3). In the participant's self-rating form, a save clears the browser draft when it succeeds. If the participant types in a box after pressing Save but before the answer arrives, the newer text is cleared with the draft. Fix: remember what was sent and clear the stored draft only if the form still equals it, or mark the form dirty again on any change during the save, with a component test that types between send and answer. (The console's Summary editor avoids the same race by disabling its boxes while a save is in flight.)
