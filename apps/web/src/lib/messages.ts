@@ -196,4 +196,6 @@ export const REPORT_CONSOLE = {
   summaryTooMany: "Each list can have at most 50 entries.",
   summaryTooLong: "Each entry can be at most 400 characters.",
   summaryTooLarge: "The summary is too large to save. Shorten it, then try again.",
+  summaryReasonTooLong: "The reason can be at most 500 characters.",
+  summaryMultiline: "An entry of this summary has a line break, so it cannot be edited here. Change it with pnpm moderate edit-summary.",
 } as const;

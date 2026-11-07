@@ -9,6 +9,11 @@ import { REPORT_CONSOLE } from "../../../lib/messages";
 // actions line is `LO-ID: text`, split on the first colon; whether the id is one of the report's objectives is the server's call. The
 // limits (50 entries a list, 400 characters an entry, a 16 KB body) are checked before sending; any refusal is one fixed sentence and
 // what was typed stays. Entries are shown only as textarea values (text, never HTML).
+//
+// Two limits of "untouched is unchanged": (1) an entry holding a line break cannot be shown one per line without splitting it, so the
+// editor is not offered for such a summary (the terminal's `moderate edit-summary` is). (2) The pre-filled text is the console's display
+// copy (services/runtime/src/moderation/read.ts through cleanLine): hidden characters stripped, secrets shown as [redacted], home and
+// temp paths shortened to ~ and <tmp>. An entry that held any of those is saved as displayed; the browser cannot tell, so there is no guard.
 
 type Summary = { strengths: string[]; developments: string[]; actions: { lo: string; text: string }[] };
 
@@ -28,6 +33,7 @@ export type SummaryEditorProps = {
 /** The BFF's and control's limits (console-report-handlers.ts MAX_ITEMS and MAX_TEXT_BODY_BYTES; LIMITS.item in the runtime). */
 const MAX_ITEMS = 50;
 const MAX_ITEM_CHARS = 400;
+const MAX_REASON_CHARS = 500;
 const MAX_BODY_BYTES = 16 * 1024;
 
 const lines = (v: string): string[] => v.split(/\r\n?|\n/).map((l) => l.trim()).filter((l) => l !== "");
@@ -49,6 +55,7 @@ function check(d: Draft, by: string): { body: Parameters<typeof editSummary>[2] 
     if (lo === "" || text === "") return { refusal: REPORT_CONSOLE.summaryActionLine };
     actions.push({ lo, text });
   }
+  if (chars(d.reason.trim()) > MAX_REASON_CHARS) return { refusal: REPORT_CONSOLE.summaryReasonTooLong };
   const strengths = lines(d.strengths);
   const developments = lines(d.developments);
   if (strengths.length + developments.length + actions.length === 0) return { refusal: REPORT_CONSOLE.summaryEmpty };
@@ -73,6 +80,8 @@ export function SummaryEditor({ sessionId, subject, author, summary, editable, f
   }, []);
 
   if (!editable) return null;
+  const broken = [...summary.strengths, ...summary.developments, ...summary.actions.map((a) => a.text)].some((t) => /[\r\n]/.test(t));
+  if (broken) return <p className="small muted">{REPORT_CONSOLE.summaryMultiline}</p>;
   const ready = draft !== null && draft.reason.trim() !== "" && author !== null && !pending;
 
   async function save() {
@@ -98,7 +107,7 @@ export function SummaryEditor({ sessionId, subject, author, summary, editable, f
   if (draft === null) {
     return (
       <div>
-        <button className="btn" type="button" disabled={pending} onClick={() => { setError(""); setDraft(draftOf(summary)); }}>
+        <button className="btn" type="button" disabled={author === null || pending} onClick={() => { setError(""); setDraft(draftOf(summary)); }}>
           {REPORT_CONSOLE.summaryEdit}
         </button>
       </div>
@@ -108,7 +117,7 @@ export function SummaryEditor({ sessionId, subject, author, summary, editable, f
   const box = (key: keyof Draft, label: string, rows: number) => (
     <div className="field">
       <label htmlFor={`${id}-${key}`}>{label}</label>
-      <textarea id={`${id}-${key}`} className="t" rows={rows} value={draft[key]} required={key === "reason"} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
+      <textarea id={`${id}-${key}`} className="t" rows={rows} value={draft[key]} required={key === "reason"} disabled={pending} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />
     </div>
   );
 

@@ -142,7 +142,7 @@ describe("SubjectList after release", () => {
     expect(labels).not.toContain("Withdraw Account manager");
   });
 
-  it("offers Amend, Withdraw and Export on a released subject, Release on an amending one, and nothing on a withdrawn one", () => {
+  it("offers Amend, Withdraw and Export on a released subject, Withdraw and Release on an amending one, and nothing on a withdrawn one", () => {
     const o = parseReportOverview(inReview([
       row("account_manager", { state: "released", version: 4 }),
       row("sales_lead", { state: "amending", version: 5 }),
