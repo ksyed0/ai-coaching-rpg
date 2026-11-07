@@ -7,6 +7,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 - A change typed while the self-rating form is saving is no longer lost (EPIC-0002, BUG-0034). If you changed a rating or a note after pressing Save and before the answer came back, the form used to clear the saved draft and say "Saved" although the newer change had not been sent, so a reload lost it. The form now keeps the draft and says "Your latest changes have not been sent yet. Press Save again to send them."
+- A participant report link that has sent 25 responses now says so (EPIC-0002, BUG-0030). A forwarded link could use up all 50 of a participant's response slots. Each link may now send at most 25 responses; the 26th is refused with "This link has reached its limit of 25 responses. Ask your facilitator for a new link to send more.", which stays above the form while what was typed is kept. A link the facilitator reissues starts with a fresh 25; the limit of 50 responses per report still applies. Responses already sent are not removed.
+- A response sent again is no longer stored twice (EPIC-0002, BUG-0029). A resend after a timeout used to be stored a second time when another response had been sent in between. A response identical to any earlier one of the same report (same criterion, words and disagreement flag) is now answered as sent and not stored again, unless it repeats a disagreement the facilitator has already resolved. Edited text is still a new response.
+- Participants behind a shared address are no longer locked out by someone sending forged report cookies (EPIC-0002, BUG-0025). Requests with a forged or broken report cookie blocked every reader behind the same address for a minute, valid ones included, and could fill the table that the link page uses. The web server now checks the cookie first: a valid one is never blocked by its address, and failed cookies have a table of their own.
 
 ## [0.2.0] - 2026-11-06
 

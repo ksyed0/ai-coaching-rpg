@@ -2377,3 +2377,48 @@ Actual Result: As expected, 2026-11-06: step 1, 1 file, 27 tests (4 new, of whic
 Status: [x] Pass
 Defect Raised: BUG-0034
 Notes: Fixed in the bugfix/BUG-0034-participant-path branch (commits 8ade287 and bcf5172 for steps 1, 17d7955 for step 2 and 839925f for step 3). Mutation check: clearing the draft after every successful save makes the held-fetch test fail; guarding the retry with `() => true` makes step 2 fail. Not covered: a real browser edit during a save.
+
+TC-0155: A valid report cookie is unsealed before the per-address failure throttle, so forged cookies never block a valid reader or writer
+Related Story: US-0062
+Related Task: TASK-0100
+Related AC: AC-0368
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/server/__tests__/report-handlers.test.ts` (a failed unseal, a missing cookie included, is still counted per address and blocked after 5 in 60 s; a valid cookie from a blocked address reads 200; 200 forged cookies from one address never block a valid reader from it; a valid cookie whose credential is gone gets the byte-identical neutral 404 with the clearing `Set-Cookie`, is not charged, and is the same 404 from a blocked address; with the read-fail table saturated, a forged cookie from a new address is 429 while a valid read and a valid enter from it pass).
+  2. From `apps/web`: `pnpm exec vitest run src/server/__tests__/report-writes.test.ts` (forged writes are charged to the read-fail table, never the enter table; after 50 forged writes a valid rating and a valid response from the same address are saved; a valid write cookie whose credential is gone is the neutral 404 and not charged).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-07: step 1, 1 file, 34 tests (4 new, 1 rewritten); step 2, 1 file, 13 tests (2 new, 2 changed; 1 of the new is the BUG-0030 case of TC-0157).
+Status: [x] Pass
+Defect Raised: BUG-0025
+Notes: Fixed in bugfix/BUG-0025-throttle-resend-link-cap (6453541). Negative tests for a security rule changed by owner decision (docs/THREAT_MODEL.md, "The read route is throttled ..."). Mutation check: checking the address block before the unseal fails 5 tests; charging the enter table instead of `reportReadFailThrottle` fails 2.
+
+TC-0156: A resend identical to any earlier unresolved response of the role is not stored twice; a resolved dispute or edited text is stored
+Related Story: US-0066
+Related Task: TASK-0104
+Related AC: AC-0369
+Type: Regression
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/write.test.ts` (A, then B and C, then a resend of A answers `{ kind: "ok", wrote: false }` and writes nothing, and so does a resend of the comment B through another link; a dispute A resolved by `moderate resolve` no longer blocks the same dispute, and the new unresolved copy blocks a further resend; edited text, another criterion, no criterion and another role are stored).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-07: 1 file, 35 tests (3 for this case, of which 1 replaces "only the most recent response counts for a duplicate").
+Status: [x] Pass
+Defect Raised: BUG-0029
+Notes: Fixed in bugfix/BUG-0025-throttle-resend-link-cap (c10a07a), with no wire change. Mutation check: comparing with the last response only fails the A, B, A test; ignoring the resolution fails the resolved-dispute test. Not covered: the client idempotency key (the next wire version).
+
+TC-0157: One report link writes at most 25 responses, is refused with a notice to ask for a new link, and a reissued link has a fresh budget
+Related Story: US-0066
+Related Task: TASK-0104
+Related AC: AC-0369
+Type: Negative
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/participant/__tests__/write.test.ts` (`RESPONSES_PER_LINK` is 25; the 26th response through one credential, a dispute included, is `link_full` and writes nothing, while an identical resend is still `wrote: false`; a facilitator-attested response and another link's do not count; a new credential writes again; two links of 25 fill the role's 50, then a third link and a link at its own cap both get `too_many`).
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/participant-writes.test.ts src/__tests__/api.participant.test.ts` (409 `link_full` with `WRITE_LINK_FULL`, equal to `REPORT_SENTENCES.linkFull`; 25 more refusals never become a 429; after `reissue` the new credential writes and the old one is the neutral 404; the route passes the code and message through).
+  3. From `apps/web`: `pnpm exec vitest run src/server/__tests__/launcher-client.test.ts src/server/__tests__/report-writes.test.ts src/lib/__tests__/report-sentences.test.ts src/components/__tests__/ResponseForm.test.tsx` (control's 409 `link_full` is the state `link_full`; the BFF answers 409 with that state and the shared sentence; the sentence is defined once and not re-declared by control or the BFF; the page shows the sentence in the alert and as a lasting notice, keeps the text, disables Send and sends nothing more).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-07: step 1, 1 file, 35 tests (2 new, 1 changed); step 2, 2 files, 22 and 11 tests (1 new, 2 changed); step 3, 4 files, 86, 13, 5 and 8 tests (3 new, 4 changed).
+Status: [x] Pass
+Defect Raised: BUG-0030
+Notes: Fixed in bugfix/BUG-0025-throttle-resend-link-cap (c10a07a, 86984be). Mutation check: counting every link's responses, or a cap of 26, fails 2 runtime tests; checking the link cap before the role cap fails 1; dropping `link_full` from the launcher's conflict states fails the mapping test; never setting the page's link-full state fails the notice test. Not covered: the console does not show a link at its cap (follow-up); redaction (US-0069).

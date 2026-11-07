@@ -2023,6 +2023,20 @@ Notes: Filed 2026-11-06 on the owner's decision on Deviation 3 of slice 2c-4 (sp
 ```
 
 ```
+US-0069 (EPIC-0002): As a facilitator, I want to hide a participant response from the released report, so that an abusive or mistaken response can be removed without deleting the record.
+Priority: Low
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0002-US-0069-hide-response
+Dependencies: US-0063
+Acceptance Criteria:
+  - [ ] AC-0392: the console offers a hide action on a response, and hiding it records an event in the review log with who hid it, when and why (a required reason)
+  - [ ] AC-0393: a hidden response never appears in a participant or facilitator export or on the participant's page, and the facilitator's review shows it as "hidden by facilitator"
+  - [ ] AC-0394: the audit log keeps the original text: hiding never rewrites or deletes the `response.added` event
+Notes: Filed 2026-11-07 with the owner's BUG-0030 decision: a per-link response cap (25 per link, bugfix/BUG-0025-throttle-resend-link-cap) is built now; redaction is this later story, for when real misuse appears. A response is the participant's own text and is not redacted today (docs/THREAT_MODEL.md, "Participant ratings and responses"). The fold has no hide event yet, so the work is a new review event type, a fold and policy change, the console action and the export filter.
+```
+
+```
 US-0067 (EPIC-0009): As a participant, I want to use the product and play scenarios in my own language, so that language is not a barrier to coaching practice.
 Priority: Medium
 Estimate: XL
