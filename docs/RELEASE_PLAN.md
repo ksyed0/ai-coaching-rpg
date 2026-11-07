@@ -2033,6 +2033,7 @@ Acceptance Criteria:
   - [ ] AC-0392: the console offers a hide action on a response, and hiding it records an event in the review log with who hid it, when and why (a required reason)
   - [ ] AC-0393: a hidden response never appears in a participant or facilitator export or on the participant's page, and the facilitator's review shows it as "hidden by facilitator"
   - [ ] AC-0394: the audit log keeps the original text: hiding never rewrites or deletes the `response.added` event
+  - [ ] AC-0395: a hidden response still counts toward BOTH response caps, the per-link cap (25, counted from the `response.added` events) and the per-role cap (50, today `sv.responses.length` in the fold's list), so hiding never refunds a budget; a hide that removes a response from the fold's list must keep it in the per-role count
 Notes: Filed 2026-11-07 with the owner's BUG-0030 decision: a per-link response cap (25 per link, bugfix/BUG-0025-throttle-resend-link-cap) is built now; redaction is this later story, for when real misuse appears. A response is the participant's own text and is not redacted today (docs/THREAT_MODEL.md, "Participant ratings and responses"). The fold has no hide event yet, so the work is a new review event type, a fold and policy change, the console action and the export filter.
 ```
 
