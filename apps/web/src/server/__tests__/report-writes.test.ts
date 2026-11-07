@@ -48,6 +48,7 @@ beforeEach(() => {
     reportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: t }),
     reportWriteThrottle: new JoinThrottle({ max: 30, windowMs: 60_000, blockMs: 60_000, now: t }),
     reportEnterThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
+    reportReadFailThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
   } as unknown as Deps;
   for (const k of ["error", "warn", "log", "info", "debug"] as const) vi.spyOn(console, k).mockImplementation(() => {});
 });
@@ -72,6 +73,7 @@ describe("participant write routes", () => {
     expect(calls()).toBe(0);
     expect(deps.reportWriteThrottle.blockedForMs(CRED_ID, "*report-write-cred")).toBe(0);
     expect(deps.reportEnterThrottle.size).toBe(0);
+    expect(deps.reportReadFailThrottle.size).toBe(0);
     expect(deps.reportWriteThrottle.size).toBe(0);
   });
 
@@ -121,6 +123,29 @@ describe("participant write routes", () => {
     const blocked = await handleReportRate(rateReq(RATINGS, none), deps);
     expect(blocked.status).toBe(429);
     expect(blocked.headers.get("Retry-After")).not.toBeNull();
+    // the failures are charged to the read-fail table, never to the enter table
+    expect(deps.reportEnterThrottle.size).toBe(0);
+  });
+
+  it("BUG-0025: writes unseal first, so forged writes from an address never block a valid writer behind it", async () => {
+    const forged = { ...SAME_SITE, Cookie: `${REPORT_COOKIE}=forged` };
+    for (let i = 0; i < 50; i += 1) await handleReportRespond(respondReq(undefined, forged), deps);
+    expect((await handleReportRate(rateReq(RATINGS, forged), deps)).status).toBe(429);
+    expect((await handleReportRespond(respondReq(), deps)).status).toBe(200);
+    expect((await handleReportRate(rateReq(), deps)).status).toBe(200);
+    expect(launcher.respondReport).toHaveBeenCalledTimes(1);
+    expect(launcher.rateReport).toHaveBeenCalledTimes(1);
+  });
+
+  it("BUG-0025: a valid write cookie whose credential is gone is the neutral 404 and is not charged to the address", async () => {
+    launcher.respondReport.mockRejectedValue(new LauncherError("not_found"));
+    for (let i = 0; i < 8; i += 1) {
+      const p = await parts(await handleReportRespond(respondReq(), deps));
+      expect(p.status).toBe(404);
+      expect(p.json.error).toEqual({ code: "not_found", message: "Not found." });
+      expect(p.headers.get("Set-Cookie")).toMatch(/Max-Age=0/);
+    }
+    expect(deps.reportReadFailThrottle.size).toBe(0);
   });
 
   it("a control 404 clears the cookie; a 503 keeps it (Review Focus 4)", async () => {

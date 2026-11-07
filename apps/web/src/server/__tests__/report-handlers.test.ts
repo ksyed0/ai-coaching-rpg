@@ -85,6 +85,7 @@ beforeEach(() => {
     joinThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
     reportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: t }),
     reportEnterThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
+    reportReadFailThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
   } as unknown as Deps;
   logged = [];
   for (const k of ["error", "warn", "log", "info", "debug"] as const) {
@@ -350,18 +351,66 @@ describe("GET /api/v1/report", () => {
     expect(launcher.readReport).toHaveBeenCalledTimes(100);
   });
 
-  it("cookies that fail before reaching control are counted per address: the sixth is refused, the seventh is a 429; other addresses and valid readers behind a clean address are fine", async () => {
+  it("cookies that fail to unseal are counted per address: the sixth is refused, the seventh is a 429 until the block ends", async () => {
     for (let i = 0; i < 6; i++) expect((await handleReportGet(getReq(`${REPORT_COOKIE}=forged${i}`), deps)).status).toBe(404);
     const blocked = await handleReportGet(getReq(`${REPORT_COOKIE}=forged7`), deps);
     expect(blocked.status).toBe(429);
     expect(blocked.headers.get("Retry-After")).toBe("60");
     expectPrivate(blocked);
-    // the block is for the address, so a valid cookie from it waits too; a different address does not
-    expect((await handleReportGet(getReq(reportCookie()), deps)).status).toBe(429);
-    expect((await handleReportGet(getReq(reportCookie(), { "X-Forwarded-For": "203.0.113.9" }), deps)).status).toBe(200);
-    expect(launcher.readReport).toHaveBeenCalledTimes(1);
+    // a missing cookie is a failed unseal too
+    expect((await handleReportGet(getReq(), deps)).status).toBe(429);
+    expect(launcher.readReport).not.toHaveBeenCalled();
     now += 60_001;
-    expect((await handleReportGet(getReq(reportCookie()), deps)).status).toBe(200);
+    expect((await handleReportGet(getReq(`${REPORT_COOKIE}=forged8`), deps)).status).toBe(404);
+  });
+
+  it("BUG-0025: the cookie is unsealed first, so a valid cookie from a blocked address still reads", async () => {
+    for (let i = 0; i < 7; i++) await handleReportGet(getReq(`${REPORT_COOKIE}=forged${i}`), deps);
+    expect((await handleReportGet(getReq(`${REPORT_COOKIE}=forged`), deps)).status).toBe(429);
+    const res = await handleReportGet(getReq(reportCookie()), deps);
+    expect(res.status).toBe(200);
+    expectPrivate(res);
+    expect(launcher.readReport).toHaveBeenCalledTimes(1);
+    // the address is still blocked for failed unseals
+    expect((await handleReportGet(getReq(`${REPORT_COOKIE}=forged`), deps)).status).toBe(429);
+  });
+
+  it("BUG-0025: a flood of forged cookies from one address never blocks a valid reader behind it", async () => {
+    for (let i = 0; i < 200; i++) {
+      expect([404, 429]).toContain((await handleReportGet(getReq(`${REPORT_COOKIE}=forged${i}`), deps)).status);
+      if (i % 20 === 0) expect((await handleReportGet(getReq(reportCookie({ credentialId: `CRED${String(i).padStart(7, "0")}` })), deps)).status).toBe(200);
+    }
+    expect(launcher.readReport).toHaveBeenCalledTimes(10);
+  });
+
+  it("BUG-0025: a valid cookie whose credential is gone gets the byte-identical neutral 404, clears the cookie and is not charged to the address", async () => {
+    launcher.readReport.mockRejectedValue(new LauncherError("not_found"));
+    for (let i = 0; i < 10; i++) {
+      const res = await handleReportGet(getReq(reportCookie({ credentialId: `CRED${String(i).padStart(7, "0")}` })), deps);
+      expect(res.status).toBe(404);
+      expect(await res.text()).toBe(NEUTRAL);
+      expect(res.headers.get("Set-Cookie")).toBe("__Host-scenecoach-report=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax");
+    }
+    // ten refusals of valid cookies left the address untouched: five forged cookies are still free
+    expect(deps.reportReadFailThrottle.size).toBe(0);
+    for (let i = 0; i < 5; i++) expect((await handleReportGet(getReq(`${REPORT_COOKIE}=forged${i}`), deps)).status).toBe(404);
+    // and from a blocked address a revoked cookie is the same neutral 404, not a 429
+    for (let i = 0; i < 2; i++) await handleReportGet(getReq(`${REPORT_COOKIE}=forged`), deps);
+    const gone = await handleReportGet(getReq(reportCookie()), deps);
+    expect(gone.status).toBe(404);
+    expect(await gone.text()).toBe(NEUTRAL);
+  });
+
+  it("BUG-0025: a read-fail table saturated by forged cookies blocks neither a valid enter nor a valid read from a new address", async () => {
+    deps = { ...deps, reportReadFailThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: () => now, maxKeys: 3 }) } as Deps;
+    for (let a = 1; a <= 4; a++) {
+      for (let i = 0; i < 7; i++) await handleReportGet(getReq(`${REPORT_COOKIE}=forged${i}`, { "X-Forwarded-For": `198.51.100.${a}` }), deps);
+    }
+    const fresh = { "X-Forwarded-For": "203.0.113.77" };
+    // the table is saturated: a forged cookie from an untracked address is refused 429 (fail closed)
+    expect((await handleReportGet(getReq(`${REPORT_COOKIE}=forged`, fresh), deps)).status).toBe(429);
+    expect((await handleReportGet(getReq(reportCookie(), fresh), deps)).status).toBe(200);
+    expect((await handleReportEnter(enterReq(undefined, { ...SAME_SITE, ...fresh }), deps)).status).toBe(200);
   });
 
   it("valid reads never count as address failures, and the read keys do not collide with the enter keys", async () => {

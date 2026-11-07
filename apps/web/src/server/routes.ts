@@ -63,6 +63,9 @@ export function createDeps(env: Record<string, string | undefined>): Deps {
     consoleReportThrottle: new JoinThrottle({ ...CONSOLE_REPORT_THROTTLE, now }),
     // Failed report-link tokens: the join's limits, in a table of their own.
     reportEnterThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
+    // Report cookies that do not unseal (BUG-0025): the join's limits, in a table of their own, so a flood of forged cookies cannot
+    // saturate the enter table, and a valid cookie never consults it.
+    reportReadFailThrottle: new JoinThrottle({ ...JOIN_THROTTLE, now }),
     facilitatorBudget: new FacilitatorBudget(),
     facilitatorHub: new FacilitatorHub({ setTimer: realTimer, now }),
     hub: new StreamHub({ maxStreams: config.maxStreams, maxStreamsPerSession: config.maxStreamsPerSession, maxStreamsPerAddress: config.maxStreamsPerAddress, setTimer: realTimer, now }),
