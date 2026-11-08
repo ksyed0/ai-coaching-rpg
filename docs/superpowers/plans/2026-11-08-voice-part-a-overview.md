@@ -216,6 +216,8 @@ Rules for each (AGENTS.md §19 and §12): exact version in `package.json` (no `^
 | `TURN_END_MS` | `800` | 300 to 3000 (plan's bound; spec gives the default only) | runtime | `CHILD_ENV_ALLOWLIST.names` |
 | `VOICE_MAX_SEGMENT_MS` | `2500` | 2000 to 6000 | worker | speech env allowlist |
 | `STT_URL` | none (required when `VOICE_ENABLED=1`) | `http://127.0.0.1:<port>[/<path>]` or `http://[::1]:...`; any other host refused | worker | speech env allowlist |
+| `STT_COLD_TIMEOUT_MS` | 30000 | deadline for the first speech-to-text call after the worker starts or after `STT_IDLE_COLD_MS` idle (a local model may need to load); other calls keep the segment deadline | worker | speech env allowlist |
+| `STT_IDLE_COLD_MS` | 600000 | idle time after which the next call counts as cold (local models unload on their own, Osaurus after 15 minutes) | worker | speech env allowlist |
 | `STT_MODEL` | `small.en` | a label (1 to 64, `isSafeId` plus `.`, see Open Question 6) | worker (label), `voice:up` (A1c) | speech env allowlist |
 | `STT_PROVIDER`, `STT_FAKE_SCRIPT`, `SPEECH_INGEST`, `SPEECH_INGEST_DIR` | `whisper`, none, `file` (A1a; `livekit` from A1b), none | `whisper` or `fake`; an absolute JSON file; `file` or `livekit`; an absolute directory. The fake and file values exist for the offline demo and tests, like the mock model provider | worker | speech env allowlist (control adds `SPEECH_INGEST_ROLES` itself) |
 | `AUDIO_MAX_RETENTION_DAYS` | `30` | 1 to 30 | control (sweep) | n/a (A2) |
