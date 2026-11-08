@@ -67,12 +67,31 @@ describe("bootstrap and VOICE_ENABLED (US-0070)", () => {
     if (r.ok) expect(r.runtime.host.voiceEnabled).toBe(true);
   });
 
+  it("ready is followed by voice_seats, and a seat change sends voice_seats again (coalesced); a saved choice sends voice_choice", async () => {
+    const { parent, sent } = fakeParent();
+    const { r } = await boot({ VOICE_ENABLED: "1", CONTROL_MANAGED: "1", CONSENT_NOTICE_VERSION: "v3" }, parent);
+    if (!r.ok) throw new Error(r.errors.join("; "));
+    const types = sent.map((m) => m.type);
+    expect(types.indexOf("voice_seats")).toBe(types.indexOf("ready") + 1);
+    expect(sent.find((m) => m.type === "voice_seats")).toEqual({ type: "voice_seats", paused: false, ended: false, holders: [] });
+    const host = r.runtime.host;
+    host.join("tech_lead", "p1");
+    host.giveConsent("tech_lead", "p1", "v3");
+    host.optInVoice("tech_lead", "p1", "v3");
+    await Promise.resolve();
+    const seats = sent.filter((m) => m.type === "voice_seats");
+    expect(seats).toHaveLength(2);
+    expect(seats[1]).toEqual({ type: "voice_seats", paused: false, ended: false, holders: [{ roleId: "tech_lead", participantId: "p1", recording: true }] });
+    expect(sent.filter((m) => m.type === "voice_choice")).toEqual([{ type: "voice_choice", roleId: "tech_lead", participantId: "p1", choice: "voice", at: expect.any(Number) }]);
+  });
+
   it("VOICE_ENABLED unset: ready has no voice key", async () => {
     const { parent, sent } = fakeParent();
     const { r } = await boot({ CONTROL_MANAGED: "1", CONSENT_NOTICE_VERSION: "v3" }, parent);
     expect(r.ok).toBe(true);
     const ready = sent.find((m) => m.type === "ready")!;
     expect("voice" in ready).toBe(false);
+    expect(sent.some((m) => m.type === "voice_seats" || m.type === "voice_choice")).toBe(false);
     if (r.ok) expect(r.runtime.host.voiceEnabled).toBe(false);
   });
 });

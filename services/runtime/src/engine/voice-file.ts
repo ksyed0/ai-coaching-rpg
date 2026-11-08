@@ -148,3 +148,21 @@ export function writeVoiceFile(dir: string, bind: VoiceBind, choices: VoiceChoic
 export function removeVoiceFile(dir: string, sessionId: string): void {
   removeSecureFile(dir, voiceFileName(sessionId));
 }
+
+/** The voice record of ONE session as the host uses it: the session store builds it beside the seat files (the host never sees a path). */
+export type VoiceFileIO = {
+  read(): { choices: VoiceChoices; problem?: VoiceFileProblem };
+  /** Throws when the file could not be written (or the session lock was lost). */
+  write(choices: VoiceChoices): void;
+  /** Throws when the file could not be removed (or the session lock was lost). */
+  remove(): void;
+};
+
+/** The real VoiceFileIO over `<dir>/<sessionId>.voice.json`; `holdLock` (synchronous, throws when the lock was lost) guards every write and removal. */
+export function voiceFileIO(dir: string, bind: VoiceBind, holdLock?: SyncCheck): VoiceFileIO {
+  return {
+    read: () => readVoiceFile(dir, bind),
+    write: (c) => writeVoiceFile(dir, bind, c, holdLock),
+    remove: () => { holdLock?.(); removeVoiceFile(dir, bind.sessionId); },
+  };
+}

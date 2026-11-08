@@ -228,6 +228,7 @@ export async function bootstrap(opts: {
     if (notes && notes.repairs.length > 0) log(`the restart completed what the crash cut short: ${notes.repairs.join(", ")}`);
   }
   let unsubscribeEnded: (() => void) | undefined;
+  let unsubscribeVoice: (() => void) | undefined;
   // BUG-0016: the host's own session.ended subscriber is registered after a repair-to-ended already happened; a failure is reported, not thrown.
   const revokeEndedSeats = (): void => { try { host.endSeats(); } catch (err) { warn(`end of session revoke: ${err instanceof Error ? err.name : "error"}`); } };
   if (!parent && host.engine.state.status === "ended") revokeEndedSeats();
@@ -244,6 +245,14 @@ export async function bootstrap(opts: {
       host.stopTicker(); await server.close(); gmTrace?.close();
       await store.close();
       return { ok: false, errors: ["could not report the session as ready to the control service (the start was stopped; start again)"] };
+    }
+    // US-0070: the seats the speech worker may record, right after `ready` and then on every change (coalesced by the host), and each
+    // saved voice choice. Control forwards the seats to the worker as voice_state; nothing here carries a transcript or a path.
+    if (host.voiceEnabled) {
+      parent.send({ type: "voice_seats", ...host.voiceSeats() });
+      const offSeats = host.onVoiceSeatsChanged((v) => { parent.send({ type: "voice_seats", ...v }); });
+      const offChoice = host.onVoiceChoice((c) => { parent.send({ type: "voice_choice", ...c }); });
+      unsubscribeVoice = () => { offSeats(); offChoice(); };
     }
     let endedSent = false;
     unsubscribeEnded = host.subscribe((e) => { if (e.type === "session.ended" && !endedSent) { endedSent = true; parent.send({ type: "ended" }); } });
@@ -291,7 +300,7 @@ export async function bootstrap(opts: {
     };
     parent.onMessage((m) => { try { answer(m); } catch { fail(m, m.type === "set_ai_roles" ? AI_ROLES_REFUSED.failed : "the code could not be reissued"); } });
   }
-  return { ok: true, runtime: { port: server.port, host, stop: async () => { unsubscribeEnded?.(); host.stopTicker(); await server.close(); gmTrace?.close(); await store.close(); } } };
+  return { ok: true, runtime: { port: server.port, host, stop: async () => { unsubscribeEnded?.(); unsubscribeVoice?.(); host.stopTicker(); await server.close(); gmTrace?.close(); await store.close(); } } };
 }
 
 /**

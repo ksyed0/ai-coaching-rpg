@@ -4,6 +4,7 @@ import { MAX_JOIN_CODE_INPUT_CHARS } from "../engine/join-codes.js";
 import { REBIND_PENDING } from "../engine/consent.js";
 import { MAX_CREDENTIAL_INPUT_CHARS } from "../engine/credentials.js";
 import type { FacilitatorRosterEntry, PeerRosterEntry } from "./roster.js";
+import type { VoiceState } from "./voice.js";
 
 export const MAX_UTTERANCE_CHARS = 2_000;
 const Id = z.string().min(1).max(CLIENT_ID_MAX_CHARS);
@@ -55,6 +56,11 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
   // (which, like leave, revokes the credential and frees the seat). Both are refused once the start has begun.
   z.object({ type: z.literal("consent"), noticeVersion: z.string().min(1).max(32) }),
   z.object({ type: z.literal("withdraw_consent") }),
+  // US-0070: the holder chooses to take part with voice (naming the server's notice version) or by text only. Allowed before and after
+  // the start (unlike consent); strict, so any other key is bad_message. Refusals use the error frame (voice_off, forbidden, not_joined,
+  // consent_version, voice_notice_required).
+  z.strictObject({ type: z.literal("voice_opt_in"), noticeVersion: z.string().min(1).max(32) }),
+  z.strictObject({ type: z.literal("voice_opt_out") }),
 ]);
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
 
@@ -77,8 +83,12 @@ export type ServerMessage =
       /** US-0053: the session's random log identity, on every player join when the server keeps seats. */
       logIdentity?: string;
       /** US-0054: players only, when the server keeps seats: the notice to agree to and whether this participant has agreed. Never another role's. */
-      consent?: { noticeVersion: string; notice: string; given: boolean } }
+      consent?: { noticeVersion: string; notice: string; given: boolean };
+      /** US-0070: players only, when voice is enabled and the server keeps seats, for a human seat: this seat's own voice state. Never another role's. */
+      voice?: { state: VoiceState } }
   | { type: "event"; event: SessionEvent }
+  // US-0070: answers an accepted voice_opt_in ("voice") or voice_opt_out ("text_only"), to the sender only.
+  | { type: "voice"; state: "voice" | "text_only" }
   // US-0055: who sits where. Each audience gets only its own frame: the facilitator's shows consent and connection, a player's only who is ready.
   | { type: "roster"; audience: "facilitator"; entries: FacilitatorRosterEntry[] }
   | { type: "roster"; audience: "peers"; entries: PeerRosterEntry[] }

@@ -375,6 +375,8 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
               type: "joined", roleId: m.roleId, brief, privateFacts, reconnectToken: token, state: h.snapshotFor(m.roleId), ...(scenes.length > 0 ? { scenes } : {}),
               ...(credential !== undefined ? { credential } : {}), ...(seats ? { logIdentity: seats.credentials.logIdentity } : {}),
               ...(seats && !h.isAiRole(m.roleId) ? { consent: { noticeVersion: seats.consent.notice.version, notice: seats.consent.notice.text, given: h.consentGiven(m.roleId, m.participantId) } } : {}),
+              // US-0070: only this seat's own voice state, only while voice is on (a text-only session's joined is unchanged).
+              ...(seats && (h as Partial<SessionHost>).voiceEnabled === true && !h.isAiRole(m.roleId) ? { voice: { state: h.voiceStateOf(m.roleId) } } : {}),
             });
           } else {
             if (!h) return fail("unknown_session", "no such session");
@@ -422,6 +424,14 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
           host.giveConsent(who, participantId, m.noticeVersion);
           // A repeat from a player who already agreed changes nothing, so it is neither logged nor broadcast.
           if (!had) { rosterChanged(who, "consented"); broadcastRoster(liveEntry!.sessionId, host); }
+          return;
+        }
+        if (m.type === "voice_opt_in" || m.type === "voice_opt_out") {
+          // US-0070: refusals (voice_off, forbidden, not_joined, consent_version, voice_notice_required) come back as HostError below.
+          if (isFacilitator || !participantId) return fail("forbidden", "only a player may choose voice");
+          if (m.type === "voice_opt_in") host.optInVoice(who, participantId, m.noticeVersion);
+          else host.optOutVoice(who, participantId);
+          send({ type: "voice", state: m.type === "voice_opt_in" ? "voice" : "text_only" }); // to this socket only
           return;
         }
         if (m.type === "start") {
