@@ -2,7 +2,7 @@
 
 AGENTS.md section 20: every deployment has a rollback plan written before it starts. Nothing in this repository is deployed to a shared environment yet (the runtime runs on the operator's machine, from `./run.sh` or Docker Compose); this file records what a rollback has to handle, release by release, so the plan exists before the first deployment.
 
-The sections from slice 2a to BUG-0023 ship in release 0.1.0 (tag `v0.1.0`, 2026-11-05), the first tagged release; the sections from slice 2c-1 on ship in release 0.2.0 (tag `v0.2.0`, 2026-11-06), whose deploy order and rollback are summarised in [Release 0.2.0](#release-020-deploy-order-and-rollback) at the end. To go back to 0.1.0, redeploy tag `v0.1.0`; to go back to an earlier state, check out the commit a section names. Sections after the Release 0.2.0 summary are unreleased (after 0.2.0) and say so in their header.
+The sections from slice 2a to BUG-0023 ship in release 0.1.0 (tag `v0.1.0`, 2026-11-05), the first tagged release; the sections from slice 2c-1 on ship in release 0.2.0 (tag `v0.2.0`, 2026-11-06), whose deploy order and rollback are summarised in [Release 0.2.0](#release-020-deploy-order-and-rollback) at the end. To go back to 0.1.0, redeploy tag `v0.1.0`; to go back to an earlier state, check out the commit a section names. The sections after the Release 0.2.0 summary ship in release 0.2.1 (tag `v0.2.1`, 2026-11-08), summarised in [Release 0.2.1](#release-021-deploy-order-and-rollback) at the end. Anything added after that summary is unreleased and says so in its header.
 
 ## EPIC-0002 slice 2a: participant web client (US-0052 to US-0056, US-0065)
 
@@ -415,7 +415,7 @@ Rollback trigger: any trigger of the sections from slice 2c-1 on, or the release
 ## BUG-0025, BUG-0029, BUG-0030: report cookie unsealed first, resend dedupe, per-link response cap
 
 ```
-Release: unreleased (after 0.2.0; bugfix/BUG-0025-throttle-resend-link-cap)
+Release: 0.2.1 (bugfix/BUG-0025-throttle-resend-link-cap, PR #122)
 Date: not deployed
 Rollback trigger: a valid participant is refused or throttled on `/report`, a participant who has sent fewer than 25 responses through a link is told the link is at its limit, a new response is silently not stored, or the change must go for any other reason.
 ```
@@ -434,3 +434,16 @@ Rollback trigger: a valid participant is refused or throttled on `/report`, a pa
 
 ### Rolling forward again
 Redeploy this change, control first. A link that already holds 25 or more responses is at its cap at once; the facilitator's reissue gives a fresh link.
+
+## Release 0.2.1: deploy order and rollback
+
+```
+Release: 0.2.1 (tag `v0.2.1`, from release/0.2.1; bug-fix PRs #119 to #123 into develop)
+Date: not deployed
+Rollback trigger: any trigger of the BUG-0025, BUG-0029, BUG-0030 section, or the release must go back to 0.2.0 for any other reason.
+```
+
+- **Deploy order: the control service before the web app.** 0.2.1 control answers a new closed code, `link_full` (409), for a link that has sent 25 responses. Roll back in the reverse order: the web app first, then control.
+- **Going back to 0.2.0 is safe.** There is no schema change, no new file, no new setting and no data migration; every review log stays readable. An older web app shows "try again" for a link at its cap (nothing is written). Rolling control back restores the per-role cap of 50 and the narrower resend dedupe; responses written meanwhile stay valid.
+- **The other fixes are web-app or test only** (Report panel read ordering and retry, the export menu, the self-rating form draft, shared report sentences, test hygiene) and need no data step to roll back.
+- **Smoke test after a deploy or a rollback:** a released report opens through its link; a response is sent and shows; the console opens an ended session's Report panel; `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads the review.
