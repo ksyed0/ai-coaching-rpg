@@ -471,3 +471,12 @@
 - **Deploy order:** control service before the web app (new closed code `link_full`); roll back the web app first. Going back to 0.2.0 needs no data step.
 - **Verification:** see the release PR.
 - **Next:** US-0068 (plan written in this session, build not started).
+
+## Session 37 (continued) — 2026-11-08 (release 0.2.1 completed, US-0068 planned, documents updated)
+
+- **Release 0.2.1 completed on the owner's instruction ("Complete release 0.2.1"):** PR #125 (`release/0.2.1` into `develop`, squash, 15 of 15 checks green); PR #126 (`release/0.2.1` into `main`, merge commit 3e9a6ca, branch updated from `main` first because `main` carries the v0.2.0 merge commit, CI green again); tag `v0.2.1`; GitHub Release `v0.2.1` with short notes (the v0.1.0 notes were about 116 KB); remote branch `release/0.2.1` deleted. Versions of all workspaces are 0.2.1. Nothing is deployed; control before web.
+- **US-0068 planned (no code):** `docs/superpowers/plans/2026-11-08-us-0068-ai-player-row.md`, 7 tasks, TASK-0105, TC-0158 to TC-0160 reserved; ids: next free TASK-0106, TC-0161 (US-0070, AC-0396, BUG-0035, L-0037, EPIC-0010 unchanged). Ruling to confirm: AI roles from the session log (`aiRolesFor`), not the group draft; an unreadable log shows no row.
+- **Documents updated:** CHANGELOG (0.2.1 cut), README status, PROJECT.md Maintenance Log, ROLLBACK (Release 0.2.1), RELEASE_PLAN (TASK-0105, US-0068 notes), ID_REGISTRY, MEMORY facts 24 and 25, docs/memory/backlog-and-decisions.md (release and recommendations), this file; the dashboard regenerated.
+- **Next-epic recommendation (owner's call, multilingual excluded):** (1) EPIC-0003 voice, the MVP gap and the biggest risk: brainstorm, spec, then a latency spike; (2) US-0048 name, domain and trademark check, in parallel; (3) EPIC-0004 3D with the EPIC-0007 design system; (4) the landing page; (5) EPIC-0008 multi-client after a shared deployment exists. Consider a pilot hosting epic (EPIC-0010). Reasons in `docs/memory/backlog-and-decisions.md`.
+- **Verification:** no code changed in this session beyond version numbers; typecheck clean, `npx jest tests/unit/id-registry.test.js` 8 of 8, `npm run plan:generate` ok, CI 15 of 15 on #125 and #126.
+- **Next:** the owner picks the next epic or says "build US-0068".
