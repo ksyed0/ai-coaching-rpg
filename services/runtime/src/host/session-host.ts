@@ -14,7 +14,7 @@ import { actorLabel, cleanBotAlertMessage, cleanClosingMessage, cleanFacilitator
 import { ReviewUsageError } from "../review/errors.js";
 import { noticeNamesAiPlayers, noticeNamesVoice } from "./limits.js";
 import { VoiceChoices, type VoiceFileIO } from "../engine/voice-file.js";
-import { buildVoiceSeats, realSetTimer, VoiceTurnTracker, type SetTimer, type VoiceSeats, type VoiceState } from "./voice.js";
+import { buildVoiceSeats, gmUnits, realSetTimer, VoiceTurnTracker, type SetTimer, type VoiceSeats, type VoiceState } from "./voice.js";
 import type { VoiceConfig } from "./voice-config.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
@@ -88,6 +88,8 @@ export class SessionHost {
    */
   private voiceChain: Promise<number> = Promise.resolve(0);
   private readonly voiceTurnListeners = new Set<(open: boolean) => void>();
+  /** US-0070 (C7): the last seq before this process knew voice-turn boundaries (a restart): lines up to it count by runs (gmUnits). */
+  private voiceKnownFrom = 0;
 
   constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034, GM_AUTO_RELEASE (default off): the Game Master releases a hidden fact itself instead of only suggesting it. */ gmAutoRelease?: boolean; /** US-0019, GM_TRANSCRIPT_WINDOW (default 40): the latest utterances of the scene each Game Master prompt holds. */ gmTranscriptWindow?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number; /** US-0053: durable credentials and consent; when absent, players join by code or reconnect token only. */ seats?: Seats; /** US-0070: voice input (VOICE_ENABLED); default off. */ voice?: VoiceConfig; /** US-0070: the voice-turn timer (default a real, unref'd setTimeout). */ setTimer?: SetTimer }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
@@ -119,7 +121,10 @@ export class SessionHost {
     }
     // US-0053: a credential is worth nothing after the session ends, so every one is revoked when the end is recorded.
     if (this.seats) opts.engine.subscribe((e) => { if (e.type === "session.ended") { try { this.endSeats(); } catch (err) { this.report("end of session revoke", err); } } });
-    this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), maxTokens: opts.gmMaxTokens, temperature: opts.gmTemperature, evaluationTimeoutMs: opts.gmTimeoutMs ?? gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS), reask: opts.gmReask, everyNUtterances: opts.gmEveryN, trace: opts.gmTrace, autoRelease: opts.gmAutoRelease, transcriptWindow: opts.gmTranscriptWindow });
+    // US-0070 (C7): with voice the Game Master counts closed voice turns, not segments, and judges nothing while a turn is open.
+    const turns = this.turns;
+    const voiceGm = turns ? { units: (l: { seq: number; channel: string }[]) => gmUnits(l, turns.closedTurnEnds, this.voiceKnownFrom), hold: () => turns.open } : {};
+    this.gm = new GameMaster({ ...voiceGm, engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), maxTokens: opts.gmMaxTokens, temperature: opts.gmTemperature, evaluationTimeoutMs: opts.gmTimeoutMs ?? gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS), reask: opts.gmReask, everyNUtterances: opts.gmEveryN, trace: opts.gmTrace, autoRelease: opts.gmAutoRelease, transcriptWindow: opts.gmTranscriptWindow });
   }
 
   private noteSilence(t: SilentTurn): void {
@@ -502,7 +507,10 @@ export class SessionHost {
     this.started = true;
     if (this.seats) this.adoptStartedConsents(info);
     const scene = info.sceneId;
-    const evaluated = info.lastGmSeq === null ? 0 : this.engine.state.transcript.filter((u) => u.sceneId === scene && u.seq < info.lastGmSeq!).length;
+    // US-0070 (C7): no voice-turn boundary of the lines before the restart is known: they count by runs, also for the restore count.
+    this.voiceKnownFrom = this.engine.state.lastSeq;
+    const before = info.lastGmSeq === null ? [] : this.engine.state.transcript.filter((u) => u.sceneId === scene && u.seq < info.lastGmSeq!);
+    const evaluated = this.turns ? gmUnits(before, this.turns.closedTurnEnds, this.voiceKnownFrom) : before.length;
     this.gm.restore(scene, evaluated);
     this.pendingAnswer = info.pendingLine ? scene : null;
   }

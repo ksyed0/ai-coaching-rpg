@@ -125,3 +125,27 @@ export class VoiceTurnTracker {
     this.o.onOpenChange(open);
   }
 }
+
+/**
+ * US-0070 (AC-0400, spec 7.5, overview C7): how many units of conversation a scene's lines are for the Game Master's cadence. A non-voice
+ * line (typed, or an AI character's) is one unit. A voice line with seq above `knownFrom` belongs to the turn closed by the first boundary
+ * at or above its seq; each closed turn holding at least one of the scene's voice lines is one unit, and a voice line after the last
+ * boundary is in a turn still open (none). Lines up to `knownFrom` (before a restart: no boundary of theirs is known) count by runs: each
+ * maximal run of consecutive voice lines is one unit. So the count never falls as lines and boundaries are added, and never counts more
+ * than the turns there were. `lines` and `closedTurnEnds` are in rising seq order; `knownFrom` defaults to every line (runs only).
+ */
+export function gmUnits(lines: readonly { seq: number; channel: string }[], closedTurnEnds: readonly number[], knownFrom = Number.POSITIVE_INFINITY): number {
+  let units = 0;
+  let inRun = false;
+  let b = 0;
+  let lastTurn = -1;
+  for (const l of lines) {
+    if (l.channel !== "voice") { units++; inRun = false; continue; }
+    if (l.seq <= knownFrom) { if (!inRun) { units++; inRun = true; } continue; }
+    inRun = false;
+    while (b < closedTurnEnds.length && closedTurnEnds[b]! < l.seq) b++;
+    if (b === closedTurnEnds.length) continue; // the open turn
+    if (b !== lastTurn) { units++; lastTurn = b; }
+  }
+  return units;
+}

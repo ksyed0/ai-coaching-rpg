@@ -1,4 +1,5 @@
 import type { ModelProvider } from "@acr/adapters";
+import type { Utterance } from "@acr/events";
 import type { SessionEngine } from "../engine/session-engine.js";
 import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "./timeouts.js";
 import { buildGmEarnedRequest, buildGmRequest, selectGmLines } from "./gm-prompt.js";
@@ -55,9 +56,15 @@ export class GameMaster {
   readonly transcriptWindow: number;
   /** US-0019: per condition of the current scene (`exit\n<condition>` or `earned\n<role>#<fact>`), the last utterance seq that an answered prompt covered. In memory only: after a restart the first prompt of each condition covers the whole scene (up to the cap). */
   private readonly coveredSeq = new Map<string, number>();
+  /** US-0070: how many units the scene's lines are for the cadence (default: one per line; with voice, one per closed voice turn). */
+  private readonly units: (lines: Utterance[]) => number;
+  /** US-0070: while true (a voice turn is open) no evaluation runs; engine.tick still does. */
+  private readonly hold: () => boolean;
 
-  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number; reask?: boolean; trace?: (rec: GmTraceRecord) => void; autoRelease?: boolean; transcriptWindow?: number }) {
+  constructor(opts: { engine: SessionEngine; provider: ModelProvider; everyNUtterances?: number; onError?: (err: unknown) => void; evaluationTimeoutMs?: number; maxTokens?: number; temperature?: number; reask?: boolean; trace?: (rec: GmTraceRecord) => void; autoRelease?: boolean; transcriptWindow?: number; /** US-0070: the cadence count of a scene's lines (default `lines.length`). */ units?: (lines: Utterance[]) => number; /** US-0070: skip evaluation while true (default never). */ hold?: () => boolean }) {
     this.reask = opts.reask ?? true; this.trace = opts.trace; this.autoRelease = opts.autoRelease ?? false;
+    this.units = opts.units ?? ((lines) => lines.length);
+    this.hold = opts.hold ?? (() => false);
     this.engine = opts.engine; this.provider = opts.provider; this.everyN = opts.everyNUtterances ?? GM_EVERY_N_UTTERANCES;
     this.maxTokens = opts.maxTokens ?? DEFAULT_GM_MAX_TOKENS;
     const w = opts.transcriptWindow;
@@ -92,7 +99,8 @@ export class GameMaster {
     const scene = this.engine.currentScene();
     if (!scene || this.engine.state.paused || this.engine.state.status !== "running") return;
     if (scene.id !== this.lastSceneId) { this.lastSceneId = scene.id; this.evaluatedCount = 0; this.coveredSeq.clear(); }
-    const count = this.engine.state.transcript.filter((u) => u.sceneId === scene.id).length;
+    if (this.hold()) return; // US-0070: a voice turn is open; it is judged once closed
+    const count = this.units(this.engine.state.transcript.filter((u) => u.sceneId === scene.id));
     if (count === 0 || count - this.evaluatedCount < this.everyN) return;
     this.evaluatedCount = count;
     this.evaluating = true;
@@ -123,7 +131,8 @@ export class GameMaster {
     if (!scene || this.engine.state.paused || this.engine.state.status !== "running") return false;
     if (expectSceneId !== undefined && scene.id !== expectSceneId) return false; // the scene changed since the caller looked
     if (scene.id !== this.lastSceneId || this.evaluatedCount === 0) return false;
-    const count = this.engine.state.transcript.filter((u) => u.sceneId === scene.id).length;
+    if (this.hold()) return false; // US-0070: a voice turn is open
+    const count = this.units(this.engine.state.transcript.filter((u) => u.sceneId === scene.id));
     if (count <= this.evaluatedCount) return false;
     this.evaluatedCount = count;
     this.evaluating = true;
