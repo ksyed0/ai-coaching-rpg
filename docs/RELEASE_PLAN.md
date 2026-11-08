@@ -2009,6 +2009,15 @@ Notes: Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC
 ```
 
 ```
+TASK-0105 (US-0068): Show AI-filled roles as "AI player, not scored" rows in the console report list
+Type: Dev
+Assignee: Agent
+Status: To Do
+Branch: feature/EPIC-0002-US-0068-ai-player-row
+Notes: Plan: docs/superpowers/plans/2026-11-08-us-0068-ai-player-row.md (7 tasks: control overview field from `aiRolesFor`, BFF and browser parsers, the row, Axe, e2e, documents). Covers AC-0389 to AC-0391 (TC-0158 to TC-0160). Planned 2026-11-08; build not started.
+```
+
+```
 US-0068 (EPIC-0002): As a facilitator, I want the console report list to show which roles are AI players and not scored, so that I can see why they have no report.
 Priority: Low
 Estimate: S
@@ -2019,7 +2028,7 @@ Acceptance Criteria:
   - [ ] AC-0389: the console report subject list shows one "AI player, not scored" row per AI-filled role, with no actions and no export entry
   - [ ] AC-0390: the moderation overview carries the AI roles as an OPTIONAL field (control answer, BFF and browser parse), so an older control or an older web still works; control deploys before web
   - [ ] AC-0391: the row text is accessible (the meaning is in words, not colour alone) and is covered by a unit test and an Axe check
-Notes: Filed 2026-11-06 on the owner's decision on Deviation 3 of slice 2c-4 (spec section 3.4). The data exists: the group draft records `ai_players.roles` and the Markdown index already renders the row (`services/runtime/src/review/index-view.ts`). The console subject list is built from the moderation overview (`SubjectStatus`), which has no entry for an AI role because the evaluator writes no report for it, so the work is an optional overview field plus a row component and tests. The "AI player" label on the link row already exists.
+Notes: Planned 2026-11-08 (docs/superpowers/plans/2026-11-08-us-0068-ai-player-row.md, TASK-0105, TC-0158 to TC-0160): the AI roles come from the session log through the control service's existing `aiRolesFor`, as an optional field of the `in_review` overview; an unreadable log omits the field and the list shows no AI rows. Filed 2026-11-06 on the owner's decision on Deviation 3 of slice 2c-4 (spec section 3.4). The data exists: the group draft records `ai_players.roles` and the Markdown index already renders the row (`services/runtime/src/review/index-view.ts`). The console subject list is built from the moderation overview (`SubjectStatus`), which has no entry for an AI role because the evaluator writes no report for it, so the work is an optional overview field plus a row component and tests. The "AI player" label on the link row already exists.
 ```
 
 ```

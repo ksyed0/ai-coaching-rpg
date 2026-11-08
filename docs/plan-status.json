@@ -4024,6 +4024,16 @@
       "status": "Done",
       "branch": "feature/EPIC-0002-US-0066-close-out-polish",
       "notes": "Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC-0152): console edit-summary, the 8-character link id in `moderate status`, and the in-scope minors."
+    },
+    {
+      "id": "TASK-0105",
+      "storyId": "US-0068",
+      "title": "Show AI-filled roles as \"AI player, not scored\" rows in the console report list",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "To Do",
+      "branch": "feature/EPIC-0002-US-0068-ai-player-row",
+      "notes": "Plan: docs/superpowers/plans/2026-11-08-us-0068-ai-player-row.md (7 tasks: control overview field from `aiRolesFor`, BFF and browser parsers, the row, Axe, e2e, documents). Covers AC-0389 to AC-0391 (TC-0158 to TC-0160). Planned 2026-11-08; build not started."
     }
   ],
   "testCases": [
@@ -7513,10 +7523,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-08T17:16:04.636Z",
-  "commitSha": "7834ca2",
-  "buildNumber": "546",
-  "branch": "release/0.2.1",
+  "generatedAt": "2026-11-08T17:39:47.790Z",
+  "commitSha": "7cbe156",
+  "buildNumber": "547",
+  "branch": "docs/session-37-us-0068-plan",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7753,7 +7763,7 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Aug 1",
+    "likelyDate": "Aug 2",
     "rangeStart": "Jun 9",
     "rangeEnd": "Sep 24",
     "velocityWeeks": 5,
@@ -7771,7 +7781,7 @@
       "2026-11-06T21:55:07.566Z",
       "2026-11-06T22:58:47.846Z",
       "2026-11-06T23:42:42.538Z",
-      "2026-11-08T17:16:04.731Z"
+      "2026-11-08T17:39:47.895Z"
     ],
     "doneCounts": [
       0,
