@@ -259,13 +259,17 @@ export async function bootstrap(opts: {
     });
     // US-0060: a failure reply is chosen by the message's own type; nothing but a fixed string ever reaches the parent.
     const fail = (m: ParentMessage, reason: string) => {
-      if (m.type === "bot_alert") return; // no requestId, so no reply is possible
+      if (m.type === "bot_alert" || m.type === "speech_activity" || m.type === "voice_notice" || m.type === "voice_alert") return; // fire-and-forget: no requestId, so no reply is possible
+      if (m.type === "voice_line") { parent.send({ type: "voice_line_refused", segmentId: m.segmentId, code: "failed" }); return; } // US-0070: every voice line gets exactly one answer
       if (m.type === "set_ai_roles") parent.send({ type: "ai_roles_failed", requestId: m.requestId, reason });
       else parent.send({ type: "reissue_failed", requestId: m.requestId, reason });
     };
     const answer = (m: ParentMessage) => {
       // US-0060: a bot alert is fire-and-forget: never answered (no requestId), and botAlert never rejects, so nothing here can reply.
       if (m.type === "bot_alert") { void host.botAlert(m.roleId, m.message).catch(() => undefined); return; }
+      // US-0070: voice is not wired into the host yet (later tasks of the A1a plan); a voice line is answered at once, never left pending.
+      if (m.type === "speech_activity" || m.type === "voice_notice" || m.type === "voice_alert") return;
+      if (m.type === "voice_line") { parent.send({ type: "voice_line_refused", segmentId: m.segmentId, code: "voice_off" }); return; }
       if (!current || !seats) { fail(m, m.type === "set_ai_roles" ? AI_ROLES_REFUSED.failed : "this session has no join codes to reissue"); return; }
       if (m.type === "set_ai_roles") {
         setAiRoles(deps(), m.roles, m.includeInGroup).then(
