@@ -90,7 +90,8 @@ export async function startControl(
       if (!opened) log("report open after evaluate did not complete");
     },
   });
-  moderation = new ModerationService({ config, jobs, secrets });
+  // US-0068: the overview's "AI player, not scored" rows read the same source as the link guard (one reader of the log, no shared memo).
+  moderation = new ModerationService({ config, jobs, secrets, aiRoles: (id) => aiRolesFor(config, list, id) });
 
   const server = http.createServer(createApi({ config, supervisor, scenarios, log, reports, participantWrites, jobs, moderation }));
   // Create, restart and a whole-session reissue can take up to readyTimeoutMs + 2 * graceMs (a start, then a stop and a forced stop),
