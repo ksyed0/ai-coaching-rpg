@@ -173,6 +173,15 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
   /** US-0055: every joined connection that is still open, so a change can be told to the whole room. */
   type Live = { sessionId: string; h: SessionHost; facilitator: boolean; ws: WebSocket; send: (m: ServerMessage) => void; closing: () => boolean };
   const live = new Set<Live>();
+  // US-0070 (AC-0399): a speaker's voice notice goes to the socket that holds that role now, and to nobody else (never logged).
+  const unsubscribeNotice = [...opts.hosts].map(([sessionId, h]) => (h as Partial<SessionHost>).onVoiceNotice?.((roleId, code) => {
+    const held = holders.get(`${sessionId}:${roleId}`);
+    if (!held) return;
+    for (const c of live) {
+      if (c.h !== h || c.facilitator || c.ws !== held.ws || c.closing() || c.ws.readyState !== c.ws.OPEN) continue;
+      c.send({ type: "voice_notice", code });
+    }
+  }) ?? (() => undefined));
   /**
    * Sends each live connection of the session the roster for its own audience (the facilitator's has consent and connection, a player's
    * only who is ready), or just `only`. A closing socket gets nothing. The server log gets role ids and states, never a name.
@@ -517,6 +526,7 @@ export async function startServer(opts: ServerOptions): Promise<ServerHandle> {
     close: () => new Promise<void>((resolve) => {
       for (const u of unsubscribeFatal) u();
       for (const u of unsubscribeEnd) u();
+      for (const u of unsubscribeNotice) u();
       clearInterval(heartbeat);
       for (const c of wss.clients) c.terminate();
       wss.close();

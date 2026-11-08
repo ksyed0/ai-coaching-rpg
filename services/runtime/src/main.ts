@@ -285,8 +285,9 @@ export async function bootstrap(opts: {
       if (m.type === "bot_alert") { void host.botAlert(m.roleId, m.message).catch(() => undefined); return; }
       // US-0070: fire-and-forget. A speech edge feeds the host's turn timer (ignored unless the role is a recording holder).
       if (m.type === "speech_activity") { host.onSpeechActivity(m.roleId, m.active, m.silentMs); return; }
-      // Wired to the host by a later task of the A1a plan (notices and alerts).
-      if (m.type === "voice_notice" || m.type === "voice_alert") return;
+      // The speaker's private notice of a failed or empty segment, and the facilitator's alert (both rate-limited by the host; never answered).
+      if (m.type === "voice_notice") { host.voiceNotice(m.roleId, m.participantId, m.code); return; }
+      if (m.type === "voice_alert") { void host.voiceAlert(m.code); return; }
       if (m.type === "voice_line") {
         // US-0070: exactly one answer per line: the seq, the host's refusal code, or "failed" for anything else (never a message or a path).
         host.onVoiceUtterance(m.roleId, m.participantId, m.text).then(

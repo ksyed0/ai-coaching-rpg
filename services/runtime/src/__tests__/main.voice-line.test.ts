@@ -94,3 +94,19 @@ describe("main and voice_line (US-0070)", () => {
     expect(b.sent.slice(before).filter((m) => m.type.startsWith("voice_line"))).toEqual([]);
   });
 });
+
+describe("main routes voice_notice and voice_alert (US-0070, Task 10)", () => {
+  it("a voice_notice reaches the host's notice listeners and a voice_alert appends the fixed facilitator alert", async () => {
+    const b = await boot();
+    const notices: string[] = [];
+    b.host.onVoiceNotice((roleId, code) => notices.push(`${roleId}:${code}`));
+    b.send({ type: "voice_notice", roleId: "tech_lead", participantId: "p-tech_lead", code: "empty" });
+    b.send({ type: "voice_alert", code: "stt_unavailable" });
+    expect(notices).toEqual(["tech_lead:empty"]);
+    await vi.waitFor(() => expect(b.host.engine.state.lastSeq).toBeGreaterThan(0));
+    await vi.waitFor(async () => {
+      const r = b.host.engine.eventsAfter(0);
+      expect(r.complete && [...r.events].some((e) => e.type === "facilitator.alert" && e.message.startsWith("Voice input is unavailable"))).toBe(true);
+    });
+  });
+});

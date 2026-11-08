@@ -4,7 +4,7 @@ import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
 import { EngineError, type ResumeInfo, type SessionEngine, type SessionStartExtra } from "../engine/session-engine.js";
-import type { VoiceRefusal } from "./parent-channel.js";
+import type { VoiceAlertCode, VoiceRefusal } from "./parent-channel.js";
 import { NpcAgent, type SilentTurn } from "../agents/npc-agent.js";
 import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import type { Seats } from "../engine/seats.js";
@@ -14,7 +14,7 @@ import { actorLabel, cleanBotAlertMessage, cleanClosingMessage, cleanFacilitator
 import { ReviewUsageError } from "../review/errors.js";
 import { noticeNamesAiPlayers, noticeNamesVoice } from "./limits.js";
 import { VoiceChoices, type VoiceFileIO } from "../engine/voice-file.js";
-import { buildVoiceSeats, gmUnits, realSetTimer, VoiceTurnTracker, type SetTimer, type VoiceSeats, type VoiceState } from "./voice.js";
+import { buildVoiceSeats, gmUnits, realSetTimer, VoiceTurnTracker, type SetTimer, type VoiceNoticeCode, type VoiceSeats, type VoiceState } from "./voice.js";
 import type { VoiceConfig } from "./voice-config.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
@@ -36,6 +36,19 @@ export class HostError extends Error {
   /** `roles`, when given, names the roles the error is about: the message becomes `code: role1,role2`. */
   constructor(readonly code: HostErrorCode, roles?: string[]) { super(roles && roles.length > 0 ? `${code}: ${roles.join(",")}` : code); this.name = "HostError"; }
 }
+
+/** US-0070: at most one voice_notice per role and code in this long (host clock), so a noisy track cannot flood its speaker. */
+export const NOTICE_MIN_INTERVAL_MS = 10_000;
+/** US-0070: at most one voice alert per code in this long (host clock). */
+export const ALERT_MIN_INTERVAL_MS = 30_000;
+/** US-0070: the facilitator's voice alerts, fixed sentences (never a value, a path or a transcript). */
+export const VOICE_ALERT_SENTENCES: Readonly<Record<VoiceAlertCode, string>> = {
+  worker_down: "Voice input stopped: the speech worker is not running. Participants can continue by text.",
+  stt_unavailable: "Voice input is unavailable: the speech-to-text server does not answer.",
+  stt_failed: "A spoken line could not be transcribed; the speaker was told.",
+};
+/** The refusals of a voice line its speaker hears about (the others have no such speaker listening: not the holder, no such seat, voice off). */
+const SPEAKER_NOTICES: ReadonlySet<VoiceRefusal> = new Set<VoiceRefusal>(["paused", "not_in_scene", "ended", "not_recording"]);
 
 /** US-0070: why the host refused a voice line (one of the parent channel's VOICE_REFUSALS). Its message is the code only. */
 export class VoiceRefusedError extends Error {
@@ -88,6 +101,10 @@ export class SessionHost {
    */
   private voiceChain: Promise<number> = Promise.resolve(0);
   private readonly voiceTurnListeners = new Set<(open: boolean) => void>();
+  private readonly voiceNoticeListeners = new Set<(roleId: string, code: VoiceNoticeCode) => void>();
+  /** US-0070: when each `role\ncode` notice and each alert code was last sent (host clock), for the rate limits. */
+  private readonly noticeSentAt = new Map<string, number>();
+  private readonly alertSentAt = new Map<VoiceAlertCode, number>();
   /** US-0070 (C7): the last seq before this process knew voice-turn boundaries (a restart): lines up to it count by runs (gmUnits). */
   private voiceKnownFrom = 0;
 
@@ -611,6 +628,15 @@ export class SessionHost {
    * is failed (a log failure stays fatal through the engine). Nothing is appended for a refusal.
    */
   async onVoiceUtterance(roleId: string, participantId: string, text: string): Promise<{ seq: number }> {
+    try { return await this.recordVoiceLine(roleId, participantId, text); }
+    catch (err) {
+      // AC-0399: a speaker whose line was refused for a reason they can act on is told, privately (rate-limited, never logged).
+      if (err instanceof VoiceRefusedError && SPEAKER_NOTICES.has(err.code)) this.voiceNotice(roleId, participantId, err.code as VoiceNoticeCode);
+      throw err;
+    }
+  }
+
+  private async recordVoiceLine(roleId: string, participantId: string, text: string): Promise<{ seq: number }> {
     if (!this.voice.enabled) throw new VoiceRefusedError("voice_off");
     if (!this.started && this.starting !== null) await this.starting.catch(() => undefined);
     if (!this.started) throw new VoiceRefusedError("not_started");
@@ -652,6 +678,39 @@ export class SessionHost {
 
   /** US-0070: the last seq of each voice turn closed in this process (rising). */
   get voiceTurnEnds(): readonly number[] { return this.turns?.closedTurnEnds ?? []; }
+
+  /**
+   * US-0070 (AC-0399): tells the seat's speaker, privately, why a segment did not become a line. Sent only when `participantId` still holds
+   * the human seat, at most once per role and code per NOTICE_MIN_INTERVAL_MS on the host clock; never logged and never to anyone else.
+   * Never throws.
+   */
+  voiceNotice(roleId: string, participantId: string, code: VoiceNoticeCode): void {
+    if (!this.voice.enabled || !this.hasPlayerRole(roleId) || this.isAiRole(roleId) || !this.holds(roleId, participantId)) return;
+    const key = `${roleId}\n${code}`;
+    const now = this.clock.now();
+    const last = this.noticeSentAt.get(key);
+    if (last !== undefined && now - last < NOTICE_MIN_INTERVAL_MS) return;
+    this.noticeSentAt.set(key, now);
+    for (const fn of this.voiceNoticeListeners) { try { fn(roleId, code); } catch (err) { this.safeLog(`voice notice listener: ${errorName(err)}`); } }
+  }
+
+  /** US-0070: `fn(roleId, code)` gets every voice notice that passed the checks (the server sends it to that role's live socket). */
+  onVoiceNotice(fn: (roleId: string, code: VoiceNoticeCode) => void): () => void { this.voiceNoticeListeners.add(fn); return () => { this.voiceNoticeListeners.delete(fn); }; }
+
+  /**
+   * US-0070 (AC-0399, AC-0402): one facilitator-only warning with the FIXED sentence of `code`, at most once per code per
+   * ALERT_MIN_INTERVAL_MS (host clock); nothing while voice is off, before the start or after the end. Never rejects.
+   */
+  async voiceAlert(code: VoiceAlertCode): Promise<void> {
+    try {
+      if (!this.voice.enabled || !this.started || this.engine.state.status === "ended") return;
+      const now = this.clock.now();
+      const last = this.alertSentAt.get(code);
+      if (last !== undefined && now - last < ALERT_MIN_INTERVAL_MS) return;
+      this.alertSentAt.set(code, now);
+      await this.engine.alert(VOICE_ALERT_SENTENCES[code], "warning");
+    } catch (err) { this.safeLog(`voice alert: ${errorName(err)}`); }
+  }
 
   /** US-0070: `fn` gets every open and close of a voice turn (for the control service's AI players, `voice_turn`). */
   onVoiceTurn(fn: (open: boolean) => void): () => void { this.voiceTurnListeners.add(fn); return () => { this.voiceTurnListeners.delete(fn); }; }

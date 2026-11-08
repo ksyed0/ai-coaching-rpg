@@ -6,6 +6,12 @@
 export type VoiceHolder = { roleId: string; participantId: string; recording: boolean };
 export type VoiceSeats = { paused: boolean; ended: boolean; holders: VoiceHolder[] };
 export type VoiceState = "none" | "voice" | "text_only" | "off";
+/**
+ * US-0070 (overview section 2): why a speaker's segment did not become a line, told to that speaker alone as `voice_notice` (never logged,
+ * never to anyone else). `stt_failed` and `empty` come from the speech worker; the others are the runtime's own refusals.
+ */
+export const VOICE_NOTICE_CODES = ["stt_failed", "empty", "paused", "not_in_scene", "ended", "not_recording", "voice_unavailable"] as const;
+export type VoiceNoticeCode = (typeof VOICE_NOTICE_CODES)[number];
 
 /**
  * Every HUMAN player role that has a holder, in the scenario's player order (never an AI seat, never an AI character), with `recording`

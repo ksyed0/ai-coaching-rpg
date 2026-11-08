@@ -4,7 +4,7 @@ import { MAX_JOIN_CODE_INPUT_CHARS } from "../engine/join-codes.js";
 import { REBIND_PENDING } from "../engine/consent.js";
 import { MAX_CREDENTIAL_INPUT_CHARS } from "../engine/credentials.js";
 import type { FacilitatorRosterEntry, PeerRosterEntry } from "./roster.js";
-import type { VoiceState } from "./voice.js";
+import type { VoiceNoticeCode, VoiceState } from "./voice.js";
 
 export const MAX_UTTERANCE_CHARS = 2_000;
 const Id = z.string().min(1).max(CLIENT_ID_MAX_CHARS);
@@ -89,6 +89,8 @@ export type ServerMessage =
   | { type: "event"; event: SessionEvent }
   // US-0070: answers an accepted voice_opt_in ("voice") or voice_opt_out ("text_only"), to the sender only.
   | { type: "voice"; state: "voice" | "text_only" }
+  // US-0070: why the speaker's last segment did not become a line; to that role's live socket only, never logged, never to anyone else.
+  | { type: "voice_notice"; code: VoiceNoticeCode }
   // US-0055: who sits where. Each audience gets only its own frame: the facilitator's shows consent and connection, a player's only who is ready.
   | { type: "roster"; audience: "facilitator"; entries: FacilitatorRosterEntry[] }
   | { type: "roster"; audience: "peers"; entries: PeerRosterEntry[] }
