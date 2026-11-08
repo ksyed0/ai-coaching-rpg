@@ -435,6 +435,28 @@ Rollback trigger: a valid participant is refused or throttled on `/report`, a pa
 ### Rolling forward again
 Redeploy this change, control first. A link that already holds 25 or more responses is at its cap at once; the facilitator's reissue gives a fresh link.
 
+## US-0068: "AI player, not scored" rows in the console report list
+
+```
+Release: unreleased (feature/EPIC-0002-US-0068-ai-player-row)
+Date: not deployed
+Rollback trigger: the Report panel fails to show or shows wrong rows for a session with AI players, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **Nothing on disk, no new setting, no migration.** The control service adds an OPTIONAL field `aiRoles` to the `in_review` moderation overview, read from the session log on each overview read; nothing is written. No wire version, review schema or existing field changes.
+
+### Rolling back
+
+- **Deploy order: the control service before the web app; roll back the web app first, then the control service.** Either order is safe, because the field is optional on both sides.
+- **Control alone rolled back:** the overview no longer carries `aiRoles`, so the console shows no AI rows; everything else is unchanged.
+- **Web app alone rolled back:** its strict overview parser ignores the unknown field; the list is as before (no AI rows).
+- **Smoke test:** the console opens an ended session's Report panel in review; for a session with an AI player, a row for that role reads "AI player" and "not scored (no report is written for an AI player)" and has no buttons.
+
+### Rolling forward again
+Redeploy, control first. The rows appear on the next overview read; nothing is cached.
+
 ## Release 0.2.1: deploy order and rollback
 
 ```
