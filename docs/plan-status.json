@@ -27,7 +27,7 @@
       "title": "Slice 3 — voice over LiveKit",
       "description": "LiveKit rooms, per-track STT with speaker attribution, NPC TTS bot tracks, latency instrumentation against the budget in ARCHITECTURE.md section 4.",
       "releaseTarget": "MVP",
-      "status": "Planned",
+      "status": "In Progress",
       "startDate": null,
       "doneDate": null,
       "dependencies": [
@@ -3032,6 +3032,65 @@
       "dependencies": [
         "EPIC-0002"
       ]
+    },
+    {
+      "id": "US-0070",
+      "epicId": "EPIC-0003",
+      "title": "As a participant, I want what I say to appear under my name in the transcript, so that I can take part by voice.",
+      "priority": "High",
+      "estimate": "L",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0003-US-0070-voice-pipeline",
+      "acs": [
+        {
+          "id": "AC-0396",
+          "text": "a voice line from the current human holder who chose voice is recorded as an `utterance` with `channel: \"voice\"` and answered with its `seq`; the log format is unchanged",
+          "done": false
+        },
+        {
+          "id": "AC-0397",
+          "text": "the runtime refuses a voice line for an AI role, an unknown or non-player role, a non-holder, a holder who has not chosen voice, while paused, between scenes and after the end, with the fixed codes of the overview; nothing is appended",
+          "done": false
+        },
+        {
+          "id": "AC-0398",
+          "text": "a seat that is not a recording holder produces no segment, no STT request and no message (file-fed test)",
+          "done": false
+        },
+        {
+          "id": "AC-0399",
+          "text": "one speaker's lines are logged in segment order; a failed or empty segment produces no line, a speaker notice and a facilitator alert",
+          "done": false
+        },
+        {
+          "id": "AC-0400",
+          "text": "the NPC round, the Game Master and AI-player bots react once per voice turn (`TURN_END_MS` after the last speech frame); a text line schedules at once; pause and end clear the timer",
+          "done": false
+        },
+        {
+          "id": "AC-0401",
+          "text": "voice choice is per participant and never inherited across a reissue, a rebind or a restart; opt-out stops recording at once",
+          "done": false
+        },
+        {
+          "id": "AC-0402",
+          "text": "any `SpeechToText` implementation passes one contract suite; the Whisper client sends only to loopback",
+          "done": false
+        },
+        {
+          "id": "AC-0403",
+          "text": "a worker crash leaves the session running and alerts the facilitator",
+          "done": false
+        },
+        {
+          "id": "AC-0404",
+          "text": "`pnpm demo --voice` runs the pipeline offline (file ingest, fake STT) and passes checks V-01 to V-08 in CI",
+          "done": false
+        }
+      ],
+      "dependencies": [
+        "EPIC-0002"
+      ]
     }
   ],
   "tasks": [
@@ -4034,6 +4093,16 @@
       "status": "Done",
       "branch": "feature/EPIC-0002-US-0068-ai-player-row",
       "notes": "Plan: docs/superpowers/plans/2026-11-08-us-0068-ai-player-row.md (7 tasks: control overview field from `aiRolesFor`, BFF and browser parsers, the row, Axe, e2e, documents). Covers AC-0389 to AC-0391 (TC-0158 to TC-0161). Built 2026-11-08 on the branch above: control `ModerationService` option `aiRoles` (wired in `main.ts`), BFF `toOverview`, browser `parseReportOverview`, the `SubjectList` row, the Axe case and the real-stack e2e in `report-ai-role.spec.ts`."
+    },
+    {
+      "id": "TASK-0106",
+      "storyId": "US-0070",
+      "title": "Build the voice pipeline on file ingest (slice A1a)",
+      "type": "Dev",
+      "assignee": "Agent",
+      "status": "In Progress",
+      "branch": "feature/EPIC-0003-US-0070-voice-pipeline",
+      "notes": "Plan: docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md (Tasks 0 to 21): speech package and worker protocol, parent-channel voice messages, voice settings and draft notice v3, the voice record, opt-in and opt-out, voice lines through the host, the turn timer, Game Master and bot cadence, notices and alerts, the speech-to-text adapter, the Whisper client, the segmenter, noise gate and normaliser, the worker pipeline, control's VoiceHost and `pnpm demo --voice`. Covers AC-0396 to AC-0404 (TC-0162 to TC-0170)."
     }
   ],
   "testCases": [
@@ -5636,6 +5705,96 @@
       "type": "Negative",
       "status": "Pass",
       "defect": "None"
+    },
+    {
+      "id": "TC-0162",
+      "title": "A voice line from the recording holder is recorded with channel voice and answered with its seq",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0396",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0163",
+      "title": "The runtime refuses voice lines it must not record and appends nothing",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0397",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0164",
+      "title": "A seat that is not a recording holder produces no segment, no STT request and no message",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0398",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0165",
+      "title": "One speaker's lines are logged in segment order; a failed or empty segment gives no line",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0399",
+      "type": "Edge Case",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0166",
+      "title": "One NPC round, one Game Master unit and one bot reply per voice turn",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0400",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0167",
+      "title": "Voice choice is per participant, never inherited, and opt-out stops recording at once",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0401",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0168",
+      "title": "Every speech-to-text adapter passes one contract suite; the Whisper client only sends to loopback",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0402",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0169",
+      "title": "A worker crash leaves the session running and alerts the facilitator",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0403",
+      "type": "Negative",
+      "status": "Not Run",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0170",
+      "title": "`pnpm demo --voice` runs the voice pipeline offline and passes V-01 to V-08",
+      "relatedStory": "US-0070",
+      "relatedTask": "TASK-0106",
+      "relatedAC": "AC-0404",
+      "type": "Functional",
+      "status": "Not Run",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -6051,415 +6210,421 @@
   "costs": {
     "US-0001": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0002": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0003": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0004": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0005": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0006": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0007": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0008": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0009": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0010": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0011": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0012": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0014": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0015": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0013": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0016": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0017": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0018": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0019": {
       "projectedUsd": 400,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0020": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0021": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0022": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0023": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0024": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0025": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0026": {
       "projectedUsd": 400,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0027": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0028": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0029": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0030": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0031": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0032": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0033": {
       "projectedUsd": 800,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0034": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0035": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0036": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0037": {
       "projectedUsd": 800,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0038": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0039": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0040": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0041": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0042": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0043": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0044": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0045": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0046": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0047": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0048": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0049": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0050": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0051": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0052": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0053": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0054": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0055": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0056": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0065": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0057": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0058": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0059": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0060": {
       "projectedUsd": 1600,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0061": {
       "projectedUsd": 800,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0062": {
       "projectedUsd": 1600,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0063": {
       "projectedUsd": 1600,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0064": {
       "projectedUsd": 3200,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0066": {
       "projectedUsd": 800,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0068": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0069": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
     "US-0067": {
       "projectedUsd": 0.9,
-      "costUsd": 11.586757,
+      "costUsd": 11.421231,
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    "US-0070": {
+      "projectedUsd": 1600,
+      "costUsd": 11.421231,
       "inputTokens": 0,
       "outputTokens": 0
     },
@@ -7231,6 +7396,13 @@
       "failedTCNoBug": false,
       "openCriticalBug": false,
       "isAtRisk": true
+    },
+    "US-0070": {
+      "missingTCs": false,
+      "noBranch": false,
+      "failedTCNoBug": false,
+      "openCriticalBug": false,
+      "isAtRisk": false
     }
   },
   "risk": {
@@ -7563,10 +7735,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-08T18:12:48.178Z",
-  "commitSha": "9ec1834",
-  "buildNumber": "554",
-  "branch": "feature/EPIC-0002-US-0068-ai-player-row",
+  "generatedAt": "2026-11-08T22:40:06.995Z",
+  "commitSha": "f002d53",
+  "buildNumber": "558",
+  "branch": "feature/EPIC-0003-US-0070-voice-pipeline",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7710,7 +7882,7 @@
   "budget": {
     "totalBudget": 807.5862000000001,
     "totalSpent": 799.4862,
-    "totalProjected": 12053.1,
+    "totalProjected": 13653.1,
     "percentUsed": 99,
     "burnRate": 0,
     "daysRemaining": null,
@@ -7730,66 +7902,66 @@
       {
         "id": "EPIC-0001",
         "title": "Slice 1 — script package and text-only runtime",
-        "budget": 162.21459800000005,
-        "spent": 162.21459800000005,
+        "budget": 159.89723400000005,
+        "spent": 159.89723400000005,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0002",
         "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 209.46162600000008,
-        "spent": 208.56162600000008,
+        "budget": 206.48215800000008,
+        "spent": 205.58215800000008,
         "remaining": 0.9000000000000057,
+        "percentUsed": 100
+      },
+      {
+        "id": "EPIC-0003",
+        "title": "Slice 3 — voice over LiveKit",
+        "budget": 11.421231,
+        "spent": 11.421231,
+        "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
-        "budget": 162.21459800000005,
-        "spent": 162.21459800000005,
+        "budget": 159.89723400000005,
+        "spent": 159.89723400000005,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0006",
         "title": "Slice 1 follow-ups — hidden facts, access control, resilience and demo tooling",
-        "budget": 173.80135500000006,
-        "spent": 173.80135500000006,
+        "budget": 171.31846500000006,
+        "spent": 171.31846500000006,
         "remaining": 0,
         "percentUsed": 100
       },
       {
         "id": "EPIC-0007",
         "title": "Brand, graphic design and landing page (SceneCoach.ai)",
-        "budget": 49.947028,
-        "spent": 46.347028,
+        "budget": 49.284924000000004,
+        "spent": 45.684924,
         "remaining": 3.6000000000000014,
         "percentUsed": 93
       },
       {
         "id": "EPIC-0008",
         "title": "Multi-client service and subdomain provisioning",
-        "budget": 37.460271000000006,
-        "spent": 34.760271,
+        "budget": 36.963693000000006,
+        "spent": 34.263693,
         "remaining": 2.700000000000003,
         "percentUsed": 93
       },
       {
         "id": "EPIC-0009",
         "title": "Multilingual support",
-        "budget": 12.486757,
-        "spent": 11.586757,
+        "budget": 12.321231000000001,
+        "spent": 11.421231,
         "remaining": 0.9000000000000004,
         "percentUsed": 93
-      },
-      {
-        "id": "EPIC-0003",
-        "title": "Slice 3 — voice over LiveKit",
-        "budget": 0,
-        "spent": 0,
-        "remaining": 0,
-        "percentUsed": null
       },
       {
         "id": "EPIC-0004",
@@ -7803,9 +7975,9 @@
     "hasBudget": true
   },
   "completion": {
-    "likelyDate": "Aug 2",
-    "rangeStart": "Jun 9",
-    "rangeEnd": "Sep 24",
+    "likelyDate": "Aug 10",
+    "rangeStart": "Jun 16",
+    "rangeEnd": "Oct 4",
     "velocityWeeks": 5,
     "storiesPerWeek": 1.1,
     "pointsPerWeek": 5.5
@@ -7822,7 +7994,8 @@
       "2026-11-06T22:58:47.846Z",
       "2026-11-06T23:42:42.538Z",
       "2026-11-08T17:39:47.895Z",
-      "2026-11-08T18:12:48.256Z"
+      "2026-11-08T18:12:59.796Z",
+      "2026-11-08T22:40:07.074Z"
     ],
     "doneCounts": [
       0,
@@ -7834,6 +8007,7 @@
       4,
       4,
       4,
+      6,
       6,
       6
     ],
@@ -7848,7 +8022,8 @@
       65,
       65,
       69,
-      69
+      69,
+      70
     ],
     "aiCosts": [
       54.2322,
@@ -7861,9 +8036,11 @@
       799.4862,
       799.4862,
       799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -7887,6 +8064,7 @@
       21,
       21,
       29,
+      29,
       29
     ],
     "openBugs": [
@@ -7900,9 +8078,11 @@
       4,
       4,
       1,
+      1,
       1
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -7926,10 +8106,12 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -7952,7 +8134,8 @@
       1.1393442622950825,
       1.1393442622950825,
       1.1333333333333335,
-      1.1333333333333335
+      1.1333333333333335,
+      1.1375000000000002
     ],
     "velocityByWeek": {
       "labels": [
