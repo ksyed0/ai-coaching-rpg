@@ -341,17 +341,17 @@ Each line names the task whose tests pin it.
 - [ ] **Step 4:** Re-run. Expected: PASS.
 - [ ] **Step 5:** Commit `[feat] US-0070: noise gate on signal, not phrases`.
 
-### Task 16: The normaliser
+### Task 16: The conservative transcript cleaner
 
 **Files:** Create `services/speech/src/normalise.ts`, `services/speech/src/__tests__/normalise.test.ts`.
 
-**Interfaces:** `normalise(raw: string): string`, deterministic and idempotent (`normalise(normalise(x)) === normalise(x)`). Rules (Open Question 7; table-driven tests are the specification): strip control, bidi and zero-width characters (reuse the cleaner used by `cleanFacilitatorLabel` if it is exported from `@acr/events`, else write one with Unicode property escapes `\p{Cc}\p{Cf}` and no letter-digit-underscore class, US-0020); collapse whitespace; spelled numbers to digits ("forty-two thousand" → "42,000", "three hundred and five" → "305", "nine" → "9"), separators from 10,000; "N percent" → "N%"; "N dollars|pounds|euros" → "$N|£N|€N"; times "9.30" / "nine thirty" followed by am/pm or after "at" → "9:30"; everything else unchanged. Text over 2000 characters is cut at 2000 code units on a code-point boundary.
+**Interfaces:** `normalise(raw: string): string`, deterministic and idempotent (`normalise(normalise(x)) === normalise(x)`). **Owner decision 2026-11-08: conservative, it never rewrites words.** Rules (table-driven tests are the specification): strip control, bidi and zero-width characters (reuse the cleaner used by `cleanFacilitatorLabel` if it is exported from `@acr/events`, else write one with Unicode property escapes `\p{Cc}\p{Cf}` and no letter-digit-underscore class, US-0020); collapse whitespace and trim; drop a duplicated currency word directly after a currency amount ("$11,000 dollars" becomes "$11,000", likewise £ and pounds, € and euros); everything else unchanged (spelled numbers, times, percentages and "a hundred ways" stay exactly as the model wrote them). Text over 2000 characters is cut at 2000 code units on a code-point boundary.
 
-- [ ] **Step 1: Write the failing tests:** a table of at least 30 input/output pairs covering every rule plus non-rules ("one of them" stays, "a hundred ways" → "100 ways" only if the owner confirms, else stays: start with "stays"), idempotence over the table, the bidi/zero-width strip, the 2000 cut on a surrogate pair.
+- [ ] **Step 1: Write the failing tests:** a table of at least 20 input/output pairs covering each rule plus explicit non-rules ("forty-two thousand", "nine thirty", "ten percent", "one of them" all stay unchanged), idempotence over the table, the bidi/zero-width strip, the 2000 cut on a surrogate pair.
 - [ ] **Step 2:** Run the file. Expected: FAIL.
 - [ ] **Step 3:** Implement.
 - [ ] **Step 4:** Re-run, plus `pnpm --filter @acr/runtime exec vitest run src/__tests__/id-rules.files.test.ts`. Expected: PASS (no id-rule spelling introduced).
-- [ ] **Step 5:** Commit `[feat] US-0070: deterministic transcript normaliser`.
+- [ ] **Step 5:** Commit `[feat] US-0070: conservative transcript cleaner`.
 
 ### Task 17: Activity edges, the per-track pipeline and the holder filter
 

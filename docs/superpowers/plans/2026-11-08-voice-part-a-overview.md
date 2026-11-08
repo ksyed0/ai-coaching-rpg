@@ -70,7 +70,7 @@ One source of truth: control imports this module only (a control import test pin
 type WorkerMessage =
   | { type: "worker_ready"; stt: "ok" | "unavailable" }                       // after the warm-up request
   | { type: "voice_line"; segmentId: SegmentId; roleId: RoleId; participantId: ParticipantId;
-      text: string /* 1..2000, normalised */; startMs: number; endMs: number /* wall clock, injected */ }
+      text: string /* 1..2000, cleaned (conservative, no word rewriting) */; startMs: number; endMs: number /* wall clock, injected */ }
   | { type: "speech_activity"; roleId: RoleId; active: boolean; silentMs?: number /* only with active:false, 0..60000 */ }
   | { type: "segment_failed"; segmentId: SegmentId; roleId: RoleId; participantId: ParticipantId; status: "empty" | "stt_failed" };
 // control -> worker
@@ -276,7 +276,7 @@ Constants (not settings; changed only by code review): `VAD_FRAME_MS` 20, `VAD_T
 4. **`TURN_END_MS` range:** the spec gives only the default 800; the plan bounds it 300 to 3000. Confirm.
 5. **whisper-server hardening (C9):** accept random port plus `--request-path` prefix plus loopback, or require a local proxy with a token in front of it?
 6. **`STT_MODEL`:** the worker cannot choose the model of a running `whisper-server` except through `/load`, which this plan never calls. Is `STT_MODEL` a label for `voice:check` and the run summary plus the model file `voice:up` starts with (plan's reading), or something else?
-7. **Normaliser rules:** the plan's rules are: spelled numbers to digits, thousands separators from 10,000 ("42,000"), "N percent" to "N%", "N dollars/pounds/euros" to "$N/£N/€N", "half past nine"-style phrases left as words, "9.30" or "nine thirty" followed by am/pm or after "at" to "9:30". Confirm or change (it affects evaluator quotes, which must match the logged text).
+7. **Normaliser rules: DECIDED 2026-11-08 (owner): conservative.** Strip control, bidi and zero-width characters, collapse whitespace, trim, drop a duplicated currency word after a currency amount ("$11,000 dollars" becomes "$11,000"), cut at 2000 characters on a code-point boundary. No conversion of spelled numbers, times or percentages (the logged text is what the evaluator quotes).
 8. **Spec §16 items** (participant access to their own audio; REC-07 correction deferred; audit log mandatory) are still the owner's; the plans follow the spec's defaults.
 9. **GPU cap scope** (Risk 7): per worker (plan) or one cap across all sessions (needs a shared limiter in control)?
 10. **Lock for the audio store (F8):** export `SessionLock` as `@acr/runtime/files` (a sixth allowed subpath) or copy the pattern into `services/speech`? Decided in the A2 plan; the owner may prefer one now.
