@@ -43,4 +43,13 @@ describe("control sources and the runtime", () => {
       }
     }
   });
+
+  it("control imports @acr/speech only as @acr/speech/protocol (no native audio code in control)", () => {
+    for (const f of sources(SRC)) {
+      for (const spec of specifiers(readFileSync(f, "utf8"))) {
+        if (spec.startsWith("@acr/speech")) expect(spec, f).toBe("@acr/speech/protocol");
+        expect(spec, f).not.toMatch(/speech\/src/);
+      }
+    }
+  });
 });
