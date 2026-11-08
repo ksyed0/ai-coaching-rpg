@@ -319,7 +319,11 @@ export type ReportRunSummary = {
   byCharacter: { roleId: string; name: string; replies: number; fallbackReplies: number }[];
   alerts: { seq: number; level: "info" | "warning"; role: string | null; fallback: boolean; reason: string; replySeq: number | null }[];
 };
-export type ReportOverview = { stage: ReportStage; job: ReportJob; confirm: { upTo: number } | null; orphan: boolean; summary: ReportRunSummary | null; subjects: SubjectStatusRow[] };
+export type ReportOverview = {
+  stage: ReportStage; job: ReportJob; confirm: { upTo: number } | null; orphan: boolean; summary: ReportRunSummary | null; subjects: SubjectStatusRow[];
+  /** US-0068: the session's AI player roles (in_review only, display only); absent when control did not send a well-made list. */
+  aiRoles?: string[];
+};
 export type CriterionLevel = 1 | 2 | 3 | 4 | null;
 export type SubjectView = {
   id: string; state: SubjectState;
@@ -382,13 +386,25 @@ function toRunSummary(v: unknown): ReportRunSummary {
         : bad()),
   };
 }
+/** Control sends at most this many AI roles (AI_ROLES_MAX in services/control/src/moderation.ts). */
+const MAX_AI_ROLES = 64;
+/**
+ * US-0068: a copy of a well-made `aiRoles` (distinct file-safe ids, at most MAX_AI_ROLES), else undefined. Unlike the rest of the
+ * overview a malformed list is DROPPED, never `bad()`: the row it feeds is display only and must not take the Report panel down.
+ */
+function toAiRoles(v: unknown): string[] | undefined {
+  if (!isFileIds(v) || v.length > MAX_AI_ROLES || new Set(v).size !== v.length) return undefined;
+  return [...v];
+}
 function toOverview(v: unknown): ReportOverview {
   if (!isObject(v) || !isStr(v.stage) || !STAGES.includes(v.stage) || typeof v.orphan !== "boolean") return bad();
+  const aiRoles = toAiRoles(v.aiRoles);
   return {
     stage: v.stage as ReportStage, job: toJob(v.job), orphan: v.orphan,
     confirm: orNull(v.confirm, (c) => (isObject(c) && isCount(c.upTo) ? { upTo: c.upTo } : bad())),
     summary: orNull(v.summary, toRunSummary),
     subjects: list(v.subjects, toSubjectStatus),
+    ...(aiRoles && { aiRoles }),
   };
 }
 function toSubjectView(v: unknown): SubjectView {

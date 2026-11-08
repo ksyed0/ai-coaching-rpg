@@ -5,6 +5,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- The console's report list now shows the AI players (EPIC-0002, US-0068, AC-0389 to AC-0391). Once the review is open, the Report panel lists, after the players and the group, one row per role an AI player filled, labelled "AI player" and "not scored (no report is written for an AI player)". The row has no buttons and is not offered for release or export. The control service reads the AI roles from the session log, as the report-link guard does; when the log cannot be read the rows are simply not shown and the rest of the panel works as before. The new overview field is optional, so an older control service or web app keeps working; deploy the control service before the web app (docs/ROLLBACK.md).
+
 ## [0.2.1] - 2026-11-08
 
 Bug-fix release after 0.2.0. It changes no schema and adds no setting; the one new wire code is `link_full`, so deploy the control service before the web app (docs/ROLLBACK.md, "Release 0.2.1"). It fixes BUG-0025, BUG-0029, BUG-0030, BUG-0032, BUG-0033 and BUG-0034 (PRs #119 to #123); BUG-0026, BUG-0027 and BUG-0028 are test and cleanup fixes with no change for users.

@@ -2625,7 +2625,7 @@
         },
         {
           "id": "AC-0321",
-          "text": "AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c; web report pages and downloads built in slice 2c-4 PR 1: the \"(AI player)\" label survives the report page, print view and export (TC-0147) and an AI role is labelled in the console link list (TC-0148); AC-0321 is now complete; Deviation 3 (no AI row in the console subject list) was decided by the owner on 2026-11-06 as a follow-up, the row is filed as US-0068)",
+          "text": "AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c; web report pages and downloads built in slice 2c-4 PR 1: the \"(AI player)\" label survives the report page, print view and export (TC-0147) and an AI role is labelled in the console link list (TC-0148); AC-0321 is now complete; Deviation 3 (no AI row in the console subject list) was decided by the owner on 2026-11-06 as a follow-up, the row is filed as US-0068 and built on 2026-11-08 (TC-0158 to TC-0161))",
           "done": true
         },
         {
@@ -2942,23 +2942,23 @@
       "title": "As a facilitator, I want the console report list to show which roles are AI players and not scored, so that I can see why they have no report.",
       "priority": "Low",
       "estimate": "S",
-      "status": "Planned",
+      "status": "Complete",
       "branch": "feature/EPIC-0002-US-0068-ai-player-row",
       "acs": [
         {
           "id": "AC-0389",
           "text": "the console report subject list shows one \"AI player, not scored\" row per AI-filled role, with no actions and no export entry",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0390",
           "text": "the moderation overview carries the AI roles as an OPTIONAL field (control answer, BFF and browser parse), so an older control or an older web still works; control deploys before web",
-          "done": false
+          "done": true
         },
         {
           "id": "AC-0391",
           "text": "the row text is accessible (the meaning is in words, not colour alone) and is covered by a unit test and an Axe check",
-          "done": false
+          "done": true
         }
       ],
       "dependencies": [
@@ -4031,9 +4031,9 @@
       "title": "Show AI-filled roles as \"AI player, not scored\" rows in the console report list",
       "type": "Dev",
       "assignee": "Agent",
-      "status": "To Do",
+      "status": "Done",
       "branch": "feature/EPIC-0002-US-0068-ai-player-row",
-      "notes": "Plan: docs/superpowers/plans/2026-11-08-us-0068-ai-player-row.md (7 tasks: control overview field from `aiRolesFor`, BFF and browser parsers, the row, Axe, e2e, documents). Covers AC-0389 to AC-0391 (TC-0158 to TC-0160). Planned 2026-11-08; build not started."
+      "notes": "Plan: docs/superpowers/plans/2026-11-08-us-0068-ai-player-row.md (7 tasks: control overview field from `aiRolesFor`, BFF and browser parsers, the row, Axe, e2e, documents). Covers AC-0389 to AC-0391 (TC-0158 to TC-0161). Built 2026-11-08 on the branch above: control `ModerationService` option `aiRoles` (wired in `main.ts`), BFF `toOverview`, browser `parseReportOverview`, the `SubjectList` row, the Axe case and the real-stack e2e in `report-ai-role.spec.ts`."
     }
   ],
   "testCases": [
@@ -5596,6 +5596,46 @@
       "type": "Negative",
       "status": "Pass",
       "defect": "BUG-0030"
+    },
+    {
+      "id": "TC-0158",
+      "title": "The AI roles reach the console report list through control, the BFF and the browser, and the real stack shows the row",
+      "relatedStory": "US-0068",
+      "relatedTask": "TASK-0105",
+      "relatedAC": "AC-0389, AC-0390",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0159",
+      "title": "The \"AI player, not scored\" row: read only, after the subject rows, once per role, and skipped for a role that is also a subject",
+      "relatedStory": "US-0068",
+      "relatedTask": "TASK-0105",
+      "relatedAC": "AC-0389, AC-0391",
+      "type": "Functional",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0160",
+      "title": "Axe finds no serious or critical violation on the Report panel with an AI player row",
+      "relatedStory": "US-0068",
+      "relatedTask": "TASK-0105",
+      "relatedAC": "AC-0391",
+      "type": "Accessibility",
+      "status": "Pass",
+      "defect": "None"
+    },
+    {
+      "id": "TC-0161",
+      "title": "No AI row and an intact panel when the AI roles are unknown, malformed or not yet relevant",
+      "relatedStory": "US-0068",
+      "relatedTask": "TASK-0105",
+      "relatedAC": "AC-0390",
+      "type": "Negative",
+      "status": "Pass",
+      "defect": "None"
     }
   ],
   "bugs": [
@@ -7172,11 +7212,11 @@
       "isAtRisk": false
     },
     "US-0068": {
-      "missingTCs": true,
+      "missingTCs": false,
       "noBranch": false,
       "failedTCNoBug": false,
       "openCriticalBug": false,
-      "isAtRisk": true
+      "isAtRisk": false
     },
     "US-0069": {
       "missingTCs": true,
@@ -7523,10 +7563,10 @@
       "bugIds": []
     }
   ],
-  "generatedAt": "2026-11-08T17:39:47.790Z",
-  "commitSha": "7cbe156",
-  "buildNumber": "547",
-  "branch": "docs/session-37-us-0068-plan",
+  "generatedAt": "2026-11-08T18:12:48.178Z",
+  "commitSha": "9ec1834",
+  "buildNumber": "554",
+  "branch": "feature/EPIC-0002-US-0068-ai-player-row",
   "sessionTimeline": [
     {
       "date": "2026-10-01",
@@ -7668,7 +7708,7 @@
     }
   },
   "budget": {
-    "totalBudget": 808.4862,
+    "totalBudget": 807.5862000000001,
     "totalSpent": 799.4862,
     "totalProjected": 12053.1,
     "percentUsed": 99,
@@ -7696,6 +7736,14 @@
         "percentUsed": 100
       },
       {
+        "id": "EPIC-0002",
+        "title": "Slice 2 — web lobby, session view and reconnect",
+        "budget": 209.46162600000008,
+        "spent": 208.56162600000008,
+        "remaining": 0.9000000000000057,
+        "percentUsed": 100
+      },
+      {
         "id": "EPIC-0005",
         "title": "Slice 5 — evaluator and reports",
         "budget": 162.21459800000005,
@@ -7710,14 +7758,6 @@
         "spent": 173.80135500000006,
         "remaining": 0,
         "percentUsed": 100
-      },
-      {
-        "id": "EPIC-0002",
-        "title": "Slice 2 — web lobby, session view and reconnect",
-        "budget": 210.3616260000001,
-        "spent": 208.56162600000008,
-        "remaining": 1.8000000000000114,
-        "percentUsed": 99
       },
       {
         "id": "EPIC-0007",
@@ -7781,7 +7821,8 @@
       "2026-11-06T21:55:07.566Z",
       "2026-11-06T22:58:47.846Z",
       "2026-11-06T23:42:42.538Z",
-      "2026-11-08T17:39:47.895Z"
+      "2026-11-08T17:39:47.895Z",
+      "2026-11-08T18:12:48.256Z"
     ],
     "doneCounts": [
       0,
@@ -7793,6 +7834,7 @@
       4,
       4,
       4,
+      6,
       6
     ],
     "totalStories": [
@@ -7805,6 +7847,7 @@
       65,
       65,
       65,
+      69,
       69
     ],
     "aiCosts": [
@@ -7817,9 +7860,11 @@
       799.4862,
       799.4862,
       799.4862,
+      799.4862,
       799.4862
     ],
     "coverage": [
+      null,
       null,
       null,
       null,
@@ -7841,6 +7886,7 @@
       21,
       21,
       21,
+      29,
       29
     ],
     "openBugs": [
@@ -7853,9 +7899,11 @@
       4,
       4,
       4,
+      1,
       1
     ],
     "atRisk": [
+      0,
       0,
       0,
       0,
@@ -7877,10 +7925,12 @@
       33019880,
       33019880,
       33019880,
+      33019880,
       33019880
     ],
     "outputTokens": [
       559978,
+      5997518,
       5997518,
       5997518,
       5997518,
@@ -7901,6 +7951,7 @@
       1.1393442622950825,
       1.1393442622950825,
       1.1393442622950825,
+      1.1333333333333335,
       1.1333333333333335
     ],
     "velocityByWeek": {

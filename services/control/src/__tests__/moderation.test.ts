@@ -320,6 +320,40 @@ describe("ModerationService, part A", () => {
     }
   });
 
+  it("test_moderation_overview_aiRoles_only_in_review: no other stage carries aiRoles or calls the lookup (US-0068)", async () => {
+    const lookup = vi.fn(async (_sid: string) => ["ai1"]);
+    const svcAi = new ModerationService({ config, jobs, secrets: [], now: fixedClock(1_900_000_000_000), sleep: async () => {}, random: () => 0.5, aiRoles: lookup });
+    const stageOf = async () => {
+      const o = await rec(svcAi.overview(id));
+      if (o.status !== 200) throw new Error(`overview ${o.status}`);
+      return o.value;
+    };
+    const stages: string[] = [];
+    const noField = async () => {
+      const v = await stageOf();
+      stages.push(v.stage);
+      expect(Object.prototype.hasOwnProperty.call(v, "aiRoles")).toBe(false);
+      expect(lookup).not.toHaveBeenCalled();
+      return v;
+    };
+    ended.set(id, false);
+    await noField();
+    ended.set(id, true);
+    const upTo = (await noField()).confirm!.upTo;
+    expect(await jobs.start(id, { confirmedCalls: upTo, by: "priya-console" })).toMatchObject({ status: 200 });
+    await noField();
+    children[0]!.exit(1);
+    await vi.waitFor(() => expect(jobs.status(id).state).toBe("failed"));
+    await noField();
+    await placeDraft();
+    await noField();
+    expect(stages).toEqual(["not_ended", "not_evaluated", "evaluating", "failed", "ready_to_open"]);
+    expect(await rec(svcAi.open(id, "priya"))).toEqual({ status: 200, value: { subjects: 3 } });
+    const v = await stageOf();
+    expect(v).toMatchObject({ stage: "in_review", aiRoles: ["ai1"] });
+    expect(lookup).toHaveBeenCalledWith(id);
+  });
+
   it("an orphan alone still reads not_evaluated, with orphan true", async () => {
     await mkdir(path.join(config.reportsDir, id));
     await writeFile(path.join(config.reportsDir, id, "alice.json"), "{");
