@@ -15,6 +15,7 @@
     "@acr/events": "workspace:*",
     "@acr/runtime": "workspace:*",
     "@acr/script": "workspace:*",
+    "@acr/speech": "workspace:*",
     "ws": "8.22.0",
     "zod": "4.6.7"
   },

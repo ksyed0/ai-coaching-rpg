@@ -54,15 +54,20 @@ describe("startWorker (US-0070): wiring the pipeline to IPC", () => {
     await h.w.stop();
   });
 
-  it("nothing is ingested before the first voice_state", async () => {
+  it("nothing is ingested before the first voice_state, and a file plays only once a seat records (not in a lobby nobody records in)", async () => {
     const ingest = { start: vi.fn(async () => {}), stop: vi.fn(async () => {}) };
     const h = harness({ roles: ["tech_lead"], ingest });
     await vi.waitFor(() => expect(h.sent).toContainEqual({ type: "worker_ready", stt: "ok" }));
     h.w.onControl({ type: "voice_line_result", segmentId: "abc", seq: 3 }); // not a state: still nothing
     expect(ingest.start).not.toHaveBeenCalled();
     h.w.onControl(state([]));
+    h.w.onControl(state([{ roleId: "tech_lead", participantId: "p1", recording: false }]));
+    h.w.onControl(state([{ roleId: "tech_lead", participantId: "p1", recording: true }], { paused: true }));
+    expect(ingest.start).not.toHaveBeenCalled();
+    h.w.onControl(state([{ roleId: "tech_lead", participantId: "p1", recording: true }]));
     expect(ingest.start).toHaveBeenCalledTimes(1);
     h.w.onControl(state([])); // later states never start a second ingest
+    h.w.onControl(state([{ roleId: "tech_lead", participantId: "p1", recording: true }]));
     expect(ingest.start).toHaveBeenCalledTimes(1);
     await h.w.stop();
     expect(ingest.stop).toHaveBeenCalled();
@@ -135,7 +140,7 @@ describe("startWorker (US-0070): wiring the pipeline to IPC", () => {
       cfg: cfgFor(["tech_lead"]), send: (m) => { sent.push(m); return true; }, now: () => 0, log: (m) => { log.push(m); },
       stt: new FakeSpeechToText({ script: () => ({ text: "x", durationMs: 1 }) }), ingest: { start: async () => { throw new Error(`secret ${dir}`); }, stop: async () => {} },
     });
-    w.onControl(state([]));
+    w.onControl(state([{ roleId: "tech_lead", participantId: "p1", recording: true }]));
     await vi.waitFor(() => expect(log).toEqual(["speech ingest stopped (Error)"]));
     await w.stop();
   });

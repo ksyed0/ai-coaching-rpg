@@ -143,6 +143,9 @@ importers:
       '@acr/script':
         specifier: workspace:*
         version: link:../../packages/script
+      '@acr/speech':
+        specifier: workspace:*
+        version: link:../speech
       ws:
         specifier: 8.22.0
         version: 8.22.0

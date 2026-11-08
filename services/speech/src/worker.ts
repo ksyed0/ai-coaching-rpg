@@ -21,7 +21,8 @@ export type RunningWorker = {
  * US-0070 (EPIC-0003 voice A1a): the speech worker's wiring, in-process and testable (main.ts only adds the IPC channel).
  *  - Warms speech-to-text up (each distinct instance once, under the limiter's cold deadline) and then sends `worker_ready`; a failed
  *    warm-up reports `stt: "unavailable"` and the worker keeps running (its segments fail as `stt_failed`).
- *  - Starts the ingest only after the FIRST `voice_state` (overview C6), and builds one TrackPipeline per role on its first frame.
+ *  - Starts the ingest only after a `voice_state` (overview C6) in which a seat records and the session is not paused (a file plays from
+ *    then on, as live audio would only then be listened to), and builds one TrackPipeline per role on its first frame.
  *  - Every `voice_state` updates the gate; each role that stopped recording has its open segment discarded at once.
  *  - `ended`: stops the ingest, flushes every track's open segment (audio recorded before the end), delivers what is pending, then applies
  *    the ended state (nothing records after it).
@@ -83,7 +84,8 @@ export function startWorker(o: {
         if (m.ended) { ending = true; void end(m); return; }
         const { stopped } = gate.update(m);
         for (const roleId of stopped) pipelines.get(roleId)?.stop();
-        if (!ingestStarted) startIngest();
+        // A file is a stand-in for live audio: it starts playing when a seat first records, so its speech meets a listening pipeline.
+        if (!ingestStarted && !m.paused && m.holders.some((h) => h.recording)) startIngest();
       } catch (err) { log(`speech control message failed (${err instanceof Error ? err.name : "error"})`); }
     },
     async stop() {
