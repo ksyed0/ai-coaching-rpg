@@ -252,7 +252,9 @@ export async function bootstrap(opts: {
       parent.send({ type: "voice_seats", ...host.voiceSeats() });
       const offSeats = host.onVoiceSeatsChanged((v) => { parent.send({ type: "voice_seats", ...v }); });
       const offChoice = host.onVoiceChoice((c) => { parent.send({ type: "voice_choice", ...c }); });
-      unsubscribeVoice = () => { offSeats(); offChoice(); };
+      // AC-0400: control's AI players wake once per voice turn: each open and close is reported, in order.
+      const offTurn = host.onVoiceTurn((open) => { parent.send({ type: "voice_turn", open }); });
+      unsubscribeVoice = () => { offSeats(); offChoice(); offTurn(); };
     }
     let endedSent = false;
     unsubscribeEnded = host.subscribe((e) => { if (e.type === "session.ended" && !endedSent) { endedSent = true; parent.send({ type: "ended" }); } });
@@ -281,8 +283,10 @@ export async function bootstrap(opts: {
     const answer = (m: ParentMessage) => {
       // US-0060: a bot alert is fire-and-forget: never answered (no requestId), and botAlert never rejects, so nothing here can reply.
       if (m.type === "bot_alert") { void host.botAlert(m.roleId, m.message).catch(() => undefined); return; }
-      // US-0070: fire-and-forget; wired to the host by later tasks of the A1a plan (the turn timer, notices and alerts).
-      if (m.type === "speech_activity" || m.type === "voice_notice" || m.type === "voice_alert") return;
+      // US-0070: fire-and-forget. A speech edge feeds the host's turn timer (ignored unless the role is a recording holder).
+      if (m.type === "speech_activity") { host.onSpeechActivity(m.roleId, m.active, m.silentMs); return; }
+      // Wired to the host by a later task of the A1a plan (notices and alerts).
+      if (m.type === "voice_notice" || m.type === "voice_alert") return;
       if (m.type === "voice_line") {
         // US-0070: exactly one answer per line: the seq, the host's refusal code, or "failed" for anything else (never a message or a path).
         host.onVoiceUtterance(m.roleId, m.participantId, m.text).then(

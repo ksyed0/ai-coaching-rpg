@@ -14,7 +14,7 @@ import { actorLabel, cleanBotAlertMessage, cleanClosingMessage, cleanFacilitator
 import { ReviewUsageError } from "../review/errors.js";
 import { noticeNamesAiPlayers, noticeNamesVoice } from "./limits.js";
 import { VoiceChoices, type VoiceFileIO } from "../engine/voice-file.js";
-import { buildVoiceSeats, type VoiceSeats, type VoiceState } from "./voice.js";
+import { buildVoiceSeats, realSetTimer, VoiceTurnTracker, type SetTimer, type VoiceSeats, type VoiceState } from "./voice.js";
 import type { VoiceConfig } from "./voice-config.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
@@ -80,8 +80,16 @@ export class SessionHost {
   private readonly voiceSeatsListeners = new Set<(s: VoiceSeats) => void>();
   private readonly voiceChoiceListeners = new Set<(c: { roleId: string; participantId: string; choice: "voice" | "text_only"; at: number }) => void>();
   private voiceSeatsQueued = false;
+  /** US-0070 (AC-0400): the one voice-turn timer (null while voice is off); the NPC round runs once per voice turn. */
+  private readonly turns: VoiceTurnTracker | null = null;
+  /**
+   * US-0070 (C3): settles once every voice line received so far is recorded or refused, with the highest seq recorded; a turn's round
+   * waits on it, so it never starts before the turn's last line is in the log.
+   */
+  private voiceChain: Promise<number> = Promise.resolve(0);
+  private readonly voiceTurnListeners = new Set<(open: boolean) => void>();
 
-  constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034, GM_AUTO_RELEASE (default off): the Game Master releases a hidden fact itself instead of only suggesting it. */ gmAutoRelease?: boolean; /** US-0019, GM_TRANSCRIPT_WINDOW (default 40): the latest utterances of the scene each Game Master prompt holds. */ gmTranscriptWindow?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number; /** US-0053: durable credentials and consent; when absent, players join by code or reconnect token only. */ seats?: Seats; /** US-0070: voice input (VOICE_ENABLED); default off. */ voice?: VoiceConfig }) {
+  constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034, GM_AUTO_RELEASE (default off): the Game Master releases a hidden fact itself instead of only suggesting it. */ gmAutoRelease?: boolean; /** US-0019, GM_TRANSCRIPT_WINDOW (default 40): the latest utterances of the scene each Game Master prompt holds. */ gmTranscriptWindow?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number; /** US-0053: durable credentials and consent; when absent, players join by code or reconnect token only. */ seats?: Seats; /** US-0070: voice input (VOICE_ENABLED); default off. */ voice?: VoiceConfig; /** US-0070: the voice-turn timer (default a real, unref'd setTimeout). */ setTimer?: SetTimer }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
     this.scenario = opts.scenario; this.engine = opts.engine;
     this.log = opts.log ?? (() => {});
@@ -97,8 +105,17 @@ export class SessionHost {
     this.voice = opts.voice ?? { enabled: false };
     if (this.voice.enabled) {
       if (this.seats) this.loadVoiceChoices(this.seats);
+      this.turns = new VoiceTurnTracker({
+        turnEndMs: this.voice.turnEndMs, setTimer: opts.setTimer ?? realSetTimer,
+        onTurnEnd: () => this.endVoiceTurn(),
+        onOpenChange: (open) => { for (const fn of this.voiceTurnListeners) { try { fn(open); } catch (err) { this.safeLog(`voice turn listener: ${errorName(err)}`); } } },
+      });
       // Pause, resume, a restart and the end change what may be recorded: the seats are reported again (coalesced; never throws).
-      opts.engine.subscribe((e) => { if (e.type === "facilitator.command" || e.type === "session.started" || e.type === "session.resumed" || e.type === "session.ended") this.noteVoiceSeats(); });
+      // Pause, a restart (it comes back paused) and the end also clear the voice turn: no round runs for it (AC-0400).
+      opts.engine.subscribe((e) => {
+        if ((e.type === "facilitator.command" && e.command === "pause") || e.type === "session.resumed" || e.type === "session.ended") this.turns?.clear();
+        if (e.type === "facilitator.command" || e.type === "session.started" || e.type === "session.resumed" || e.type === "session.ended") this.noteVoiceSeats();
+      });
     }
     // US-0053: a credential is worth nothing after the session ends, so every one is revoked when the end is recorded.
     if (this.seats) opts.engine.subscribe((e) => { if (e.type === "session.ended") { try { this.endSeats(); } catch (err) { this.report("end of session revoke", err); } } });
@@ -431,7 +448,10 @@ export class SessionHost {
 
   /** Schedules one voice-seats notification for this turn of the event loop. Never throws (it runs inside engine subscribers). */
   private noteVoiceSeats(): void {
-    if (!this.voice.enabled || this.voiceSeatsListeners.size === 0 || this.voiceSeatsQueued) return;
+    if (!this.voice.enabled) return;
+    // A track that may no longer record stops holding the voice turn open at once (an opt-out, a lost or reissued seat).
+    if (this.turns) for (const r of this.turns.activeRoles()) { try { if (!this.isRecordingHolder(r)) this.turns.forget(r); } catch (err) { this.safeLog(`voice turn: ${errorName(err)}`); } }
+    if (this.voiceSeatsListeners.size === 0 || this.voiceSeatsQueued) return;
     this.voiceSeatsQueued = true;
     queueMicrotask(() => {
       this.voiceSeatsQueued = false;
@@ -570,6 +590,7 @@ export class SessionHost {
     if (!this.started) throw new HostError("not_started");
     await this.engine.say(roleId, text, "text", opts); // throws EngineError (paused, ended, ...) before any NPC turn can start
     this.pendingAnswer = null; // a new line supersedes the one from before a restart: the round below answers the conversation as it now stands
+    this.turns?.textLine(); // US-0070: a typed line ends a pending voice turn at once (its round is the one scheduled here)
     this.scheduleRound();
   }
 
@@ -590,7 +611,9 @@ export class SessionHost {
     if (!this.holds(roleId, participantId)) throw new VoiceRefusedError("not_holder");
     if (this.voiceStateOf(roleId) !== "voice") throw new VoiceRefusedError("not_recording");
     let event: SessionEvent;
-    try { event = await this.engine.say(roleId, text, "voice"); }
+    const said = this.engine.say(roleId, text, "voice");
+    this.voiceChain = this.voiceChain.then((prev) => said.then((e) => Math.max(prev, e.seq), () => prev));
+    try { event = await said; }
     catch (err) {
       if (err instanceof EngineError) {
         if (err.code === "paused") throw new VoiceRefusedError("paused");
@@ -600,8 +623,49 @@ export class SessionHost {
       throw new VoiceRefusedError("failed");
     }
     this.pendingAnswer = null; // as a typed line: a new line supersedes the one from before a restart
-    this.scheduleRound();
+    // AC-0400: a line that arrives with no speech active and no timer pending ends its own turn; otherwise the turn timer will.
+    if (this.turns && !this.turns.open) this.endVoiceTurn();
     return { seq: event.seq };
+  }
+
+  /**
+   * US-0070 (AC-0400): a speech edge of a recording track (fire-and-forget, from the speech worker through control). Ignored unless voice
+   * is on, the session is running and not paused, and the role is a human seat whose current holder chose voice.
+   */
+  onSpeechActivity(roleId: string, active: boolean, silentMs?: number): void {
+    const turns = this.turns;
+    if (!turns || !this.started || this.fatal !== null || this.engine.state.paused || this.engine.state.status !== "running") return;
+    if (!this.isRecordingHolder(roleId)) return;
+    turns.activity(roleId, active, silentMs);
+  }
+
+  /** US-0070: whether a voice turn is open (someone speaking, or the turn timer pending). */
+  get voiceTurnOpen(): boolean { return this.turns?.open ?? false; }
+
+  /** US-0070: the last seq of each voice turn closed in this process (rising). */
+  get voiceTurnEnds(): readonly number[] { return this.turns?.closedTurnEnds ?? []; }
+
+  /** US-0070: `fn` gets every open and close of a voice turn (for the control service's AI players, `voice_turn`). */
+  onVoiceTurn(fn: (open: boolean) => void): () => void { this.voiceTurnListeners.add(fn); return () => { this.voiceTurnListeners.delete(fn); }; }
+
+  /** A human seat whose current holder chose voice (and is not pinned off). */
+  private isRecordingHolder(roleId: string): boolean {
+    return this.holderOf(roleId) !== undefined && this.voiceStateOf(roleId) === "voice";
+  }
+
+  /**
+   * US-0070 (C3): a voice turn ended. Its round starts only once every voice line received so far is recorded (the chain), and not at all
+   * when a pause or the end cleared the turn meanwhile. The turn's last recorded seq becomes a boundary for the Game Master's count.
+   */
+  private endVoiceTurn(): void {
+    const turns = this.turns;
+    if (!turns) return;
+    const epoch = turns.epoch;
+    void this.voiceChain.then((seq) => {
+      if (turns.epoch !== epoch || this.fatal !== null) return;
+      if (seq > 0) turns.recordTurnEnd(seq);
+      this.scheduleRound();
+    });
   }
 
   /** One NPC round (then a GM tick) in the background. R25: at most one round waits behind the running one; it reads the then-current transcript anyway. */
