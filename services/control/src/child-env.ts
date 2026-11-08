@@ -10,6 +10,8 @@ export const CHILD_ENV_ALLOWLIST = {
     "PATH", "MODEL_PROVIDER", "ANTHROPIC_BASE_URL", "OPENROUTER_BASE_URL", "LOCAL_BASE_URL",
     "LOCAL_API_KEY", "OPENROUTER_API_KEY", "ANTHROPIC_API_KEY",
     "PLAYER_TEMPERATURE", "MODEL_MAX_RETRIES", "MODEL_RETRY_BASE_MS", "SESSION_LOCK_STALE_MS", "CONSENT_NOTICE_VERSION",
+    // US-0070: the runtime's voice settings. The speech worker's own settings (STT_*, VOICE_HANGOVER_MS, ...) never reach a runtime.
+    "VOICE_ENABLED", "TURN_END_MS",
   ],
   prefixes: ["NODE_", "NPC_", "GM_", "EVAL_"],
   excludedPrefixes: ["GM_TRACE"],

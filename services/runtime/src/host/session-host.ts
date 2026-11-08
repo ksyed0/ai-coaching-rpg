@@ -12,6 +12,7 @@ import { DEFAULT_REPLY_TIMEOUT_MS, gmDeadlineMs } from "../agents/timeouts.js";
 import { actorLabel, cleanBotAlertMessage, cleanClosingMessage, cleanFacilitatorLabel } from "./display-name.js";
 import { ReviewUsageError } from "../review/errors.js";
 import { noticeNamesAiPlayers } from "./limits.js";
+import type { VoiceConfig } from "./voice-config.js";
 
 /** US-0013: at most this many events are replayed to one rejoining client; a client further behind gets `complete: false` and no events. */
 export const MAX_REPLAY_EVENTS = 1000;
@@ -61,8 +62,10 @@ export class SessionHost {
   private consentGrandfathered = false;
   /** US-0054: the time recorded with a consent (the injected clock, so tests and replays never read the wall clock). */
   private readonly clock: Clock;
+  /** US-0070: voice input settings (VOICE_ENABLED, TURN_END_MS); off unless the bootstrap accepted VOICE_ENABLED=1. */
+  private readonly voice: VoiceConfig;
 
-  constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034, GM_AUTO_RELEASE (default off): the Game Master releases a hidden fact itself instead of only suggesting it. */ gmAutoRelease?: boolean; /** US-0019, GM_TRANSCRIPT_WINDOW (default 40): the latest utterances of the scene each Game Master prompt holds. */ gmTranscriptWindow?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number; /** US-0053: durable credentials and consent; when absent, players join by code or reconnect token only. */ seats?: Seats }) {
+  constructor(opts: { scenario: Scenario; engine: SessionEngine; npcProvider: ModelProvider; gmProvider: ModelProvider; clock: Clock; log?: (msg: string) => void; firstTokenTimeoutMs?: number; replyTimeoutMs?: number; npcMaxTokens?: number; gmMaxTokens?: number; npcTemperature?: number; gmTemperature?: number; /** Game Master call deadline (GM_TIMEOUT_MS; default max(reply timeout, 60 s)), one re-ask after an unusable reply (GM_REASK, default true), how often it judges (GM_EVERY_N_UTTERANCES, default 3) and an optional raw-reply trace. */ gmTimeoutMs?: number; gmReask?: boolean; gmEveryN?: number; gmTrace?: (rec: GmTraceRecord) => void; /** US-0034, GM_AUTO_RELEASE (default off): the Game Master releases a hidden fact itself instead of only suggesting it. */ gmAutoRelease?: boolean; /** US-0019, GM_TRANSCRIPT_WINDOW (default 40): the latest utterances of the scene each Game Master prompt holds. */ gmTranscriptWindow?: number; /** How many silent turns to remember for the demo's report (default 1000; the oldest are dropped). */ maxSilencesKept?: number; /** US-0053: durable credentials and consent; when absent, players join by code or reconnect token only. */ seats?: Seats; /** US-0070: voice input (VOICE_ENABLED); default off. */ voice?: VoiceConfig }) {
     this.maxSilencesKept = Math.max(1, opts.maxSilencesKept ?? 1000);
     this.scenario = opts.scenario; this.engine = opts.engine;
     this.log = opts.log ?? (() => {});
@@ -75,6 +78,7 @@ export class SessionHost {
     opts.engine.onFailure((reason) => this.onEngineFailure(reason));
     this.seats = opts.seats;
     this.clock = opts.clock;
+    this.voice = opts.voice ?? { enabled: false };
     // US-0053: a credential is worth nothing after the session ends, so every one is revoked when the end is recorded.
     if (this.seats) opts.engine.subscribe((e) => { if (e.type === "session.ended") { try { this.endSeats(); } catch (err) { this.report("end of session revoke", err); } } });
     this.gm = new GameMaster({ engine: opts.engine, provider: opts.gmProvider, onError: (err) => this.report("GM", err), maxTokens: opts.gmMaxTokens, temperature: opts.gmTemperature, evaluationTimeoutMs: opts.gmTimeoutMs ?? gmDeadlineMs(opts.replyTimeoutMs ?? DEFAULT_REPLY_TIMEOUT_MS), reask: opts.gmReask, everyNUtterances: opts.gmEveryN, trace: opts.gmTrace, autoRelease: opts.gmAutoRelease, transcriptWindow: opts.gmTranscriptWindow });
@@ -94,6 +98,9 @@ export class SessionHost {
 
   /** US-0034: whether the Game Master releases a hidden fact itself when it judges it earned (GM_AUTO_RELEASE), instead of only suggesting it. */
   get gmAutoRelease(): boolean { return this.gm.autoRelease; }
+
+  /** US-0070: whether voice input is on for this session (VOICE_ENABLED=1, accepted at bootstrap). */
+  get voiceEnabled(): boolean { return this.voice.enabled; }
 
   /** Why the session stopped for good (the log failed or the lock was lost), or null. */
   get fatalReason(): string | null { return this.fatal; }

@@ -3,6 +3,7 @@ import path from "node:path";
 import { parseEnv } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { playerRoleCapError } from "./host/limits.js";
+import { parseVoiceConfig, type VoiceConfig } from "./host/voice-config.js";
 import { loadScenario, validateScenario } from "@acr/script";
 import { describeModelProvider, selectModelProvider } from "@acr/adapters";
 import { NOTICE_VERSION_RULE_TEXT, SESSION_ID_RULE_TEXT, isNoticeVersion, isValidSessionId } from "@acr/events";
@@ -126,6 +127,10 @@ export async function bootstrap(opts: {
   if (errors.length) return { ok: false, errors };
   // US-0060: a managed session has a player-role cap; refused before the session is opened, so no file is written.
   if (managed) { const capError = playerRoleCapError(scenario); if (capError) return { ok: false, errors: [capError] }; }
+  // US-0070: VOICE_ENABLED=1 needs a managed runtime and a notice that describes voice; refused before the session is opened (no file written).
+  const voiceCfg = parseVoiceConfig(env, { managed, noticeVersion });
+  if (!voiceCfg.ok) return { ok: false, errors: voiceCfg.errors };
+  const voice: VoiceConfig = voiceCfg.enabled ? { enabled: true, turnEndMs: voiceCfg.turnEndMs } : { enabled: false };
 
   // US-0058: SESSION_DATA_DIR (set by the control service, from the merged env like the other settings) names the data directory; it must be absolute, and a refusal never echoes it.
   const sessionDataDir = env.SESSION_DATA_DIR;
@@ -169,7 +174,7 @@ export async function bootstrap(opts: {
     // Never log the provider object, its name, an endpoint or any env-derived value: describeModelProvider returns a
     // fixed label plus a literal yes/no for "custom endpoint".
     log(`model provider: ${describeModelProvider(env)}`);
-    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmAutoRelease: gmCfg.autoRelease, gmTranscriptWindow: gmCfg.transcriptWindow, gmTrace, seats: store.seats });
+    host = new SessionHost({ scenario, engine, npcProvider, gmProvider: wrap(selectModelProvider(env, "gm", noSdkRetries), "GM"), clock, log: hostLog, firstTokenTimeoutMs: timeouts.firstTokenTimeoutMs, replyTimeoutMs: timeouts.replyTimeoutMs, npcMaxTokens: budgets.npcMaxTokens, gmMaxTokens: budgets.gmMaxTokens, npcTemperature: temps.npcTemperature, gmTemperature: temps.gmTemperature, gmTimeoutMs: gmCfg.timeoutMs, gmReask: gmCfg.reask, gmEveryN: gmCfg.everyNUtterances, gmAutoRelease: gmCfg.autoRelease, gmTranscriptWindow: gmCfg.transcriptWindow, gmTrace, seats: store.seats, voice });
     if (store.resume) host.resumeFrom(store.resume);
     // Fail-stop (US-0018): a lost lock stops the engine too; one log line (no paths or values), then the owner's onFatal.
     let fatalSeen = false;
@@ -232,7 +237,7 @@ export async function bootstrap(opts: {
     const aiRoleIds = host.aiRoleIds(); // US-0060: from the AI-role file (lobby) or the started log (resume)
     // US-0060: the AI-player calls already in the log (the control service seeds a session budget from it); never above the schema's cap, and absent when 0.
     const aiCalls = Math.min(store.resume?.aiCalls ?? 0, MAX_READY_AI_CALLS);
-    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new" /* an empty-lobby restart reports "new" with no codes (they are kept); the supervisor treats ready-without-codes as normal */, modelLabel: describeModelProvider(env), ...(aiRoleIds.length > 0 ? { aiRoles: aiRoleIds } : {}), ...(store.aiRolesReset && store.aiRolesReset.length > 0 ? { aiRolesReset: store.aiRolesReset } : {}), ...(host.includeInGroup() ? {} : { includeInGroup: false as const }), ...(store.includeInGroupReset === false && (store.aiRolesReset?.length ?? 0) > 0 ? { includeInGroupReset: false as const } : {}), ...(aiCalls > 0 ? { aiCalls } : {}) });
+    const sent = parent.send({ type: "ready", port: server.port, ...(logIdentity ? { logIdentity } : {}), status: store.resume ? "resumed" : "new" /* an empty-lobby restart reports "new" with no codes (they are kept); the supervisor treats ready-without-codes as normal */, modelLabel: describeModelProvider(env), ...(aiRoleIds.length > 0 ? { aiRoles: aiRoleIds } : {}), ...(store.aiRolesReset && store.aiRolesReset.length > 0 ? { aiRolesReset: store.aiRolesReset } : {}), ...(host.includeInGroup() ? {} : { includeInGroup: false as const }), ...(store.includeInGroupReset === false && (store.aiRolesReset?.length ?? 0) > 0 ? { includeInGroupReset: false as const } : {}), ...(aiCalls > 0 ? { aiCalls } : {}), ...(host.voiceEnabled ? { voice: true as const } : {}) });
     if (!sent) {
       // A start failure, but the join codes are deliberately NOT withdrawn: the parent already holds them (they were sent first), and
       // withdrawing would make them stale. The parent reissues them if it restarts this session. Nothing may stay running or locked.
