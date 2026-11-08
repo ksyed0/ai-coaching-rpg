@@ -11,3 +11,5 @@ export type { SpeechSegment, SpeechToText, Transcript } from "./speech/types.js"
 export { SpeechRefusedError, SpeechTimeoutError, SpeechUnavailableError, isSpeechError, isTransientSpeechError, type AnySpeechError } from "./speech/errors.js";
 export { FakeSpeechToText } from "./speech/fake.js";
 export { speechToTextContract, type ContractControl } from "./speech/contract.js";
+export { encodeWav, decodeWav } from "./speech/wav.js";
+export { parseSttUrl, WhisperHttpSpeechToText, MAX_WHISPER_BODY_BYTES, WHISPER_HEALTH_TIMEOUT_MS } from "./speech/whisper-http.js";
