@@ -1,4 +1,4 @@
-import { REPORT_SENTENCES } from "@acr/events";
+import { REPORT_SENTENCES, isFileSafeId } from "@acr/events";
 import { getJson, postForFile, postJson, type ApiResult } from "./api";
 import { MESSAGES, REPORT_CONSOLE, REPORT_REFUSALS, type ReportRefusal } from "./messages";
 
@@ -245,7 +245,11 @@ export type ReportRunSummaryView = {
   byCharacter: { roleId: string; name: string; replies: number; fallbackReplies: number }[];
   alerts: { level: "info" | "warning"; role: string | null; fallback: boolean; reason: string }[];
 };
-export type ReportOverviewView = { stage: ReportStage; job: ReportJobView; upTo: number | null; orphan: boolean; summary: ReportRunSummaryView | null; subjects: ReportSubjectRow[] };
+export type ReportOverviewView = {
+  stage: ReportStage; job: ReportJobView; upTo: number | null; orphan: boolean; summary: ReportRunSummaryView | null; subjects: ReportSubjectRow[];
+  /** US-0068: the session's AI player roles, shown as "AI player, not scored" rows; always a list (empty when absent or malformed). */
+  aiRoles: string[];
+};
 export type ReportLevel = 1 | 2 | 3 | 4 | null;
 export type ReportCriterion = {
   id: string; name: string; current: ReportLevel | "invalid"; status: "needs_review" | "accepted" | "edited" | "clear"; rationale: string;
@@ -329,7 +333,15 @@ export function parseReportOverview(v: unknown): ReportOverviewView | null {
   if (o.summary !== null && summary === null) return null;
   const subjects = each(o.subjects, parseRow);
   if (!subjects) return null;
-  return { stage, job, upTo: c && count(c.upTo) ? c.upTo : null, orphan: o.orphan, summary, subjects };
+  return { stage, job, upTo: c && count(c.upTo) ? c.upTo : null, orphan: o.orphan, summary, subjects, aiRoles: aiRolesOf(o.aiRoles) };
+}
+
+/** The BFF forwards at most this many AI roles (MAX_AI_ROLES in src/server/launcher-client.ts). */
+const MAX_AI_ROLES = 64;
+/** US-0068: distinct file-safe ids, at most MAX_AI_ROLES; anything else is an empty list, never a failed overview (the row is display only). */
+function aiRolesOf(v: unknown): string[] {
+  if (!strs(v) || v.length > MAX_AI_ROLES || !v.every(isFileSafeId) || new Set(v).size !== v.length) return [];
+  return [...v];
 }
 
 export function parseReportSubject(v: unknown): ReportSubjectDetail | null {
