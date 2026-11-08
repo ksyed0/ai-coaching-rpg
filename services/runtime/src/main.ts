@@ -11,7 +11,7 @@ import { SessionStoreError, openSession, parseLockStaleMs, parseStartMode, type 
 import { SystemClock } from "./engine/clock.js";
 import { loadConsentNotice } from "./engine/consent-notice.js";
 import type { ConsentNotice } from "./engine/consent.js";
-import { SessionHost } from "./host/session-host.js";
+import { SessionHost, VoiceRefusedError } from "./host/session-host.js";
 import { startServer } from "./host/ws-server.js";
 import { parseNpcTimeouts } from "./agents/timeouts.js";
 import { parseTokenBudgets } from "./agents/token-budgets.js";
@@ -281,9 +281,16 @@ export async function bootstrap(opts: {
     const answer = (m: ParentMessage) => {
       // US-0060: a bot alert is fire-and-forget: never answered (no requestId), and botAlert never rejects, so nothing here can reply.
       if (m.type === "bot_alert") { void host.botAlert(m.roleId, m.message).catch(() => undefined); return; }
-      // US-0070: voice is not wired into the host yet (later tasks of the A1a plan); a voice line is answered at once, never left pending.
+      // US-0070: fire-and-forget; wired to the host by later tasks of the A1a plan (the turn timer, notices and alerts).
       if (m.type === "speech_activity" || m.type === "voice_notice" || m.type === "voice_alert") return;
-      if (m.type === "voice_line") { parent.send({ type: "voice_line_refused", segmentId: m.segmentId, code: "voice_off" }); return; }
+      if (m.type === "voice_line") {
+        // US-0070: exactly one answer per line: the seq, the host's refusal code, or "failed" for anything else (never a message or a path).
+        host.onVoiceUtterance(m.roleId, m.participantId, m.text).then(
+          ({ seq }) => { parent.send({ type: "voice_line_ack", segmentId: m.segmentId, seq }); },
+          (err) => { parent.send({ type: "voice_line_refused", segmentId: m.segmentId, code: err instanceof VoiceRefusedError ? err.code : "failed" }); },
+        );
+        return;
+      }
       if (!current || !seats) { fail(m, m.type === "set_ai_roles" ? AI_ROLES_REFUSED.failed : "this session has no join codes to reissue"); return; }
       if (m.type === "set_ai_roles") {
         setAiRoles(deps(), m.roles, m.includeInGroup).then(

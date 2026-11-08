@@ -3,7 +3,8 @@ import { commandForPlayer, endedForPlayer, snapshotForPlayer, startedForPlayer }
 import type { NpcRole, Scenario } from "@acr/script";
 import type { ModelProvider } from "@acr/adapters";
 import type { Clock } from "../engine/clock.js";
-import { type ResumeInfo, type SessionEngine, type SessionStartExtra } from "../engine/session-engine.js";
+import { EngineError, type ResumeInfo, type SessionEngine, type SessionStartExtra } from "../engine/session-engine.js";
+import type { VoiceRefusal } from "./parent-channel.js";
 import { NpcAgent, type SilentTurn } from "../agents/npc-agent.js";
 import { GameMaster, type GmTraceRecord } from "../agents/game-master.js";
 import type { Seats } from "../engine/seats.js";
@@ -34,6 +35,11 @@ export type HostErrorCode = "role_taken" | "unknown_role" | "npc_role" | "not_st
 export class HostError extends Error {
   /** `roles`, when given, names the roles the error is about: the message becomes `code: role1,role2`. */
   constructor(readonly code: HostErrorCode, roles?: string[]) { super(roles && roles.length > 0 ? `${code}: ${roles.join(",")}` : code); this.name = "HostError"; }
+}
+
+/** US-0070: why the host refused a voice line (one of the parent channel's VOICE_REFUSALS). Its message is the code only. */
+export class VoiceRefusedError extends Error {
+  constructor(readonly code: VoiceRefusal) { super(code); this.name = "VoiceRefusedError"; }
 }
 
 export class SessionHost {
@@ -565,6 +571,37 @@ export class SessionHost {
     await this.engine.say(roleId, text, "text", opts); // throws EngineError (paused, ended, ...) before any NPC turn can start
     this.pendingAnswer = null; // a new line supersedes the one from before a restart: the round below answers the conversation as it now stands
     this.scheduleRound();
+  }
+
+  /**
+   * US-0070: records a transcribed voice line for the seat's CURRENT human holder who chose voice, as an ordinary `utterance` with
+   * `channel: "voice"`, and returns its seq. The second privacy gate (the speech worker is the first): refusals, in order, are voice_off,
+   * not_started (after waiting for a start in flight), unknown_role (not an own-property player role: an AI character too), ai_role,
+   * not_holder (a reissue, rebind or reconnect since the segment began), not_recording (no choice, text only, another participant's
+   * choice, or pinned off), then the engine's own: paused, not_in_scene (between scenes, or a role outside the scene), ended; anything else
+   * is failed (a log failure stays fatal through the engine). Nothing is appended for a refusal.
+   */
+  async onVoiceUtterance(roleId: string, participantId: string, text: string): Promise<{ seq: number }> {
+    if (!this.voice.enabled) throw new VoiceRefusedError("voice_off");
+    if (!this.started && this.starting !== null) await this.starting.catch(() => undefined);
+    if (!this.started) throw new VoiceRefusedError("not_started");
+    if (!this.hasPlayerRole(roleId)) throw new VoiceRefusedError("unknown_role");
+    if (this.isAiRole(roleId)) throw new VoiceRefusedError("ai_role");
+    if (!this.holds(roleId, participantId)) throw new VoiceRefusedError("not_holder");
+    if (this.voiceStateOf(roleId) !== "voice") throw new VoiceRefusedError("not_recording");
+    let event: SessionEvent;
+    try { event = await this.engine.say(roleId, text, "voice"); }
+    catch (err) {
+      if (err instanceof EngineError) {
+        if (err.code === "paused") throw new VoiceRefusedError("paused");
+        if (err.code === "not_in_scene" || err.code === "stale_scene") throw new VoiceRefusedError("not_in_scene");
+        if (err.code === "ended") throw new VoiceRefusedError("ended");
+      }
+      throw new VoiceRefusedError("failed");
+    }
+    this.pendingAnswer = null; // as a typed line: a new line supersedes the one from before a restart
+    this.scheduleRound();
+    return { seq: event.seq };
   }
 
   /** One NPC round (then a GM tick) in the background. R25: at most one round waits behind the running one; it reads the then-current transcript anyway. */
