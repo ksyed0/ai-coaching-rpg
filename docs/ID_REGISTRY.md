@@ -3,10 +3,10 @@
 | **Sequence** | **Next Available ID** | **Last Assigned** |
 | ------------ | --------------------- | ----------------- |
 | EPIC         | EPIC-0010             | EPIC-0009         |
-| US           | US-0070               | US-0069           |
-| TASK         | TASK-0106             | TASK-0105         |
-| AC           | AC-0396               | AC-0395           |
-| TC           | TC-0162               | TC-0161           |
+| US           | US-0071               | US-0070           |
+| TASK         | TASK-0107             | TASK-0106         |
+| AC           | AC-0405               | AC-0404           |
+| TC           | TC-0171               | TC-0170           |
 | BUG          | BUG-0035              | BUG-0034          |
 | L            | L-0037                | L-0036            |
 
@@ -91,3 +91,5 @@ Reserved blocks (2026-11-06, AI player row follow-up): US-0068; AC-0389..AC-0391
 Reserved blocks (2026-11-07, hide response): US-0069; AC-0392..AC-0395 (all under US-0069; AC-0395 added in the PR 5 review fix wave). Planned; test cases are filed when the story moves to In Progress. Ids in a block that its story does not use stay unused.
 
 Assigned 2026-11-07 (bugfix/BUG-0025-throttle-resend-link-cap): TC-0155 (BUG-0025), TC-0156 (BUG-0029) and TC-0157 (BUG-0030), and the lesson on checking the credential before an address throttle. TC-0154 was filed by bugfix/BUG-0032-console-report (#121, merged) and is not used here. No new BUG, TASK or AC beyond the hide-response block.
+
+Assigned 2026-11-08 (EPIC-0003 voice A1a, feature/EPIC-0003-US-0070-voice-pipeline): US-0070 (voice pipeline on file ingest); TASK-0106 (US-0070); AC-0396..AC-0404 (all under US-0070, in the A1a plan's order AC-a to AC-i); TC-0162..TC-0170 (one per AC, in order). Only A1a is filed: the overview's proposed story numbers for A1b, A1c, A2 and A3 are not reserved and take whatever ids are free when each slice is filed.

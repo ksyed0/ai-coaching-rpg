@@ -2499,3 +2499,134 @@ Actual Result: As expected, 2026-11-08: step 1, 2 files, 5 and 17 tests (1 new i
 Status: [x] Pass
 Defect Raised: None
 Notes: Fail quiet by design (the row guards nothing), the opposite of the link guard's fail closed (docs/THREAT_MODEL.md, "AI roles in the credential path"). Mutation check: dropping the duplicate check in control's `wellMadeAiRoles` fails the malformed-answer test.
+
+## US-0070: voice pipeline on file ingest (EPIC-0003 voice A1a)
+
+TC-0162: A voice line from the recording holder is recorded with channel voice and answered with its seq
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0396
+Type: Functional
+Preconditions: A checkout with dependencies installed; no model key.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-line.test.ts src/__tests__/main.voice-line.test.ts`.
+Expected Result: The holder who chose voice gets an `utterance` with `channel: "voice"` whose `seq` equals the answered `seq`; control gets exactly one `voice_line_ack` per `voice_line`; the log format and `LOG_FORMAT` are unchanged.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1a plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0163: The runtime refuses voice lines it must not record and appends nothing
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0397
+Type: Negative
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-line.test.ts` (the refusal table).
+Expected Result: `voice_off`, `not_started`, `unknown_role` (also `__proto__`, `constructor`, an NPC id), `ai_role`, `not_holder`, `not_recording`, `paused`, `not_in_scene` and `ended` are each answered with that code, and the log length is unchanged after each.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1a plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0164: A seat that is not a recording holder produces no segment, no STT request and no message
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0398
+Type: Negative
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run` (the track pipeline and voice gate tests, file-fed).
+  2. From `services/runtime`: the refusal table of TC-0163.
+Expected Result: For a text-only seat, an AI seat, an unheld seat and a holder who chose text, the fake speech-to-text adapter records no call and the worker sends no message; the runtime would refuse such a line anyway.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1a plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0165: One speaker's lines are logged in segment order; a failed or empty segment gives no line
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0399
+Type: Edge Case
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/speech`: `pnpm exec vitest run src/__tests__/track-pipeline.test.ts`.
+  2. From `packages/adapters`: `pnpm exec vitest run src/speech`.
+Expected Result: Out-of-order transcriptions are delivered in segment order; a segment past its deadline or with no text sends `segment_failed`, never a placeholder line; the speaker gets a private notice and the facilitator an alert.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1a plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0166: One NPC round, one Game Master unit and one bot reply per voice turn
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0400
+Type: Functional
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/host/__tests__/voice-turn.test.ts src/agents/__tests__/game-master.voice.test.ts`.
+  2. From `services/control`: `pnpm exec vitest run src/__tests__/bots/bot.voice-turn.test.ts`.
+Expected Result: The round runs once after `TURN_END_MS` from the last speech frame and only after every received voice line is recorded; a text line schedules at once; pause and end clear the timer; the Game Master counts a closed voice turn as one unit; bots reply once per closed turn.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1a plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0167: Voice choice is per participant, never inherited, and opt-out stops recording at once
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0401
+Type: Functional
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/runtime`: `pnpm exec vitest run src/engine/__tests__/voice-file.test.ts src/host/__tests__/voice-choice.test.ts src/host/__tests__/ws-voice.test.ts`.
+Expected Result: Opt-in by the holder records voice; after a reissue, a rebind or a restart with a new holder the seat is `text_only`; a record bound to another log identity is ignored; an opt-out stops recording in memory before the file write and stays off when the write fails.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1a plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0168: Every speech-to-text adapter passes one contract suite; the Whisper client only sends to loopback
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0402
+Type: Functional
+Preconditions: As TC-0162.
+Steps:
+  1. From `packages/adapters`: `pnpm exec vitest run src/speech`.
+Expected Result: The fake and the Whisper HTTP client pass `speechToTextContract`; an `STT_URL` whose host is not `127.0.0.1` or `[::1]` is refused before any request.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1a plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0169: A worker crash leaves the session running and alerts the facilitator
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0403
+Type: Negative
+Preconditions: As TC-0162.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/voice`.
+Expected Result: When the speech worker exits mid-session the runtime keeps running, text lines are still recorded and the facilitator gets one `worker_down` alert; no restart in this slice.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1a plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.
+
+TC-0170: `pnpm demo --voice` runs the voice pipeline offline and passes V-01 to V-08
+Related Story: US-0070
+Related Task: TASK-0106
+Related AC: AC-0404
+Type: Functional
+Preconditions: As TC-0162; no network, no model key, no speech server.
+Steps:
+  1. From the repository root: `pnpm demo --voice`.
+Expected Result: Checks V-01 to V-08 pass with file ingest and the fake speech-to-text adapter.
+Actual Result:
+Status: [ ] Not Run
+Defect Raised: None
+Notes: Filed 2026-11-08 with the story (Task 0 of the A1a plan); the steps name the test files the plan builds and are executed and recorded in the plan's last task.

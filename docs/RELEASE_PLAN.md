@@ -25,8 +25,9 @@ Notes: Complete as of 2026-11-06 (slice 2c-4 PR 2, US-0066). On 2026-11-06 the o
 EPIC-0003: Slice 3 — voice over LiveKit
 Description: LiveKit rooms, per-track STT with speaker attribution, NPC TTS bot tracks, latency instrumentation against the budget in ARCHITECTURE.md section 4.
 Release Target: MVP
-Status: Planned
+Status: In Progress
 Dependencies: EPIC-0002
+Notes: Part A (voice into the transcript) is designed in docs/superpowers/specs/2026-11-08-voice-part-a-design.md (Draft 3) and planned in docs/superpowers/plans/2026-11-08-voice-part-a-overview.md, in five slices A1a, A1b, A1c, A2, A3. Only A1a is filed as a story (US-0070, 2026-11-08, In Progress); A1b, A1c, A2 and A3 stay proposals (the story numbers the overview proposes for them are not reserved) and are filed from the registry when each slice's plan is expanded. Voice stays dark behind VOICE_ENABLED=0 until the release gate of spec section 12.
 ```
 
 ```
@@ -2058,4 +2059,33 @@ Acceptance Criteria:
   - [ ] AC-0386: scenarios and their rubrics can carry translations; an AI character speaks and a Game Master judges in the session language; the evaluator reports quote the original-language lines with a note of the report language
   - [ ] AC-0387: French (Canada) is delivered first as the proving language; right-to-left and other scripts are explicitly out of scope until a later story
   - [ ] AC-0388: dates, numbers, names and the accessibility labels follow the chosen language; the language of a session is recorded in the session log so reports and replays stay consistent
+```
+
+```
+US-0070 (EPIC-0003): As a participant, I want what I say to appear under my name in the transcript, so that I can take part by voice.
+Priority: High
+Estimate: L
+Status: In Progress
+Branch: feature/EPIC-0003-US-0070-voice-pipeline
+Dependencies: EPIC-0002
+Acceptance Criteria:
+  - [ ] AC-0396: a voice line from the current human holder who chose voice is recorded as an `utterance` with `channel: "voice"` and answered with its `seq`; the log format is unchanged
+  - [ ] AC-0397: the runtime refuses a voice line for an AI role, an unknown or non-player role, a non-holder, a holder who has not chosen voice, while paused, between scenes and after the end, with the fixed codes of the overview; nothing is appended
+  - [ ] AC-0398: a seat that is not a recording holder produces no segment, no STT request and no message (file-fed test)
+  - [ ] AC-0399: one speaker's lines are logged in segment order; a failed or empty segment produces no line, a speaker notice and a facilitator alert
+  - [ ] AC-0400: the NPC round, the Game Master and AI-player bots react once per voice turn (`TURN_END_MS` after the last speech frame); a text line schedules at once; pause and end clear the timer
+  - [ ] AC-0401: voice choice is per participant and never inherited across a reissue, a rebind or a restart; opt-out stops recording at once
+  - [ ] AC-0402: any `SpeechToText` implementation passes one contract suite; the Whisper client sends only to loopback
+  - [ ] AC-0403: a worker crash leaves the session running and alerts the facilitator
+  - [ ] AC-0404: `pnpm demo --voice` runs the pipeline offline (file ingest, fake STT) and passes checks V-01 to V-08 in CI
+Notes: Slice A1a of EPIC-0003 part A (spec docs/superpowers/specs/2026-11-08-voice-part-a-design.md, Draft 3; master plan docs/superpowers/plans/2026-11-08-voice-part-a-overview.md; slice plan docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md). Owner decisions of 2026-11-08: Open Question 1 option A (the runtime half of the voice choice, the voice record, `voice_opt_in`/`voice_opt_out` and a DRAFT consent notice v3 are in this slice), conservative normaliser, global GPU cap, empty segment gives no speaker notice, a reconnect drops an in-flight line as `not_holder`, `TURN_END_MS` 300 to 3000. Dark behind `VOICE_ENABLED=0`. Test cases TC-0162 to TC-0170 (one per AC, in order). A1b, A1c, A2 and A3 are not filed yet.
+```
+
+```
+TASK-0106 (US-0070): Build the voice pipeline on file ingest (slice A1a)
+Type: Dev
+Assignee: Agent
+Status: In Progress
+Branch: feature/EPIC-0003-US-0070-voice-pipeline
+Notes: Plan: docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md (Tasks 0 to 21): speech package and worker protocol, parent-channel voice messages, voice settings and draft notice v3, the voice record, opt-in and opt-out, voice lines through the host, the turn timer, Game Master and bot cadence, notices and alerts, the speech-to-text adapter, the Whisper client, the segmenter, noise gate and normaliser, the worker pipeline, control's VoiceHost and `pnpm demo --voice`. Covers AC-0396 to AC-0404 (TC-0162 to TC-0170).
 ```
