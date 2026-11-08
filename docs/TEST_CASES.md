@@ -2439,3 +2439,63 @@ Actual Result: As expected, 2026-11-07: step 1, 1 file, 36 tests (3 new, 1 chang
 Status: [x] Pass
 Defect Raised: BUG-0030
 Notes: Fixed in bugfix/BUG-0025-throttle-resend-link-cap (c10a07a, 86984be). Mutation check: counting every link's responses, or a cap of 26, fails 2 runtime tests; checking the link cap before the role cap fails 1; dropping `link_full` from the launcher's conflict states fails the mapping test; never setting the page's link-full state fails the notice test. Not covered: the console does not show a link at its cap (follow-up); redaction (US-0069).
+
+TC-0158: The AI roles reach the console report list through control, the BFF and the browser, and the real stack shows the row
+Related Story: US-0068
+Related Task: TASK-0105
+Related AC: AC-0389, AC-0390
+Type: Functional
+Preconditions: As TC-0110 (a checkout with dependencies installed); steps 3 and 4 need a fresh `pnpm --filter @acr/web exec next build --webpack` and a Chromium for Playwright (`PLAYWRIGHT_CHROMIUM_EXECUTABLE` when the pinned build is missing); no model key.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/moderation.ai-roles-overview.test.ts` (the `in_review` overview carries `aiRoles` from the injected lookup, in its order, called once with the session id; an empty list is carried; the carried list is a copy; 64 safe distinct ids pass).
+  2. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-report-handlers.test.ts src/lib/__tests__/console-api.report-overview.test.ts` (the BFF forwards a well-made `aiRoles` in order and forwards an answer without it with no `aiRoles` key; the browser parse keeps a well-made list and reads an absent one as `[]`).
+  3. From `apps/web`: `pnpm exec playwright test report-ai-role --trace off` (real control, `next start` in launcher mode, nothing intercepted: Tech lead is made an AI player in the lobby, the two humans join, Start, End, the review is seeded for the humans, the console is reloaded; the list has exactly one Tech lead row, last, with "AI player" and "not scored (no report is written for an AI player)", no button, and no "Review Tech lead").
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-08: step 1, 1 file, 5 tests (all new); step 2, 2 files, 23 tests (2 new) and 3 tests (new file); step 3, 2 tests passed (1 new).
+Status: [x] Pass
+Defect Raised: None
+Notes: The e2e is the only test of the `services/control/src/main.ts` wiring (`aiRoles: (id) => aiRolesFor(config, list, id)`). Mutation check: with the wiring removed from `main.ts`, step 3's new test fails (the Tech lead row count is 0, expected 1).
+
+TC-0159: The "AI player, not scored" row: read only, after the subject rows, once per role, and skipped for a role that is also a subject
+Related Story: US-0068
+Related Task: TASK-0105
+Related AC: AC-0389, AC-0391
+Type: Functional
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `apps/web`: `pnpm exec vitest run src/components/console/report/__tests__/lists.test.tsx src/components/console/report/__tests__/ReportPanel.test.tsx` (one row per listed role after the subject rows, Group included, in the given order, reading the role label, the pill "AI player" (`pill ai`, `MESSAGES.reportAiPlayer`) and `REPORT_CONSOLE.aiNotScored`; no button, link, input or focusable element on the row, also with the post-release actions; a listed role that is also a subject keeps only its subject row; an empty or absent list adds nothing; in the panel, the row shows beside a human subject and neither the release bar nor the export menu mentions the AI role).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-08: 2 files, 11 tests (4 new) and 13 tests (1 new).
+Status: [x] Pass
+Defect Raised: None
+Notes: The release bar and export menu assertions are regression guards (they passed before the row existed: both read `subjects` only). Mutation check: rendering every listed role without the subject filter fails "a listed role that is also a subject keeps only its subject row".
+
+TC-0160: Axe finds no serious or critical violation on the Report panel with an AI player row
+Related Story: US-0068
+Related Task: TASK-0105
+Related AC: AC-0391
+Type: Accessibility
+Preconditions: As TC-0158 step 3.
+Steps:
+  1. From `apps/web`: `pnpm exec playwright test axe --trace off` (the case "Axe: the Report panel ready to evaluate, ... in review with the subject list, ..." runs the real launcher stack with every role human, then intercepts only the overview route (`**/api/v1/console/sessions/*/report`), fetches the real answer and adds `aiRoles: ["tech_lead"]`, reloads, asserts the row text is visible with no "Review Tech lead" button, and runs Axe in light and dark and at 1280 and 400 px).
+Expected Result: All pass with zero serious or critical violations.
+Actual Result: As expected, 2026-11-08: `axe report-moderation report-release report-ai-role` 12 passed (axe 7) on Chromium headless shell 1223 via `PLAYWRIGHT_CHROMIUM_EXECUTABLE`.
+Status: [x] Pass
+Defect Raised: None
+Notes: The meaning is in words (the pill and the "not scored" sentence), never colour alone; the row is a list item with no interactive control.
+
+TC-0161: No AI row and an intact panel when the AI roles are unknown, malformed or not yet relevant
+Related Story: US-0068
+Related Task: TASK-0105
+Related AC: AC-0390
+Type: Negative
+Preconditions: As TC-0110 (a checkout with dependencies installed); no model key and no browser are needed.
+Steps:
+  1. From `services/control`: `pnpm exec vitest run src/__tests__/moderation.ai-roles-overview.test.ts src/__tests__/moderation.test.ts` (a lookup answering null, one that throws, one that rejects and no lookup at all omit the field and keep the subjects; a non-array, an object, a number, a non-string entry, an unsafe id, an upper-case id, an empty id, a duplicate, a 65-character id and 65 entries omit the field; `not_ended`, `not_evaluated`, `evaluating`, `failed` and `ready_to_open` never carry it and never call the lookup).
+  2. From `apps/web`: `pnpm exec vitest run src/server/__tests__/console-report-handlers.test.ts src/lib/__tests__/console-api.report-overview.test.ts` (the same malformed lists are dropped by the BFF, which still answers 200 with the rest of the overview, and read as `[]` by the browser, whose overview is never null for them; the existing "extra fields dropped" case shows an older web ignores an unknown field).
+  3. From `apps/web`: TC-0159 step 1 (a role that is also a subject gets no AI row).
+Expected Result: All pass.
+Actual Result: As expected, 2026-11-08: step 1, 2 files, 5 and 17 tests (1 new in `moderation.test.ts`); step 2, 23 and 3 tests; step 3 as TC-0159.
+Status: [x] Pass
+Defect Raised: None
+Notes: Fail quiet by design (the row guards nothing), the opposite of the link guard's fail closed (docs/THREAT_MODEL.md, "AI roles in the credential path"). Mutation check: dropping the duplicate check in control's `wellMadeAiRoles` fails the malformed-answer test.
