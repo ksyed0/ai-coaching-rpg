@@ -1,0 +1,69 @@
+# EPIC-0003 voice A1b, A1c, A2, A3: task outlines
+
+> **Status: OUTLINE, NOT EXECUTABLE.** Each slice below must be expanded into a full bite-sized, test-first plan (the A1a plan's format: files, interfaces, failing tests with assertions, commands, expected results, commit messages) **just before that slice starts**, because the earlier slices change the facts these outlines rest on (file names, interfaces, line numbers, ids). Re-verify every `file:line` at expansion time. Use the superpowers:writing-plans skill for each expansion.
+
+**Spec:** `docs/superpowers/specs/2026-11-08-voice-part-a-design.md`. **Master plan:** `docs/superpowers/plans/2026-11-08-voice-part-a-overview.md` (contradictions C1 to C11, cross-slice interfaces, settings, risks, open questions). **First slice:** `docs/superpowers/plans/2026-11-08-voice-a1a-pipeline.md`. These outlines assume Open Question 1 option A (the runtime voice choice landed in A1a).
+
+Every slice: Task 0 files its story, TASK, AC and TC ids from `docs/ID_REGISTRY.md`; the last task updates TEST_CASES, THREAT_MODEL, ROLLBACK, CHANGELOG `[Unreleased]`, MEMORY, progress and (for a dependency) findings, and runs the A1a gate list (typecheck, coverage twice incl. once under load, `lint:sdk` and its test, eslint, Linux container run for filesystem/lock/process tests, id-registry test, id-rule guard, the demos, `plan:generate`) and an independent review with probes before the PR.
+
+---
+
+## A1b (proposed US-0071): LiveKit and consent — `feature/EPIC-0003-US-0071-voice-livekit-consent`
+
+Depends on A1a merged. New dependencies (exact pins, findings.md rows, audit): `livekit-server-sdk` (adapters), `@livekit/rtc-node` (speech; spike 1.2.1), `livekit-client` (web).
+
+| # | Task | Files | Key tests |
+| --- | --- | --- | --- |
+| 1 | `lint:sdk` second rule (C4) | `scripts/check-sdk-imports.sh`, `scripts/check-sdk-imports.test.sh` | Existing provider fixtures unchanged and passing; `livekit-server-sdk` in `services/a` fails, in `packages/adapters` passes; `@livekit/rtc-node` passes only in `services/speech`; `livekit-client` passes only in `apps/web` and fails in `services/control`; `package.json` blocks covered for each. |
+| 2 | Token adapter and grant | `packages/adapters/src/livekit/token.ts`, `__tests__/token.test.ts` | Decoded JWT: TTL at most 600 s; `canSubscribe` false, `canPublishData` false, `canUpdateOwnMetadata` false, `canPublishSources` exactly `["microphone"]`; identity `<role>.g<8 hex>`; a worker token has `canPublish` false and `canSubscribe` true; secret never in an error or log. |
+| 3 | Control token route, seat generations, `removeParticipant` | `services/control/src/voice/tokens.ts`, `api.ts` (new `POST /sessions/:id/voice-token` behind `x-service-token`), `voice-host.ts`, `__tests__/voice/tokens.test.ts` | No token for a text-only seat, a non-holder, an AI seat, voice off, a paused or ended session; generation changes on create, reissue, rebind and control start; reissue and opt-out call `removeParticipant` for the old identity; room name 32 hex, never logged; rate-limited like the other routes. |
+| 4 | LiveKit `AudioIngest` | `services/speech/src/ingest/livekit-ingest.ts`, `src/config.ts` (`SPEECH_INGEST=livekit`), `__tests__/livekit-ingest.test.ts` (a fake room object), `protocol.ts` (`livekit_join`) | Subscribes only to identities of current recording holders from `voice_state`; an unconsented published track is never subscribed (fake room records subscriptions); unsubscribes on opt-out, reissue and pause; identity parsed by splitting on the last `.` and checking `isScenarioId` (no new regex); 16 kHz mono frames. Real-process smoke as an opt-in live check only. |
+| 5 | Final notice v3 | `consent/notice-v3.md`, a SHA pin test | Wording reviewed by the owner (legal and HR sign-off stays a release-gate item); the draft line removed; SHA pinned once signed off. |
+| 6 | Web: consent route, lobby, roster and readiness voice state | `apps/web/src/server/wire.ts` (`joined.voice`), `handlers.ts` (`POST /api/v1/voice` `{choice}` → hub `voice_opt_in`/`voice_opt_out`), `stream-hub.ts` (send allowlist `:25,178`), `console-roster.ts` (voice field picked by name), `console-sessions.ts` (readiness), runtime `roster.ts` (`voice?` on the facilitator entry only), `apps/web/src/components/VoiceChoice.tsx` | A player frame carries only its own voice state; peers see no voice state (or only "voice" vs not, owner decision at expansion); a body `participantId` is refused (identity from the sealed cookie only); BFF strict parse drops malformed fields; Axe on the lobby. |
+| 7 | Mic check, join with voice, mute | `apps/web/src/components/MicCheck.tsx`, `MicButton.tsx`, `apps/web/src/lib/voice-client.ts` (`livekit-client`) | Microphone never opened on page load; permission asked only after the opt-in; level meter; mute unpublishes AND the runtime marks the seat not recording (new player message `voice_mute {muted}` or reuse opt-out: decide at expansion); state shown in words and an icon; keyboard operable; Axe. |
+| 8 | `voice_notice` on the web | `stream-hub.ts` (`onFrame` branch, F13), page `aria-live` region | Named SSE event reaches only that player's stream; never in the facilitator copies; announced politely; unknown codes dropped. |
+| 9 | Console speaking indicator and alerts | `facilitator-hub.ts`, `facilitator-copies.ts`, `components/console/SpeakingIndicator.tsx`; control → runtime speaking edges reuse `speech_activity` through a facilitator-only roster field | Indicator per seat from `speech_activity`, text plus icon; fixed alert lines for `worker_down`, `stt_unavailable`; never in player frames (leak scan lists). |
+| 10 | Worker restart with bounded backoff | `services/control/src/voice/restart.ts`, `voice-host.ts` | 5 tries, base 500 ms, doubling, on an injected `SetTimer`; then one `voice_off` alert and voice off for the session; a successful restart re-sends `livekit_join` and `voice_state`; segment ids stay unique across restarts (random, A2 adds `O_EXCL` files); no restart after the session ended. Linux container run. |
+| 11 | Whisper health polling | worker (`stt_health` every 5 s), `voice-host.ts` | Unhealthy → one `stt_unavailable` alert and the participant page shows "voice unavailable, use the text box"; healthy again → one recovery info alert; no alert storm (rate limit). |
+| 12 | Close-out | docs, gates, review | Browser matrix noted (Chromium tested; Safari and mobile listed as untested, F21). |
+
+## A1c (proposed US-0072): operations — `feature/EPIC-0003-US-0072-voice-operations`
+
+Depends on A1b merged. Images pinned by digest (LiveKit server, Caddy).
+
+| # | Task | Files | Key tests |
+| --- | --- | --- | --- |
+| 1 | `pnpm voice:up` | `scripts/voice-up.sh`, `package.json` | Generates LiveKit key and secret into `.env` only when absent (never printed, never overwritten); starts whisper-server natively on `127.0.0.1`, a random free port, `--request-path` prefix (C9), `-sns`, never `--convert`; then the compose services; idempotent; a fixture test like `scripts/run-sh-*.test.sh`. |
+| 2 | Compose services | `deploy/compose/voice.yml`, `livekit.yaml`, `Caddyfile` | LiveKit gets only its own keys (no `env_file: ../../.env`); never `--dev`; `node_ip` set to the LAN address; TCP fallback documented; Caddy route for `wss` signalling and the web server. |
+| 3 | `pnpm voice:check` | `scripts/voice-check.ts` | Reports Whisper health, LiveKit reachability, certificate days to expiry (warn under 21), hostname resolution to a private address, free disk against `AUDIO_MIN_FREE_MB`; never prints a secret or the request-path prefix; exit codes per failure. Verifies C9's CORS answer with a request carrying an `Origin` header and records it. |
+| 4 | Web server loopback-only behind the proxy | web start configuration, `.env.example` (`TRUST_PROXY=1`), THREAT_MODEL "Client address, TRUST_PROXY" | A LAN request straight to the web port is refused (bound to loopback); `X-Forwarded-For` replaced by Caddy with one entry. |
+| 5 | Certificate path | runbook, `voice:check` | Owner-supplied certificate path, and the DNS-challenge path (token in `.env` only, 90-day renewal warning); tied to US-0048. |
+| 6 | Runbook | `docs/VOICE_RUNBOOK.md` | Start, check, stop; router DNS-rebinding protection; macOS firewall and the native LiveKit failure; exclude the audio directory from backups (notice wording); room-test script (spec §13: labelled different lines per person). |
+| 7 | Threat model, ROLLBACK, ARCHITECTURE, `.env.example` | docs | New threat-model section (audio directory, token path, worker channels, replay endpoint, audit log, retention, same-host browser path to whisper-server); all settings in `.env.example` with placeholders. |
+
+## A2 (proposed US-0073): audio retention — `feature/EPIC-0003-US-0073-voice-audio-retention`
+
+Depends on A1a merged (A1b for the live path). Decide Open Question 10 (lock) at expansion.
+
+| # | Task | Files | Key tests |
+| --- | --- | --- | --- |
+| 1 | Store lock | `services/speech/src/store/store-lock.ts` (or `@acr/runtime/files` export) | One writer per `<AUDIO_ROOT>/<logIdentity>/`; `O_CREAT|O_EXCL|O_NOFOLLOW` 0600; stale takeover proven by device and inode; Linux container run as root and `--user node`. |
+| 2 | Audio store and index | `store/audio-store.ts`, `store/index-file.ts` | Directories 0700, files 0600, exclusive create without following links (F9 pattern); segment id validated with `isFileSafeId` before any path join; a path never leaves the session directory (hostile ids); write order audio → `segment` line; index lines exactly as overview §5; append-only merge by segment; mode read from one descriptor (CodeQL). |
+| 3 | Disk guard and write errors | `store/disk-guard.ts`, worker | Recording stops below `AUDIO_MIN_FREE_MB` (fake `statfs`), before the log is at risk; one `disk_low` alert; transcript continues; a write error stops recording the same way (`write_error`); `voice.recording_stopped` audited. |
+| 4 | `seq` back-fill | `voice-host.ts`, worker | Every `voice_line_result` with a seq appends a `seq` line; a crash between writes leaves at most an orphan file (fault injection at each step). |
+| 5 | Audit log | `services/control/src/voice/audit-log.ts` | Only control writes, under its own lock; shapes exactly overview §6; no content ever; `voice_choice` messages become `voice.opted_in`/`voice.opted_out`; the session log and `logSha256` untouched (a test hashes the log before and after). |
+| 6 | Sweep in control | `services/control/src/voice/sweep.ts`, `main.ts` | Runs at start-up and hourly (injected timer); clock from session end, or last activity plus 24 h when never ended, file times as backstop; deletes past `AUDIO_MAX_RETENTION_DAYS`; skips a directory whose worker is live; removes orphans; audits `reason: expired, by: system`; fake clock and fake disk. |
+| 7 | Replay | `services/control/src/voice/replay-routes.ts`, web console route | Facilitator only (service token plus the BFF facilitator cookie), `Cache-Control: no-store`, range requests, rate-limited and failure-throttled like the console routes; every replay audited before bytes are sent; participants, evaluator and AI characters never receive audio. |
+| 8 | Delete (session, role, participant) | `services/control/src/voice/delete.ts`, console route | Participant scope deletes only that participant's segments of a role that held two people; transcript unchanged; a deleted segment shows "audio deleted"; audited with scope and reason; refused while the worker writes the same directory unless it goes through the worker. |
+| 9 | Console additions | `components/console/AudioPanel.tsx` | Audio status per seat, replay control, delete with a confirmation naming the scope; Axe; untrusted text as React text only. |
+
+## A3 (proposed US-0074): facilitator voice tools — `feature/EPIC-0003-US-0074-voice-facilitator-tools`
+
+Depends on A1b and A2 merged; may ship after the pilot starts.
+
+| # | Task | Files | Key tests |
+| --- | --- | --- | --- |
+| 1 | Live partials | worker (`partial` message about every 700 ms on talking tracks, skipping a tick while the previous request runs), control relay, facilitator hub | Facilitator socket only, never in the log or a player frame; partials stop first when the STT queue grows; finals never dropped (queue tests with the limiter). |
+| 2 | Mute a participant | console control, control → runtime (facilitator command or parent message, decide at expansion), worker | Facilitator mute stops recording for that seat at once and the participant sees why (private notice); unmute only by the participant's own action or the facilitator, decided at expansion; audited. |
+| 3 | Push-to-talk option | participant page, worker | Off by default; publishing only while held; keyboard operable; Axe. |
+| 4 | Capacity switch-off | worker, control | When the in-flight cap is saturated for a configured time, partials turn off first, then a facilitator alert; finals continue; the 4-to-8 talker load check of the room test is the acceptance measure. |
