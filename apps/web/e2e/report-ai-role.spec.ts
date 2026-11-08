@@ -1,4 +1,4 @@
-import { expect, test, type BrowserContext } from "@playwright/test";
+import { expect, test, type Browser, type BrowserContext } from "@playwright/test";
 import {
   createSession,
   expectAiSeatReady,
@@ -47,15 +47,14 @@ function shown(a: { status: number; body: Answer }): string {
   return JSON.stringify({ status: a.status, body: safe });
 }
 
-test("an AI role is refused a report link (AI players do not get report links.) while a human role in the same review is issued one", async ({ browser }) => {
-  test.setTimeout(300_000);
-  stack = await startLauncherStack();
-  const s = stack;
+/**
+ * Lobby: Tech lead becomes an AI player, the two humans join and consent, Start, then End, then the review is seeded for the two humans.
+ * Inlined from endedSession (helpers/reports.ts), which seats all three roles as humans and so cannot leave Tech lead to an AI player.
+ */
+async function endedAiSession(browser: Browser, s: LauncherStack) {
   const fac = await facilitator(browser, s.baseUrl, s.facilitatorSecret);
   opened.push(fac.context());
 
-  // Lobby: Tech lead becomes an AI player, the two humans join and consent, Start, then End. Inlined: endedSession (helpers/reports.ts)
-  // seats all three roles as humans, so it cannot leave Tech lead to an AI player.
   const { sessionId, codes } = await createSession(fac, s.baseUrl);
   await makeAiPlayer(fac, "tech_lead");
   for (const role of HUMANS) opened.push((await seatLauncher(browser, s.baseUrl, sessionId, role, codes[role], NAMES[role])).context);
@@ -74,6 +73,14 @@ test("an AI role is refused a report link (AI players do not get report links.) 
   await expect(fac.getByText("The session has ended.", { exact: true })).toHaveCount(1);
 
   await seedDraft(s, sessionId, { released: "delivery_lead", draft: "account_manager" });
+  return { fac, sessionId };
+}
+
+test("an AI role is refused a report link (AI players do not get report links.) while a human role in the same review is issued one", async ({ browser }) => {
+  test.setTimeout(300_000);
+  stack = await startLauncherStack();
+  const s = stack;
+  const { fac, sessionId } = await endedAiSession(browser, s);
 
   // The console's own issue route, as the panel posts it (same-origin, with the BFF's write header). No shared e2e helper exports these
   // headers (console-flow and ai-players keep their own local copies), so they are literals here too.
@@ -106,4 +113,28 @@ test("an AI role is refused a report link (AI players do not get report links.) 
   const none = await issue("alice");
   expect(none.status, shown(none)).toBe(409);
   expect(none.body.error?.message, shown(none)).toBe(NO_REPORT);
+});
+
+// US-0068 (AC-0389, AC-0390, TC-0158): the console report list shows the AI-filled role as a read-only "AI player, not scored" row,
+// through the real control service (main.ts wires `aiRolesFor` into the moderation overview), the BFF and the browser, with nothing
+// intercepted. This is the only test of that wiring: without it in main.ts the overview carries no aiRoles and the row is missing.
+test("the console report list shows the AI-filled Tech lead as an AI player, not scored, with no actions, after the human subjects", async ({ browser }) => {
+  test.setTimeout(300_000);
+  stack = await startLauncherStack();
+  const { fac } = await endedAiSession(browser, stack);
+  // the panel polls only while evaluating, so the seeded review shows after a reload
+  await fac.reload();
+  const report = fac.getByRole("region", { name: "Report", exact: true });
+  await expect(report.getByText("The reports are drafted and the review is open.")).toBeVisible();
+  await expect(report.getByRole("button", { name: "Review Account manager" })).toBeVisible();
+  const rows = report.locator(".report-subjects > li");
+  const ai = rows.filter({ hasText: "Tech lead" });
+  await expect(ai).toHaveCount(1);
+  await expect(ai).toContainText("AI player");
+  await expect(ai).toContainText("not scored (no report is written for an AI player)");
+  await expect(ai.getByRole("button")).toHaveCount(0);
+  await expect(report.getByRole("button", { name: "Review Tech lead" })).toHaveCount(0);
+  // after the subject rows, Group included: it is the last row
+  await expect(rows.last()).toContainText("Tech lead");
+  await expect(rows.filter({ hasText: "Group" })).toHaveCount(1);
 });
