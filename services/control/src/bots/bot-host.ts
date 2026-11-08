@@ -55,6 +55,8 @@ type Sess = {
   /** Prompt reservations by role: the token lives here only (memory), with the timer that expires it. */
   reservations: Map<string, { token: string; cancel: () => void }>;
   lastPrompt: Map<string, number>;
+  /** US-0070: a voice turn is open in this session (the runtime's voice_turn); a bot made meanwhile starts held by it. */
+  voiceOpen: boolean;
 };
 
 /**
@@ -219,6 +221,18 @@ export class BotHost {
 
   intents(sessionId: string, roleId: string): IntentEntry[] { return this.o.intents.read(sessionId, roleId); }
 
+  /**
+   * US-0070 (AC-0400, C8): the runtime opened or closed a voice turn (`voice_turn`): every bot of the session begins no reply or nudge
+   * while it is open and answers the turn once on close. Synchronous and outside the chain (it only flips a flag). Never throws; an
+   * unknown session is a no-op.
+   */
+  voiceTurn(sessionId: string, open: boolean): void {
+    const st = this.sessions.get(sessionId);
+    if (!st) return;
+    st.voiceOpen = open;
+    for (const [roleId, bot] of st.bots) { try { bot.setVoiceTurn(open); } catch { this.log(`session ${sessionId} AI player ${roleId} voice turn failed`); } }
+  }
+
   /** True only when the role's socket is open AND it has joined (`joinedOk`); an open socket that never got a joined does not count. */
   isAiConnected(sessionId: string, roleId: string): boolean { return this.sessions.get(sessionId)?.bots.get(roleId)?.joinedOk ?? false; }
 
@@ -242,7 +256,7 @@ export class BotHost {
   private state(sessionId: string): Sess {
     let st = this.sessions.get(sessionId);
     if (!st) {
-      st = { aiRoles: new Set(), codes: new Map(), bots: new Map(), retries: new Map(), reissuing: new Set(), reissueAlerted: new Set(), attached: false, removed: new Set(), bound: new Map(), reservations: new Map(), lastPrompt: new Map() };
+      st = { aiRoles: new Set(), codes: new Map(), bots: new Map(), retries: new Map(), reissuing: new Set(), reissueAlerted: new Set(), attached: false, removed: new Set(), bound: new Map(), reservations: new Map(), lastPrompt: new Map(), voiceOpen: false };
       this.sessions.set(sessionId, st);
     }
     return st;
@@ -347,6 +361,7 @@ export class BotHost {
       onDisconnected: (code) => { if (this.sessions.get(sessionId) === st && st.bots.get(roleId) === bot) this.onDropped(st, sessionId, roleId, code); },
       onJoined: () => { const rs = st.retries.get(roleId); if (rs) { rs.fails = 0; rs.attempting = false; } },
     });
+    if (st.voiceOpen) bot.setVoiceTurn(true);
     st.bots.set(roleId, bot);
     return bot;
   }
