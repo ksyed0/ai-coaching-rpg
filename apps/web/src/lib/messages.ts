@@ -1,3 +1,5 @@
+import { REPORT_SENTENCES } from "@acr/events";
+
 // Every sentence the participant pages show of their own. Runtime text (lines, names, brief, facts, the notice) is shown as text
 // elsewhere; the server's error text is shown only for the action answers, which the BFF writes itself (handlers.ts).
 
@@ -72,10 +74,13 @@ export const MESSAGES = {
   respondDispute: "I disagree with this",
   respondSend: "Send",
   respondSending: "Sending…",
+  ratingsNewerUnsent: "Your latest changes have not been sent yet. Press Save again to send them.",
   ratingsSavedReload: "Saved. Reload to see it.",
   respondSentReload: "Sent. Reload to see it.",
   respondBusy: "Busy, try again",
   respondTooMany: "You have used all 50 responses.",
+  /** BUG-0030: this link has written its 25 responses; the facilitator's reissue gives a new link a fresh budget. */
+  respondLinkFull: REPORT_SENTENCES.linkFull,
   respondClosed: "Responses are closed for this report.",
   respondTooLarge: "That is too large to send. Shorten what you wrote and try again.",
   respondInvalid: "Check what you wrote and try again.",
@@ -125,7 +130,7 @@ export const REPORT_REFUSALS = {
   invalid_name: "Use letters, digits, underscore or hyphen, up to 56 characters.",
   payload_too_large: "That is too large to save.",
   busy: "The report is busy. Try again in a moment.",
-  unavailable: "The report is unavailable. Try again.",
+  unavailable: REPORT_SENTENCES.reportUnavailable,
   timeout: "The report service took too long to answer. Reload to see whether it was saved, then try again.",
   generic: "That action is not possible right now.",
 } as const;
@@ -184,6 +189,11 @@ export const REPORT_CONSOLE = {
   amendToChange: "Amend the report to change it.",
   amendFirst: "To resolve it as amended, amend the report and release the new version first.",
   exported: (fileName: string) => `Downloaded ${fileName}.`,
+  // BUG-0033: each export view names the report and who it is for (components/console/report/ExportMenu.tsx).
+  exportFacilitatorView: (report: string) => `${report}, the facilitator's view`,
+  exportPlayerView: (report: string, player: string) => `${report}, as ${player} sees it`,
+  exportPlayerGroupView: (report: string, player: string) => `${report}, as ${player} sees it (without the other players' results)`,
+  exportAmending: "This report is being amended. Its export is the last released version, in a participant's view only.",
   // US-0066: editing the summary (components/console/report/SummaryEditor.tsx). The limits are the BFF's and control's.
   summaryEdit: "Edit the summary",
   summaryReplaces: "Saving replaces the whole summary: a line you remove is deleted. One entry per line.",

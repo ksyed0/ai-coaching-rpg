@@ -18,7 +18,7 @@ Description: Browser lobby with consent and role assignment, text session view, 
 Release Target: MVP
 Status: Complete
 Dependencies: EPIC-0001
-Notes: Complete as of 2026-11-06 (slice 2c-4 PR 2, US-0066), pending the owner's sign-off on Deviation 3 of the slice 2c-4 plan: by default the console subject list gets no "AI player, not scored" row (an AI role is never a moderation subject and cannot be exported; "AI player" shows only on the link row of an AI role that still has a live credential).
+Notes: Complete as of 2026-11-06 (slice 2c-4 PR 2, US-0066). On 2026-11-06 the owner decided Deviation 3 of the slice 2c-4 plan as a FOLLOW-UP: the console subject list gets an "AI player, not scored" row, filed as US-0068 (Low, Planned). Until it ships the list has no such row (an AI role is never a moderation subject and cannot be exported; "AI player" shows only on the link row of an AI role that still has a live credential). The epic stays Complete: the format guide requires no link between an epic's Status and its stories, and US-0068 is a Low-priority polish item, not part of the epic's acceptance.
 ```
 
 ```
@@ -1819,7 +1819,7 @@ Acceptance Criteria:
   - [x] AC-0318: switching a joined human to AI asks for confirmation and revokes their credential and consent; switching back stops the bot and issues a new code once (runtime part built in 2b-3a (fixed after the start; revoke, rotate, close); toggle, confirmation and the new code shown once in 2b-3b; PR 2 built the routes and the bot stop on switching back, PR 3 built the confirmation for a joined human (danger tone, naming the person), the new code shown once on switching back and the removal of an AI role's code from the one-time panels; TC-0111: unit tests supervisor.ai-roles, Readiness, NewSessionForm, console-confirm; end to end ai-players.spec.ts)
   - [x] AC-0319: the player bot code moves from demo/ to a shared module used by the demo and the control service, with its own PLAYER_MODEL and PLAYER_TEMPERATURE settings (built in slice 2b-3b PR 1: services/runtime/src/players/, exported as @acr/runtime/players, with a boundary test; the settings are parsed by parseAiPlayerSettings and read by the control service from PR 2 on; players, hint, live, settings tests and the demo suite; TC-0105)
   - [x] AC-0320: session.started records aiRoles, AI roles skip consent, and the start gate counts human seats and connected AI bots separately (runtime part built in 2b-3a (aiRoles recorded, AI seats skip consent, the gate checks humans and bots apart; TC-0102); the console shows the counts in 2b-3b PR 2: readiness splits `missing` humans from `aiWaiting` bots and Start waits for both, checked against a real runtime and a real bot; TC-0108. Setting AI roles needs the API until PR 3 adds the toggle, which is AC-0317)
-  - [x] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c; web report pages and downloads built in slice 2c-4 PR 1: the "(AI player)" label survives the report page, print view and export (TC-0147) and an AI role is labelled in the console link list (TC-0148); AC-0321 is now complete, except that Deviation 3 (no AI row in the console subject list) is awaiting owner sign-off; if the owner wants the row it is an optional overview field plus a row component)
+  - [x] AC-0321: AI roles are labelled AI in the console, transcript, roster, reports and exports, and the bot intent log is facilitator-only (player transcript and roster built in 2b-3a (TC-0104); the terminal client, the console, the player-page consent wording and the facilitator-only intent log read built in 2b-3b PR 2 (TC-0109: Tasks 13 to 18); reports and exports in 2b-3c and 2c; reports and review exports labelled in 2b-3c (TC-0119: Tasks 12, 14); web report pages and downloads in 2c; web report pages and downloads built in slice 2c-4 PR 1: the "(AI player)" label survives the report page, print view and export (TC-0147) and an AI role is labelled in the console link list (TC-0148); AC-0321 is now complete; Deviation 3 (no AI row in the console subject list) was decided by the owner on 2026-11-06 as a follow-up, the row is filed as US-0068)
   - [x] AC-0322: an AI-filled role gets no individual report, no report-access credential and no self-assessment, and its index row reads AI player, not scored (2b-3c and 2c read state.aiRoles from the log, which 2b-3a records; evaluator part built in 2b-3c (no individual report, no self-assessment, index row AI player, not scored; TC-0118: Tasks 11, 12, 14); report-access credentials in 2c; report-access credentials built in slice 2c-4 PR 1: issue and reissue refuse an AI role, fail-closed (TC-0145, TC-0146), an AI role is never a moderation subject (TC-0148) and the browser shows the refusal (TC-0149); AC-0322 is now complete)
   - [x] AC-0358: session.started records aiRoles in scenario order (log format 3) only when a session has AI roles, other sessions keep format 2, the runtime reads formats 0 to 3 and refuses aiRoles in an older format, and the lobby's AI roles are kept in <id>.ai-roles.json beside the seat files across a managed restart (events state and player-copy tests, session-engine-restore.test.ts, session-store.ai-roles.test.ts; TC-0100)
   - [x] AC-0359: the control service can set the AI roles of a session before the start over the private IPC channel only; each changed role gets a new code in the same step, a switched human's credential and consent are revoked and their socket closed with 4004, and the change is refused after the start (set-ai-roles, parent-channel, main.ai-roles, protocol drift and supervisor.ai-roles tests; TC-0101)
@@ -1947,7 +1947,7 @@ Branch: feature/EPIC-0002-US-0064-report-moderation-web (part A), feature/EPIC-0
 Dependencies: US-0062, US-0059
 Acceptance Criteria:
   - [x] AC-0336: the control service runs evaluate and moderate open on the facilitator behalf and the console shows the run summary and per-person status (built in slice 2c-3 part A: `ReportJobService` runs the evaluate CLI as a child and opens the review with the typed name, the Report panel shows the run summary and each subject's own state and open items; TC-0135, TC-0137, TC-0139, TC-0140)
-  - [x] AC-0337: the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate (edit levels, accept, comment and edit-summary built in part A, TC-0136, TC-0138 to TC-0140; release, amend, withdraw, resolve and export in part B over the same library and gate, TC-0141 to TC-0144; the export download equals the terminal's export in TC-0144; edit-summary has control and BFF routes but no console control, so the summary text is edited with `pnpm moderate edit-summary`)
+  - [x] AC-0337: the facilitator can edit levels, accept, comment, release, amend, withdraw and export, with the same gate rules and hash-chained review.jsonl as pnpm moderate (edit levels, accept, comment and edit-summary built in part A, TC-0136, TC-0138 to TC-0140; release, amend, withdraw, resolve and export in part B over the same library and gate, TC-0141 to TC-0144; the export download equals the terminal's export in TC-0144; edit-summary had control and BFF routes but no console control in part B; the Summary editor came in slice 2c-4, AC-0382)
   - [x] AC-0338: release, amend and withdraw show a confirmation that names the subject and audience, and an agent never performs them without the owner naming the subjects (part B: the dialogs name each subject and its audience from the visibility policy, release takes only an explicit list; TC-0143, TC-0144)
   - [x] AC-0339: the run summary shows scenes ended by the Game Master, fallback counts and alerts before release (built in slice 2c-3 part A: the shared `@acr/runtime/run-summary` module and the panel's "How the run went", shown from the moment the review is open; TC-0135, TC-0139, TC-0140)
   - [x] AC-0340: an end-to-end test evaluates and releases a report and its owner reads it after the runtime has exited (part B, TC-0144: released in the console, then read in a fresh browser once the session's runtime process is gone; the draft is seeded with the runtime's own evaluate functions, the spec section 8 fallback, because the e2e's players never speak and the mock evaluator scores nothing on that log (Task 1 finding); a real evaluate run is covered end to end only as the one-job guard in TC-0140)
@@ -2006,6 +2006,35 @@ Assignee: Agent
 Status: Done
 Branch: feature/EPIC-0002-US-0066-close-out-polish
 Notes: Same spec and plan as TASK-0103. Covers AC-0382 to AC-0384 (TC-0150 to TC-0152): console edit-summary, the 8-character link id in `moderate status`, and the in-scope minors.
+```
+
+```
+US-0068 (EPIC-0002): As a facilitator, I want the console report list to show which roles are AI players and not scored, so that I can see why they have no report.
+Priority: Low
+Estimate: S
+Status: Planned
+Branch: feature/EPIC-0002-US-0068-ai-player-row
+Dependencies: US-0060
+Acceptance Criteria:
+  - [ ] AC-0389: the console report subject list shows one "AI player, not scored" row per AI-filled role, with no actions and no export entry
+  - [ ] AC-0390: the moderation overview carries the AI roles as an OPTIONAL field (control answer, BFF and browser parse), so an older control or an older web still works; control deploys before web
+  - [ ] AC-0391: the row text is accessible (the meaning is in words, not colour alone) and is covered by a unit test and an Axe check
+Notes: Filed 2026-11-06 on the owner's decision on Deviation 3 of slice 2c-4 (spec section 3.4). The data exists: the group draft records `ai_players.roles` and the Markdown index already renders the row (`services/runtime/src/review/index-view.ts`). The console subject list is built from the moderation overview (`SubjectStatus`), which has no entry for an AI role because the evaluator writes no report for it, so the work is an optional overview field plus a row component and tests. The "AI player" label on the link row already exists.
+```
+
+```
+US-0069 (EPIC-0002): As a facilitator, I want to hide a participant response from the released report, so that an abusive or mistaken response can be removed without deleting the record.
+Priority: Low
+Estimate: M
+Status: Planned
+Branch: feature/EPIC-0002-US-0069-hide-response
+Dependencies: US-0063
+Acceptance Criteria:
+  - [ ] AC-0392: the console offers a hide action on a response, and hiding it records an event in the review log with who hid it, when and why (a required reason)
+  - [ ] AC-0393: a hidden response never appears in a participant or facilitator export or on the participant's page, and the facilitator's review shows it as "hidden by facilitator"
+  - [ ] AC-0394: the audit log keeps the original text: hiding never rewrites or deletes the `response.added` event
+  - [ ] AC-0395: a hidden response still counts toward BOTH response caps, the per-link cap (25, counted from the `response.added` events) and the per-role cap (50, today `sv.responses.length` in the fold's list), so hiding never refunds a budget; a hide that removes a response from the fold's list must keep it in the per-role count
+Notes: Filed 2026-11-07 with the owner's BUG-0030 decision: a per-link response cap (25 per link, bugfix/BUG-0025-throttle-resend-link-cap) is built now; redaction is this later story, for when real misuse appears. A response is the participant's own text and is not redacted today (docs/THREAT_MODEL.md, "Participant ratings and responses"). The fold has no hide event yet, so the work is a new review event type, a fold and policy change, the console action and the export filter.
 ```
 
 ```

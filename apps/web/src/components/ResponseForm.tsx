@@ -26,14 +26,17 @@ type Notice = { kind: "sent" | "error"; text: string } | null;
 const count = (s: string) => Array.from(s).length;
 const clip = (s: string) => { const cp = Array.from(s); return cp.length > MAX_TEXT ? cp.slice(0, MAX_TEXT).join("") : s; };
 
+const stateOf = (data: unknown): unknown => (typeof data === "object" && data !== null ? (data as { state?: unknown }).state : undefined);
+
 function failureText(r: { status: number; data?: unknown; retryAfter?: number }): string {
   if (r.status === 413) return MESSAGES.respondTooLarge;
   if (r.status === 429) return r.retryAfter !== undefined ? MESSAGES.respondThrottledWait(r.retryAfter) : MESSAGES.respondThrottled;
   if (r.status === 400) return MESSAGES.respondInvalid;
-  const state = typeof r.data === "object" && r.data !== null ? (r.data as { state?: unknown }).state : undefined;
+  const state = stateOf(r.data);
   if (r.status === 503) return state === "busy" ? MESSAGES.respondBusy : MESSAGES.respondUnavailable;
   if (r.status === 409) {
     if (state === "too_many") return MESSAGES.respondTooMany;
+    if (state === "link_full") return MESSAGES.respondLinkFull;
     if (state === "old_schema") return MESSAGES.reportOldSchema;
     if (state === "not_released" || state === "withdrawn" || state === "closed") return MESSAGES.respondClosed;
   }
@@ -46,13 +49,15 @@ export function ResponseForm({ criteria, used, fetch: fetchImpl, onSent, onRefus
   const [dispute, setDispute] = useState(false);
   const [sending, setSending] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
+  // BUG-0030: this link has used its own budget; another try would be refused the same way until the facilitator issues a new link.
+  const [linkFull, setLinkFull] = useState(false);
   const busy = useRef(false); // a second click in the same tick must not send again
   const summary = useRef<HTMLDivElement>(null);
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => { if (notice?.kind === "error") summary.current?.focus(); }, [notice]);
 
-  const full = used >= MAX_RESPONSES;
+  const full = used >= MAX_RESPONSES || linkFull;
   const empty = text.trim() === "";
 
   async function submit(e: { preventDefault(): void }) {
@@ -81,13 +86,14 @@ export function ResponseForm({ criteria, used, fetch: fetchImpl, onSent, onRefus
       onRefused?.();
       return;
     }
+    if (res.status === 409 && stateOf(res.data) === "link_full") setLinkFull(true);
     setNotice({ kind: "error", text: failureText(res) });
   }
 
   return (
     <form className="card stack no-print" onSubmit={submit} aria-busy={sending} noValidate aria-labelledby="respond-h">
       <h2 className="s" id="respond-h">{MESSAGES.respondHeading}</h2>
-      {full ? <p>{MESSAGES.respondTooMany}</p> : null}
+      {used >= MAX_RESPONSES ? <p>{MESSAGES.respondTooMany}</p> : linkFull ? <p>{MESSAGES.respondLinkFull}</p> : null}
       <div className="field">
         <label htmlFor="respond-about">{MESSAGES.respondAbout}</label>
         <select id="respond-about" value={criterion} onChange={(e) => setCriterion(e.target.value)}>

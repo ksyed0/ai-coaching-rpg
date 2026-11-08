@@ -272,3 +272,19 @@ _Learned in the final review of slice 2c-1 PR 2: the read route charged every re
 **Rule:** `tests/unit/id-registry.test.js` reads every id that appears in a "Reserved blocks" paragraph of `docs/ID_REGISTRY.md` as already used, so the next-available row must be beyond all of them. Never write a BUG or L id (even in a sentence saying none are reserved) in such a paragraph; say "no new BUG or L ids are reserved" without the numbers, and move the Next Available row of a sequence only when you file the item.
 _Learned in the slice 2c-4 plan: naming the next free BUG and L ids in the reservation paragraph made the registry test fail until the numbers were removed._
 **Date:** 2026-11-06
+
+## L-0035 — A test must wait for the event that makes its precondition true before it reads state
+
+@agent: all
+
+**Rule:** When a test takes a baseline (an inbox length, a log offset, a counter) and later asserts on what came after it, first wait for the event that makes the baseline final: the frame the subject's own action causes on the subject's own channel. Waiting on a different observer (a second socket) proves nothing about the first, because separate sockets are handled in no fixed order. A flake that appears only in whole-file or loaded runs and never in a single-test run is usually this race; reproduce it with a loop of whole-file runs before fixing, and verify the fix with at least twice as many.
+_Learned when BUG-0026's roster test read `before` after the facilitator's frame but before the first connection's own join roster, so that roster was counted as a post-takeover frame (6 failures in 25 whole-file runs, none in 50 after the wait)._
+**Date:** 2026-11-06
+
+## L-0036 — Check the credential before charging an address throttle
+
+@agent: all
+
+**Rule:** When a request carries an authenticated credential (a sealed AES-GCM cookie, a signed token), verify it FIRST and send a valid one straight to its own per-credential budget; consult and charge the per-address failure throttle only when verification fails. A per-address block checked before the credential lets junk from one person behind a shared address (a workshop NAT) lock out every valid holder behind it, and protects nothing, because a forger cannot produce a credential that verifies. Keep each failure class in its own throttle table, so a flood of one kind cannot saturate the table another route needs.
+_Learned in BUG-0025: the report read and write routes checked the address block before unsealing the cookie, in the same table as the enter route, so forged cookies could answer 429 to valid readers and, once the table was saturated, to valid enters._
+**Date:** 2026-11-07

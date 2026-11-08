@@ -84,6 +84,7 @@ describe("ResponseForm", () => {
   it("each failure shows its fixed sentence and keeps the text", async () => {
     const cases: [Response, string][] = [
       [failure(409, "too_many"), "You have used all 50 responses."],
+      [failure(409, "link_full"), "This link has reached its limit of 25 responses. Ask your facilitator for a new link to send more."],
       [failure(409, "not_released"), "Responses are closed for this report."],
       [failure(409, "withdrawn"), "Responses are closed for this report."],
       [failure(409, "closed"), "Responses are closed for this report."],
@@ -109,6 +110,19 @@ describe("ResponseForm", () => {
     type("x");
     await send();
     expect(onRefused).toHaveBeenCalled();
+  });
+
+  it("BUG-0030: a link at its cap shows a notice to ask the facilitator for a new link, keeps the text and stops sending", async () => {
+    const { fetchFn } = setup({ fetch: async () => failure(409, "link_full") });
+    type("Keep me");
+    await send();
+    expect(screen.getByRole("alert").textContent).toContain("This link has reached its limit of 25 responses. Ask your facilitator for a new link to send more.");
+    expect((screen.getByLabelText(/Your response/) as HTMLTextAreaElement).value).toBe("Keep me");
+    // a lasting notice above the form, and Send stays off: another try would be refused the same way
+    expect(screen.getAllByText("This link has reached its limit of 25 responses. Ask your facilitator for a new link to send more.").length).toBe(2);
+    expect((screen.getByRole("button", { name: "Send" }) as HTMLButtonElement).disabled).toBe(true);
+    await send();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 
   it("is disabled when 50 are used", () => {

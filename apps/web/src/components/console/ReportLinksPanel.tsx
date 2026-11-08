@@ -32,7 +32,6 @@ const day = (ms: number) => new Date(ms).toLocaleDateString();
 
 function statusOf(link: ReportLink | null): string {
   if (link === null) return "No link";
-  if (link.revoked) return "Revoked";
   if (link.active) return `Link active until ${day(link.expiresAt)}`;
   return `Link expired on ${day(link.expiresAt)}`;
 }
@@ -256,7 +255,7 @@ export function ReportLinksPanel({ sessionId, fetch: fetchImpl }: ReportLinksPan
                 ) : draft ? (
                   <span className="small muted">Rating progress not available</span>
                 ) : null}
-                {link !== null && !link.revoked ? (
+                {link !== null ? (
                   <span className="small muted">{link.lastUsedAt === undefined ? "Not opened yet" : `Last opened ${when(link.lastUsedAt)}`}</span>
                 ) : null}
                 {!live && ready && !ai ? (

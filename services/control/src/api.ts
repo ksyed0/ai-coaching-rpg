@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, RequestListener, ServerResponse } from "node:http";
-import { isFileSafeId, isSafeId, isValidSessionId } from "@acr/events";
+import { isFileSafeId, isSafeId, isValidSessionId, REPORT_SENTENCES } from "@acr/events";
 import { z } from "zod";
 import { RoleIdSchema } from "./protocol.js";
 import { BAD_REQUEST, fail, HttpError, jsonBody, MAX_BODY_BYTES, ok, parse } from "./http-util.js";
@@ -50,7 +50,7 @@ const SelfRatingsBody = z.strictObject({
   })).max(50),
 });
 const ResponseBody = z.strictObject({ criterion: CriterionId.optional(), text: z.string().max(TEXT_UNITS), dispute: z.boolean().optional() });
-const REPORT_UNAVAILABLE = "The report is unavailable. Try again.";
+const REPORT_UNAVAILABLE = REPORT_SENTENCES.reportUnavailable;
 
 const digest = (s: string): Buffer => createHash("sha256").update(s).digest();
 

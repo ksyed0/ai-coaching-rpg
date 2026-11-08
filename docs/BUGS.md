@@ -103,7 +103,7 @@ BUG-0009: Web E2E "no horizontal scroll at 400 px" does not see its own say line
 Severity: Medium
 Related Story: US-0065
 Related Task: TASK-0085
-Status: Fixed (7ebdfc5; root-caused 2026-10-30)
+Status: Fixed (PR #60; root-caused 2026-10-30)
 Fix Branch: feature/EPIC-0002-US-0059-readiness (hardening: feature/EPIC-0002-US-0065-web-e2e, 5537920)
 Lesson Encoded: Yes (L-0031)
 ```
@@ -177,7 +177,7 @@ BUG-0014: CodeQL js/file-system-race alerts in the control service tests (stat a
 Severity: Low
 Related Story: US-0058
 Related Task: TASK-0087
-Status: Fixed (15bfed8)
+Status: Fixed (PR #60)
 Fix Branch: feature/EPIC-0002-US-0059-readiness
 Lesson Encoded: No (L-0003 and L-0017 already state the rule)
 ```
@@ -266,7 +266,7 @@ BUG-0020: The bot socket test "a second open after close() never overlaps" faile
 Severity: Low
 Related Story: US-0060
 Related Task: TASK-0099
-Status: Fixed (4551682 on feature/EPIC-0002-US-0060-ai-seats-reachable, squashed into #83)
+Status: Fixed (PR #83, branch feature/EPIC-0002-US-0060-ai-seats-reachable)
 Fix Branch: feature/EPIC-0002-US-0060-ai-seats-reachable
 Lesson Encoded: No
 ```
@@ -278,7 +278,7 @@ BUG-0021: After a control-service restart a lobby's AI roles can come back as hu
 Severity: Medium
 Related Story: US-0060
 Related Task: TASK-0099
-Status: Fixed (bb00195, de2f3b1 and 915472e on fix/bug-0021-ai-roles-after-control-restart)
+Status: Fixed (PR #87, branch fix/bug-0021-ai-roles-after-control-restart)
 Fix Branch: fix/bug-0021-ai-roles-after-control-restart
 Lesson Encoded: No
 ```
@@ -338,117 +338,132 @@ BUG-0025: Forged-cookie read failures share the enter throttle table, so a satur
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Open
-Fix Branch: none yet
-Lesson Encoded: No
+Status: Fixed (PR #122)
+Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
+Lesson Encoded: Yes — see docs/LESSONS.md
 ```
 
 Found in the final review of slice 2c-1 PR 2. `GET /api/v1/report` counts reads that fail before control (no, forged, expired or wrong-purpose cookie) in `reportEnterThrottle` under `*report-read-fail`, the same table that `POST /api/v1/report/enter` uses. When that table is full of blocked addresses (about 10 000), `blockedForMs` answers 429 for every address without an entry, valid readers and valid enters included. Forged GETs have no Origin check and no body, so they fill it more cheaply than enter POSTs. Practical only with a spoofable `X-Forwarded-For` or a botnet, and the threat model's general fail-closed sentence covers it without saying it now reaches valid reads. Fix: give read failures their own throttle instance (one line in `routes.ts`) and say so in `docs/THREAT_MODEL.md`.
+
+The entry's fix was incomplete: the write routes (`PUT /report/self-ratings`, `POST /report/responses`) charged the same table, and with a table of its own a valid cookie would still get 429, because the address block was checked BEFORE the cookie was unsealed. Fixed as the owner decided on 2026-11-07: the BFF unseals the cookie first; a valid cookie goes straight to its per-credential budget and never consults or charges the address table; only a failed unseal is checked (429 while blocked) and charged (the neutral 404). The failures moved to their own table, `reportReadFailThrottle` (routes.ts, the join's limits), so they can no longer saturate the enter table. Safe because the cookie is AES-256-GCM and cannot be forged. A valid cookie whose credential is gone still gets the byte-identical neutral 404 with the clearing `Set-Cookie`, and is not charged. Tests (TC-0155) cover a valid cookie from a blocked address, a flood of 200 forged cookies beside a valid reader, the revoked case, a saturated read-fail table beside a valid enter and read, and the write routes; a mutation that checks the block before the unseal fails 5 of them. `docs/THREAT_MODEL.md` ("The read route is throttled ...") states the new rule and what a forged flood can still do. Lesson L-0036.
 
 ```
 BUG-0026: `ws-server.roster.test.ts` (a superseded connection gets no roster frame) is flaky in full runtime runs
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Open
-Fix Branch: none yet
-Lesson Encoded: No
+Status: Fixed (PR #119)
+Fix Branch: bugfix/BUG-0026-test-hygiene
+Lesson Encoded: Yes — see docs/LESSONS.md
 ```
 
-Seen once in a full `@acr/runtime` run and once in five isolated runs during slice 2c-1, with no changed file touching it. It looks like a timing assumption in the test, but it has not been run against `develop` to confirm that it is not caused by this slice. Not related to US-0062 itself; filed there because it was found while closing the slice. Fix: reproduce with `vitest run --repeat` on `develop`, then replace the timing assumption with an event wait (see BUG-0020 for the same class).
+Seen once in a full `@acr/runtime` run and once in five isolated runs during slice 2c-1. Reproduced on `develop`: 6 failures in 25 whole-file runs (none in `-t superseded` alone); `vitest run --repeat` does not exist here, so a shell loop of whole-file runs is the recipe. Cause: a race inside the test, not the server. When the first connection joins, the server sends its roster to the facilitator's socket and then to the first connection's own socket; the test waited only on the facilitator's frame and then read `before = first.c.inbox.length`, so the first connection's own join roster could land after `before` and be counted as a frame sent after the takeover. Fix: wait for the first connection's own join roster before taking `before`. Verified with 50 whole-file runs and no failures.
 
 ```
 BUG-0027: The conflict sentences are copied between the control service and the web server with no test that they stay equal
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Open
-Fix Branch: none yet
+Status: Fixed (PR #120)
+Fix Branch: bugfix/BUG-0034-participant-path
 Lesson Encoded: No
 ```
 
 `KNOWN_CONFLICTS` in `apps/web/src/server/report-handlers.ts` repeats the fixed sentences of `services/control/src/reports.ts` and `report-access.ts`, because the web package must not import the control service or the runtime. If control rewords one, the console silently falls back to its generic sentence. Fix: a test that reads the sentences from both sources (a small shared constants file under `packages/events` is the allowed route) and fails when they differ.
+
+Fixed: the sentences are defined once as `REPORT_SENTENCES` in `packages/events/src/report-sentences.ts` and imported by the control service (`reports.ts`, `report-access.ts`, `api.ts`, `moderation-routes.ts`), the BFF (`KNOWN_CONFLICTS`, `report-handlers.ts`) and the console (`console-api.ts`, `messages.ts`). There were more copies than the entry said (the control `CONFLICT` sentence, the 503 "report is unavailable" sentence in three more places, and the console's refusal table). One test, `apps/web/src/lib/__tests__/report-sentences.test.ts`, checks the words, the BFF's known conflicts, the console constants and that no consumer declares the words again as a literal. The e2e spec keeps its own literals as an independent check. The words did not change.
 
 ```
 BUG-0028: Slice 2c-1 test and cleanup gaps: seeded e2e folders, thin Axe coverage, dead console branches
 Severity: Low
 Related Story: US-0062
 Related Task: TASK-0100
-Status: Open
-Fix Branch: none yet
+Status: Fixed
+Fix Branch: bugfix/BUG-0034-participant-path, bugfix/BUG-0032-console-report, bugfix/BUG-0028-e2e-seeder
 Lesson Encoded: No
 ```
 
-Left open by the slice 2c-1 reviews, none blocking. (1) The Playwright test seeds its review folders with the runtime's `moderate` functions (`services/control/src/__tests__/seed-report-folders.ts`, which also reaches into runtime test fixtures and seeds `alice` and `bob`, not the session's seated roles) instead of running a real `evaluate`. (2) Axe covers the report and refused states and the console panel, but not the throttled and not-released states or `/report/enter`. (3) `ReportLinksPanel` keeps "Revoked" and "Link expired" branches that the real API never produces, because control lists only live credentials. (4) The `ReportView` retry has no unmount guard (harmless in React 18). Fix: move the seeder under `services/runtime` and use the session's roles; add the Axe states; drop or feed the dead branches.
-
+Left open by the slice 2c-1 reviews, none blocking. (1) Done (bugfix/BUG-0028-e2e-seeder): the Playwright test seeded its review folders with the runtime's `moderate` functions from `services/control/src/__tests__/seed-report-folders.ts`, which reached into runtime test fixtures and seeded `alice` and `bob`, not the session's seated roles, so the "human role in the same review" of `report-ai-role.spec.ts` was `bob`, a fixture role that is not a seat. The seeder now lives in `services/runtime/src/__tests__/seed-report-folders.ts` (its own package's fixtures; `SEED`, `tsx` and the working directory in `apps/web/e2e/helpers/reports.ts` follow), and `draft <releasedRole> <draftRole>` (`seedDraft(stack, id, { released, draft })`) renames the fixture's alice and bob in the scenario, the session log and the scripted answers before evaluating. `report-ai-role.spec.ts` seeds the two seated humans (Delivery lead released, Account manager a draft), checks that the link list holds exactly those two (the seed's subjects are exactly the two seated humans), runs with tracing off so a regressed guard's token cannot reach a CI trace, issues the contrast link to the seated Account manager, and its failure messages print the status and the body with any token redacted (minor f). Removing the AI guard still fails the spec at the refusal sentence, with no token printed. The seeder refuses a rename to a non-player id (`group`, `index`, `method`, `facilitator`, a prototype key or the fixture's `npc1`), maps only its own keys, and refuses extra arguments. By choice the other report specs (`report-access`, `report-moderation`, `report-release`, `axe`) keep the default fixture names: their assertions name Alice and Bob and none depends on a seat. Seeding instead of a real `evaluate` stays: the e2e players never speak, so the mock evaluator scores nothing (slice 2c-3 spec section 11). (2) Done (PR #120): the throttled and not-released states of `/report` were already covered by Axe (since #106); `/report/enter` (opening, throttled, retry and refused) is now covered in `apps/web/e2e/axe.spec.ts`. (3) Done (PR #121): the "Revoked" branch of `ReportLinksPanel` could never show, because control lists only live credentials (`revokedAt === undefined` and not expired, services/control/src/reports.ts) and issue and reissue return a newly minted one, so `link.revoked` was always false. The branch is gone, and so is `revoked` from the BFF's `linkDto` and the console's `ReportLink`, which are internal to the web app (no wire change with control); `active` is still false for a credential with `revokedAt`. "Link expired" can still show, at the expiry instant or with clock skew between the control and web hosts (the BFF judges `active` by its own clock), so it stays, with a component test for a human row and one for an AI row ("AI player", no Issue, Reissue or Revoke), and a BFF test for a credential at its expiry instant. (4) Done (PR #120): the `ReportView` retry had no unmount guard (harmless in React 19, which no longer warns); it now uses a `mounted` ref, with a test that counts state updates after unmount.
 ```
 BUG-0029: A response resent after a BFF timeout is stored twice when another response landed in between
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (PR #122)
+Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). `POST /api/v1/report/responses` has no idempotency key. A plain resend is already safe: `addResponse` (services/runtime/src/participant/write.ts) ignores a response identical to the subject's LAST one (same criterion, text and dispute flag; answered `wrote: 0`). What is left: if the BFF times out after control has recorded response A, and another response B is recorded for the same role before A is resent (a second tab, or the participant sending something else first), the resend of A no longer matches the last response and A is stored twice. A resend with edited text is stored as a new response too, beside the original the participant believed lost. The cap of 50 responses is per role (LIMITS.responses on the subject), not per credential. Harmless to the scores (a response is a note, not a rating) but noisy in the report and the export. Fix: a client-generated key on the request that control stores with the event and checks before appending. This is a wire change (an optional field first, then required), so it needs its own slice and the usual control-before-web deploy order.
+
+Fixed without a wire change, as the owner decided on 2026-11-07: `submitResponse` now ignores a response identical (same criterion, same cleaned text, same dispute flag) to ANY earlier unresolved response of the role, not only the last one, and answers it as before (`wrote: 0`; control 200 `{ wrote: false }`; the BFF and page treat it as a success). "Unresolved" is the fold's `resolution === null`: only a dispute can carry a `dispute.resolved`, so an identical comment is always a no-op, and the same dispute can be raised again once its earlier copy is resolved. Tests (TC-0156): A, then B, then a resend of A is ignored; a resend of A after A's dispute was resolved is stored; edited text, another criterion and another role are stored. Remaining: a deliberate identical repeat is silently a no-op, and a resend with edited text is still a new response; the client idempotency key described above remains the fix for the next wire version.
 
 ```
 BUG-0030: A forwarded report link can use up its owner's 50 response slots, and a response is not redacted
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (PR #122)
+Fix Branch: bugfix/BUG-0025-throttle-resend-link-cap
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). A report link is a bearer credential. Anyone who holds a forwarded link can post responses as its owner until the owner's 50 response slots are gone, and the owner cannot add one. There is also no redaction of a response after it is filed (the facilitator can resolve a dispute, not remove the text). This is a design decision, not a code slip: options are a lower cap per sitting, a facilitator "hide this response" event, or a per-link write cap with a notice. Revoking and reissuing the link already stops the abuse for future writes. Decide with the owner before building; record the choice in `docs/THREAT_MODEL.md`.
+
+Fixed with the owner's choice of 2026-11-07, a per-link cap with a notice: one link (one credential id) may write at most 25 responses (`RESPONSES_PER_LINK`, half of the per-role cap of 50, the only total limit before; the throttles bound only the rate), counted from the review log's `response.added` events whose `participant_session` actor carries the credential id. The 26th is refused 409 `link_full` with one shared sentence (`REPORT_SENTENCES.linkFull`) through runtime, control, the BFF and the page, which keeps the text, shows the sentence as a lasting notice ("... Ask your facilitator for a new link to send more.") and stops sending. A reissued link has a fresh budget; the per-role cap still applies and is checked first. Tests (TC-0157) at every layer. Remaining: a response is still not redacted (the participant's own text; documented in `docs/THREAT_MODEL.md`; the facilitator "hide response" story is US-0069), two reissued links can still use up the role's 50, and the console does not show that a link is at its cap (follow-up: it needs a new field from control's link list through the BFF to the panel).
 
 ```
 BUG-0031: Reviews opened before schema `/2` cannot take web writes
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Closed
+Fix Branch: none (closed as documented)
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). A review opened before slice 2c-2 carries the schema `acr.review/1`: the schema is written by `moderate open` into the `review.opened` event (services/runtime/src/review/store.ts), not by the evaluator. Control answers `old_schema` for a participant's self-rating or response on it, with the sentence "This review was opened before online ratings were available. Your facilitator can take your rating or response in the terminal." (WRITE_OLD_SCHEMA, services/control/src/participant-writes.ts). The ways out today are to take the rating or response in the terminal (facilitator-attested), or to get a `/2` review by opening a new directory: `moderate open` refuses a directory that already holds a review ("a review is already open here"), so this means a re-run of `pnpm evaluate` into a new directory and `moderate open` on it, or `moderate supersede <old> <new>` once a version was released (supersede writes a new `review.opened` with the current schema and carries the moderation). The console offers none of these. Reads still work. Fix: a one-off migration (a `moderate migrate` command that rewrites the review header and replays the log under the new schema), with a test on a fixture of the old folder. Not needed for any review created from now on.
 
+Closed as documented on 2026-11-07 (owner decision): nothing is deployed, so `/1` reviews exist only in local or development data from before slice 2c-2; workarounds exist (take the rating or response in the terminal, open a new directory with a re-run of `pnpm evaluate` and then `moderate open`, or `moderate supersede`); a migration would be large and risky (a schema rewrite and a log replay). Reopen as a story if real `/1` reviews must take web writes.
+
 ```
-BUG-0032: Overview answers can arrive out of order, and a failed first overview read waits for Try again
+BUG-0032: Overview answers can arrive out of order, and a failed overview read (outside evaluating) waits for Try again
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (PR #121)
+Fix Branch: bugfix/BUG-0032-console-report
 Lesson Encoded: No
 ```
 
-Deferred from the slice 2c-4 review (spec section 4.3). The Report panel (apps/web/src/components/console/report/ReportPanel.tsx) reads the overview when it mounts, again after each of its own writes, and polls it only while the stage is `evaluating`; it does not refresh on focus. Two reads in flight (a write's refresh beside a poll, or two quick writes) can answer in the wrong order, and `load` keeps whichever answers last, so an older overview can replace a newer one until the next read. A failed read is not retried by itself: the panel shows the fixed sentence with a "Try again" button, so a transient 503 needs one click. Fix: tag each read with a sequence number and ignore an answer older than the newest one applied; optionally retry a failed first read once after a short delay.
+Deferred from the slice 2c-4 review (spec section 4.3). The Report panel (apps/web/src/components/console/report/ReportPanel.tsx) reads the overview when it mounts, again after each of its own writes, and polls it only while the stage is `evaluating`; it does not refresh on focus. Two reads in flight (a write's refresh beside a poll, or two quick writes) can answer in the wrong order, and `load` keeps whichever answers last, so an older overview can replace a newer one until the next read. Before the fix, a failed read was retried by itself only while the stage was `evaluating` (the poll): any other failed read, not only the first, showed the fixed sentence with a "Try again" button and waited for a click, so a transient 503 needed one (the first read is the worst case: nothing is shown until then). Fix: tag each read with a sequence number and ignore an answer older than the newest one applied; retry a failed read outside `evaluating` once after a short delay.
+
+Fixed: each overview read takes a number when it is sent, and an answer older than the newest one applied is ignored (it still reschedules the poll). Outside `evaluating`, a failed or unreadable read is retried once after `RETRY_MS` (3 s) through the panel's injected timer; if the retry fails too, the fixed sentence and "Try again" stay, and nothing more is scheduled until the next read. While `evaluating` the 2 s poll already retries. Component tests answer two reads in reverse order, and cover a retry that recovers and one that fails (TC-0154).
 
 ```
 BUG-0033: The export menu has no participant view of the group or index, and no export of an amending subject
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (PR #121)
+Fix Branch: bugfix/BUG-0032-console-report
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). `ExportMenu` (apps/web/src/components/console/report/ExportMenu.tsx) lists only released subjects (and the index once the group is released); for a player's report it already offers that player's own view, but for the group and the index it offers only the facilitator's view. The export route already accepts `participant:<role>` for every subject (services/control/src/moderation-routes.ts), and the runtime's export gate (`exportGate` and `canView`) allows (1) a participant's view of the group or the index, with peers' results removed, and (2) a participant's export of an AMENDING subject, which is its last released version (a facilitator export of an amending subject is refused as `not_released`). Drafts are never exported. Fix: in `ExportMenu`, offer a participant view of the group and the index (choosing which participant), and list an amending subject for the participant's view only, with a line that says it is the released version; reuse the existing route.
+
+Fixed: the menu now lists released and amending subjects (and the index once the group is one of them), and for each offers exactly the views the export gate allows (`viewsOf` in ExportMenu.tsx): the facilitator's view of a released subject only; a player's own report for that player; and, for the group and the index, every player subject of the review, whatever that player's own state (the gate only checks that the role is a player of the review; a draft player's group view simply has no row of their own). An amending subject has only the participant views and the line "This report is being amended. Its export is the last released version, in a participant's view only." Each view's name states the report and who it is for (for example "Group report, as Account manager sees it (without the other players' results)"). The route, the request body and the BFF's file names are unchanged (TC-0154).
 
 ```
 BUG-0034: Edits made while a save is in flight are lost when the draft clears
 Severity: Low
 Related Story: US-0066
 Related Task: TASK-0104
-Status: Open
-Fix Branch: none yet
+Status: Fixed (PR #120)
+Fix Branch: bugfix/BUG-0034-participant-path
 Lesson Encoded: No
 ```
 
 Deferred from the slice 2c-4 review (spec section 4.3). In the participant's self-rating form, a save clears the browser draft when it succeeds. If the participant types in a box after pressing Save but before the answer arrives, the newer text is cleared with the draft. Fix: remember what was sent and clear the stored draft only if the form still equals it, or mark the form dirty again on any change during the save, with a component test that types between send and answer. (The console's Summary editor avoids the same race by disabling its boxes while a save is in flight.)
+
+Fixed: the form counts its edits. The newer text stayed on screen, but its stored draft was cleared, it was never sent and the form said "Saved". Now a save that finishes after a newer change keeps the stored draft and says "Your latest changes have not been sent yet. Press Save again to send them." The inputs stay enabled (a disabled box would lose focus). A component test holds the request, edits during the save, releases it and checks the draft and the message. After a save that overlapped an edit the whole draft is kept, which is harmless: the kept entries equal what the server stores, and the next Save resends them idempotently. The same PR trims the note sent for a rated criterion (a note of only spaces is now omitted, bcf5172).

@@ -20,7 +20,7 @@ import type { ClientMessage, JoinedFrame } from "./wire";
 export type Deps = {
   config: Config; now: () => number; connect: typeof RuntimeConnection.connect; joinThrottle: JoinThrottle; consoleThrottle: JoinThrottle; consoleGlobalThrottle: JoinThrottle; reportThrottle: JoinThrottle; reportWriteThrottle: JoinThrottle;
   /** The facilitator's evaluate and review writes, keyed by a digest of the console cookie (60 per minute). */
-  consoleReportThrottle: JoinThrottle; reportEnterThrottle: JoinThrottle; hub: StreamHub; facilitatorBudget: FacilitatorBudget; facilitatorHub: FacilitatorHub;
+  consoleReportThrottle: JoinThrottle; reportEnterThrottle: JoinThrottle; reportReadFailThrottle: JoinThrottle; hub: StreamHub; facilitatorBudget: FacilitatorBudget; facilitatorHub: FacilitatorHub;
   /** Set when LAUNCHER_URL is: each session's runtime is then looked up through the control service (runtime-lookup.ts). */
   launcher?: LauncherClient;
   /** The timer the console's Start wait uses (default: real timers); tests drive it by hand. */

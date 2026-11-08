@@ -1,4 +1,4 @@
-import { isValidSessionId } from "@acr/events";
+import { isValidSessionId, REPORT_SENTENCES } from "@acr/events";
 import { guard, isId, readBody, sessionIdOf, failure } from "./console-sessions";
 import { fail, ok } from "./envelope";
 import { checkFetchSite, checkOrigin, requestAddress } from "./guards";
@@ -18,9 +18,12 @@ export const REPORT_COOKIE = "__Host-scenecoach-report";
  */
 const ENTER_ROLE = "*report-enter";
 /**
- * Reads are throttled in two ways, so a room of participants behind one shared address never shares a budget:
- * - READ_FAIL_ROLE (in the enter throttle's table, the join's limits): a read that fails BEFORE reaching control (no cookie, or a
- *   forged, tampered, expired or wrong-purpose one) is a failure of its address; more than 5 in 60 s block that address for 60 s.
+ * Reads (and writes) are throttled in two ways, so a room of participants behind one shared address never shares a budget:
+ * - READ_FAIL_ROLE (in its own table, `reportReadFailThrottle`, the join's limits): a request whose cookie does not unseal (no
+ *   cookie, or a forged, tampered, expired or wrong-purpose one) is a failure of its address; more than 5 in 60 s block that address
+ *   for 60 s. The cookie is unsealed FIRST (BUG-0025): a valid cookie never consults or charges this table, so junk from a shared
+ *   address cannot block the valid readers behind it. That is safe because the cookie is AES-256-GCM: it cannot be forged without
+ *   the key, so the address block guards nothing a valid cookie could reach.
  * - READ_CRED_ROLE (in the read throttle's table, 60 reads in 60 s): a valid read is counted against its CREDENTIAL, keyed on the
  *   unsealed credential id (an in-memory key only: never logged, never returned). The 61st read in a minute is refused.
  * The role slots start with `*`, which no scenario role id can contain, so no read key collides with an enter or a join key.
@@ -30,15 +33,15 @@ const READ_CRED_ROLE = "*report-read-cred";
 const MAX_TOKEN_CHARS = 64;
 const MAX_ENTER_BODY_BYTES = 512;
 
-/** The control service's fixed conflict sentences (NOT_READY, NO_REPORT and AI_LINK_REFUSED in services/control/src/reports.ts are copied here word for word; change both). Anything else is shown as the generic one. */
-const KNOWN_CONFLICTS: ReadonlySet<string> = new Set([
-  "A link is already active for this role.",
-  "AI players do not get report links.",
-  "No reports are ready for this session yet. Evaluate it from the Report panel of its console.",
-  "There is no report to link for this role.",
+/** The control service's fixed conflict sentences, shared through @acr/events. Anything else is shown as the generic one. */
+export const KNOWN_CONFLICTS: ReadonlySet<string> = new Set([
+  REPORT_SENTENCES.linkAlreadyActive,
+  REPORT_SENTENCES.aiLinkRefused,
+  REPORT_SENTENCES.notReady,
+  REPORT_SENTENCES.noReport,
 ]);
 const GENERIC_CONFLICT = "That action is not possible right now.";
-const UNAVAILABLE = "The report is unavailable. Try again.";
+const UNAVAILABLE = REPORT_SENTENCES.reportUnavailable;
 
 /** Every response of this module carries the no-referrer policy (the envelope already sets no-store). */
 const priv = (res: Response): Response => {
@@ -89,6 +92,21 @@ const isReportCookie = (v: unknown): v is ReportCookie => {
   );
 };
 
+/**
+ * The report cookie, unsealed BEFORE any address accounting (BUG-0025). A valid cookie skips the per-address failure table entirely;
+ * only a failed unseal is checked against it (429 while the address is blocked) and charged (the neutral 404).
+ */
+function reportCookieOr(req: Request, deps: Deps, address: string): ReportCookie | Response {
+  const token = readCookie(req);
+  const c = token === null ? null : unseal<unknown>(token, deps.config.cookieKeys, deps.now(), "rpt");
+  if (isReportCookie(c)) return c;
+  const failures = deps.reportReadFailThrottle;
+  const blocked = failures.blockedForMs(address, READ_FAIL_ROLE);
+  if (blocked > 0) return throttled(blocked);
+  failures.fail(address, READ_FAIL_ROLE);
+  return neutral();
+}
+
 // ---- participant routes ----
 
 /**
@@ -135,22 +153,15 @@ export function handleReportEnter(req: Request, deps: Deps): Promise<Response> {
 
 /**
  * GET /api/v1/report. The credential comes from the sealed cookie only. A cookie that is missing, forged, expired or sealed for another
- * audience is the neutral 404; a credential the control service no longer honours (revoked, expired) is the same 404 and the cookie is
+ * audience is the neutral 404 and a failure of its address (429 once the address is blocked); a valid cookie is never charged there; a credential the control service no longer honours (revoked, expired) is the same 404 and the cookie is
  * cleared; a control failure is a 503 and the cookie stays (it is not evidence of anything).
  */
 export function handleReportGet(req: Request, deps: Deps): Promise<Response> {
   return safely(async () => {
     const address = requestAddress(req);
     if (address === null) return badRequest();
-    const failures = deps.reportEnterThrottle;
-    const blocked = failures.blockedForMs(address, READ_FAIL_ROLE);
-    if (blocked > 0) return throttled(blocked);
-    const token = readCookie(req);
-    const c = token === null ? null : unseal<unknown>(token, deps.config.cookieKeys, deps.now(), "rpt");
-    if (!isReportCookie(c)) {
-      failures.fail(address, READ_FAIL_ROLE);
-      return neutral();
-    }
+    const c = reportCookieOr(req, deps, address);
+    if (c instanceof Response) return c;
     // A valid cookie: the credential's own budget (a revoked credential still counts, so a stale tab cannot poll either).
     const perCredential = deps.reportThrottle;
     const credBlocked = perCredential.blockedForMs(c.credentialId, READ_CRED_ROLE);
@@ -188,6 +199,7 @@ const WRITE_SENTENCES: Record<string, string> = {
   not_released: "This report is not open for changes yet.",
   withdrawn: "This report was withdrawn.",
   too_many: "There are too many responses already.",
+  link_full: REPORT_SENTENCES.linkFull,
   // The page's old_schema sentence is MESSAGES.reportOldSchema, the same wording as WRITE_OLD_SCHEMA in services/control/src/participant-writes.ts; this one is not shown.
   old_schema: "This report was made by an older version and cannot take changes.",
   invalid: "That could not be saved. Check what you entered.",
@@ -241,15 +253,8 @@ function handleReportWrite(req: Request, deps: Deps, kind: WriteKind): Promise<R
     if (!checkOrigin(req, deps.config.publicOrigin) || !checkFetchSite(req)) return forbidden();
     const address = requestAddress(req);
     if (address === null) return badRequest();
-    const failures = deps.reportEnterThrottle;
-    const blocked = failures.blockedForMs(address, READ_FAIL_ROLE);
-    if (blocked > 0) return throttled(blocked);
-    const token = readCookie(req);
-    const c = token === null ? null : unseal<unknown>(token, deps.config.cookieKeys, deps.now(), "rpt");
-    if (!isReportCookie(c)) {
-      failures.fail(address, READ_FAIL_ROLE);
-      return neutral();
-    }
+    const c = reportCookieOr(req, deps, address);
+    if (c instanceof Response) return c;
     const writes = deps.reportWriteThrottle;
     const credBlocked = writes.blockedForMs(c.credentialId, WRITE_CRED_ROLE);
     if (credBlocked > 0) return throttled(credBlocked);
@@ -304,16 +309,18 @@ export const handleReportRespond = (req: Request, deps: Deps): Promise<Response>
 
 // ---- console routes ----
 
-/** What the console may know about a link: dates and two booleans. Never the credential id or the token. */
+/**
+ * What the console may know about a link: dates and whether it is active (by this host's clock, so a link listed at its expiry instant,
+ * or under clock skew with control, shows as expired). Never the credential id or the token. No `revoked` flag (BUG-0028): control lists
+ * only live credentials and mints the ones it issues, so a revoked one never reaches the console; one would still read as not active.
+ */
 function linkDto(c: ReportLinkInfo, now: number) {
-  const revoked = c.revokedAt !== undefined;
   return {
     role: c.role,
     createdAt: c.createdAt,
     expiresAt: c.expiresAt,
     ...(c.lastUsedAt !== undefined && { lastUsedAt: c.lastUsedAt }),
-    active: !revoked && c.expiresAt > now,
-    revoked,
+    active: c.revokedAt === undefined && c.expiresAt > now,
   };
 }
 

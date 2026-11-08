@@ -2,7 +2,7 @@
 
 AGENTS.md section 20: every deployment has a rollback plan written before it starts. Nothing in this repository is deployed to a shared environment yet (the runtime runs on the operator's machine, from `./run.sh` or Docker Compose); this file records what a rollback has to handle, release by release, so the plan exists before the first deployment.
 
-The sections from slice 2a to BUG-0023 ship in release 0.1.0 (tag `v0.1.0`, 2026-11-05), the first tagged release; the sections from slice 2c-1 on ship in release 0.2.0 (tag `v0.2.0`, 2026-11-06), whose deploy order and rollback are summarised in [Release 0.2.0](#release-020-deploy-order-and-rollback) at the end. To go back to 0.1.0, redeploy tag `v0.1.0`; to go back to an earlier state, check out the commit a section names.
+The sections from slice 2a to BUG-0023 ship in release 0.1.0 (tag `v0.1.0`, 2026-11-05), the first tagged release; the sections from slice 2c-1 on ship in release 0.2.0 (tag `v0.2.0`, 2026-11-06), whose deploy order and rollback are summarised in [Release 0.2.0](#release-020-deploy-order-and-rollback) at the end. To go back to 0.1.0, redeploy tag `v0.1.0`; to go back to an earlier state, check out the commit a section names. The sections after the Release 0.2.0 summary ship in release 0.2.1 (tag `v0.2.1`, 2026-11-08), summarised in [Release 0.2.1](#release-021-deploy-order-and-rollback) at the end. Anything added after that summary is unreleased and says so in its header.
 
 ## EPIC-0002 slice 2a: participant web client (US-0052 to US-0056, US-0065)
 
@@ -411,3 +411,39 @@ Rollback trigger: any trigger of the sections from slice 2c-1 on, or the release
 - **Going back to 0.1.0 makes every `acr.review/2` review unreadable.** 0.2.0's `moderate open` writes `acr.review/2` (see [US-0063](#us-0063-review-schema-acrreview2-and-participant-ratings-slice-2c-2)); a 0.1.0 build refuses any `/2` review in `moderate`, `export` and the report reader (the folders are not damaged). Before rolling back to 0.1.0, check `grep -l '"acr.review/2"' "$CONTROL_DATA_DIR"/reports/*/review.jsonl`; if it finds any, restore the reviews from a backup taken before the first `moderate open` of 0.2.0, or stay on 0.2.0 and roll back only the part that misbehaves. Do not edit `review.jsonl` by hand: it is hash-chained.
 - **Report links issued under 0.2.0 stop working on 0.1.0** (it has no `/report` routes); tell the participants who were sent one. `report-access.json`, `report-jobs.json`, `REPORT_ACCESS_DAYS` and `REPORT_EVALUATE_MARGIN_MS` are ignored by 0.1.0 and can be left in place.
 - **Smoke test after a deploy:** the console opens an ended session with its Report panel and Participant reports panel; `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads a review; a released report opens through its link. **After a rollback to 0.1.0:** the console opens an ended session without either panel, and `pnpm demo --web` passes W-01 to W-08.
+
+## BUG-0025, BUG-0029, BUG-0030: report cookie unsealed first, resend dedupe, per-link response cap
+
+```
+Release: 0.2.1 (bugfix/BUG-0025-throttle-resend-link-cap, PR #122)
+Date: not deployed
+Rollback trigger: a valid participant is refused or throttled on `/report`, a participant who has sent fewer than 25 responses through a link is told the link is at its limit, a new response is silently not stored, or the change must go for any other reason.
+```
+
+### What changes on disk and in settings
+
+- **No schema change, no new file, no new setting and no data migration.** The review log keeps the same events; the per-link cap of 25 responses and the resend dedupe are checked when a response is written, never by the fold, so every log stays readable by every `acr.review/2` build, before and after this change.
+- **One new closed wire code: `link_full`** (409, control to the web app, and the web app to the page), with one fixed sentence (`REPORT_SENTENCES.linkFull`). The BFF's cookie order (unseal first) and its separate failure table are in-memory behaviour of the web app only.
+
+### Rolling back
+
+- **Deploy order: the control service before the web app; roll back the web app first, then the control service.** An older web app against this control service does not know `link_full`: for a link at its cap it answers "unavailable, try again" instead of the notice. Nothing is written in that case; only the message is wrong.
+- **Rolling the control service back removes the cap and the wider dedupe** (back to 50 responses per role, dedupe against the last response only). Responses written meanwhile stay valid and readable; nothing on disk needs undoing.
+- **Rolling the web app back** restores the old throttle order: a valid cookie from an address blocked by forged cookies waits again, and failed cookies share the enter table again.
+- **Smoke test:** a released report opens through its link; a response is sent and shows; `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads the review.
+
+### Rolling forward again
+Redeploy this change, control first. A link that already holds 25 or more responses is at its cap at once; the facilitator's reissue gives a fresh link.
+
+## Release 0.2.1: deploy order and rollback
+
+```
+Release: 0.2.1 (tag `v0.2.1`, from release/0.2.1; bug-fix PRs #119 to #123 into develop)
+Date: not deployed
+Rollback trigger: any trigger of the BUG-0025, BUG-0029, BUG-0030 section, or the release must go back to 0.2.0 for any other reason.
+```
+
+- **Deploy order: the control service before the web app.** 0.2.1 control answers a new closed code, `link_full` (409), for a link that has sent 25 responses. Roll back in the reverse order: the web app first, then control.
+- **Going back to 0.2.0 is safe.** There is no schema change, no new file, no new setting and no data migration; every review log stays readable. An older web app shows "try again" for a link at its cap (nothing is written). Rolling control back restores the per-role cap of 50 and the narrower resend dedupe; responses written meanwhile stay valid.
+- **The other fixes are web-app or test only** (Report panel read ordering and retry, the export menu, the self-rating form draft, shared report sentences, test hygiene) and need no data step to roll back.
+- **Smoke test after a deploy or a rollback:** a released report opens through its link; a response is sent and shows; the console opens an ended session's Report panel; `pnpm moderate status "$CONTROL_DATA_DIR/reports/<session id>"` reads the review.

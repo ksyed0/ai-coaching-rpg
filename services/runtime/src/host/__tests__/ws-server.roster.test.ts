@@ -202,6 +202,8 @@ describe("roster frames over the socket (US-0055)", () => {
     const first = await player(port, "host", plain.host!, "alice", "Alice");
     const cred = first.j.credential as string;
     await f.next((m) => m.type === "roster" && entry(m, "host").connected);
+    // first's own join roster travels on its own socket and may land after the facilitator's: wait for it, so `before` is read once first's inbox is quiet (BUG-0026).
+    await first.c.next((m) => m.type === "roster");
     const before = first.c.inbox.length;
     const fromF = f.inbox.length;
     const c2 = await open(port);

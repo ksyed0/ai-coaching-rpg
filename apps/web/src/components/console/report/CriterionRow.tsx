@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { expectOf, type ReportCriterion, type ReportExpect, type ReportLevel } from "../../../lib/console-api";
 
 // One criterion: its level, review status, the participant's own rating, the rationale, the evidence and any flags, all as text; Accept;
@@ -41,6 +41,16 @@ export function CriterionRow({ criterion: c, canWrite, pending, byHand = false, 
     // only on a change of the level shown
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shown]);
+  // When the form closes (Cancel or a successful Save), focus goes back to this criterion's Edit button: the form's own buttons are gone.
+  const editBtn = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (form !== null) wasOpen.current = true;
+    else if (wasOpen.current) {
+      wasOpen.current = false;
+      editBtn.current?.focus();
+    }
+  }, [form]);
   const ready = form !== null && form.level !== "" && form.reason.trim() !== "" && canWrite && !pending;
 
   async function save() {
@@ -93,7 +103,7 @@ export function CriterionRow({ criterion: c, canWrite, pending, byHand = false, 
             </button>
           ) : null}
           <button
-            className="btn" type="button" disabled={!canWrite || pending} aria-label={`Edit ${c.name}`}
+            ref={editBtn} className="btn" type="button" disabled={!canWrite || pending} aria-label={`Edit ${c.name}`}
             onClick={() => { setError(""); setReplacing(null); setForm({ expect: shown, level: shown === "invalid" ? "" : shown, reason: "", rationale: "" }); }}
           >
             Edit

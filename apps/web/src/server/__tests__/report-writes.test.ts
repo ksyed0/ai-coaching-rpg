@@ -48,6 +48,7 @@ beforeEach(() => {
     reportThrottle: new JoinThrottle({ max: 60, windowMs: 60_000, blockMs: 60_000, now: t }),
     reportWriteThrottle: new JoinThrottle({ max: 30, windowMs: 60_000, blockMs: 60_000, now: t }),
     reportEnterThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
+    reportReadFailThrottle: new JoinThrottle({ max: 5, windowMs: 60_000, blockMs: 60_000, now: t }),
   } as unknown as Deps;
   for (const k of ["error", "warn", "log", "info", "debug"] as const) vi.spyOn(console, k).mockImplementation(() => {});
 });
@@ -72,6 +73,7 @@ describe("participant write routes", () => {
     expect(calls()).toBe(0);
     expect(deps.reportWriteThrottle.blockedForMs(CRED_ID, "*report-write-cred")).toBe(0);
     expect(deps.reportEnterThrottle.size).toBe(0);
+    expect(deps.reportReadFailThrottle.size).toBe(0);
     expect(deps.reportWriteThrottle.size).toBe(0);
   });
 
@@ -121,6 +123,29 @@ describe("participant write routes", () => {
     const blocked = await handleReportRate(rateReq(RATINGS, none), deps);
     expect(blocked.status).toBe(429);
     expect(blocked.headers.get("Retry-After")).not.toBeNull();
+    // the failures are charged to the read-fail table, never to the enter table
+    expect(deps.reportEnterThrottle.size).toBe(0);
+  });
+
+  it("BUG-0025: writes unseal first, so forged writes from an address never block a valid writer behind it", async () => {
+    const forged = { ...SAME_SITE, Cookie: `${REPORT_COOKIE}=forged` };
+    for (let i = 0; i < 50; i += 1) await handleReportRespond(respondReq(undefined, forged), deps);
+    expect((await handleReportRate(rateReq(RATINGS, forged), deps)).status).toBe(429);
+    expect((await handleReportRespond(respondReq(), deps)).status).toBe(200);
+    expect((await handleReportRate(rateReq(), deps)).status).toBe(200);
+    expect(launcher.respondReport).toHaveBeenCalledTimes(1);
+    expect(launcher.rateReport).toHaveBeenCalledTimes(1);
+  });
+
+  it("BUG-0025: a valid write cookie whose credential is gone is the neutral 404 and is not charged to the address", async () => {
+    launcher.respondReport.mockRejectedValue(new LauncherError("not_found"));
+    for (let i = 0; i < 8; i += 1) {
+      const p = await parts(await handleReportRespond(respondReq(), deps));
+      expect(p.status).toBe(404);
+      expect(p.json.error).toEqual({ code: "not_found", message: "Not found." });
+      expect(p.headers.get("Set-Cookie")).toMatch(/Max-Age=0/);
+    }
+    expect(deps.reportReadFailThrottle.size).toBe(0);
   });
 
   it("a control 404 clears the cookie; a 503 keeps it (Review Focus 4)", async () => {
@@ -141,6 +166,7 @@ describe("participant write routes", () => {
       [{ state: "not_released" }, 409, "not_released"],
       [{ state: "withdrawn" }, 409, "withdrawn"],
       [{ state: "too_many" }, 409, "too_many"],
+      [{ state: "link_full" }, 409, "link_full"],
       [{ state: "old_schema" }, 409, "old_schema"],
       [{ state: "invalid" }, 400, "invalid"],
       [{ state: "too_large" }, 413, "too_large"],
@@ -159,6 +185,15 @@ describe("participant write routes", () => {
     const t = await handleReportRate(rateReq(), deps);
     expect(t.status).toBe(429);
     expect(t.headers.get("Retry-After")).toBe("5");
+    expect(launcher.readReport).not.toHaveBeenCalled();
+  });
+
+  it("BUG-0030: link_full is a 409 whose message is the shared sentence telling the participant to ask for a new link", async () => {
+    launcher.respondReport.mockResolvedValueOnce({ state: "link_full" });
+    const p = await parts(await handleReportRespond(respondReq(), deps));
+    expect(p.status).toBe(409);
+    expect(p.json.data).toEqual({ state: "link_full" });
+    expect(p.json.error).toEqual({ code: "conflict", message: "This link has reached its limit of 25 responses. Ask your facilitator for a new link to send more." });
     expect(launcher.readReport).not.toHaveBeenCalled();
   });
 
