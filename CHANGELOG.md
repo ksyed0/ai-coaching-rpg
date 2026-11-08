@@ -5,6 +5,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-08
+
+Bug-fix release after 0.2.0. It changes no schema and adds no setting; the one new wire code is `link_full`, so deploy the control service before the web app (docs/ROLLBACK.md, "Release 0.2.1"). It fixes BUG-0025, BUG-0029, BUG-0030, BUG-0032, BUG-0033 and BUG-0034 (PRs #119 to #123); BUG-0026, BUG-0027 and BUG-0028 are test and cleanup fixes with no change for users.
+
 ### Fixed
 - The Report panel no longer shows an older answer over a newer one, and retries a failed read once (EPIC-0002, BUG-0032). Two reads in flight could answer in the wrong order, so an older overview replaced a newer one until the next read; a failed read outside an evaluate run also waited for **Try again**. The panel now ignores an answer older than the newest it has shown, and tries once more after 3 seconds before it shows **Try again**. Closing the Summary editor or a level editor also returns the keyboard focus to the button that opened it.
 - A change typed while the self-rating form is saving is no longer lost (EPIC-0002, BUG-0034). If you changed a rating or a note after pressing Save and before the answer came back, the form used to clear the saved draft and say "Saved" although the newer change had not been sent, so a reload lost it. The form now keeps the draft and says "Your latest changes have not been sent yet. Press Save again to send them."

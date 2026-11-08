@@ -463,3 +463,11 @@
 - **Ids:** next free US-0070, AC-0396, TASK-0105, TC-0158, BUG-0035, L-0037, EPIC-0010 (registry). New this session: US-0069 (hide a response, Low, Planned, AC-0392 to AC-0395), TC-0153 to TC-0157, L-0035, L-0036. Counts after #122 and this entry: see `npm run plan:generate`.
 - **Open owner items:** (1) release v0.2.1 (cut from `develop`; #123 is merged) or batch with the next slice; (2) schedule US-0068 (AI player row in the console subject list, Deviation 3 follow-up) and, if real misuse appears, US-0069; (3) multilingual support (EPIC-0009, US-0067) is a backlog epic with no owner date; (4) the OpenRouter key rotation (from 2026-10-02) is still deferred.
 - **Next:** owner's call on v0.2.1; then US-0068, US-0067 or EPIC-0004-type work in the owner's order. Optional small items: a facilitator view of a link at its cap; a compare-and-set `expect` on edit-summary with the next wire change; a client idempotency key for responses with the next wire version.
+
+## Session 37 — 2026-11-08 (release 0.2.1)
+
+- **Shipped (branch `release/0.2.1`, cut from `develop` at 7834ca2):** the third tagged release, a bug-fix release. Every workspace `package.json`, the root and `package-lock.json` set to 0.2.1; `[Unreleased]` in `CHANGELOG.md` cut as `[0.2.1] - 2026-11-08`; `docs/ROLLBACK.md` labels the BUG-0025/0029/0030 section as 0.2.1 and gains "Release 0.2.1: deploy order and rollback"; README status and the PROJECT.md Maintenance Log updated.
+- **Contents:** PRs #119 to #123 (BUG-0025, 0026, 0027, 0028, 0029, 0030, 0032, 0033, 0034; BUG-0031 closed as documented), plus the Session 36 docs (#124).
+- **Deploy order:** control service before the web app (new closed code `link_full`); roll back the web app first. Going back to 0.2.0 needs no data step.
+- **Verification:** see the release PR.
+- **Next:** US-0068 (plan written in this session, build not started).
