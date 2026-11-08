@@ -166,6 +166,8 @@ export const REPORT_CONSOLE = {
   saved: "Saved.",
   throttled: "Too many changes. Wait a minute and try again.",
   unreadable: "The report could not be read. Try again.",
+  // US-0068: beside the "AI player" pill (MESSAGES.reportAiPlayer) on an AI-filled role's row, so the row reads "AI player, not scored".
+  aiNotScored: "not scored (no report is written for an AI player)",
   // Part B: release, amend, withdraw, resolve and export.
   releaseTitle: "Release these reports?",
   releaseIntro: "Each report below is shown to the people listed under it as soon as it is released.",

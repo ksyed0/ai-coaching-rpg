@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReportSubjectRow, ReportSubjectState } from "../../../lib/console-api";
+import { MESSAGES, REPORT_CONSOLE } from "../../../lib/messages";
 import { roleLabel } from "../../../lib/names";
 
 // One row per role and the group: the subject's OWN state and the items still open for it. There is no report-wide "released" state;
@@ -31,9 +32,14 @@ export type SubjectActions = {
   onRelease: (id: string, opener: HTMLElement) => void;
 };
 
-export type SubjectListProps = { subjects: ReportSubjectRow[]; selected: string | null; onSelect: (id: string) => void; actions?: SubjectActions };
+export type SubjectListProps = {
+  subjects: ReportSubjectRow[]; selected: string | null; onSelect: (id: string) => void; actions?: SubjectActions;
+  /** US-0068: AI-filled roles, each shown after the subject rows as a read-only "AI player, not scored" row (a role that is also a subject is skipped). */
+  aiRoles?: string[];
+};
 
-export function SubjectList({ subjects, selected, onSelect, actions }: SubjectListProps) {
+export function SubjectList({ subjects, selected, onSelect, actions, aiRoles = [] }: SubjectListProps) {
+  const subjectIds = new Set(subjects.map((r) => r.id));
   return (
     <ul className="codes report-subjects">
       {subjects.map((r) => {
@@ -51,6 +57,14 @@ export function SubjectList({ subjects, selected, onSelect, actions }: SubjectLi
           </li>
         );
       })}
+      {aiRoles.filter((id) => !subjectIds.has(id)).map((id) => (
+        // display only: the evaluator writes no report for an AI player, so there is nothing to review, release or export
+        <li className="code-row" key={`ai:${id}`}>
+          <span className="code-role">{roleLabel(id)}</span>
+          <span className="pill ai">{MESSAGES.reportAiPlayer}</span>
+          <span className="small">{REPORT_CONSOLE.aiNotScored}</span>
+        </li>
+      ))}
     </ul>
   );
 }

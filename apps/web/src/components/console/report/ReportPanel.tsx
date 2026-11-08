@@ -208,7 +208,7 @@ export function ReportPanel({ sessionId, fetch: fetchImpl, setTimer = realSetTim
           {tableStale ? <p className="banner warn">{REPORT_CONSOLE.groupTableStale}</p> : null}
           {inReview && overview.subjects.length > 0 ? (
             <SubjectList
-              subjects={overview.subjects} selected={selected} onSelect={setSelected}
+              subjects={overview.subjects} aiRoles={overview.aiRoles} selected={selected} onSelect={setSelected}
               actions={{
                 canWrite: author !== null, pending,
                 onAmend: (id, opener) => openDialog({ kind: "amend", id, opener }),
