@@ -266,7 +266,7 @@ export function sttRequestPath(sttUrl: URL): string {
  * point the question at another repository. A run that was killed (`code` null: the timeout) is refused; git missing (a throw), not a
  * repository (128) or any other exit skips the check.
  */
-async function trackedByGit(run: GitRun, dir: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+export async function trackedByGit(run: GitRun, dir: string, env: NodeJS.ProcessEnv): Promise<boolean> {
   const gitEnv: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(env)) if (!k.startsWith("GIT_")) gitEnv[k] = v;
   let r: Awaited<ReturnType<GitRun>>;
